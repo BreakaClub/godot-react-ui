@@ -500,3 +500,14 @@ The hashes of the default artifacts differ from Phase 1 (embedded source line nu
   errors; they are expected output of the array test.
 - F0's Files list omits `native/lib.rs`, `demo/src/main.ts`, `scripts/build.mjs`, `scripts/probe-web.mjs`
   and the generated `.uid`/`.gen.ts` of `probe.ts`.
+
+### Decision D2 (coordinator, after F0)
+
+The persistent shadow tree lives in JS (plan v2.1, `fdea46d`, decision log D2). Native `RefCounted`
+handles were cheap to create (4 µs native, 5 µs Web) but reclaimed only under JS allocation pressure
+(table above). Before choosing, `modules/GodotJS` was searched for V8 external-memory reporting: there is
+no `AdjustAmountOfExternalAllocatedMemory` call anywhere, only a manual full-GC request
+(`bridge/jsb_environment.cpp:3433-3450`), so wrapping native nodes in any Godot type cannot make V8 see
+their native memory. A JS shadow tree keeps that memory in the JS heap, removes every native call from
+render, and sends one payload per commit with only the changed nodes. The plan's F1-F4 tasks were
+rewritten accordingly; the typed-array and Files-list findings above are folded into the plan.
