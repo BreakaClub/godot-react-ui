@@ -71,10 +71,11 @@ Run from `godot-react-ui/`:
 
 ```sh
 export GODOT=/Applications/Godot48.app/Contents/MacOS/Godot
+export PATH="$HOME/.cargo/bin:$PATH"  # rustup first: Homebrew's rustc on PATH aborts in dyld
 pnpm test:types                      # TypeScript typecheck
 pnpm test                            # TypeScript unit tests (tsx --test)
-~/.cargo/bin/cargo test --locked     # Rust unit tests
-~/.cargo/bin/cargo clippy --locked --all-targets
+cargo test --locked                  # Rust unit tests
+cargo clippy --locked --all-targets  # baseline: 0 warnings (Phase 0)
 pnpm build:native                    # release extension into demo/addons/godot-react-ui/bin
 pnpm gen:types                       # regenerate GodotJS typings after native API changes
 pnpm build                           # typecheck + bundle (verify scripts also run this)
@@ -93,13 +94,24 @@ pnpm verify:motion:web
 pnpm verify:interaction:web          # added in Phase 1
 ```
 
-Before starting `demo:web`, check nothing else is already listening on port 8096
-(`lsof -nP -iTCP:8096 -sTCP:LISTEN`); the verifiers will happily test a stale server. Stop the server
-when the web gate is done. Bound every wait: no verifier may run longer than its deadline, and you
-must check the process and its log if it stalls.
+Other tools on this Mac also run this demo: other `serve-web.mjs` servers (8096 has been taken) and a
+Godot demo process that maps the installed dylib and owns the GodotJS debugger port 9229 (a benign
+"debugger disabled" log line). Never stop processes you did not start. Serve on a port you have
+checked is free and point the verifiers at it; the verifiers will happily test a stale server:
+
+```sh
+lsof -nP -iTCP:8097 -sTCP:LISTEN     # must print nothing
+PORT=8097 pnpm demo:web              # in the background
+GODOT_REACT_WEB_URL=http://127.0.0.1:8097 pnpm verify:web   # same variable for every Web verifier
+```
+
+Stop your server when the Web gate is done. Bound every wait: no verifier may run longer than its
+deadline, and you must check the process and its log if it stalls. `artifacts/web-verification/failure.png`
+is never cleared by the verifier, so judge a run by its report and log, not by that file.
 
 Baseline at `636242b` (run 6 November 2026): `cargo test` 19 passed, `pnpm test` 13 passed,
-`pnpm test:types` clean.
+`pnpm test:types` clean. Phase 0 baseline (`7f0a96c`): Clippy 0 warnings, `verify:web` 249 assertions,
+`verify:motion:web` 433 assertions; see `docs/INTERACTION_PROGRESS.md`.
 
 ---
 
@@ -205,8 +217,10 @@ Write these into the README limits when the plan is complete; do not half-implem
 ### 3.2 Module layout (target)
 
 Rust (`native/`). Inherent `impl ReactUiRoot` blocks may live in any of these modules: private
-fields of a struct defined in the crate root are visible to its child modules, so no visibility
-changes are needed. All `#[func]` and `#[signal]` declarations stay in the primary `#[godot_api]`
+fields of a struct defined in the crate root are visible to its child modules. Methods, types and
+functions defined in a child module are not visible to `lib.rs` or sibling modules unless marked
+`pub(crate)` (Phase 0 showed `error[E0624]` otherwise); use `pub(crate)`, never `pub`, for anything
+used across modules. All `#[func]` and `#[signal]` declarations stay in the primary `#[godot_api]`
 block in `lib.rs` (godot-rust does not allow signals in secondary blocks) and delegate.
 
 | Module | Contents | Godot-free (unit-testable)? |
@@ -874,6 +888,10 @@ updated, a commit.
 3. `cargo test` must list the same 19 tests (module paths may change).
 
 **Gate**: native gate, plus `verify:web` and `verify:motion:web` (a pure move must be invisible).
+
+**Done** (`9f4a02c`). "Invisible" means identical assertions and byte-identical settled captures.
+Captures taken mid-transition differ between any two runs of the same binary, so never compare them
+by hash; compare settled captures, assertions and geometry instead.
 
 ### Phase 1 — Event pipeline v2
 
