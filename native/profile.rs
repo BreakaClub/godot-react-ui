@@ -1,6 +1,7 @@
 //! Opt-in bounded timing samples. Timings cover CPU work, never GPU completion.
 use serde::Serialize;
 use std::collections::VecDeque;
+use std::time::Instant;
 
 const PROFILE_CAPACITY: usize = 512;
 
@@ -56,4 +57,8 @@ impl Profiler {
             std::mem::take(&mut self.dropped),
         )
     }
+}
+
+pub fn micros(start: Instant) -> u64 {
+    start.elapsed().as_micros() as u64
 }
