@@ -1,7 +1,15 @@
-import type { Dimension, HexColor, Style, StyleProp, StyleState } from './types';
+import type {
+  CompiledStyle, Dimension, HexColor, LonghandStyle, PseudoState, Style, StyleLayer, StyleProp, StyleState,
+} from './types';
 
 const SPACING_UNIT = 4;
 const TOKEN_CACHE_LIMIT = 2048;
+/**
+ * Bound on the interned compiled styles and the per-class-string cache. Overflowing clears the table:
+ * later equal inputs then compile to a new object, which costs one redundant prop diff, never a wrong
+ * result (`diffNativeProps` also compares styles by content).
+ */
+const INTERN_LIMIT = 4096;
 const DEFAULT_STATE: StyleState = { width: 0 };
 const BREAKPOINTS = { sm: 640, md: 768, lg: 1024, xl: 1280, '2xl': 1536 };
 const TEXT_SIZES: Readonly<Record<string, number>> = {
@@ -46,6 +54,8 @@ export const colors: Readonly<Record<string, HexColor>> = Object.freeze({
 
 const STATIC_UTILITIES: Readonly<Record<string, Style>> = {
   'overflow-hidden': { overflow: 'hidden' }, 'overflow-visible': { overflow: 'visible' },
+  'overflow-x-hidden': { overflowX: 'hidden' }, 'overflow-x-visible': { overflowX: 'visible' },
+  'overflow-y-hidden': { overflowY: 'hidden' }, 'overflow-y-visible': { overflowY: 'visible' },
   flex: { display: 'flex' }, grid: { display: 'grid' }, hidden: { display: 'none' },
   'flex-row': { flexDirection: 'row' }, 'flex-col': { flexDirection: 'column' },
   'flex-row-reverse': { flexDirection: 'row-reverse' },
@@ -71,7 +81,11 @@ const STATIC_UTILITIES: Readonly<Record<string, Style>> = {
   border: { borderWidth: 1 }, rounded: { borderRadius: RADII.DEFAULT },
 };
 
-type PseudoState = 'hover' | 'active' | 'focus' | 'disabled';
+const STATE_VARIANTS: Readonly<Record<string, PseudoState>> = {
+  hover: 'hover', active: 'active', focus: 'focus', 'focus-visible': 'focusVisible',
+  'focus-within': 'focusWithin', disabled: 'disabled',
+};
+
 interface CompiledToken {
   style: Readonly<Style>;
   minWidth: number;
@@ -208,10 +222,10 @@ function compileToken(token: string): CompiledToken {
   for (const variant of parts) {
     if (variant === 'sm' || variant === 'md' || variant === 'lg' || variant === 'xl' || variant === '2xl') {
       minWidth = Math.max(minWidth, BREAKPOINTS[variant]);
-    } else if (variant === 'hover' || variant === 'active' || variant === 'focus' || variant === 'disabled') {
-      states.push(variant);
     } else {
-      throw new Error(`Unsupported style variant "${variant}" in "${token}"`);
+      const state = lookup(STATE_VARIANTS, variant);
+      if (state === undefined) throw new Error(`Unsupported style variant "${variant}" in "${token}"`);
+      if (!states.includes(state)) states.push(state);
     }
   }
   const style = utilityStyle(utility);
@@ -278,6 +292,149 @@ export function resolveStyles(
   }
   mergeInlineStyle(resolved, inlineStyle);
   return resolved;
+}
+
+/** Expand shorthands into the longhands native understands, in the order they enter a layer. */
+function mergeLonghands(target: LonghandStyle, source: Readonly<Style>): void {
+  const { padding, margin, gap, overflow, disabled, transition, ...properties } = source;
+  if (disabled !== undefined) {
+    throw new Error('Style.disabled is not a style: pass the disabled prop to the element');
+  }
+  if (padding !== undefined) {
+    target.paddingTop = padding;
+    target.paddingRight = padding;
+    target.paddingBottom = padding;
+    target.paddingLeft = padding;
+  }
+  if (margin !== undefined) {
+    target.marginTop = margin;
+    target.marginRight = margin;
+    target.marginBottom = margin;
+    target.marginLeft = margin;
+  }
+  if (gap !== undefined) {
+    target.rowGap = gap;
+    target.columnGap = gap;
+  }
+  if (overflow !== undefined) {
+    target.overflowX = overflow;
+    target.overflowY = overflow;
+  }
+  // The compiled style is interned and frozen, so it must not share objects with the caller's style.
+  if (transition !== undefined) target.transition = { ...transition, properties: [...transition.properties] };
+  for (const [key, value] of Object.entries(properties)) {
+    if (value !== undefined) Reflect.set(target, key, value);
+  }
+}
+
+/** JSON with sorted object keys, so equal styles built in a different order intern together. */
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (typeof value === 'object' && value !== null) {
+    const entries = Object.entries(value)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`);
+    return `{${entries.join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
+}
+
+/** The style with its keys in sorted order and no undefined values, so payload text is stable. */
+function sortedStyle(style: Readonly<LonghandStyle>): LonghandStyle {
+  const sorted: LonghandStyle = {};
+  for (const key of Object.keys(style).sort()) {
+    const value: unknown = Reflect.get(style, key);
+    if (value !== undefined) Reflect.set(sorted, key, value);
+  }
+  return sorted;
+}
+
+/** Freeze a compiled style all the way down; nothing may mutate an interned object. */
+function deepFreeze<T extends object>(value: T): Readonly<T> {
+  Object.freeze(value);
+  for (const entry of Object.values(value)) {
+    if (typeof entry === 'object' && entry !== null && !Object.isFrozen(entry)) deepFreeze(entry);
+  }
+  return value;
+}
+
+const interned = new Map<string, CompiledStyle>();
+const classOnly = new Map<string, CompiledStyle>();
+const keys = new WeakMap<CompiledStyle, string>();
+
+/** The canonical content key of a compiled style: equal keys mean equal layers. */
+export function styleKey(style: CompiledStyle): string {
+  const key = keys.get(style);
+  if (key === undefined) throw new Error('styleKey needs a style from compileStyle');
+  return key;
+}
+
+interface PendingLayer { minWidth: number; states: readonly PseudoState[]; style: LonghandStyle }
+
+function sameStates(left: readonly PseudoState[], right: readonly PseudoState[]): boolean {
+  return left.length === right.length && left.every((state, index) => state === right[index]);
+}
+
+/**
+ * Compile a class string and inline style to the ordered layers native resolves. Each class token
+ * is a layer with its breakpoint and state conditions; inline styles (nested arrays allowed) are
+ * unconditional layers after them. Adjacent layers with the same conditions merge, which preserves
+ * the cascade. Unknown classes throw even when their conditions are inactive, so a hover or resize
+ * cannot expose a typo later.
+ */
+export function compileStyle(className = '', inlineStyle?: StyleProp): CompiledStyle {
+  const classKey = inlineStyle ? undefined : className;
+  if (classKey !== undefined) {
+    const cached = classOnly.get(classKey);
+    if (cached !== undefined) return cached;
+  }
+  const pending: PendingLayer[] = [];
+  function add(minWidth: number, states: readonly PseudoState[], style: Readonly<Style>): void {
+    let layer = pending.at(-1);
+    if (layer === undefined || layer.minWidth !== minWidth || !sameStates(layer.states, states)) {
+      layer = { minWidth, states, style: {} };
+      pending.push(layer);
+    }
+    mergeLonghands(layer.style, style);
+  }
+  for (const token of className.split(/\s+/)) {
+    if (!token) continue;
+    const compiled = compileToken(token);
+    add(compiled.minWidth, compiled.states, compiled.style);
+  }
+  const addInline = (style: StyleProp): void => {
+    if (!style) return;
+    if (isStyleArray(style)) {
+      for (const entry of style) addInline(entry);
+    } else {
+      add(0, [], style);
+    }
+  };
+  addInline(inlineStyle);
+
+  const layers: StyleLayer[] = [];
+  for (const layer of pending) {
+    if (Object.keys(layer.style).length === 0) continue;
+    layers.push({
+      ...(layer.minWidth > 0 ? { minWidth: layer.minWidth } : {}),
+      ...(layer.states.length > 0 ? { states: [...layer.states] } : {}),
+      style: sortedStyle(layer.style),
+    });
+  }
+  const key = canonicalJson(layers);
+  let result = interned.get(key);
+  if (result === undefined) {
+    if (interned.size >= INTERN_LIMIT) interned.clear();
+    result = deepFreeze({ layers });
+    interned.set(key, result);
+    keys.set(result, key);
+  }
+  if (classKey !== undefined) {
+    if (classOnly.size >= INTERN_LIMIT) classOnly.clear();
+    classOnly.set(classKey, result);
+  }
+  return result;
 }
 
 export const StyleSheet = {

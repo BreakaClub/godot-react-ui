@@ -1,0 +1,188 @@
+[
+  {
+    "className": "flex-row items-center justify-between gap-4 p-6 bg-white rounded-xl border border-slate-200",
+    "compiled": {
+      "layers": [
+        {
+          "style": {
+            "alignItems": "center",
+            "backgroundColor": "#ffffff",
+            "borderColor": "#e2e8f0",
+            "borderRadius": 12,
+            "borderWidth": 1,
+            "columnGap": 16,
+            "flexDirection": "row",
+            "justifyContent": "space-between",
+            "paddingBottom": 24,
+            "paddingLeft": 24,
+            "paddingRight": 24,
+            "paddingTop": 24,
+            "rowGap": 16
+          }
+        }
+      ]
+    }
+  },
+  {
+    "className": "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 w-full min-h-0",
+    "compiled": {
+      "layers": [
+        {
+          "style": {
+            "display": "grid",
+            "gridTemplateColumns": 1
+          }
+        },
+        {
+          "minWidth": 768,
+          "style": {
+            "gridTemplateColumns": 2
+          }
+        },
+        {
+          "minWidth": 1024,
+          "style": {
+            "gridTemplateColumns": 4
+          }
+        },
+        {
+          "style": {
+            "columnGap": 12,
+            "minHeight": 0,
+            "rowGap": 12,
+            "width": "100%"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "className": "hover:bg-indigo-700 active:bg-indigo-800 focus:border-indigo-500 focus-visible:border-indigo-600 focus-within:bg-slate-50 disabled:opacity-50",
+    "compiled": {
+      "layers": [
+        {
+          "states": [
+            "hover"
+          ],
+          "style": {
+            "backgroundColor": "#4338ca"
+          }
+        },
+        {
+          "states": [
+            "active"
+          ],
+          "style": {
+            "backgroundColor": "#3730a3"
+          }
+        },
+        {
+          "states": [
+            "focus"
+          ],
+          "style": {
+            "borderColor": "#6366f1"
+          }
+        },
+        {
+          "states": [
+            "focusVisible"
+          ],
+          "style": {
+            "borderColor": "#4f46e5"
+          }
+        },
+        {
+          "states": [
+            "focusWithin"
+          ],
+          "style": {
+            "backgroundColor": "#f8fafc"
+          }
+        },
+        {
+          "states": [
+            "disabled"
+          ],
+          "style": {
+            "opacity": 0.5
+          }
+        }
+      ]
+    }
+  },
+  {
+    "className": "md:hover:bg-indigo-100 w-[50%] h-[123px] max-w-xl text-[23px] text-center bg-[#1234] rounded-[9px] w-1/2",
+    "compiled": {
+      "layers": [
+        {
+          "minWidth": 768,
+          "states": [
+            "hover"
+          ],
+          "style": {
+            "backgroundColor": "#e0e7ff"
+          }
+        },
+        {
+          "style": {
+            "backgroundColor": "#1234",
+            "borderRadius": 9,
+            "fontSize": 23,
+            "height": 123,
+            "maxWidth": 576,
+            "textAlign": "center",
+            "width": "50%"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "className": "overflow-hidden shrink-0",
+    "style": [
+      {
+        "height": "auto",
+        "padding": 4,
+        "interpolateSize": "allow-keywords",
+        "transition": {
+          "properties": [
+            "height",
+            "backgroundColor",
+            "opacity"
+          ],
+          "durationMs": 600,
+          "delayMs": 20,
+          "easing": "ease-in-out"
+        }
+      }
+    ],
+    "compiled": {
+      "layers": [
+        {
+          "style": {
+            "flexShrink": 0,
+            "height": "auto",
+            "interpolateSize": "allow-keywords",
+            "overflowX": "hidden",
+            "overflowY": "hidden",
+            "paddingBottom": 4,
+            "paddingLeft": 4,
+            "paddingRight": 4,
+            "paddingTop": 4,
+            "transition": {
+              "properties": [
+                "height",
+                "backgroundColor",
+                "opacity"
+              ],
+              "durationMs": 600,
+              "delayMs": 20,
+              "easing": "ease-in-out"
+            }
+          }
+        }
+      ]
+    }
+  }
+]

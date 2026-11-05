@@ -1,7 +1,7 @@
 # Fabric renderer and interaction plan
 
 Status: plan v2.1, 6 November 2026. Done: Phase 0 (`9f4a02c`), Phase 1 (`0d11607`), Phase F0
-(`4f7dd0d`). Next: Phase F1.
+(`4f7dd0d`), Phase F1 (`ce99bea`). Next: Phase F2.
 
 v1 of this plan (`7f0a96c`) was rejected because it built every interaction feature on the
 prototype's commit path, which re-walks and re-sends the whole tree on every change. v2 replaces

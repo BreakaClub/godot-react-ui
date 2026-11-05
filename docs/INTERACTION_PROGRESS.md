@@ -594,3 +594,71 @@ move-out-of-a-deleted-parent cases (at least 50, 50, 50 and 10 of the 500).
   detached; both are decided above.
 - The plan's `diff.rs` task says the property test applies `plan` to the old structure, but `plan`
   lives in `commit.rs` (3.4); the test is in `commit.rs`, the list-level property test in `diff.rs`.
+
+## Phase F2 - JS style compiler, native-prop table and commit walk
+
+Date: 6 November 2026. TypeScript only, plus two Rust tests that read the fixtures the TypeScript
+tests produce. The v1 renderer still drives the runtime; nothing calls the new modules until F3.
+
+### What landed
+
+| File | Contents |
+| --- | --- |
+| `src/styles.ts` | `compileStyle(className, style) -> CompiledStyle` (ordered layers with `minWidth` and `states`, shorthands expanded to longhands, adjacent layers with equal conditions merged, interned by a canonical key, deeply frozen, never sharing the caller's objects), `styleKey`; new `focus-visible:` / `focus-within:` variants and `overflow-x-*` / `overflow-y-*` utilities. `resolveStyles` is unchanged in behaviour (the v1 renderer still calls it) |
+| `src/types.ts` | `PseudoState`, `StyleLayer`, `CompiledStyle`, `LonghandStyle`; `Style` gains `overflowX`/`overflowY` |
+| `src/props.ts` | the native prop table (`NativeProps`: `style`, `text`, `disabled`, `hidden`, `testID`; `NATIVE_PROP_KEYS`), `nativeProps(kind, props, hidden, previous?)` (reuses a compiled style when `className` and `style` are unchanged), `diffNativeProps` (changed keys, `null` resets, `null` when nothing native changed), `scalarText`, `NativeKind` |
+| `src/commit.ts` | `buildCommit(committed, previousRootTags, rootChildren)`: the pure commit walk (skip instances `===` their committed one, otherwise created / updated / child lists), `CommitPayload`, `LAYER_ROOT_TAG` |
+| `tests/` | `styles.test.ts` (+8), `props.test.ts` (7), `commit.test.ts` (11), `fixtures.ts` and the fixtures `tests/fixtures/compiled-styles.json` and `commit-payloads.json` |
+
+`src/native.ts` re-exports `NativeKind` from `src/props.ts`, and the v1 `renderer.ts` imports
+`scalarText` from there (one definition instead of two); nothing else in the v1 path changed.
+
+### Gate
+
+| Command | Result |
+| --- | --- |
+| `pnpm test:types` | clean |
+| `pnpm test` | **57 passed** (was 30; the 13 renderer and 17 events tests and the 5 original style tests are untouched) |
+| `pnpm build` | ok |
+| `cargo test --locked` | **86 passed** (the two fixture tests are new) |
+| `cargo clippy --locked --all-targets` | **0 warnings** |
+
+Cross-language contract: the TypeScript tests write what the compiler and the commit walk produce
+into JSON fixtures (a test fails if the output drifts from the checked-in file; `UPDATE_FIXTURES=1
+pnpm test` regenerates). The Rust tests `include_str!` the same files and parse them with the real
+`deny_unknown_fields` types: every compiled style validates and converts to a Taffy style, and the two
+walk payloads parse, validate and apply to the mounted-tree reference implementation, including a
+`null` reset of `testID`, a `hidden` flag and a new appended child. So a key the compiler emits that
+native does not know fails a test now rather than at the first Godot run.
+
+Commit walk evidence (`tests/commit.test.ts`): an unchanged 2,003-node tree gives no payload and
+zero visits; one changed leaf in it gives one `updated` entry, no child list entry, a payload under
+400 bytes and 4 visits (root, section, grid, leaf: its depth); the same single-leaf change at 50 and
+at 2,000 cells yields identical visit counts, payload size and entry count; a handler-only change
+visits the clone, replaces the committed instance and produces no payload; a keyed reorder, a
+removal, an addition, a reparent and a new subtree each produce exactly the affected child lists.
+
+### Choices the plan left open
+
+- **Layer merging.** Adjacent layers with identical conditions merge into one, and an inline style
+  merges into the preceding unconditional layer. This only shortens payloads: it is equivalent to
+  applying the layers one by one because merging is an ordered overwrite.
+- **Intern table.** Compiled styles are interned by a canonical key (sorted keys, undefined
+  dropped) in a table bounded at `INTERN_LIMIT` (4,096); overflow clears it. Clearing can only make
+  equal inputs compile to a new object, so `diffNativeProps` also compares styles by content
+  (`styleKey`) and an unchanged style never produces a diff. A class-string-only cache sits in front
+  of it so the common case does no work.
+- **`Style.disabled` stays in the type until F3** (the v1 renderer still uses it); `compileStyle`
+  rejects it with a message pointing at the `disabled` prop.
+- **`overflow` stays an authoring shorthand in the utility table** so `resolveStyles` still emits what
+  the v1 native protocol accepts; the compiler expands it to `overflowX`/`overflowY`.
+- **`buildCommit` is generic over the renderer's instance type** (`CommitNode<Self>`), so the walk
+  stays independent of React while the renderer can keep handlers on its own instances. An
+  index-aligned identity check skips unchanged siblings of a long list without a map lookup.
+- **`disabled` and `hidden` are `true` or absent**, never `false`, so "reset" has one spelling.
+
+### Plan problems found
+
+- Plan F2 says `diffNativeProps(old, new)`; the compiled styles it compares need their canonical key
+  when the intern table has been cleared, so `diffNativeProps` throws for a hand-built style that did
+  not come from `compileStyle` (tested).

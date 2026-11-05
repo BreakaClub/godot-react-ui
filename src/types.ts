@@ -1,9 +1,10 @@
-/** Native protocol v1. Values are logical pixels; percentage strings are fractions of the parent. */
+/** Style values are logical pixels; percentage strings are fractions of the parent. */
 export type Dimension = number | 'auto' | `${number}%`;
 export type Alignment = 'start' | 'end' | 'center' | 'stretch' | 'baseline' | 'flex-start' | 'flex-end';
 export type Justification = 'start' | 'end' | 'center' | 'space-between' | 'space-around' | 'space-evenly' | 'flex-start' | 'flex-end';
 export type HexColor = `#${string}`;
 export type TransitionProperty = 'width' | 'height' | 'opacity' | 'backgroundColor';
+export type Overflow = 'visible' | 'hidden';
 export interface Transition {
   properties: readonly TransitionProperty[];
   durationMs: number;
@@ -49,12 +50,22 @@ export interface Style {
   borderRadius?: number;
   borderWidth?: number;
   opacity?: number;
+  /** Removed with the v1 renderer in Phase F3: `disabled` is a prop of the element, not a style. */
   disabled?: boolean;
   textAlign?: 'left' | 'center' | 'right';
   transition?: Transition;
   interpolateSize?: 'numeric-only' | 'allow-keywords';
-  overflow?: 'visible' | 'hidden';
+  /** Shorthand for `overflowX` and `overflowY`. */
+  overflow?: Overflow;
+  overflowX?: Overflow;
+  overflowY?: Overflow;
 }
+
+/**
+ * What native receives: every shorthand (`padding`, `margin`, `gap`, `overflow`) is expanded to its
+ * longhands by the style compiler, so merging layers is a plain ordered overwrite.
+ */
+export type LonghandStyle = Omit<Style, 'padding' | 'margin' | 'gap' | 'overflow' | 'disabled'>;
 
 export type StyleProp = Style | readonly StyleProp[] | false | null | undefined;
 
@@ -64,5 +75,25 @@ export interface StyleState {
   hover?: boolean;
   active?: boolean;
   focus?: boolean;
+  focusVisible?: boolean;
+  focusWithin?: boolean;
   disabled?: boolean;
+}
+
+/** The conditions a style layer can depend on besides the viewport width (plan 3.6). */
+export type PseudoState = 'hover' | 'active' | 'focus' | 'focusVisible' | 'focusWithin' | 'disabled';
+
+/** One compiled class or inline style; native applies it when its conditions hold. */
+export interface StyleLayer {
+  readonly minWidth?: number;
+  readonly states?: readonly PseudoState[];
+  readonly style: Readonly<LonghandStyle>;
+}
+
+/**
+ * A class string and inline style compiled to ordered layers. Equal inputs return the identical
+ * (interned, frozen) object, so a prop diff can compare styles by identity.
+ */
+export interface CompiledStyle {
+  readonly layers: readonly StyleLayer[];
 }

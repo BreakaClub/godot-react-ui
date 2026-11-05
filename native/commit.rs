@@ -607,6 +607,35 @@ mod tests {
         assert_eq!(tree, snapshot, "{json}: validation changed the tree");
     }
 
+    /// The commits the JS walk produced for `tests/commit.test.ts` (fixture
+    /// `tests/fixtures/commit-payloads.json`) must parse and apply here, in order, to the tree they
+    /// describe.
+    #[test]
+    fn the_js_commit_walks_payloads_parse_validate_and_apply() {
+        let payloads: Vec<CommitPayload> =
+            serde_json::from_str(include_str!("../tests/fixtures/commit-payloads.json"))
+                .expect("the fixture parses with deny_unknown_fields");
+        assert_eq!(payloads.len(), 2);
+        let mut tree = TestTree::default();
+        let first = validate(&payloads[0], 0, &tree).expect("the first commit validates");
+        tree.apply(0, &plan(&first, &tree));
+        assert_eq!(tree.roots[0], vec![1]);
+        assert_eq!(tree.nodes[&1].children, vec![2, 3]);
+        assert_eq!(tree.nodes[&3].children, vec![4]);
+        assert_eq!(tree.nodes[&3].kind, Kind::Button);
+        assert_eq!(tree.nodes[&3].props.disabled, Some(true));
+        assert_eq!(tree.nodes[&2].props.test_id.as_deref(), Some("title"));
+        assert_eq!(tree.nodes[&2].props.text.as_deref(), Some("Title"));
+
+        let second = validate(&payloads[1], 0, &tree).expect("the second commit validates");
+        tree.apply(0, &plan(&second, &tree));
+        assert_eq!(tree.nodes[&1].children, vec![2, 3, 5]);
+        assert_eq!(tree.nodes[&2].props.text.as_deref(), Some("Renamed"));
+        assert_eq!(tree.nodes[&2].props.test_id, None, "the testID reset to its default");
+        assert_eq!(tree.nodes[&3].props.disabled, None);
+        assert_eq!(tree.nodes[&3].props.hidden, Some(true));
+    }
+
     #[test]
     fn payload_parsing_rejects_unknown_keys_and_missing_fields() {
         for json in [

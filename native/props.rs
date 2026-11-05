@@ -880,6 +880,47 @@ mod tests {
         );
     }
 
+    /// The JS style compiler's output (`tests/fixtures/compiled-styles.json`, checked by
+    /// `tests/styles.test.ts`) must be exactly what this crate accepts.
+    #[test]
+    fn the_js_compilers_output_parses_and_validates() {
+        #[derive(DeriveDeserialize)]
+        struct Case {
+            #[serde(rename = "className")]
+            class_name: String,
+            compiled: StyleLayers,
+        }
+        let cases: Vec<Case> =
+            serde_json::from_str(include_str!("../tests/fixtures/compiled-styles.json"))
+                .expect("the fixture parses with deny_unknown_fields");
+        assert!(cases.len() >= 5);
+        for case in &cases {
+            case.compiled
+                .validate()
+                .unwrap_or_else(|error| panic!("{}: {error}", case.class_name));
+            for layer in &case.compiled.layers {
+                layer
+                    .style
+                    .taffy_style()
+                    .unwrap_or_else(|error| panic!("{}: {error}", case.class_name));
+            }
+        }
+        // The cascade survives the round trip: resolving the last case's layers with no
+        // conditions gives the overflow, transition and padding the class and inline style set.
+        let last = &cases[cases.len() - 1].compiled;
+        let mut merged = StyleSpec::default();
+        for layer in &last.layers {
+            merged.merge(&layer.style);
+        }
+        assert_eq!(merged.overflow_x, Some(OverflowSpec::Hidden));
+        assert_eq!(merged.padding_left, Some(4.0));
+        assert_eq!(merged.height, Some(Dimension::Text("auto".into())));
+        assert_eq!(
+            merged.transition.map(|transition| transition.duration_ms),
+            Some(600.0)
+        );
+    }
+
     #[test]
     fn diff_distinguishes_keep_reset_and_set() {
         let previous = PropsSpec {

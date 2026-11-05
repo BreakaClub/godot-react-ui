@@ -1,0 +1,160 @@
+[
+  {
+    "created": [
+      {
+        "tag": 1,
+        "kind": "view",
+        "props": {
+          "style": {
+            "layers": [
+              {
+                "style": {
+                  "paddingBottom": 16,
+                  "paddingLeft": 16,
+                  "paddingRight": 16,
+                  "paddingTop": 16
+                }
+              },
+              {
+                "minWidth": 768,
+                "style": {
+                  "paddingBottom": 32,
+                  "paddingLeft": 32,
+                  "paddingRight": 32,
+                  "paddingTop": 32
+                }
+              },
+              {
+                "states": [
+                  "hover"
+                ],
+                "style": {
+                  "backgroundColor": "#f1f5f9"
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "tag": 2,
+        "kind": "text",
+        "props": {
+          "text": "Title",
+          "style": {
+            "layers": [
+              {
+                "style": {
+                  "color": "#ffffff",
+                  "fontSize": 18
+                }
+              }
+            ]
+          },
+          "testID": "title"
+        }
+      },
+      {
+        "tag": 3,
+        "kind": "button",
+        "props": {
+          "disabled": true,
+          "testID": "go",
+          "style": {
+            "layers": [
+              {
+                "style": {
+                  "borderRadius": 8,
+                  "paddingLeft": 16,
+                  "paddingRight": 16
+                }
+              },
+              {
+                "states": [
+                  "disabled"
+                ],
+                "style": {
+                  "opacity": 0.5
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "tag": 4,
+        "kind": "text",
+        "props": {
+          "text": "Go"
+        }
+      }
+    ],
+    "updated": [],
+    "children": [
+      {
+        "tag": 1,
+        "children": [
+          2,
+          3
+        ]
+      },
+      {
+        "tag": 3,
+        "children": [
+          4
+        ]
+      },
+      {
+        "tag": 0,
+        "children": [
+          1
+        ]
+      }
+    ]
+  },
+  {
+    "created": [
+      {
+        "tag": 5,
+        "kind": "view",
+        "props": {
+          "style": {
+            "layers": [
+              {
+                "style": {
+                  "width": 16
+                }
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "updated": [
+      {
+        "tag": 2,
+        "props": {
+          "text": "Renamed",
+          "testID": null
+        }
+      },
+      {
+        "tag": 3,
+        "props": {
+          "disabled": null,
+          "hidden": true
+        }
+      }
+    ],
+    "children": [
+      {
+        "tag": 1,
+        "children": [
+          2,
+          3,
+          5
+        ]
+      }
+    ]
+  }
+]

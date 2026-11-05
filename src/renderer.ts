@@ -14,6 +14,7 @@ import {
   type NativeCommand, type NativeEvent, type NativeEventType, type NativeHost, type NativeKind,
   type NativePointerEvent, type NativeSnapshot, type NativeSnapshotNode,
 } from './native';
+import { scalarText } from './props';
 import { resolveStyles } from './styles';
 import type { Style } from './types';
 import { RendererProfiler, type RendererProfile } from './profile';
@@ -102,23 +103,6 @@ export interface UIRoot {
   findByTestID(testID: string): NativeSnapshotNode | undefined;
   setProfiling(enabled: boolean): void;
   takeProfile(): RendererProfile;
-}
-
-function scalarText(children: ReactNode): string | undefined {
-  if (children === null || children === undefined || typeof children === 'boolean') return '';
-  if (typeof children === 'string' || typeof children === 'number' || typeof children === 'bigint') {
-    return String(children);
-  }
-  if (Array.isArray(children)) {
-    let text = '';
-    for (const child of children) {
-      const part = scalarText(child);
-      if (part === undefined) return undefined;
-      text += part;
-    }
-    return text;
-  }
-  return undefined;
 }
 
 function createInstance(kind: NativeKind, props: UIProps, root: Container, text?: string): Instance {

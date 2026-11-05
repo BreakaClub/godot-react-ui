@@ -1,4 +1,7 @@
+import type { NativeKind } from './props';
 import type { Style, TransitionProperty } from './types';
+
+export type { NativeKind } from './props';
 
 /** The ClassDB-facing API. Structural typing also permits recording transports in tests. */
 export interface NativeHost {
@@ -50,7 +53,6 @@ export interface NativeProfile {
   counters: NativeActivity;
 }
 
-export type NativeKind = 'view' | 'text' | 'button';
 export type NativeCommand =
   | { op: 'create'; id: number; kind: NativeKind }
   | { op: 'style'; id: number; style: Style }
