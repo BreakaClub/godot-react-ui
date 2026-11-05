@@ -21,6 +21,16 @@ TypeScript before exporting an existing side module. The server includes the
 COOP/COEP headers required for `SharedArrayBuffer` and pthreads. Remote hosting
 requires HTTPS and the same headers.
 
+The demo keeps `Window.contentScaleMode` disabled and sets its
+`contentScaleFactor` to `DisplayServer.screenGetScale()` on Web. Godot's Web
+display server sizes the backing canvas in device pixels; its Window then divides
+the logical viewport by this factor and transforms input back to logical units.
+The render target stays at full resolution, and CanvasItem supplies the viewport
+oversampling factor to native text drawing. The owner checks the live ratio each
+frame so browser zoom and display changes are handled even when the backing size
+does not change. Browser verification covers both DPR 1 and DPR 2 at landscape
+and portrait sizes, plus real touch input.
+
 The source shell `demo/web-shell.html` passes `--audio-driver Dummy` to the Web
 runtime too. Add `?verify=1` to launch the demo's real-input verifier; ordinary
 launches remain interactive.

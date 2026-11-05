@@ -20,8 +20,10 @@ const BUTTON_PADDING_INSET = 4;
 const DRAG_MOVE_STEPS = 8;
 const EMSCRIPTEN_STARTUP_DIAGNOSTIC = 'Blocking on the main thread is very dangerous, see https://emscripten.org/docs/porting/pthreads.html#blocking-on-the-main-browser-thread';
 const viewports = [
-  { name: 'landscape', width: 1120, height: 800, counterColumns: 2, inventoryColumns: 3 },
-  { name: 'portrait', width: 600, height: 900, counterColumns: 1, inventoryColumns: 2 },
+  { name: 'landscape', width: 1120, height: 800, deviceScaleFactor: 1, counterColumns: 2, inventoryColumns: 3 },
+  { name: 'portrait', width: 600, height: 900, deviceScaleFactor: 1, counterColumns: 1, inventoryColumns: 2 },
+  { name: 'retina-landscape', width: 1120, height: 800, deviceScaleFactor: 2, counterColumns: 2, inventoryColumns: 3 },
+  { name: 'retina-portrait', width: 600, height: 900, deviceScaleFactor: 2, counterColumns: 1, inventoryColumns: 2 },
 ];
 
 const report = {
@@ -227,12 +229,33 @@ async function assertColumns(testID, expected) {
 
 async function runWorkflow(viewport) {
   activeViewport = viewport.name;
-  await page.setViewport({ width: viewport.width, height: viewport.height, deviceScaleFactor: 1 });
+  await page.setViewport({ width: viewport.width, height: viewport.height, deviceScaleFactor: viewport.deviceScaleFactor });
   await waitUntil('logical viewport resize', async () => {
     const data = await snapshot();
     return data.width === viewport.width && data.height === viewport.height;
   });
-  check('Godot logical viewport matches browser viewport', true, { width: viewport.width, height: viewport.height });
+  check('Godot logical viewport matches browser CSS viewport', true,
+    { width: viewport.width, height: viewport.height, deviceScaleFactor: viewport.deviceScaleFactor });
+  const pixelDimensions = await page.evaluate(() => {
+    const canvas = document.querySelector('canvas');
+    if (!canvas) throw new Error('Godot canvas is absent');
+    const rect = canvas.getBoundingClientRect();
+    return {
+      browserWidth: innerWidth, browserHeight: innerHeight, devicePixelRatio,
+      cssWidth: rect.width, cssHeight: rect.height,
+      physicalWidth: canvas.width, physicalHeight: canvas.height,
+    };
+  });
+  check('Browser applies the requested device pixel ratio',
+    pixelDimensions.devicePixelRatio === viewport.deviceScaleFactor, pixelDimensions);
+  check('Canvas CSS dimensions match the logical viewport',
+    pixelDimensions.cssWidth === viewport.width && pixelDimensions.cssHeight === viewport.height &&
+    pixelDimensions.browserWidth === viewport.width && pixelDimensions.browserHeight === viewport.height,
+  pixelDimensions);
+  check('Canvas retains device-resolution pixels independently of logical UI dimensions',
+    pixelDimensions.physicalWidth === viewport.width * viewport.deviceScaleFactor &&
+    pixelDimensions.physicalHeight === viewport.height * viewport.deviceScaleFactor,
+  pixelDimensions);
   await expectText('counter-value', '0', 'Initial React counter state');
   await assertColumns('counter-columns', viewport.counterColumns);
   await capture('01-counter');

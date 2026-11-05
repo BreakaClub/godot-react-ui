@@ -1,5 +1,5 @@
 import { createElement } from 'react';
-import { Node, ReactUiRoot, OS, Vector2 } from 'godot';
+import { DisplayServer, Node, ReactUiRoot, OS, Vector2 } from 'godot';
 import { createClassBinder } from 'godot.annotations';
 import { createRoot, type ReactRoot } from '../../src';
 import { App } from './app';
@@ -14,8 +14,10 @@ export default class Main extends Node {
   private renderer: ReactRoot | null = null;
   private width = 0;
   private height = 0;
+  private readonly web = OS.hasFeature('web');
 
   override _ready(): void {
+    this.updateDisplayScale();
     this.mount();
     const api = {
       snapshot: () => this.requireRenderer().getSnapshot(),
@@ -34,6 +36,18 @@ export default class Main extends Node {
         this.getTree()?.quit(1);
       });
     }
+  }
+
+  private updateDisplayScale(): void {
+    if (!this.web) return;
+    const window = this.getWindow();
+    if (!window) throw new Error('Web demo requires its owning Window');
+    // DisplayServerWeb returns the canvas device-pixel ratio. Window divides
+    // its logical size and transforms input by contentScaleFactor while keeping
+    // the full-resolution render target (window.cpp::_update_viewport_size).
+    const scale = DisplayServer.screenGetScale();
+    if (!Number.isFinite(scale) || scale <= 0) throw new Error('Invalid display scale');
+    if (window.contentScaleFactor !== scale) window.contentScaleFactor = scale;
   }
 
   private requireRenderer(): ReactRoot {
@@ -67,6 +81,7 @@ export default class Main extends Node {
   }
 
   override _process(): void {
+    this.updateDisplayScale();
     if (!this.renderer || !this.surface) return;
     const viewport = this.getViewport();
     if (!viewport) throw new Error('Mounted demo lost its viewport');

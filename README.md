@@ -69,6 +69,8 @@ export function Counter() {
 
 Mount with `createRoot(nativeSurface).render(<App />)`, where `nativeSurface` is a `ReactUiRoot` from `godot`. Its Godot owner sets the surface size, calls `dispatchEvents()` each frame, calls `refreshStyles()` after logical viewport changes, and calls `unmount()` before freeing the surface. [The demo owner](demo/src/main.ts) shows the complete lifecycle, including tree re-entry. `render()` commits the initial render synchronously; later hook updates use React's scheduler.
 
+On Web, the demo owner also synchronizes its Window's `contentScaleFactor` with `DisplayServer.screenGetScale()`. Layout and hit testing then use CSS-sized logical coordinates while the backing canvas and font rasterization retain the full device resolution. Polling detects browser zoom and display-density changes, including those that leave the backing dimensions unchanged.
+
 ## Styles
 
 This is a strict, typed **Tailwind-like subset**, not Tailwind's CSS compiler or a browser stylesheet engine. Unknown classes and variants throw, even if the variant is currently inactive. Matching classes apply left to right; inline styles apply afterwards. `style` accepts an object or nested arrays containing objects, `false`, `null`, and `undefined`. `StyleSheet.create` freezes reusable definitions; it does not register native style IDs.
@@ -118,7 +120,7 @@ pnpm verify:web
 
 Web uses the browser's JS runtime through GodotJS and the Rust extension compiled to a Wasm side module. It requires the matching threaded GodotJS templates and Emscripten/lazy-table ABI described in that guide, plus its separately pinned Rust nightly.
 
-Verified on 5 November 2026: 12 TypeScript/React tests, 9 Rust tests, Clippy, both native viewport workflows (26 captures), and the Chrome debug Web workflow (123 assertions, 27 captures including touch). The browser tests use actual mouse, keyboard and touch input, and live viewport resizing. The optimized Wasm extension is 953,917 bytes; the engine and JavaScript/PCK payloads are additional. Safari, mobile devices and the release Web preset have not been qualified.
+Verified on 5 November 2026: 12 TypeScript/React tests, 9 Rust tests, Clippy, both native viewport workflows (26 captures), and the Chrome debug Web workflow (247 assertions, 53 captures including touch). The browser tests use actual mouse, keyboard and touch input, live viewport resizing, and device scale factors 1 and 2. The optimized Wasm extension is 953,917 bytes; the engine and JavaScript/PCK payloads are additional. Safari, mobile devices and the release Web preset have not been qualified.
 
 One cold Chrome run reported `net::ERR_ABORTED` while downloading `index.pck` before engine startup. The cause remains unproven: a diagnostic cold launch downloaded the identical pack completely and reached readiness in 1.46 seconds, then the unchanged full verifier passed. No retry, skip or runtime workaround was added. The verifier also records the existing Emscripten dynamic-loader synchronization warning, allowing that exact diagnostic once before startup and treating all other runtime errors as failures.
 
