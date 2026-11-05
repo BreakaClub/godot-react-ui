@@ -511,3 +511,86 @@ no `AdjustAmountOfExternalAllocatedMemory` call anywhere, only a manual full-GC 
 their native memory. A JS shadow tree keeps that memory in the JS heap, removes every native call from
 render, and sends one payload per commit with only the changed nodes. The plan's F1-F4 tasks were
 rewritten accordingly; the typed-array and Files-list findings above are folded into the plan.
+
+## Phase F1 - Props, commit validation and differ (Godot-free)
+
+Date: 6 November 2026. Native-only, nothing in the runtime calls the new modules yet (they carry a
+`#[allow(dead_code)]` in `native/lib.rs` that Phase F3 removes when it wires them in). Host while
+gating: 44 % free, swap 17.9 GB of 19.5 GB used, load average 8.4.
+
+### What landed
+
+| Module | Contents |
+| --- | --- |
+| `native/props.rs` | `Kind`, `PropsSpec` (`style`, `text`, `disabled`, `hidden`, `testID`), `PropsDiff` with `Patch<T>` (`Keep` / `Reset` / `Set`), `StyleLayers`/`StyleLayer`/`PseudoState`, `StyleSpec` in longhand form (`overflowX`/`overflowY` replace `overflow`, `disabled` moved to the props, no `padding`/`margin`/`gap` shorthands), `StyleSpec::merge` (exhaustively destructured, so a new field that is not merged fails to compile), `taffy_style`, `merge_diff(previous, kind, diff_json)` |
+| `native/commit.rs` | `CommitPayload` (`created`, `updated`, `children`, all `deny_unknown_fields`), the `MountedTree` read-only trait, `validate(payload, layer, mounted) -> ValidatedCommit`, `plan(validated, mounted) -> MountingTransaction` |
+| `native/diff.rs` | `Parent`, `diff_children` (prefix/suffix, longest increasing subsequence for the middle), `MountingTransaction` (`removes`, `deletes`, `creates`, `updates`, `inserts`), a fixed-seed PRNG shared by the property tests |
+| `native/computed_style.rs` | `resolve(layers, hidden, inherited, conditions)`, `ComputedStyle`/`InheritedStyle`, `PseudoStates`, `InteractionState::states_of` (the CSS state semantics of plan 3.6), `BreakpointIndex`, the `StyleTree` trait with `restyle` (depth-ordered, stops where inherited inputs are unchanged), `depth` and `chain` |
+
+`native/protocol.rs` (the v1 batch protocol, deleted in F3) now re-exports the enums and mapping
+helpers it shared with `props.rs` instead of duplicating them (no behaviour change; its 9 tests
+still pass).
+
+### Gate
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked` | **84 passed** (was 31): `props` 9, `diff` 7, `commit` 22, `computed_style` 15, plus the 31 existing (`events` 11, `pointer` 4, `protocol` 9, `style_engine` 7) |
+| `cargo clippy --locked --all-targets` | **0 warnings**, also with `--features probe` |
+| `pnpm test`, `pnpm test:types` | unchanged (30 passed, clean): no TypeScript touched |
+
+Every `protocol.rs` test is ported: the five that exercise `StyleSpec` (unknown styles and invalid
+values, transition contract, invalid transition shapes, hidden overflow releasing the flex content
+minimum, flex and grid geometry) live in `props.rs`; the four that exercise `Model` map to commit
+tests (a rejected payload leaves the mounted tree unchanged; cycles and duplicate children;
+re-parenting, removal and no tag reuse; leaf shape).
+
+Commit validation tests assert for every rejection that the mounted tree is byte-identical
+afterwards: reused, duplicate and zero tags; updates to unknown, repeated or other-layer nodes; unknown
+and repeated children; children of `Text`; two parents (including through a node that moved in the
+same payload); cycles (direct and through a same-payload move); created nodes left unattached
+(loose, attached to another loose node, attached to a node the payload detaches); a rewritten list for
+a detached node; invalid prop diffs. The differ property test (`PROPERTY_TEST_CASES` = 500, fixed
+seed) checks that applying the diff to the old list gives exactly the new one and that every removal
+is a drop or a move and every insertion a new child or a move. The commit property test (500 cases,
+fixed seed) builds a random mounted forest, drops nodes, creates nodes and gives every survivor a new
+random parent and child order, then checks that `validate` accepts the payload, that applying the
+planned transaction yields exactly the new structure, and that `deletes` is exactly the set of nodes
+that did not survive. The test asserts the generator really produced deleting, creating, moving and
+move-out-of-a-deleted-parent cases (at least 50, 50, 50 and 10 of the 500).
+
+### Choices the plan left open
+
+- **No `TextInput` kind yet.** Plan F1 asks for a "children of `Text`/`TextInput`" test. `Kind`
+  has `View`, `Text` and `Button`; `Kind::allows_children` is the single place the rule lives and the
+  `TextInput` variant joins it in I7 (a wire kind that renders nothing would be a half-implemented
+  feature). The rule is tested for `Text`.
+- **`validate` takes the layer** (`validate(payload, layer, mounted)`) because "mounted in this
+  layer" is part of the rules (a tag of the overlay layer cannot be updated or listed by a main-layer
+  commit), and `MountedTree` therefore also answers `layer(tag)`.
+- **The wire key for the test id is `testID`** (as in the plan's prop table); serde's camelCase would
+  have produced `testId`.
+- **A node moving out of a parent that is itself being deleted is legal, and gets an explicit
+  removal.** The strict reading of plan 3.4 ("at most one parent") would reject a payload that moves
+  a child out of a deleted parent without rewriting the dead parent's list. React cannot produce that
+  edit (it never moves a host instance across parents), but the native contract says a moved subtree
+  must not be deleted, so `plan` detaches such a node from its old parent explicitly and the mounting
+  layer never sees a node with two parents. A rewritten list for a node the same payload detaches
+  *is* rejected.
+- **Created props may be amended by an `updated` entry for the same tag** (plan: "updated tags must
+  be mounted (or created in this payload)"); the merged result is what is created.
+- **`Patch<T>` instead of `Option<Option<T>>`** for diffs: serde cannot tell an absent key from `null`
+  with the latter.
+- **Removals are emitted per parent in descending index order and insertions in ascending final
+  index order**, which is what makes sequential application correct without index fix-ups; the
+  reference applier in the tests and the property tests rely on exactly that.
+- `StyleLayers` serializes as `{ "layers": [...] }` and a layer's `minWidth` is a `f32` threshold
+  keyed in the breakpoint index by its bit pattern (valid for the finite, nonnegative values
+  validation allows), so a resize finds the affected nodes with one ordered range query.
+
+### Plan problems found
+
+- Plan F1 does not mention that `validate` needs the layer, nor how a node leaving a deleted parent is
+  detached; both are decided above.
+- The plan's `diff.rs` task says the property test applies `plan` to the old structure, but `plan`
+  lives in `commit.rs` (3.4); the test is in `commit.rs`, the list-level property test in `diff.rs`.

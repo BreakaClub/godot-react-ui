@@ -8,15 +8,15 @@ use taffy::style::{
     AlignItems, Display, FlexDirection, FlexWrap, JustifyContent, LengthPercentage,
     LengthPercentageAuto, Overflow,
 };
-use taffy::style_helpers::{auto, fr, length, minmax};
+use taffy::style_helpers::{fr, length, minmax};
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum Kind {
-    View,
-    Text,
-    Button,
-}
+// The enums and mapping helpers are shared with the Fabric core's `props` module. This file (the
+// v1 batch protocol) is deleted when Phase F3 cuts over.
+pub use crate::props::{
+    AlignSpec, Dimension, DisplaySpec, Easing, FlexDirectionSpec, FlexWrapSpec, InterpolateSize,
+    JustifySpec, Kind, OverflowSpec, TextAlignSpec, TransitionProperty, TransitionSpec,
+};
+use crate::props::{align, bound, dimension, justify};
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "op", rename_all = "lowercase", deny_unknown_fields)]
@@ -26,139 +26,6 @@ pub enum Command {
     Text { id: u32, text: String },
     Children { id: u32, children: Vec<u32> },
     Remove { id: u32 },
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
-#[serde(untagged)]
-pub enum Dimension {
-    Num(f32),
-    Text(String),
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum DisplaySpec {
-    Flex,
-    Grid,
-    None,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
-pub enum FlexDirectionSpec {
-    Row,
-    Column,
-    RowReverse,
-    ColumnReverse,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
-pub enum FlexWrapSpec {
-    Nowrap,
-    Wrap,
-    WrapReverse,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
-pub enum AlignSpec {
-    Start,
-    End,
-    Center,
-    Stretch,
-    Baseline,
-    FlexStart,
-    FlexEnd,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
-pub enum JustifySpec {
-    Start,
-    End,
-    Center,
-    SpaceBetween,
-    SpaceAround,
-    SpaceEvenly,
-    FlexStart,
-    FlexEnd,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum TextAlignSpec {
-    Left,
-    Center,
-    Right,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
-#[serde(rename_all = "camelCase")]
-pub enum TransitionProperty {
-    Width,
-    Height,
-    Opacity,
-    BackgroundColor,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
-pub enum Easing {
-    Linear,
-    Ease,
-    EaseIn,
-    EaseOut,
-    EaseInOut,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
-pub enum InterpolateSize {
-    NumericOnly,
-    AllowKeywords,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum OverflowSpec {
-    Visible,
-    Hidden,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct TransitionSpec {
-    pub properties: Vec<TransitionProperty>,
-    pub duration_ms: f64,
-    pub delay_ms: Option<f64>,
-    pub easing: Option<Easing>,
-}
-
-impl TransitionSpec {
-    pub fn validate(&self) -> Result<(), String> {
-        if self.properties.is_empty() {
-            return Err("transition.properties must not be empty".into());
-        }
-        let mut unique = BTreeSet::new();
-        if self
-            .properties
-            .iter()
-            .any(|property| !unique.insert(*property))
-        {
-            return Err("transition.properties must not contain duplicates".into());
-        }
-        if !self.duration_ms.is_finite() || self.duration_ms < 0.0 {
-            return Err("transition.durationMs must be a finite nonnegative number".into());
-        }
-        if self
-            .delay_ms
-            .is_some_and(|delay| !delay.is_finite() || delay < 0.0)
-        {
-            return Err("transition.delayMs must be a finite nonnegative number".into());
-        }
-        Ok(())
-    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
@@ -205,77 +72,6 @@ pub struct StyleSpec {
     pub transition: Option<TransitionSpec>,
     pub interpolate_size: Option<InterpolateSize>,
     pub overflow: Option<OverflowSpec>,
-}
-
-impl Dimension {
-    fn value(&self) -> Result<ParsedDimension, String> {
-        match self {
-            Self::Num(value) if value.is_finite() && *value >= 0.0 => {
-                Ok(ParsedDimension::Length(*value))
-            }
-            Self::Num(_) => Err("dimension must be a finite nonnegative number".into()),
-            Self::Text(value) if value == "auto" => Ok(ParsedDimension::Auto),
-            Self::Text(value) => {
-                let percent = value
-                    .strip_suffix('%')
-                    .and_then(|number| number.parse::<f32>().ok())
-                    .filter(|number| number.is_finite() && *number >= 0.0)
-                    .ok_or_else(|| {
-                        format!(
-                            "invalid dimension {value:?}; expected auto or a nonnegative percentage"
-                        )
-                    })?;
-                Ok(ParsedDimension::Percent(percent / 100.0))
-            }
-        }
-    }
-}
-
-enum ParsedDimension {
-    Length(f32),
-    Percent(f32),
-    Auto,
-}
-
-fn dimension(value: &Option<Dimension>) -> Result<taffy::style::Dimension, String> {
-    Ok(match value.as_ref().map(Dimension::value).transpose()? {
-        Some(ParsedDimension::Length(value)) => taffy::style::Dimension::length(value),
-        Some(ParsedDimension::Percent(value)) => taffy::style::Dimension::percent(value),
-        Some(ParsedDimension::Auto) | None => auto(),
-    })
-}
-
-fn bound(value: &Option<Dimension>) -> Result<LengthPercentageAuto, String> {
-    Ok(match value.as_ref().map(Dimension::value).transpose()? {
-        Some(ParsedDimension::Length(value)) => LengthPercentageAuto::length(value),
-        Some(ParsedDimension::Percent(value)) => LengthPercentageAuto::percent(value),
-        Some(ParsedDimension::Auto) | None => auto(),
-    })
-}
-
-fn align(value: AlignSpec) -> AlignItems {
-    match value {
-        AlignSpec::Start => AlignItems::START,
-        AlignSpec::End => AlignItems::END,
-        AlignSpec::Center => AlignItems::CENTER,
-        AlignSpec::Stretch => AlignItems::STRETCH,
-        AlignSpec::Baseline => AlignItems::BASELINE,
-        AlignSpec::FlexStart => AlignItems::FLEX_START,
-        AlignSpec::FlexEnd => AlignItems::FLEX_END,
-    }
-}
-
-fn justify(value: JustifySpec) -> JustifyContent {
-    match value {
-        JustifySpec::Start => JustifyContent::START,
-        JustifySpec::End => JustifyContent::END,
-        JustifySpec::Center => JustifyContent::CENTER,
-        JustifySpec::SpaceBetween => JustifyContent::SPACE_BETWEEN,
-        JustifySpec::SpaceAround => JustifyContent::SPACE_AROUND,
-        JustifySpec::SpaceEvenly => JustifyContent::SPACE_EVENLY,
-        JustifySpec::FlexStart => JustifyContent::FLEX_START,
-        JustifySpec::FlexEnd => JustifyContent::FLEX_END,
-    }
 }
 
 impl StyleSpec {

@@ -1,3 +1,11 @@
+// Phase F1 modules: Godot-free and not yet called by the runtime (Phase F3 wires them in and
+// removes these allowances together with `protocol`).
+#[allow(dead_code)]
+mod commit;
+#[allow(dead_code)]
+mod computed_style;
+#[allow(dead_code)]
+mod diff;
 mod events;
 mod geometry;
 mod layout;
@@ -7,6 +15,8 @@ mod pointer;
 mod profile;
 #[cfg(feature = "probe")]
 mod probe;
+#[allow(dead_code)]
+mod props;
 mod protocol;
 mod render_items;
 mod style_engine;
