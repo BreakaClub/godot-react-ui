@@ -50,8 +50,6 @@ export interface Style {
   borderRadius?: number;
   borderWidth?: number;
   opacity?: number;
-  /** Removed with the v1 renderer in Phase F3: `disabled` is a prop of the element, not a style. */
-  disabled?: boolean;
   textAlign?: 'left' | 'center' | 'right';
   transition?: Transition;
   interpolateSize?: 'numeric-only' | 'allow-keywords';
@@ -65,20 +63,9 @@ export interface Style {
  * What native receives: every shorthand (`padding`, `margin`, `gap`, `overflow`) is expanded to its
  * longhands by the style compiler, so merging layers is a plain ordered overwrite.
  */
-export type LonghandStyle = Omit<Style, 'padding' | 'margin' | 'gap' | 'overflow' | 'disabled'>;
+export type LonghandStyle = Omit<Style, 'padding' | 'margin' | 'gap' | 'overflow'>;
 
 export type StyleProp = Style | readonly StyleProp[] | false | null | undefined;
-
-export interface StyleState {
-  /** Active root-local logical viewport width, rather than host-window pixels. */
-  width: number;
-  hover?: boolean;
-  active?: boolean;
-  focus?: boolean;
-  focusVisible?: boolean;
-  focusWithin?: boolean;
-  disabled?: boolean;
-}
 
 /** The conditions a style layer can depend on besides the viewport width (plan 3.6). */
 export type PseudoState = 'hover' | 'active' | 'focus' | 'focusVisible' | 'focusWithin' | 'disabled';

@@ -1,26 +1,28 @@
-import { createContext, type ReactNode } from 'react';
+import { createContext, createElement, type ReactNode } from 'react';
 import Reconciler from 'react-reconciler';
 import {
   ConcurrentRoot, ContinuousEventPriority, DefaultEventPriority,
   DiscreteEventPriority, NoEventPriority,
 } from 'react-reconciler/constants';
+import { buildCommit, type CommitNode } from './commit';
 import type { UIHandle, UIProps } from './components';
 import {
   dispatchEvent, exclusiveAncestry, NOT_DISPATCHED, RootListeners,
-  type DispatchResult, type UIEventMap,
+  type DispatchResult, type PathNode, type UIEventMap,
 } from './events';
 import {
-  applyCommands, readEvents, readSnapshot, resolveEvent,
-  type NativeCommand, type NativeEvent, type NativeEventType, type NativeHost, type NativeKind,
-  type NativePointerEvent, type NativeSnapshot, type NativeSnapshotNode,
+  commitPayload, findTag, readDeletions, readEvents, readNodeRect, readSnapshot, resolveEvent,
+  type NativeEvent, type NativeEventType, type NativeHost, type NativePointerEvent,
+  type NativeSnapshot, type NativeSnapshotNode,
 } from './native';
-import { scalarText } from './props';
-import { resolveStyles } from './styles';
-import type { Style } from './types';
+import { nativeProps, scalarText, type NativeKind } from './props';
 import { RendererProfiler, type RendererProfile } from './profile';
 
-const VIEWPORT_ID = 0;
-const MAX_NODE_ID = 0xffff_ffff;
+/** The native tag of the layer root, which is also the target of events addressed to the root. */
+const LAYER_ROOT_TAG = 0;
+const MAIN_LAYER = 0;
+const OVERLAY_LAYER = 1;
+const MAX_TAG = 0xffff_ffff;
 const EMPTY_CONTEXT = Object.freeze({});
 /**
  * Guard against an event storm. Each round drains everything native has queued; handlers that keep
@@ -28,46 +30,47 @@ const EMPTY_CONTEXT = Object.freeze({});
  */
 const MAX_EVENT_DRAIN_ROUNDS = 64;
 
-interface Instance {
-  readonly id: number;
-  readonly kind: NativeKind;
-  readonly root: Container;
-  readonly handle: UIHandle;
-  props: UIProps;
-  text: string;
-  children: Instance[];
-  parent: Instance | Container | null;
-  hidden: boolean;
-  hover: boolean;
-  active: boolean;
-  focus: boolean;
+/**
+ * One element as React completed it. Instances are immutable once React has built them: a change
+ * clones the instance (and every ancestor) and shares the unchanged children by reference, which is
+ * what lets the commit walk skip whole subtrees (plan 3.9).
+ */
+interface Instance extends CommitNode<Instance> {
+  readonly root: RootState;
+  /** Full React props, handlers included. */
+  readonly props: UIProps;
+  readonly children: Instance[];
 }
 
-interface CommittedNode {
-  readonly instance: Instance;
-  readonly styleKey: string;
-  readonly text: string;
-  readonly children: number[];
-}
-
+/** One tree of instances native mounts as a layer; React calls its callbacks with this. */
 interface Container {
+  readonly root: RootState;
+  readonly layer: number;
+  /** The layer's top-level tags as of the last successful commit. */
+  rootTags: number[];
+}
+
+interface RootState {
   readonly host: NativeHost;
   readonly profiler: RendererProfiler;
-  readonly id: typeof VIEWPORT_ID;
-  children: Instance[];
-  committed: Map<number, CommittedNode>;
-  rootChildren: number[];
-  nextId: number;
-  width: number;
+  /** Where failures after the first go: `onError`, else the console. */
+  readonly report: (error: Error) => void;
+  nextTag: number;
+  /** The instances native has accepted, by tag, across both layers. Events and handles read this. */
+  readonly committed: Map<number, Instance>;
+  /** Public handles, stable across clones, dropped when native deletes the tag. */
+  readonly handles: Map<number, UIHandle>;
+  readonly main: Container;
+  /** Created with the first render. */
+  overlay: Container | undefined;
   unmounted: boolean;
   failure: Error | undefined;
   /** True while `dispatchEvents` drains native events; a nested call returns at once. */
   dispatching: boolean;
   readonly listeners: RootListeners;
-  /** Handle for the viewport root, the target of events addressed to root listeners only. */
+  /** Handle for the layer root, the target of events addressed to root listeners only. */
   readonly handle: UIHandle;
   unsubscribe: (() => void) | undefined;
-  flush(): void;
 }
 
 export interface RootOptions {
@@ -97,129 +100,92 @@ export interface UIRoot {
   dispatchEvents(): void;
   /** Listen on the root itself, after elements' bubble phase. Returns the remover. */
   addEventListener<K extends NativeEventType>(type: K, listener: (event: UIEventMap[K]) => void): () => void;
-  /** Call after the logical viewport resizes. Width drives responsive utility classes. */
-  refreshStyles(width?: number): void;
   getSnapshot(): NativeSnapshot;
+  /** The first element created with this `testID`, from a native query. */
   findByTestID(testID: string): NativeSnapshotNode | undefined;
   setProfiling(enabled: boolean): void;
   takeProfile(): RendererProfile;
 }
 
-function createInstance(kind: NativeKind, props: UIProps, root: Container, text?: string): Instance {
-  if (root.nextId > MAX_NODE_ID) throw new Error('UI root exhausted its u32 node IDs');
-  const id = root.nextId++;
-  const instance: Instance = {
-    id, kind, root, props,
-    text: text ?? (kind === 'text' ? scalarText(props.children) ?? '' : ''),
-    children: [], parent: null, hidden: false, hover: false, active: false, focus: false,
-    handle: {
-      id,
-      get testID() { return instance.props.testID; },
-      getRect() { return readSnapshot(root.host).nodes.find((node) => node.id === id)?.rect; },
-    },
+function createInstance(kind: NativeKind, props: UIProps, container: Container): Instance {
+  const root = container.root;
+  if (root.nextTag > MAX_TAG) throw new Error('UI root exhausted its u32 tags');
+  const tag = root.nextTag++;
+  return { tag, kind, root, props, native: nativeProps(kind, props, false), children: [] };
+}
+
+function cloneInstance(
+  instance: Instance, kind: NativeKind, oldProps: UIProps, newProps: UIProps, keepChildren: boolean, hidden: boolean,
+): Instance {
+  return {
+    tag: instance.tag, kind, root: instance.root, props: newProps,
+    native: nativeProps(kind, newProps, hidden, { props: oldProps, native: instance.native }),
+    children: keepChildren ? instance.children : [],
   };
-  return instance;
 }
 
-function detach(child: Instance): void {
-  if (child.parent === null) return;
-  const siblings = child.parent.children;
-  const index = siblings.indexOf(child);
-  if (index === -1) throw new Error('UI parent/child relationship is inconsistent');
-  siblings.splice(index, 1);
-  child.parent = null;
+/** The public handle of a tag; created on first use and stable across clones. */
+function handleFor(root: RootState, tag: number): UIHandle {
+  let handle = root.handles.get(tag);
+  if (handle === undefined) {
+    handle = {
+      id: tag,
+      get testID() { return root.committed.get(tag)?.props.testID; },
+      getRect() { return readNodeRect(root.host, tag); },
+    };
+    root.handles.set(tag, handle);
+  }
+  return handle;
 }
 
-function append(parent: Container | Instance, child: Instance): void {
-  detach(child);
-  parent.children.push(child);
-  child.parent = parent;
+/** The first failure fails the caller once the current operation finishes; later ones are reported. */
+function recordFailure(root: RootState, error: Error): void {
+  if (root.failure === undefined) root.failure = error;
+  else root.report(error);
 }
 
-function insert(parent: Container | Instance, child: Instance, before: Instance): void {
-  if (child === before) return;
-  detach(child);
-  const index = parent.children.indexOf(before);
-  if (index === -1) throw new Error('UI insertBefore target is not a child of its parent');
-  parent.children.splice(index, 0, child);
-  child.parent = parent;
-}
-
-function remove(parent: Container | Instance, child: Instance): void {
-  if (child.parent !== parent) throw new Error('UI removeChild target has a different parent');
-  detach(child);
-}
-
-function sameChildren(left: readonly number[], right: readonly number[]): boolean {
-  return left.length === right.length && left.every((id, index) => id === right[index]);
-}
-
-function inheritedTextStyle(style: Style): Style {
-  const inherited: Style = {};
-  if (style.color !== undefined) inherited.color = style.color;
-  if (style.fontSize !== undefined) inherited.fontSize = style.fontSize;
-  if (style.textAlign !== undefined) inherited.textAlign = style.textAlign;
-  return inherited;
-}
-
-/** Only this commit path allocates native nodes; abandoned React renders remain ordinary JS data. */
-function flush(container: Container): void {
-  const started = container.profiler.start();
-  const creates: NativeCommand[] = [];
-  const updates: NativeCommand[] = [];
-  const hierarchy: NativeCommand[] = [];
-  const next = new Map<number, CommittedNode>();
-
-  function visit(instance: Instance, inherited: Style): void {
-    if (next.has(instance.id)) throw new Error('UI tree contains a cycle or a duplicate child');
-    const resolved = resolveStyles(instance.props.className, instance.props.style, {
-      width: container.width,
-      hover: instance.hover,
-      active: instance.active,
-      focus: instance.focus,
-      disabled: instance.props.disabled ?? false,
-    });
-    const style: Style = { ...inherited, ...resolved };
-    if (instance.props.disabled !== undefined) style.disabled = instance.props.disabled;
-    if (instance.hidden) style.display = 'none';
-    const styleKey = JSON.stringify(style);
-    const children = instance.children.map((child) => child.id);
-    const previous = container.committed.get(instance.id);
-    if (previous === undefined) creates.push({ op: 'create', id: instance.id, kind: instance.kind });
-    if (previous?.styleKey !== styleKey) updates.push({ op: 'style', id: instance.id, style });
-    if (previous?.text !== instance.text) updates.push({ op: 'text', id: instance.id, text: instance.text });
-    if (previous === undefined || !sameChildren(previous.children, children)) {
-      hierarchy.push({ op: 'children', id: instance.id, children });
+/**
+ * Walk what changed against what native has committed, send it as one `commit` call, then adopt the
+ * result. A native error leaves `committed` as it was, so the next commit diffs from the last
+ * accepted state (plan 3.9).
+ */
+function replaceContainerChildren(container: Container, children: Instance[]): void {
+  const root = container.root;
+  try {
+    const started = root.profiler.start();
+    const built = buildCommit(root.committed, container.rootTags, children);
+    const walked = root.profiler.start();
+    const payload = built.payload;
+    const timing = payload === undefined
+      ? undefined
+      : commitPayload(root.host, container.layer, payload, root.profiler.enabled ? root.profiler.now : undefined);
+    for (const [tag, instance] of built.updates) {
+      // Nothing may mutate a committed instance: a violation throws instead of corrupting the diff.
+      Object.freeze(instance.children);
+      Object.freeze(instance);
+      root.committed.set(tag, instance);
     }
-    next.set(instance.id, { instance, styleKey, text: instance.text, children });
-    const childStyle = inheritedTextStyle(style);
-    for (const child of instance.children) visit(child, childStyle);
-  }
-
-  for (const child of container.children) visit(child, {});
-  const rootChildren = container.children.map((child) => child.id);
-  if (!sameChildren(container.rootChildren, rootChildren)) {
-    hierarchy.push({ op: 'children', id: VIEWPORT_ID, children: rootChildren });
-  }
-
-  // Detach surviving/reparented nodes before deleting old subtrees. Removing old descendants
-  // first also works with the native recursive-remove contract and keeps every ID explicit.
-  const removals: NativeCommand[] = [];
-  for (const [id] of [...container.committed].reverse()) {
-    if (!next.has(id)) removals.push({ op: 'remove', id });
-  }
-  const commands = [...creates, ...updates, ...hierarchy, ...removals];
-  const diffEnd = container.profiler.start();
-  const timing = applyCommands(container.host, commands, container.profiler.enabled ? container.profiler.now : undefined);
-  container.committed = next;
-  container.rootChildren = rootChildren;
-  if (started !== undefined && diffEnd !== undefined) {
-    container.profiler.record({
-      kind: 'flush', startMs: started, styleDiffMs: diffEnd - started,
-      jsonEncodeMs: timing?.jsonEncodeMs ?? 0, nativeCallMs: timing?.nativeCallMs ?? 0,
-      fullFlushMs: container.profiler.now() - started,
-      visitedNodes: next.size, commandCount: commands.length, jsonChars: timing?.jsonChars ?? 0,
-    });
+    container.rootTags = built.rootTags;
+    if (payload !== undefined) {
+      for (const tag of readDeletions(root.host)) {
+        root.committed.delete(tag);
+        root.handles.delete(tag);
+      }
+    }
+    if (started !== undefined && walked !== undefined) {
+      root.profiler.record({
+        kind: 'flush', startMs: started, walkMs: walked - started,
+        jsonEncodeMs: timing?.jsonEncodeMs ?? 0, nativeCallMs: timing?.nativeCallMs ?? 0,
+        fullFlushMs: root.profiler.now() - started, visitedNodes: built.visited,
+        commandCount: payload === undefined ? 0 : payload.created.length + payload.updated.length + payload.children.length,
+        jsonChars: timing?.jsonChars ?? 0,
+      });
+    }
+  } catch (error) {
+    // Throwing out of a replaceContainerChildren call makes React treat the whole tree as failed
+    // and unmount it. Record the failure instead and surface it at our public API boundary once
+    // React has finished its own bookkeeping; the previous native tree stays mounted.
+    recordFailure(root, error instanceof Error ? error : new Error(String(error)));
   }
 }
 
@@ -227,13 +193,13 @@ let updatePriority: Reconciler.EventPriority = NoEventPriority;
 const transitionContext = createContext(null);
 
 type HostConfig = Reconciler.HostConfig<
-  NativeKind, UIProps, Container, Instance, Instance, never, never, never,
-  UIHandle, typeof EMPTY_CONTEXT, never, ReturnType<typeof setTimeout>, -1, null
+  NativeKind, UIProps, Container, Instance, never, never, never, never,
+  UIHandle, typeof EMPTY_CONTEXT, Instance[], ReturnType<typeof setTimeout>, -1, null
 >;
 
 const hostConfig = {
-  supportsMutation: true,
-  supportsPersistence: false,
+  supportsMutation: false,
+  supportsPersistence: true,
   supportsHydration: false,
   isPrimaryRenderer: true,
   supportsMicrotasks: true,
@@ -245,24 +211,18 @@ const hostConfig = {
   },
   getRootHostContext: () => EMPTY_CONTEXT,
   getChildHostContext: () => EMPTY_CONTEXT,
-  getPublicInstance: (instance: Instance) => instance.handle,
-  createInstance: (kind: NativeKind, props: UIProps, root: Container) => createInstance(kind, props, root),
-  createTextInstance: (text: string, root: Container) => createInstance('text', {}, root, text),
-  appendInitialChild: append,
+  getPublicInstance: (instance: Instance) => handleFor(instance.root, instance.tag),
+  // Render makes no native call: instances are plain JS objects, so an abandoned render costs
+  // nothing natively (plan 3.9).
+  createInstance: (kind: NativeKind, props: UIProps, container: Container) => createInstance(kind, props, container),
+  createTextInstance(): never {
+    throw new Error('Text strings must be rendered within a <Text> component');
+  },
+  appendInitialChild(parent: Instance, child: Instance) { parent.children.push(child); },
   finalizeInitialChildren: () => false,
   shouldSetTextContent: (kind: NativeKind, props: UIProps) => kind === 'text' && scalarText(props.children) !== undefined,
   prepareForCommit: () => null,
-  resetAfterCommit(container: Container) {
-    try {
-      container.flush();
-    } catch (error) {
-      // React 19.2 assigns root.current and advances its pending commit phase
-      // after this callback returns. Throwing here strands that global phase
-      // and prevents later roots from committing. Surface the same failure at
-      // our public API boundary after React completes its bookkeeping instead.
-      container.failure = error instanceof Error ? error : new Error(String(error));
-    }
-  },
+  resetAfterCommit: () => {},
   preparePortalMount: () => {},
   scheduleTimeout: setTimeout,
   cancelTimeout: clearTimeout,
@@ -273,26 +233,19 @@ const hostConfig = {
   prepareScopeUpdate: () => {},
   getInstanceFromScope: () => null,
   detachDeletedInstance: () => {},
-  appendChild: append,
-  appendChildToContainer: append,
-  insertBefore: insert,
-  insertInContainerBefore: insert,
-  removeChild: remove,
-  removeChildFromContainer: remove,
-  clearContainer(container: Container) {
-    for (const child of container.children) child.parent = null;
-    container.children = [];
+  cloneInstance: (instance: Instance, kind: NativeKind, oldProps: UIProps, newProps: UIProps, keepChildren: boolean) =>
+    cloneInstance(instance, kind, oldProps, newProps, keepChildren, false),
+  // A hidden subtree (Suspense showing a fallback) keeps its instance but takes no space; when it is
+  // shown again React appends the unhidden instance, which the walk diffs back.
+  cloneHiddenInstance: (instance: Instance, kind: NativeKind, props: UIProps) =>
+    cloneInstance(instance, kind, instance.props, props, true, true),
+  cloneHiddenTextInstance(): never {
+    throw new Error('Text strings must be rendered within a <Text> component');
   },
-  resetTextContent(instance: Instance) { instance.text = ''; },
-  commitTextUpdate(instance: Instance, _oldText: string, text: string) { instance.text = text; },
-  commitUpdate(instance: Instance, kind: NativeKind, _previous: UIProps, props: UIProps) {
-    instance.props = props;
-    if (kind === 'text') instance.text = scalarText(props.children) ?? '';
-  },
-  hideInstance(instance: Instance) { instance.hidden = true; },
-  hideTextInstance(instance: Instance) { instance.hidden = true; },
-  unhideInstance(instance: Instance) { instance.hidden = false; },
-  unhideTextInstance(instance: Instance) { instance.hidden = false; },
+  createContainerChildSet: (): Instance[] => [],
+  appendChildToContainerChildSet(childSet: Instance[], child: Instance) { childSet.push(child); },
+  finalizeContainerChildren: () => {},
+  replaceContainerChildren,
   NotPendingTransition: null,
   // @types/react-reconciler 0.33 still describes React 18's private Provider/Consumer
   // shape. React 19.2's own test renderer passes createContext here; the reconciler
@@ -323,101 +276,98 @@ const hostConfig = {
 
 const reconciler = Reconciler(hostConfig);
 
-/** The target first, then its ancestors up to (not including) the root. */
-function ancestry(instance: Instance | undefined): Instance[] {
-  const path: Instance[] = [];
-  let current: Container | Instance | null = instance ?? null;
-  while (current !== null && 'kind' in current) {
-    path.push(current);
-    current = current.parent;
-  }
-  return path;
+/** What `<Portal>` renders into: the overlay layer of the root that rendered it. */
+export const OverlayContext = createContext<Container | null>(null);
+
+/** Render `children` into the overlay layer, which always covers the main layer. */
+export function createOverlayPortal(children: ReactNode, overlay: Container): ReactNode {
+  // @types/react-reconciler 0.33 declares createPortal's result as its own `ReactPortal` shape,
+  // which lacks the `type` and `props` members React 19's types give a portal element, although it
+  // is the very object React's `createPortal` returns (`$$typeof: react.portal`). This assertion
+  // is confined to the one call; remove it when the upstream declaration is fixed.
+  return reconciler.createPortal(children, overlay, null) as unknown as ReactNode;
 }
 
-function liveInstance(container: Container, id: number | null): Instance | undefined {
-  return id === null || id === VIEWPORT_ID ? undefined : container.committed.get(id)?.instance;
+/** The committed instance of `tag`, if native still has it. */
+function liveInstance(root: RootState, tag: number | null): Instance | undefined {
+  return tag === null || tag === LAYER_ROOT_TAG ? undefined : root.committed.get(tag);
+}
+
+/** The path nodes of `tags` that are still live, in the order given. */
+function pathNodes(root: RootState, tags: readonly number[]): PathNode[] {
+  const nodes: PathNode[] = [];
+  for (const tag of tags) {
+    const instance = root.committed.get(tag);
+    if (instance !== undefined) nodes.push({ handle: handleFor(root, tag), props: instance.props });
+  }
+  return nodes;
 }
 
 /**
  * `pointerenter`/`pointerleave` reach each element the pointer crosses, not every ancestor of the
  * target: moving between two children never runs their shared parent's handlers.
  */
-function dispatchEnterLeave(container: Container, native: NativePointerEvent, path: Instance[]): DispatchResult {
-  const related = liveInstance(container, native.relatedTarget);
-  const crossed = exclusiveAncestry(path, ancestry(related));
+function dispatchEnterLeave(root: RootState, native: NativePointerEvent): DispatchResult {
+  const related = liveInstance(root, native.relatedTarget);
+  const crossed = exclusiveAncestry(native.path, native.relatedPath);
   const ordered = native.type === 'pointerenter' ? crossed.reverse() : crossed;
+  const relatedHandle = related === undefined ? null : handleFor(root, related.tag);
   let result = NOT_DISPATCHED;
-  for (const instance of ordered) {
-    // Touch pointers never set hover, which removes sticky hover after taps.
-    if (native.type === 'pointerenter') {
-      if (native.pointerType === 'mouse') instance.hover = true;
-    } else {
-      if (native.pointerType === 'mouse') instance.hover = false;
-      instance.active = false;
-    }
-    result = dispatchEvent(native, [instance], related?.handle ?? null, container);
+  for (const node of pathNodes(root, ordered)) {
+    result = dispatchEvent(native, [node], relatedHandle, root);
     if (result.failure !== undefined) break;
   }
   return result;
 }
 
-function dispatch(container: Container, native: NativeEvent): DispatchResult {
-  const addressesRoot = native.target === VIEWPORT_ID;
-  const target = liveInstance(container, native.target);
+function dispatch(root: RootState, native: NativeEvent): DispatchResult {
+  const addressesRoot = native.target === LAYER_ROOT_TAG;
   // Native queues events ahead of JS: an earlier event in this batch, or a handler that just
   // committed, may have removed this event's target.
-  if (!addressesRoot && target === undefined) return NOT_DISPATCHED;
-  const path = ancestry(target);
-  switch (native.type) {
-    case 'pointerenter': case 'pointerleave':
-      return dispatchEnterLeave(container, native, path);
-    case 'pointerdown': for (const instance of path) instance.active = true; break;
-    case 'pointerup': for (const instance of path) instance.active = false; break;
-    case 'focus': for (const instance of path) instance.focus = true; break;
-    case 'blur': for (const instance of path) { instance.focus = false; instance.active = false; } break;
-    case 'pointermove': case 'click': break;
-  }
-  if (native.type === 'click' && path.some((instance) => instance.props.disabled)) return NOT_DISPATCHED;
-  return dispatchEvent(native, path, null, container);
+  if (!addressesRoot && !root.committed.has(native.target)) return NOT_DISPATCHED;
+  if (native.type === 'pointerenter' || native.type === 'pointerleave') return dispatchEnterLeave(root, native);
+  const path = pathNodes(root, native.path);
+  if (native.type === 'click' && path.some((node) => node.props.disabled)) return NOT_DISPATCHED;
+  return dispatchEvent(native, path, null, root);
 }
 
 export function createRoot(host: NativeHost, options: RootOptions): UIRoot {
-  const container: Container = {
-    host, profiler: new RendererProfiler(options.profile ?? false, options.now),
-    id: VIEWPORT_ID, children: [], committed: new Map(), rootChildren: [],
-    nextId: 1, width: readSnapshot(host).width, unmounted: false, failure: undefined,
-    dispatching: false, listeners: new RootListeners(), unsubscribe: undefined,
-    handle: {
-      id: VIEWPORT_ID,
-      testID: undefined,
-      getRect() { return readSnapshot(host).nodes.find((node) => node.id === VIEWPORT_ID)?.rect; },
-    },
-    flush() { flush(container); },
-  };
-  const onUncaughtError = (error: Error) => {
-    container.failure = error;
-    options.onError?.(error);
-  };
+  // Fail on a host that does not answer a snapshot before any React work.
+  readSnapshot(host);
   const report = (error: Error) => {
     if (options.onError) options.onError(error);
     else console.error(error);
   };
+  const state: RootState = {
+    host, report, profiler: new RendererProfiler(options.profile ?? false, options.now),
+    nextTag: 1, committed: new Map(), handles: new Map(),
+    main: { get root() { return state; }, layer: MAIN_LAYER, rootTags: [] },
+    overlay: undefined, unmounted: false, failure: undefined,
+    dispatching: false, listeners: new RootListeners(), unsubscribe: undefined,
+    handle: {
+      id: LAYER_ROOT_TAG,
+      testID: undefined,
+      getRect() { return readNodeRect(host, LAYER_ROOT_TAG); },
+    },
+  };
+  const onUncaughtError = (error: Error) => {
+    state.failure = error;
+    options.onError?.(error);
+  };
   const fiberRoot = reconciler.createContainer(
-    container, ConcurrentRoot, null, false, null, '', onUncaughtError, report, report, () => {},
+    state.main, ConcurrentRoot, null, false, null, '', onUncaughtError, report, report, () => {},
   );
+  const overlay = (): Container => {
+    state.overlay ??= { get root() { return state; }, layer: OVERLAY_LAYER, rootTags: [] };
+    return state.overlay;
+  };
 
   function checkFailure(): void {
-    if (container.failure !== undefined) {
-      const error = container.failure;
-      container.failure = undefined;
+    if (state.failure !== undefined) {
+      const error = state.failure;
+      state.failure = undefined;
       throw error;
     }
-  }
-
-  /** The first failure fails the caller once dispatch finishes; later ones are reported, never dropped. */
-  function recordFailure(error: Error): void {
-    if (container.failure === undefined) container.failure = error;
-    else report(error);
   }
 
   function processEvent(native: NativeEvent): void {
@@ -425,52 +375,53 @@ export function createRoot(host: NativeHost, options: RootOptions): UIRoot {
     updatePriority = native.type === 'pointermove' ? ContinuousEventPriority : DiscreteEventPriority;
     let result: DispatchResult;
     try {
-      result = dispatch(container, native);
+      result = dispatch(state, native);
     } finally {
       updatePriority = previousPriority;
     }
-    if (result.failure !== undefined) recordFailure(result.failure);
+    if (result.failure !== undefined) recordFailure(state, result.failure);
     if (native.cancelable) {
       // Native is blocked until this answer arrives, so it is sent even if a handler threw.
       try {
         resolveEvent(host, native.seq, result.defaultPrevented);
       } catch (error) {
-        recordFailure(error instanceof Error ? error : new Error(String(error)));
+        recordFailure(state, error instanceof Error ? error : new Error(String(error)));
       }
     }
     if (native.type !== 'pointermove') {
       try {
         reconciler.flushSyncWork();
       } catch (error) {
-        recordFailure(error instanceof Error ? error : new Error(String(error)));
+        recordFailure(state, error instanceof Error ? error : new Error(String(error)));
       }
     }
   }
 
   const root: UIRoot = {
     render(children) {
-      if (container.unmounted) throw new Error('Cannot render into an unmounted UI root');
-      const started = container.profiler.start();
-      reconciler.updateContainerSync(children, fiberRoot, null, null);
+      if (state.unmounted) throw new Error('Cannot render into an unmounted UI root');
+      const started = state.profiler.start();
+      const tree = createElement(OverlayContext.Provider, { value: overlay() }, children);
+      reconciler.updateContainerSync(tree, fiberRoot, null, null);
       reconciler.flushSyncWork();
-      container.profiler.finishWork('reconcile', started);
+      state.profiler.finishWork('reconcile', started);
       checkFailure();
     },
     unmount() {
-      if (container.unmounted) return;
+      if (state.unmounted) return;
       // Native must not call back into a root that is going away.
-      container.unsubscribe?.();
-      container.unsubscribe = undefined;
+      state.unsubscribe?.();
+      state.unsubscribe = undefined;
       reconciler.updateContainerSync(null, fiberRoot, null, null);
       reconciler.flushSyncWork();
       reconciler.flushPassiveEffects();
-      container.unmounted = true;
+      state.unmounted = true;
       checkFailure();
     },
     dispatchEvents() {
-      if (container.unmounted || container.dispatching) return;
-      container.dispatching = true;
-      const started = container.profiler.start();
+      if (state.unmounted || state.dispatching) return;
+      state.dispatching = true;
+      const started = state.profiler.start();
       let processed = 0;
       try {
         let drained = false;
@@ -485,38 +436,25 @@ export function createRoot(host: NativeHost, options: RootOptions): UIRoot {
         if (!drained) {
           throw new Error(`UI event drain still produced events after ${MAX_EVENT_DRAIN_ROUNDS} rounds`);
         }
-        if (processed !== 0) {
-          reconciler.flushSyncWork();
-          // Pseudo-state changes can affect paint without scheduling a React render.
-          container.flush();
-        }
+        if (processed !== 0) reconciler.flushSyncWork();
       } finally {
-        container.dispatching = false;
+        state.dispatching = false;
       }
-      if (processed !== 0) container.profiler.finishWork('events', started);
+      if (processed !== 0) state.profiler.finishWork('events', started);
       checkFailure();
     },
     addEventListener(type, listener) {
-      return container.listeners.add(type, listener);
-    },
-    refreshStyles(width = readSnapshot(host).width) {
-      if (container.unmounted) throw new Error('Cannot refresh an unmounted UI root');
-      if (!Number.isFinite(width) || width < 0) throw new Error('UI viewport width must be nonnegative');
-      container.width = width;
-      container.flush();
+      return state.listeners.add(type, listener);
     },
     getSnapshot: () => readSnapshot(host),
-    setProfiling(enabled) { container.profiler.enabled = enabled; },
-    takeProfile: () => container.profiler.take(),
+    setProfiling(enabled) { state.profiler.enabled = enabled; },
+    takeProfile: () => state.profiler.take(),
     findByTestID(testID) {
-      for (const [id, node] of container.committed) {
-        if (node.instance.props.testID === testID) {
-          return readSnapshot(host).nodes.find((entry) => entry.id === id);
-        }
-      }
-      return undefined;
+      const tag = findTag(host, testID);
+      if (tag === undefined) return undefined;
+      return readSnapshot(host).nodes.find((entry) => entry.id === tag);
     },
   };
-  container.unsubscribe = options.subscribeToEvents(() => root.dispatchEvents());
+  state.unsubscribe = options.subscribeToEvents(() => root.dispatchEvents());
   return root;
 }

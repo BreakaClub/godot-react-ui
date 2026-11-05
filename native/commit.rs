@@ -84,7 +84,6 @@ pub trait MountedTree {
 /// A payload that passed [`validate`]: props merged and checked, child lists final.
 #[derive(Debug)]
 pub struct ValidatedCommit {
-    pub layer: usize,
     pub created: Vec<Create>,
     /// Mounted nodes with their new, merged props.
     pub updated: Vec<Update>,
@@ -335,7 +334,6 @@ pub fn validate<M: MountedTree>(
         })
         .collect();
     Ok(ValidatedCommit {
-        layer,
         created,
         updated,
         lists,
@@ -631,7 +629,10 @@ mod tests {
         tree.apply(0, &plan(&second, &tree));
         assert_eq!(tree.nodes[&1].children, vec![2, 3, 5]);
         assert_eq!(tree.nodes[&2].props.text.as_deref(), Some("Renamed"));
-        assert_eq!(tree.nodes[&2].props.test_id, None, "the testID reset to its default");
+        assert_eq!(
+            tree.nodes[&2].props.test_id, None,
+            "the testID reset to its default"
+        );
         assert_eq!(tree.nodes[&3].props.disabled, None);
         assert_eq!(tree.nodes[&3].props.hidden, Some(true));
     }

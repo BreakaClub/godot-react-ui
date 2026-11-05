@@ -2,8 +2,9 @@
 //!
 //! JS drains the queue through `drain_events`. An event that native is waiting on (`awaited`) is
 //! marked `cancelable`: JS reports `preventDefault()` back through `resolve_event` before the
-//! `events_ready` signal returns (`docs/INTERACTION_PLAN.md` section 3.3). No Godot types appear
-//! here so the whole protocol can be unit tested.
+//! `events_ready` signal returns (`docs/INTERACTION_PLAN.md` section 3.3). Every event carries the
+//! propagation `path` native computed when it queued the event (plan 3.10 rule 8). No Godot types
+//! appear here so the whole protocol can be unit tested.
 use serde::Serialize;
 
 /// Monotonically increasing per root, starting at 1.
@@ -73,6 +74,12 @@ pub struct UiEvent {
     pub seq: EventSeq,
     /// 0 addresses root listeners only.
     pub target: u32,
+    /// The target and then its ancestors up to its layer's top-level node; empty for target 0.
+    pub path: Vec<u32>,
+    /// Enter and leave events only: the same path for `relatedTarget`, so JS can find the elements
+    /// the pointer actually crossed.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub related_path: Vec<u32>,
     /// True only while native is awaiting `resolve_event` for this `seq`.
     pub cancelable: bool,
     /// Milliseconds on the engine tick clock at queue time.
@@ -131,14 +138,33 @@ impl EventQueue {
     }
 
     /// Queue an event nobody waits for.
-    pub fn push(&mut self, target: u32, payload: EventPayload, time_stamp: f64) -> EventSeq {
-        self.enqueue(target, payload, time_stamp, false)
+    pub fn push(
+        &mut self,
+        target: u32,
+        path: Vec<u32>,
+        payload: EventPayload,
+        time_stamp: f64,
+    ) -> EventSeq {
+        self.enqueue(target, path, Vec::new(), payload, time_stamp, false)
+    }
+
+    /// Queue an enter or leave event that also names the path of the element on the other side.
+    pub fn push_crossing(
+        &mut self,
+        target: u32,
+        path: Vec<u32>,
+        related_path: Vec<u32>,
+        payload: EventPayload,
+        time_stamp: f64,
+    ) -> EventSeq {
+        self.enqueue(target, path, related_path, payload, time_stamp, false)
     }
 
     /// Queue an event whose outcome the caller will read with `take_outcome` after delivery.
     pub fn push_awaited(
         &mut self,
         target: u32,
+        path: Vec<u32>,
         payload: EventPayload,
         time_stamp: f64,
     ) -> EventSeq {
@@ -146,7 +172,7 @@ impl EventQueue {
             self.awaited.is_none(),
             "an awaited event is already pending; nested dispatch is queued as non-cancelable"
         );
-        let seq = self.enqueue(target, payload, time_stamp, true);
+        let seq = self.enqueue(target, path, Vec::new(), payload, time_stamp, true);
         self.awaited = Some(seq);
         self.outcome = None;
         seq
@@ -155,6 +181,8 @@ impl EventQueue {
     fn enqueue(
         &mut self,
         target: u32,
+        path: Vec<u32>,
+        related_path: Vec<u32>,
         payload: EventPayload,
         time_stamp: f64,
         cancelable: bool,
@@ -164,6 +192,8 @@ impl EventQueue {
         self.queued.push(UiEvent {
             seq,
             target,
+            path,
+            related_path,
             cancelable,
             time_stamp,
             payload,
@@ -251,9 +281,12 @@ mod tests {
     #[test]
     fn sequence_numbers_start_at_one_and_increase() {
         let mut queue = EventQueue::new();
-        assert_eq!(queue.push(1, EventPayload::Focus, STAMP), 1);
-        assert_eq!(queue.push(1, EventPayload::Blur, STAMP), 2);
-        assert_eq!(queue.push_awaited(2, EventPayload::Focus, STAMP), 3);
+        assert_eq!(queue.push(1, vec![1], EventPayload::Focus, STAMP), 1);
+        assert_eq!(queue.push(1, vec![1], EventPayload::Blur, STAMP), 2);
+        assert_eq!(
+            queue.push_awaited(2, vec![2], EventPayload::Focus, STAMP),
+            3
+        );
         let seqs: Vec<_> = queue.drain().iter().map(|event| event.seq).collect();
         assert_eq!(seqs, [1, 2, 3]);
         assert!(queue.is_empty());
@@ -262,8 +295,8 @@ mod tests {
     #[test]
     fn only_awaited_events_are_cancelable_and_only_while_awaited() {
         let mut queue = EventQueue::new();
-        queue.push(1, EventPayload::Focus, STAMP);
-        let seq = queue.push_awaited(2, EventPayload::PointerDown(pointer()), STAMP);
+        queue.push(1, vec![1], EventPayload::Focus, STAMP);
+        let seq = queue.push_awaited(2, vec![2], EventPayload::PointerDown(pointer()), STAMP);
         let drained = queue.drain();
         assert!(!drained[0].cancelable);
         assert!(drained[1].cancelable, "JS can answer the awaited event");
@@ -274,7 +307,7 @@ mod tests {
     #[test]
     fn an_awaited_event_nobody_drained_stops_being_cancelable() {
         let mut queue = EventQueue::new();
-        let seq = queue.push_awaited(2, EventPayload::PointerDown(pointer()), STAMP);
+        let seq = queue.push_awaited(2, vec![2], EventPayload::PointerDown(pointer()), STAMP);
         // No JS listener ran; the event is delivered later by the per-frame drain.
         assert_eq!(queue.take_outcome(seq), EventOutcome::default());
         let drained = queue.drain();
@@ -285,20 +318,20 @@ mod tests {
     #[test]
     fn resolving_an_event_that_is_not_awaited_is_an_error() {
         let mut queue = EventQueue::new();
-        let plain = queue.push(1, EventPayload::Focus, STAMP);
+        let plain = queue.push(1, vec![1], EventPayload::Focus, STAMP);
         assert_eq!(
             queue.resolve(plain, prevented()),
             Err("event 1 is not awaiting a result".to_string())
         );
         assert!(queue.resolve(99, prevented()).is_err());
-        let awaited = queue.push_awaited(2, EventPayload::Blur, STAMP);
+        let awaited = queue.push_awaited(2, vec![2], EventPayload::Blur, STAMP);
         assert!(queue.resolve(awaited + 1, prevented()).is_err());
     }
 
     #[test]
     fn resolving_twice_is_an_error_and_keeps_the_first_answer() {
         let mut queue = EventQueue::new();
-        let seq = queue.push_awaited(2, EventPayload::Focus, STAMP);
+        let seq = queue.push_awaited(2, vec![2], EventPayload::Focus, STAMP);
         assert!(queue.resolve(seq, prevented()).is_ok());
         assert_eq!(
             queue.resolve(seq, EventOutcome::default()),
@@ -310,14 +343,14 @@ mod tests {
     #[test]
     fn take_outcome_without_resolve_is_not_prevented_and_clears_the_wait() {
         let mut queue = EventQueue::new();
-        let seq = queue.push_awaited(2, EventPayload::Focus, STAMP);
+        let seq = queue.push_awaited(2, vec![2], EventPayload::Focus, STAMP);
         assert_eq!(queue.take_outcome(seq), EventOutcome::default());
         assert!(
             queue.resolve(seq, prevented()).is_err(),
             "no longer awaited"
         );
         // A new awaited event may start once the previous wait ended.
-        let next = queue.push_awaited(2, EventPayload::Blur, STAMP);
+        let next = queue.push_awaited(2, vec![2], EventPayload::Blur, STAMP);
         assert_eq!(next, 2);
     }
 
@@ -325,17 +358,17 @@ mod tests {
     #[should_panic(expected = "an awaited event is already pending")]
     fn two_events_cannot_be_awaited_at_once() {
         let mut queue = EventQueue::new();
-        queue.push_awaited(1, EventPayload::Focus, STAMP);
-        queue.push_awaited(1, EventPayload::Blur, STAMP);
+        queue.push_awaited(1, vec![1], EventPayload::Focus, STAMP);
+        queue.push_awaited(1, vec![1], EventPayload::Blur, STAMP);
     }
 
     #[test]
     fn retain_keeps_only_matching_payloads() {
         let mut queue = EventQueue::new();
-        queue.push(1, EventPayload::Focus, STAMP);
-        queue.push(1, EventPayload::Blur, STAMP);
-        queue.push(1, EventPayload::PointerLeave(pointer()), STAMP);
-        queue.push(1, EventPayload::Click(pointer()), STAMP);
+        queue.push(1, vec![1], EventPayload::Focus, STAMP);
+        queue.push(1, vec![1], EventPayload::Blur, STAMP);
+        queue.push(1, vec![1], EventPayload::PointerLeave(pointer()), STAMP);
+        queue.push(1, vec![1], EventPayload::Click(pointer()), STAMP);
         queue.retain(|payload| {
             matches!(payload, EventPayload::Blur | EventPayload::PointerLeave(_))
         });
@@ -365,7 +398,7 @@ mod tests {
         data: &PointerData,
     ) -> Value {
         json!({
-            "seq": seq, "target": target, "cancelable": cancelable, "timeStamp": STAMP,
+            "seq": seq, "target": target, "path": [target], "cancelable": cancelable, "timeStamp": STAMP,
             "type": kind,
             "x": data.x, "y": data.y, "viewportX": data.viewport_x, "viewportY": data.viewport_y,
             "pointerId": data.pointer_id, "pointerType": "mouse", "button": data.button,
@@ -387,28 +420,41 @@ mod tests {
             related_target: Some(7),
             ..moved
         };
-        queue.push_awaited(5, EventPayload::PointerDown(data), STAMP);
-        queue.push(5, EventPayload::PointerMove(moved), STAMP);
-        queue.push(5, EventPayload::PointerUp(data), STAMP);
-        queue.push(5, EventPayload::PointerEnter(entered), STAMP);
-        queue.push(5, EventPayload::PointerLeave(moved), STAMP);
-        queue.push(5, EventPayload::Click(data), STAMP);
-        queue.push(6, EventPayload::Focus, STAMP);
-        queue.push(6, EventPayload::Blur, STAMP);
+        queue.push_awaited(5, vec![5], EventPayload::PointerDown(data), STAMP);
+        queue.push(5, vec![5], EventPayload::PointerMove(moved), STAMP);
+        queue.push(5, vec![5], EventPayload::PointerUp(data), STAMP);
+        queue.push_crossing(
+            5,
+            vec![5],
+            vec![7, 1],
+            EventPayload::PointerEnter(entered),
+            STAMP,
+        );
+        queue.push(5, vec![5], EventPayload::PointerLeave(moved), STAMP);
+        queue.push(5, vec![5], EventPayload::Click(data), STAMP);
+        queue.push(6, vec![6], EventPayload::Focus, STAMP);
+        queue.push(6, vec![6], EventPayload::Blur, STAMP);
         let events: Vec<Value> = queue.drain().iter().map(wire).collect();
+        let mut entered_wire = pointer_wire("pointerenter", false, 4, 5, &entered);
+        entered_wire["relatedPath"] = json!([7, 1]);
         let expected = [
             pointer_wire("pointerdown", true, 1, 5, &data),
             pointer_wire("pointermove", false, 2, 5, &moved),
             pointer_wire("pointerup", false, 3, 5, &data),
-            pointer_wire("pointerenter", false, 4, 5, &entered),
+            entered_wire,
             pointer_wire("pointerleave", false, 5, 5, &moved),
             pointer_wire("click", false, 6, 5, &data),
-            json!({"seq": 7, "target": 6, "cancelable": false, "timeStamp": STAMP, "type": "focus"}),
-            json!({"seq": 8, "target": 6, "cancelable": false, "timeStamp": STAMP, "type": "blur"}),
+            json!({"seq": 7, "target": 6, "path": [6], "cancelable": false, "timeStamp": STAMP, "type": "focus"}),
+            json!({"seq": 8, "target": 6, "path": [6], "cancelable": false, "timeStamp": STAMP, "type": "blur"}),
         ];
         assert_eq!(events, expected);
         assert_eq!(events[3]["relatedTarget"], json!(7));
+        assert_eq!(events[3]["relatedPath"], json!([7, 1]));
         assert_eq!(events[4]["relatedTarget"], Value::Null);
+        assert!(
+            events[4].get("relatedPath").is_none(),
+            "only crossing events name the other side's path"
+        );
     }
 
     #[test]
@@ -420,7 +466,7 @@ mod tests {
             ..pointer()
         };
         let mut queue = EventQueue::new();
-        queue.push(3, EventPayload::Click(data), STAMP);
+        queue.push(3, vec![3], EventPayload::Click(data), STAMP);
         let event = wire(&queue.drain()[0]);
         assert_eq!(event["pointerType"], json!(""));
         assert_eq!(event["pointerId"], json!(0));

@@ -698,7 +698,7 @@ async function runBenchmarks(dpr) {
         if (mode === 'paint') check(`${name} avoids layout for paint-only updates`, after.layoutPasses === before.layoutPasses);
         else check(`${name} executes native layout for content/size changes`, after.layoutPasses > before.layoutPasses);
         for (const sample of flushes) {
-          for (const key of ['styleDiffMs', 'jsonEncodeMs', 'nativeCallMs', 'fullFlushMs']) {
+          for (const key of ['walkMs', 'jsonEncodeMs', 'nativeCallMs', 'fullFlushMs']) {
             assert.ok(Number.isFinite(sample[key]) && sample[key] >= 0, `Missing measured JS stage ${key}`);
           }
         }

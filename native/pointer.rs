@@ -2,7 +2,7 @@
 use godot::global::MouseButtonMask;
 use godot::obj::EngineBitfield;
 
-use crate::protocol::{Kind, Model};
+use crate::props::Kind;
 
 /// Chrome reports the mouse as pointer 1. Pointer 0 is reserved for synthetic keyboard activation,
 /// as in browsers.
@@ -36,55 +36,83 @@ pub(crate) fn dom_buttons(mask: MouseButtonMask) -> u16 {
     .fold(0, |buttons, (_, dom)| buttons | dom)
 }
 
-/// Find the nearest button while checking the whole ancestor chain for disabling.
-/// Pointer IDs refer to the actual painted leaf; button activation has its own owner.
-pub(crate) fn enabled_button_ancestor(model: &Model, mut id: u32) -> Option<u32> {
-    let mut button = None;
-    loop {
-        let node = &model.nodes[&id];
-        if node.style.disabled == Some(true) {
-            return None;
-        }
-        if button.is_none() && node.kind == Kind::Button {
-            button = Some(id);
-        }
-        match node.parent {
-            Some(parent) => id = parent,
-            None => return button,
-        }
-    }
+/// What the pointer-to-button activation rules need to know about the mounted tree.
+pub(crate) trait ButtonTree {
+    fn kind_of(&self, tag: u32) -> Option<Kind>;
+    /// The parent element, or `None` for a layer's top-level node (or an unmounted tag).
+    fn parent_of(&self, tag: u32) -> Option<u32>;
+    /// Whether the node itself has the `disabled` prop.
+    fn disabled_prop(&self, tag: u32) -> bool;
 }
 
-pub(crate) fn shared_button_target(model: &Model, pressed: u32, released: u32) -> Option<u32> {
-    let button = enabled_button_ancestor(model, pressed)?;
-    (enabled_button_ancestor(model, released) == Some(button)).then_some(button)
+/// Find the nearest button while checking the whole ancestor chain for disabling. Pointer IDs refer
+/// to the actual painted leaf; button activation has its own owner. `None` for an unmounted tag.
+pub(crate) fn enabled_button_ancestor<T: ButtonTree>(tree: &T, tag: u32) -> Option<u32> {
+    tree.kind_of(tag)?;
+    let mut button = None;
+    let mut current = Some(tag);
+    while let Some(node) = current {
+        if tree.disabled_prop(node) {
+            return None;
+        }
+        if button.is_none() && tree.kind_of(node) == Some(Kind::Button) {
+            button = Some(node);
+        }
+        current = tree.parent_of(node);
+    }
+    button
+}
+
+pub(crate) fn shared_button_target<T: ButtonTree>(
+    tree: &T,
+    pressed: u32,
+    released: u32,
+) -> Option<u32> {
+    let button = enabled_button_ancestor(tree, pressed)?;
+    (enabled_button_ancestor(tree, released) == Some(button)).then_some(button)
 }
 
 #[cfg(test)]
 mod input_tests {
     use super::*;
-    use crate::protocol::Command;
+    use std::collections::BTreeMap;
 
-    fn buttons() -> Model {
-        let commands: Vec<Command> = serde_json::from_str(
-            r#"[
-            {"op":"create","id":1,"kind":"button"},
-            {"op":"create","id":2,"kind":"text"},
-            {"op":"create","id":3,"kind":"view"},
-            {"op":"create","id":4,"kind":"text"},
-            {"op":"create","id":5,"kind":"button"},
-            {"op":"create","id":6,"kind":"text"},
-            {"op":"create","id":7,"kind":"view"},
-            {"op":"children","id":3,"children":[4]},
-            {"op":"children","id":1,"children":[2,3]},
-            {"op":"children","id":5,"children":[6]},
-            {"op":"children","id":0,"children":[1,5,7]}
-        ]"#,
-        )
-        .expect("valid input fixture");
-        let mut model = Model::default();
-        model.apply(&commands).expect("valid button hierarchy");
-        model
+    struct TestNode {
+        kind: Kind,
+        parent: Option<u32>,
+        disabled: bool,
+    }
+
+    struct TestTree(BTreeMap<u32, TestNode>);
+
+    impl ButtonTree for TestTree {
+        fn kind_of(&self, tag: u32) -> Option<Kind> {
+            self.0.get(&tag).map(|node| node.kind)
+        }
+        fn parent_of(&self, tag: u32) -> Option<u32> {
+            self.0.get(&tag).and_then(|node| node.parent)
+        }
+        fn disabled_prop(&self, tag: u32) -> bool {
+            self.0.get(&tag).is_some_and(|node| node.disabled)
+        }
+    }
+
+    /// 1 button > (2 text, 3 view > 4 text); 5 button > 6 text; 7 view.
+    fn buttons() -> TestTree {
+        let node = |kind, parent| TestNode {
+            kind,
+            parent,
+            disabled: false,
+        };
+        TestTree(BTreeMap::from([
+            (1, node(Kind::Button, None)),
+            (2, node(Kind::Text, Some(1))),
+            (3, node(Kind::View, Some(1))),
+            (4, node(Kind::Text, Some(3))),
+            (5, node(Kind::Button, None)),
+            (6, node(Kind::Text, Some(5))),
+            (7, node(Kind::View, None)),
+        ]))
     }
 
     #[test]
@@ -101,32 +129,34 @@ mod input_tests {
 
     #[test]
     fn padding_and_descendants_activate_their_shared_button() {
-        let model = buttons();
-        assert_eq!(shared_button_target(&model, 1, 2), Some(1));
-        assert_eq!(shared_button_target(&model, 2, 1), Some(1));
-        assert_eq!(shared_button_target(&model, 2, 4), Some(1));
+        let tree = buttons();
+        assert_eq!(shared_button_target(&tree, 1, 2), Some(1));
+        assert_eq!(shared_button_target(&tree, 2, 1), Some(1));
+        assert_eq!(shared_button_target(&tree, 2, 4), Some(1));
     }
 
     #[test]
     fn crossing_buttons_or_releasing_outside_does_not_activate() {
-        let model = buttons();
-        assert_eq!(shared_button_target(&model, 1, 5), None);
-        assert_eq!(shared_button_target(&model, 2, 6), None);
-        assert_eq!(shared_button_target(&model, 2, 7), None);
+        let tree = buttons();
+        assert_eq!(shared_button_target(&tree, 1, 5), None);
+        assert_eq!(shared_button_target(&tree, 2, 6), None);
+        assert_eq!(shared_button_target(&tree, 2, 7), None);
     }
 
     #[test]
     fn disabled_button_or_ancestor_cannot_activate() {
-        let mut model = buttons();
-        let commands: Vec<Command> =
-            serde_json::from_str(r#"[{"op":"style","id":1,"style":{"disabled":true}}]"#)
-                .expect("valid disabled style");
-        model.apply(&commands).expect("valid disabled button");
-        assert_eq!(shared_button_target(&model, 1, 2), None);
-        let commands: Vec<Command> =
-            serde_json::from_str(r#"[{"op":"style","id":0,"style":{"disabled":true}}]"#)
-                .expect("valid disabled ancestor");
-        model.apply(&commands).expect("valid disabled root");
-        assert_eq!(shared_button_target(&model, 5, 6), None);
+        let mut tree = buttons();
+        tree.0.get_mut(&1).unwrap().disabled = true;
+        assert_eq!(shared_button_target(&tree, 1, 2), None);
+        tree.0.get_mut(&5).unwrap().parent = Some(7);
+        tree.0.get_mut(&7).unwrap().disabled = true;
+        assert_eq!(shared_button_target(&tree, 5, 6), None);
+    }
+
+    #[test]
+    fn an_unmounted_tag_has_no_button() {
+        let tree = buttons();
+        assert_eq!(enabled_button_ancestor(&tree, 99), None);
+        assert_eq!(shared_button_target(&tree, 1, 99), None);
     }
 }

@@ -1,5 +1,5 @@
 import {
-  DirAccess, FileAccess, GError, Input, InputEventMouseButton, InputEventMouseMotion,
+  DirAccess, Engine, FileAccess, GError, Input, InputEventMouseButton, InputEventMouseMotion,
   MouseButton, Node, OS, RenderingServer, Vector2,
 } from 'godot';
 import type { LayoutRect, NativeSnapshot, NativeSnapshotNode } from '../../src/native';
@@ -37,6 +37,8 @@ interface Observation {
 }
 
 const POLL_MS = 20;
+const SETTLE_MS = 100;
+const MIN_SETTLE_FRAMES = 2;
 const STAGE_DEADLINE_MS = 15_000;
 const RUN_DEADLINE_MS = 120_000;
 const FLOW_GAP = 12;
@@ -325,6 +327,13 @@ export async function runMotionVerification(owner: Node, api: MotionInspection):
   }
 
   await until('initial app', () => api.find('tab-motion') !== undefined);
+  // The window system activates and deactivates a fresh window around its first frames. A press that
+  // straddles that focus change loses its release (Godot drops mouse focus on window focus-out and
+  // its synthetic release skips `_gui_input`), so the first input waits for the window to settle,
+  // as the other verifiers do. Measured: focus-out arrived 33 ms after the first press.
+  const startFrame = Engine.getProcessFrames();
+  await new Promise<void>(resolve => setTimeout(resolve, SETTLE_MS));
+  while (Engine.getProcessFrames() - startFrame < MIN_SETTLE_FRAMES) await tick();
   await click('tab-motion');
   await until('motion lab', () => api.find('motion-clip') !== undefined);
   await settled('initial motion state');

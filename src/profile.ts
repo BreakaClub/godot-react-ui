@@ -1,12 +1,19 @@
-/** Optional diagnostic timings. Every duration is CPU wall time, not GPU/display time. */
+/**
+ * Optional diagnostic timings. Every duration is CPU wall time, not GPU/display time. A `flush`
+ * sample is one commit of one layer: the commit walk, the JSON encoding and the synchronous native
+ * `commit` call.
+ */
 export interface FlushSample {
   kind: 'flush';
   startMs: number;
-  styleDiffMs: number;
+  /** The commit walk: finding what changed by instance identity. */
+  walkMs: number;
   jsonEncodeMs: number;
   nativeCallMs: number;
   fullFlushMs: number;
+  /** Instances the walk entered (not skipped whole by identity). */
   visitedNodes: number;
+  /** Payload entries: created nodes, prop diffs and changed child lists. */
   commandCount: number;
   /** UTF-16 string length; this is deliberately not labelled wire bytes. */
   jsonChars: number;

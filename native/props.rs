@@ -645,7 +645,9 @@ impl PropsSpec {
 }
 
 /// Parse a JSON props diff and merge it over `previous`, validating the result for `kind`. This is
-/// the one-step form of what a commit payload does for each updated node.
+/// the one-step form of what a commit payload does for each updated node (`commit::validate`
+/// parses the whole payload at once), kept for tests.
+#[cfg(test)]
 pub fn merge_diff(previous: &PropsSpec, kind: Kind, diff_json: &str) -> Result<PropsSpec, String> {
     let diff: PropsDiff =
         serde_json::from_str(diff_json).map_err(|error| format!("invalid props diff: {error}"))?;

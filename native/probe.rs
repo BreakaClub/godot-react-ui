@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicI64, Ordering};
 
 use godot::prelude::*;
 
-use crate::protocol::StyleSpec;
+use crate::props::StyleSpec;
 
 /// Size of the heap allocation each probe handle owns, standing in for a shadow node's data
 /// (`PROBE_PAYLOAD_BYTES` in the plan's Appendix A).

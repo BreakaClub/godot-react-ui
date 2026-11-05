@@ -1,7 +1,8 @@
 # Fabric renderer and interaction plan
 
-Status: plan v2.1, 6 November 2026. Done: Phase 0 (`9f4a02c`), Phase 1 (`0d11607`), Phase F0
-(`4f7dd0d`), Phase F1 (`ce99bea`). Next: Phase F2.
+Status: plan v2.2, 6 November 2026. Done: Phase 0 (`9f4a02c`), Phase 1 (`0d11607`), Phase F0
+(`4f7dd0d`), Phase F1 (`ce99bea`), Phase F2 (`578b461`). Next: Phase F4 (Phase F3, the cut-over, is
+landing with this revision).
 
 v1 of this plan (`7f0a96c`) was rejected because it built every interaction feature on the
 prototype's commit path, which re-walks and re-sends the whole tree on every change. v2 replaces
@@ -32,6 +33,40 @@ not a reason to wait.
   memory attached, needs no native call during render, and keeps every Fabric property that matters:
   immutable instances, structural sharing, identity-skipping diff, one synchronous native commit
   carrying only changed nodes, native mounting, layout, style resolution and state.
+
+- **D3 (F3)**: a style the motion engine cannot animate (a pixel/percentage mix, an intrinsic
+  transition on a growing or shrinking flex main axis) is rejected by `commit` **before anything is
+  mounted**: `commit` resolves the computed styles the payload would produce in a dry run
+  (`restyle` over a `StyleOverlay` of the validated payload) and checks every transitioning node, then
+  reuses those computed styles when it mounts. A style change native itself causes (hover, focus,
+  active, a breakpoint) cannot be rejected, so it is applied without animation and an `ERROR` line names
+  the node. Evidence: README documented the v1 rejection; invariant 4 forbids a half-applied commit; the
+  only alternative (apply, then fail) would leave JS and native disagreeing about the tree.
+- **D4 (F3)**: `replaceContainerChildren` records a rejected commit in the root's failure slot and
+  returns, instead of throwing. React wraps the call in `captureCommitPhaseError`
+  (`react-reconciler.development.js:11360-11380, 12350-12365`), which with no error boundary unmounts the
+  whole tree; the v1 behaviour (previous tree stays, the error surfaces at `render()` /
+  `dispatchEvents()`, the next commit recovers by diffing from the last accepted state) is what the
+  renderer tests and the plan's "existing `container.failure` path" mean.
+- **D5 (F3)**: enter and leave events carry `relatedPath` (the other side's path) next to `path`, and
+  JS computes the crossed elements from the two tag paths. The plan gave events only `path`, but a
+  pointer crossing needs the common ancestor, and JS no longer has parent links.
+- **D6 (F3)**: native cancels a press that is in flight when the window loses OS focus
+  (`NOTIFICATION_WM_WINDOW_FOCUS_OUT`). Evidence: a 40 % flake of `verify:motion` was traced to
+  focus-out arriving 33 ms after the first press; Godot's `_drop_mouse_focus` sends the control a
+  synthetic release with `DEVICE_ID_INTERNAL`, which `Control::_call_gui_input` never forwards to
+  `_gui_input` (`scene/gui/control.cpp:2530-2540`), so `pressed` stayed set forever. (The verifier now also
+  waits for the window to settle before its first input, as the others do.)
+- **D7 (F3)**: every path that changes what is drawn ends in a paint pass, whether or not a style
+  changed. Two paths did not: a commit that only reorders or removes children (no created or updated
+  node, so no computed style changed and `publish_style_changes` returned before the layout flush), and
+  `set_focus` onto an element whose style has no `:focus` rule (no restyle, so the focus ring was not
+  redrawn until an unrelated paint). Evidence: raster comparison with the Phase 1 build found the pressed
+  button without its ring and the reordered cards in their old positions (13,672 pixels), with the
+  snapshot's child list already reversed; the progress log's "Defects found" records the chain that
+  proved each cause and the negative controls. Fix: `publish_commit(changes, structure_changed)` and a
+  `paint_pass()` at the end of `set_focus`; a regression assertion for each in `verify.ts`
+  (and `verify-web.mjs`).
 
 The plan is written so an implementer can execute it phase by phase without re-deciding the
 architecture. Where it says **must**, it is a contract. Where it says *suggested*, use judgement and
@@ -315,6 +350,12 @@ a commit see the new layout (as in Fabric's synchronous commits).
 Outside commits, native-only changes (hover/focus state, viewport resize, scroll, transitions, text
 editing) enter the same pipeline at **Style resolution** or **Geometry** without any JS involvement.
 
+Two rules keep the later stages from being skipped (D7). A commit that changes a child list runs
+Layout, Geometry and Paint even when no computed style changed (a keyed reorder, a removal). And a
+native change that restyles nothing but changes what is drawn still requests Paint: the focus ring is
+drawn by the paint pass from `focused`, not from any style, so moving focus to an element with no
+`:focus` rule must end in a pass.
+
 ### 3.4 Shadow tree and commit payload (decision D2)
 
 The persistent shadow tree is the tree of JS `Instance` objects (3.9). Native holds no shadow nodes;
@@ -385,7 +426,8 @@ pub fn plan(validated: &ValidatedCommit, mounted: &impl MountedTree) -> Mounting
   `userSelect`, `selectionColor`, `caretColor`, `placeholderColor`, `scrollbarColor`,
   `interpolateSize` (today resolved by walking ancestors, `effective_interpolate_size`).
 - **State semantics** (CSS): `hover` and `active` apply to the target and all its ancestors (mouse
-  hover only; 3.12); `focus` and `focusVisible` apply to the focused element only; `focusWithin`
+  hover only; 3.12); a mouse press stays `active` only while the pointer is inside it (the intersection of
+  the pressed element's chain and the hover chain), a key press until the key is released; `focus` and `focusVisible` apply to the focused element only; `focusWithin`
   applies to the focused element and its ancestors; `disabled` is the node's own `disabled` prop.
   Today's JS sets `focus` on every ancestor of the focused element; v2 moves that behaviour to the new
   `focus-within:` variant. Record any existing demo or verifier that relied on the old behaviour and
@@ -479,7 +521,7 @@ box        transform = location relative to paint parent; modulate alpha = opaci
 null)` and, when children changed, appends them again with `appendInitialChild` (lines 9940-9970);
 `updateHostContainer` builds a child set with `createContainerChildSet`/`appendChildToContainerChildSet`
 and calls `finalizeContainerChildren` (lines 9930-9939); the commit calls `replaceContainerChildren`
-for the root and for portals (lines 11370-11380, 12350-12365); a changed host text gets a brand-new
+for the root and for portals inside `captureCommitPhaseError` (lines 11370-11380, 12350-12365); a changed host text gets a brand-new
 text instance (lines 10282-10300), which is why text travels as a prop instead.
 
 ```ts
@@ -506,7 +548,7 @@ No host config method calls native during render.
 | `cloneHiddenTextInstance` | unreachable (no text instances); throw |
 | `createContainerChildSet` / `appendChildToContainerChildSet` | a plain array of instances |
 | `finalizeContainerChildren` | nothing |
-| `replaceContainerChildren(container, set)` | run the commit walk, call `commit(container.layer, JSON.stringify(payload))`, throw its error if any, then apply the walk's map updates and native deletions |
+| `replaceContainerChildren(container, set)` | run the commit walk, call `commit(container.layer, JSON.stringify(payload))`, record its error in the root's failure slot if any (D4: throwing here would make React unmount the tree), then apply the walk's map updates and native deletions |
 | `getPublicInstance` | the per-tag public handle (stable across clones) |
 | `cloneMutableInstance`, `cloneMutableTextInstance` | read where 0.33 calls them (`react-reconciler.development.js:16979-16984`); implement if reachable with our configuration, else record why not |
 
@@ -520,7 +562,7 @@ is compared with `previousRootTags` (entry tag 0). Persistent mode clones every 
 node, so the walk visits only changed paths. `updates` (new `committedByTag` entries) is applied only
 after `commit` succeeds; `take_commit_deletions()` then gives the tags to drop from `committedByTag` and
 the public-handle map. Event dispatch and public handles read `committedByTag`; nothing reads React
-fibers. A rejected commit throws at the React commit boundary (the existing `container.failure` path).
+fibers. A rejected commit is recorded in the root's failure slot and thrown at the public API boundary (`render()`, `unmount()`, `dispatchEvents()`), after React finishes its bookkeeping (D4).
 
 **Removed.** `flush()`, the `committed` style-key map, the `Container`/`Instance` parent links,
 `applyBatch`, `refreshStyles` (breakpoints are native), and JS pseudo-state flags. `findByTestID`
@@ -551,8 +593,8 @@ Rules (all **must**):
 7. The drain loop is bounded (`MAX_EVENT_DRAIN_ROUNDS`).
 8. **Propagation path from native.** Each event carries `path`: the tags from the target up to its
    layer's top-level node. JS resolves each tag through `committedByTag` and dispatches capture
-   (outermost first), then bubble (target first), then root listeners. Pseudo-states are native, so
-   JS no longer tracks hover/active/focus flags.
+   (outermost first), then bubble (target first), then root listeners. Enter and leave events also
+   carry `relatedPath` (D5). Pseudo-states are native, so JS no longer tracks hover/active/focus flags.
 9. Events stay JSON strings from `drain_events()` (small, already validated by `src/native.ts`;
    measured above).
 
@@ -858,7 +900,7 @@ Variants in `styles.ts`: `sm: md: lg: xl: 2xl:` (unchanged thresholds), `hover:`
 ### 4.3 Events
 
 Phase 1's `native/events.rs` types, plus `path: Vec<u32>` on every event (target to top-level
-ancestor; empty for target `0`). Event table:
+ancestor; empty for target `0`) and `relatedPath` on enter and leave events. Event table:
 
 | `type` | Payload (P = `PointerData`) | Bubbles (JS) | Cancelable | Handler props | Native default action | Phase |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -911,9 +953,11 @@ Event methods (Phase 1): `#[signal] events_ready()`, `drain_events() -> GString`
 `get_snapshot` keeps every field the existing verifiers read (per-node `id` (= tag), `kind`, `text`,
 `parent`, `children`, `rect`, `clipRect`, `presentation`, `style`; `stats`, `width`, `height`,
 `hovered`, `focused`, `pressed`, `clockMs`, `transitions`), where `style` is now the node's
-**computed** style, and adds `props`, `layer`, `paintIndex`, `documentIndex`, `pointers`,
-`focusVisible`, per-node `scroll`, `selection`, per-input `textInput`, `drag`, and commit counters
-(`commits`, `nodesCreated`, `nodesCloned`, `mutations`, `boxRecords`, `contentRecords`). If an existing
+**computed** style (so `disabled`, a prop since F3, is read from `props`), and adds `props`, `layer`,
+`focusVisible` and the commit counters in `stats` (`commits` (= `batches`), `nodesCreated`,
+`nodesUpdated` (native cannot count JS clones), `nodesDeleted`, `mutations`, `boxRecords`,
+`contentRecords`); `paintIndex`, `documentIndex`, `pointers`, per-node `scroll`, `selection`,
+per-input `textInput` and `drag` arrive with their phases. Node `0` stands for the main layer's root. If an existing
 verifier reads a field whose meaning must change, update the verifier only to read the equivalent
 field and record why.
 

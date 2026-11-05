@@ -1,13 +1,30 @@
+import type { CommitPayload } from './commit';
 import type { NativeKind } from './props';
-import type { Style, TransitionProperty } from './types';
+import type { TransitionProperty } from './types';
 
 export type { NativeKind } from './props';
 
-/** The ClassDB-facing API. Structural typing also permits recording transports in tests. */
+/** A Godot `PackedInt64Array`, as much of it as the renderer reads. */
+export interface PackedTags {
+  size(): number;
+  get(index: number): number;
+}
+
+/** The ClassDB-facing API. Structural typing also permits fake hosts in tests. */
 export interface NativeHost {
-  applyBatch(json: string): string;
+  /**
+   * Apply one layer's commit payload (a JSON string, plan 4.1). An empty string means success;
+   * anything else says why nothing changed.
+   */
+  commit(layer: number, payloadJson: string): string;
+  /** The tags the last successful `commit` deleted. */
+  takeCommitDeletions(): PackedTags;
   drainEvents(): string;
   getSnapshot(): string;
+  /** The root-local rectangle of a node as JSON, or `null`. */
+  getNodeRect(tag: number): string;
+  /** The tag of the first node created with `testId`, or -1. */
+  findByTestId(testId: string): number;
   /**
    * Answer the one event native is awaiting (`cancelable: true`). An empty string means success.
    * `dropEffect` is '' (not set), 'none', 'copy', 'move' or 'link'.
@@ -31,6 +48,12 @@ export interface NativeActivity {
   clockMs: number;
   drawSerial: number;
   nodeCount: number;
+  /** Commit counters (plan 4.5): what the mounting and render layers did, cumulatively. */
+  mutations: number;
+  nodesUpdated: number;
+  nodesRestyled: number;
+  boxRecords: number;
+  contentRecords: number;
 }
 
 export interface NativeTransition {
@@ -53,13 +76,6 @@ export interface NativeProfile {
   counters: NativeActivity;
 }
 
-export type NativeCommand =
-  | { op: 'create'; id: number; kind: NativeKind }
-  | { op: 'style'; id: number; style: Style }
-  | { op: 'text'; id: number; text: string }
-  | { op: 'children'; id: number; children: number[] }
-  | { op: 'remove'; id: number };
-
 export type NativePointerEventType =
   | 'pointerdown' | 'pointerup' | 'pointermove' | 'pointerenter' | 'pointerleave' | 'click';
 export type NativeFocusEventType = 'focus' | 'blur';
@@ -73,6 +89,8 @@ interface NativeEventBase {
   seq: number;
   /** 0 addresses root listeners only. */
   target: number;
+  /** The target and then its ancestors up to its layer's top-level node; empty for target 0. */
+  path: number[];
   /** True only while native is blocked waiting for `resolveEvent(seq, ...)`. */
   cancelable: boolean;
   /** Milliseconds on the engine tick clock when native queued the event. */
@@ -97,6 +115,8 @@ export interface NativePointerEvent extends NativeEventBase {
   detail: number;
   /** Enter and leave events: the element left towards or entered from. */
   relatedTarget: number | null;
+  /** Enter and leave events: `relatedTarget`'s path (empty if none). */
+  relatedPath: number[];
   shiftKey: boolean;
   ctrlKey: boolean;
   altKey: boolean;
@@ -119,13 +139,18 @@ export interface LayoutRect {
 export interface NativeSnapshotNode {
   id: number;
   kind: NativeKind;
+  /** 0 is the main layer, 1 the overlay layer. */
+  layer: number;
   text: string;
   parent: number | null;
   children: number[];
   rect: LayoutRect;
   clipRect: LayoutRect | null;
   presentation: { width: number; height: number; widthIsAuto: boolean; heightIsAuto: boolean; opacity: number; backgroundColor: string };
+  /** The node's computed style: inherited values, then every style layer that applies. */
   style: Record<string, unknown>;
+  /** The native props the node was last given (`style` as compiled layers, `text`, `disabled`, ...). */
+  props: Record<string, unknown>;
 }
 
 export interface NativeSnapshot {
@@ -134,10 +159,21 @@ export interface NativeSnapshot {
   nodes: NativeSnapshotNode[];
   stats: {
     layoutPasses: number;
+    /** Successful commits. */
     batches: number;
     nodeCount: number;
     paintPasses: number;
     layoutMicros: number;
+    nodesCreated: number;
+    nodesUpdated: number;
+    nodesDeleted: number;
+    /** Nodes whose computed style changed and was published (commit, hover, press, focus, breakpoint). */
+    nodesRestyled: number;
+    /** Removes, deletes, creates, updates and inserts the mounting layer applied. */
+    mutations: number;
+    /** Canvas-item command lists re-recorded: boxes (background, border) and contents (text). */
+    boxRecords: number;
+    contentRecords: number;
   };
   width: number;
   height: number;
@@ -221,6 +257,10 @@ function nonnegativeInteger(value: unknown, label: string): number {
   return result;
 }
 
+function idList(value: unknown, label: string): number[] {
+  return array(value, label).map((entry) => id(entry, label));
+}
+
 function pointerEvent(type: NativePointerEventType, base: NativeEventBase, event: Record<string, unknown>): NativePointerEvent {
   return {
     ...base, type,
@@ -232,6 +272,7 @@ function pointerEvent(type: NativePointerEventType, base: NativeEventBase, event
     buttons: nonnegativeInteger(event.buttons, 'event.buttons'),
     detail: nonnegativeInteger(event.detail, 'event.detail'),
     relatedTarget: optionalId(event.relatedTarget, 'event.relatedTarget'),
+    relatedPath: event.relatedPath === undefined ? [] : idList(event.relatedPath, 'event.relatedPath'),
     shiftKey: boolean(event.shiftKey, 'event.shiftKey'), ctrlKey: boolean(event.ctrlKey, 'event.ctrlKey'),
     altKey: boolean(event.altKey, 'event.altKey'), metaKey: boolean(event.metaKey, 'event.metaKey'),
   };
@@ -242,6 +283,7 @@ function nativeEvent(entry: unknown): NativeEvent {
   const base: NativeEventBase = {
     seq: nonnegativeInteger(event.seq, 'event.seq'),
     target: id(event.target, 'event.target'),
+    path: idList(event.path, 'event.path'),
     cancelable: boolean(event.cancelable, 'event.cancelable'),
     timeStamp: number(event.timeStamp, 'event.timeStamp'),
   };
@@ -290,6 +332,11 @@ function parseActivity(value: unknown): NativeActivity {
     clockMs: number(activity.clockMs, 'clockMs'),
     drawSerial: number(activity.drawSerial, 'drawSerial'),
     nodeCount: number(activity.nodeCount, 'nodeCount'),
+    mutations: number(activity.mutations, 'mutations'),
+    nodesUpdated: number(activity.nodesUpdated, 'nodesUpdated'),
+    nodesRestyled: number(activity.nodesRestyled, 'nodesRestyled'),
+    boxRecords: number(activity.boxRecords, 'boxRecords'),
+    contentRecords: number(activity.contentRecords, 'contentRecords'),
   };
 }
 
@@ -343,6 +390,7 @@ export function readSnapshot(host: NativeHost): NativeSnapshot {
       return {
         id: id(node.id, 'node.id'),
         kind: kind(node.kind),
+        layer: nonnegativeInteger(node.layer, 'node.layer'),
         text: string(node.text, 'node.text'),
         parent: optionalId(node.parent, 'node.parent'),
         children: array(node.children, 'node.children').map((child) => id(child, 'child ID')),
@@ -357,6 +405,7 @@ export function readSnapshot(host: NativeHost): NativeSnapshot {
           backgroundColor: string(presentation.backgroundColor, 'presentation.backgroundColor'),
         },
         style: record(node.style, 'node.style'),
+        props: record(node.props, 'node.props'),
       };
     }),
     stats: {
@@ -365,6 +414,13 @@ export function readSnapshot(host: NativeHost): NativeSnapshot {
       nodeCount: number(stats.nodeCount, 'stats.nodeCount'),
       paintPasses: number(stats.paintPasses, 'stats.paintPasses'),
       layoutMicros: number(stats.layoutMicros, 'stats.layoutMicros'),
+      nodesCreated: number(stats.nodesCreated, 'stats.nodesCreated'),
+      nodesUpdated: number(stats.nodesUpdated, 'stats.nodesUpdated'),
+      nodesDeleted: number(stats.nodesDeleted, 'stats.nodesDeleted'),
+      nodesRestyled: number(stats.nodesRestyled, 'stats.nodesRestyled'),
+      mutations: number(stats.mutations, 'stats.mutations'),
+      boxRecords: number(stats.boxRecords, 'stats.boxRecords'),
+      contentRecords: number(stats.contentRecords, 'stats.contentRecords'),
     },
     width: number(snapshot.width, 'snapshot.width'),
     height: number(snapshot.height, 'snapshot.height'),
@@ -374,20 +430,39 @@ export function readSnapshot(host: NativeHost): NativeSnapshot {
   };
 }
 
-export interface BatchTiming {
+export interface CommitTiming {
   jsonEncodeMs: number;
   nativeCallMs: number;
   jsonChars: number;
 }
 
-export function applyCommands(host: NativeHost, commands: NativeCommand[], now?: () => number): BatchTiming | undefined {
-  if (commands.length === 0) return;
+/** Send one layer's commit payload. Throws, leaving the mounted tree unchanged, if native rejects it. */
+export function commitPayload(host: NativeHost, layer: number, payload: CommitPayload, now?: () => number): CommitTiming | undefined {
   const encodeStart = now?.();
-  const json = JSON.stringify(commands);
+  const json = JSON.stringify(payload);
   const callStart = now?.();
-  const error = host.applyBatch(json);
+  const error = host.commit(layer, json);
   const callEnd = now?.();
-  if (error !== '') throw new Error(`Native UI batch rejected: ${error}`);
+  if (error !== '') throw new Error(`Native UI commit rejected: ${error}`);
   if (encodeStart === undefined || callStart === undefined || callEnd === undefined) return;
   return {jsonEncodeMs: callStart - encodeStart, nativeCallMs: callEnd - callStart, jsonChars: json.length};
+}
+
+/** The tags the commit that just succeeded deleted. */
+export function readDeletions(host: NativeHost): number[] {
+  const tags = host.takeCommitDeletions();
+  const deleted: number[] = [];
+  for (let index = 0; index < tags.size(); index += 1) deleted.push(id(tags.get(index), 'deleted tag'));
+  return deleted;
+}
+
+export function readNodeRect(host: NativeHost, tag: number): LayoutRect | undefined {
+  const value: unknown = JSON.parse(host.getNodeRect(tag));
+  return value === null ? undefined : rect(value, 'node rect');
+}
+
+/** The tag of the first node created with `testID`, if any. */
+export function findTag(host: NativeHost, testID: string): number | undefined {
+  const tag = host.findByTestId(testID);
+  return tag < 0 ? undefined : id(tag, 'tag');
 }

@@ -1,5 +1,5 @@
 import {
-  DirAccess, Engine, FileAccess, GError, Input, InputEventKey, InputEventMouseButton,
+  Color, DirAccess, Engine, FileAccess, GError, Input, InputEventKey, InputEventMouseButton,
   InputEventMouseMotion, Key, MouseButton, Node, OS, RenderingServer, Vector2,
 } from 'godot';
 import type { NativeSnapshot, NativeSnapshotNode } from '../../src/native';
@@ -19,6 +19,11 @@ const GEOMETRY_TOLERANCE = 2;
 const MAX_INPUT_TARGETS = 100;
 const POINTER_PADDING_INSET = 4;
 const FAILURE_TAIL_SAMPLES = 6;
+/** The native focus ring colour (`FOCUS_RING_COLOR` in native/lib.rs) and how far a raster may stray. */
+const FOCUS_RING_COLOR = new Color(0.49, 0.66, 1.0);
+const FOCUS_RING_TOLERANCE = 0.02;
+/** The ring is a 2px inset stroke, so one pixel inside an element's left edge is on it. */
+const FOCUS_RING_PROBE_INSET = 1;
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -30,6 +35,19 @@ async function settle(): Promise<void> {
   while (Engine.getProcessFrames() - startFrame < MIN_SETTLE_FRAMES) {
     await new Promise(resolve => setTimeout(resolve, FRAME_POLL_MS));
   }
+}
+
+function viewportPixel(owner: Node, x: number, y: number): Color {
+  RenderingServer.forceDraw();
+  const image = owner.getViewport()?.getTexture()?.getImage();
+  assert(image, 'Native verification requires a rendered viewport');
+  return image.getPixel(Math.floor(x), Math.floor(y));
+}
+
+function isFocusRingColor(color: Color): boolean {
+  return Math.abs(color.r - FOCUS_RING_COLOR.r) <= FOCUS_RING_TOLERANCE &&
+    Math.abs(color.g - FOCUS_RING_COLOR.g) <= FOCUS_RING_TOLERANCE &&
+    Math.abs(color.b - FOCUS_RING_COLOR.b) <= FOCUS_RING_TOLERANCE;
 }
 
 function get(api: DemoInspection, id: string): NativeSnapshotNode {
@@ -180,6 +198,9 @@ export async function runVerification(owner: Node, api: DemoInspection): Promise
   await capture('02-hover');
   pointer(point(api, 'increment'), true);
   await capture('03-pressed');
+  const pressed = get(api, 'increment').rect;
+  assert(isFocusRingColor(viewportPixel(owner, pressed.x + FOCUS_RING_PROBE_INSET, pressed.y + pressed.height / 2)),
+    'A mouse press paints the focus ring on the pressed button even when its style has no focus rule');
   pointer(point(api, 'increment'), false);
   await settle();
   if (text(api, 'counter-value') !== '1') throw new Error(`Native click updates useState: ${inputFailureState(owner, api)}`);
@@ -219,6 +240,9 @@ export async function runVerification(owner: Node, api: DemoInspection): Promise
   const carrot = get(api, 'item-carrot');
   await click(api, 'reverse-items');
   assert(get(api, 'item-carrot').id === carrot.id, 'Keyed move preserves native node');
+  const movedCarrot = get(api, 'item-carrot').rect;
+  assert(movedCarrot.x !== carrot.rect.x || movedCarrot.y !== carrot.rect.y,
+    'Keyed move lays the moved native node out at its new position');
   assert(text(api, 'item-state-carrot') === 'Selected 1 time', 'Keyed move preserves component state');
   await capture('08-reordered');
   await click(api, 'add-item');

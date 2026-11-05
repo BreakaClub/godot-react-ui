@@ -1193,11 +1193,13 @@ declare module "godot" {
     }
     /** @deprecated Internal use. Does not exist at runtime. */
     interface __NameMapReactUiRoot extends __NameMapControl {
-        apply_batch: "applyBatch";
+        take_commit_deletions: "takeCommitDeletions";
         set_profiling: "setProfiling";
         get_activity: "getActivity";
         take_profile: "takeProfile";
         get_snapshot: "getSnapshot";
+        get_node_rect: "getNodeRect";
+        find_by_test_id: "findByTestId";
         drain_events: "drainEvents";
         resolve_event: "resolveEvent";
         events_ready: "eventsReady";
@@ -1205,11 +1207,14 @@ declare module "godot" {
     /** @link https://docs.godotengine.org/en/latest/classes/class_reactuiroot.html */
     class ReactUiRoot<Map extends NodePathMap = any> extends Control<Map> {
         constructor(identifier?: any)
-        applyBatch(json: string): string
+        commit(layer: int64, payloadJson: string): string
+        takeCommitDeletions(): PackedInt64Array
         setProfiling(enabled: boolean): any
         getActivity(): string
         takeProfile(): string
         getSnapshot(): string
+        getNodeRect(tag: int64): string
+        findByTestId(testId: string): int64
         drainEvents(): string
         resolveEvent(seq: int64, defaultPrevented: boolean, dropEffect: string): string
         readonly eventsReady: Signal<() => void>
@@ -9195,31 +9200,5 @@ declare module "godot" {
         __godotRPCMap: __RPCMapSkin;
         /** @deprecated Internal use. Does not exist at runtime. */
         __godotNameMap: __NameMapSkin;
-    }
-    /** @deprecated Internal use. Does not exist at runtime. */
-    interface __RPCMapSkinReference extends __RPCMapRefCounted {
-    }
-    /** @deprecated Internal use. Does not exist at runtime. */
-    interface __NameMapSkinReference extends __NameMapRefCounted {
-        get_skeleton: "getSkeleton";
-        get_skin: "getSkin";
-    }
-    /** A reference-counted holder object for a skeleton RID used in the [RenderingServer].  
-     *  	  
-     *  @link https://docs.godotengine.org/en/latest/classes/class_skinreference.html  
-     */
-    class SkinReference extends RefCounted {
-        constructor(identifier?: any)
-        /** Returns the [RID] owned by this SkinReference, as returned by [method RenderingServer.skeleton_create]. */
-        getSkeleton(): Rid
-        
-        /** Returns the [Skin] connected to this SkinReference. In the case of [MeshInstance3D] with no [member MeshInstance3D.skin] assigned, this will reference an internal default [Skin] owned by that [MeshInstance3D].  
-         *  Note that a single [Skin] may have more than one [SkinReference] in the case that it is shared by meshes across multiple [Skeleton3D] nodes.  
-         */
-        getSkin(): null | Skin
-        /** @deprecated Internal use. Does not exist at runtime. */
-        __godotRPCMap: __RPCMapSkinReference;
-        /** @deprecated Internal use. Does not exist at runtime. */
-        __godotNameMap: __NameMapSkinReference;
     }
 }

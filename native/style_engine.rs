@@ -4,15 +4,15 @@
 //! This module deliberately never calls `BaseDocument::resolve`: layout and text
 //! measurement remain in the owner's Taffy/Godot pipeline.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeSet, HashMap};
 
 use blitz_dom::{BaseDocument, DocumentConfig, NodeId, StyleThreading, qual_name};
 use style::values::computed::length::CSSPixelLength;
 use style::values::computed::{LengthPercentage, Size};
 
-use crate::protocol::{
-    Dimension, DisplaySpec, Easing, Model, StyleSpec, TransitionProperty, TransitionSpec,
-};
+use crate::commit::LAYER_COUNT;
+use crate::diff::Parent;
+use crate::props::{Dimension, DisplaySpec, Easing, StyleSpec, TransitionProperty, TransitionSpec};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum DimensionAxis {
@@ -28,7 +28,7 @@ impl DimensionAxis {
         }
     }
 
-    fn property(self) -> TransitionProperty {
+    pub(crate) fn property(self) -> TransitionProperty {
         match self {
             Self::Width => TransitionProperty::Width,
             Self::Height => TransitionProperty::Height,
@@ -111,14 +111,6 @@ pub struct SampledStyle {
     pub background_color: [f32; 4],
 }
 
-#[derive(Default)]
-pub struct StyleFrame {
-    /// Only mounted nodes have sampled styles; detached nodes retain authored data.
-    pub values: BTreeMap<u32, SampledStyle>,
-    /// Actual pending/running Stylo animations, not a guessed duration timer.
-    pub active: bool,
-}
-
 #[derive(Clone, Debug, PartialEq)]
 struct AppliedStyle {
     width: Dimension,
@@ -168,11 +160,14 @@ impl AppliedStyle {
     }
 }
 
+/// The retained Stylo document, keyed by mounted tag. Only the properties that can animate (size,
+/// opacity, background colour) and `display` are mirrored into it; layout, text and the tree of
+/// element boxes stay with Taffy and Godot.
 pub struct StyleEngine {
     document: BaseDocument,
-    nodes: BTreeMap<u32, NodeId>,
-    applied: BTreeMap<u32, AppliedStyle>,
-    mounted: BTreeSet<u32>,
+    nodes: HashMap<u32, NodeId>,
+    layer_roots: [NodeId; LAYER_COUNT],
+    applied: HashMap<u32, AppliedStyle>,
     last_time: f64,
 }
 
@@ -193,140 +188,125 @@ impl StyleEngine {
         };
         let mut document = BaseDocument::new(config);
         let document_root = document.root_node().id;
-        let root;
+        let html;
+        let layer_roots;
         {
             let mut mutator = document.mutate();
-            root = mutator.create_element(qual_name!("html", html), Vec::new());
-            mutator.append_children(document_root, &[root]);
+            html = mutator.create_element(qual_name!("html", html), Vec::new());
+            mutator.append_children(document_root, &[html]);
+            layer_roots = std::array::from_fn(|_| {
+                let layer = mutator.create_element(qual_name!("div", html), Vec::new());
+                mutator.append_children(html, &[layer]);
+                layer
+            });
         }
         Self {
             document,
-            nodes: BTreeMap::from([(0, root)]),
-            applied: BTreeMap::new(),
-            mounted: BTreeSet::from([0]),
+            nodes: HashMap::new(),
+            layer_roots,
+            applied: HashMap::new(),
             last_time: 0.0,
         }
     }
 
-    /// Publish validated authored styles plus any native intrinsic pixel targets.
-    ///
-    /// `immediate` suppresses only the indicated dimension transitions for this
-    /// update. This is used when restoring canonical auto after the pixel endpoint
-    /// is reached; opacity/background transitions continue undisturbed.
-    pub fn sync_model(
+    fn native_parent(&self, parent: Parent) -> NodeId {
+        match parent {
+            Parent::Layer(layer) => self.layer_roots[layer],
+            Parent::Node(tag) => self.nodes[&tag],
+        }
+    }
+
+    /// Create the (detached) Stylo node for a newly mounted tag.
+    pub fn insert(&mut self, tag: u32) {
+        let node = self
+            .document
+            .mutate()
+            .create_element(qual_name!("div", html), Vec::new());
+        let previous = self.nodes.insert(tag, node);
+        assert!(previous.is_none(), "tag {tag} is mounted once");
+    }
+
+    /// Make `children` the ordered children of `parent`. Surviving nodes are reparented here
+    /// before deleted branches are removed (Blitz's `replace_children` detaches but does not free).
+    pub fn set_children(&mut self, parent: Parent, children: &[u32]) {
+        let native_parent = self.native_parent(parent);
+        let children: Vec<_> = children.iter().map(|child| self.nodes[child]).collect();
+        let current = self
+            .document
+            .get_node(native_parent)
+            .expect("mapped Stylo node");
+        if current.children.as_slice() != children.as_slice() {
+            self.document
+                .mutate()
+                .replace_children(native_parent, &children);
+        }
+    }
+
+    /// Detach a deleted tag's node. Detach rather than freeing the SlotMap entry: blitz-dom's Stylo
+    /// bridge converts NodeId(u64) through OpaqueNode(usize), which truncates the upper 32-bit
+    /// SlotMap version to v1 on 32-bit wasm32. Keeping slots at v1 preserves OpaqueNode -> NodeId
+    /// round-tripping on WebAssembly while still marking removed nodes out-of-document so
+    /// resolve_stylist cancels their active transitions.
+    pub fn remove(&mut self, tag: u32) {
+        let native = self
+            .nodes
+            .remove(&tag)
+            .expect("a deleted tag has a Stylo node");
+        if self.document.get_node(native).is_some() {
+            self.document.mutate().remove_node(native);
+        }
+        self.applied.remove(&tag);
+    }
+
+    /// Publish a node's authored style (and any native intrinsic pixel target). `blocked` suppresses
+    /// only the indicated dimension transitions for this update: it is used to restore canonical
+    /// auto after a pixel endpoint is reached (opacity and background transitions continue
+    /// undisturbed) and to apply a change that motion cannot animate immediately.
+    pub fn update(
         &mut self,
-        model: &Model,
-        overrides: &BTreeMap<u32, DimensionOverrides>,
-        immediate: &BTreeSet<(u32, DimensionAxis)>,
+        tag: u32,
+        style: &StyleSpec,
+        overrides: Option<&DimensionOverrides>,
+        blocked: &BTreeSet<TransitionProperty>,
         now: f64,
-    ) -> Result<StyleFrame, String> {
+    ) -> Result<(), String> {
         self.validate_time(now)?;
-        for (id, value) in overrides {
-            if !model.nodes.contains_key(id) {
-                return Err(format!("intrinsic override refers to missing node {id}"));
-            }
-            if value
+        if overrides.is_some_and(|value| {
+            value
                 .width
                 .into_iter()
                 .chain(value.height)
                 .any(|value| !value.is_finite() || value < 0.0)
-            {
-                return Err(format!(
-                    "intrinsic override for node {id} must be finite and nonnegative"
-                ));
-            }
+        }) {
+            return Err(format!(
+                "intrinsic override for node {tag} must be finite and nonnegative"
+            ));
         }
-        for (id, _) in immediate {
-            if !model.nodes.contains_key(id) {
-                return Err(format!(
-                    "immediate style update refers to missing node {id}"
-                ));
-            }
+        if !self.nodes.contains_key(&tag) {
+            return Err(format!("style update refers to missing node {tag}"));
         }
+        let next = AppliedStyle::from_authored(style, overrides);
+        self.write_style(tag, &next, blocked);
+        self.applied.insert(tag, next);
+        Ok(())
+    }
 
-        for id in model.nodes.keys() {
-            if !self.nodes.contains_key(id) {
-                let node = self
-                    .document
-                    .mutate()
-                    .create_element(qual_name!("div", html), Vec::new());
-                self.nodes.insert(*id, node);
-            }
+    /// Re-enable the configured transitions of `tags` once an immediate update has become their
+    /// current computed value; re-enabling alone cannot restart the suppressed transition.
+    pub fn reenable_transitions(&mut self, tags: &BTreeSet<u32>) {
+        for tag in tags {
+            let style = &self.applied[tag];
+            let properties = transition_properties(style.transition.as_ref(), &BTreeSet::new());
+            self.document.mutate().set_style_property(
+                self.nodes[tag],
+                "transition-property",
+                &properties,
+            );
         }
-
-        // Reparent surviving nodes before deleting removed branches. Blitz's
-        // replace_children detaches, but does not free, existing children.
-        for (id, node) in &model.nodes {
-            let native_id = self.nodes[id];
-            let children: Vec<_> = node
-                .children
-                .iter()
-                .map(|child| self.nodes[child])
-                .collect();
-            let current = self
-                .document
-                .get_node(native_id)
-                .expect("mapped Stylo node");
-            if current.children.as_slice() != children.as_slice() {
-                self.document
-                    .mutate()
-                    .replace_children(native_id, &children);
-            }
-        }
-        let removed: Vec<_> = self
-            .nodes
-            .keys()
-            .copied()
-            .filter(|id| !model.nodes.contains_key(id))
-            .collect();
-        for id in removed {
-            let native_id = self.nodes.remove(&id).expect("enumerated Stylo node");
-            // Detach rather than freeing the SlotMap entry: blitz-dom's Stylo bridge
-            // converts NodeId(u64) through OpaqueNode(usize), which truncates the
-            // upper 32-bit SlotMap version to v1 on 32-bit wasm32. Keeping slots at
-            // v1 preserves OpaqueNode -> NodeId round-tripping on WebAssembly while
-            // still marking removed nodes out-of-document so resolve_stylist cancels
-            // their active transitions.
-            if self.document.get_node(native_id).is_some() {
-                self.document.mutate().remove_node(native_id);
-            }
-            self.applied.remove(&id);
-        }
-
-        self.mounted.clear();
-        let mut pending = vec![0];
-        while let Some(id) = pending.pop() {
-            self.mounted.insert(id);
-            pending.extend(model.nodes[&id].children.iter().copied());
-        }
-
-        for (id, node) in &model.nodes {
-            let next = AppliedStyle::from_authored(&node.style, overrides.get(id));
-            let blocked = blocked_properties(*id, immediate);
-            self.write_style(*id, &next, &blocked);
-            self.applied.insert(*id, next);
-        }
-        self.document.resolve_stylist(now);
-
-        if !immediate.is_empty() {
-            // Reenable configured transitions only after the immediate target has
-            // become the current computed value; reenabling alone cannot restart it.
-            for id in immediate.iter().map(|(id, _)| *id).collect::<BTreeSet<_>>() {
-                let style = &self.applied[&id];
-                let properties = transition_properties(style.transition.as_ref(), &BTreeSet::new());
-                self.document.mutate().set_style_property(
-                    self.nodes[&id],
-                    "transition-property",
-                    &properties,
-                );
-            }
-            self.document.resolve_stylist(now);
-        }
-        self.collect_frame()
     }
 
     /// Seed an auto dimension with its current native pixel value before assigning
-    /// an intrinsic pixel target. This does not modify the caller's authored model.
+    /// an intrinsic pixel target. This does not modify the caller's authored style.
     pub fn prime_dimension(
         &mut self,
         id: u32,
@@ -364,10 +344,16 @@ impl StyleEngine {
         Ok(())
     }
 
-    pub fn sample(&mut self, now: f64) -> Result<StyleFrame, String> {
+    /// Run Stylo's style pass at `now`: start, advance and finish the transitions.
+    pub fn resolve(&mut self, now: f64) -> Result<(), String> {
         self.validate_time(now)?;
         self.document.resolve_stylist(now);
-        self.collect_frame()
+        Ok(())
+    }
+
+    /// Whether any transition is pending or running.
+    pub fn is_animating(&self) -> bool {
+        self.document.is_animating()
     }
 
     fn validate_time(&mut self, now: f64) -> Result<(), String> {
@@ -437,45 +423,39 @@ impl StyleEngine {
         }
     }
 
-    fn collect_frame(&self) -> Result<StyleFrame, String> {
-        let mut values = BTreeMap::new();
-        for id in &self.mounted {
-            let native_id = self.nodes[id];
-            let node = self
+    /// The current computed (sampled) size, opacity and background colour of one node.
+    pub fn sampled(&self, tag: u32) -> Result<SampledStyle, String> {
+        let native_id = *self
+            .nodes
+            .get(&tag)
+            .ok_or_else(|| format!("missing Stylo node {tag}"))?;
+        let node = self
+            .document
+            .get_node(native_id)
+            .ok_or_else(|| format!("missing mounted Stylo node {tag}"))?;
+        let primary = node.primary_styles();
+        let undisplayed;
+        let computed = if let Some(primary) = primary.as_ref() {
+            &***primary
+        } else {
+            undisplayed = self
                 .document
-                .get_node(native_id)
-                .ok_or_else(|| format!("missing mounted Stylo node {id}"))?;
-            let primary = node.primary_styles();
-            let undisplayed;
-            let computed = if let Some(primary) = primary.as_ref() {
-                &***primary
-            } else {
-                undisplayed = self
-                    .document
-                    .resolve_undisplayed_style(native_id)
-                    .ok_or_else(|| format!("Stylo did not compute mounted node {id}"))?;
-                &*undisplayed
-            };
-            let position = computed.get_position();
-            let current_color = computed.get_inherited_text().color;
-            let background = computed
-                .get_background()
-                .background_color
-                .resolve_to_absolute(&current_color)
-                .into_srgb_legacy();
-            values.insert(
-                *id,
-                SampledStyle {
-                    width: sampled_dimension(&position.width)?,
-                    height: sampled_dimension(&position.height)?,
-                    opacity: computed.get_effects().opacity,
-                    background_color: *background.raw_components(),
-                },
-            );
-        }
-        Ok(StyleFrame {
-            values,
-            active: self.document.is_animating(),
+                .resolve_undisplayed_style(native_id)
+                .ok_or_else(|| format!("Stylo did not compute mounted node {tag}"))?;
+            &*undisplayed
+        };
+        let position = computed.get_position();
+        let current_color = computed.get_inherited_text().color;
+        let background = computed
+            .get_background()
+            .background_color
+            .resolve_to_absolute(&current_color)
+            .into_srgb_legacy();
+        Ok(SampledStyle {
+            width: sampled_dimension(&position.width)?,
+            height: sampled_dimension(&position.height)?,
+            opacity: computed.get_effects().opacity,
+            background_color: *background.raw_components(),
         })
     }
 }
@@ -495,7 +475,7 @@ fn dimension_css(value: &Dimension) -> String {
     }
 }
 
-fn blocked_properties(
+pub(crate) fn blocked_properties(
     id: u32,
     immediate: &BTreeSet<(u32, DimensionAxis)>,
 ) -> BTreeSet<TransitionProperty> {
@@ -542,35 +522,105 @@ fn easing_css(easing: Easing) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::*;
-    use crate::protocol::Command;
 
     const TOLERANCE: f32 = 0.01;
 
-    fn model(height: &str) -> Model {
-        let mut model = Model::default();
-        apply(
-            &mut model,
-            &format!(
-                r##"[
-            {{"op":"create","id":1,"kind":"view"}},
-            {{"op":"style","id":1,"style":{{"height":{height},"backgroundColor":"#000000","opacity":1,"transition":{{"properties":["height","opacity","backgroundColor"],"durationMs":1000,"easing":"linear"}}}}}},
-            {{"op":"children","id":0,"children":[1]}}
-        ]"##
-            ),
-        );
-        model
+    /// A flat scene: every styled tag is a child of layer 0, in tag order, and every `sync` writes
+    /// each tag's style, runs Stylo and reads every tag back, like a full-tree publish did.
+    struct Scene {
+        engine: StyleEngine,
+        styles: BTreeMap<u32, StyleSpec>,
+        overrides: BTreeMap<u32, DimensionOverrides>,
     }
 
-    fn apply(model: &mut Model, json: &str) {
-        let commands: Vec<Command> = serde_json::from_str(json).expect("fixture JSON");
-        model.apply(&commands).expect("fixture model");
+    struct Frame {
+        values: BTreeMap<u32, SampledStyle>,
+        active: bool,
     }
 
-    fn sync(engine: &mut StyleEngine, model: &Model, now: f64) -> StyleFrame {
-        engine
-            .sync_model(model, &BTreeMap::new(), &BTreeSet::new(), now)
-            .expect("style sync")
+    fn style(json: &str) -> StyleSpec {
+        serde_json::from_str(json).expect("fixture style")
+    }
+
+    fn animated(height: &str) -> StyleSpec {
+        style(&format!(
+            r##"{{"height":{height},"backgroundColor":"#000000","opacity":1,
+                "transition":{{"properties":["height","opacity","backgroundColor"],"durationMs":1000,"easing":"linear"}}}}"##
+        ))
+    }
+
+    impl Scene {
+        fn new(height: &str) -> Self {
+            Scene {
+                engine: StyleEngine::new(),
+                styles: BTreeMap::from([(1, animated(height))]),
+                overrides: BTreeMap::new(),
+            }
+        }
+
+        fn node(&mut self, tag: u32) -> &mut StyleSpec {
+            self.styles.get_mut(&tag).expect("fixture node")
+        }
+
+        fn sync(&mut self, now: f64) -> Frame {
+            self.sync_immediate(&BTreeSet::new(), now)
+        }
+
+        fn sync_immediate(
+            &mut self,
+            immediate: &BTreeSet<(u32, DimensionAxis)>,
+            now: f64,
+        ) -> Frame {
+            let tags: Vec<u32> = self.styles.keys().copied().collect();
+            for tag in &tags {
+                if !self.engine.nodes.contains_key(tag) {
+                    self.engine.insert(*tag);
+                }
+            }
+            self.engine.set_children(Parent::Layer(0), &tags);
+            let gone: Vec<u32> = self
+                .engine
+                .nodes
+                .keys()
+                .copied()
+                .filter(|tag| !self.styles.contains_key(tag))
+                .collect();
+            for tag in gone {
+                self.engine.remove(tag);
+            }
+            for (tag, spec) in &self.styles {
+                let blocked = blocked_properties(*tag, immediate);
+                self.engine
+                    .update(*tag, spec, self.overrides.get(tag), &blocked, now)
+                    .expect("style update");
+            }
+            self.engine.resolve(now).expect("style pass");
+            if !immediate.is_empty() {
+                let tags = immediate.iter().map(|(tag, _)| *tag).collect();
+                self.engine.reenable_transitions(&tags);
+                self.engine.resolve(now).expect("re-enabled style pass");
+            }
+            self.frame()
+        }
+
+        fn sample(&mut self, now: f64) -> Frame {
+            self.engine.resolve(now).expect("monotonic clock");
+            self.frame()
+        }
+
+        fn frame(&self) -> Frame {
+            Frame {
+                values: self
+                    .styles
+                    .keys()
+                    .map(|tag| (*tag, self.engine.sampled(*tag).expect("sampled style")))
+                    .collect(),
+                active: self.engine.is_animating(),
+            }
+        }
     }
 
     fn near(actual: f32, expected: f32) {
@@ -582,19 +632,13 @@ mod tests {
 
     #[test]
     fn stylo_samples_numeric_color_and_opacity_transitions() {
-        let mut engine = StyleEngine::new();
-        let mut model = model("40");
-        sync(&mut engine, &model, 0.0);
-        model.nodes.get_mut(&1).expect("fixture node").style.height = Some(Dimension::Num(120.0));
-        model.nodes.get_mut(&1).expect("fixture node").style.opacity = Some(0.0);
-        model
-            .nodes
-            .get_mut(&1)
-            .expect("fixture node")
-            .style
-            .background_color = Some("#ffffff".into());
-        sync(&mut engine, &model, 0.0);
-        let middle = engine.sample(0.5).expect("midpoint");
+        let mut scene = Scene::new("40");
+        scene.sync(0.0);
+        scene.node(1).height = Some(Dimension::Num(120.0));
+        scene.node(1).opacity = Some(0.0);
+        scene.node(1).background_color = Some("#ffffff".into());
+        scene.sync(0.0);
+        let middle = scene.sample(0.5);
         near(
             middle.values[&1].height.as_px().expect("numeric height"),
             80.0,
@@ -607,7 +651,7 @@ mod tests {
             );
         }
         assert!(middle.active);
-        let end = engine.sample(1.1).expect("endpoint");
+        let end = scene.sample(1.1);
         near(
             end.values[&1].height.as_px().expect("numeric height"),
             120.0,
@@ -617,118 +661,91 @@ mod tests {
 
     #[test]
     fn stylo_preserves_current_value_and_css_reversal_shortening() {
-        let mut engine = StyleEngine::new();
-        let mut model = model("40");
-        sync(&mut engine, &model, 0.0);
-        model.nodes.get_mut(&1).expect("fixture node").style.height = Some(Dimension::Num(120.0));
-        sync(&mut engine, &model, 0.0);
+        let mut scene = Scene::new("40");
+        scene.sync(0.0);
+        scene.node(1).height = Some(Dimension::Num(120.0));
+        scene.sync(0.0);
         near(
-            engine.sample(0.5).expect("midpoint").values[&1]
-                .height
-                .as_px()
-                .expect("height"),
+            scene.sample(0.5).values[&1].height.as_px().expect("height"),
             80.0,
         );
-        model.nodes.get_mut(&1).expect("fixture node").style.height = Some(Dimension::Num(40.0));
+        scene.node(1).height = Some(Dimension::Num(40.0));
         near(
-            sync(&mut engine, &model, 0.5).values[&1]
-                .height
-                .as_px()
-                .expect("height"),
+            scene.sync(0.5).values[&1].height.as_px().expect("height"),
             80.0,
         );
         near(
-            engine.sample(0.75).expect("reversal").values[&1]
+            scene.sample(0.75).values[&1]
                 .height
                 .as_px()
                 .expect("height"),
             60.0,
         );
-        assert!(!engine.sample(1.1).expect("end").active);
+        assert!(!scene.sample(1.1).active);
     }
 
     #[test]
     fn native_intrinsic_override_can_restore_authored_auto_without_restarting() {
-        let mut engine = StyleEngine::new();
-        let model = model(r#""auto""#);
-        sync(&mut engine, &model, 0.0);
-        engine
+        let mut scene = Scene::new(r#""auto""#);
+        scene.sync(0.0);
+        scene
+            .engine
             .prime_dimension(1, DimensionAxis::Height, 40.0, 0.0)
             .expect("prime measured auto");
-        let mut overrides = BTreeMap::from([(
+        scene.overrides.insert(
             1,
             DimensionOverrides {
                 height: Some(120.0),
                 ..DimensionOverrides::default()
             },
-        )]);
-        engine
-            .sync_model(&model, &overrides, &BTreeSet::new(), 0.0)
-            .expect("intrinsic target");
+        );
+        scene.sync(0.0);
         near(
-            engine.sample(0.5).expect("midpoint").values[&1]
-                .height
-                .as_px()
-                .expect("height"),
+            scene.sample(0.5).values[&1].height.as_px().expect("height"),
             80.0,
         );
-        engine.sample(1.1).expect("end");
-        overrides.clear();
-        let restored = engine
-            .sync_model(
-                &model,
-                &overrides,
-                &BTreeSet::from([(1, DimensionAxis::Height)]),
-                1.1,
-            )
-            .expect("restore auto");
+        scene.sample(1.1);
+        scene.overrides.clear();
+        let restored = scene.sync_immediate(&BTreeSet::from([(1, DimensionAxis::Height)]), 1.1);
         assert!(restored.values[&1].height.is_auto());
         assert!(!restored.active);
         assert!(
-            matches!(model.nodes[&1].style.height, Some(Dimension::Text(ref value)) if value == "auto")
+            matches!(scene.styles[&1].height, Some(Dimension::Text(ref value)) if value == "auto")
         );
     }
 
     #[test]
     fn intrinsic_axis_restores_auto_while_unrelated_paint_keeps_animating() {
-        let mut engine = StyleEngine::new();
-        let mut model = model(r#""auto""#);
-        apply(
-            &mut model,
-            r##"[
-                {"op":"create","id":2,"kind":"view"},
-                {"op":"style","id":2,"style":{
-                    "opacity":1,"backgroundColor":"#000000",
-                    "transition":{"properties":["opacity","backgroundColor"],"durationMs":2000,"easing":"linear"}
-                }},
-                {"op":"children","id":0,"children":[1,2]}
-            ]"##,
+        let mut scene = Scene::new(r#""auto""#);
+        scene.styles.insert(
+            2,
+            style(
+                r##"{"opacity":1,"backgroundColor":"#000000",
+                    "transition":{"properties":["opacity","backgroundColor"],"durationMs":2000,"easing":"linear"}}"##,
+            ),
         );
-        sync(&mut engine, &model, 0.0);
-        engine
+        scene.sync(0.0);
+        scene
+            .engine
             .prime_dimension(1, DimensionAxis::Height, 40.0, 0.0)
             .expect("prime measured auto");
-        let mut overrides = BTreeMap::from([(
+        scene.overrides.insert(
             1,
             DimensionOverrides {
                 height: Some(120.0),
                 ..DimensionOverrides::default()
             },
-        )]);
-        apply(
-            &mut model,
-            r##"[{"op":"style","id":2,"style":{
-                "opacity":0,"backgroundColor":"#ffffff",
-                "transition":{"properties":["opacity","backgroundColor"],"durationMs":2000,"easing":"linear"}
-            }}]"##,
         );
-        engine
-            .sync_model(&model, &overrides, &BTreeSet::new(), 0.0)
-            .expect("start independent size and paint transitions");
+        scene.styles.insert(
+            2,
+            style(
+                r##"{"opacity":0,"backgroundColor":"#ffffff",
+                    "transition":{"properties":["opacity","backgroundColor"],"durationMs":2000,"easing":"linear"}}"##,
+            ),
+        );
+        scene.sync(0.0);
 
-        let height_finished = engine
-            .sample(1.1)
-            .expect("height endpoint before paint endpoint");
+        let height_finished = scene.sample(1.1);
         near(
             height_finished.values[&1]
                 .height
@@ -742,15 +759,8 @@ mod tests {
             "unrelated paint must still need ticks"
         );
 
-        overrides.clear();
-        let restored = engine
-            .sync_model(
-                &model,
-                &overrides,
-                &BTreeSet::from([(1, DimensionAxis::Height)]),
-                1.1,
-            )
-            .expect("restore only the completed intrinsic axis");
+        scene.overrides.clear();
+        let restored = scene.sync_immediate(&BTreeSet::from([(1, DimensionAxis::Height)]), 1.1);
         assert!(restored.values[&1].height.is_auto());
         assert!(restored.active, "restoring height must not cancel paint");
         near(
@@ -762,39 +772,35 @@ mod tests {
             "restoring height must not restart or resample paint at a different time"
         );
 
-        apply(
-            &mut model,
-            r##"[{"op":"style","id":1,"style":{
-                "height":"auto","backgroundColor":"#00ff00","opacity":1,
-                "transition":{"properties":["height","opacity","backgroundColor"],"durationMs":1000,"easing":"linear"}
-            }}]"##,
+        scene.styles.insert(
+            1,
+            style(
+                r##"{"height":"auto","backgroundColor":"#00ff00","opacity":1,
+                    "transition":{"properties":["height","opacity","backgroundColor"],"durationMs":1000,"easing":"linear"}}"##,
+            ),
         );
-        let paint_update = sync(&mut engine, &model, 1.2);
+        let paint_update = scene.sync(1.2);
         assert!(paint_update.values[&1].height.is_auto());
         assert!(paint_update.active);
-        let later = engine
-            .sample(1.5)
-            .expect("paint continues after auto restoration");
+        let later = scene.sample(1.5);
         assert!(later.values[&1].height.is_auto());
         near(later.values[&2].opacity, 0.25);
         assert!(later.active);
-        let finished = engine.sample(2.3).expect("all paint finished");
+        let finished = scene.sample(2.3);
         assert!(finished.values[&1].height.is_auto());
         assert!(!finished.active);
         assert!(
-            matches!(model.nodes[&1].style.height, Some(Dimension::Text(ref value)) if value == "auto")
+            matches!(scene.styles[&1].height, Some(Dimension::Text(ref value)) if value == "auto")
         );
     }
 
     #[test]
     fn mixed_pixel_percentage_samples_keep_stylo_calc_semantics() {
-        let mut engine = StyleEngine::new();
-        let mut model = model("40");
-        sync(&mut engine, &model, 0.0);
-        model.nodes.get_mut(&1).expect("fixture node").style.height =
-            Some(Dimension::Text("50%".into()));
-        sync(&mut engine, &model, 0.0);
-        let frame = engine.sample(0.5).expect("mixed unit midpoint");
+        let mut scene = Scene::new("40");
+        scene.sync(0.0);
+        scene.node(1).height = Some(Dimension::Text("50%".into()));
+        scene.sync(0.0);
+        let frame = scene.sample(0.5);
         let height = &frame.values[&1].height;
         assert!(height.as_px().is_none());
         assert!(height.as_percentage().is_none());
@@ -807,71 +813,84 @@ mod tests {
 
     #[test]
     fn pending_css_delay_keeps_the_native_clock_active() {
-        let mut engine = StyleEngine::new();
-        let mut model = model("40");
-        model
-            .nodes
-            .get_mut(&1)
-            .expect("fixture node")
-            .style
+        let mut scene = Scene::new("40");
+        scene
+            .node(1)
             .transition
             .as_mut()
             .expect("fixture transition")
             .delay_ms = Some(500.0);
-        sync(&mut engine, &model, 0.0);
-        model.nodes.get_mut(&1).expect("fixture node").style.height = Some(Dimension::Num(120.0));
-        sync(&mut engine, &model, 0.0);
-        let pending = engine.sample(0.25).expect("delay");
+        scene.sync(0.0);
+        scene.node(1).height = Some(Dimension::Num(120.0));
+        scene.sync(0.0);
+        let pending = scene.sample(0.25);
         assert!(pending.active);
         near(pending.values[&1].height.as_px().expect("height"), 40.0);
         near(
-            engine.sample(1.0).expect("midpoint").values[&1]
-                .height
-                .as_px()
-                .expect("height"),
+            scene.sample(1.0).values[&1].height.as_px().expect("height"),
             80.0,
         );
-        assert!(!engine.sample(1.6).expect("endpoint").active);
+        assert!(!scene.sample(1.6).active);
     }
 
     #[test]
     fn dropping_an_animating_node_clears_stylo_ticks() {
-        let mut engine = StyleEngine::new();
-        let mut model = model("40");
-        sync(&mut engine, &model, 0.0);
-        model.nodes.get_mut(&1).expect("fixture node").style.height = Some(Dimension::Num(120.0));
-        sync(&mut engine, &model, 0.0);
-        apply(&mut model, r#"[{"op":"remove","id":1}]"#);
-        let frame = sync(&mut engine, &model, 0.2);
+        let mut scene = Scene::new("40");
+        scene.sync(0.0);
+        scene.node(1).height = Some(Dimension::Num(120.0));
+        scene.sync(0.0);
+        scene.styles.remove(&1);
+        let frame = scene.sync(0.2);
         assert!(!frame.active);
         assert!(!frame.values.contains_key(&1));
 
-        // Subsequent nodes created after removals must keep SlotMap v1 so blitz-dom's
-        // 32-bit usize OpaqueNode conversion on wasm32 round-trips to the live NodeId.
-        apply(
-            &mut model,
-            r##"[
-                {"op":"create","id":2,"kind":"view"},
-                {"op":"style","id":2,"style":{"height":40,"transition":{"properties":["height"],"durationMs":1000,"easing":"linear"}}},
-                {"op":"children","id":0,"children":[2]}
-            ]"##,
+        // Subsequent nodes created after removals must keep SlotMap v1 so blitz-dom's 32-bit usize
+        // OpaqueNode conversion on wasm32 round-trips to the live NodeId.
+        scene.styles.insert(
+            2,
+            style(
+                r##"{"height":40,"transition":{"properties":["height"],"durationMs":1000,"easing":"linear"}}"##,
+            ),
         );
-        sync(&mut engine, &model, 0.2);
-        let native_id = engine.nodes[&2];
+        scene.sync(0.2);
+        let native_id = scene.engine.nodes[&2];
         let wasm32_opaque_roundtrip =
             blitz_traits::node_id::NodeId::from_u64(u64::from(native_id.as_u64() as u32));
         assert_eq!(
-            engine
+            scene
+                .engine
                 .document
                 .get_node(wasm32_opaque_roundtrip)
                 .map(|node| node.id),
             Some(native_id)
         );
-        model.nodes.get_mut(&2).expect("remounted node").style.height =
-            Some(Dimension::Num(120.0));
-        sync(&mut engine, &model, 0.2);
-        let middle = engine.sample(0.7).expect("remounted midpoint");
+        scene.node(2).height = Some(Dimension::Num(120.0));
+        scene.sync(0.2);
+        let middle = scene.sample(0.7);
         assert!(middle.active);
         near(middle.values[&2].height.as_px().expect("height"), 80.0);
+    }
+
+    #[test]
+    fn reparenting_keeps_a_running_transition() {
+        // A keyed move re-lists the children of one parent; the moved node keeps animating.
+        let mut scene = Scene::new("40");
+        scene.styles.insert(2, animated("40"));
+        scene.sync(0.0);
+        scene.node(1).height = Some(Dimension::Num(120.0));
+        scene.sync(0.0);
+        scene.engine.set_children(Parent::Layer(0), &[2, 1]);
+        scene.engine.resolve(0.5).expect("style pass");
+        near(
+            scene
+                .engine
+                .sampled(1)
+                .expect("sampled")
+                .height
+                .as_px()
+                .expect("height"),
+            80.0,
+        );
+        assert!(scene.engine.is_animating());
     }
 }

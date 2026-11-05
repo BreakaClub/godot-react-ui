@@ -1,58 +1,51 @@
-// Phase F1 modules: Godot-free and not yet called by the runtime (Phase F3 wires them in and
-// removes these allowances together with `protocol`).
-#[allow(dead_code)]
 mod commit;
-#[allow(dead_code)]
 mod computed_style;
-#[allow(dead_code)]
 mod diff;
 mod events;
 mod geometry;
 mod layout;
 mod motion;
+mod mount;
 mod paint;
 mod pointer;
-mod profile;
 #[cfg(feature = "probe")]
 mod probe;
-#[allow(dead_code)]
+mod profile;
 mod props;
-mod protocol;
-mod render_items;
+mod render_tree;
+mod snapshot;
 mod style_engine;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::Instant;
 
 use godot::classes::control::{FocusMode, MouseFilter};
 use godot::classes::notify::ControlNotification;
-use godot::classes::text_server::LineBreakFlag;
 use godot::classes::{
     Control, Font, IControl, InputEvent, InputEventKey, InputEventMouseButton,
     InputEventMouseMotion, InputEventWithModifiers, StyleBoxFlat, TextParagraph, ThemeDb, Time,
 };
-use godot::global::{HorizontalAlignment, Key, MouseButton, MouseButtonMask};
+use godot::global::{Key, MouseButton, MouseButtonMask};
 use godot::prelude::*;
 use serde::Serialize;
 use serde_json::json;
-use taffy::prelude::{NodeId, Size, TaffyTree};
+use taffy::prelude::{NodeId, TaffyTree};
 
+use commit::{CommitPayload, LAYER_COUNT};
+use computed_style::{InteractionState, PseudoStates, restyle};
 use events::{
     DropEffect, EventOutcome, EventPayload, EventQueue, Modifiers, PointerData, PointerType,
 };
-use geometry::{BoxRect, intersect_clip, intersects};
-use layout::compute_tree;
-use motion::{IntrinsicTrack, TransitionRecord, validate_motion_changes};
-use paint::{parse_color, with_opacity};
+use motion::{IntrinsicTrack, TransitionRecord};
+use mount::Mounted;
 use pointer::{
     DOM_BUTTON_NONE, DOM_BUTTON_PRIMARY, DOM_BUTTONS_PRIMARY, KEYBOARD_POINTER_ID,
     MOUSE_POINTER_ID, dom_buttons, enabled_button_ancestor, shared_button_target,
 };
-use profile::{Profiler, Sample, micros};
-use protocol::{Command, Kind, Model, OverflowSpec, StyleSpec, TextAlignSpec, TransitionProperty};
-use render_items::RenderItems;
-use std::collections::BTreeSet;
-use style_engine::{DimensionAxis, DimensionOverrides, StyleEngine, StyleFrame};
+use profile::{Profiler, micros};
+use props::{PseudoState, TransitionProperty};
+use render_tree::{RingKey, RootItem};
+use style_engine::{DimensionAxis, DimensionOverrides, SampledStyle, StyleEngine};
 
 const DEFAULT_FONT_SIZE: i32 = 16;
 const MILLISECONDS_PER_SECOND: f64 = 1000.0;
@@ -72,64 +65,79 @@ struct TextContext {
     paragraph: Gd<TextParagraph>,
 }
 
-struct Visual {
-    background: Gd<StyleBoxFlat>,
-    paragraph: Option<Gd<TextParagraph>>,
-    text_color: Color,
-    background_color: Color,
-    border_color: Color,
-}
-
 #[derive(Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Stats {
     layout_passes: u64,
+    /// Successful commits (protocol v1 called them batches).
     batches: u64,
     node_count: usize,
     paint_passes: u64,
     layout_micros: u64,
     animation_frames: u64,
+    nodes_created: u64,
+    nodes_updated: u64,
+    nodes_deleted: u64,
+    /// Nodes whose computed style changed (from a commit, a hover, press or focus change, or a
+    /// breakpoint crossing) and were published.
+    nodes_restyled: u64,
+    /// Removes, deletes, creates, updates and inserts the mounting layer applied.
+    mutations: u64,
+    /// Canvas-item command lists re-recorded: a box (background and border) or a content (text).
+    box_records: u64,
+    content_records: u64,
 }
 
-/// A single Godot Control owns the native layout tree and all drawing resources.
-/// JS only exchanges validated batched mutations and queued input events.
+/// A single Godot Control owns the mounted tree, the native layout tree and all drawing resources.
+/// JS exchanges one validated commit per layer and queued input events with it.
 #[derive(GodotClass)]
 #[class(base=Control)]
 pub struct ReactUiRoot {
     base: Base<Control>,
-    model: Model,
+    mounted: Mounted,
     tree: TaffyTree<TextContext>,
-    handles: BTreeMap<u32, NodeId>,
-    visuals: BTreeMap<u32, Visual>,
-    rects: BTreeMap<u32, BoxRect>,
-    paint_order: Vec<u32>,
-    opacities: BTreeMap<u32, f32>,
+    layer_roots: [NodeId; LAYER_COUNT],
+    layer_items: Vec<RootItem>,
+    ring_item: Option<RootItem>,
+    ring: Option<Gd<StyleBoxFlat>>,
+    ring_drawn: Option<RingKey>,
+    /// Nodes whose layout inputs changed since the last geometry pass.
+    layout_dirty: BTreeSet<u32>,
+    /// Nodes whose canvas items may need re-recording.
+    paint_dirty: BTreeSet<u32>,
+    /// Nodes whose text paragraph must be rebuilt.
+    pending_text: BTreeSet<u32>,
+    pending_style_removals: Vec<u32>,
+    /// Tags deleted by the last successful commit.
+    deletions: Vec<u32>,
+    paragraph_generation: u64,
     events: EventQueue,
     /// Nonzero while native is inside an `events_ready` emission; nested input only queues.
     dispatch_depth: u32,
     font: Option<Gd<Font>>,
     viewport_size: Vector2,
+    /// The viewport width the computed styles were last resolved for.
+    styled_width: f32,
     hovered: Option<u32>,
     focused: Option<u32>,
     pressed: Option<u32>,
+    pressed_by_keyboard: bool,
+    focus_visible: bool,
     pointer: Vector2,
     pointer_known: bool,
     pointer_buttons: u16,
     pointer_modifiers: Modifiers,
-    focus_ring: Option<Gd<StyleBoxFlat>>,
     stats: Stats,
     clock_ms: f64,
     profiler: Profiler,
     style_engine: StyleEngine,
-    style_frame: StyleFrame,
+    /// Nodes whose computed style has a `transition`, and their latest Stylo samples.
+    motion_nodes: BTreeSet<u32>,
+    sampled: BTreeMap<u32, SampledStyle>,
     intrinsic: BTreeMap<(u32, DimensionAxis), IntrinsicTrack>,
     overrides: BTreeMap<u32, DimensionOverrides>,
     transitions: BTreeMap<(u32, TransitionProperty), TransitionRecord>,
     content_generation: u64,
-    clips: BTreeMap<u32, Option<BoxRect>>,
-    content_clips: BTreeMap<u32, Option<BoxRect>>,
-    items: BTreeMap<u32, RenderItems>,
-    focus_items: Option<RenderItems>,
     geometry_micros: u64,
     last_layout_micros: u64,
     phase_layout_micros: u64,
@@ -140,43 +148,49 @@ pub struct ReactUiRoot {
 impl IControl for ReactUiRoot {
     fn init(base: Base<Control>) -> Self {
         let mut tree = TaffyTree::new();
-        let root = tree
-            .new_leaf(taffy::Style::default())
-            .expect("new root layout node");
+        let layer_roots = std::array::from_fn(|_| {
+            tree.new_leaf(taffy::Style::default())
+                .expect("new layer root layout node")
+        });
         Self {
             base,
-            model: Model::default(),
+            mounted: Mounted::default(),
             tree,
-            handles: BTreeMap::from([(0, root)]),
-            visuals: BTreeMap::new(),
-            rects: BTreeMap::new(),
-            paint_order: Vec::new(),
-            opacities: BTreeMap::new(),
+            layer_roots,
+            layer_items: Vec::new(),
+            ring_item: None,
+            ring: None,
+            ring_drawn: None,
+            layout_dirty: BTreeSet::new(),
+            paint_dirty: BTreeSet::new(),
+            pending_text: BTreeSet::new(),
+            pending_style_removals: Vec::new(),
+            deletions: Vec::new(),
+            paragraph_generation: 0,
             events: EventQueue::new(),
             dispatch_depth: 0,
             font: None,
             viewport_size: Vector2::ZERO,
+            styled_width: 0.0,
             hovered: None,
             focused: None,
             pressed: None,
+            pressed_by_keyboard: false,
+            focus_visible: false,
             pointer: Vector2::ZERO,
             pointer_known: false,
             pointer_buttons: 0,
             pointer_modifiers: Modifiers::default(),
-            focus_ring: None,
             stats: Stats::default(),
             clock_ms: 0.0,
             profiler: Profiler::default(),
             style_engine: StyleEngine::new(),
-            style_frame: StyleFrame::default(),
+            motion_nodes: BTreeSet::new(),
+            sampled: BTreeMap::new(),
             intrinsic: BTreeMap::new(),
             overrides: BTreeMap::new(),
             transitions: BTreeMap::new(),
             content_generation: 0,
-            clips: BTreeMap::new(),
-            content_clips: BTreeMap::new(),
-            items: BTreeMap::new(),
-            focus_items: None,
             geometry_micros: 0,
             last_layout_micros: 0,
             phase_layout_micros: 0,
@@ -193,25 +207,27 @@ impl IControl for ReactUiRoot {
             .base()
             .get_theme_default_font()
             .or_else(|| ThemeDb::singleton().get_fallback_font());
-        // A React tree may be committed before this Control enters the scene tree.
-        // Recreate its text resources now that a theme font is available.
-        self.visuals.clear();
         let mut ring = StyleBoxFlat::new_gd();
         ring.set_draw_center(false);
         ring.set_border_width_all(FOCUS_RING_WIDTH);
         ring.set_border_color(FOCUS_RING_COLOR);
-        self.focus_ring = Some(ring);
-        self.focus_items = Some(RenderItems::new(self.base().get_canvas_item()));
-        self.sync_model(self.model.clone());
-        self.style_frame = self
-            .style_engine
-            .sync_model(
-                &self.model,
-                &self.overrides,
-                &BTreeSet::new(),
-                self.clock_ms / MILLISECONDS_PER_SECOND,
-            )
-            .expect("validated initial CSS tree");
+        self.ring = Some(ring);
+        self.ensure_render_roots();
+        // A React tree may be committed before this Control enters the scene tree. Build its text
+        // paragraphs now that a theme font is available.
+        let with_text: Vec<u32> = self
+            .mounted
+            .nodes
+            .iter()
+            .filter(|(_, node)| node.props.text.is_some())
+            .map(|(tag, _)| *tag)
+            .collect();
+        self.pending_text.extend(with_text);
+        self.sync_viewport();
+        let pending = std::mem::take(&mut self.pending_text);
+        for tag in pending {
+            self.refresh_paragraph(tag);
+        }
         self.apply_presentation();
         self.flush_layout();
         self.base_mut().grab_focus();
@@ -220,27 +236,37 @@ impl IControl for ReactUiRoot {
     fn on_notification(&mut self, what: ControlNotification) {
         match what {
             ControlNotification::RESIZED if self.font.is_some() => {
+                self.sync_viewport();
                 self.flush_layout();
                 self.refresh_intrinsic_targets();
             }
             ControlNotification::PREDELETE => {
-                self.items.clear();
-                self.focus_items = None;
+                self.mounted.nodes.clear();
+                self.layer_items.clear();
+                self.ring_item = None;
             }
             ControlNotification::MOUSE_EXIT => {
                 self.pointer_known = false;
                 self.update_hover(None);
             }
             ControlNotification::FOCUS_EXIT => {
-                self.set_focus(None);
+                self.set_focus(None, false);
                 self.pressed = None;
+                self.refresh_interaction();
+            }
+            ControlNotification::WM_WINDOW_FOCUS_OUT => {
+                // The engine drops mouse focus when the window loses OS focus and sends the Control
+                // a synthetic release that never reaches `gui_input` (internal-device events skip
+                // `_gui_input`), so a press that was in flight would stay pressed forever.
+                self.pressed = None;
+                self.pressed_by_keyboard = false;
+                self.refresh_interaction();
             }
             ControlNotification::ENTER_TREE if self.font.is_some() => {
                 self.apply_presentation();
                 self.flush_layout();
                 self.refresh_intrinsic_targets();
-                let active = self.style_frame.active || !self.intrinsic.is_empty();
-                self.base_mut().set_process(active);
+                self.update_process();
             }
             ControlNotification::EXIT_TREE => {
                 // Leaving the tree is a pause, not destruction. Keep the native
@@ -249,8 +275,9 @@ impl IControl for ReactUiRoot {
                     matches!(payload, EventPayload::Blur | EventPayload::PointerLeave(_))
                 });
                 self.update_hover(None);
-                self.set_focus(None);
+                self.set_focus(None, false);
                 self.pressed = None;
+                self.refresh_interaction();
                 self.pointer_known = false;
                 self.base_mut().set_process(false);
             }
@@ -268,95 +295,6 @@ impl IControl for ReactUiRoot {
     fn process(&mut self, delta: f64) {
         self.tick_motion(delta);
     }
-
-    fn draw(&mut self) {
-        let draw_started = Instant::now();
-        let canvas = self.base().get_canvas_item();
-        for (id, items) in &self.items {
-            if !self.rects.contains_key(id) {
-                items.clear();
-            }
-        }
-        let mut draw_index = 0;
-        for id in &self.paint_order {
-            let rect = self.rects[id];
-            if rect.width <= 0.0 || rect.height <= 0.0 {
-                if let Some(items) = self.items.get(id) {
-                    items.clear();
-                }
-                continue;
-            }
-            let Some(visual) = self.visuals.get_mut(id) else {
-                continue;
-            };
-            let opacity = self.opacities[id];
-            visual
-                .background
-                .set_bg_color(with_opacity(visual.background_color, opacity));
-            visual
-                .background
-                .set_border_color(with_opacity(visual.border_color, opacity));
-            let items = self
-                .items
-                .entry(*id)
-                .or_insert_with(|| RenderItems::new(canvas));
-            render_items::prepare(
-                items.paint,
-                draw_index,
-                rect.godot_rect(),
-                self.clips[id].map(BoxRect::godot_rect),
-            );
-            draw_index += 1;
-            visual.background.draw(items.paint, rect.godot_rect());
-            render_items::prepare(
-                items.text,
-                draw_index,
-                rect.godot_rect(),
-                self.content_clips[id].map(BoxRect::godot_rect),
-            );
-            draw_index += 1;
-            if let Some(paragraph) = visual.paragraph.as_mut() {
-                let layout = self
-                    .tree
-                    .layout(self.handles[id])
-                    .expect("mounted layout exists");
-                let left = layout.border.left + layout.padding.left;
-                let top = layout.border.top + layout.padding.top;
-                let content_width =
-                    (rect.width - left - layout.border.right - layout.padding.right).max(0.0);
-                paragraph.set_width(content_width);
-                paragraph
-                    .draw_ex(items.text, Vector2::new(rect.x + left, rect.y + top))
-                    .color(with_opacity(visual.text_color, opacity))
-                    .done();
-            }
-        }
-        if let Some(items) = &self.focus_items {
-            items.clear();
-        }
-        if let Some(id) = self.focused
-            && let Some(rect) = self.rects.get(&id)
-            && let Some(ring) = self.focus_ring.as_mut()
-        {
-            // Focus is an inset stroke so it cannot cover adjacent content.
-            ring.set_corner_radius_all(
-                self.model.nodes[&id].style.border_radius.unwrap_or(0.0) as i32
-            );
-            if let Some(items) = &self.focus_items {
-                render_items::prepare(
-                    items.paint,
-                    draw_index,
-                    rect.godot_rect(),
-                    self.clips[&id].map(BoxRect::godot_rect),
-                );
-                ring.draw(items.paint, rect.godot_rect());
-            }
-        }
-        self.stats.paint_passes += 1;
-        self.profiler.record(Sample::Draw {
-            cpu_micros: micros(draw_started),
-        });
-    }
 }
 
 #[godot_api]
@@ -366,44 +304,33 @@ impl ReactUiRoot {
     #[signal]
     fn events_ready();
 
+    /// Apply one layer's commit payload (plan section 4.1): validate all of it, then mount it. An
+    /// empty return is success; anything else describes why nothing changed.
     #[func]
-    fn apply_batch(&mut self, json: GString) -> GString {
-        let total_started = Instant::now();
-        let phase = Instant::now();
-        let commands: Vec<Command> = match serde_json::from_str(&json.to_string()) {
-            Ok(value) => value,
-            Err(error) => return GString::from(&format!("Invalid mutation JSON: {error}")),
+    fn commit(&mut self, layer: i64, payload_json: GString) -> GString {
+        let parse_started = Instant::now();
+        let Ok(layer) = usize::try_from(layer) else {
+            return GString::from(&format!("layer {layer} is negative"));
         };
-        let parse_micros = micros(phase);
-        let phase = Instant::now();
-        let mut staged = self.model.clone();
-        let clone_micros = micros(phase);
-        let phase = Instant::now();
-        if let Err(error) = staged
-            .apply(&commands)
-            .and_then(|()| validate_motion_changes(&self.model, &staged))
-        {
-            return GString::from(&error);
+        let payload: CommitPayload = match serde_json::from_str(&payload_json.to_string()) {
+            Ok(payload) => payload,
+            Err(error) => return GString::from(&format!("Invalid commit JSON: {error}")),
+        };
+        let parse_micros = micros(parse_started);
+        self.ensure_render_roots();
+        match self.run_commit(layer, &payload, parse_micros) {
+            Ok(()) => GString::new(),
+            Err(error) => GString::from(&error),
         }
-        let validate_micros = micros(phase);
-        let phase = Instant::now();
-        self.phase_layout_micros = 0;
-        self.phase_geometry_micros = 0;
-        self.publish_model(staged);
-        let sync_micros =
-            micros(phase).saturating_sub(self.phase_layout_micros + self.phase_geometry_micros);
-        self.stats.batches += 1;
-        self.stats.node_count = self.model.nodes.len() - 1;
-        self.profiler.record(Sample::Batch {
-            parse_micros,
-            clone_micros,
-            validate_micros,
-            sync_micros,
-            layout_micros: self.phase_layout_micros,
-            geometry_micros: self.phase_geometry_micros,
-            total_micros: micros(total_started),
-        });
-        GString::new()
+    }
+
+    /// The tags the last successful commit deleted, for JS to forget.
+    #[func]
+    fn take_commit_deletions(&mut self) -> PackedInt64Array {
+        std::mem::take(&mut self.deletions)
+            .into_iter()
+            .map(i64::from)
+            .collect()
     }
 
     #[func]
@@ -427,26 +354,25 @@ impl ReactUiRoot {
 
     #[func]
     fn get_snapshot(&self) -> GString {
-        let nodes: Vec<_> = self
-            .model
-            .nodes
-            .values()
-            .map(|node| {
-                json!({
-                    "id":node.id, "kind":node.kind, "text":node.text, "parent":node.parent,
-                    "children":node.children, "style":node.style,
-                    "rect":self.rects.get(&node.id).copied().unwrap_or_default(),
-                    "clipRect":self.clips.get(&node.id).copied().flatten(),
-                    "presentation":self.presentation_json(node.id)
-                })
-            })
-            .collect();
-        json!({"nodes":nodes,"stats":self.stats,"width":self.viewport_size.x,
-            "height":self.viewport_size.y,"hovered":self.hovered,"focused":self.focused,
-            "pressed":self.pressed,"clockMs":self.clock_ms,"transitions":self.transitions.values().collect::<Vec<_>>()})
-        .to_string()
-        .as_str()
-        .into()
+        self.snapshot_json().to_string().as_str().into()
+    }
+
+    /// The root-local rectangle of a node as JSON, or `null` if no such node is mounted.
+    #[func]
+    fn get_node_rect(&self, tag: i64) -> GString {
+        let json = match u32::try_from(tag) {
+            Ok(tag) => self.node_rect_json(tag),
+            Err(_) => serde_json::Value::Null,
+        };
+        json.to_string().as_str().into()
+    }
+
+    /// The tag of the first node created with `test_id`, or -1.
+    #[func]
+    fn find_by_test_id(&self, test_id: GString) -> i64 {
+        self.mounted
+            .find_by_test_id(&test_id.to_string())
+            .map_or(-1, i64::from)
     }
 
     #[func]
@@ -486,363 +412,118 @@ impl ReactUiRoot {
 }
 
 impl ReactUiRoot {
-    fn sync_model(&mut self, staged: Model) {
-        let layout_changed = self.model.nodes.len() != staged.nodes.len()
-            || staged.nodes.iter().any(|(id, node)| {
-                self.model.nodes.get(id).is_none_or(|old| {
-                    old.text != node.text
-                        || old.style.font_size != node.style.font_size
-                        || old.style.text_align != node.style.text_align
-                        || old.children != node.children
-                        || old.style.taffy_style().expect("validated previous style")
-                            != node.style.taffy_style().expect("validated next style")
-                })
-            });
-        if layout_changed {
-            self.content_generation += 1;
+    /// Read the Control's size and restyle the nodes whose breakpoints it crossed.
+    fn sync_viewport(&mut self) {
+        let size = self.base().get_size();
+        let previous_width = self.styled_width;
+        self.viewport_size = size;
+        self.styled_width = size.x;
+        let crossed = self.mounted.breakpoints.crossed(previous_width, size.x);
+        if !crossed.is_empty() {
+            let changes = restyle(&mut self.mounted, crossed, size.x);
+            self.publish_style_changes(&changes);
         }
-        let removed: Vec<u32> = self
-            .handles
-            .keys()
-            .filter(|id| !staged.nodes.contains_key(id))
-            .copied()
-            .collect();
-        for id in removed {
-            let handle = self.handles.remove(&id).expect("enumerated handle");
-            self.tree.remove(handle).expect("known Taffy handle");
-            self.visuals.remove(&id);
-            self.items.remove(&id);
-        }
-        for (id, node) in &staged.nodes {
-            let style = node
-                .style
-                .taffy_style()
-                .expect("style validated before native mutation");
-            let handle = match self.handles.get(id) {
-                Some(handle) => *handle,
-                None => {
-                    let handle = self.tree.new_leaf(style.clone()).expect("valid new layout");
-                    self.handles.insert(*id, handle);
-                    handle
-                }
-            };
-            let authored_layout_changed = self.model.nodes.get(id).is_none_or(|old| {
-                old.style
-                    .taffy_style()
-                    .expect("validated previous style")
-                    != style
-            });
-            if *id != 0
-                && authored_layout_changed
-                && self.tree.style(handle).expect("known handle") != &style
-            {
-                self.tree.set_style(handle, style).expect("known handle");
-            }
-            let old = self.model.nodes.get(id);
-            let needs_visual = !self.visuals.contains_key(id)
-                || old.is_none_or(|old| old.style != node.style || old.text != node.text);
-            if needs_visual && *id != 0 {
-                let text_changed = !self.visuals.contains_key(id)
-                    || old.is_none_or(|old| {
-                        old.text != node.text
-                            || old.style.font_size != node.style.font_size
-                            || old.style.text_align != node.style.text_align
-                    });
-                let previous_paragraph = self
-                    .visuals
-                    .get(id)
-                    .and_then(|visual| visual.paragraph.clone());
-                let mut visual =
-                    self.make_visual(&node.style, if text_changed { &node.text } else { "" });
-                if text_changed {
-                    let context = visual
-                        .paragraph
-                        .clone()
-                        .map(|paragraph| TextContext { paragraph });
-                    self.tree
-                        .set_node_context(handle, context)
-                        .expect("known handle");
-                } else {
-                    visual.paragraph = previous_paragraph;
-                }
-                self.visuals.insert(*id, visual);
-            }
-        }
-        let changed: Vec<u32> = staged
-            .nodes
-            .iter()
-            .filter_map(|(id, node)| {
-                if self
-                    .model
-                    .nodes
-                    .get(id)
-                    .is_none_or(|old| old.children != node.children)
-                {
-                    Some(*id)
-                } else {
-                    None
-                }
-            })
-            .collect();
-        // Detach every changed parent first; then reparent with the final topology.
-        for id in &changed {
-            self.tree
-                .set_children(self.handles[id], &[])
-                .expect("known handle");
-        }
-        for id in changed {
-            let children: Vec<_> = staged.nodes[&id]
-                .children
-                .iter()
-                .map(|child| self.handles[child])
-                .collect();
-            self.tree
-                .set_children(self.handles[&id], &children)
-                .expect("validated acyclic topology");
-        }
-        self.model = staged;
-        self.intrinsic
-            .retain(|(id, _), _| self.model.nodes.contains_key(id));
-        self.overrides
-            .retain(|id, _| self.model.nodes.contains_key(id));
-        self.transitions
-            .retain(|(id, _), _| self.model.nodes.contains_key(id));
-        if self
-            .focused
-            .is_some_and(|id| !self.model.nodes.contains_key(&id) || self.disabled(id))
+    }
+
+    /// Recompute which nodes are hovered, active and focused, and restyle those whose pseudo-state
+    /// changed and whose style uses it. Hover, press and focus never touch React.
+    pub(crate) fn refresh_interaction(&mut self) {
+        // Disabling or removing an element takes focus and the press away from it.
+        if let Some(tag) = self.focused
+            && self.mounted.nodes.contains_key(&tag)
+            && self.mounted.is_disabled(tag)
         {
-            self.set_focus(None);
+            self.set_focus(None, false);
         }
-        if self
+        if self.pressed.is_some_and(|tag| {
+            !self.mounted.nodes.contains_key(&tag) || self.mounted.is_disabled(tag)
+        }) {
+            self.pressed = None;
+        }
+        let hover = self
+            .hovered
+            .map(|tag| self.mounted.path_of(tag))
+            .unwrap_or_default();
+        let pressed_chain = self
             .pressed
-            .is_some_and(|id| !self.model.nodes.contains_key(&id) || self.disabled(id))
-        {
-            self.pressed = None;
-        }
-    }
-
-    fn make_visual(&self, style: &StyleSpec, text: &str) -> Visual {
-        let opacity = 1.0;
-        let mut background = StyleBoxFlat::new_gd();
-        background.set_bg_color(parse_color(
-            style.background_color.as_deref(),
-            Color::TRANSPARENT_BLACK,
-            opacity,
-        ));
-        background.set_border_color(parse_color(
-            style.border_color.as_deref(),
-            Color::TRANSPARENT_BLACK,
-            opacity,
-        ));
-        background.set_border_width_all(style.border_width.unwrap_or(0.0).round() as i32);
-        background.set_corner_radius_all(style.border_radius.unwrap_or(0.0).round() as i32);
-        background.set_corner_detail(CORNER_DETAIL);
-        let paragraph = if !text.is_empty() {
-            self.font.as_ref().map(|font| {
-                let mut paragraph = TextParagraph::new_gd();
-                // Match Godot Label AUTOWRAP_WORD_SMART: grapheme fallback only for
-                // words wider than the line, not an unconditional break per glyph.
-                paragraph.set_break_flags(
-                    LineBreakFlag::MANDATORY | LineBreakFlag::WORD_BOUND | LineBreakFlag::ADAPTIVE,
-                );
-                paragraph.set_alignment(match style.text_align {
-                    Some(TextAlignSpec::Center) => HorizontalAlignment::CENTER,
-                    Some(TextAlignSpec::Right) => HorizontalAlignment::RIGHT,
-                    _ => HorizontalAlignment::LEFT,
-                });
-                assert!(
-                    paragraph.add_string(text, font, style.font_size.unwrap_or(DEFAULT_FONT_SIZE)),
-                    "Godot rejected validated text/font"
-                );
-                paragraph
-            })
+            .map(|tag| self.mounted.path_of(tag))
+            .unwrap_or_default();
+        // A mouse press stays active only while the pointer is inside it; a key press stays active
+        // until the key is released.
+        let active = if self.pressed_by_keyboard {
+            pressed_chain
         } else {
-            None
+            pressed_chain
+                .into_iter()
+                .filter(|tag| hover.contains(tag))
+                .collect()
         };
-        Visual {
-            background,
-            paragraph,
-            text_color: parse_color(style.color.as_deref(), Color::WHITE, opacity),
-            background_color: parse_color(
-                style.background_color.as_deref(),
-                Color::TRANSPARENT_BLACK,
-                opacity,
-            ),
-            border_color: parse_color(
-                style.border_color.as_deref(),
-                Color::TRANSPARENT_BLACK,
-                opacity,
-            ),
-        }
-    }
-
-    fn flush_layout(&mut self) {
-        let layout_passes_before = self.stats.layout_passes;
-        self.viewport_size = self.base().get_size();
-        let root = self.handles[&0];
-        let mut root_style = self.model.nodes[&0]
-            .style
-            .taffy_style()
-            .expect("validated root style");
-        root_style.size = Size {
-            width: taffy::prelude::length(self.viewport_size.x),
-            height: taffy::prelude::length(self.viewport_size.y),
+        let focus_within = self
+            .focused
+            .map(|tag| self.mounted.path_of(tag))
+            .unwrap_or_default();
+        let next = InteractionState {
+            hover,
+            active,
+            focused: self
+                .focused
+                .filter(|tag| self.mounted.nodes.contains_key(tag)),
+            focus_within,
+            focus_visible: self.focus_visible && self.focused.is_some(),
         };
-        if self.tree.style(root).expect("root exists") != &root_style {
-            self.tree.set_style(root, root_style).expect("root exists");
-        }
-        if self.tree.dirty(root).expect("root exists") {
-            let start = Instant::now();
-            compute_tree(&mut self.tree, root, self.viewport_size);
-            self.stats.layout_micros = start.elapsed().as_micros() as u64;
-            self.stats.layout_passes += 1;
-        }
-        self.last_layout_micros = if self.stats.layout_passes > layout_passes_before {
-            self.stats.layout_micros
-        } else {
-            0
-        };
-        let geometry_started = Instant::now();
-        self.rects.clear();
-        self.clips.clear();
-        self.content_clips.clear();
-        self.paint_order.clear();
-        self.opacities.clear();
-        self.collect_rects(
-            0,
-            Vector2::ZERO,
-            1.0,
-            Some(BoxRect {
-                x: 0.0,
-                y: 0.0,
-                width: self.viewport_size.x,
-                height: self.viewport_size.y,
-            }),
-        );
-        if self.focused.is_some_and(|id| !self.visible_for_input(id)) {
-            self.set_focus(None);
-        }
-        if self.pressed.is_some_and(|id| !self.visible_for_input(id)) {
-            self.pressed = None;
-        }
-        let hit = if self.pointer_known {
-            self.hit_test(self.pointer)
-        } else {
-            None
-        };
-        self.update_hover(hit);
-        self.geometry_micros = micros(geometry_started);
-        self.phase_layout_micros += self.last_layout_micros;
-        self.phase_geometry_micros += self.geometry_micros;
-        self.base_mut().queue_redraw();
-    }
-
-    fn collect_rects(
-        &mut self,
-        id: u32,
-        origin: Vector2,
-        parent_opacity: f32,
-        inherited_clip: Option<BoxRect>,
-    ) {
-        let node = &self.model.nodes[&id];
-        if node.style.display == Some(protocol::DisplaySpec::None) {
+        if next == self.mounted.interaction {
             return;
         }
-        let layout = self
-            .tree
-            .layout(self.handles[&id])
-            .expect("known mounted handle");
-        let position = origin + Vector2::new(layout.location.x, layout.location.y);
-        self.rects.insert(
-            id,
-            BoxRect {
-                x: position.x,
-                y: position.y,
-                width: layout.size.width,
-                height: layout.size.height,
-            },
-        );
-        self.clips.insert(id, inherited_clip);
-        let own_clip = if node.style.overflow == Some(OverflowSpec::Hidden) {
-            let box_rect = self.rects[&id];
-            Some(BoxRect {
-                x: box_rect.x + layout.border.left,
-                y: box_rect.y + layout.border.top,
-                width: (box_rect.width - layout.border.left - layout.border.right).max(0.0),
-                height: (box_rect.height - layout.border.top - layout.border.bottom).max(0.0),
-            })
-        } else {
-            None
+        let previous = std::mem::replace(&mut self.mounted.interaction, next);
+        let next = &self.mounted.interaction;
+        // A node needs restyling only if its style conditions on the state that changed for it.
+        let mut dirty = BTreeSet::new();
+        let mut consider = |tags: Vec<u32>, states: &[PseudoState]| {
+            let changed = PseudoStates::from_slice(states);
+            for tag in tags {
+                if self
+                    .mounted
+                    .nodes
+                    .get(&tag)
+                    .is_some_and(|node| node.uses_states.intersects(changed))
+                {
+                    dirty.insert(tag);
+                }
+            }
         };
-        let content_clip = intersect_clip(inherited_clip, own_clip);
-        self.content_clips.insert(id, content_clip);
-        let sampled_opacity = self
-            .style_frame
-            .values
-            .get(&id)
-            .map(|value| value.opacity)
-            .unwrap_or(node.style.opacity.unwrap_or(1.0));
-        let opacity = parent_opacity * sampled_opacity;
-        self.opacities.insert(id, opacity);
-        if id != 0 {
-            self.paint_order.push(id);
+        let moved = |before: &[u32], after: &[u32]| -> Vec<u32> {
+            before
+                .iter()
+                .filter(|tag| !after.contains(tag))
+                .chain(after.iter().filter(|tag| !before.contains(tag)))
+                .copied()
+                .collect()
+        };
+        consider(moved(&previous.hover, &next.hover), &[PseudoState::Hover]);
+        consider(
+            moved(&previous.active, &next.active),
+            &[PseudoState::Active],
+        );
+        consider(
+            moved(&previous.focus_within, &next.focus_within),
+            &[PseudoState::FocusWithin],
+        );
+        if previous.focused != next.focused || previous.focus_visible != next.focus_visible {
+            consider(
+                previous.focused.into_iter().chain(next.focused).collect(),
+                &[PseudoState::Focus, PseudoState::FocusVisible],
+            );
         }
-        let children = node.children.clone();
-        for child in children {
-            self.collect_rects(child, position, opacity, content_clip);
+        if dirty.is_empty() {
+            return;
         }
-    }
-
-    fn hit_test(&self, point: Vector2) -> Option<u32> {
-        if point.x < 0.0
-            || point.y < 0.0
-            || point.x >= self.viewport_size.x
-            || point.y >= self.viewport_size.y
-        {
-            return None;
-        }
-        self.paint_order
-            .iter()
-            .rev()
-            .find(|id| {
-                self.rects[id].contains(point)
-                    && self.clips[id].is_none_or(|clip| clip.contains(point))
-            })
-            .copied()
-    }
-
-    fn visible_for_input(&self, id: u32) -> bool {
-        self.rects.get(&id).is_some_and(|rect| {
-            rect.width > 0.0
-                && rect.height > 0.0
-                && self
-                    .clips
-                    .get(&id)
-                    .copied()
-                    .flatten()
-                    .is_none_or(|clip| intersects(*rect, clip))
-        })
-    }
-
-    fn disabled(&self, mut id: u32) -> bool {
-        loop {
-            let node = &self.model.nodes[&id];
-            if node.style.disabled == Some(true) {
-                return true;
-            }
-            match node.parent {
-                Some(parent) => id = parent,
-                None => return false,
-            }
-        }
-    }
-
-    fn button_ancestor(&self, id: u32) -> Option<u32> {
-        enabled_button_ancestor(&self.model, id)
+        let changes = restyle(&mut self.mounted, dirty, self.styled_width);
+        self.publish_style_changes(&changes);
     }
 
     fn queue(&mut self, target: u32, payload: EventPayload) {
-        self.events.push(target, payload, event_time_ms());
+        let path = self.mounted.path_of(target);
+        self.events.push(target, path, payload, event_time_ms());
     }
 
     /// Everything that still describes the pointer when an event is not itself input: the last
@@ -916,7 +597,10 @@ impl ReactUiRoot {
             self.queue(target, payload);
             return EventOutcome::default();
         }
-        let seq = self.events.push_awaited(target, payload, event_time_ms());
+        let path = self.mounted.path_of(target);
+        let seq = self
+            .events
+            .push_awaited(target, path, payload, event_time_ms());
         self.deliver();
         self.events.take_outcome(seq)
     }
@@ -941,7 +625,7 @@ impl ReactUiRoot {
                 motion.get_button_mask(),
                 modifiers_of(&motion),
             );
-            let hit = self.hit_test(self.pointer);
+            let hit = self.mounted.hit_test(self.pointer);
             self.update_hover(hit);
             if let Some(id) = hit {
                 let data = self.mouse_pointer_data(DOM_BUTTON_NONE, 0, None);
@@ -956,7 +640,7 @@ impl ReactUiRoot {
                 button.get_button_mask(),
                 modifiers_of(&button),
             );
-            let hit = self.hit_test(self.pointer);
+            let hit = self.mounted.hit_test(self.pointer);
             self.update_hover(hit);
             if button.is_pressed() {
                 if !self.press_primary(hit) {
@@ -976,10 +660,14 @@ impl ReactUiRoot {
                 self.advance_focus(key.is_shift_pressed());
                 self.base_mut().accept_event();
             } else if (code == Key::ENTER || code == Key::KP_ENTER || code == Key::SPACE)
-                && let Some(id) = self.focused.filter(|id| !self.disabled(*id))
+                && let Some(id) = self.focused.filter(|id| {
+                    self.mounted.nodes.contains_key(id) && !self.mounted.is_disabled(*id)
+                })
             {
                 if key.is_pressed() {
                     self.pressed = Some(id);
+                    self.pressed_by_keyboard = true;
+                    self.refresh_interaction();
                     let data = self.synthetic_pointer_data(DOM_BUTTONS_PRIMARY, 0);
                     self.queue(id, EventPayload::PointerDown(data));
                 } else {
@@ -989,6 +677,8 @@ impl ReactUiRoot {
                         self.queue(id, EventPayload::Click(data));
                     }
                     self.pressed = None;
+                    self.pressed_by_keyboard = false;
+                    self.refresh_interaction();
                 }
                 self.base_mut().accept_event();
             }
@@ -998,9 +688,12 @@ impl ReactUiRoot {
     /// Primary button press. Returns false when JS left the root outside the scene tree while
     /// handling `pointerdown`: nothing native may run afterwards (plan 3.3 rule 4).
     fn press_primary(&mut self, hit: Option<u32>) -> bool {
-        self.pressed = hit.filter(|id| !self.disabled(*id));
+        self.pressed = hit.filter(|id| !self.mounted.is_disabled(*id));
+        self.pressed_by_keyboard = false;
         let mut prevented = false;
         if let Some(id) = self.pressed {
+            // The `active` style applies from the moment of the press, before handlers run.
+            self.refresh_interaction();
             let data = self.mouse_pointer_data(DOM_BUTTON_PRIMARY, 0, None);
             prevented = self
                 .dispatch_cancelable(id, EventPayload::PointerDown(data))
@@ -1011,18 +704,18 @@ impl ReactUiRoot {
         }
         // JS may have removed the element it just handled the press on; the default action is
         // skipped then (plan 3.3 rule 3). Everything else looks the target up again.
-        let target_removed = hit.is_some_and(|id| !self.model.nodes.contains_key(&id));
+        let target_removed = hit.is_some_and(|id| !self.mounted.nodes.contains_key(&id));
         if !prevented && !target_removed {
             // Default action: the nearest enabled button takes focus.
             self.base_mut().grab_focus();
-            let focus = hit.and_then(|id| self.button_ancestor(id));
-            self.set_focus(focus);
+            let focus = hit.and_then(|id| enabled_button_ancestor(&self.mounted, id));
+            self.set_focus(focus, false);
         }
         true
     }
 
     fn release_primary(&mut self, hit: Option<u32>) {
-        if let Some(id) = hit.filter(|id| !self.disabled(*id)) {
+        if let Some(id) = hit.filter(|id| !self.mounted.is_disabled(*id)) {
             let up = self.mouse_pointer_data(DOM_BUTTON_PRIMARY, 0, None);
             self.queue(id, EventPayload::PointerUp(up));
             let click = self.pressed.and_then(|pressed| {
@@ -1031,7 +724,7 @@ impl ReactUiRoot {
                 } else {
                     // Padding and label are different pointer targets, but they
                     // activate the same button. Keep pointer event IDs unchanged.
-                    shared_button_target(&self.model, pressed, id)
+                    shared_button_target(&self.mounted, pressed, id)
                 }
             });
             if let Some(target) = click {
@@ -1040,11 +733,12 @@ impl ReactUiRoot {
             }
         }
         self.pressed = None;
+        self.refresh_interaction();
     }
 
     /// One `pointerleave` for the element left and one `pointerenter` for the element entered, each
     /// naming the other. JS expands them into the per-element DOM chains.
-    fn update_hover(&mut self, next: Option<u32>) {
+    pub(crate) fn update_hover(&mut self, next: Option<u32>) {
         if self.hovered == next {
             return;
         }
@@ -1052,41 +746,51 @@ impl ReactUiRoot {
         self.hovered = next;
         if let Some(id) = previous {
             let data = self.mouse_pointer_data(DOM_BUTTON_NONE, 0, next);
-            self.queue(id, EventPayload::PointerLeave(data));
+            self.queue_crossing(id, next, EventPayload::PointerLeave(data));
         }
         if let Some(id) = next {
             let data = self.mouse_pointer_data(DOM_BUTTON_NONE, 0, previous);
-            self.queue(id, EventPayload::PointerEnter(data));
+            self.queue_crossing(id, previous, EventPayload::PointerEnter(data));
         }
+        self.refresh_interaction();
     }
 
-    fn set_focus(&mut self, next: Option<u32>) {
+    fn queue_crossing(&mut self, target: u32, related: Option<u32>, payload: EventPayload) {
+        let path = self.mounted.path_of(target);
+        let related_path = related
+            .map(|tag| self.mounted.path_of(tag))
+            .unwrap_or_default();
+        self.events
+            .push_crossing(target, path, related_path, payload, event_time_ms());
+    }
+
+    /// Move focus, queueing `blur` and `focus`. `visible` says whether the focus came from the
+    /// keyboard (`:focus-visible`).
+    pub(crate) fn set_focus(&mut self, next: Option<u32>, visible: bool) {
         if self.focused == next {
             return;
         }
-        if let Some(id) = self.focused {
+        if let Some(id) = self.focused
+            && self.mounted.nodes.contains_key(&id)
+        {
             self.queue(id, EventPayload::Blur);
         }
         self.focused = next;
+        self.focus_visible = next.is_some() && visible;
         if let Some(id) = next {
             self.queue(id, EventPayload::Focus);
         }
-        self.base_mut().queue_redraw();
+        self.refresh_interaction();
+        // The focus ring is drawn by the paint pass, but focus does not always restyle anything
+        // (only elements with a `focus:` class do), and a restyle is what normally leads to a
+        // pass. Without this the ring would wait for the next unrelated paint.
+        self.paint_pass();
     }
 
     fn advance_focus(&mut self, backwards: bool) {
-        let buttons: Vec<u32> = self
-            .paint_order
-            .iter()
-            .copied()
-            .filter(|id| {
-                self.model.nodes[id].kind == Kind::Button
-                    && !self.disabled(*id)
-                    && self.clips[id].is_none_or(|clip| intersects(self.rects[id], clip))
-            })
-            .collect();
+        let buttons = self.visible_enabled_buttons();
         if buttons.is_empty() {
-            self.set_focus(None);
+            self.set_focus(None, false);
             return;
         }
         let current = self
@@ -1098,7 +802,7 @@ impl ReactUiRoot {
             (None, false) => 0,
             (None, true) => buttons.len() - 1,
         };
-        self.set_focus(Some(buttons[index]));
+        self.set_focus(Some(buttons[index]), true);
     }
 }
 

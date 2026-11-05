@@ -4,9 +4,9 @@ import {
   createElement as h, createContext, createRef, Suspense,
   useContext, useEffect, useState, type ReactNode,
 } from 'react';
-import { Button, Text, View, createRoot, type UIHandle } from '../src';
+import { Button, Portal, Text, View, compileStyle, createRoot, type UIHandle } from '../src';
 import type { NativeHost } from '../src/native';
-import { NO_SUBSCRIPTION, RecordingHost } from './recording-host';
+import { createTestRoot, NO_SUBSCRIPTION, RecordingHost } from './recording-host';
 
 async function waitFor(predicate: () => boolean): Promise<void> {
   const deadline = Date.now() + 1000;
@@ -45,7 +45,9 @@ test('real React hooks, context, refs and effects survive events, then clean up 
   assert.ok([...host.nodes.values()].some((entry) => entry.text === 'Count: 0'));
   const text = [...host.nodes.values()].find((entry) => entry.text === 'Count: 0');
   assert.ok(text);
-  assert.equal(text.style.color, '#ffffff');
+  // The label inherits the button's colour natively, so the colour travels once, on the button.
+  assert.equal(text.parent, button.id);
+  assert.deepEqual(root.findByTestID('counter')?.props.style, compileStyle('text-white text-lg'));
   host.event(button.id, 'click');
   root.dispatchEvents();
   await waitFor(() => [...host.nodes.values()].some((entry) => entry.text === 'Count: 1'));
@@ -72,7 +74,7 @@ test('keyed reorder moves existing native IDs and replaces children in order', (
   assert.ok(a && b && c);
   root.render(list(['c', 'a', 'b']));
   assert.deepEqual(root.findByTestID('list')?.children, [c.id, a.id, b.id]);
-  assert.equal(host.batches.at(-1)?.filter((entry) => entry.op === 'create').length, 0);
+  assert.equal(host.commits.at(-1)?.payload.created.length, 0);
   root.render(list(['b']));
   assert.deepEqual(root.findByTestID('list')?.children, [b.id]);
   assert.ok(!host.nodes.has(a.id) && !host.nodes.has(c.id));
@@ -102,7 +104,7 @@ test('speculative suspended trees allocate no native nodes before commit', () =>
   assert.ok(root.findByTestID('fallback'));
   assert.equal(root.findByTestID('abandoned'), undefined);
   assert.equal(host.nodes.size, 2);
-  assert.equal(host.batches.flat().filter((entry) => entry.op === 'create').length, 1);
+  assert.equal(host.commits.flatMap((commit) => commit.payload.created).length, 1);
   root.unmount();
 });
 
@@ -123,9 +125,12 @@ test('bubbling, stopPropagation, disabled controls and pseudo styles use real ho
   assert.ok(button);
   const child = button.children[0];
   assert.ok(child !== undefined);
+  // Hover is native state: it reaches JS as an event but changes no native prop, so nothing is
+  // committed and no style is recomputed in JavaScript.
+  const commitsBeforeHover = host.commits.length;
   host.event(child, 'pointerenter');
   root.dispatchEvents();
-  assert.equal(root.findByTestID('button')?.style.backgroundColor, '#334155');
+  assert.equal(host.commits.length, commitsBeforeHover);
   host.event(child, 'click');
   root.dispatchEvents();
   assert.deepEqual(received, [`button:${child}:${button.id}`]);
@@ -138,18 +143,19 @@ test('bubbling, stopPropagation, disabled controls and pseudo styles use real ho
   root.unmount();
 });
 
-test('native boundary rejects invalid data and surfaces failed batches', () => {
+test('native boundary rejects invalid data and surfaces failed commits', () => {
   const malformed: NativeHost = {
-    applyBatch: () => '', drainEvents: () => '[]', getSnapshot: () => '{"nodes":[]}',
-    resolveEvent: () => '',
+    commit: () => '', takeCommitDeletions: () => ({ size: () => 0, get: () => 0 }),
+    drainEvents: () => '[]', getSnapshot: () => '{"nodes":[]}',
+    getNodeRect: () => 'null', findByTestId: () => -1, resolveEvent: () => '',
   };
   assert.throws(() => createRoot(malformed, { subscribeToEvents: NO_SUBSCRIPTION }), /Invalid native/);
   const host = new RecordingHost();
   const root = createRoot(host, { subscribeToEvents: NO_SUBSCRIPTION });
   root.render(h(Text, { testID: 'text' }, 'Good'));
-  host.rejectNextBatch = true;
+  host.rejectNextCommit = true;
   assert.throws(() => root.render(h(Text, { testID: 'text' }, 'Rejected')), /deliberate transport failure/);
-  assert.equal(root.findByTestID('text')?.text, 'Good', 'Rejected batch preserves the native tree');
+  assert.equal(root.findByTestID('text')?.text, 'Good', 'A rejected commit preserves the native tree');
   root.render(h(Text, {testID: 'text'}, 'Recovered'));
   assert.equal(root.findByTestID('text')?.text, 'Recovered', 'React can commit after the surfaced rejection');
   root.unmount();
@@ -162,10 +168,10 @@ test('profiling observes real commits, drains samples, and is inert when disable
   root.render(h(Text, {testID: 'profiled'}, 'Before'));
   assert.equal(clockCalls, 0, 'Disabled instrumentation must not read its clock');
   root.setProfiling(true);
-  const before = host.batches.length;
+  const before = host.commits.length;
   root.render(h(Text, {testID: 'profiled'}, 'After'));
   const report = root.takeProfile();
-  assert.equal(report.counters.batches, host.batches.length - before);
+  assert.equal(report.counters.batches, host.commits.length - before);
   const flush = report.samples.find(sample => sample.kind === 'flush');
   assert.ok(flush && flush.kind === 'flush');
   assert.equal(flush.visitedNodes, 1);
@@ -177,5 +183,139 @@ test('profiling observes real commits, drains samples, and is inert when disable
   const previousClockCalls = clockCalls;
   root.render(h(Text, null, 'Unprofiled'));
   assert.equal(clockCalls, previousClockCalls);
+  root.unmount();
+});
+
+// ---- Phase F3: the persistent renderer ----
+
+test('render makes no native call: an abandoned render costs nothing across the boundary', () => {
+  const host = new RecordingHost();
+  const root = createRoot(host, { subscribeToEvents: NO_SUBSCRIPTION });
+  const marks = host.calls.length;
+  const never = new Promise<void>(() => {});
+  function Suspend(): ReactNode { throw never; }
+  // The suspended tree creates instances during render that are never committed.
+  root.render(h(Suspense, { fallback: h(Text, null, 'Loading') }, h(View, null, h(Text, null, 'x')), h(Suspend)));
+  assert.deepEqual(host.callsSince(marks), ['commit', 'takeCommitDeletions'],
+    'only the single commit of the fallback (and its deletion query) crossed');
+  assert.equal(host.commits.length, 1);
+  root.unmount();
+});
+
+test('a re-render that changes nothing native, or only a handler, makes no native call', () => {
+  const host = new RecordingHost();
+  const root = createRoot(host, { subscribeToEvents: NO_SUBSCRIPTION });
+  const tree = (onClick: () => void) => h(View, { testID: 'box', className: 'p-2' },
+    h(Button, { testID: 'go', onClick }, 'Go'));
+  root.render(tree(() => {}));
+  const marks = host.calls.length;
+  root.render(tree(() => {}));
+  assert.deepEqual(host.callsSince(marks), [], 'new handlers are JavaScript-only');
+  root.unmount();
+});
+
+test('hover is native state: a pointer enter or leave makes no commit and no style call', () => {
+  const host = new RecordingHost();
+  const { root } = createTestRoot(host);
+  root.render(h(View, { testID: 'card', className: 'bg-white hover:bg-slate-100' }));
+  const card = root.findByTestID('card');
+  assert.ok(card);
+  const marks = host.calls.length;
+  host.event(card.id, 'pointerenter');
+  host.event(card.id, 'pointerleave');
+  root.dispatchEvents();
+  assert.deepEqual([...new Set(host.callsSince(marks))], ['drainEvents'], 'events were drained and nothing else crossed');
+  root.unmount();
+});
+
+test('public handles are stable across clones and report the committed testID', async () => {
+  const host = new RecordingHost();
+  const root = createRoot(host, { subscribeToEvents: NO_SUBSCRIPTION });
+  const ref = createRef<UIHandle>();
+  const list = (title: string) => h(View, null, h(Text, { ref, testID: title }, title));
+  root.render(list('first'));
+  const handle = ref.current;
+  assert.ok(handle);
+  assert.equal(handle.testID, 'first');
+  root.render(list('second'));
+  assert.equal(ref.current, handle, 'the same handle for the same node');
+  assert.equal(handle.testID, 'second', 'it reads the latest committed props');
+  assert.deepEqual(handle.getRect(), root.findByTestID('second')?.rect);
+  root.render(h(View));
+  assert.equal(ref.current, null);
+  assert.equal(handle.getRect(), undefined, 'a deleted node has no rectangle');
+  root.unmount();
+  assert.equal(host.nodes.size, 1);
+});
+
+test('deleted tags leave the committed map: events for them are dropped, not dispatched', () => {
+  const host = new RecordingHost();
+  const { root } = createTestRoot(host);
+  const log: string[] = [];
+  root.render(h(View, null, h(Button, { testID: 'doomed', onClick: () => log.push('doomed') }, 'x')));
+  const doomed = root.findByTestID('doomed');
+  assert.ok(doomed);
+  const queued = host.pointerEvent(doomed.id, 'click');
+  root.render(h(View));
+  host.events.push(queued);
+  root.dispatchEvents();
+  assert.deepEqual(log, [], 'native queued the click before JS removed the node');
+  root.unmount();
+});
+
+test('raw strings must be rendered inside <Text>', () => {
+  const host = new RecordingHost();
+  const reported: Error[] = [];
+  const root = createRoot(host, { subscribeToEvents: NO_SUBSCRIPTION, onError: (error) => reported.push(error) });
+  assert.throws(() => root.render(h(View, null, 'raw')), /Text strings must be rendered within a <Text>/);
+  root.unmount();
+});
+
+test('Portal commits to the overlay layer and unmounts with its owner', () => {
+  const host = new RecordingHost();
+  const root = createRoot(host, { subscribeToEvents: NO_SUBSCRIPTION });
+  const tree = (open: boolean) => h(View, { testID: 'main' },
+    h(Text, null, 'page'),
+    open && h(Portal, null, h(View, { testID: 'popover' }, h(Text, null, 'menu'))));
+  root.render(tree(false));
+  assert.equal(host.commits.every((commit) => commit.layer === 0), true);
+  root.render(tree(true));
+  const overlayCommit = host.commits.at(-1);
+  assert.equal(overlayCommit?.layer, 1, 'the portal content is a commit of its own layer');
+  const popover = root.findByTestID('popover');
+  assert.ok(popover);
+  assert.equal(popover.layer, 1);
+  assert.equal(root.findByTestID('main')?.layer, 0);
+  assert.deepEqual(host.layerRoots[1], [popover.id]);
+  root.render(tree(false));
+  assert.equal(root.findByTestID('popover'), undefined, 'closing the portal deletes its nodes');
+  assert.deepEqual(host.layerRoots[1], []);
+  root.render(tree(true));
+  root.unmount();
+  assert.equal(host.nodes.size, 1);
+  assert.deepEqual(host.layerRoots, [[], []]);
+});
+
+test('hiding a subtree for Suspense is a prop, and showing it again resets the prop', async () => {
+  const host = new RecordingHost();
+  const root = createRoot(host, { subscribeToEvents: NO_SUBSCRIPTION });
+  let release: () => void = () => {};
+  let ready = true;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  function Gate(): ReactNode {
+    if (!ready) throw gate;
+    return h(Text, { testID: 'content' }, 'content');
+  }
+  const tree = () => h(Suspense, { fallback: h(Text, { testID: 'fallback' }, 'wait') }, h(View, { testID: 'wrapper' }, h(Gate)));
+  root.render(tree());
+  assert.ok(root.findByTestID('wrapper'));
+  ready = false;
+  root.render(tree());
+  assert.equal(root.findByTestID('wrapper')?.props.hidden, true, 'the existing content is hidden, not deleted');
+  assert.ok(root.findByTestID('fallback'));
+  ready = true;
+  release();
+  await waitFor(() => root.findByTestID('wrapper')?.props.hidden === undefined);
+  assert.equal(root.findByTestID('fallback'), undefined);
   root.unmount();
 });

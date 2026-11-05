@@ -1,4 +1,4 @@
-export { View, Text, Button } from './components';
+export { View, Text, Button, Portal } from './components';
 export type { UIProps, UIHandle } from './components';
 export { EventPhase } from './events';
 export type {
@@ -7,9 +7,9 @@ export type {
 export { createRoot } from './renderer';
 export type { RootOptions, UIRoot } from './renderer';
 export type { UIRoot as ReactRoot } from './renderer';
-export { StyleSheet, compileStyle, resolveStyles } from './styles';
+export { StyleSheet, compileStyle } from './styles';
 export type {
-  CompiledStyle, LonghandStyle, PseudoState, Style, StyleLayer, StyleProp, StyleState, Transition, TransitionProperty,
+  CompiledStyle, LonghandStyle, PseudoState, Style, StyleLayer, StyleProp, Transition, TransitionProperty,
 } from './types';
 export type { RendererProfile, ProfileSample } from './profile';
 export { readActivity, takeNativeProfile } from './native';

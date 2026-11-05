@@ -123,33 +123,32 @@ test('enter and leave reach only the elements the pointer crosses, outermost fir
   root.render(hoverTree(log));
   const [parent, a, b, other] = ['parent', 'a', 'b', 'other'].map((id) => requireNode(root, id));
   assert.ok(parent !== undefined && a !== undefined && b !== undefined && other !== undefined);
-  const background = () => root.findByTestID('parent')?.style.backgroundColor;
-  assert.equal(background(), '#f1f5f9');
+  // Hover paint is native state now; JavaScript only ever sees the events, so no enter or leave
+  // below may cause a commit.
+  const commits = host.commits.length;
 
   // Arriving from outside the root: related is null, so every ancestor is entered.
   host.event(a, 'pointerenter', { relatedTarget: null });
   root.dispatchEvents();
   assert.deepEqual(log.splice(0), ['parent:enter:none:parent', 'a:enter:none:a']);
-  assert.equal(background(), '#e2e8f0', 'hover applies to every entered element');
 
   // Child to sibling: the shared parent is neither left nor re-entered, and keeps its hover paint.
   host.event(a, 'pointerleave', { relatedTarget: b });
   host.event(b, 'pointerenter', { relatedTarget: a });
   root.dispatchEvents();
   assert.deepEqual(log.splice(0), ['a:leave:b:a', 'b:enter:a:b']);
-  assert.equal(background(), '#e2e8f0');
 
   // To an unrelated element: leave deepest first, up to the root; enter outermost first.
   host.event(b, 'pointerleave', { relatedTarget: other });
   host.event(other, 'pointerenter', { relatedTarget: b });
   root.dispatchEvents();
   assert.deepEqual(log.splice(0), ['b:leave:other:b', 'parent:leave:other:parent', 'other:enter:b:other']);
-  assert.equal(background(), '#f1f5f9');
 
   // Leaving the root altogether.
   host.event(other, 'pointerleave', { relatedTarget: null });
   root.dispatchEvents();
   assert.deepEqual(log.splice(0), ['other:leave:none:other']);
+  assert.equal(host.commits.length, commits, 'no enter or leave caused a commit');
   root.unmount();
 });
 
@@ -174,7 +173,6 @@ test('touch pointers dispatch enter and leave but never set hover', () => {
   host.event(a, 'pointerenter', { pointerType: 'touch', pointerId: 2 });
   root.dispatchEvents();
   assert.deepEqual(log, ['parent:enter:none:parent', 'a:enter:none:a']);
-  assert.equal(root.findByTestID('parent')?.style.backgroundColor, '#f1f5f9', 'no sticky hover after a tap');
   root.unmount();
 });
 
@@ -352,7 +350,7 @@ test('invalid native events are rejected at the boundary and do not wedge dispat
   const host = new RecordingHost();
   const { root } = createTestRoot(host);
   root.render(h(View, { testID: 'target' }));
-  const malformed = JSON.stringify([{ seq: 1, target: 1, cancelable: false, timeStamp: 0, type: 'pointerdown' }]);
+  const malformed = JSON.stringify([{ seq: 1, target: 1, path: [1], cancelable: false, timeStamp: 0, type: 'pointerdown' }]);
   const drain = host.drainEvents.bind(host);
   let first = true;
   host.drainEvents = () => {

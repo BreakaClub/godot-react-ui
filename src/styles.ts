@@ -1,5 +1,5 @@
 import type {
-  CompiledStyle, Dimension, HexColor, LonghandStyle, PseudoState, Style, StyleLayer, StyleProp, StyleState,
+  CompiledStyle, Dimension, HexColor, LonghandStyle, PseudoState, Style, StyleLayer, StyleProp,
 } from './types';
 
 const SPACING_UNIT = 4;
@@ -10,7 +10,6 @@ const TOKEN_CACHE_LIMIT = 2048;
  * result (`diffNativeProps` also compares styles by content).
  */
 const INTERN_LIMIT = 4096;
-const DEFAULT_STATE: StyleState = { width: 0 };
 const BREAKPOINTS = { sm: 640, md: 768, lg: 1024, xl: 1280, '2xl': 1536 };
 const TEXT_SIZES: Readonly<Record<string, number>> = {
   xs: 12, sm: 14, base: 16, lg: 18, xl: 20,
@@ -236,70 +235,13 @@ function compileToken(token: string): CompiledToken {
   return compiled;
 }
 
-/** Expand shorthands as they enter the cascade, so a later p-2 also overrides an earlier pl-8. */
-function mergeStyle(target: Style, source: Readonly<Style>): void {
-  const { padding, margin, gap, ...properties } = source;
-  if (padding !== undefined) {
-    target.paddingTop = padding;
-    target.paddingRight = padding;
-    target.paddingBottom = padding;
-    target.paddingLeft = padding;
-  }
-  if (margin !== undefined) {
-    target.marginTop = margin;
-    target.marginRight = margin;
-    target.marginBottom = margin;
-    target.marginLeft = margin;
-  }
-  if (gap !== undefined) {
-    target.rowGap = gap;
-    target.columnGap = gap;
-  }
-  Object.assign(target, properties);
-}
-
 function isStyleArray(style: StyleProp): style is readonly StyleProp[] {
   return Array.isArray(style);
 }
 
-function mergeInlineStyle(target: Style, style: StyleProp): void {
-  if (!style) return;
-  if (isStyleArray(style)) {
-    for (const entry of style) mergeInlineStyle(target, entry);
-  } else {
-    mergeStyle(target, style);
-  }
-}
-
-/**
- * Utilities are a strict Tailwind-like subset, not browser CSS. Matching classes apply
- * left to right, followed by inline style arrays. Unknown classes fail even when their
- * variant is inactive, so resize/hover cannot expose a previously hidden typo.
- */
-export function resolveStyles(
-  className = '',
-  inlineStyle?: StyleProp,
-  state: StyleState = DEFAULT_STATE,
-): Style {
-  if (!Number.isFinite(state.width) || state.width < 0) throw new Error('Style viewport width must be finite and nonnegative');
-  const resolved: Style = {};
-  for (const token of className.split(/\s+/)) {
-    if (!token) continue;
-    const compiled = compileToken(token);
-    if (state.width >= compiled.minWidth && compiled.states.every(name => state[name] === true)) {
-      mergeStyle(resolved, compiled.style);
-    }
-  }
-  mergeInlineStyle(resolved, inlineStyle);
-  return resolved;
-}
-
 /** Expand shorthands into the longhands native understands, in the order they enter a layer. */
 function mergeLonghands(target: LonghandStyle, source: Readonly<Style>): void {
-  const { padding, margin, gap, overflow, disabled, transition, ...properties } = source;
-  if (disabled !== undefined) {
-    throw new Error('Style.disabled is not a style: pass the disabled prop to the element');
-  }
+  const { padding, margin, gap, overflow, transition, ...properties } = source;
   if (padding !== undefined) {
     target.paddingTop = padding;
     target.paddingRight = padding;

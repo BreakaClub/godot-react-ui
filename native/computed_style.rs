@@ -46,17 +46,13 @@ impl PseudoStates {
             .fold(PseudoStates::NONE, |set, state| set.with(*state))
     }
 
+    #[cfg(test)]
     pub fn is_empty(self) -> bool {
         self.0 == 0
     }
 
     pub fn intersects(self, other: PseudoStates) -> bool {
         self.0 & other.0 != 0
-    }
-
-    /// The states in exactly one of the two sets.
-    pub fn symmetric_difference(self, other: PseudoStates) -> PseudoStates {
-        PseudoStates(self.0 ^ other.0)
     }
 }
 
@@ -251,6 +247,7 @@ impl BreakpointIndex {
         })
     }
 
+    #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         self.thresholds.is_empty()
     }

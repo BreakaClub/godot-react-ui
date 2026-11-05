@@ -45,17 +45,21 @@ const PRESSURE_OBJECTS = 250_000;
 const NANOSECONDS_PER_MICROSECOND = 1000;
 const MICROSECONDS_PER_MILLISECOND = 1000;
 
-/** A compiled style of 40 properties and a 3-key diff, both valid for today's `StyleSpec`. */
+/**
+ * A compiled style that sets every property of the longhand `StyleSpec` (38 since Phase F3 removed the
+ * shorthands, `disabled` and `overflow`; it was 40 properties of the v1 spec) and a 3-key diff.
+ */
 const THREE_KEY_DIFF = JSON.stringify({ backgroundColor: '#d1fae5', opacity: 0.5, width: 120 });
 const FORTY_PROPERTY_STYLE = JSON.stringify({
   width: 120, height: 40, minWidth: 10, minHeight: 10, maxWidth: 500, maxHeight: 400,
   display: 'flex', flexDirection: 'row', flexWrap: 'wrap', flexGrow: 1, flexShrink: 0, flexBasis: '50%',
-  gap: 4, rowGap: 4, columnGap: 4,
-  padding: 8, paddingTop: 1, paddingRight: 2, paddingBottom: 3, paddingLeft: 4,
-  margin: 2, marginTop: 1, marginRight: 2, marginBottom: 3, marginLeft: 4,
+  rowGap: 4, columnGap: 4,
+  paddingTop: 1, paddingRight: 2, paddingBottom: 3, paddingLeft: 4,
+  marginTop: 1, marginRight: 2, marginBottom: 3, marginLeft: 4,
   alignItems: 'center', alignSelf: 'flex-start', justifyContent: 'space-between', gridTemplateColumns: 3,
   backgroundColor: '#e0e7ff', color: '#0f172a', fontSize: 14, borderRadius: 8, borderWidth: 1, borderColor: '#cbd5e1',
-  opacity: 0.9, disabled: false, textAlign: 'left', interpolateSize: 'numeric-only', overflow: 'hidden',
+  opacity: 0.9, textAlign: 'left', interpolateSize: 'numeric-only', overflowX: 'hidden', overflowY: 'hidden',
+  transition: { properties: ['width'], durationMs: 100 },
 });
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -283,7 +287,7 @@ async function measureSteadyState(probe: ReactUiProbe) {
 function measureBoundaries(probe: ReactUiProbe) {
   assert(probe.probeParse(THREE_KEY_DIFF) === '', `3-key diff must validate: ${probe.probeParse(THREE_KEY_DIFF)}`);
   assert(probe.probeParse(FORTY_PROPERTY_STYLE) === '', `40-property style must validate: ${probe.probeParse(FORTY_PROPERTY_STYLE)}`);
-  assert(Object.keys(JSON.parse(FORTY_PROPERTY_STYLE)).length === 40, 'the style has 40 properties');
+  assert(Object.keys(JSON.parse(FORTY_PROPERTY_STYLE)).length === 38, 'the style sets all 38 properties');
   const props = (json: string) => ({
     bytes: json.length,
     marshalling: timeCalls(PARSE_CALLS, () => probe.stringLength(json)),

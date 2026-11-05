@@ -1,5 +1,31 @@
 declare module "godot" {
     // AUTO-GENERATED
+    /** @deprecated Internal use. Does not exist at runtime. */
+    interface __RPCMapSkinReference extends __RPCMapRefCounted {
+    }
+    /** @deprecated Internal use. Does not exist at runtime. */
+    interface __NameMapSkinReference extends __NameMapRefCounted {
+        get_skeleton: "getSkeleton";
+        get_skin: "getSkin";
+    }
+    /** A reference-counted holder object for a skeleton RID used in the [RenderingServer].  
+     *  	  
+     *  @link https://docs.godotengine.org/en/latest/classes/class_skinreference.html  
+     */
+    class SkinReference extends RefCounted {
+        constructor(identifier?: any)
+        /** Returns the [RID] owned by this SkinReference, as returned by [method RenderingServer.skeleton_create]. */
+        getSkeleton(): Rid
+        
+        /** Returns the [Skin] connected to this SkinReference. In the case of [MeshInstance3D] with no [member MeshInstance3D.skin] assigned, this will reference an internal default [Skin] owned by that [MeshInstance3D].  
+         *  Note that a single [Skin] may have more than one [SkinReference] in the case that it is shared by meshes across multiple [Skeleton3D] nodes.  
+         */
+        getSkin(): null | Skin
+        /** @deprecated Internal use. Does not exist at runtime. */
+        __godotRPCMap: __RPCMapSkinReference;
+        /** @deprecated Internal use. Does not exist at runtime. */
+        __godotNameMap: __NameMapSkinReference;
+    }
     namespace Sky {
         enum RadianceSize {
             RadianceSize32 = 0,

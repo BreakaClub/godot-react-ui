@@ -8,12 +8,14 @@ const PROFILE_CAPACITY: usize = 512;
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum Sample {
+    /// One `commit` call (the sample keeps v1's `batch` name for the benchmark runner).
     #[serde(rename_all = "camelCase")]
     Batch {
         parse_micros: u64,
-        clone_micros: u64,
+        /// Payload validation, planning and the style dry run.
         validate_micros: u64,
-        sync_micros: u64,
+        /// Applying the transaction and publishing style changes, less layout and geometry.
+        mount_micros: u64,
         layout_micros: u64,
         geometry_micros: u64,
         total_micros: u64,

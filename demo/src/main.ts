@@ -167,8 +167,8 @@ export default class Main extends Node {
     if (size.x !== this.width || size.y !== this.height) {
       this.width = size.x;
       this.height = size.y;
+      // Native restyles the nodes whose breakpoints the new size crosses; React is not involved.
       this.surface.size = new Vector2(this.width, this.height);
-      this.renderer.refreshStyles();
     }
     this.renderer.dispatchEvents();
   }

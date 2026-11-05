@@ -267,7 +267,7 @@ async function runWorkflow(viewport) {
   await capture('01-counter');
 
   const initialReset = await find('reset');
-  check('Reset is initially disabled', initialReset.style.disabled === true);
+  check('Reset is initially disabled', initialReset.props.disabled === true);
   await click('reset');
   await expectText('counter-value', '0', 'Disabled button does not activate');
   await page.mouse.move(viewport.width - 1, viewport.height - 1);
@@ -327,10 +327,14 @@ async function runWorkflow(viewport) {
   await capture('07-inventory');
   await click('item-carrot');
   await expectText('item-state-carrot', 'Selected 1 time', 'Card local component state updates');
-  const carrotID = (await find('item-carrot')).id;
+  const carrotBefore = await find('item-carrot');
+  const carrotID = carrotBefore.id;
   const originalOrder = (await find('inventory-grid')).children;
   await click('reverse-items');
   check('Keyed reverse preserves native identity', (await find('item-carrot')).id === carrotID);
+  const carrotAfter = (await find('item-carrot')).rect;
+  check('Keyed reverse lays the moved native node out at its new position',
+    carrotAfter.x !== carrotBefore.rect.x || carrotAfter.y !== carrotBefore.rect.y);
   check('Keyed reverse changes native child order',
     JSON.stringify((await find('inventory-grid')).children) === JSON.stringify([...originalOrder].reverse()));
   await expectText('item-state-carrot', 'Selected 1 time', 'Keyed reverse preserves hook state');
@@ -338,7 +342,7 @@ async function runWorkflow(viewport) {
   await click('add-item');
   await click('add-item');
   await expectText('inventory-count', '6 of 6 items', 'New keyed items mount');
-  check('Full collection disables Add', (await find('add-item')).style.disabled === true);
+  check('Full collection disables Add', (await find('add-item')).props.disabled === true);
   await capture('09-full-grid');
   await click('filter-tools');
   await expectText('inventory-count', '3 of 6 items', 'Filtering removes native branches');
@@ -350,7 +354,7 @@ async function runWorkflow(viewport) {
   for (let index = 0; index < FULL_INVENTORY_COUNT; index++) await click('remove-item');
   await expectText('inventory-count', '0 of 0 items', 'Removing items reaches empty collection');
   check('Empty-state branch mounts', Boolean(await page.evaluate(() => globalThis.godotReactDemo.find('inventory-empty'))));
-  check('Empty collection disables Remove', (await find('remove-item')).style.disabled === true);
+  check('Empty collection disables Remove', (await find('remove-item')).props.disabled === true);
   await capture('11-empty');
   await click('add-item');
   await expectText('inventory-count', '1 of 1 items', 'Insertion works after empty state');

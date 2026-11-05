@@ -662,3 +662,220 @@ removal, an addition, a reparent and a new subtree each produce exactly the affe
 - Plan F2 says `diffNativeProps(old, new)`; the compiled styles it compares need their canonical key
   when the intern table has been cleared, so `diffNativeProps` throws for a hand-built style that did
   not come from `compileStyle` (tested).
+
+## Phase F3 - Commit API, mounting layer, render tree, persistent renderer
+
+Date: 6 November 2026. The cut-over: the v1 batch path (`apply_batch`, `Model`, `sync_model`,
+`protocol.rs`, `flush()`, the style-key map, `resolveStyles`, `refreshStyles`, the per-frame re-record in
+`draw()`) is deleted and every existing verifier passes on the new path. macOS (Apple M1 Max), release
+dylib for native, debug Web template with Chrome 156 for Web. Host while gating: 42-45 % free, swap
+17.5 GB of 18.4-19.5 GB used.
+
+### What changed, by file
+
+| File | Change |
+| --- | --- |
+| `native/lib.rs` | `ReactUiRoot` now holds `mounted: Mounted`, the Taffy tree with one root per layer, the layer and focus-ring canvas items, dirty sets and the motion state. `#[func]`s: `commit`, `take_commit_deletions`, `get_node_rect`, `find_by_test_id` (new), `get_snapshot`, `drain_events`, `resolve_event`, `get_activity`, `take_profile`, `set_profiling`; `apply_batch` is gone. Hover, press and focus feed `refresh_interaction`, which restyles only the nodes whose state-conditioned style changed. Native cancels a press on window focus loss (D6) |
+| `native/mount.rs` (new) | `Mounted` (the per-tag record replacing `Model`, `handles`, `visuals`, `rects`, `clips`, `content_clips`, `paint_order`, `opacities`, `items`), `MountedTree`/`StyleTree`/`ButtonTree` impls, `run_commit` (validate, plan, dry-run restyle with motion check, then Remove, Delete, Create, Update, Insert), the `StyleOverlay` dry run, incremental geometry (children of ancestors of dirty nodes and of resized nodes), hit testing by hierarchy, document order, absolute geometry |
+| `native/render_tree.rs` (new, replaces `render_items.rs`) | per-element box and content canvas items (transform, modulate, clip, custom rect), layer items, focus-ring item, `paint_pass` with record keys (an idle frame records nothing) |
+| `native/motion.rs` | ported to tags: `publish_style_changes` (the single sink for every computed-style change), motion nodes, intrinsic tracks, presentation, `measure_endpoint` (still the whole-tree probe), ticks |
+| `native/style_engine.rs` | incremental by tag (`insert`, `update`, `remove`, `set_children`, `resolve`, `sampled`); the seven Stylo tests are ported unchanged in assertion, plus one reparenting test |
+| `native/layout.rs`, `native/paint.rs`, `native/pointer.rs`, `native/events.rs`, `native/profile.rs`, `native/snapshot.rs` (new) | layout flush per layer; paragraphs and colours from computed styles; button activation over a tree trait (tests ported); events carry `path` and `relatedPath`; commit samples; the whole-tree snapshot |
+| `native/protocol.rs`, `native/render_items.rs` | deleted |
+| `src/renderer.ts` | persistent host config (`supportsPersistence`), `Instance`, `replaceContainerChildren`, public handles, native event paths, `Portal` containers; no `flush()`, `committed` style map, parent links, pseudo-state flags or `refreshStyles` |
+| `src/native.ts`, `src/components.tsx`, `src/index.ts`, `src/styles.ts`, `src/types.ts`, `src/profile.ts` | `NativeHost` is the commit API; `Button` renders its label as a child `Text`; `Portal`; `resolveStyles`, `StyleState` and `Style.disabled` deleted; flush samples report `walkMs` |
+| `tests/recording-host.ts` | a fake host that applies commit payloads to a JS tree, answers deletions and queries, records every native call, and supplies event paths |
+| `demo/src/main.ts`, `demo/src/probe.ts`, typings | `refreshStyles` removed; the probe's style fixture uses the longhand `StyleSpec`; `godot7`/`godot8` typings regenerated |
+| `scripts/verify-web.mjs`, `scripts/verify-motion-web.mjs`, `demo/src/verify-motion.ts` | field-name and timing updates listed below |
+| `native/PROTOCOL.md`, `README.md`, `docs/MOTION_ARCHITECTURE.md` | rewritten or updated for the v2 API |
+
+No demo source needed a raw-string move (the demo already renders strings inside `<Text>` and `Button`
+labels), and no `focus:` variant relied on the old ancestor semantics: every `focus:` class sits on a
+`Button`, which is the focused element.
+
+### Gate
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked` | **79 passed** (84 after F1, 86 after F2, less the 9 `protocol` tests deleted with `protocol.rs`, plus the pointer test for an unmounted tag and the Stylo reparenting test) |
+| `cargo clippy --locked --all-targets` | **0 warnings**, also with `--features probe` |
+| `pnpm test:types` / `pnpm test` | clean / **60 passed** (the 13 renderer and 17 events tests keep their assertions except where listed below, plus 8 new renderer tests) |
+| `rustup run stable rustfmt --edition 2024 --check native/lib.rs` (reaches every module) | clean |
+| `pnpm build:native` | ok (dylib 10,437,616 bytes) |
+| `pnpm gen:types` | exit 0; `godot7`/`godot8` typings byte-identical before and after (md5 `9bbfc6a1...`, `e5a29d18...`), see "Typings" |
+| `pnpm verify` | exit 0, both viewports; assertions unchanged plus the two added in "Defects found" |
+| `pnpm verify:motion` | exit 0, both viewports, assertions unchanged; 6 consecutive runs after D6, once more on the final tree |
+| `pnpm verify:interaction` | exit 0, both viewports, assertions unchanged |
+| `pnpm build:web` | ok; Wasm 6,646,725 bytes (Phase 1: 6,542,640) |
+| `pnpm verify:web` (port 8097) | passed: **253 assertions** (249 unchanged plus one added check in each of the 4 viewports), 53 captures |
+| `pnpm verify:motion:web` | passed: **433 assertions**, 26 captures, 30 benchmark cells (unchanged) |
+| `pnpm verify:interaction:web` | passed: **158 assertions**, 33 captures (unchanged) |
+
+The numbers above are from the final tree, after the two defects below were fixed. The first full pass
+(before the raster comparison found them) had the same assertion counts and was green, which is the
+point of "Defects found": the verifiers' assertions did not see either defect.
+
+### Defects found by comparing rasters with the Phase 1 build (both fixed)
+
+Every settled native capture was compared pixel by pixel with the same capture from a Phase 1 worktree
+(`8d24f8d`, built and run the same way). Two captures differed for a real reason, both defects of the F3
+implementation that no existing assertion covers.
+
+1. **The focus ring was not painted when focus moved to an element with no `focus:` style.**
+   `03-pressed`: the new capture lacked the ring around the pressed `Add 1` button (pixel (57, 373)
+   white; Phase 1: `#7da8ff`). Evidence chain: computed styles and interaction state were identical to
+   Phase 1; the ring's key and rect were correct; probe canvas items (plain, clipped, custom-rect,
+   created before, during and after the press) all rendered while items created by the ring path did not;
+   rendering info counted 5 fewer objects and 4 fewer draw calls in that frame than in the frame where the
+   ring appears, and the ring items did not hide behind anything: they did not exist yet; a log of `set_focus` against `update_focus_ring` showed the
+   ring pass ran 221 frames after the press (frame 18 against frame 239), when the pointer left and the
+   button restyled. Root cause: the ring is drawn by `paint_pass`, and a pass only ran when a restyle
+   led to `flush_layout`; `set_focus` on an element whose style does not use `:focus` restyles nothing
+   (`refresh_interaction` returns early), so no pass ran. Phase 1 redrew the whole control on every state
+   change, which hid this. `05-keyboard-focus` passed by luck: the secondary buttons carry
+   `focus:border-indigo-500`. Fix: `set_focus` ends with `paint_pass()`. Also removed `visual_changed`,
+   a dirty flag introduced in F3 that nothing ever set, and `update_focus_ring` now records the ring as
+   drawn only after it could draw.
+2. **A keyed reorder was not laid out or painted.** `08-reordered` differed in 13,672 pixels (landscape)
+   and 13,376 (portrait): the cards stayed in their old positions while the tree's child lists were
+   reversed (snapshot: `children [102, 96, 90, 84]` but rects in the old positions, e.g. card 84 at
+   (32, 339)). Root cause: `publish_style_changes` returned early when a commit changed no computed style
+   and no text, and a commit that only removes and inserts (a reorder) changes neither, so no
+   `flush_layout` ran. Every commit that had previously been tested also created or updated a node. Fix:
+   `run_commit` calls `publish_commit(changes, structure_changed)` and a changed child list publishes
+   even with no style change.
+
+Both fixes have a regression assertion that fails without them (negative controls: each fix reverted
+alone, `pnpm verify` rebuilt and run: exit 0 with the fix, `GODOT_REACT_VERIFY_FAILED` with the named
+message without it):
+
+- `demo/src/verify.ts`: after the mouse press, the pixel one column inside the pressed button's left
+  edge, at its mid-height, must be the focus ring colour (`A mouse press paints the focus ring on the
+  pressed button even when its style has no focus rule`). Added to the existing assertions.
+- `demo/src/verify.ts`: after `reverse-items`, the moved card's rect must differ from its rect before
+  (`Keyed move lays the moved native node out at its new position`). The previous assertions checked the
+  node's identity and its hook state only.
+- `scripts/verify-web.mjs`: the same reorder check (`Keyed reverse lays the moved native node out at its
+  new position`); the existing check compared the child id list only.
+
+Raster comparison after the fixes (Phase 1 worktree captures against the final tree; `png-diff` is a
+small decoder in the session scratchpad):
+
+| Set | Pairs | Identical | Differing, and why |
+| --- | --- | --- | --- |
+| `artifacts/native` (landscape + portrait) | 26 | 24 | `portrait/08-reordered` and `portrait/09-full-grid`: 1 pixel each at (306, 637), channel delta 1 (red 79 against 80) on the rounded green border of card 84: antialiasing of a corner drawn at a different float origin (hierarchical canvas item transform against absolute rect). Not visible |
+| `artifacts/native-interaction` | 16 | 10 | `05-enter-leave`, `06-self-removed`, `07-reattached` in both viewports: 112 to 206 pixels in an 8 x 34 box that reads `down frame=378` against `388`: the lab prints the engine frame number, which differs run to run. Nothing else differs |
+| `artifacts/native-motion` | 52 | 26 | the 26 that differ are the mid-transition captures (`02-opening`, `04-closing`, `05a/c/d/f/g/i/j/l`, `06-retargeting`, `08-reversed`, `12-paint-intermediate`), sampled at wall-clock offsets, so a different frame of the same animation; the 26 settled captures are identical |
+
+### Changes to existing verifiers and tests (all recorded)
+
+No assertion was weakened. Every change below follows from a deliberate field or semantic change.
+
+- `scripts/verify-web.mjs` (3 sites): `style.disabled === true` became `props.disabled === true`.
+  `disabled` is a prop of the element since F3, not a style; the snapshot's `style` is the computed
+  style.
+- `scripts/verify-motion-web.mjs` (1 site): the profile stage key `styleDiffMs` became `walkMs`. The JS
+  stage that was the whole-tree style diff is now the commit walk.
+- `demo/src/verify-motion.ts`: the first input waits for the window to settle (100 ms and 2 process
+  frames), as `verify.ts` and `verify-interaction.ts` already do (see D6). No assertion changed.
+- `tests/renderer.test.ts`: (a) the label's inherited colour is no longer readable from the snapshot of a
+  fake host; the assertion that `text.style.color` is white became "the label's parent is the button and
+  the button carries `text-white text-lg` as compiled layers" (inheritance is native); (b) the hover
+  assertion that read `style.backgroundColor` after `pointerenter` became "hover causes no commit",
+  because JS no longer tracks or resolves hover; (c) `host.batches` became `host.commits`,
+  `rejectNextBatch` became `rejectNextCommit`, and the malformed-host literal implements the commit API.
+- `tests/events.test.ts`: the three `style.backgroundColor` hover assertions became "no commit was
+  caused by any enter or leave" (hover is native); the malformed event in the boundary test gained the
+  `path` field events now carry, so the `Invalid native event.x` assertion is unchanged.
+- `tests/styles.test.ts`: the five `resolveStyles` tests were replaced by `compileStyle` equivalents
+  (added in F2), since `resolveStyles` is deleted; the `StyleSheet` test now compiles through
+  `compileStyle`.
+- Rust: `native/events.rs` tests pass a path (and `push_crossing` for enter) and the wire-shape test
+  expects `path` and `relatedPath`; `native/pointer.rs` tests build their fixture through a small tree
+  trait instead of `Model` with the same assertions; `native/style_engine.rs` tests use a `Scene` helper
+  over the incremental API with the same assertions.
+
+### Decisions
+
+D3 to D7 are recorded in the plan's decision log with their evidence. In short:
+
+- **D3 (motion validation).** A commit the motion engine cannot animate is rejected before it is
+  mounted, by a dry-run restyle over a `StyleOverlay` of the validated payload; the computed styles it
+  produces are reused when the commit mounts. A hover, focus or breakpoint style that cannot be animated
+  is applied without animation and logged as an `ERROR` naming the node.
+- **D4 (commit failure).** `replaceContainerChildren` records the error and returns; throwing makes React
+  unmount the whole tree (`captureCommitPhaseError`). Tested by the unchanged "rejected commit preserves
+  the native tree, React can commit again" test.
+- **D5 (`relatedPath`).** Enter and leave events carry the other side's path as well.
+- **D6 (focus loss).** The `verify:motion` failures were root-caused with native logging (not guessed):
+  in 5 of 8 first-viewport runs the window lost OS focus 33 ms after the verifier's first press
+  (`WM_WINDOW_FOCUS_OUT` at t=625 ms after a press at t=592 ms; focus returned at t=763 ms). Godot drops
+  the mouse focus and sends the control a synthetic release whose device is `DEVICE_ID_INTERNAL`, which
+  `Control::_call_gui_input` never forwards to `_gui_input` (`scene/gui/control.cpp:2530-2540`), so the
+  click never completed and native's `pressed` stayed set. Native now clears `pressed` on that
+  notification (a press in flight must not stay pressed forever, in any host), and the verifier waits
+  for the window to settle before its first input. The failure only appeared once the cut-over made
+  startup faster: the first press now lands in the focus churn that process exit around the first window
+  causes.
+- **D7 (paint and layout are never skipped).** A commit that only reorders or removes children and a
+  focus change onto an element with no `:focus` style both ended without a layout or paint pass; the raster
+  comparison found them (see "Defects found"). Every path that changes what is drawn now ends in a pass.
+
+### Typings
+
+`pnpm gen:types` runs `$GODOT --headless --audio-driver Dummy --editor --generate-types --path demo`
+through `scripts/generate-types.mjs` and exits 0 (3 `ObjectDB instances were leaked at exit` lines, the
+known teardown). Running it on the final tree left `demo/typings/godot7.gen.d.ts` and `godot8.gen.d.ts`
+byte-identical, so the committed typings are the generated ones: `commit`, `take_commit_deletions`,
+`get_node_rect` and `find_by_test_id` added, `apply_batch` removed. `demo/gen/**` produced no change.
+
+### Choices the plan left open
+
+- **Button label.** `Button` wraps each run of string and number children in a `Text` and passes element
+  children through `Children.toArray` (which re-keys them consistently across renders).
+- **`Instance` carries its root** so `getPublicInstance` can return the stable per-tag handle; handles are
+  created on first use (not at `createInstance`) so abandoned renders leak none.
+- **Instances are frozen at commit**, not at creation: `appendInitialChild` still builds them.
+- **`active` state.** A mouse press is active while the pointer is inside the pressed element (the
+  intersection of the pressed chain and the hover chain), a key press until the key is released; this
+  preserves v1's behaviour (leaving a pressed element deactivates it).
+- **Both overflow axes clip together** for now: `hidden` on either axis clips the padding box (per-axis
+  clipping arrives with the scroll phase).
+- **Absolute rects are computed by walking up the parents** (cost proportional to depth) rather than
+  cached per node: only the focus ring, `get_node_rect` and snapshots use them in F3, and the snapshot
+  derives them top-down in one pass.
+- **Snapshot node 0** stands for the main layer's root so the verifiers' geometry checks (which read
+  node 0's children) are unchanged; layer 1's top-level nodes report `parent: null`, `layer: 1`.
+- **`Sample::Batch`** keeps its name for a commit sample (`parseMicros`, `validateMicros`, `mountMicros`,
+  `layoutMicros`, `geometryMicros`, `totalMicros`); the benchmark runner reads `totalMicros`.
+- **Taffy layout roots.** One Taffy root per layer, sized to the viewport; a layer whose tree did not
+  change is not laid out.
+- **Stylo mirrors every mounted node** (so a node that gains a `transition` and changes a value in the
+  same commit still animates) but only motion nodes are sampled each frame.
+
+### Plan problems found
+
+- Plan 3.9 says `replaceContainerChildren` throws a rejected commit's error; that unmounts the React tree
+  (D4).
+- Plan 3.10 rule 8 and 4.3 give events only `path`; a crossing needs the other path too (D5).
+- Plan 3.7's "absolute rects cached per node" is deferred (above).
+- Plan 4.5 lists `nodesCloned`; native can only count the nodes it created, updated and deleted.
+- The plan does not say where motion validation happens once styles resolve natively (D3).
+- Plan F3's Files list omits `native/snapshot.rs`, `native/PROTOCOL.md`'s consumers `README.md` and
+  `docs/MOTION_ARCHITECTURE.md`, `native/probe.rs` (it imported the deleted `StyleSpec`), `native/pointer.rs`
+  tests and `native/profile.rs` (all touched; section 0.1 allows it).
+- Process note: pointing a baseline git worktree's `node_modules` at the main checkout's made `pnpm`
+  recreate the main checkout's modules directory through the symlink (pnpm purges a mismatched modules
+  directory when `CI=true`). `pnpm install --frozen-lockfile --offline` in the main checkout restored it
+  (lockfile unchanged, tests green); the baseline worktree now has its own `node_modules`.
+
+### Measurements
+
+Dispatch time per synchronous event (JS time inside the one dispatch a mouse press waits for, 40 presses
+per cell, milliseconds, p50 / p95; Phase 1 figures from its gate in brackets): native macOS landscape,
+cheap handler 0.07 / 0.10 [0.93 / 1.47], state-updating handler 1.25 / (see `artifacts/native-interaction/`)
+[1.66 / 3.04]; Web landscape, cheap handler 0.10 / 0.15 [0.90 / 1.01], state-updating handler 3.03 / 4.30
+[1.80 / 2.54] (final-tree run: 2.64 / 4.47 and 3.20 / 4.39 in the two viewports, so the regression is
+about 1 ms and not noise). The cheap handler no longer pays a whole-tree flush (about 9 times faster natively and on
+Web). The state-updating handler is faster natively but slower on Web (p50 3.0 against 1.8 ms); Phase F4
+profiles it before changing anything.
