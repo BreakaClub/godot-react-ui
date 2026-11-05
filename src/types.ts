@@ -3,6 +3,13 @@ export type Dimension = number | 'auto' | `${number}%`;
 export type Alignment = 'start' | 'end' | 'center' | 'stretch' | 'baseline' | 'flex-start' | 'flex-end';
 export type Justification = 'start' | 'end' | 'center' | 'space-between' | 'space-around' | 'space-evenly' | 'flex-start' | 'flex-end';
 export type HexColor = `#${string}`;
+export type TransitionProperty = 'width' | 'height' | 'opacity' | 'backgroundColor';
+export interface Transition {
+  properties: readonly TransitionProperty[];
+  durationMs: number;
+  delayMs?: number;
+  easing?: 'linear' | 'ease' | 'ease-in' | 'ease-out' | 'ease-in-out';
+}
 
 /** Layout and paint properties understood by the native Taffy renderer. */
 export interface Style {
@@ -44,6 +51,9 @@ export interface Style {
   opacity?: number;
   disabled?: boolean;
   textAlign?: 'left' | 'center' | 'right';
+  transition?: Transition;
+  interpolateSize?: 'numeric-only' | 'allow-keywords';
+  overflow?: 'visible' | 'hidden';
 }
 
 export type StyleProp = Style | readonly StyleProp[] | false | null | undefined;

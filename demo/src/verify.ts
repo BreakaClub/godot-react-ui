@@ -1,5 +1,5 @@
 import {
-  DirAccess, FileAccess, GError, Input, InputEventKey, InputEventMouseButton,
+  DirAccess, Engine, FileAccess, GError, Input, InputEventKey, InputEventMouseButton,
   InputEventMouseMotion, Key, MouseButton, Node, OS, RenderingServer, Vector2,
 } from 'godot';
 import type { NativeSnapshot, NativeSnapshotNode } from '../../src/native';
@@ -13,16 +13,23 @@ export interface DemoInspection {
 }
 
 const SETTLE_MS = 100;
+const MIN_SETTLE_FRAMES = 2;
+const FRAME_POLL_MS = 10;
 const GEOMETRY_TOLERANCE = 2;
 const MAX_INPUT_TARGETS = 100;
 const POINTER_PADDING_INSET = 4;
+const FAILURE_TAIL_SAMPLES = 6;
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
-function settle(): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, SETTLE_MS));
+async function settle(): Promise<void> {
+  const startFrame = Engine.getProcessFrames();
+  await new Promise(resolve => setTimeout(resolve, SETTLE_MS));
+  while (Engine.getProcessFrames() - startFrame < MIN_SETTLE_FRAMES) {
+    await new Promise(resolve => setTimeout(resolve, FRAME_POLL_MS));
+  }
 }
 
 function get(api: DemoInspection, id: string): NativeSnapshotNode {
@@ -75,6 +82,24 @@ async function pressAndRelease(from: Vector2, to: Vector2): Promise<void> {
   move(to);
   pointer(to, false);
   await settle();
+}
+
+function inputFailureState(owner: Node, api: DemoInspection): string {
+  const snapshot = api.snapshot();
+  return JSON.stringify({counter: text(api, 'counter-value'), step: text(api, 'step-toggle'),
+    rawMousePressed: Input.isMouseButtonPressed(MouseButton.MouseButtonLeft),
+    rawMouseMask: Input.getMouseButtonMask(), accumulated: Input.useAccumulatedInput,
+    processFrame: Engine.getProcessFrames(), windowFocused: owner.getWindow()?.hasFocus(),
+    hovered: snapshot.hovered, focused: snapshot.focused, pressed: snapshot.pressed,
+    stats: snapshot.stats});
+}
+
+/** Observe a failed assertion without resending input or converting it to success. */
+export async function observeInputFailure(owner: Node, api: DemoInspection): Promise<void> {
+  for (let sample = 0; sample < FAILURE_TAIL_SAMPLES; sample += 1) {
+    console.log('GODOT_REACT_INPUT_FAILURE_TAIL', sample, inputFailureState(owner, api));
+    await settle();
+  }
 }
 
 async function click(api: DemoInspection, id: string): Promise<void> {
@@ -157,12 +182,12 @@ export async function runVerification(owner: Node, api: DemoInspection): Promise
   await capture('03-pressed');
   pointer(point(api, 'increment'), false);
   await settle();
-  assert(text(api, 'counter-value') === '1', 'Native click updates useState');
+  if (text(api, 'counter-value') !== '1') throw new Error(`Native click updates useState: ${inputFailureState(owner, api)}`);
   assert(text(api, 'counter-derived').endsWith('2'), 'useMemo updates');
   await capture('04-incremented');
   await click(api, 'step-toggle');
   await click(api, 'increment');
-  assert(text(api, 'counter-value') === '6', 'Event closure uses new step');
+  if (text(api, 'counter-value') !== '6') throw new Error(`Event closure uses new step: ${inputFailureState(owner, api)}`);
   await click(api, 'reset');
   await click(api, 'reset');
   assert(text(api, 'counter-value') === '0', 'Disabled reset does not change state');

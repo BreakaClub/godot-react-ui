@@ -3,10 +3,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
-use taffy::geometry::{Rect, Size};
+use taffy::geometry::{Point, Rect, Size};
 use taffy::style::{
     AlignItems, Display, FlexDirection, FlexWrap, JustifyContent, LengthPercentage,
-    LengthPercentageAuto,
+    LengthPercentageAuto, Overflow,
 };
 use taffy::style_helpers::{auto, fr, length, minmax};
 
@@ -93,6 +93,74 @@ pub enum TextAlignSpec {
     Right,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "camelCase")]
+pub enum TransitionProperty {
+    Width,
+    Height,
+    Opacity,
+    BackgroundColor,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum Easing {
+    Linear,
+    Ease,
+    EaseIn,
+    EaseOut,
+    EaseInOut,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum InterpolateSize {
+    NumericOnly,
+    AllowKeywords,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum OverflowSpec {
+    Visible,
+    Hidden,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TransitionSpec {
+    pub properties: Vec<TransitionProperty>,
+    pub duration_ms: f64,
+    pub delay_ms: Option<f64>,
+    pub easing: Option<Easing>,
+}
+
+impl TransitionSpec {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.properties.is_empty() {
+            return Err("transition.properties must not be empty".into());
+        }
+        let mut unique = BTreeSet::new();
+        if self
+            .properties
+            .iter()
+            .any(|property| !unique.insert(*property))
+        {
+            return Err("transition.properties must not contain duplicates".into());
+        }
+        if !self.duration_ms.is_finite() || self.duration_ms < 0.0 {
+            return Err("transition.durationMs must be a finite nonnegative number".into());
+        }
+        if self
+            .delay_ms
+            .is_some_and(|delay| !delay.is_finite() || delay < 0.0)
+        {
+            return Err("transition.delayMs must be a finite nonnegative number".into());
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StyleSpec {
@@ -134,6 +202,9 @@ pub struct StyleSpec {
     pub opacity: Option<f32>,
     pub disabled: Option<bool>,
     pub text_align: Option<TextAlignSpec>,
+    pub transition: Option<TransitionSpec>,
+    pub interpolate_size: Option<InterpolateSize>,
+    pub overflow: Option<OverflowSpec>,
 }
 
 impl Dimension {
@@ -209,6 +280,9 @@ fn justify(value: JustifySpec) -> JustifyContent {
 
 impl StyleSpec {
     pub fn validate(&self) -> Result<(), String> {
+        if let Some(transition) = &self.transition {
+            transition.validate()?;
+        }
         for (name, value) in [
             ("width", &self.width),
             ("height", &self.height),
@@ -287,7 +361,18 @@ impl StyleSpec {
         let padding = self.padding.unwrap_or(0.0);
         let margin = self.margin.unwrap_or(0.0);
         let border = LengthPercentage::length(self.border_width.unwrap_or(0.0));
+        // Taffy fca167c style::Overflow and flexbox/grid automatic-minimum-size
+        // resolution distinguish Hidden (zero minimum) from Visible (content minimum).
+        // Rendering owns clipping separately; this preserves CSS layout semantics.
+        let overflow = match self.overflow.unwrap_or(OverflowSpec::Visible) {
+            OverflowSpec::Visible => Overflow::Visible,
+            OverflowSpec::Hidden => Overflow::Hidden,
+        };
         Ok(taffy::Style {
+            overflow: Point {
+                x: overflow,
+                y: overflow,
+            },
             display: match self.display.unwrap_or(DisplaySpec::Flex) {
                 DisplaySpec::Flex => Display::Flex,
                 DisplaySpec::Grid => Display::Grid,
@@ -604,6 +689,109 @@ mod tests {
                 .apply(&commands(r#"[{"op":"children","id":2,"children":[1]}]"#))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn transition_contract_round_trips_typed_values() {
+        let json = r#"{
+            "transition": {
+                "properties": ["height", "backgroundColor"],
+                "durationMs": 240.5,
+                "delayMs": 20,
+                "easing": "ease-in-out"
+            },
+            "interpolateSize": "allow-keywords",
+            "overflow": "hidden"
+        }"#;
+        let style: StyleSpec = serde_json::from_str(json).unwrap();
+        style.validate().unwrap();
+        let transition = style.transition.as_ref().unwrap();
+        assert_eq!(
+            transition.properties,
+            vec![
+                TransitionProperty::Height,
+                TransitionProperty::BackgroundColor
+            ]
+        );
+        assert_eq!(transition.easing, Some(Easing::EaseInOut));
+        assert_eq!(style.interpolate_size, Some(InterpolateSize::AllowKeywords));
+        assert_eq!(style.overflow, Some(OverflowSpec::Hidden));
+        let round_trip: StyleSpec =
+            serde_json::from_str(&serde_json::to_string(&style).unwrap()).unwrap();
+        assert_eq!(round_trip, style);
+        let immediate: StyleSpec =
+            serde_json::from_str(r#"{"transition":{"properties":["opacity"],"durationMs":0}}"#)
+                .unwrap();
+        immediate.validate().unwrap();
+        assert_eq!(immediate.transition.unwrap().easing, None);
+    }
+
+    #[test]
+    fn rejects_invalid_transition_shapes_and_timings() {
+        for json in [
+            r#"{"transition":{"properties":["transform"],"durationMs":100}}"#,
+            r#"{"transition":{"properties":["width"],"durationMs":100,"easing":"spring"}}"#,
+            r#"{"transition":{"properties":["width"],"durationMs":100,"repeat":2}}"#,
+            r#"{"interpolateSize":"always"}"#,
+            r#"{"overflow":"scroll"}"#,
+        ] {
+            assert!(serde_json::from_str::<StyleSpec>(json).is_err(), "{json}");
+        }
+        for json in [
+            r#"{"transition":{"properties":[],"durationMs":100}}"#,
+            r#"{"transition":{"properties":["height","height"],"durationMs":100}}"#,
+            r#"{"transition":{"properties":["height"],"durationMs":-1}}"#,
+            r#"{"transition":{"properties":["height"],"durationMs":100,"delayMs":-1}}"#,
+        ] {
+            assert!(
+                serde_json::from_str::<StyleSpec>(json)
+                    .unwrap()
+                    .validate()
+                    .is_err(),
+                "{json}"
+            );
+        }
+        for invalid in [f64::INFINITY, f64::NEG_INFINITY, f64::NAN] {
+            let mut transition = TransitionSpec {
+                properties: vec![TransitionProperty::Width],
+                duration_ms: invalid,
+                delay_ms: None,
+                easing: None,
+            };
+            assert!(transition.validate().is_err());
+            transition.duration_ms = 100.0;
+            transition.delay_ms = Some(invalid);
+            assert!(transition.validate().is_err());
+        }
+    }
+
+    #[test]
+    fn hidden_overflow_releases_the_flex_content_minimum() {
+        use taffy::prelude::*;
+
+        fn item_width(overflow: OverflowSpec) -> f32 {
+            let mut tree: TaffyTree<()> = TaffyTree::new();
+            let content_style: StyleSpec =
+                serde_json::from_str(r#"{"width":200,"height":20}"#).unwrap();
+            let content = tree.new_leaf(content_style.taffy_style().unwrap()).unwrap();
+            let item_style = StyleSpec {
+                overflow: Some(overflow),
+                ..StyleSpec::default()
+            };
+            let item = tree
+                .new_with_children(item_style.taffy_style().unwrap(), &[content])
+                .unwrap();
+            let root_style: StyleSpec =
+                serde_json::from_str(r#"{"width":100,"height":40,"flexDirection":"row"}"#).unwrap();
+            let root = tree
+                .new_with_children(root_style.taffy_style().unwrap(), &[item])
+                .unwrap();
+            tree.compute_layout(root, Size::MAX_CONTENT).unwrap();
+            tree.layout(item).unwrap().size.width
+        }
+
+        assert_eq!(item_width(OverflowSpec::Visible), 200.0);
+        assert_eq!(item_width(OverflowSpec::Hidden), 100.0);
     }
 
     #[test]

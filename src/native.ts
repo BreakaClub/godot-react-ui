@@ -1,10 +1,48 @@
-import type { Style } from './types';
+import type { Style, TransitionProperty } from './types';
 
 /** The ClassDB-facing API. Structural typing also permits recording transports in tests. */
 export interface NativeHost {
   applyBatch(json: string): string;
   drainEvents(): string;
   getSnapshot(): string;
+}
+
+export interface NativeDiagnosticsHost extends NativeHost {
+  setProfiling(enabled: boolean): void;
+  takeProfile(): string;
+  getActivity(): string;
+}
+
+export interface NativeActivity {
+  batches: number;
+  layoutPasses: number;
+  paintPasses: number;
+  animationFrames: number;
+  animating: boolean;
+  trackedTransitions: number;
+  clockMs: number;
+  drawSerial: number;
+  nodeCount: number;
+}
+
+export interface NativeTransition {
+  id: number;
+  property: TransitionProperty;
+  current: number | string;
+  target: number | string;
+  startedAtMs: number;
+  durationMs: number;
+}
+
+type NativeSampleKind = 'batch' | 'frame' | 'draw';
+export interface NativeTimingSample {
+  kind: NativeSampleKind;
+  [field: string]: number | NativeSampleKind;
+}
+export interface NativeProfile {
+  samples: NativeTimingSample[];
+  dropped: number;
+  counters: NativeActivity;
 }
 
 export type NativeKind = 'view' | 'text' | 'button';
@@ -40,10 +78,14 @@ export interface NativeSnapshotNode {
   parent: number | null;
   children: number[];
   rect: LayoutRect;
+  clipRect: LayoutRect | null;
+  presentation: { width: number; height: number; widthIsAuto: boolean; heightIsAuto: boolean; opacity: number; backgroundColor: string };
   style: Record<string, unknown>;
 }
 
 export interface NativeSnapshot {
+  clockMs: number;
+  transitions: NativeTransition[];
   nodes: NativeSnapshotNode[];
   stats: {
     layoutPasses: number;
@@ -96,6 +138,11 @@ function string(value: unknown, label: string): string {
   return value;
 }
 
+function boolean(value: unknown, label: string): boolean {
+  if (typeof value !== 'boolean') throw new Error(`Invalid native ${label}: expected a boolean`);
+  return value;
+}
+
 function array(value: unknown, label: string): unknown[] {
   if (!Array.isArray(value)) throw new Error(`Invalid native ${label}: expected an array`);
   return value;
@@ -116,6 +163,62 @@ function eventType(value: unknown): NativeEventType {
   }
 }
 
+function rect(value: unknown, label: string): LayoutRect {
+  const object = record(value, label);
+  return {
+    x: number(object.x, `${label}.x`), y: number(object.y, `${label}.y`),
+    width: number(object.width, `${label}.width`), height: number(object.height, `${label}.height`),
+  };
+}
+
+function transitionProperty(value: unknown): TransitionProperty {
+  if (value === 'width' || value === 'height' || value === 'opacity' || value === 'backgroundColor') return value;
+  throw new Error(`Invalid native transition property: ${String(value)}`);
+}
+
+function transitionValue(value: unknown): number | string {
+  return typeof value === 'string' ? value : number(value, 'transition value');
+}
+
+export function readActivity(host: NativeDiagnosticsHost): NativeActivity {
+  const value: unknown = JSON.parse(host.getActivity());
+  return parseActivity(value);
+}
+
+function parseActivity(value: unknown): NativeActivity {
+  const activity = record(value, 'activity');
+  if (typeof activity.animating !== 'boolean') throw new Error('Native activity.animating must be boolean');
+  return {
+    batches: number(activity.batches, 'batches'),
+    layoutPasses: number(activity.layoutPasses, 'layoutPasses'),
+    paintPasses: number(activity.paintPasses, 'paintPasses'),
+    animationFrames: number(activity.animationFrames, 'animationFrames'),
+    animating: activity.animating,
+    trackedTransitions: number(activity.trackedTransitions, 'trackedTransitions'),
+    clockMs: number(activity.clockMs, 'clockMs'),
+    drawSerial: number(activity.drawSerial, 'drawSerial'),
+    nodeCount: number(activity.nodeCount, 'nodeCount'),
+  };
+}
+
+export function takeNativeProfile(host: NativeDiagnosticsHost): NativeProfile {
+  const value: unknown = JSON.parse(host.takeProfile());
+  const profile = record(value, 'profile');
+  return {
+    dropped: number(profile.dropped, 'profile dropped'), counters: parseActivity(profile.counters),
+    samples: array(profile.samples, 'profile samples').map(value => {
+      const fields = record(value, 'profile sample');
+      const kind = fields.kind;
+      if (kind !== 'batch' && kind !== 'frame' && kind !== 'draw') throw new Error('Invalid native profile sample kind');
+      const sample: NativeTimingSample = {kind};
+      for (const [key, value] of Object.entries(fields)) {
+        if (key !== 'kind') sample[key] = number(value, `profile ${key}`);
+      }
+      return sample;
+    }),
+  };
+}
+
 export function readEvents(host: NativeHost): NativeEvent[] {
   const value: unknown = JSON.parse(host.drainEvents());
   return array(value, 'events').map((entry) => {
@@ -134,20 +237,34 @@ export function readSnapshot(host: NativeHost): NativeSnapshot {
   const snapshot = record(value, 'snapshot');
   const stats = record(snapshot.stats, 'snapshot.stats');
   return {
+    clockMs: number(snapshot.clockMs, 'snapshot.clockMs'),
+    transitions: array(snapshot.transitions, 'snapshot.transitions').map(value => {
+      const transition = record(value, 'transition');
+      return {
+        id: id(transition.id, 'transition.id'), property: transitionProperty(transition.property),
+        current: transitionValue(transition.current), target: transitionValue(transition.target),
+        startedAtMs: number(transition.startedAtMs, 'transition.startedAtMs'),
+        durationMs: number(transition.durationMs, 'transition.durationMs'),
+      };
+    }),
     nodes: array(snapshot.nodes, 'snapshot.nodes').map((entry) => {
       const node = record(entry, 'node');
-      const rect = record(node.rect, 'node.rect');
+      const presentation = record(node.presentation, 'node.presentation');
       return {
         id: id(node.id, 'node.id'),
         kind: kind(node.kind),
         text: string(node.text, 'node.text'),
         parent: optionalId(node.parent, 'node.parent'),
         children: array(node.children, 'node.children').map((child) => id(child, 'child ID')),
-        rect: {
-          x: number(rect.x, 'rect.x'),
-          y: number(rect.y, 'rect.y'),
-          width: number(rect.width, 'rect.width'),
-          height: number(rect.height, 'rect.height'),
+        rect: rect(node.rect, 'node.rect'),
+        clipRect: node.clipRect === null ? null : rect(node.clipRect, 'node.clipRect'),
+        presentation: {
+          width: number(presentation.width, 'presentation.width'),
+          height: number(presentation.height, 'presentation.height'),
+          widthIsAuto: boolean(presentation.widthIsAuto, 'presentation.widthIsAuto'),
+          heightIsAuto: boolean(presentation.heightIsAuto, 'presentation.heightIsAuto'),
+          opacity: number(presentation.opacity, 'presentation.opacity'),
+          backgroundColor: string(presentation.backgroundColor, 'presentation.backgroundColor'),
         },
         style: record(node.style, 'node.style'),
       };
@@ -167,8 +284,20 @@ export function readSnapshot(host: NativeHost): NativeSnapshot {
   };
 }
 
-export function applyCommands(host: NativeHost, commands: NativeCommand[]): void {
+export interface BatchTiming {
+  jsonEncodeMs: number;
+  nativeCallMs: number;
+  jsonChars: number;
+}
+
+export function applyCommands(host: NativeHost, commands: NativeCommand[], now?: () => number): BatchTiming | undefined {
   if (commands.length === 0) return;
-  const error = host.applyBatch(JSON.stringify(commands));
+  const encodeStart = now?.();
+  const json = JSON.stringify(commands);
+  const callStart = now?.();
+  const error = host.applyBatch(json);
+  const callEnd = now?.();
   if (error !== '') throw new Error(`Native UI batch rejected: ${error}`);
+  if (encodeStart === undefined || callStart === undefined || callEnd === undefined) return;
+  return {jsonEncodeMs: callStart - encodeStart, nativeCallMs: callEnd - callStart, jsonChars: json.length};
 }

@@ -5,7 +5,7 @@ import { context } from 'esbuild';
 const root = resolve(import.meta.dirname, '..');
 const builder = await context({
   absWorkingDir: root, bundle: true, platform: 'neutral', target: 'es2022', format: 'cjs', sourcemap:true,
-  entryPoints: ['demo/src/main.ts', 'demo/src/verify.ts', 'demo/src/app.tsx'], outdir: 'demo/.godot/GodotJS/src',
+  entryPoints: ['demo/src/main.ts', 'demo/src/verify.ts', 'demo/src/verify-motion.ts', 'demo/src/app.tsx'], outdir: 'demo/.godot/GodotJS/src',
   external: ['godot', 'godot.lib.api', 'godot.annotations', 'godot-jsb'],
   define: {'process.env.NODE_ENV':'"development"'},
 });

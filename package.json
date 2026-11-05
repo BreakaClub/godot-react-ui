@@ -20,6 +20,8 @@
     "demo:web": "node scripts/serve-web.mjs",
     "verify": "node scripts/verify.mjs",
     "verify:web": "node scripts/verify-web.mjs",
+    "verify:motion:web": "node scripts/verify-motion-web.mjs",
+    "verify:motion": "node scripts/verify.mjs --motion",
     "test": "tsx --test tests/*.test.ts"
   },
   "dependencies": {

@@ -18,10 +18,11 @@ pnpm demo
 
 `build:native` compiles the optimized Rust library and installs it into `demo/addons/godot-react-ui/bin/`. `build` typechecks before bundling the demo and emitting CommonJS, ES modules and declarations into `dist/`. Both package entry points are importable; `pnpm pack` creates a local npm tarball without publishing. Generated GodotJS declarations and scene wrappers are included under `demo/typings/` and `demo/gen/`; `.uid` files are project metadata. Compiled libraries, JavaScript bundles, and the `.godot` import cache are generated locally.
 
-The demo has two tabs:
+The demo has three tabs:
 
 - **Counter:** real React state, derived values, closures, effects, context, disabled buttons, pointer states, and keyboard activation.
 - **Inventory:** a responsive Taffy grid, keyed component state, reordering, filtering, insertion/removal, and an empty state.
+- **Motion:** native Blitz/Stylo CSS transitions (`width`, `height`, `opacity`, `backgroundColor`), intrinsic `0 ↔ auto` height transitions (`interpolateSize: 'allow-keywords'`), rectangular clipping (`overflow: 'hidden'`) for both rendering and hit testing, in-flight retargeting across text/font/width/viewport changes, rapid reversal, tree detach/reattach pause/resume, and active-transition removal.
 
 Resize the window to see `md:` classes recompose the layout. Tab and Shift-Tab move between enabled buttons; Enter and Space activate them. All provided Godot launch scripts use `--audio-driver Dummy`.
 
@@ -77,22 +78,23 @@ This is a strict, typed **Tailwind-like subset**, not Tailwind's CSS compiler or
 
 | Area | Examples |
 | --- | --- |
-| Layout | `flex`, `grid`, `hidden`, `flex-row`, `flex-col`, `flex-wrap`, `flex-1`, `grow`, `shrink-0`, `items-center`, `justify-between`, `grid-cols-3` |
+| Layout | `flex`, `grid`, `hidden`, `flex-row`, `flex-col`, `flex-wrap`, `flex-1`, `grow`, `shrink-0`, `items-center`, `justify-between`, `grid-cols-3`, `overflow-hidden`, `overflow-visible` |
 | Spacing | `p-6`, `px-4`, `py-2`, `mt-3`, `gap-4`, `gap-x-2`, `p-[10px]`; the numeric scale is four logical pixels |
 | Dimensions | `w-full`, `h-auto`, `w-1/2`, `w-[50%]`, `h-[123px]`, `min-w-0`, `max-w-xl`, `basis-0` |
 | Paint | `bg-white`, `text-slate-900`, `border`, `border-indigo-500`, `rounded-xl`, `opacity-50`, `bg-[#123456]` |
 | Typography | `text-xs` through `text-6xl`, `text-[23px]`, `text-left`, `text-center`, `text-right` |
+| Motion | Inline `transition: { properties, durationMs, delayMs?, easing? }` (`width`, `height`, `opacity`, `backgroundColor`) and `interpolateSize: 'numeric-only' \| 'allow-keywords'` |
 | Variants | `sm:` 640, `md:` 768, `lg:` 1024, `xl:` 1280, `2xl:` 1536; `hover:`, `active:`, `focus:`, `disabled:`; combinations such as `md:hover:bg-indigo-100` |
 
-The palette includes slate, indigo, emerald, amber, and rose shades 50–950, plus white, black, and transparent. These are familiar Tailwind v3 sRGB hex values. Breakpoints use the surface's logical width, not physical display pixels. [Style types](src/types.ts) and the [native protocol](native/PROTOCOL.md) list the complete supported property surface.
+The palette includes slate, indigo, emerald, amber, and rose shades 50–950, plus white, black, and transparent. These are familiar Tailwind v3 sRGB hex values. Breakpoints use the surface's logical width, not physical display pixels. [Style types](src/types.ts), the [native protocol](native/PROTOCOL.md), [motion architecture](docs/MOTION_ARCHITECTURE.md), and the [Blitz/Stylo evaluation](docs/BLITZ_EVALUATION.md) document the supported surface and boundaries.
 
 ## Architecture and performance boundary
 
-React 19.2.0 matches the backend's version; `react-reconciler` 0.33.0 is pinned to its compatible peer contract. React is a peer dependency so the application and renderer share one instance. Native dependencies are `godot` 0.5.5 and Taffy 0.15.1, locked by Cargo. Bindings use the exact API exported from the project's Godot 4.8 binary, recorded in [native/api](native/api/README.md), for both native and Web builds.
+React 19.2.0 matches the backend's version; `react-reconciler` 0.33.0 is pinned to its compatible peer contract. React is a peer dependency so the application and renderer share one instance. Native dependencies are `godot` 0.5.5, Taffy 0.15.1, and `blitz-dom` 0.2.2 (retaining Stylo for CSS transition resolution), locked by Cargo. Bindings use the exact API exported from the project's Godot 4.8 binary, recorded in [native/api](native/api/README.md), for both native and Web builds.
 
 The reconciler creates lightweight JavaScript instances during speculative rendering. Native allocation happens only for committed trees. Each commit produces a validated JSON mutation batch through ordinary ClassDB bindings. JavaScript owns bounded `u32` handles; raw Taffy slot-map keys never cross as potentially lossy JavaScript numbers. Event closures stay in JS, while native input queues are drained outside mutable Rust calls.
 
-Taffy owns Flexbox/Grid geometry. Godot `TextParagraph` owns text shaping and intrinsic measurement. A single custom `Control` draws the tree through one native canvas; there is no Godot `Container` or `Control` for every React element. Paint and layout invalidation are separate. Snapshots expose node geometry and batch, layout, paint, and timing counters.
+Taffy owns Flexbox/Grid geometry. Godot `TextParagraph` owns text shaping and intrinsic measurement. Stylo (via `blitz-dom`) owns transition timing, easing, interruption, and reversal on the native process clock, while a dedicated native measurement tree supplies intrinsic endpoints when `interpolateSize: 'allow-keywords'` is active. A single custom `Control` draws the tree through lightweight `RenderingServer` `CanvasItem` RIDs with per-element rectangular clipping (`overflow: 'hidden'`) for both rendering and hit testing; there is no Godot `Container` or `Control` for every React element. Paint and layout invalidation are separate. Snapshots and opt-in profiles expose node geometry, active transitions, and batch, layout, paint, and stage timing counters.
 
 This remains a performance prototype: JSON serialization, committed-tree comparison, and whole-canvas redraw have costs. It does not claim zero allocation or a frame-rate guarantee. Custom GodotJS/V8 hooks are intentionally deferred until measurements identify a bridge bottleneck; GodotJS already supplies the scheduler and ClassDB facilities required here.
 
@@ -105,9 +107,10 @@ cargo test --locked
 pnpm build:native
 pnpm build
 pnpm verify
+pnpm verify:motion
 ```
 
-`verify` drives real Godot input through the demo at 1120×800 and 600×900, checks state/effects, keyed moves, focus, geometry, paint-only hover, button activation across padding/text, and mount/unmount behavior, and writes PNGs, snapshots, and logs under `artifacts/native/`. Inspect the actual PNGs alongside the assertions.
+`verify` and `verify:motion` drive real Godot input through the demo at 1120×800 and 600×900, checking state/effects, keyed moves, focus, geometry, paint-only hover, button activation across padding/text, mount/unmount behavior, intrinsic `0 ↔ auto` transitions, pixel-level overflow clipping, in-flight retargeting, rapid reversal, and tree detach/reattach pause/resume, writing PNGs, snapshots, and logs under `artifacts/native/` and `artifacts/native-motion/`. Inspect the actual PNGs alongside the assertions.
 
 For the browser target, see [Web build instructions](docs/WEB.md):
 
@@ -116,16 +119,17 @@ pnpm build:web
 pnpm demo:web
 # In a second terminal, while the local server is running:
 pnpm verify:web
+pnpm verify:motion:web
 ```
 
 Web uses the browser's JS runtime through GodotJS and the Rust extension compiled to a Wasm side module. It requires the matching threaded GodotJS templates and Emscripten/lazy-table ABI described in that guide, plus its separately pinned Rust nightly.
 
-Verified on 5 November 2026: 12 TypeScript/React tests, 9 Rust tests, Clippy, both native viewport workflows (26 captures), and the Chrome debug Web workflow (247 assertions, 53 captures including touch). The browser tests use actual mouse, keyboard and touch input, live viewport resizing, and device scale factors 1 and 2. The optimized Wasm extension is 953,917 bytes; the engine and JavaScript/PCK payloads are additional. Safari, mobile devices and the release Web preset have not been qualified.
+Verified on 5 November 2026: 13 TypeScript/React tests, 19 Rust unit tests, Clippy, both native baseline and motion viewport workflows (26 baseline captures + 52 motion captures), the Chrome debug Web baseline workflow (247 assertions, 53 captures including touch), and the Chrome debug Web motion/benchmark workflow (433 assertions, 26 captures, 30 benchmark cells across 50/500/2,000 nodes at DPR 1 and DPR 2). The optimized Wasm extension is 6,739,346 bytes (including Blitz/Stylo); the engine and JavaScript/PCK payloads are additional. Safari, mobile devices and the release Web preset have not been qualified.
 
-One cold Chrome run reported `net::ERR_ABORTED` while downloading `index.pck` before engine startup. The cause remains unproven: a diagnostic cold launch downloaded the identical pack completely and reached readiness in 1.46 seconds, then the unchanged full verifier passed. No retry, skip or runtime workaround was added. The verifier also records the existing Emscripten dynamic-loader synchronization warning, allowing that exact diagnostic once before startup and treating all other runtime errors as failures.
+When Godot's Web shell (`fetchWithProgress`) finishes reading `index.pck` through `ReadableStream.getReader()`, Chromium can emit a benign `net::ERR_ABORTED` on the completed stream close after all `Content-Length` bytes are delivered; `verify-motion-web.mjs` verifies the exact byte count and SHA-256 of `index.pck` before allowing that post-completion event. The verifier also records the existing Emscripten dynamic-loader synchronization warning once before startup and treats all other runtime errors as failures.
 
 ## Current limits
 
-There is no DOM, full CSS cascade, selector engine, Tailwind plugin support, scrolling, text input/IME, accessibility tree, images, rich inline text, per-element clipping, animations, or custom materials. Font-weight and line-height utilities are not implemented. The native root clips to its own rectangle. Grid currently exposes equal fractional column counts; it does not expose Taffy's complete track-placement API. Native platforms beyond the current macOS target require manifest/build work and runtime qualification.
+There is no DOM, full CSS cascade, selector engine, Tailwind plugin support, scrolling, text input/IME, accessibility tree, images, rich inline text, rounded clipping/masks, general `@keyframes` animations, or custom materials. Mixed pixel/percentage transitions and intrinsic transitions on non-zero-flex main-axis items are explicitly rejected at validation time. Font-weight and line-height utilities are not implemented. Grid currently exposes equal fractional column counts; it does not expose Taffy's complete track-placement API. Native platforms beyond the current macOS target require manifest/build work and runtime qualification.
 
 The prototype establishes the authoring and runtime boundary for later integration into Breaka.

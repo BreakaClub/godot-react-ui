@@ -11,6 +11,7 @@ node scripts/build-web.mjs
 node scripts/serve-web.mjs
 # Run in another terminal while the server is active:
 pnpm verify:web
+pnpm verify:motion:web
 ```
 
 The build runs the TypeScript check and bundle before exporting with the V8 Godot

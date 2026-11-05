@@ -1,0 +1,18 @@
+[package]
+name = "godot-react-style-engine-test"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+taffy = { git = "https://github.com/DioxusLabs/taffy", rev = "fca167cf659b8bf48019d0dea90624109a78103f", default-features = false, features = ["std", "taffy_tree", "flexbox", "flexbox_balance", "grid", "block_layout", "calc", "content_size", "detailed_layout_info"] }
+blitz-dom = { git = "https://github.com/DioxusLabs/blitz", rev = "3f85506dcf2e465947413cef87d15515d0c548c8", default-features = false }
+blitz-traits = { git = "https://github.com/DioxusLabs/blitz", rev = "3f85506dcf2e465947413cef87d15515d0c548c8", default-features = false }
+style = { package = "stylo", git = "https://github.com/servo/stylo", rev = "2dca34592ced37c6aa01733e94206a767194cf9d" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.dev]
+debug = 0

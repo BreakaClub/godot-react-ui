@@ -1,0 +1,22 @@
+[package]
+name = "blitz-transition-probe"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+blitz-dom = { git = "https://github.com/DioxusLabs/blitz", rev = "3f85506dcf2e465947413cef87d15515d0c548c8", default-features = false }
+blitz-html = { git = "https://github.com/DioxusLabs/blitz", rev = "3f85506dcf2e465947413cef87d15515d0c548c8", default-features = false }
+blitz-traits = { git = "https://github.com/DioxusLabs/blitz", rev = "3f85506dcf2e465947413cef87d15515d0c548c8", default-features = false }
+
+[profile.dev]
+debug = 0
+
+[profile.release]
+opt-level = "s"
+lto = "thin"

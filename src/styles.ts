@@ -45,6 +45,7 @@ export const colors: Readonly<Record<string, HexColor>> = Object.freeze({
 });
 
 const STATIC_UTILITIES: Readonly<Record<string, Style>> = {
+  'overflow-hidden': { overflow: 'hidden' }, 'overflow-visible': { overflow: 'visible' },
   flex: { display: 'flex' }, grid: { display: 'grid' }, hidden: { display: 'none' },
   'flex-row': { flexDirection: 'row' }, 'flex-col': { flexDirection: 'column' },
   'flex-row-reverse': { flexDirection: 'row-reverse' },
@@ -282,7 +283,13 @@ export function resolveStyles(
 export const StyleSheet = {
   /** Styles are reusable immutable objects. No native registration or browser CSS is implied. */
   create<T extends Record<string, Style>>(styles: T): T {
-    for (const style of Object.values(styles)) Object.freeze(style);
+    for (const style of Object.values(styles)) {
+      if (style.transition) {
+        Object.freeze(style.transition.properties);
+        Object.freeze(style.transition);
+      }
+      Object.freeze(style);
+    }
     return Object.freeze(styles);
   },
 };

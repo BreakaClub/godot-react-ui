@@ -1,10 +1,16 @@
 import assert from 'node:assert/strict';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const packBuffer = await readFile(resolve(root, 'artifacts', 'web-debug', 'index.pck'));
+const expectedPack = {
+  bytes: packBuffer.byteLength,
+  sha256: createHash('sha256').update(packBuffer).digest('hex'),
+};
 const url = process.env.GODOT_REACT_WEB_URL ?? 'http://127.0.0.1:8096';
 const executablePath = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const output = resolve(root, 'artifacts', 'web-verification');
@@ -368,9 +374,84 @@ async function runWorkflow(viewport) {
   await capture('13-remounted');
 }
 
-function observePage(observedPage) {
+let currentPackObserver = null;
+
+async function observePage(observedPage) {
   let startupComplete = false;
   let startupDiagnosticSeen = false;
+  let pendingPackAbort = null;
+  const cdp = await observedPage.createCDPSession();
+  await cdp.send('Network.enable');
+  const networkPack = {
+    requestIds: new Set(),
+    requests: 0,
+    status: null,
+    contentLength: null,
+    receivedBytes: 0,
+    abortedBeforeReady: 0,
+  };
+  cdp.on('Network.requestWillBeSent', (event) => {
+    if (event.request?.url?.endsWith('/index.pck')) {
+      networkPack.requestIds.add(event.requestId);
+      networkPack.requests += 1;
+    }
+  });
+  cdp.on('Network.responseReceived', (event) => {
+    if (!networkPack.requestIds.has(event.requestId)) return;
+    networkPack.status = event.response?.status ?? null;
+    const rawLength = event.response?.headers?.['Content-Length'] ?? event.response?.headers?.['content-length'];
+    networkPack.contentLength = rawLength === undefined ? null : Number(rawLength);
+  });
+  cdp.on('Network.dataReceived', (event) => {
+    if (networkPack.requestIds.has(event.requestId)) {
+      networkPack.receivedBytes += event.dataLength ?? 0;
+    }
+  });
+  await observedPage.evaluateOnNewDocument(() => {
+    const probe = {
+      fetchCount: 0,
+      status: null,
+      contentLength: null,
+      byteLength: null,
+      sha256: null,
+      fetchError: null,
+      digestPromise: null,
+    };
+    Object.defineProperty(globalThis, '__godotPackProbe', { value: probe, configurable: true });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = function (...args) {
+      const requestUrl = String(args[0] ?? '');
+      const promise = Reflect.apply(originalFetch, this, args);
+      if (requestUrl.endsWith('index.pck')) {
+        probe.fetchCount += 1;
+        promise.then(
+          (response) => {
+            probe.status = response.status;
+            const rawLength = response.headers.get('content-length');
+            probe.contentLength = rawLength === null ? null : Number(rawLength);
+          },
+          (error) => {
+            probe.fetchError = String(error);
+          },
+        );
+      }
+      return promise;
+    };
+    const originalArrayBuffer = Response.prototype.arrayBuffer;
+    Response.prototype.arrayBuffer = function (...args) {
+      const promise = Reflect.apply(originalArrayBuffer, this, args);
+      if (this.url === '') {
+        promise.then((buffer) => {
+          probe.byteLength = buffer.byteLength;
+          probe.digestPromise = crypto.subtle.digest('SHA-256', buffer).then((digest) => {
+            probe.sha256 = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+            return probe.sha256;
+          });
+        });
+      }
+      return promise;
+    };
+  });
   observedPage.on('console', (message) => {
     const entry = { type: message.type(), text: message.text(), location: message.location(), viewport: activeViewport };
     report.console.push(entry);
@@ -402,10 +483,92 @@ function observePage(observedPage) {
     fatalErrors.push(detail);
   });
   observedPage.on('requestfailed', (request) => {
-    const failure = { url: request.url(), error: request.failure()?.errorText };
+    const failure = { url: request.url(), error: request.failure()?.errorText, viewport: activeViewport };
+    if (failure.url.endsWith('/favicon.ico')) {
+      report.failedRequests.push(failure);
+      return;
+    }
+    // Godot's index.js wraps fetch('index.pck')'s body reader in a progress
+    // ReadableStream and calls controller.close() upon reader EOF; Chromium
+    // can emit Network.loadingFailed(net::ERR_ABORTED, canceled: true) during
+    // stream teardown after all pack bytes have been delivered. Hold a single
+    // pre-ready index.pck abort until startup completes and verify byte length,
+    // SHA-256, HTTP 200 status, and single-fetch completion before accepting it.
+    if (failure.url.endsWith('/index.pck') && failure.error === 'net::ERR_ABORTED' && !startupComplete && !pendingPackAbort) {
+      networkPack.abortedBeforeReady += 1;
+      pendingPackAbort = failure;
+      return;
+    }
     report.failedRequests.push(failure);
-    if (!failure.url.endsWith('/favicon.ico')) fatalErrors.push(JSON.stringify(failure));
+    fatalErrors.push(JSON.stringify(failure));
   });
+  return {
+    async verifyPackTransfer() {
+      const probe = await observedPage.evaluate(async () => {
+        const state = globalThis.__godotPackProbe;
+        if (!state) return null;
+        if (state.digestPromise) await state.digestPromise;
+        return {
+          fetchCount: state.fetchCount,
+          status: state.status,
+          contentLength: state.contentLength,
+          byteLength: state.byteLength,
+          sha256: state.sha256,
+          fetchError: state.fetchError,
+        };
+      });
+      const detail = {
+        expectedBytes: expectedPack.bytes,
+        expectedSha256: expectedPack.sha256,
+        network: {
+          requests: networkPack.requests,
+          status: networkPack.status,
+          contentLength: networkPack.contentLength,
+          receivedBytes: networkPack.receivedBytes,
+          abortedBeforeReady: networkPack.abortedBeforeReady,
+        },
+        probe,
+      };
+      const complete = Boolean(
+        probe &&
+        probe.fetchError === null &&
+        probe.fetchCount === 1 &&
+        probe.status === 200 &&
+        probe.contentLength === expectedPack.bytes &&
+        probe.byteLength === expectedPack.bytes &&
+        probe.sha256 === expectedPack.sha256 &&
+        networkPack.requests === 1 &&
+        networkPack.status === 200 &&
+        networkPack.contentLength === expectedPack.bytes &&
+        networkPack.receivedBytes === expectedPack.bytes &&
+        networkPack.abortedBeforeReady <= 1
+      );
+      const pending = pendingPackAbort;
+      pendingPackAbort = null;
+      if (!complete) {
+        if (pending) report.failedRequests.push(pending);
+        fatalErrors.push(`index.pck transfer verification failed: ${JSON.stringify({ pending, ...detail })}`);
+      } else if (pending) {
+        report.expectedDiagnostics.push({
+          ...pending,
+          reason: 'Chromium ReadableStream wrapper close after verified complete index.pck transfer',
+          ...detail,
+        });
+      }
+      check('Main pack transfer completed with matching byte length and SHA-256 without retry', complete, detail);
+    },
+    failIfUnverified() {
+      if (pendingPackAbort) {
+        report.failedRequests.push(pendingPackAbort);
+        fatalErrors.push(JSON.stringify({
+          ...pendingPackAbort,
+          receivedBytes: networkPack.receivedBytes,
+          expectedBytes: expectedPack.bytes,
+        }));
+        pendingPackAbort = null;
+      }
+    },
+  };
 }
 
 async function loadPage(viewport) {
@@ -413,13 +576,14 @@ async function loadPage(viewport) {
   page.setDefaultTimeout(ACTION_TIMEOUT_MS);
   page.setDefaultNavigationTimeout(STARTUP_TIMEOUT_MS);
   await page.setViewport(viewport);
-  observePage(page);
+  currentPackObserver = await observePage(page);
   const response = await page.goto(url, { waitUntil: 'domcontentloaded' });
   check('Demo document loaded', response?.ok(), { status: response?.status() });
   check('Browser is cross-origin isolated for WebAssembly threads',
     await page.evaluate(() => globalThis.crossOriginIsolated === true));
   await waitUntil('GodotJS demo initialization', async () => page.evaluate(() =>
     typeof globalThis.godotReactDemo?.snapshot === 'function'), STARTUP_TIMEOUT_MS);
+  await currentPackObserver.verifyPackTransfer();
   check('GodotJS initialized the inspection API', true);
 }
 
@@ -455,6 +619,7 @@ try {
     report.passed = true;
   })(), TOTAL_TIMEOUT_MS, 'Browser workflow verification');
 } catch (error) {
+  currentPackObserver?.failIfUnverified();
   report.error = error instanceof Error ? error.stack : String(error);
   if (page && !page.isClosed()) {
     await page.screenshot({ path: resolve(output, 'failure.png'), timeout: ACTION_TIMEOUT_MS }).catch((captureError) => {

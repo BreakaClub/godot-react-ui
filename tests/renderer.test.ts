@@ -15,6 +15,8 @@ function node(id: number, kind: 'view' | 'text' | 'button'): NativeSnapshotNode 
   return {
     id, kind, text: '', parent: null, children: [], style: {},
     rect: { x: 0, y: 0, width: 100, height: 40 },
+    clipRect: null,
+    presentation: {width: 100, height: 40, widthIsAuto: false, heightIsAuto: false, opacity: 1, backgroundColor: '#00000000'},
   };
 }
 
@@ -111,6 +113,7 @@ class RecordingHost implements NativeHost {
 
   getSnapshot(): string {
     const snapshot: NativeSnapshot = {
+      clockMs: 0, transitions: [],
       nodes: [...this.nodes.values()],
       width: 1024, height: 768, hovered: null, focused: null, pressed: null,
       stats: { batches: this.batches.length, nodeCount: this.nodes.size - 1, layoutPasses: 0, paintPasses: 0, layoutMicros: 0 },
@@ -263,5 +266,33 @@ test('native boundary rejects invalid data and surfaces failed batches', () => {
   root.render(h(Text, { testID: 'text' }, 'Good'));
   host.rejectNextBatch = true;
   assert.throws(() => root.render(h(Text, { testID: 'text' }, 'Rejected')), /deliberate transport failure/);
+  assert.equal(root.findByTestID('text')?.text, 'Good', 'Rejected batch preserves the native tree');
+  root.render(h(Text, {testID: 'text'}, 'Recovered'));
+  assert.equal(root.findByTestID('text')?.text, 'Recovered', 'React can commit after the surfaced rejection');
+  root.unmount();
+});
+
+test('profiling observes real commits, drains samples, and is inert when disabled', () => {
+  const host = new RecordingHost();
+  let clockCalls = 0;
+  const root = createRoot(host, {now: () => ++clockCalls});
+  root.render(h(Text, {testID: 'profiled'}, 'Before'));
+  assert.equal(clockCalls, 0, 'Disabled instrumentation must not read its clock');
+  root.setProfiling(true);
+  const before = host.batches.length;
+  root.render(h(Text, {testID: 'profiled'}, 'After'));
+  const report = root.takeProfile();
+  assert.equal(report.counters.batches, host.batches.length - before);
+  const flush = report.samples.find(sample => sample.kind === 'flush');
+  assert.ok(flush && flush.kind === 'flush');
+  assert.equal(flush.visitedNodes, 1);
+  assert.equal(flush.commandCount, 1, 'Only the changed text crosses the boundary');
+  assert.ok(flush.jsonChars > 0 && flush.jsonEncodeMs > 0 && flush.nativeCallMs > 0);
+  assert.ok(report.samples.some(sample => sample.kind === 'reconcile'));
+  assert.equal(root.takeProfile().samples.length, 0, 'Samples are drained without retaining old trees');
+  root.setProfiling(false);
+  const previousClockCalls = clockCalls;
+  root.render(h(Text, null, 'Unprofiled'));
+  assert.equal(clockCalls, previousClockCalls);
   root.unmount();
 });

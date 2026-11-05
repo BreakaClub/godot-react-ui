@@ -12,6 +12,7 @@ import {
 } from './native';
 import { resolveStyles } from './styles';
 import type { Style } from './types';
+import { RendererProfiler, type RendererProfile } from './profile';
 
 const VIEWPORT_ID = 0;
 const MAX_NODE_ID = 0xffff_ffff;
@@ -41,6 +42,7 @@ interface CommittedNode {
 
 interface Container {
   readonly host: NativeHost;
+  readonly profiler: RendererProfiler;
   readonly id: typeof VIEWPORT_ID;
   children: Instance[];
   committed: Map<number, CommittedNode>;
@@ -55,6 +57,9 @@ interface Container {
 export interface RootOptions {
   /** React error-boundary reports are forwarded here; unhandled errors also fail the caller. */
   onError?: (error: Error) => void;
+  /** Profiling is disabled by default; native hosts can supply a high-resolution clock. */
+  profile?: boolean;
+  now?: () => number;
 }
 
 export interface UIRoot {
@@ -68,6 +73,8 @@ export interface UIRoot {
   refreshStyles(width?: number): void;
   getSnapshot(): NativeSnapshot;
   findByTestID(testID: string): NativeSnapshotNode | undefined;
+  setProfiling(enabled: boolean): void;
+  takeProfile(): RendererProfile;
 }
 
 function scalarText(children: ReactNode): string | undefined {
@@ -146,6 +153,7 @@ function inheritedTextStyle(style: Style): Style {
 
 /** Only this commit path allocates native nodes; abandoned React renders remain ordinary JS data. */
 function flush(container: Container): void {
+  const started = container.profiler.start();
   const creates: NativeCommand[] = [];
   const updates: NativeCommand[] = [];
   const hierarchy: NativeCommand[] = [];
@@ -189,9 +197,19 @@ function flush(container: Container): void {
   for (const [id] of [...container.committed].reverse()) {
     if (!next.has(id)) removals.push({ op: 'remove', id });
   }
-  applyCommands(container.host, [...creates, ...updates, ...hierarchy, ...removals]);
+  const commands = [...creates, ...updates, ...hierarchy, ...removals];
+  const diffEnd = container.profiler.start();
+  const timing = applyCommands(container.host, commands, container.profiler.enabled ? container.profiler.now : undefined);
   container.committed = next;
   container.rootChildren = rootChildren;
+  if (started !== undefined && diffEnd !== undefined) {
+    container.profiler.record({
+      kind: 'flush', startMs: started, styleDiffMs: diffEnd - started,
+      jsonEncodeMs: timing?.jsonEncodeMs ?? 0, nativeCallMs: timing?.nativeCallMs ?? 0,
+      fullFlushMs: container.profiler.now() - started,
+      visitedNodes: next.size, commandCount: commands.length, jsonChars: timing?.jsonChars ?? 0,
+    });
+  }
 }
 
 let updatePriority: Reconciler.EventPriority = NoEventPriority;
@@ -223,7 +241,17 @@ const hostConfig = {
   finalizeInitialChildren: () => false,
   shouldSetTextContent: (kind: NativeKind, props: UIProps) => kind === 'text' && scalarText(props.children) !== undefined,
   prepareForCommit: () => null,
-  resetAfterCommit: (container: Container) => container.flush(),
+  resetAfterCommit(container: Container) {
+    try {
+      container.flush();
+    } catch (error) {
+      // React 19.2 assigns root.current and advances its pending commit phase
+      // after this callback returns. Throwing here strands that global phase
+      // and prevents later roots from committing. Surface the same failure at
+      // our public API boundary after React completes its bookkeeping instead.
+      container.failure = error instanceof Error ? error : new Error(String(error));
+    }
+  },
   preparePortalMount: () => {},
   scheduleTimeout: setTimeout,
   cancelTimeout: clearTimeout,
@@ -338,7 +366,8 @@ function dispatch(container: Container, event: NativeEvent): void {
 
 export function createRoot(host: NativeHost, options: RootOptions = {}): UIRoot {
   const container: Container = {
-    host, id: VIEWPORT_ID, children: [], committed: new Map(), rootChildren: [],
+    host, profiler: new RendererProfiler(options.profile ?? false, options.now),
+    id: VIEWPORT_ID, children: [], committed: new Map(), rootChildren: [],
     nextId: 1, width: readSnapshot(host).width, unmounted: false, failure: undefined,
     flush() { flush(container); },
   };
@@ -365,8 +394,10 @@ export function createRoot(host: NativeHost, options: RootOptions = {}): UIRoot 
   return {
     render(children) {
       if (container.unmounted) throw new Error('Cannot render into an unmounted UI root');
+      const started = container.profiler.start();
       reconciler.updateContainerSync(children, fiberRoot, null, null);
       reconciler.flushSyncWork();
+      container.profiler.finishWork('reconcile', started);
       checkFailure();
     },
     unmount() {
@@ -379,6 +410,7 @@ export function createRoot(host: NativeHost, options: RootOptions = {}): UIRoot 
     },
     dispatchEvents() {
       if (container.unmounted) return;
+      const started = container.profiler.start();
       const events = readEvents(host);
       for (const event of events) {
         const previousPriority = updatePriority;
@@ -392,6 +424,7 @@ export function createRoot(host: NativeHost, options: RootOptions = {}): UIRoot 
       reconciler.flushSyncWork();
       // Pseudo-state changes can affect paint without scheduling a React render.
       if (events.length !== 0) container.flush();
+      if (events.length !== 0) container.profiler.finishWork('events', started);
       checkFailure();
     },
     refreshStyles(width = readSnapshot(host).width) {
@@ -401,6 +434,8 @@ export function createRoot(host: NativeHost, options: RootOptions = {}): UIRoot 
       container.flush();
     },
     getSnapshot: () => readSnapshot(host),
+    setProfiling(enabled) { container.profiler.enabled = enabled; },
+    takeProfile: () => container.profiler.take(),
     findByTestID(testID) {
       for (const [id, node] of container.committed) {
         if (node.instance.props.testID === testID) {

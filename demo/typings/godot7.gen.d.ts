@@ -1194,6 +1194,9 @@ declare module "godot" {
     /** @deprecated Internal use. Does not exist at runtime. */
     interface __NameMapReactUiRoot extends __NameMapControl {
         apply_batch: "applyBatch";
+        set_profiling: "setProfiling";
+        get_activity: "getActivity";
+        take_profile: "takeProfile";
         get_snapshot: "getSnapshot";
         drain_events: "drainEvents";
     }
@@ -1201,6 +1204,9 @@ declare module "godot" {
     class ReactUiRoot<Map extends NodePathMap = any> extends Control<Map> {
         constructor(identifier?: any)
         applyBatch(json: string): string
+        setProfiling(enabled: boolean): any
+        getActivity(): string
+        takeProfile(): string
         getSnapshot(): string
         drainEvents(): string
         /** @deprecated Internal use. Does not exist at runtime. */

@@ -1,7 +1,8 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { Button, Text, View } from 'godot-react-ui';
+import { MotionLab } from './motion-lab';
 
-type Demo = 'counter' | 'inventory';
+type Demo = 'counter' | 'inventory' | 'motion';
 type Accent = 'indigo' | 'emerald';
 type Category = 'All' | 'Seeds' | 'Tools';
 
@@ -237,9 +238,10 @@ export function App() {
         <View className="flex-row gap-2">
           <Button testID="tab-counter" className={`rounded-lg px-5 py-3 border focus:border-indigo-500 ${demo === 'counter' ? `${accent.primary} border-transparent` : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'}`} onClick={() => setDemo('counter')}>01  Counter lab</Button>
           <Button testID="tab-inventory" className={`rounded-lg px-5 py-3 border focus:border-indigo-500 ${demo === 'inventory' ? `${accent.primary} border-transparent` : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'}`} onClick={() => setDemo('inventory')}>02  Inventory</Button>
+          <Button testID="tab-motion" className={`rounded-lg px-5 py-3 border focus:border-indigo-500 ${demo === 'motion' ? `${accent.primary} border-transparent` : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'}`} onClick={() => setDemo('motion')}>03  Motion</Button>
         </View>
 
-        {demo === 'counter' ? <CounterLab /> : <InventoryLab />}
+        {demo === 'counter' ? <CounterLab /> : demo === 'inventory' ? <InventoryLab /> : <MotionLab />}
 
         <View className="flex-row flex-wrap justify-between gap-2">
           <Text className="text-xs text-slate-400">React 19 · GodotJS · Rust + Taffy</Text>
