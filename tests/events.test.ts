@@ -1,0 +1,379 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { createElement as h } from 'react';
+import { View, type UIFocusEvent, type UIPointerEvent } from '../src';
+import { EventPhase, exclusiveAncestry } from '../src/events';
+import { createTestRoot, RecordingHost } from './recording-host';
+
+const MAX_EVENT_DRAIN_ROUNDS = 64;
+
+function requireNode(root: ReturnType<typeof createTestRoot>['root'], testID: string): number {
+  const found = root.findByTestID(testID);
+  assert.ok(found, `missing ${testID}`);
+  return found.id;
+}
+
+/** outer > middle > inner, each logging its capture and bubble handlers with their phase. */
+function nested(log: string[], options: { stopInMiddleCapture?: boolean } = {}) {
+  const record = (name: string, phase: string) => (event: UIPointerEvent) => {
+    log.push(`${name}:${phase}:${event.eventPhase}:${event.currentTarget.testID}`);
+    if (options.stopInMiddleCapture && name === 'middle' && phase === 'capture') event.stopPropagation();
+  };
+  const level = (name: string, children?: ReturnType<typeof h>) => h(View, {
+    testID: name, onPointerDownCapture: record(name, 'capture'), onPointerDown: record(name, 'bubble'),
+  }, children);
+  return level('outer', level('middle', level('inner')));
+}
+
+test('capture runs outermost to target, then bubble runs target to outermost, then root listeners', () => {
+  const host = new RecordingHost();
+  const { root } = createTestRoot(host);
+  const log: string[] = [];
+  root.addEventListener('pointerdown', (event) => {
+    log.push(`root:${event.eventPhase}:${event.currentTarget.id}:${event.target.testID}`);
+  });
+  root.render(nested(log));
+  host.event(requireNode(root, 'inner'), 'pointerdown');
+  root.dispatchEvents();
+  assert.deepEqual(log, [
+    `outer:capture:${EventPhase.Capturing}:outer`,
+    `middle:capture:${EventPhase.Capturing}:middle`,
+    `inner:capture:${EventPhase.AtTarget}:inner`,
+    `inner:bubble:${EventPhase.AtTarget}:inner`,
+    `middle:bubble:${EventPhase.Bubbling}:middle`,
+    `outer:bubble:${EventPhase.Bubbling}:outer`,
+    `root:${EventPhase.Bubbling}:0:inner`,
+  ]);
+  root.unmount();
+});
+
+test('stopPropagation in a capture handler stops later capture, all bubble and root listeners', () => {
+  const host = new RecordingHost();
+  const { root } = createTestRoot(host);
+  const log: string[] = [];
+  let rootCalls = 0;
+  root.addEventListener('pointerdown', () => { rootCalls += 1; });
+  root.render(nested(log, { stopInMiddleCapture: true }));
+  host.event(requireNode(root, 'inner'), 'pointerdown');
+  root.dispatchEvents();
+  assert.deepEqual(log, [
+    `outer:capture:${EventPhase.Capturing}:outer`,
+    `middle:capture:${EventPhase.Capturing}:middle`,
+  ]);
+  assert.equal(rootCalls, 0);
+  root.unmount();
+});
+
+test('preventDefault is reported for a cancelable event and ignored for a non-cancelable one', () => {
+  const host = new RecordingHost();
+  const { root } = createTestRoot(host);
+  const seen: Array<{ cancelable: boolean; prevented: boolean; isPrevented: boolean }> = [];
+  root.render(h(View, {
+    testID: 'target',
+    onPointerDown(event) {
+      event.preventDefault();
+      seen.push({ cancelable: event.cancelable, prevented: event.defaultPrevented, isPrevented: event.isDefaultPrevented() });
+    },
+    onPointerUp(event) {
+      event.preventDefault();
+      seen.push({ cancelable: event.cancelable, prevented: event.defaultPrevented, isPrevented: event.isDefaultPrevented() });
+    },
+  }));
+  const target = requireNode(root, 'target');
+  const down = host.pointerEvent(target, 'pointerdown', { cancelable: true });
+  host.events.push(down, host.pointerEvent(target, 'pointerup'));
+  root.dispatchEvents();
+  assert.deepEqual(seen, [
+    { cancelable: true, prevented: true, isPrevented: true },
+    { cancelable: false, prevented: false, isPrevented: false },
+  ]);
+  assert.deepEqual(host.resolutions, [{ seq: down.seq, defaultPrevented: true, dropEffect: '' }],
+    'only the cancelable event is resolved');
+  root.unmount();
+});
+
+test('a cancelable event nobody prevents is resolved as not prevented', () => {
+  const host = new RecordingHost();
+  const { root } = createTestRoot(host);
+  root.render(h(View, { testID: 'target' }));
+  const down = host.pointerEvent(requireNode(root, 'target'), 'pointerdown', { cancelable: true });
+  host.events.push(down);
+  root.dispatchEvents();
+  assert.deepEqual(host.resolutions, [{ seq: down.seq, defaultPrevented: false, dropEffect: '' }]);
+  root.unmount();
+});
+
+/** parent > a, b; and a separate sibling `other`. Logs enter/leave per element. */
+function hoverTree(log: string[]) {
+  const watch = (name: string, extra: Record<string, string> = {}) => ({
+    testID: name,
+    onPointerEnter: (event: UIPointerEvent) => log.push(`${name}:enter:${event.relatedTarget?.testID ?? 'none'}:${event.target.testID}`),
+    onPointerLeave: (event: UIPointerEvent) => log.push(`${name}:leave:${event.relatedTarget?.testID ?? 'none'}:${event.target.testID}`),
+    ...extra,
+  });
+  return h(View, null,
+    h(View, watch('parent', { className: 'bg-slate-100 hover:bg-slate-200' }), h(View, watch('a')), h(View, watch('b'))),
+    h(View, watch('other')));
+}
+
+test('enter and leave reach only the elements the pointer crosses, outermost first on enter', () => {
+  const host = new RecordingHost();
+  const { root } = createTestRoot(host);
+  const log: string[] = [];
+  root.render(hoverTree(log));
+  const [parent, a, b, other] = ['parent', 'a', 'b', 'other'].map((id) => requireNode(root, id));
+  assert.ok(parent !== undefined && a !== undefined && b !== undefined && other !== undefined);
+  const background = () => root.findByTestID('parent')?.style.backgroundColor;
+  assert.equal(background(), '#f1f5f9');
+
+  // Arriving from outside the root: related is null, so every ancestor is entered.
+  host.event(a, 'pointerenter', { relatedTarget: null });
+  root.dispatchEvents();
+  assert.deepEqual(log.splice(0), ['parent:enter:none:parent', 'a:enter:none:a']);
+  assert.equal(background(), '#e2e8f0', 'hover applies to every entered element');
+
+  // Child to sibling: the shared parent is neither left nor re-entered, and keeps its hover paint.
+  host.event(a, 'pointerleave', { relatedTarget: b });
+  host.event(b, 'pointerenter', { relatedTarget: a });
+  root.dispatchEvents();
+  assert.deepEqual(log.splice(0), ['a:leave:b:a', 'b:enter:a:b']);
+  assert.equal(background(), '#e2e8f0');
+
+  // To an unrelated element: leave deepest first, up to the root; enter outermost first.
+  host.event(b, 'pointerleave', { relatedTarget: other });
+  host.event(other, 'pointerenter', { relatedTarget: b });
+  root.dispatchEvents();
+  assert.deepEqual(log.splice(0), ['b:leave:other:b', 'parent:leave:other:parent', 'other:enter:b:other']);
+  assert.equal(background(), '#f1f5f9');
+
+  // Leaving the root altogether.
+  host.event(other, 'pointerleave', { relatedTarget: null });
+  root.dispatchEvents();
+  assert.deepEqual(log.splice(0), ['other:leave:none:other']);
+  root.unmount();
+});
+
+test('a related element that no longer exists is treated as no related element', () => {
+  const host = new RecordingHost();
+  const { root } = createTestRoot(host);
+  const log: string[] = [];
+  root.render(hoverTree(log));
+  const b = requireNode(root, 'b');
+  host.event(b, 'pointerenter', { relatedTarget: 9999 });
+  root.dispatchEvents();
+  assert.deepEqual(log, ['parent:enter:none:parent', 'b:enter:none:b']);
+  root.unmount();
+});
+
+test('touch pointers dispatch enter and leave but never set hover', () => {
+  const host = new RecordingHost();
+  const { root } = createTestRoot(host);
+  const log: string[] = [];
+  root.render(hoverTree(log));
+  const a = requireNode(root, 'a');
+  host.event(a, 'pointerenter', { pointerType: 'touch', pointerId: 2 });
+  root.dispatchEvents();
+  assert.deepEqual(log, ['parent:enter:none:parent', 'a:enter:none:a']);
+  assert.equal(root.findByTestID('parent')?.style.backgroundColor, '#f1f5f9', 'no sticky hover after a tap');
+  root.unmount();
+});
+
+test('handlers receive pointer data, modifiers and the native timestamp', () => {
+  const host = new RecordingHost();
+  const { root } = createTestRoot(host);
+  const seen: UIPointerEvent[] = [];
+  const focused: UIFocusEvent[] = [];
+  root.render(h(View, {
+    testID: 'target', onClick: (event) => seen.push(event), onFocus: (event) => focused.push(event),
+  }));
+  const target = requireNode(root, 'target');
+  host.event(target, 'click', {
+    x: 12.5, y: 30, viewportX: 112.5, viewportY: 130, pointerId: 0, pointerType: '', button: 0,
+    buttons: 0, detail: 0, shiftKey: true, metaKey: true, timeStamp: 77.25,
+  });
+  host.event(target, 'focus');
+  root.dispatchEvents();
+  const [click] = seen;
+  assert.ok(click);
+  assert.equal(click.type, 'click');
+  assert.equal(click.bubbles, true);
+  assert.equal(click.pointerType, '', 'keyboard activation is a click without a pointer type');
+  assert.equal(click.pointerId, 0);
+  assert.equal(click.detail, 0);
+  assert.deepEqual([click.x, click.y, click.viewportX, click.viewportY], [12.5, 30, 112.5, 130]);
+  assert.deepEqual([click.shiftKey, click.ctrlKey, click.altKey, click.metaKey], [true, false, false, true]);
+  assert.equal(click.timeStamp, 77.25);
+  assert.equal(click.target.id, target);
+  assert.equal(click.relatedTarget, null);
+  assert.equal(focused[0]?.type, 'focus');
+  root.unmount();
+});
+
+test('a handler that calls dispatchEvents again does not recurse; the outer loop delivers the rest', () => {
+  const host = new RecordingHost();
+  const { root } = createTestRoot(host);
+  const log: string[] = [];
+  let target = -1;
+  root.render(h(View, {
+    testID: 'target',
+    onClick(event) {
+      log.push(`click:${event.detail}:start`);
+      if (event.detail === 1) {
+        host.event(target, 'click', { detail: 2 });
+        root.dispatchEvents();
+        log.push('click:1:after-nested-dispatch');
+      }
+      log.push(`click:${event.detail}:end`);
+    },
+  }));
+  target = requireNode(root, 'target');
+  host.event(target, 'click', { detail: 1 });
+  root.dispatchEvents();
+  assert.deepEqual(log, [
+    'click:1:start', 'click:1:after-nested-dispatch', 'click:1:end', 'click:2:start', 'click:2:end',
+  ]);
+  root.unmount();
+});
+
+test('a throwing handler still resolves its event, lets the loop finish, then rethrows', () => {
+  const host = new RecordingHost();
+  const reported: Error[] = [];
+  const { root } = createTestRoot(host, { onError: (error) => reported.push(error) });
+  const log: string[] = [];
+  root.render(h(View, null,
+    h(View, {
+      testID: 'bad',
+      onPointerDown(event) { event.preventDefault(); throw new Error('boom'); },
+      onPointerUp() { throw new Error('second'); },
+    }),
+    h(View, { testID: 'good', onClick: () => log.push('good') })));
+  const down = host.pointerEvent(requireNode(root, 'bad'), 'pointerdown', { cancelable: true });
+  host.events.push(down, host.pointerEvent(requireNode(root, 'bad'), 'pointerup'),
+    host.pointerEvent(requireNode(root, 'good'), 'click'));
+  assert.throws(() => root.dispatchEvents(), /boom/);
+  assert.deepEqual(host.resolutions, [{ seq: down.seq, defaultPrevented: true, dropEffect: '' }],
+    'native receives the state reached before the throw');
+  assert.deepEqual(log, ['good'], 'later events were still dispatched');
+  assert.deepEqual(reported.map((error) => error.message), ['second'], 'later failures are reported, not dropped');
+  // The failure is consumed: the next dispatch works.
+  host.event(requireNode(root, 'good'), 'click');
+  root.dispatchEvents();
+  assert.deepEqual(log, ['good', 'good']);
+  root.unmount();
+});
+
+test('a rejected resolveEvent surfaces as an error after the loop', () => {
+  const host = new RecordingHost();
+  const { root } = createTestRoot(host);
+  root.render(h(View, { testID: 'target' }));
+  host.resolveError = 'event 1 is not awaiting a result';
+  host.events.push(host.pointerEvent(requireNode(root, 'target'), 'pointerdown', { cancelable: true }));
+  assert.throws(() => root.dispatchEvents(), /resolveEvent rejected event 1: event 1 is not awaiting a result/);
+  root.unmount();
+});
+
+test('the native owner subscription drives dispatch, and unmount unsubscribes exactly once', () => {
+  const host = new RecordingHost();
+  const { root, subscription } = createTestRoot(host);
+  let clicks = 0;
+  root.render(h(View, { testID: 'target', onClick: () => { clicks += 1; } }));
+  assert.ok(subscription.listener, 'createRoot subscribes');
+  host.event(requireNode(root, 'target'), 'click');
+  subscription.fire();
+  assert.equal(clicks, 1, 'eventsReady dispatches synchronously');
+  assert.equal(subscription.unsubscribed, 0);
+  root.unmount();
+  assert.equal(subscription.unsubscribed, 1);
+  assert.equal(subscription.listener, undefined);
+  root.unmount();
+  assert.equal(subscription.unsubscribed, 1, 'unmount is idempotent');
+  host.event(0, 'click');
+  root.dispatchEvents();
+  assert.equal(clicks, 1, 'an unmounted root dispatches nothing');
+});
+
+test('unmounting from inside a handler finishes the batch without dispatching to removed elements', () => {
+  const host = new RecordingHost();
+  const { root, subscription } = createTestRoot(host);
+  const log: string[] = [];
+  root.render(h(View, null,
+    h(View, { testID: 'first', onPointerDown: (event) => { event.preventDefault(); root.unmount(); } }),
+    h(View, { testID: 'second', onPointerUp: () => log.push('second') })));
+  const down = host.pointerEvent(requireNode(root, 'first'), 'pointerdown', { cancelable: true });
+  host.events.push(down, host.pointerEvent(requireNode(root, 'second'), 'pointerup'));
+  root.dispatchEvents();
+  assert.deepEqual(log, [], 'the unmounted element received nothing');
+  assert.deepEqual(host.resolutions, [{ seq: down.seq, defaultPrevented: true, dropEffect: '' }],
+    'native still gets its answer');
+  assert.equal(subscription.unsubscribed, 1);
+  assert.equal(host.nodes.size, 1, 'every native node was removed');
+});
+
+test('the drain loop throws after MAX_EVENT_DRAIN_ROUNDS instead of spinning', () => {
+  const host = new RecordingHost();
+  const { root } = createTestRoot(host);
+  let handled = 0;
+  root.render(h(View, { testID: 'target', onClick: () => { handled += 1; } }));
+  const target = requireNode(root, 'target');
+  let drains = 0;
+  host.produceEvents = () => {
+    drains += 1;
+    return [host.pointerEvent(target, 'click')];
+  };
+  assert.throws(() => root.dispatchEvents(), new RegExp(`after ${MAX_EVENT_DRAIN_ROUNDS} rounds`));
+  assert.equal(drains, MAX_EVENT_DRAIN_ROUNDS, 'each round drained once');
+  assert.equal(handled, MAX_EVENT_DRAIN_ROUNDS, 'every drained event was still dispatched');
+  host.produceEvents = undefined;
+  host.event(target, 'click');
+  root.dispatchEvents();
+  assert.equal(handled, MAX_EVENT_DRAIN_ROUNDS + 1, 'the guard resets after throwing');
+  root.unmount();
+});
+
+test('events addressed to the root reach root listeners only', () => {
+  const host = new RecordingHost();
+  const { root } = createTestRoot(host);
+  const log: string[] = [];
+  root.render(h(View, { testID: 'element', onPointerDown: () => log.push('element') }));
+  const remove = root.addEventListener('pointerdown', (event) => {
+    log.push(`root:${event.eventPhase}:${event.target.id}:${event.currentTarget.id}`);
+  });
+  host.event(0, 'pointerdown');
+  root.dispatchEvents();
+  assert.deepEqual(log, [`root:${EventPhase.AtTarget}:0:0`]);
+  remove();
+  host.event(0, 'pointerdown');
+  root.dispatchEvents();
+  assert.equal(log.length, 1, 'a removed listener is not called');
+  root.unmount();
+});
+
+test('invalid native events are rejected at the boundary and do not wedge dispatching', () => {
+  const host = new RecordingHost();
+  const { root } = createTestRoot(host);
+  root.render(h(View, { testID: 'target' }));
+  const malformed = JSON.stringify([{ seq: 1, target: 1, cancelable: false, timeStamp: 0, type: 'pointerdown' }]);
+  const drain = host.drainEvents.bind(host);
+  let first = true;
+  host.drainEvents = () => {
+    if (!first) return drain();
+    first = false;
+    return malformed;
+  };
+  assert.throws(() => root.dispatchEvents(), /Invalid native event\.x/);
+  root.dispatchEvents();
+  root.unmount();
+});
+
+test('exclusiveAncestry keeps the part of a path that the related path does not share', () => {
+  const root = { name: 'root' };
+  const parent = { name: 'parent' };
+  const a = { name: 'a' };
+  const b = { name: 'b' };
+  assert.deepEqual(exclusiveAncestry([a, parent, root], [b, parent, root]), [a]);
+  assert.deepEqual(exclusiveAncestry([a, parent, root], []), [a, parent, root]);
+  assert.deepEqual(exclusiveAncestry([a, parent, root], [parent, root]), [a]);
+  assert.deepEqual(exclusiveAncestry([parent, root], [a, parent, root]), []);
+  assert.deepEqual(exclusiveAncestry([a], [a]), []);
+  assert.deepEqual(exclusiveAncestry([], [a]), []);
+});

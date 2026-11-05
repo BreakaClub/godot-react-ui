@@ -7,16 +7,21 @@ const root = resolve(import.meta.dirname, '..');
 const godot = process.env.GODOT ?? '/Applications/Godot48.app/Contents/MacOS/Godot';
 const deadlineMs = 120_000;
 const motion = process.argv.includes('--motion');
-const successMarker = motion ? 'GODOT_REACT_MOTION_VERIFY_PASSED' : 'GODOT_REACT_VERIFY_PASSED';
+const interaction = process.argv.includes('--interaction');
+if (motion && interaction) throw new Error('Choose one workflow: --motion or --interaction.');
+const successMarker = motion ? 'GODOT_REACT_MOTION_VERIFY_PASSED'
+  : interaction ? 'GODOT_REACT_INTERACTION_VERIFY_PASSED' : 'GODOT_REACT_VERIFY_PASSED';
+const artifactRoot = motion ? 'artifacts/native-motion' : interaction ? 'artifacts/native-interaction' : 'artifacts/native';
+const userFlag = motion ? '--verify-motion' : interaction ? '--verify-interaction' : '--verify';
 // Never launch runtime acceptance against missing or type-invalid JS artifacts.
 const build = spawnSync('pnpm', ['build'], {cwd:root, stdio:'inherit'});
 if (build.error) throw build.error;
 if (build.status !== 0) process.exit(build.status ?? 1);
 importDemo(godot);
 for (const [name, resolution] of [['landscape','1120x800'],['portrait','600x900']]) {
-  const output = resolve(root,motion ? 'artifacts/native-motion' : 'artifacts/native',name);
+  const output = resolve(root,artifactRoot,name);
   mkdirSync(output,{recursive:true});
-  const child = spawn(godot,['--audio-driver','Dummy','--path',resolve(root,'demo'),'--resolution',resolution,'--',motion ? '--verify-motion' : '--verify'],{
+  const child = spawn(godot,['--audio-driver','Dummy','--path',resolve(root,'demo'),'--resolution',resolution,'--',userFlag],{
     env:{...process.env,GODOT_REACT_ARTIFACTS:output},stdio:['ignore','pipe','pipe'],
   });
   let log = '';

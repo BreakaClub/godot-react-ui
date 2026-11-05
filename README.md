@@ -18,10 +18,11 @@ pnpm demo
 
 `build:native` compiles the optimized Rust library and installs it into `demo/addons/godot-react-ui/bin/`. `build` typechecks before bundling the demo and emitting CommonJS, ES modules and declarations into `dist/`. Both package entry points are importable; `pnpm pack` creates a local npm tarball without publishing. Generated GodotJS declarations and scene wrappers are included under `demo/typings/` and `demo/gen/`; `.uid` files are project metadata. Compiled libraries, JavaScript bundles, and the `.godot` import cache are generated locally.
 
-The demo has three tabs:
+The demo has four tabs:
 
 - **Counter:** real React state, derived values, closures, effects, context, disabled buttons, pointer states, and keyboard activation.
 - **Inventory:** a responsive Taffy grid, keyed component state, reordering, filtering, insertion/removal, and an empty state.
+- **Interaction:** the event pipeline: capture and bubble with `stopPropagation()`, `preventDefault()` that stops native's focus default action, synchronous dispatch (a handler observes native state before its default action runs), `pointerenter`/`pointerleave` that reach only the elements crossed, and handlers that remove their own target, detach the root from the scene tree, or unmount it while native is still inside the press.
 - **Motion:** native Blitz/Stylo CSS transitions (`width`, `height`, `opacity`, `backgroundColor`), intrinsic `0 ↔ auto` height transitions (`interpolateSize: 'allow-keywords'`), rectangular clipping (`overflow: 'hidden'`) for both rendering and hit testing, in-flight retargeting across text/font/width/viewport changes, rapid reversal, tree detach/reattach pause/resume, and active-transition removal.
 
 Resize the window to see `md:` classes recompose the layout. Tab and Shift-Tab move between enabled buttons; Enter and Space activate them. All provided Godot launch scripts use `--audio-driver Dummy`.
@@ -66,9 +67,9 @@ export function Counter() {
 }
 ```
 
-`View` defaults to a flex column. `Text` uses Godot text shaping and wrapping. `Button` participates in native hit testing and keyboard focus. `color`, `fontSize`, and `textAlign` inherit through the React host tree. Events include `onClick`, pointer enter/leave/down/up/move, and focus/blur; they provide `target`, `currentTarget`, root-local coordinates, and `stopPropagation()`. Refs expose a typed handle with its native ID and `getRect()`; `testID` supports inspection without becoming native identity.
+`View` defaults to a flex column. `Text` uses Godot text shaping and wrapping. `Button` participates in native hit testing and keyboard focus. `color`, `fontSize`, and `textAlign` inherit through the React host tree. Events include `onClick`, pointer enter/leave/down/up/move (each with a `Capture` variant except enter/leave), and focus/blur. They have DOM semantics: capture handlers run outermost first, then bubble handlers from the target up, then root listeners (`root.addEventListener`); `pointerenter`/`pointerleave` do not bubble and run only for the elements the pointer crosses. Events provide `target`, `currentTarget`, `eventPhase`, root-local coordinates, `pointerId`, `pointerType`, `button`, `buttons`, modifiers, `timeStamp`, `stopPropagation()` and `preventDefault()`. A pointer press is dispatched synchronously from inside Godot's input callback, so `preventDefault()` on `onPointerDown` stops native's focus default action before it runs. Refs expose a typed handle with its native ID and `getRect()`; `testID` supports inspection without becoming native identity.
 
-Mount with `createRoot(nativeSurface).render(<App />)`, where `nativeSurface` is a `ReactUiRoot` from `godot`. Its Godot owner sets the surface size, calls `dispatchEvents()` each frame, calls `refreshStyles()` after logical viewport changes, and calls `unmount()` before freeing the surface. [The demo owner](demo/src/main.ts) shows the complete lifecycle, including tree re-entry. `render()` commits the initial render synchronously; later hook updates use React's scheduler.
+Mount with `createRoot(nativeSurface, { subscribeToEvents }).render(<App />)`, where `nativeSurface` is a `ReactUiRoot` from `godot`. `subscribeToEvents(listener)` is required: the owner connects a `Callable` for `listener` to the surface's `eventsReady` signal and returns a function that disconnects it (a GodotJS `Callable` holds its function strongly, so `unmount()` calls that function or the whole root would stay reachable). Native emits `eventsReady` from inside its input callbacks. The owner also sets the surface size, calls `dispatchEvents()` each frame for events native queued outside an input callback, calls `refreshStyles()` after logical viewport changes, and calls `unmount()` before freeing the surface. [The demo owner](demo/src/main.ts) shows the complete lifecycle, including tree re-entry. `render()` commits the initial render synchronously; later hook updates use React's scheduler.
 
 On Web, the demo owner also synchronizes its Window's `contentScaleFactor` with `DisplayServer.screenGetScale()`. Layout and hit testing then use CSS-sized logical coordinates while the backing canvas and font rasterization retain the full device resolution. Polling detects browser zoom and display-density changes, including those that leave the backing dimensions unchanged.
 
@@ -108,9 +109,10 @@ pnpm build:native
 pnpm build
 pnpm verify
 pnpm verify:motion
+pnpm verify:interaction
 ```
 
-`verify` and `verify:motion` drive real Godot input through the demo at 1120×800 and 600×900, checking state/effects, keyed moves, focus, geometry, paint-only hover, button activation across padding/text, mount/unmount behavior, intrinsic `0 ↔ auto` transitions, pixel-level overflow clipping, in-flight retargeting, rapid reversal, and tree detach/reattach pause/resume, writing PNGs, snapshots, and logs under `artifacts/native/` and `artifacts/native-motion/`. Inspect the actual PNGs alongside the assertions.
+`verify`, `verify:motion` and `verify:interaction` drive real Godot input through the demo at 1120×800 and 600×900, checking state/effects, keyed moves, focus, geometry, paint-only hover, button activation across padding/text, mount/unmount behavior, intrinsic `0 ↔ auto` transitions, pixel-level overflow clipping, in-flight retargeting, rapid reversal, and tree detach/reattach pause/resume, writing PNGs, snapshots, and logs under `artifacts/native/`, `artifacts/native-motion/` and `artifacts/native-interaction/`. `verify:interaction` also asserts capture/bubble order, `preventDefault` on a cancelable event, synchronous dispatch, enter/leave chains and three re-entrant handlers, and records the JS time inside one synchronous dispatch. Inspect the actual PNGs alongside the assertions.
 
 For the browser target, see [Web build instructions](docs/WEB.md):
 
@@ -120,9 +122,10 @@ pnpm demo:web
 # In a second terminal, while the local server is running:
 pnpm verify:web
 pnpm verify:motion:web
+pnpm verify:interaction:web
 ```
 
-Web uses the browser's JS runtime through GodotJS and the Rust extension compiled to a Wasm side module. It requires the matching threaded GodotJS templates and Emscripten/lazy-table ABI described in that guide, plus its separately pinned Rust nightly.
+By default the verifiers expect the server on port 8096; set `PORT` for `demo:web` and `GODOT_REACT_WEB_URL` for every Web verifier to use another port. Web uses the browser's JS runtime through GodotJS and the Rust extension compiled to a Wasm side module. It requires the matching threaded GodotJS templates and Emscripten/lazy-table ABI described in that guide, plus its separately pinned Rust nightly.
 
 Verified on 5 November 2026: 13 TypeScript/React tests, 19 Rust unit tests, Clippy, both native baseline and motion viewport workflows (26 baseline captures + 52 motion captures), the Chrome debug Web baseline workflow (247 assertions, 53 captures including touch), and the Chrome debug Web motion/benchmark workflow (433 assertions, 26 captures, 30 benchmark cells across 50/500/2,000 nodes at DPR 1 and DPR 2). The optimized Wasm extension is 6,739,346 bytes (including Blitz/Stylo); the engine and JavaScript/PCK payloads are additional. Safari, mobile devices and the release Web preset have not been qualified.
 

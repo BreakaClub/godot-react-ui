@@ -1,10 +1,12 @@
 import { createElement } from 'react';
-import { DisplayServer, Node, ReactUiRoot, OS, Time, Vector2 } from 'godot';
+import { Callable, DisplayServer, Engine, Node, ReactUiRoot, OS, Time, Vector2 } from 'godot';
 import { createClassBinder } from 'godot.annotations';
 import { createRoot, readActivity, takeNativeProfile, type ReactRoot } from '../../src';
 import { App } from './app';
+import { setLabOwner } from './interaction-lab';
 import { observeInputFailure, runVerification } from './verify';
 import { BenchmarkApp, type BenchmarkProps } from './benchmark';
+import { runInteractionVerification } from './verify-interaction';
 import { runMotionVerification } from './verify-motion';
 
 const bind = createClassBinder();
@@ -52,11 +54,13 @@ export default class Main extends Node {
     const args = OS.getCmdlineUserArgs();
     const verify = Array.from({length:args.size()}, (_, i) => args.get(i)).includes('--verify');
     const verifyMotion = Array.from({length:args.size()}, (_, i) => args.get(i)).includes('--verify-motion');
-    if (verify || verifyMotion) {
-      const verification = verifyMotion ? runMotionVerification(this, api) : runVerification(this, api);
+    const verifyInteraction = Array.from({length:args.size()}, (_, i) => args.get(i)).includes('--verify-interaction');
+    if (verify || verifyMotion || verifyInteraction) {
+      const verification = verifyMotion ? runMotionVerification(this, api)
+        : verifyInteraction ? runInteractionVerification(this, api) : runVerification(this, api);
       void verification.then(() => this.getTree()?.quit()).catch(async error => {
         console.error('GODOT_REACT_VERIFY_FAILED', error instanceof Error ? error.stack : String(error));
-        if (verify && !verifyMotion) {
+        if (verify && !verifyMotion && !verifyInteraction) {
           try {
             await observeInputFailure(this, api);
           } catch (diagnosticError) {
@@ -102,13 +106,33 @@ export default class Main extends Node {
     this.width = size.x;
     this.height = size.y;
     this.surface = surface;
-    const renderer = createRoot(surface, {now: () => Time.getTicksUsec() / MICROSECONDS_PER_MILLISECOND});
+    const renderer = createRoot(surface, {
+      now: () => Time.getTicksUsec() / MICROSECONDS_PER_MILLISECOND,
+      // Native emits eventsReady from inside its input callbacks; dispatch runs synchronously there
+      // and answers preventDefault() before the signal returns. A GodotJS Callable holds its function
+      // strongly, so unmount() must disconnect it or the whole root would stay reachable.
+      subscribeToEvents: (listener) => {
+        const callable = Callable.create(listener);
+        surface.eventsReady.connect(callable);
+        return () => surface.eventsReady.disconnect(callable);
+      },
+    });
     this.renderer = renderer;
+    setLabOwner({
+      unmountRoot: () => this.unmount(),
+      detachSurface: () => {
+        const owned = this.requireSurface();
+        if (owned.getParent() === this) this.removeChild(owned);
+      },
+      processFrame: () => Engine.getProcessFrames(),
+      focusedNodeId: () => this.requireRenderer().getSnapshot().focused,
+    });
     renderer.render(createElement(App));
   }
 
   private unmount(): void {
     if (!this.renderer || !this.surface) throw new Error('Demo is not mounted');
+    setLabOwner(undefined);
     this.renderer.unmount();
     this.renderer = null;
     this.surface.queueFree();

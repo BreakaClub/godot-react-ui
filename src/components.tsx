@@ -1,5 +1,6 @@
 import { Children, createElement, forwardRef, type ReactNode } from 'react';
-import type { LayoutRect, NativeEventType } from './native';
+import type { UIFocusEvent, UIPointerEvent } from './events';
+import type { LayoutRect } from './native';
 import type { StyleProp } from './types';
 
 export interface UIHandle {
@@ -8,31 +9,26 @@ export interface UIHandle {
   getRect(): LayoutRect | undefined;
 }
 
-export interface UIEvent {
-  readonly type: NativeEventType;
-  readonly target: UIHandle;
-  readonly currentTarget: UIHandle;
-  /** Root-local logical pixel coordinates, independent of device pixel ratio. */
-  readonly x: number;
-  readonly y: number;
-  stopPropagation(): void;
-  isPropagationStopped(): boolean;
-}
-
 export interface UIProps {
   children?: ReactNode;
   className?: string;
   style?: StyleProp;
   testID?: string;
   disabled?: boolean;
-  onClick?: (event: UIEvent) => void;
-  onPointerDown?: (event: UIEvent) => void;
-  onPointerUp?: (event: UIEvent) => void;
-  onPointerMove?: (event: UIEvent) => void;
-  onPointerEnter?: (event: UIEvent) => void;
-  onPointerLeave?: (event: UIEvent) => void;
-  onFocus?: (event: UIEvent) => void;
-  onBlur?: (event: UIEvent) => void;
+  onClick?: (event: UIPointerEvent) => void;
+  onClickCapture?: (event: UIPointerEvent) => void;
+  onPointerDown?: (event: UIPointerEvent) => void;
+  onPointerDownCapture?: (event: UIPointerEvent) => void;
+  onPointerUp?: (event: UIPointerEvent) => void;
+  onPointerUpCapture?: (event: UIPointerEvent) => void;
+  onPointerMove?: (event: UIPointerEvent) => void;
+  onPointerMoveCapture?: (event: UIPointerEvent) => void;
+  /** Does not bubble: runs for each element the pointer enters, outermost first. */
+  onPointerEnter?: (event: UIPointerEvent) => void;
+  /** Does not bubble: runs for each element the pointer leaves, deepest first. */
+  onPointerLeave?: (event: UIPointerEvent) => void;
+  onFocus?: (event: UIFocusEvent) => void;
+  onBlur?: (event: UIFocusEvent) => void;
 }
 
 /** A flex-column element by default; Taffy owns its complete layout. */

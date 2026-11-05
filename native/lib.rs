@@ -1,3 +1,4 @@
+mod events;
 mod geometry;
 mod layout;
 mod motion;
@@ -16,19 +17,25 @@ use godot::classes::notify::ControlNotification;
 use godot::classes::text_server::LineBreakFlag;
 use godot::classes::{
     Control, Font, IControl, InputEvent, InputEventKey, InputEventMouseButton,
-    InputEventMouseMotion, StyleBoxFlat, TextParagraph, ThemeDb,
+    InputEventMouseMotion, InputEventWithModifiers, StyleBoxFlat, TextParagraph, ThemeDb, Time,
 };
-use godot::global::{HorizontalAlignment, Key, MouseButton};
+use godot::global::{HorizontalAlignment, Key, MouseButton, MouseButtonMask};
 use godot::prelude::*;
 use serde::Serialize;
 use serde_json::json;
 use taffy::prelude::{NodeId, Size, TaffyTree};
 
+use events::{
+    DropEffect, EventOutcome, EventPayload, EventQueue, Modifiers, PointerData, PointerType,
+};
 use geometry::{BoxRect, intersect_clip, intersects};
 use layout::compute_tree;
 use motion::{IntrinsicTrack, TransitionRecord, validate_motion_changes};
 use paint::{parse_color, with_opacity};
-use pointer::{enabled_button_ancestor, shared_button_target};
+use pointer::{
+    DOM_BUTTON_NONE, DOM_BUTTON_PRIMARY, DOM_BUTTONS_PRIMARY, KEYBOARD_POINTER_ID,
+    MOUSE_POINTER_ID, dom_buttons, enabled_button_ancestor, shared_button_target,
+};
 use profile::{Profiler, Sample, micros};
 use protocol::{Command, Kind, Model, OverflowSpec, StyleSpec, TextAlignSpec, TransitionProperty};
 use render_items::RenderItems;
@@ -37,6 +44,9 @@ use style_engine::{DimensionAxis, DimensionOverrides, StyleEngine, StyleFrame};
 
 const DEFAULT_FONT_SIZE: i32 = 16;
 const MILLISECONDS_PER_SECOND: f64 = 1000.0;
+const MICROSECONDS_PER_MILLISECOND: f64 = 1000.0;
+/// Click counting arrives with the full pointer model; until then every mouse `click` is the first.
+const SINGLE_CLICK_DETAIL: u32 = 1;
 const CORNER_DETAIL: i32 = 12;
 const FOCUS_RING_WIDTH: i32 = 2;
 const FOCUS_RING_COLOR: Color = Color::from_rgba(0.49, 0.66, 1.0, 1.0);
@@ -69,15 +79,6 @@ struct Stats {
     animation_frames: u64,
 }
 
-#[derive(Serialize)]
-struct UiEvent {
-    id: u32,
-    #[serde(rename = "type")]
-    event_type: &'static str,
-    x: f32,
-    y: f32,
-}
-
 /// A single Godot Control owns the native layout tree and all drawing resources.
 /// JS only exchanges validated batched mutations and queued input events.
 #[derive(GodotClass)]
@@ -91,7 +92,9 @@ pub struct ReactUiRoot {
     rects: BTreeMap<u32, BoxRect>,
     paint_order: Vec<u32>,
     opacities: BTreeMap<u32, f32>,
-    events: Vec<UiEvent>,
+    events: EventQueue,
+    /// Nonzero while native is inside an `events_ready` emission; nested input only queues.
+    dispatch_depth: u32,
     font: Option<Gd<Font>>,
     viewport_size: Vector2,
     hovered: Option<u32>,
@@ -99,6 +102,8 @@ pub struct ReactUiRoot {
     pressed: Option<u32>,
     pointer: Vector2,
     pointer_known: bool,
+    pointer_buttons: u16,
+    pointer_modifiers: Modifiers,
     focus_ring: Option<Gd<StyleBoxFlat>>,
     stats: Stats,
     clock_ms: f64,
@@ -135,7 +140,8 @@ impl IControl for ReactUiRoot {
             rects: BTreeMap::new(),
             paint_order: Vec::new(),
             opacities: BTreeMap::new(),
-            events: Vec::new(),
+            events: EventQueue::new(),
+            dispatch_depth: 0,
             font: None,
             viewport_size: Vector2::ZERO,
             hovered: None,
@@ -143,6 +149,8 @@ impl IControl for ReactUiRoot {
             pressed: None,
             pointer: Vector2::ZERO,
             pointer_known: false,
+            pointer_buttons: 0,
+            pointer_modifiers: Modifiers::default(),
             focus_ring: None,
             stats: Stats::default(),
             clock_ms: 0.0,
@@ -225,8 +233,9 @@ impl IControl for ReactUiRoot {
             ControlNotification::EXIT_TREE => {
                 // Leaving the tree is a pause, not destruction. Keep the native
                 // clock, Stylo transitions and presentation overrides for reentry.
-                self.events
-                    .retain(|event| matches!(event.event_type, "blur" | "pointerleave"));
+                self.events.retain(|payload| {
+                    matches!(payload, EventPayload::Blur | EventPayload::PointerLeave(_))
+                });
                 self.update_hover(None);
                 self.set_focus(None);
                 self.pressed = None;
@@ -238,73 +247,10 @@ impl IControl for ReactUiRoot {
     }
 
     fn gui_input(&mut self, event: Gd<InputEvent>) {
-        if let Ok(motion) = event.clone().try_cast::<InputEventMouseMotion>() {
-            self.pointer = motion.get_position();
-            self.pointer_known = true;
-            let hit = self.hit_test(self.pointer);
-            self.update_hover(hit);
-            if let Some(id) = hit {
-                self.emit(id, "pointermove");
-            }
-        } else if let Ok(button) = event.clone().try_cast::<InputEventMouseButton>() {
-            if button.get_button_index() != MouseButton::LEFT {
-                return;
-            }
-            self.pointer = button.get_position();
-            self.pointer_known = true;
-            let hit = self.hit_test(self.pointer);
-            self.update_hover(hit);
-            if button.is_pressed() {
-                self.base_mut().grab_focus();
-                self.pressed = hit.filter(|id| !self.disabled(*id));
-                let focus = hit.and_then(|id| self.button_ancestor(id));
-                self.set_focus(focus);
-                if let Some(id) = self.pressed {
-                    self.emit(id, "pointerdown");
-                }
-            } else {
-                if let Some(id) = hit.filter(|id| !self.disabled(*id)) {
-                    self.emit(id, "pointerup");
-                    let click = self.pressed.and_then(|pressed| {
-                        if pressed == id {
-                            Some(id)
-                        } else {
-                            // Padding and label are different pointer targets, but they
-                            // activate the same button. Keep pointer event IDs unchanged.
-                            shared_button_target(&self.model, pressed, id)
-                        }
-                    });
-                    if let Some(target) = click {
-                        self.emit(target, "click");
-                    }
-                }
-                self.pressed = None;
-            }
-            self.base_mut().accept_event();
-        } else if let Ok(key) = event.try_cast::<InputEventKey>() {
-            if key.is_echo() {
-                return;
-            }
-            let code = key.get_keycode();
-            if code == Key::TAB && key.is_pressed() {
-                self.advance_focus(key.is_shift_pressed());
-                self.base_mut().accept_event();
-            } else if (code == Key::ENTER || code == Key::KP_ENTER || code == Key::SPACE)
-                && let Some(id) = self.focused.filter(|id| !self.disabled(*id))
-            {
-                if key.is_pressed() {
-                    self.pressed = Some(id);
-                    self.emit(id, "pointerdown");
-                } else {
-                    self.emit(id, "pointerup");
-                    if self.pressed == Some(id) {
-                        self.emit(id, "click");
-                    }
-                    self.pressed = None;
-                }
-                self.base_mut().accept_event();
-            }
-        }
+        self.handle_input(event);
+        // Whatever the handling queued without waiting for JS goes out now, in the same
+        // synchronous emission, so JS never sees an input event a frame late.
+        self.deliver();
     }
 
     fn process(&mut self, delta: f64) {
@@ -403,6 +349,11 @@ impl IControl for ReactUiRoot {
 
 #[godot_api]
 impl ReactUiRoot {
+    /// Emitted from input callbacks while events are queued. The JS owner connects a callable that
+    /// drains them synchronously and answers `preventDefault()` through `resolve_event`.
+    #[signal]
+    fn events_ready();
+
     #[func]
     fn apply_batch(&mut self, json: GString) -> GString {
         let total_started = Instant::now();
@@ -488,11 +439,37 @@ impl ReactUiRoot {
 
     #[func]
     fn drain_events(&mut self) -> GString {
-        let events = std::mem::take(&mut self.events);
-        serde_json::to_string(&events)
+        serde_json::to_string(&self.events.drain())
             .expect("finite input coordinates")
             .as_str()
             .into()
+    }
+
+    /// Report JS's answer for the event native is currently awaiting. An empty return is success.
+    /// `drop_effect` is "" (not set), "none", "copy", "move" or "link".
+    #[func]
+    fn resolve_event(
+        &mut self,
+        seq: i64,
+        default_prevented: bool,
+        drop_effect: GString,
+    ) -> GString {
+        let result = u64::try_from(seq)
+            .map_err(|_| format!("event sequence {seq} is negative"))
+            .and_then(|seq| {
+                let drop_effect = DropEffect::parse(&drop_effect.to_string())?;
+                self.events.resolve(
+                    seq,
+                    EventOutcome {
+                        default_prevented,
+                        drop_effect,
+                    },
+                )
+            });
+        match result {
+            Ok(()) => GString::new(),
+            Err(error) => GString::from(&error),
+        }
     }
 }
 
@@ -852,25 +829,222 @@ impl ReactUiRoot {
         enabled_button_ancestor(&self.model, id)
     }
 
-    fn emit(&mut self, id: u32, event_type: &'static str) {
-        self.events.push(UiEvent {
-            id,
-            event_type,
-            x: self.pointer.x,
-            y: self.pointer.y,
-        });
+    fn queue(&mut self, target: u32, payload: EventPayload) {
+        self.events.push(target, payload, event_time_ms());
     }
 
+    /// Everything that still describes the pointer when an event is not itself input: the last
+    /// position, buttons and modifiers native saw.
+    fn pointer_data(
+        &self,
+        pointer_id: u32,
+        pointer_type: PointerType,
+        button: i8,
+        buttons: u16,
+        detail: u32,
+        related_target: Option<u32>,
+    ) -> PointerData {
+        PointerData {
+            x: self.pointer.x,
+            y: self.pointer.y,
+            // Canvas coordinates replace these root-local copies with the engine's own transform.
+            viewport_x: self.pointer.x,
+            viewport_y: self.pointer.y,
+            pointer_id,
+            pointer_type,
+            button,
+            buttons,
+            detail,
+            related_target,
+            modifiers: self.pointer_modifiers,
+        }
+    }
+
+    fn mouse_pointer_data(
+        &self,
+        button: i8,
+        detail: u32,
+        related_target: Option<u32>,
+    ) -> PointerData {
+        self.pointer_data(
+            MOUSE_POINTER_ID,
+            PointerType::Mouse,
+            button,
+            self.pointer_buttons,
+            detail,
+            related_target,
+        )
+    }
+
+    /// Keyboard activation keeps its synthetic pointer events until the keyboard model replaces them.
+    fn synthetic_pointer_data(&self, buttons: u16, detail: u32) -> PointerData {
+        self.pointer_data(
+            KEYBOARD_POINTER_ID,
+            PointerType::Synthetic,
+            DOM_BUTTON_PRIMARY,
+            buttons,
+            detail,
+            None,
+        )
+    }
+
+    fn track_mouse(&mut self, position: Vector2, mask: MouseButtonMask, modifiers: Modifiers) {
+        self.pointer = position;
+        self.pointer_known = true;
+        self.pointer_buttons = dom_buttons(mask);
+        self.pointer_modifiers = modifiers;
+    }
+
+    /// Queue an event and block until JS has dispatched it and reported `preventDefault()`.
+    /// Everything native knew before this call may be stale when it returns (plan 3.3 rule 3).
+    fn dispatch_cancelable(&mut self, target: u32, payload: EventPayload) -> EventOutcome {
+        if self.dispatch_depth > 0 || !self.base().is_inside_tree() {
+            // Nested input (JS pushed an event from a handler) cannot be answered synchronously:
+            // the outer JS drain loop delivers it without a way to prevent its default.
+            self.queue(target, payload);
+            return EventOutcome::default();
+        }
+        let seq = self.events.push_awaited(target, payload, event_time_ms());
+        self.deliver();
+        self.events.take_outcome(seq)
+    }
+
+    /// Synchronously hand every queued event to JS through `events_ready`. Only input-origin entry
+    /// points may call this (plan 3.3 rule 1); events queued anywhere else wait for the next
+    /// delivery or the owner's per-frame `dispatchEvents()`.
+    fn deliver(&mut self) {
+        if self.dispatch_depth > 0 || self.events.is_empty() || !self.base().is_inside_tree() {
+            return;
+        }
+        self.dispatch_depth += 1;
+        self.signals().events_ready().emit();
+        self.dispatch_depth -= 1;
+    }
+
+    /// Mouse, button and key handling. Events are queued here and delivered by the caller.
+    fn handle_input(&mut self, event: Gd<InputEvent>) {
+        if let Ok(motion) = event.clone().try_cast::<InputEventMouseMotion>() {
+            self.track_mouse(
+                motion.get_position(),
+                motion.get_button_mask(),
+                modifiers_of(&motion),
+            );
+            let hit = self.hit_test(self.pointer);
+            self.update_hover(hit);
+            if let Some(id) = hit {
+                let data = self.mouse_pointer_data(DOM_BUTTON_NONE, 0, None);
+                self.queue(id, EventPayload::PointerMove(data));
+            }
+        } else if let Ok(button) = event.clone().try_cast::<InputEventMouseButton>() {
+            if button.get_button_index() != MouseButton::LEFT {
+                return;
+            }
+            self.track_mouse(
+                button.get_position(),
+                button.get_button_mask(),
+                modifiers_of(&button),
+            );
+            let hit = self.hit_test(self.pointer);
+            self.update_hover(hit);
+            if button.is_pressed() {
+                if !self.press_primary(hit) {
+                    return;
+                }
+            } else {
+                self.release_primary(hit);
+            }
+            self.base_mut().accept_event();
+        } else if let Ok(key) = event.try_cast::<InputEventKey>() {
+            if key.is_echo() {
+                return;
+            }
+            self.pointer_modifiers = modifiers_of(&key);
+            let code = key.get_keycode();
+            if code == Key::TAB && key.is_pressed() {
+                self.advance_focus(key.is_shift_pressed());
+                self.base_mut().accept_event();
+            } else if (code == Key::ENTER || code == Key::KP_ENTER || code == Key::SPACE)
+                && let Some(id) = self.focused.filter(|id| !self.disabled(*id))
+            {
+                if key.is_pressed() {
+                    self.pressed = Some(id);
+                    let data = self.synthetic_pointer_data(DOM_BUTTONS_PRIMARY, 0);
+                    self.queue(id, EventPayload::PointerDown(data));
+                } else {
+                    let data = self.synthetic_pointer_data(0, 0);
+                    self.queue(id, EventPayload::PointerUp(data));
+                    if self.pressed == Some(id) {
+                        self.queue(id, EventPayload::Click(data));
+                    }
+                    self.pressed = None;
+                }
+                self.base_mut().accept_event();
+            }
+        }
+    }
+
+    /// Primary button press. Returns false when JS left the root outside the scene tree while
+    /// handling `pointerdown`: nothing native may run afterwards (plan 3.3 rule 4).
+    fn press_primary(&mut self, hit: Option<u32>) -> bool {
+        self.pressed = hit.filter(|id| !self.disabled(*id));
+        let mut prevented = false;
+        if let Some(id) = self.pressed {
+            let data = self.mouse_pointer_data(DOM_BUTTON_PRIMARY, 0, None);
+            prevented = self
+                .dispatch_cancelable(id, EventPayload::PointerDown(data))
+                .default_prevented;
+            if !self.base().is_inside_tree() {
+                return false;
+            }
+        }
+        // JS may have removed the element it just handled the press on; the default action is
+        // skipped then (plan 3.3 rule 3). Everything else looks the target up again.
+        let target_removed = hit.is_some_and(|id| !self.model.nodes.contains_key(&id));
+        if !prevented && !target_removed {
+            // Default action: the nearest enabled button takes focus.
+            self.base_mut().grab_focus();
+            let focus = hit.and_then(|id| self.button_ancestor(id));
+            self.set_focus(focus);
+        }
+        true
+    }
+
+    fn release_primary(&mut self, hit: Option<u32>) {
+        if let Some(id) = hit.filter(|id| !self.disabled(*id)) {
+            let up = self.mouse_pointer_data(DOM_BUTTON_PRIMARY, 0, None);
+            self.queue(id, EventPayload::PointerUp(up));
+            let click = self.pressed.and_then(|pressed| {
+                if pressed == id {
+                    Some(id)
+                } else {
+                    // Padding and label are different pointer targets, but they
+                    // activate the same button. Keep pointer event IDs unchanged.
+                    shared_button_target(&self.model, pressed, id)
+                }
+            });
+            if let Some(target) = click {
+                let data = self.mouse_pointer_data(DOM_BUTTON_PRIMARY, SINGLE_CLICK_DETAIL, None);
+                self.queue(target, EventPayload::Click(data));
+            }
+        }
+        self.pressed = None;
+    }
+
+    /// One `pointerleave` for the element left and one `pointerenter` for the element entered, each
+    /// naming the other. JS expands them into the per-element DOM chains.
     fn update_hover(&mut self, next: Option<u32>) {
         if self.hovered == next {
             return;
         }
-        if let Some(id) = self.hovered {
-            self.emit(id, "pointerleave");
-        }
+        let previous = self.hovered;
         self.hovered = next;
+        if let Some(id) = previous {
+            let data = self.mouse_pointer_data(DOM_BUTTON_NONE, 0, next);
+            self.queue(id, EventPayload::PointerLeave(data));
+        }
         if let Some(id) = next {
-            self.emit(id, "pointerenter");
+            let data = self.mouse_pointer_data(DOM_BUTTON_NONE, 0, previous);
+            self.queue(id, EventPayload::PointerEnter(data));
         }
     }
 
@@ -879,11 +1053,11 @@ impl ReactUiRoot {
             return;
         }
         if let Some(id) = self.focused {
-            self.emit(id, "blur");
+            self.queue(id, EventPayload::Blur);
         }
         self.focused = next;
         if let Some(id) = next {
-            self.emit(id, "focus");
+            self.queue(id, EventPayload::Focus);
         }
         self.base_mut().queue_redraw();
     }
@@ -914,4 +1088,18 @@ impl ReactUiRoot {
         };
         self.set_focus(Some(buttons[index]));
     }
+}
+
+fn modifiers_of(event: &InputEventWithModifiers) -> Modifiers {
+    Modifiers {
+        shift_key: event.is_shift_pressed(),
+        ctrl_key: event.is_ctrl_pressed(),
+        alt_key: event.is_alt_pressed(),
+        meta_key: event.is_meta_pressed(),
+    }
+}
+
+/// Milliseconds on the engine tick clock, the time base of every event's `timeStamp`.
+fn event_time_ms() -> f64 {
+    Time::singleton().get_ticks_usec() as f64 / MICROSECONDS_PER_MILLISECOND
 }

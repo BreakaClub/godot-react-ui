@@ -5,126 +5,8 @@ import {
   useContext, useEffect, useState, type ReactNode,
 } from 'react';
 import { Button, Text, View, createRoot, type UIHandle } from '../src';
-import type { NativeEvent, NativeHost, NativeSnapshot, NativeSnapshotNode } from '../src/native';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function node(id: number, kind: 'view' | 'text' | 'button'): NativeSnapshotNode {
-  return {
-    id, kind, text: '', parent: null, children: [], style: {},
-    rect: { x: 0, y: 0, width: 100, height: 40 },
-    clipRect: null,
-    presentation: {width: 100, height: 40, widthIsAuto: false, heightIsAuto: false, opacity: 1, backgroundColor: '#00000000'},
-  };
-}
-
-/** Records the real React renderer's protocol output; it deliberately does no layout or event synthesis. */
-class RecordingHost implements NativeHost {
-  readonly nodes = new Map<number, NativeSnapshotNode>([[0, node(0, 'view')]]);
-  readonly batches: Array<Array<{ op: string; id: number }>> = [];
-  events: NativeEvent[] = [];
-  rejectNextBatch = false;
-
-  applyBatch(json: string): string {
-    if (this.rejectNextBatch) {
-      this.rejectNextBatch = false;
-      return 'deliberate transport failure';
-    }
-    const parsed: unknown = JSON.parse(json);
-    assert.ok(Array.isArray(parsed));
-    const entries: unknown[] = parsed;
-    const recorded: Array<{ op: string; id: number }> = [];
-    for (const entry of entries) {
-      assert.ok(isRecord(entry));
-      assert.equal(typeof entry.op, 'string');
-      assert.equal(typeof entry.id, 'number');
-      if (typeof entry.op !== 'string' || typeof entry.id !== 'number') throw new Error('Invalid command');
-      recorded.push({ op: entry.op, id: entry.id });
-      if (entry.op === 'create') {
-        assert.ok(entry.kind === 'view' || entry.kind === 'text' || entry.kind === 'button');
-        assert.ok(!this.nodes.has(entry.id), 'Native IDs must never be recreated');
-        this.nodes.set(entry.id, node(entry.id, entry.kind));
-        continue;
-      }
-      const target = this.nodes.get(entry.id);
-      assert.ok(target, `Command ${entry.op} requires an existing native node ${entry.id}`);
-      switch (entry.op) {
-        case 'style':
-          assert.ok(isRecord(entry.style));
-          target.style = entry.style;
-          break;
-        case 'text':
-          assert.equal(typeof entry.text, 'string');
-          if (typeof entry.text !== 'string') throw new Error('Invalid text');
-          target.text = entry.text;
-          break;
-        case 'children': {
-          assert.ok(Array.isArray(entry.children));
-          const children: unknown[] = entry.children;
-          for (const previous of target.children) {
-            const child = this.nodes.get(previous);
-            if (child?.parent === target.id) child.parent = null;
-          }
-          target.children = children.map((id) => {
-            assert.equal(typeof id, 'number');
-            if (typeof id !== 'number') throw new Error('Invalid child ID');
-            const child = this.nodes.get(id);
-            assert.ok(child);
-            if (child.parent !== null) {
-              const previous = this.nodes.get(child.parent);
-              assert.ok(previous);
-              previous.children = previous.children.filter((other) => other !== id);
-            }
-            child.parent = target.id;
-            return id;
-          });
-          break;
-        }
-        case 'remove':
-          this.remove(target.id);
-          break;
-        default:
-          throw new Error(`Unexpected native command ${entry.op}`);
-      }
-    }
-    this.batches.push(recorded);
-    return '';
-  }
-
-  private remove(id: number): void {
-    const current = this.nodes.get(id);
-    assert.ok(current);
-    for (const child of [...current.children]) this.remove(child);
-    if (current.parent !== null) {
-      const parent = this.nodes.get(current.parent);
-      assert.ok(parent);
-      parent.children = parent.children.filter((child) => child !== id);
-    }
-    this.nodes.delete(id);
-  }
-
-  drainEvents(): string {
-    const events = this.events;
-    this.events = [];
-    return JSON.stringify(events);
-  }
-
-  getSnapshot(): string {
-    const snapshot: NativeSnapshot = {
-      clockMs: 0, transitions: [],
-      nodes: [...this.nodes.values()],
-      width: 1024, height: 768, hovered: null, focused: null, pressed: null,
-      stats: { batches: this.batches.length, nodeCount: this.nodes.size - 1, layoutPasses: 0, paintPasses: 0, layoutMicros: 0 },
-    };
-    return JSON.stringify(snapshot);
-  }
-
-  event(id: number, type: NativeEvent['type']): void {
-    this.events.push({ id, type, x: 10, y: 20 });
-  }
-}
+import type { NativeHost } from '../src/native';
+import { NO_SUBSCRIPTION, RecordingHost } from './recording-host';
 
 async function waitFor(predicate: () => boolean): Promise<void> {
   const deadline = Date.now() + 1000;
@@ -136,7 +18,7 @@ async function waitFor(predicate: () => boolean): Promise<void> {
 
 test('real React hooks, context, refs and effects survive events, then clean up on unmount', async () => {
   const host = new RecordingHost();
-  const root = createRoot(host);
+  const root = createRoot(host, { subscribeToEvents: NO_SUBSCRIPTION });
   const title = createContext('default');
   const buttonRef = createRef<UIHandle>();
   const effects: string[] = [];
@@ -179,7 +61,7 @@ test('real React hooks, context, refs and effects survive events, then clean up 
 
 test('keyed reorder moves existing native IDs and replaces children in order', () => {
   const host = new RecordingHost();
-  const root = createRoot(host);
+  const root = createRoot(host, { subscribeToEvents: NO_SUBSCRIPTION });
   function list(ids: string[]) {
     return h(View, { testID: 'list' }, ids.map((id) => h(Text, { key: id, testID: id }, id)));
   }
@@ -200,7 +82,7 @@ test('keyed reorder moves existing native IDs and replaces children in order', (
 
 test('interpolated button labels become a single shaped text leaf', () => {
   const host = new RecordingHost();
-  const root = createRoot(host);
+  const root = createRoot(host, { subscribeToEvents: NO_SUBSCRIPTION });
   root.render(h(Button, { testID: 'label' }, 'Add ', 5));
   const button = root.findByTestID('label');
   assert.ok(button);
@@ -211,7 +93,7 @@ test('interpolated button labels become a single shaped text leaf', () => {
 
 test('speculative suspended trees allocate no native nodes before commit', () => {
   const host = new RecordingHost();
-  const root = createRoot(host);
+  const root = createRoot(host, { subscribeToEvents: NO_SUBSCRIPTION });
   const never = new Promise<void>(() => {});
   function Suspend(): ReactNode { throw never; }
   root.render(h(Suspense, { fallback: h(Text, { testID: 'fallback' }, 'Loading') },
@@ -226,7 +108,7 @@ test('speculative suspended trees allocate no native nodes before commit', () =>
 
 test('bubbling, stopPropagation, disabled controls and pseudo styles use real host instances', () => {
   const host = new RecordingHost();
-  const root = createRoot(host);
+  const root = createRoot(host, { subscribeToEvents: NO_SUBSCRIPTION });
   const received: string[] = [];
   root.render(h(View, { onClick: () => received.push('parent'), className: 'text-white' },
     h(Button, {
@@ -259,10 +141,11 @@ test('bubbling, stopPropagation, disabled controls and pseudo styles use real ho
 test('native boundary rejects invalid data and surfaces failed batches', () => {
   const malformed: NativeHost = {
     applyBatch: () => '', drainEvents: () => '[]', getSnapshot: () => '{"nodes":[]}',
+    resolveEvent: () => '',
   };
-  assert.throws(() => createRoot(malformed), /Invalid native/);
+  assert.throws(() => createRoot(malformed, { subscribeToEvents: NO_SUBSCRIPTION }), /Invalid native/);
   const host = new RecordingHost();
-  const root = createRoot(host);
+  const root = createRoot(host, { subscribeToEvents: NO_SUBSCRIPTION });
   root.render(h(Text, { testID: 'text' }, 'Good'));
   host.rejectNextBatch = true;
   assert.throws(() => root.render(h(Text, { testID: 'text' }, 'Rejected')), /deliberate transport failure/);
@@ -275,7 +158,7 @@ test('native boundary rejects invalid data and surfaces failed batches', () => {
 test('profiling observes real commits, drains samples, and is inert when disabled', () => {
   const host = new RecordingHost();
   let clockCalls = 0;
-  const root = createRoot(host, {now: () => ++clockCalls});
+  const root = createRoot(host, {subscribeToEvents: NO_SUBSCRIPTION, now: () => ++clockCalls});
   root.render(h(Text, {testID: 'profiled'}, 'Before'));
   assert.equal(clockCalls, 0, 'Disabled instrumentation must not read its clock');
   root.setProfiling(true);

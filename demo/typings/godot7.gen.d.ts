@@ -1199,6 +1199,8 @@ declare module "godot" {
         take_profile: "takeProfile";
         get_snapshot: "getSnapshot";
         drain_events: "drainEvents";
+        resolve_event: "resolveEvent";
+        events_ready: "eventsReady";
     }
     /** @link https://docs.godotengine.org/en/latest/classes/class_reactuiroot.html */
     class ReactUiRoot<Map extends NodePathMap = any> extends Control<Map> {
@@ -1209,6 +1211,8 @@ declare module "godot" {
         takeProfile(): string
         getSnapshot(): string
         drainEvents(): string
+        resolveEvent(seq: int64, defaultPrevented: boolean, dropEffect: string): string
+        readonly eventsReady: Signal<() => void>
         /** @deprecated Internal use. Does not exist at runtime. */
         __godotRPCMap: __RPCMapReactUiRoot;
         /** @deprecated Internal use. Does not exist at runtime. */

@@ -189,3 +189,131 @@ contains one (`...layout::compute_tree::{closure#0}`). Grid instantiations fell 
   frames.
 - `artifacts/web-verification/failure.png` (5 Nov 17:37) is a stale leftover; the verifier does not
   clear it, so its presence is not evidence of a failure in the current run.
+
+## Phase 1 - Event pipeline (finish and land)
+
+Date: 6 November 2026. macOS (Apple M1 Max), Godot 4.8 beta V8 build, release dylib for native, debug
+Web template with Chrome 156 for Web. Host memory while gating: 40-43 % free, swap 17.0-17.6 GB used of
+18.4 GB, load average 7-9 (the host stays swapped; no verifier timed out).
+
+### What landed
+
+Synchronous input dispatch. Native queues events and emits `events_ready` from inside `gui_input`; JS
+drains, dispatches capture and bubble, and answers `preventDefault()` through `resolve_event` before the
+signal returns. Details are in `native/PROTOCOL.md` ("Input events") and the README.
+
+- Native: `native/events.rs` (wire types, `EventQueue` with the awaited/cancelable semantics, 11 tests),
+  `native/pointer.rs` (`dom_buttons`, pointer constants, 1 test), `native/lib.rs` (`EventQueue` and
+  `dispatch_depth`, `#[signal] events_ready`, `resolve_event`, `deliver`, `dispatch_cancelable`,
+  `handle_input`/`press_primary`/`release_primary`, one enter and one leave per hover change).
+- JS: `src/native.ts` (validated event union, `resolveEvent`), `src/events.ts` (event classes, the single
+  event table, capture/bubble/root-listener dispatch, `exclusiveAncestry`), `src/renderer.ts` (required
+  `subscribeToEvents`, enter/leave chains, bounded re-entrancy-guarded drain loop, `addEventListener`),
+  `src/components.tsx`, `src/index.ts`.
+- Tests: `tests/events.test.ts` (17 tests), `tests/recording-host.ts` (shared host), `tests/renderer.test.ts`
+  (same 13 tests, unchanged assertions).
+- Demo and verifiers: the **04 Interaction** tab (`demo/src/interaction-lab.tsx`), `demo/src/main.ts`,
+  `demo/src/app.tsx`, `demo/src/verify-interaction.ts` (native), `scripts/verify-interaction-web.mjs`
+  (Web), `scripts/verify.mjs --interaction`, `package.json`.
+- Generated: `demo/typings/godot7.gen.d.ts` (`eventsReady`, `resolveEvent`),
+  `demo/gen/godot/src/verify-interaction.ts.gen.ts`, `demo/src/verify-interaction.ts.uid`.
+- Docs: `native/PROTOCOL.md`, `README.md`, `docs/MOTION_ARCHITECTURE.md` (it said events never reach JS while
+  Rust holds the root borrow).
+
+Files beyond the plan's list, and why: `scripts/build.mjs` (esbuild entry point for the new verifier, so
+its script and generated typings sit with `verify.ts` and `verify-motion.ts`), `tests/recording-host.ts`
+(`RecordingHost` is shared by two test files; a `*.test.ts` import would re-run the tests),
+`docs/MOTION_ARCHITECTURE.md`.
+
+### Gate
+
+| Command | Result |
+| --- | --- |
+| `pnpm test:types` | clean |
+| `pnpm test` | **30 passed** (13 existing, assertions unchanged, plus 17 new) |
+| `cargo test --locked` | **31 passed** (19 baseline, 11 `events`, 1 `pointer`) |
+| `cargo clippy --locked --all-targets` | **0 warnings** |
+| `pnpm build:native` | ok (default dylib 10,314,848 bytes, sha256 `ddc82477db65...`) |
+| `pnpm gen:types` | ok; `git status` identical before and after (typings already regenerated) |
+| `pnpm build` | ok |
+| `pnpm verify` | exit 0, both viewports passed, no engine errors |
+| `pnpm verify:motion` | exit 0, both viewports passed, unchanged assertions |
+| `pnpm verify:interaction` | exit 0, both viewports passed, no `ERROR:`/panic/`Uncaught` in the log |
+| `pnpm build:web` | ok; Wasm 6,542,640 bytes (Phase 0: 6,525,152) |
+| `pnpm verify:web` (port 8097) | passed: **249 assertions**, 53 captures, 0 page errors, 0 failed requests (unchanged) |
+| `pnpm verify:motion:web` | passed: **433 assertions**, 26 captures, 30 benchmark cells (unchanged) |
+| `pnpm verify:interaction:web` | passed: **158 assertions**, 33 captures, 0 page errors, 0 failed requests |
+
+`verify:web` reports 3 expected diagnostics where Phase 0 had 2. The third is the documented benign
+`net::ERR_ABORTED` on the completed `index.pck` stream close, accepted by the verifier only after it
+checks the exact byte count and SHA-256 (it happened on the touch page this run; it is timing
+dependent). The Phase 0 captures cannot be compared byte for byte: the fourth tab changes every
+screen, and in portrait the tab row now wraps to a second row.
+
+`verify:interaction` and `verify:interaction:web` assert, in both viewports (Web at both DPRs plus a
+touch page): capture then bubble order; `stopPropagation` in capture stops bubble and root listeners;
+a prevented `pointerdown` does not focus its button and its `click` still fires; synchronous dispatch
+(the `pointerdown` handler sees the old focus, the `focus` handler runs in the same process frame, native
+frame numbers equal); enter/leave chains (`parent:enter a:enter a:leave b:enter b:leave parent:leave`,
+the parent stays hovered between siblings); a handler that removes its own target (default action
+skipped, no click on the removed element); a handler that detaches the root from the scene tree (no
+default action, no `focused`/`pressed`/`hovered`, the root works after re-entering); and a handler that
+unmounts the React root (surface freed natively, fresh root dispatches normally).
+
+PNGs inspected: `artifacts/native-interaction/landscape/{01-interaction,02-capture-bubble,04-prevent-default,05-enter-leave,06-self-removed}.png`,
+`artifacts/native-interaction/portrait/{01-interaction,07-reattached,08-remounted}.png`,
+`artifacts/native/portrait/01-counter.png`, `artifacts/native-motion/landscape/03-open.png`,
+`artifacts/web-interaction-verification/retina-landscape/05-enter-leave.png`,
+`artifacts/web-interaction-verification/portrait/06-self-removed.png`,
+`artifacts/web-interaction-verification/touch/01-touch-interaction.png`. The lab fits its 520 px body in
+both viewports.
+
+### JS dispatch time per synchronous event
+
+JS time inside the one `dispatchEvents` call a mouse press waits for (the first `events` profile sample
+after the press, which is the cancelable `pointerdown`; it includes handler work, `flushSyncWork()` and
+the trailing `container.flush()`, and excludes the Godot-to-V8 call itself). 40 presses per cell. "Cheap" is
+a handler that only calls `preventDefault()`; "state-updating" sets React state three times. Milliseconds,
+p50 / p95 / max.
+
+| Platform | Viewport | Cheap handler | State-updating handler |
+| --- | --- | --- | --- |
+| native macOS (release dylib) | landscape 1120x800 | 0.93 / 1.47 / 1.64 | 1.66 / 3.04 / 3.12 |
+| native macOS (release dylib) | portrait 600x900 | 0.84 / 1.10 / 1.23 | 1.32 / 2.08 / 2.24 |
+| Web, Chrome 156 (debug template) | landscape | 0.90 / 1.01 / 1.72 | 1.80 / 2.54 / 2.64 |
+| Web, Chrome 156 (debug template) | portrait | 0.82 / 0.93 / 0.94 | 1.74 / 2.60 / 2.64 |
+| Web, Chrome 156 (debug template) | retina-landscape | 0.86 / 0.97 / 1.36 | 1.82 / 2.74 / 2.86 |
+| Web, Chrome 156 (debug template) | retina-portrait | 0.79 / 0.89 / 0.90 | 1.79 / 2.72 / 5.34 |
+
+A first native run measured the same range (cheap p95 1.56 / 0.98 ms, state-updating p95 2.34 / 1.67 ms).
+Both stay well under one 60 Hz frame (16.7 ms). Every press also runs the whole-tree `flush()`, which the
+Fabric core replaces.
+
+### Choices the plan left open
+
+- `detail` is 1 on a mouse `click` and 0 elsewhere: click counting belongs to the pointer model.
+- `focus`/`blur` carry no payload fields yet (`relatedTarget` and `focusVisible` come with the keyboard model).
+- The event table maps each type to typed getters (`p => p.onPointerDown`) instead of prop-name strings:
+  a name table would need a cast to call a handler whose parameter type depends on the name. `UIEvent`
+  stays as an alias of `UIPointerEvent`; `onFocus`/`onBlur` take `UIFocusEvent`, which has no coordinates.
+- A handler that throws ends dispatch of that event and is recorded; the first error is rethrown after
+  the loop, later ones go to `onError` (or `console.error`) so none is dropped.
+- The enter/leave rule changes the `active:` behaviour slightly: moving from a pressed button's label to
+  its padding no longer drops the button's `active` paint (leave only touches elements below the common
+  ancestor). `focus:` still applies to every ancestor of the focused element, as before; that moves to
+  `focus-within:` in the Fabric phases.
+- `press_primary` skips the default action when the target was removed during dispatch (plan rule 3),
+  rather than treating it as a click on empty space (which would blur the current focus).
+- TypeScript `#private` class fields run under GodotJS and in Chrome (used by the event classes).
+- `pnpm gen:types` could not run first: `pnpm build` typechecks, and the demo already used
+  `eventsReady`. The Godot step was run directly once after `pnpm build:native`.
+
+### Plan corrections found
+
+- Plan section 1 says the measured JS dispatch is "about 1-2.5 ms p95 on native macOS"; the gate run
+  measured up to 3.04 ms p95 for the state-updating handler in landscape (table above).
+- The Web interaction verifier has to leave a fresh root at the end of each viewport: the page persists
+  across viewports (the native verifier gets a new Godot process each time), so the lab's log and click
+  counters leaked into the next viewport on the first run. A verifier script bug, not a product bug.
+- Phase 1's Files list does not include `scripts/build.mjs`, `tests/recording-host.ts`, the README,
+  `native/PROTOCOL.md` or `docs/MOTION_ARCHITECTURE.md` (all touched; section 0.1 allows it).

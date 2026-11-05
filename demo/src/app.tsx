@@ -1,8 +1,9 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { Button, Text, View } from 'godot-react-ui';
+import { InteractionLab } from './interaction-lab';
 import { MotionLab } from './motion-lab';
 
-type Demo = 'counter' | 'inventory' | 'motion';
+type Demo = 'counter' | 'inventory' | 'motion' | 'interaction';
 type Accent = 'indigo' | 'emerald';
 type Category = 'All' | 'Seeds' | 'Tools';
 
@@ -235,13 +236,14 @@ export function App() {
           <Button testID="accent-toggle" className={`${secondaryButton} text-sm`} onClick={() => setAccentName(value => value === 'indigo' ? 'emerald' : 'indigo')}>Change accent</Button>
         </View>
 
-        <View className="flex-row gap-2">
+        <View className="flex-row flex-wrap gap-2">
           <Button testID="tab-counter" className={`rounded-lg px-5 py-3 border focus:border-indigo-500 ${demo === 'counter' ? `${accent.primary} border-transparent` : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'}`} onClick={() => setDemo('counter')}>01  Counter lab</Button>
           <Button testID="tab-inventory" className={`rounded-lg px-5 py-3 border focus:border-indigo-500 ${demo === 'inventory' ? `${accent.primary} border-transparent` : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'}`} onClick={() => setDemo('inventory')}>02  Inventory</Button>
           <Button testID="tab-motion" className={`rounded-lg px-5 py-3 border focus:border-indigo-500 ${demo === 'motion' ? `${accent.primary} border-transparent` : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'}`} onClick={() => setDemo('motion')}>03  Motion</Button>
+          <Button testID="tab-interaction" className={`rounded-lg px-5 py-3 border focus:border-indigo-500 ${demo === 'interaction' ? `${accent.primary} border-transparent` : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'}`} onClick={() => setDemo('interaction')}>04  Interaction</Button>
         </View>
 
-        {demo === 'counter' ? <CounterLab /> : demo === 'inventory' ? <InventoryLab /> : <MotionLab />}
+        {demo === 'counter' ? <CounterLab /> : demo === 'inventory' ? <InventoryLab /> : demo === 'motion' ? <MotionLab /> : <InteractionLab />}
 
         <View className="flex-row flex-wrap justify-between gap-2">
           <Text className="text-xs text-slate-400">React 19 · GodotJS · Rust + Taffy</Text>

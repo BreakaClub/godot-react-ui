@@ -5,6 +5,11 @@ export interface NativeHost {
   applyBatch(json: string): string;
   drainEvents(): string;
   getSnapshot(): string;
+  /**
+   * Answer the one event native is awaiting (`cancelable: true`). An empty string means success.
+   * `dropEffect` is '' (not set), 'none', 'copy', 'move' or 'link'.
+   */
+  resolveEvent(seq: number, defaultPrevented: boolean, dropEffect: string): string;
 }
 
 export interface NativeDiagnosticsHost extends NativeHost {
@@ -53,16 +58,54 @@ export type NativeCommand =
   | { op: 'children'; id: number; children: number[] }
   | { op: 'remove'; id: number };
 
-export type NativeEventType =
-  | 'pointerdown' | 'pointerup' | 'pointermove' | 'pointerenter' | 'pointerleave'
-  | 'click' | 'focus' | 'blur';
+export type NativePointerEventType =
+  | 'pointerdown' | 'pointerup' | 'pointermove' | 'pointerenter' | 'pointerleave' | 'click';
+export type NativeFocusEventType = 'focus' | 'blur';
+export type NativeEventType = NativePointerEventType | NativeFocusEventType;
 
-export interface NativeEvent {
-  id: number;
-  type: NativeEventType;
+/** '' is synthetic keyboard activation, as in browsers. */
+export type NativePointerType = 'mouse' | 'touch' | '';
+
+interface NativeEventBase {
+  /** Monotonic per root, starting at 1. */
+  seq: number;
+  /** 0 addresses root listeners only. */
+  target: number;
+  /** True only while native is blocked waiting for `resolveEvent(seq, ...)`. */
+  cancelable: boolean;
+  /** Milliseconds on the engine tick clock when native queued the event. */
+  timeStamp: number;
+}
+
+export interface NativePointerEvent extends NativeEventBase {
+  type: NativePointerEventType;
+  /** Root-local logical pixels. */
   x: number;
   y: number;
+  /** Canvas coordinates. */
+  viewportX: number;
+  viewportY: number;
+  pointerId: number;
+  pointerType: NativePointerType;
+  /** DOM `button`, -1 when the event is not a button change. */
+  button: number;
+  /** DOM `buttons` bitmask. */
+  buttons: number;
+  /** Click count. */
+  detail: number;
+  /** Enter and leave events: the element left towards or entered from. */
+  relatedTarget: number | null;
+  shiftKey: boolean;
+  ctrlKey: boolean;
+  altKey: boolean;
+  metaKey: boolean;
 }
+
+export interface NativeFocusEvent extends NativeEventBase {
+  type: NativeFocusEventType;
+}
+
+export type NativeEvent = NativePointerEvent | NativeFocusEvent;
 
 export interface LayoutRect {
   x: number;
@@ -163,6 +206,53 @@ function eventType(value: unknown): NativeEventType {
   }
 }
 
+function pointerType(value: unknown): NativePointerType {
+  if (value === 'mouse' || value === 'touch' || value === '') return value;
+  throw new Error(`Invalid native pointer type: ${String(value)}`);
+}
+
+function nonnegativeInteger(value: unknown, label: string): number {
+  const result = number(value, label);
+  if (!Number.isInteger(result) || result < 0) {
+    throw new Error(`Invalid native ${label}: expected a nonnegative integer`);
+  }
+  return result;
+}
+
+function pointerEvent(type: NativePointerEventType, base: NativeEventBase, event: Record<string, unknown>): NativePointerEvent {
+  return {
+    ...base, type,
+    x: number(event.x, 'event.x'), y: number(event.y, 'event.y'),
+    viewportX: number(event.viewportX, 'event.viewportX'), viewportY: number(event.viewportY, 'event.viewportY'),
+    pointerId: nonnegativeInteger(event.pointerId, 'event.pointerId'),
+    pointerType: pointerType(event.pointerType),
+    button: number(event.button, 'event.button'),
+    buttons: nonnegativeInteger(event.buttons, 'event.buttons'),
+    detail: nonnegativeInteger(event.detail, 'event.detail'),
+    relatedTarget: optionalId(event.relatedTarget, 'event.relatedTarget'),
+    shiftKey: boolean(event.shiftKey, 'event.shiftKey'), ctrlKey: boolean(event.ctrlKey, 'event.ctrlKey'),
+    altKey: boolean(event.altKey, 'event.altKey'), metaKey: boolean(event.metaKey, 'event.metaKey'),
+  };
+}
+
+function nativeEvent(entry: unknown): NativeEvent {
+  const event = record(entry, 'event');
+  const base: NativeEventBase = {
+    seq: nonnegativeInteger(event.seq, 'event.seq'),
+    target: id(event.target, 'event.target'),
+    cancelable: boolean(event.cancelable, 'event.cancelable'),
+    timeStamp: number(event.timeStamp, 'event.timeStamp'),
+  };
+  const type = eventType(event.type);
+  switch (type) {
+    case 'pointerdown': case 'pointerup': case 'pointermove': case 'pointerenter':
+    case 'pointerleave': case 'click':
+      return pointerEvent(type, base, event);
+    case 'focus': case 'blur':
+      return { ...base, type };
+  }
+}
+
 function rect(value: unknown, label: string): LayoutRect {
   const object = record(value, label);
   return {
@@ -221,15 +311,13 @@ export function takeNativeProfile(host: NativeDiagnosticsHost): NativeProfile {
 
 export function readEvents(host: NativeHost): NativeEvent[] {
   const value: unknown = JSON.parse(host.drainEvents());
-  return array(value, 'events').map((entry) => {
-    const event = record(entry, 'event');
-    return {
-      id: id(event.id, 'event.id'),
-      type: eventType(event.type),
-      x: number(event.x, 'event.x'),
-      y: number(event.y, 'event.y'),
-    };
-  });
+  return array(value, 'events').map(nativeEvent);
+}
+
+/** Report the outcome of an awaited (`cancelable`) event. Native rejects any other sequence number. */
+export function resolveEvent(host: NativeHost, seq: number, defaultPrevented: boolean, dropEffect = ''): void {
+  const error = host.resolveEvent(seq, defaultPrevented, dropEffect);
+  if (error !== '') throw new Error(`Native resolveEvent rejected event ${seq}: ${error}`);
 }
 
 export function readSnapshot(host: NativeHost): NativeSnapshot {

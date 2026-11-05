@@ -4,11 +4,15 @@ import {
   ConcurrentRoot, ContinuousEventPriority, DefaultEventPriority,
   DiscreteEventPriority, NoEventPriority,
 } from 'react-reconciler/constants';
-import type { UIEvent, UIHandle, UIProps } from './components';
+import type { UIHandle, UIProps } from './components';
 import {
-  applyCommands, readEvents, readSnapshot,
-  type NativeCommand, type NativeEvent, type NativeHost, type NativeKind,
-  type NativeSnapshot, type NativeSnapshotNode,
+  dispatchEvent, exclusiveAncestry, NOT_DISPATCHED, RootListeners,
+  type DispatchResult, type UIEventMap,
+} from './events';
+import {
+  applyCommands, readEvents, readSnapshot, resolveEvent,
+  type NativeCommand, type NativeEvent, type NativeEventType, type NativeHost, type NativeKind,
+  type NativePointerEvent, type NativeSnapshot, type NativeSnapshotNode,
 } from './native';
 import { resolveStyles } from './styles';
 import type { Style } from './types';
@@ -17,6 +21,11 @@ import { RendererProfiler, type RendererProfile } from './profile';
 const VIEWPORT_ID = 0;
 const MAX_NODE_ID = 0xffff_ffff;
 const EMPTY_CONTEXT = Object.freeze({});
+/**
+ * Guard against an event storm. Each round drains everything native has queued; handlers that keep
+ * producing input-driven events for this many rounds are a bug, not a condition to tolerate.
+ */
+const MAX_EVENT_DRAIN_ROUNDS = 64;
 
 interface Instance {
   readonly id: number;
@@ -51,10 +60,23 @@ interface Container {
   width: number;
   unmounted: boolean;
   failure: Error | undefined;
+  /** True while `dispatchEvents` drains native events; a nested call returns at once. */
+  dispatching: boolean;
+  readonly listeners: RootListeners;
+  /** Handle for the viewport root, the target of events addressed to root listeners only. */
+  readonly handle: UIHandle;
+  unsubscribe: (() => void) | undefined;
   flush(): void;
 }
 
 export interface RootOptions {
+  /**
+   * Call `listener` whenever the native root has queued input events that must be delivered now.
+   * The Godot owner connects it to the root's `eventsReady` signal and returns a function that
+   * disconnects it; `unmount()` calls that function. Native emits from inside its input callbacks, so
+   * `listener` runs synchronously and cancelable events are answered before the callback returns.
+   */
+  subscribeToEvents(listener: () => void): () => void;
   /** React error-boundary reports are forwarded here; unhandled errors also fail the caller. */
   onError?: (error: Error) => void;
   /** Profiling is disabled by default; native hosts can supply a high-resolution clock. */
@@ -67,8 +89,13 @@ export interface UIRoot {
   render(children: ReactNode): void;
   /** Runs React cleanup and releases the entire native subtree. Idempotent. */
   unmount(): void;
-  /** Call once per Godot frame. Events are dispatched with React event priorities. */
+  /**
+   * Drain and dispatch native events. Input callbacks reach this through `subscribeToEvents`; call it
+   * once per Godot frame as well, for events native queued outside an input callback.
+   */
   dispatchEvents(): void;
+  /** Listen on the root itself, after elements' bubble phase. Returns the remover. */
+  addEventListener<K extends NativeEventType>(type: K, listener: (event: UIEventMap[K]) => void): () => void;
   /** Call after the logical viewport resizes. Width drives responsive utility classes. */
   refreshStyles(width?: number): void;
   getSnapshot(): NativeSnapshot;
@@ -312,63 +339,75 @@ const hostConfig = {
 
 const reconciler = Reconciler(hostConfig);
 
-function eventHandler(props: UIProps, type: NativeEvent['type']): UIProps['onClick'] {
-  switch (type) {
-    case 'click': return props.onClick;
-    case 'pointerdown': return props.onPointerDown;
-    case 'pointerup': return props.onPointerUp;
-    case 'pointermove': return props.onPointerMove;
-    case 'pointerenter': return props.onPointerEnter;
-    case 'pointerleave': return props.onPointerLeave;
-    case 'focus': return props.onFocus;
-    case 'blur': return props.onBlur;
-  }
-}
-
-function dispatch(container: Container, event: NativeEvent): void {
-  const target = container.committed.get(event.id)?.instance;
-  // Events are queued natively; an earlier event in this same frame may have unmounted its target.
-  if (target === undefined) return;
+/** The target first, then its ancestors up to (not including) the root. */
+function ancestry(instance: Instance | undefined): Instance[] {
   const path: Instance[] = [];
-  let current: Container | Instance | null = target;
+  let current: Container | Instance | null = instance ?? null;
   while (current !== null && 'kind' in current) {
     path.push(current);
     current = current.parent;
   }
-  let propagationStopped = false;
-  for (const instance of path) {
-    switch (event.type) {
-      case 'pointerenter': instance.hover = true; break;
-      case 'pointerleave': instance.hover = false; instance.active = false; break;
-      case 'pointerdown': instance.active = true; break;
-      case 'pointerup': instance.active = false; break;
-      case 'focus': instance.focus = true; break;
-      case 'blur': instance.focus = false; instance.active = false; break;
-    }
-  }
-  if (event.type === 'click' && path.some((instance) => instance.props.disabled)) return;
-  for (const instance of path) {
-    if (propagationStopped) break;
-    const handler = eventHandler(instance.props, event.type);
-    if (handler === undefined) continue;
-    const synthetic: UIEvent = {
-      type: event.type,
-      target: target.handle,
-      currentTarget: instance.handle,
-      x: event.x,
-      y: event.y,
-      stopPropagation() { propagationStopped = true; },
-      isPropagationStopped: () => propagationStopped,
-    };
-    handler(synthetic);
-  }
+  return path;
 }
 
-export function createRoot(host: NativeHost, options: RootOptions = {}): UIRoot {
+function liveInstance(container: Container, id: number | null): Instance | undefined {
+  return id === null || id === VIEWPORT_ID ? undefined : container.committed.get(id)?.instance;
+}
+
+/**
+ * `pointerenter`/`pointerleave` reach each element the pointer crosses, not every ancestor of the
+ * target: moving between two children never runs their shared parent's handlers.
+ */
+function dispatchEnterLeave(container: Container, native: NativePointerEvent, path: Instance[]): DispatchResult {
+  const related = liveInstance(container, native.relatedTarget);
+  const crossed = exclusiveAncestry(path, ancestry(related));
+  const ordered = native.type === 'pointerenter' ? crossed.reverse() : crossed;
+  let result = NOT_DISPATCHED;
+  for (const instance of ordered) {
+    // Touch pointers never set hover, which removes sticky hover after taps.
+    if (native.type === 'pointerenter') {
+      if (native.pointerType === 'mouse') instance.hover = true;
+    } else {
+      if (native.pointerType === 'mouse') instance.hover = false;
+      instance.active = false;
+    }
+    result = dispatchEvent(native, [instance], related?.handle ?? null, container);
+    if (result.failure !== undefined) break;
+  }
+  return result;
+}
+
+function dispatch(container: Container, native: NativeEvent): DispatchResult {
+  const addressesRoot = native.target === VIEWPORT_ID;
+  const target = liveInstance(container, native.target);
+  // Native queues events ahead of JS: an earlier event in this batch, or a handler that just
+  // committed, may have removed this event's target.
+  if (!addressesRoot && target === undefined) return NOT_DISPATCHED;
+  const path = ancestry(target);
+  switch (native.type) {
+    case 'pointerenter': case 'pointerleave':
+      return dispatchEnterLeave(container, native, path);
+    case 'pointerdown': for (const instance of path) instance.active = true; break;
+    case 'pointerup': for (const instance of path) instance.active = false; break;
+    case 'focus': for (const instance of path) instance.focus = true; break;
+    case 'blur': for (const instance of path) { instance.focus = false; instance.active = false; } break;
+    case 'pointermove': case 'click': break;
+  }
+  if (native.type === 'click' && path.some((instance) => instance.props.disabled)) return NOT_DISPATCHED;
+  return dispatchEvent(native, path, null, container);
+}
+
+export function createRoot(host: NativeHost, options: RootOptions): UIRoot {
   const container: Container = {
     host, profiler: new RendererProfiler(options.profile ?? false, options.now),
     id: VIEWPORT_ID, children: [], committed: new Map(), rootChildren: [],
     nextId: 1, width: readSnapshot(host).width, unmounted: false, failure: undefined,
+    dispatching: false, listeners: new RootListeners(), unsubscribe: undefined,
+    handle: {
+      id: VIEWPORT_ID,
+      testID: undefined,
+      getRect() { return readSnapshot(host).nodes.find((node) => node.id === VIEWPORT_ID)?.rect; },
+    },
     flush() { flush(container); },
   };
   const onUncaughtError = (error: Error) => {
@@ -391,7 +430,40 @@ export function createRoot(host: NativeHost, options: RootOptions = {}): UIRoot 
     }
   }
 
-  return {
+  /** The first failure fails the caller once dispatch finishes; later ones are reported, never dropped. */
+  function recordFailure(error: Error): void {
+    if (container.failure === undefined) container.failure = error;
+    else report(error);
+  }
+
+  function processEvent(native: NativeEvent): void {
+    const previousPriority = updatePriority;
+    updatePriority = native.type === 'pointermove' ? ContinuousEventPriority : DiscreteEventPriority;
+    let result: DispatchResult;
+    try {
+      result = dispatch(container, native);
+    } finally {
+      updatePriority = previousPriority;
+    }
+    if (result.failure !== undefined) recordFailure(result.failure);
+    if (native.cancelable) {
+      // Native is blocked until this answer arrives, so it is sent even if a handler threw.
+      try {
+        resolveEvent(host, native.seq, result.defaultPrevented);
+      } catch (error) {
+        recordFailure(error instanceof Error ? error : new Error(String(error)));
+      }
+    }
+    if (native.type !== 'pointermove') {
+      try {
+        reconciler.flushSyncWork();
+      } catch (error) {
+        recordFailure(error instanceof Error ? error : new Error(String(error)));
+      }
+    }
+  }
+
+  const root: UIRoot = {
     render(children) {
       if (container.unmounted) throw new Error('Cannot render into an unmounted UI root');
       const started = container.profiler.start();
@@ -402,6 +474,9 @@ export function createRoot(host: NativeHost, options: RootOptions = {}): UIRoot 
     },
     unmount() {
       if (container.unmounted) return;
+      // Native must not call back into a root that is going away.
+      container.unsubscribe?.();
+      container.unsubscribe = undefined;
       reconciler.updateContainerSync(null, fiberRoot, null, null);
       reconciler.flushSyncWork();
       reconciler.flushPassiveEffects();
@@ -409,23 +484,36 @@ export function createRoot(host: NativeHost, options: RootOptions = {}): UIRoot 
       checkFailure();
     },
     dispatchEvents() {
-      if (container.unmounted) return;
+      if (container.unmounted || container.dispatching) return;
+      container.dispatching = true;
       const started = container.profiler.start();
-      const events = readEvents(host);
-      for (const event of events) {
-        const previousPriority = updatePriority;
-        updatePriority = event.type === 'pointermove' ? ContinuousEventPriority : DiscreteEventPriority;
-        try {
-          dispatch(container, event);
-        } finally {
-          updatePriority = previousPriority;
+      let processed = 0;
+      try {
+        let drained = false;
+        for (let round = 0; round < MAX_EVENT_DRAIN_ROUNDS && !drained; round += 1) {
+          const events = readEvents(host);
+          drained = events.length === 0;
+          for (const event of events) {
+            processed += 1;
+            processEvent(event);
+          }
         }
+        if (!drained) {
+          throw new Error(`UI event drain still produced events after ${MAX_EVENT_DRAIN_ROUNDS} rounds`);
+        }
+        if (processed !== 0) {
+          reconciler.flushSyncWork();
+          // Pseudo-state changes can affect paint without scheduling a React render.
+          container.flush();
+        }
+      } finally {
+        container.dispatching = false;
       }
-      reconciler.flushSyncWork();
-      // Pseudo-state changes can affect paint without scheduling a React render.
-      if (events.length !== 0) container.flush();
-      if (events.length !== 0) container.profiler.finishWork('events', started);
+      if (processed !== 0) container.profiler.finishWork('events', started);
       checkFailure();
+    },
+    addEventListener(type, listener) {
+      return container.listeners.add(type, listener);
     },
     refreshStyles(width = readSnapshot(host).width) {
       if (container.unmounted) throw new Error('Cannot refresh an unmounted UI root');
@@ -445,4 +533,6 @@ export function createRoot(host: NativeHost, options: RootOptions = {}): UIRoot 
       return undefined;
     },
   };
+  container.unsubscribe = options.subscribeToEvents(() => root.dispatchEvents());
+  return root;
 }
