@@ -1,0 +1,7 @@
+node_modules/
+target/
+dist/
+demo/.godot/
+demo/addons/godot-react-ui/bin/
+artifacts/
+.DS_Store

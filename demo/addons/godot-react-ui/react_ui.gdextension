@@ -1,0 +1,10 @@
+[configuration]
+entry_symbol = "gdext_rust_init"
+compatibility_minimum = "4.8"
+reloadable = false
+
+[libraries]
+macos.debug.arm64 = "res://addons/godot-react-ui/bin/libgodot_react_ui.dylib"
+macos.release.arm64 = "res://addons/godot-react-ui/bin/libgodot_react_ui.dylib"
+web.debug.threads.wasm32 = "res://addons/godot-react-ui/bin/godot_react_ui.web.wasm"
+web.release.threads.wasm32 = "res://addons/godot-react-ui/bin/godot_react_ui.web.wasm"

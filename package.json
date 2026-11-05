@@ -1,0 +1,51 @@
+{
+  "name": "godot-react-ui",
+  "version": "0.1.0",
+  "description": "React for GodotJS, with native Rust/Taffy layout",
+  "license": "MIT",
+  "private": true,
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "packageManager": "pnpm@11.5.2",
+  "scripts": {
+    "test:types": "tsc --noEmit",
+    "gen:types": "node scripts/generate-types.mjs",
+    "build:native": "node scripts/build-native.mjs",
+    "build:web": "node scripts/build-web.mjs",
+    "build": "pnpm test:types && node scripts/build.mjs",
+    "dev": "node scripts/dev.mjs",
+    "predemo": "pnpm build",
+    "demo": "node scripts/run.mjs",
+    "demo:web": "node scripts/serve-web.mjs",
+    "verify": "node scripts/verify.mjs",
+    "verify:web": "node scripts/verify-web.mjs",
+    "test": "tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "react-reconciler": "0.33.0"
+  },
+  "peerDependencies": { "react": "19.2.0" },
+  "devDependencies": {
+    "@types/node": "24.3.3",
+    "@types/react": "19.2.0",
+    "@types/react-reconciler": "0.33.0",
+    "esbuild": "0.25.11",
+    "puppeteer-core": "24.37.2",
+    "react": "19.2.0",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ]
+}

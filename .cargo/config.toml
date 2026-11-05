@@ -1,0 +1,3 @@
+[env]
+GDRUST_GODOT_API_JSON = { value = "native/api/extension_api.json", relative = true }
+GDRUST_GODOT_INTERFACE_JSON = { value = "native/api/gdextension_interface.json", relative = true }
