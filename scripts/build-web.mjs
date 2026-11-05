@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const args = new Set(process.argv.slice(2));
-const supportedArgs = new Set(['--wasm-only', '--export-only', '--release']);
+const supportedArgs = new Set(['--wasm-only', '--export-only', '--release', '--probe']);
 for (const arg of args) if (!supportedArgs.has(arg)) throw new Error(`Unknown argument: ${arg}`);
 if (args.has('--wasm-only') && args.has('--export-only')) throw new Error('Choose one partial build mode.');
 
@@ -22,7 +22,10 @@ const python = process.env.SCONS_PYTHON ?? '/opt/homebrew/Cellar/scons/4.9.1/lib
 // Pin the last compatible generation rather than changing panic semantics.
 const toolchain = process.env.WEB_RUST_TOOLCHAIN ?? 'nightly-2026-05-15';
 const godot = process.env.GODOT ?? '/Applications/Godot48.app/Contents/MacOS/Godot';
-const targetDirectory = join(root, 'target', 'web');
+// `--probe` builds the Phase F0 evidence probe (cargo feature `probe`) into its own target directory and
+// installs it over the default side module. Rebuild without it afterwards: the probe must never ship.
+const probe = args.has('--probe');
+const targetDirectory = join(root, 'target', probe ? 'web-probe' : 'web');
 const wasmPath = join(root, 'demo', 'addons', 'godot-react-ui', 'bin', 'godot_react_ui.web.wasm');
 const buildTimeoutMs = 15 * 60 * 1000;
 const env = {
@@ -83,13 +86,13 @@ print(json.dumps({'binaryen':env['ENV']['EM_BINARYEN_ROOT'],'linkFlags':env['LIN
   ];
   env.CARGO_ENCODED_RUSTFLAGS = flags.join('\x1f');
   delete env.RUSTFLAGS;
-  run(cargo, [`+${toolchain}`, 'build', '--locked', '--release', '--lib', '--features', 'web', '-Zbuild-std', '--target', 'wasm32-unknown-emscripten']);
+  run(cargo, [`+${toolchain}`, 'build', '--locked', '--release', '--lib', '--features', probe ? 'web,probe' : 'web', '-Zbuild-std', '--target', 'wasm32-unknown-emscripten']);
   const compiled = join(targetDirectory, 'wasm32-unknown-emscripten', 'release', 'godot_react_ui.wasm');
   const wasm = readFileSync(compiled);
   tableMetadata(wasm, 'React UI extension');
   mkdirSync(dirname(wasmPath), { recursive: true });
   copyFileSync(compiled, wasmPath);
-  console.log(`Web extension: ${wasm.length} bytes, SHA-256 ${hash(wasm)}`);
+  console.log(`Web extension${probe ? ' (PROBE BUILD, replace with a default build)' : ''}: ${wasm.length} bytes, SHA-256 ${hash(wasm)}`);
 }
 
 if (!args.has('--wasm-only')) {

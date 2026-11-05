@@ -11,6 +11,8 @@ path = "native/lib.rs"
 
 [features]
 web = ["godot/experimental-wasm"]
+# Phase F0 evidence probe (native/probe.rs). Never enabled in a default build.
+probe = []
 
 [dependencies]
 # Lean Web templates omit optional 3D physics classes. Resolve only methods this

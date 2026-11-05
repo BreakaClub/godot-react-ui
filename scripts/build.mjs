@@ -8,7 +8,7 @@ const shared = {
   sourcemap: true, format: 'cjs', external: ['godot', 'godot.lib.api', 'godot.annotations', 'godot-jsb'],
   define: { 'process.env.NODE_ENV': '"development"' },
 };
-await build({...shared, entryPoints: ['demo/src/main.ts', 'demo/src/verify.ts', 'demo/src/verify-motion.ts', 'demo/src/verify-interaction.ts', 'demo/src/app.tsx'], outdir: 'demo/.godot/GodotJS/src'});
+await build({...shared, entryPoints: ['demo/src/main.ts', 'demo/src/verify.ts', 'demo/src/verify-motion.ts', 'demo/src/verify-interaction.ts', 'demo/src/probe.ts', 'demo/src/app.tsx'], outdir: 'demo/.godot/GodotJS/src'});
 await build({...shared, entryPoints: ['src/index.ts'], outfile: 'dist/index.js', external: [...shared.external, 'react', 'react/*', 'react-reconciler', 'react-reconciler/constants']});
 await build({
   ...shared, format: 'esm', entryPoints: ['src/index.ts'], outfile: 'dist/index.mjs',

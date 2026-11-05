@@ -1,11 +1,12 @@
 import { createElement } from 'react';
-import { Callable, DisplayServer, Engine, Node, ReactUiRoot, OS, Time, Vector2 } from 'godot';
+import { Callable, DirAccess, DisplayServer, Engine, FileAccess, Node, ReactUiRoot, OS, Time, Vector2 } from 'godot';
 import { createClassBinder } from 'godot.annotations';
 import { createRoot, readActivity, takeNativeProfile, type ReactRoot } from '../../src';
 import { App } from './app';
 import { setLabOwner } from './interaction-lab';
 import { observeInputFailure, runVerification } from './verify';
 import { BenchmarkApp, type BenchmarkProps } from './benchmark';
+import { runProbe } from './probe';
 import { runInteractionVerification } from './verify-interaction';
 import { runMotionVerification } from './verify-motion';
 
@@ -35,6 +36,8 @@ export default class Main extends Node {
         this.requireSurface().setProfiling(enabled);
       },
       takeProfile: () => ({js: this.requireRenderer().takeProfile(), native: takeNativeProfile(this.requireSurface())}),
+      // Phase F0 evidence probe; only a build with the `probe` cargo feature can run it.
+      runProbe: () => runProbe(),
       benchmark: (props: BenchmarkProps) => this.requireRenderer().render(createElement(BenchmarkApp, props)),
       restoreDemo: () => this.requireRenderer().render(createElement(App)),
       surfaceAttached: (attached: boolean) => {
@@ -55,6 +58,12 @@ export default class Main extends Node {
     const verify = Array.from({length:args.size()}, (_, i) => args.get(i)).includes('--verify');
     const verifyMotion = Array.from({length:args.size()}, (_, i) => args.get(i)).includes('--verify-motion');
     const verifyInteraction = Array.from({length:args.size()}, (_, i) => args.get(i)).includes('--verify-interaction');
+    if (Array.from({length:args.size()}, (_, i) => args.get(i)).includes('--probe')) {
+      void runProbe().then(result => this.writeProbeResult(result)).then(() => this.getTree()?.quit()).catch(error => {
+        console.error('GODOT_REACT_PROBE_FAILED', error instanceof Error ? error.stack : String(error));
+        this.getTree()?.quit(1);
+      });
+    }
     if (verify || verifyMotion || verifyInteraction) {
       const verification = verifyMotion ? runMotionVerification(this, api)
         : verifyInteraction ? runInteractionVerification(this, api) : runVerification(this, api);
@@ -70,6 +79,16 @@ export default class Main extends Node {
         this.getTree()?.quit(1);
       });
     }
+  }
+
+  private writeProbeResult(result: unknown): void {
+    const directory = OS.getEnvironment('GODOT_REACT_ARTIFACTS');
+    if (!directory) return;
+    DirAccess.makeDirRecursiveAbsolute(directory);
+    const file = FileAccess.open(`${directory}/probe.json`, FileAccess.ModeFlags.Write);
+    if (!file) throw new Error('Cannot write the probe result');
+    file.storeString(JSON.stringify(result, null, 2));
+    file.close();
   }
 
   private updateDisplayScale(): void {

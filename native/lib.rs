@@ -5,6 +5,8 @@ mod motion;
 mod paint;
 mod pointer;
 mod profile;
+#[cfg(feature = "probe")]
+mod probe;
 mod protocol;
 mod render_items;
 mod style_engine;

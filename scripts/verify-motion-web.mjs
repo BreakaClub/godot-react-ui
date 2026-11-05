@@ -6,7 +6,9 @@ import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const output = resolve(root, 'artifacts', 'motion-web-verification');
+// `--baseline` records the pre-Fabric benchmark scenarios (Phase F0) and never touches the motion evidence.
+const baseline = process.argv.includes('--baseline');
+const output = resolve(root, 'artifacts', baseline ? 'fabric-baseline' : 'motion-web-verification');
 const packBuffer = await readFile(resolve(root, 'artifacts', 'web-debug', 'index.pck'));
 const expectedPack = {
   bytes: packBuffer.byteLength,
@@ -35,18 +37,24 @@ const VIEWPORT = { width: 1120, height: 800 };
 const RESIZED_VIEWPORT = { width: 600, height: 900 };
 const BENCHMARK_VIEWPORT = { width: 1120, height: 800 };
 const EXPECTED_DIAGNOSTIC = 'Blocking on the main thread is very dangerous, see https://emscripten.org/docs/porting/pthreads.html#blocking-on-the-main-browser-thread';
+// Baseline cell counts, one-cell colour change repetitions, sweep length and breakpoint crossings (F0 task 4).
+const BASELINE_COUNTS = [50, 2000];
+const BASELINE_HOVER_CELLS = 200;
+const BASELINE_RESIZE_PAIRS = 10;
+const BASELINE_NARROW_VIEWPORT = { width: 700, height: 800 };
+const BASELINE_DRAIN_EVERY = 25;
 const quick = process.argv.includes('--quick');
-for (const argument of process.argv.slice(2)) assert.equal(argument, '--quick', `Unknown argument ${argument}`);
+for (const argument of process.argv.slice(2)) assert.ok(['--quick', '--baseline'].includes(argument), `Unknown argument ${argument}`);
 const repetitions = Number(process.env.MOTION_BENCH_REPETITIONS ?? (quick ? 3 : 30));
 assert.ok(Number.isSafeInteger(repetitions) && repetitions > 0, 'MOTION_BENCH_REPETITIONS must be a positive integer');
 const counts = process.env.MOTION_BENCH_COUNTS
   ? process.env.MOTION_BENCH_COUNTS.split(',').map(Number)
-  : quick ? [50] : [50, 500, 2000];
+  : baseline ? BASELINE_COUNTS : quick ? [50] : [50, 500, 2000];
 assert.ok(counts.every((count) => Number.isSafeInteger(count) && count > 0), 'MOTION_BENCH_COUNTS must contain positive integers');
 
 const report = {
   url, startedAt: new Date().toISOString(), passed: false,
-  configuration: { quick, repetitions, counts, devicePixelRatios: [1, 2] },
+  configuration: { quick, baseline, repetitions, counts, devicePixelRatios: baseline ? [1] : [1, 2] },
   measurementNotes: [
     'Synthetic fixtures update every keyed cell; offscreen cells remain laid out and are not virtualized.',
     'Native draw timings measure CPU shaping and draw-command submission, not GPU execution or display scanout.',
@@ -717,6 +725,131 @@ async function runBenchmarks(dpr) {
   await paintFrames();
 }
 
+
+/** Profiles drained in slices: both ring buffers hold 512 samples, fewer than a sweep produces. */
+function newProfileCollector() {
+  const collected = { js: { samples: [], dropped: 0 }, native: { samples: [], dropped: 0 } };
+  return {
+    collected,
+    async drain() {
+      const profile = await page.evaluate(() => globalThis.godotReactDemo.takeProfile());
+      for (const side of ['js', 'native']) {
+        collected[side].samples.push(...profile[side].samples);
+        collected[side].dropped += profile[side].dropped;
+      }
+    },
+  };
+}
+async function baselineScenario(name, count, drive) {
+  console.log(`GODOT_REACT_BASELINE_START ${scope}/${name}`);
+  await page.evaluate(() => { globalThis.godotBenchmarkCounters.commits = 0; });
+  const collector = newProfileCollector();
+  const before = await activity();
+  await beginTrace([], false);
+  await drive(collector.drain);
+  await paintFrames();
+  await collector.drain();
+  const after = await activity();
+  const evidence = await page.evaluate(() => {
+    const trace = globalThis.__godotMotionProbe.stop();
+    globalThis.godotReactDemo.profile(false);
+    return { trace, reactCommits: globalThis.godotBenchmarkCounters.commits };
+  });
+  const stages = profileSummary(collector.collected);
+  const grid = await find('bench-grid');
+  check(`${name}: the fixture still has its ${count} cells`, grid.children.length === count);
+  const counts = {
+    reactCommits: evidence.reactCommits,
+    jsFlushSamples: collector.collected.js.samples.filter((sample) => sample.kind === 'flush').length,
+    jsFlushSamplesWithCommands: collector.collected.js.samples.filter((sample) => sample.kind === 'flush' && sample.commandCount > 0).length,
+    jsEventsSamples: collector.collected.js.samples.filter((sample) => sample.kind === 'events').length,
+    jsReconcileSamples: collector.collected.js.samples.filter((sample) => sample.kind === 'reconcile').length,
+    nativeBatchSamples: collector.collected.native.samples.filter((sample) => sample.kind === 'batch').length,
+    nativeDrawSamples: collector.collected.native.samples.filter((sample) => sample.kind === 'draw').length,
+    nativeBatches: after.batches - before.batches,
+    layoutPasses: after.layoutPasses - before.layoutPasses,
+    paintPasses: after.paintPasses - before.paintPasses,
+  };
+  const result = { name, scope, count, nodes: after.nodeCount, counts, stages, summary: traceSummary(evidence.trace) };
+  const path = resolve(output, scope, `${name}.json`);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, JSON.stringify(result, null, 2) + '\n');
+  report.benchmarks.push({ scope, name, count, path, counts, stages });
+  const median = (side, key) => stages[side][key]?.p50;
+  console.log(`GODOT_REACT_BASELINE_PASSED ${scope}/${name} ${JSON.stringify({
+    counts, reconcileP50Ms: median('js', 'reconcile.durationMs'), flushP50Ms: median('js', 'flush.fullFlushMs'),
+    eventsP50Ms: median('js', 'events.durationMs'), batchP50Micros: median('native', 'batch.totalMicros'),
+    drawP50Micros: median('native', 'draw.cpuMicros'),
+  })}`);
+}
+/** Cell centres in canvas CSS pixels, from one snapshot (cell geometry does not change during a sweep). */
+async function cellPositions(count) {
+  const [data, grid, canvas] = await Promise.all([
+    snapshot(), find('bench-grid'),
+    page.evaluate(() => {
+      const rect = document.querySelector('canvas').getBoundingClientRect();
+      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+    }),
+  ]);
+  const byId = new Map(data.nodes.map((node) => [node.id, node]));
+  return grid.children.slice(0, count).map((id) => {
+    const rect = byId.get(id).rect;
+    return {
+      x: canvas.x + (rect.x + rect.width / 2) * canvas.width / data.width,
+      y: canvas.y + (rect.y + rect.height / 2) * canvas.height / data.height,
+    };
+  });
+}
+async function runBaselineScenarios() {
+  scope = 'fabric-baseline-dpr1';
+  await size(BENCHMARK_VIEWPORT, 1);
+  await page.evaluate(() => globalThis.__godotMotionProbe.start(false, []));
+  await new Promise((resolve) => setTimeout(resolve, IDLE_SAMPLE_MS));
+  report.idle.push({ scope, ...traceSummary(await page.evaluate(() => globalThis.__godotMotionProbe.stop())) });
+  // Every render must change something native can see, or no draw follows and the wait times out.
+  // Consecutive phases alternate the paint of a `paint` fixture; a variant fixture ignores the phase
+  // and changes only when its mode does, so it is rendered once.
+  let phase = 1;
+  const nextPhase = () => phase++;
+  for (const count of counts) {
+    // (a) one cell's colour changes; (b) every cell's colour changes (the existing scenario).
+    for (const [name, only] of [[`${count}-a-one-cell-colour`, 0], [`${count}-b-every-cell-colour`, undefined]]) {
+      for (let warmup = 0; warmup < WARMUP_UPDATES; warmup++) await renderBenchmark({ count, text: false, mode: 'paint', phase: nextPhase(), only });
+      await baselineScenario(name, count, async (drain) => {
+        for (let index = 0; index < repetitions; index++) {
+          await renderBenchmark({ count, text: false, mode: 'paint', phase: nextPhase(), only });
+          if ((index + 1) % BASELINE_DRAIN_EVERY === 0) await drain();
+        }
+      });
+    }
+    // (c) the mouse sweeps across up to 200 cells carrying `hover:` styles.
+    await renderBenchmark({ count, text: false, mode: 'hover', phase: nextPhase() });
+    const positions = await cellPositions(Math.min(count, BASELINE_HOVER_CELLS));
+    await page.mouse.move(1, 1);
+    await paintFrames();
+    await baselineScenario(`${count}-c-hover-sweep`, count, async (drain) => {
+      for (const [index, position] of positions.entries()) {
+        await page.mouse.move(position.x, position.y);
+        await paintFrames();
+        if ((index + 1) % BASELINE_DRAIN_EVERY === 0) await drain();
+      }
+    });
+    // (d) the viewport crosses the `md` breakpoint (768 logical px) and back, repeatedly.
+    await renderBenchmark({ count, text: false, mode: 'responsive', phase: nextPhase() });
+    await page.mouse.move(1, 1);
+    await baselineScenario(`${count}-d-breakpoint-resize`, count, async (drain) => {
+      for (let pair = 0; pair < BASELINE_RESIZE_PAIRS; pair++) {
+        await size(BASELINE_NARROW_VIEWPORT, 1);
+        await drain();
+        await size(BENCHMARK_VIEWPORT, 1);
+        await drain();
+      }
+    });
+  }
+  await page.evaluate(() => globalThis.godotReactDemo.restoreDemo());
+  await paintFrames();
+}
+
 async function observe(observedPage) {
   let ready = false;
   let expectedSeen = false;
@@ -911,9 +1044,13 @@ try {
     await packObserver.verifyPackTransfer();
     check('WebAssembly page is cross-origin isolated', await page.evaluate(() => crossOriginIsolated));
     await installProbe();
-    for (const dpr of [1, 2]) {
-      await runMotion(dpr);
-      await runBenchmarks(dpr);
+    if (baseline) {
+      await runBaselineScenarios();
+    } else {
+      for (const dpr of [1, 2]) {
+        await runMotion(dpr);
+        await runBenchmarks(dpr);
+      }
     }
     await page.evaluate(() => globalThis.__godotMotionProbe.dispose());
     healthy();
@@ -942,7 +1079,7 @@ try {
   await writeFile(resolve(output, 'report.json'), JSON.stringify(report, null, 2) + '\n');
   await writeFile(resolve(output, 'browser.log'), report.console.map((entry) => `[${entry.type}] ${entry.text}`).join('\n') + '\n');
 }
-if (report.passed && !process.exitCode) console.log('GODOT_REACT_MOTION_VERIFY_PASSED', JSON.stringify({
+if (report.passed && !process.exitCode) console.log(baseline ? 'GODOT_REACT_BASELINE_VERIFY_PASSED' : 'GODOT_REACT_MOTION_VERIFY_PASSED', JSON.stringify({
   assertions: report.assertions.length, captures: report.captures.length, benchmarks: report.benchmarks.length,
   quick, report: resolve(output, 'report.json'),
 }));

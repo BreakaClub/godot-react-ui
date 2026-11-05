@@ -317,3 +317,186 @@ Fabric core replaces.
   counters leaked into the next viewport on the first run. A verifier script bug, not a product bug.
 - Phase 1's Files list does not include `scripts/build.mjs`, `tests/recording-host.ts`, the README,
   `native/PROTOCOL.md` or `docs/MOTION_ARCHITECTURE.md` (all touched; section 0.1 allows it).
+
+## Phase F0 - Evidence for the Fabric core (measurement only)
+
+Date: 6 November 2026. No product behaviour changed: the probe is compiled only with the `probe` cargo
+feature, and the benchmark fixture and runner gained scenarios without changing the existing ones.
+
+**Decision gate: not passed as specified.** Handle creation is well inside its limit on both platforms,
+but `live_handles()` did not return to its starting value within 30 s of idle frames on native in any of
+three passes, and on Web in one of three. On native it did return, within one to three rounds of
+allocating 250,000 JS objects, once the JS heap was under pressure (on Web the one stuck pass was left
+with a single live handle), and the supplementary steady-state pass shows the live count staying bounded
+while commits allocate. Plan section 0.2 and F0 task 5 say to stop and
+report here; no fallback was chosen and Phase F1 was not started. Details below.
+
+### Platforms, build modes and host state
+
+| Run | Platform and build | Host memory at the run |
+| --- | --- | --- |
+| Native probe | macOS (Apple M1 Max), `Godot48.app` (reports a debug engine build), release probe dylib built with `--features probe` into `target/probe`, 10,425,584 bytes | 46 % free, swap 18.2 GB of 19.5 GB used, load average 7.6 / 11.7 / 12.1 |
+| Web probe | Chrome 156 (headless, 10 cores), debug Web template, probe Wasm built with `--features web,probe` into `target/web-probe`, 6,607,977 bytes, DPR 1, 1120x800 | 49 % free, swap 19.3 GB of 20.5 GB used, load average 9.9 / 13.6 / 13.0 |
+| Baseline benchmarks | the same Chrome and debug template, **default** build, DPR 1, 1120x800 | 52 % free, swap 19.3 GB of 20.5 GB used, load average 11.5 / 11.0 / 11.8 |
+
+The host stayed heavily swapped and loaded throughout, so absolute times are likely biased upwards;
+ratios and counts are the evidence.
+
+### What was added
+
+- `native/probe.rs` (cargo feature `probe`, `Cargo.toml`): `ReactUiProbeHandle` (a `RefCounted` owning a
+  fresh `Rc<Vec<u8>>` of 64 bytes; a counter incremented on creation and decremented in `Drop`) and
+  `ReactUiProbe` with `make_handle`, `live_handles`, `noop`, `string_length` (marshalling only),
+  `probe_parse` (JS string to `GString` to `String` to `serde_json` into today's `StyleSpec`, plus
+  `validate()`), and `count_handles_typed` / `count_handles_untyped`.
+- `scripts/build-native.mjs --probe` and `scripts/build-web.mjs --probe` build the feature into
+  `target/probe` and `target/web-probe` and install over the default library; a default build restores
+  it. `demo/src/probe.ts` runs the measurements (`--probe` natively, `godotReactDemo.runProbe()` on Web)
+  and `scripts/probe-web.mjs` drives it in Chrome. The probe's classes are declared in `probe.ts` by
+  module augmentation, so default generated typings do not mention them (checked: `gen:types` with the
+  default dylib leaves `demo/typings` unchanged).
+- Benchmarks: `demo/src/benchmark.tsx` gained `hover` and `responsive` fixture modes, an `only` option
+  and a React commit counter (`Profiler`); `scripts/verify-motion-web.mjs --baseline` runs four scenarios
+  at 50 and 2,000 cells into `artifacts/fabric-baseline/` without touching the motion evidence.
+- Extra files beyond the plan's list: `native/lib.rs` (one `mod probe;` line), `demo/src/main.ts` (the
+  `--probe` argument and `runProbe`), `scripts/build.mjs` (esbuild entry), `scripts/probe-web.mjs`, and the
+  generated `demo/src/probe.ts.uid` and `demo/gen/godot/src/probe.ts.gen.ts`.
+
+### 1. Handle creation and reclamation (100,000 handles, 64-byte payload)
+
+Creation: batch mean is the loop time over 100,000 `make_handle` calls; per-call is each call timed with
+`Time.getTicksUsec()` (integer microseconds natively, 5 us steps on a cross-origin-isolated Web page, so
+the batch mean is the more precise figure). "Churn" drops each handle at once.
+
+| Platform | Batch mean us/call (100,000 creates) | Per-call median / p95 / p99 / max us | Churn mean us/call | Limit us | Result |
+| --- | --- | --- | --- | --- | --- |
+| native macOS | 3.585 | 4 / 4 / 5 / 191 | 3.597 | 10 | pass |
+| Web (Chrome) | 5.912 | 5 / 10 / 15 / 3455 | 6.017 | 30 | pass |
+
+Reclamation after dropping every reference, sampling `live_handles()` and `Performance` object count once
+a second for up to 30 s while the engine keeps rendering frames (the demo is mounted). Peak live is 100,000
+in every pass; the engine object count tracked it (native 101,649 then constant, Web 101,318).
+
+| Platform | Pass | Peak live | Live after 30 s idle | Back to start within 30 s? | Allocation-pressure rounds to reclaim (250,000 JS objects each) |
+| --- | --- | --- | --- | --- | --- |
+| native macOS | retained, batch timed | 100,000 | 100,000 | NO | 2 |
+| native macOS | retained, per-call timed | 100,000 | 100,000 | NO | 3 |
+| native macOS | churn (dropped at once) | 100,000 | 100,000 | NO | 1 |
+| Web (Chrome) | retained, batch timed | 100,000 | 0 | yes, at 23 s | n/a |
+| Web (Chrome) | retained, per-call timed | 100,000 | 1 | NO | not reclaimed after 40 |
+| Web (Chrome) | churn (dropped at once) | 100,001 | 0 | yes, at 1 s | n/a |
+
+On Web, pass 2 ended with 99,999 of 100,000 handles reclaimed and one still live after 40 rounds of
+pressure; I did not establish what held it (the probe's last loop iteration is a candidate).
+
+Supplementary, outside the gate (the question the gate leaves open): does the live count stay bounded
+while something is committing? Each commit allocates a handle and a small JS instance for every node of a
+2,000-node tree, 16 ms apart, and the previous commit's tree stays reachable for one more commit.
+
+| Platform | Commits x nodes | Handles created | Commit mean ms | Peak live | Live in 2nd half (min - max) | Live at end | First decrease at commit | Idle reclaim after stopping |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| native macOS | 300 x 2,000 | 600,000 | 8.39 | 134,000 | 36,000 - 134,000 | 70,000 | 9 | no (live 70,000) |
+| Web (Chrome) | 300 x 2,000 | 600,000 | 12.34 | 104,000 | 4,000 - 104,000 | 18,000 | 50 | yes |
+
+Reading: while commits allocate, V8 collects and the live count saw-tooths (second half: native 36,000 to
+134,000, which is 18 to 67 commits' worth of nodes; Web 4,000 to 104,000, 2 to 52 commits' worth), but it
+is not tight, and on native the remainder is not collected once allocation stops (Web collected it within
+6 s). Per-handle native memory was not measured.
+
+### 2. Props string boundary (microseconds per call, batch mean over 10,000 calls)
+
+"String only" is JS string to `GString` to `String`; "parse" adds `serde_json` into `StyleSpec` and
+`validate()`. The 3-key diff is `{backgroundColor, opacity, width}`; the 40-property style sets 40 of
+`StyleSpec`'s 41 fields (all but `transition`).
+
+| Platform | Call floor (`liveHandles`) | `noop` | 3-key diff (bytes): string only / parse | 40-property style (bytes): string only / parse |
+| --- | --- | --- | --- | --- |
+| native macOS | 0.168 | 0.093 | (55) 0.663 / 0.843 | (696) 3.965 / 5.325 |
+| Web (Chrome) | 0.788 | 0.504 | (55) 3.311 / 3.053 | (696) 18.108 / 19.970 |
+
+### 3. Arrays of handles
+
+A JS array of 1, 50 and 500 handles passed as an argument (2,000 calls each, batch mean).
+
+| Platform | Array of | Typed `Array<Gd<T>>` | Untyped `Array`: us per call | ns per element |
+| --- | --- | --- | --- | --- |
+| native macOS | 1 handles | rejected | 1.14 | 1141 |
+| native macOS | 50 handles | rejected | 35.78 | 716 |
+| native macOS | 500 handles | rejected | 353.27 | 707 |
+| Web (Chrome) | 1 handles | rejected | 5.04 | 5040 |
+| Web (Chrome) | 50 handles | rejected | 105.75 | 2115 |
+| Web (Chrome) | 500 handles | rejected | 973.30 | 1947 |
+
+The plan's signature `Array<Gd<ShadowNodeHandle>>` does not work. GodotJS converts a JS array to an
+untyped `Array`, and godot-rust rejects it for a typed parameter, natively and on Web:
+
+```
+ERROR: godot-rust function call failed: ReactUiProbe::count_handles_typed()
+    Reason: parameter #0 (Array<Gd<ReactUiProbeHandle>>) conversion
+  Source: expected array of type Class(ReactUiProbeHandle), got Untyped: [<ReactUiProbeHandle#...>]
+   at: godot_core::private::handle_fallible_call (godot-core-0.5.5/src/private.rs:539)
+```
+
+An untyped `VarArray` parameter works and converts each element natively (about 0.7 us per element
+natively, 2 to 5 us on Web).
+
+### 4. Baseline benchmarks of the current renderer (Web, DPR 1)
+
+Phase 1 renderer, default build, 30 repetitions for (a) and (b), 200 mouse moves for (c) (all 50 cells in
+the 50-cell case), 10 crossings of the `md` breakpoint each way for (d) (viewport 1120 to 700 and back).
+(a) changes one cell's colour, (b) every cell's, (c) sweeps the mouse over cells with `hover:` styles,
+(d) resizes across `md` with `md:` classes on every cell. "React commits" counts `Profiler` `onRender`
+calls of the fixture. "JS flush" is the renderer's whole-tree `flush()`, which runs after every React
+commit and after every batch of input events. The native batch runs inside the JS flush (do not add them);
+draw CPU time is recorded separately.
+
+| Scenario | Cells (nodes) | React commits | JS reconcile p50 / p95 ms | JS flush (commit) p50 / p95 ms | JS events p50 / p95 ms | Native batch p50 / p95 us | Native draw CPU p50 / p95 us | JS flushes | Native batches | Layout passes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 2000-a-one-cell-colour | 2,000 (2,003) | 30 | 24.75 / 56.22 | 12.91 / 14.19 | - | 11664 / 12882 | 16342 / 17535 | 30 | 30 | 0 |
+| 2000-b-every-cell-colour | 2,000 (2,003) | 30 | 41.30 / 70.40 | 28.34 / 29.94 | - | 20347 / 21957 | 15885 / 17383 | 30 | 30 | 0 |
+| 2000-c-hover-sweep | 2,000 (2,003) | 0 | - | 12.87 / 14.39 | 12.96 / 14.47 | 11752 / 13204 | 15777 / 17522 | 200 | 200 | 0 |
+| 2000-d-breakpoint-resize | 2,000 (2,003) | 0 | - | 29.04 / 30.07 | - | 20908 / 21593 | 15804 / 16795 | 20 | 20 | 40 |
+| 50-a-one-cell-colour | 50 (53) | 30 | 2.98 / 3.67 | 0.92 / 1.18 | - | 788 / 1025 | 869 / 1038 | 30 | 30 | 0 |
+| 50-b-every-cell-colour | 50 (53) | 30 | 3.49 / 4.92 | 1.49 / 2.14 | - | 1117 / 1625 | 777 / 1060 | 30 | 30 | 0 |
+| 50-c-hover-sweep | 50 (53) | 0 | - | 1.24 / 1.79 | 1.40 / 1.99 | 1037 / 1517 | 1080 / 1554 | 50 | 50 | 0 |
+| 50-d-breakpoint-resize | 50 (53) | 0 | - | 1.06 / 1.22 | - | 760 / 917 | 557 / 727 | 20 | 20 | 40 |
+
+Reading (2,000 cells against 50, median): changing one cell costs 8x the React time, 14x the JS flush, 15x
+the native batch and 19x the draw time. A hover costs 9x, 11x and 15x with no React commit at all
+(a 2,000-node move is about 13 ms of JS events plus a 16 ms draw, over one 60 Hz frame). A breakpoint
+crossing costs 27x in JS and native batch. These are the whole-tree costs the plan predicted by code
+inspection; F4's target is a ratio of at most 2.
+
+### Default builds are unchanged
+
+| Artifact | Phase 1 (`0d11607`) | After F0, probe off | With the probe |
+| --- | --- | --- | --- |
+| Native dylib | 10,314,848 bytes | 10,314,848 bytes | 10,425,584 bytes |
+| Web Wasm | 6,542,640 bytes | 6,542,640 bytes | 6,607,977 bytes |
+
+The hashes of the default artifacts differ from Phase 1 (embedded source line numbers moved by the
+`mod probe;` line); the sizes do not. Default `demo/typings` and `demo/gen` contain no probe classes.
+
+### Gate
+
+| Command | Result |
+| --- | --- |
+| `pnpm test:types` / `pnpm test` | clean / **30 passed** (unchanged) |
+| `cargo test --locked` | **31 passed** (unchanged) |
+| `cargo clippy --locked --all-targets` | **0 warnings**, also with `--features probe` |
+| `pnpm verify`, `verify:motion`, `verify:interaction` | exit 0, both viewports, no errors |
+| `pnpm verify:web`, `verify:motion:web`, `verify:interaction:web` | 249, 433 and 158 assertions, all unchanged |
+
+### Plan problems found
+
+- Plan 4.1 and 3.1 give `complete_root(layer, children: Array<Gd<ShadowNodeHandle>>)`: a typed array
+  argument is rejected (task 3 above); it must be an untyped array validated natively.
+- The reclamation gate ("`live_handles()` returns to its starting value within the timeout") measures
+  idle wall-clock time, but reclamation is driven by JS heap allocation, not by time: natively no handle
+  was reclaimed in 30 idle seconds and all were reclaimed after one to three allocation rounds. The gate
+  as written fails; whether the property that matters (bounded live handles while committing) holds is a
+  question for the steady-state numbers above.
+- The Web probe runner must allow the typed-array rejection lines (19 console lines) or it sees them as
+  errors; they are expected output of the array test.
+- F0's Files list omits `native/lib.rs`, `demo/src/main.ts`, `scripts/build.mjs`, `scripts/probe-web.mjs`
+  and the generated `.uid`/`.gen.ts` of `probe.ts`.
