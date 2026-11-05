@@ -1,15 +1,37 @@
 # Fabric renderer and interaction plan
 
-Status: plan v2, 6 November 2026. Phase 0 is done (`9f4a02c`). Phase 1 is implemented but not yet
-landed (uncommitted in the working tree, see Phase 1).
+Status: plan v2.1, 6 November 2026. Done: Phase 0 (`9f4a02c`), Phase 1 (`0d11607`), Phase F0
+(`4f7dd0d`). Next: Phase F1.
 
 v1 of this plan (`7f0a96c`) was rejected because it built every interaction feature on the
 prototype's commit path, which re-walks and re-sends the whole tree on every change. v2 replaces
-that path with React Native Fabric's architecture end to end (persistent reconciler, immutable native
-shadow tree, native diffing, an incremental mounting layer, native style resolution) and then builds
-the interaction features on it: Godot-cooperative input, touch, focus and keyboard, positioning and
-overlays, scrolling, text selection, text input with IME and on-screen keyboards, an input component
-kit, HTML-style drag and drop, accessibility, and world-space UI.
+that path with React Native Fabric's architecture end to end (persistent reconciler, immutable shadow
+tree with structural sharing, diffing proportional to change, an incremental native mounting layer,
+native style resolution) and then builds the interaction features on it: Godot-cooperative input,
+touch, focus and keyboard, positioning and overlays, scrolling, text selection, text input with IME
+and on-screen keyboards, an input component kit, HTML-style drag and drop, accessibility, and
+world-space UI.
+
+## Decision log
+
+Decisions are made from evidence by whoever reaches them (the coordinator or the implementer) and
+recorded here and in `docs/INTERACTION_PROGRESS.md`. A measured gate that fails is a decision point,
+not a reason to wait.
+
+- **D1 (v2, `7f312d8`)**: adopt Fabric's architecture end to end; no JSI-style binding work until
+  measurements show the GDExtension call boundary is the bottleneck.
+- **D2 (after F0, v2.1)**: the persistent shadow tree lives in **JS**, not behind native handles.
+  Evidence: F0 (`docs/INTERACTION_PROGRESS.md`, Phase F0) measured native `RefCounted` handles at
+  4 µs (native) and 5 µs (Web) per create, but GC reclaims them only under JS allocation pressure:
+  on native, 100,000 dropped handles stayed live through 30 idle seconds, and in a 300 × 2,000-node
+  commit run up to 67 commits' worth of old trees stayed alive and 70,000 handles were never
+  reclaimed after commits stopped. GodotJS has no V8 external-memory accounting (no
+  `AdjustAmountOfExternalAllocatedMemory` anywhere in `modules/GodotJS`; only a manual full-GC
+  request, `bridge/jsb_environment.cpp:3433-3450`), so wrapping native nodes in any Godot type keeps
+  native memory invisible to V8. A JS shadow tree is ordinary GC-managed JS memory with no native
+  memory attached, needs no native call during render, and keeps every Fabric property that matters:
+  immutable instances, structural sharing, identity-skipping diff, one synchronous native commit
+  carrying only changed nodes, native mounting, layout, style resolution and state.
 
 The plan is written so an implementer can execute it phase by phase without re-deciding the
 architecture. Where it says **must**, it is a contract. Where it says *suggested*, use judgement and
@@ -34,14 +56,18 @@ record what you chose.
 
 ### 0.2 Stop-and-report conditions
 
-Stop, write the evidence into `docs/INTERACTION_PROGRESS.md`, and report instead of improvising when:
+**Decide, document, continue.** When this plan is wrong, incomplete or contradicted by evidence (an
+API that differs from what is written, a measured gate that fails, a semantic choice the plan does not
+make), gather the evidence, choose the option the evidence supports that stays within section 3's
+invariants, record it in the decision log at the top of this file and in
+`docs/INTERACTION_PROGRESS.md` (what you found, what you chose, why), fix the plan text it affects, and
+keep going. Do not wait for approval.
 
-- a Godot, GodotJS, godot-rust, Taffy, React or browser API named here does not exist, has a
-  different signature, or behaves differently than this document states (paste the exact error or
-  source line);
-- a measured decision gate in this plan fails its threshold (Phase F0 and F4 define them);
-- a gate fails twice after you have identified and fixed a root cause;
-- you need a semantic decision this document does not make;
+Stop and report only when:
+
+- every option you can see would break a section 3 invariant or an AGENTS.md hard rule (push, deploy,
+  production data, sandbox-protected files);
+- a gate still fails after two root-cause fixes and you have no further evidence-backed hypothesis;
 - a change would require editing generated output (`dist/`, `target/`, `demo/.godot/`, `artifacts/`).
 
 ### 0.3 Rules that apply to every task
@@ -152,7 +178,8 @@ Phase F0 measures it).
 **Input.** Phase 1 (uncommitted) adds synchronous event dispatch: native queues events and emits an
 `events_ready` signal from inside `gui_input`; JS drains, dispatches capture/bubble with
 `preventDefault`, and resolves cancelable events before the signal returns. Measured JS time per
-synchronous dispatch is about 1–2.5 ms p95 on native macOS (Phase 1 report).
+synchronous dispatch is about 1–3 ms p95 on native macOS (up to 3.04 ms for a handler that sets
+state; Phase 1 gate run).
 
 The README's "Current limits" section lists the remaining feature gaps (scrolling, text input,
 selection, drag and drop, accessibility, positioning).
@@ -172,9 +199,9 @@ selection, drag and drop, accessibility, positioning).
 3. **Incremental paint.** Each element owns retained canvas items in a hierarchy that mirrors the
    view tree. A move updates a transform; only elements whose own visuals or size changed re-record
    commands. Scrolling updates one transform.
-4. **Typed GDExtension calls, no batch protocol.** The host config calls native methods
-   (`create_node`, `clone_node_*`, `append_child`, `complete_root`) that GodotJS exposes
-   automatically. Per-node prop diffs are the only structured payload.
+4. **One GDExtension call per commit carrying only what changed.** Render makes no native calls. At
+   commit, `commit(layer, payload)` (exposed to JS automatically by GodotJS) receives the created
+   nodes, the per-node prop diffs and the changed child lists, and nothing else (decision D2).
 5. **No regressions.** Every existing verifier passes with unchanged assertions.
 
 ### 2.2 Goals — part B: interaction
@@ -226,14 +253,12 @@ Write these into the README limits when the plan is complete; do not half-implem
 | React Native Fabric | godot-react-ui v2 |
 | --- | --- |
 | Reconciler in persistent mode | `react-reconciler` 0.33 with `supportsPersistence: true`, `supportsMutation: false` |
-| JSI host object owning a `ShadowNode::Shared` | `ShadowNodeHandle`: a GDExtension `RefCounted` holding `Rc<ShadowNode>`. GodotJS keeps RefCounted wrappers weak and releases the native reference when the wrapper is collected (`modules/GodotJS/bridge/jsb_environment.cpp:1166-1180, 1229-1237`), so native nodes are reclaimed by JS GC, like JSI host objects |
-| `UIManager.createNode(tag, viewName, rootTag, rawProps, instanceHandle)` | `ReactUiRoot.create_node(tag, kind, props_json)` |
-| `cloneNodeWithNewProps`, `cloneNodeWithNewChildren`, `cloneNodeWithNewChildrenAndProps` | same three, on `ReactUiRoot`, taking handles and a props **diff** (Fabric's plain `cloneNode` is not needed: an unchanged node keeps its handle) |
-| `appendChild(parent, child)` while building | `append_child(parent, child)`, only on unsealed nodes |
-| `createChildSet` / `appendChildToSet` / `completeRoot(rootTag, childSet)` | a JS array of handles, then `complete_root(layer, children)` |
-| `RawProps` (a JSI object) parsed into typed C++ `Props` | a JSON object of changed props, merged natively over the previous typed `PropsSpec`. GodotJS cannot pass a plain JS object as a `Dictionary` (it only accepts an existing Godot Dictionary wrapper, `modules/GodotJS/bridge/jsb_type_convert.cpp:284-305`), so the diff crosses as a short string |
-| `ShadowTree` commit with revisions | Rust `ShadowTree` per layer; `complete_root` validates and swaps the committed root |
-| Differ → `ShadowViewMutation` list | `diff(old, new) -> MountingTransaction` (`Create`, `Delete`, `Insert`, `Remove`, `Update`) |
+| JSI host object owning a `ShadowNode::Shared` | a frozen JS `Instance` object (decision D2). Instances are immutable once React completes them and share unchanged children by reference; JS GC reclaims them with no native memory attached |
+| `UIManager.createNode` / `cloneNodeWithNewProps` / `cloneNodeWithNewChildren(AndProps)` / `appendChild` during render | pure JS in the host config: no native call during render, so abandoned concurrent renders cost nothing natively |
+| `createChildSet` / `appendChildToSet` / `completeRoot(rootTag, childSet)` | a JS array of instances, then one `commit(layer, payload_json)` call |
+| `RawProps` (a JSI object) parsed into typed C++ `Props` | a JSON object of changed props per node inside the commit payload, merged natively over the node's previous typed `PropsSpec`. GodotJS cannot pass a plain JS object as a `Dictionary` (it only accepts an existing Godot Dictionary wrapper, `modules/GodotJS/bridge/jsb_type_convert.cpp:284-305`), and arrays of objects cost 0.7–1.9 µs per element to marshal (F0), so the payload crosses as one string |
+| `ShadowTree` commit with revisions | the JS committed tree (`committedByTag`) plus the native mounted tree; `commit` validates the whole payload before changing anything |
+| Differ → `ShadowViewMutation` list | split in two: the JS commit walk finds changed nodes by identity (`===`) in time proportional to the changed paths; native diffs each changed child list against the mounted children and produces a `MountingTransaction` (`Create`, `Delete`, `Insert`, `Remove`, `Update`) |
 | Mounting layer creating platform views | mounting layer keyed by tag: Taffy node, computed style, Stylo node, paint resources, canvas items, interaction state |
 | Yoga layout on the shadow tree | Taffy on the mounting layer's retained layout tree (deviation: layout runs after the diff, keyed by tag; Taffy caches clean subtrees) |
 | Native `State` (scroll offset, text input content) | per-tag interaction state in the mounting layer that survives clones |
@@ -249,11 +274,12 @@ Write these into the README limits when the plan is complete; do not half-implem
 2. **Native owns** the shadow trees, the mounting layer, layout, computed styles, hit testing, focus,
    pointer state, scroll offsets, text buffers, selections, drag sessions and accessibility elements.
    **JS owns** React state, handlers, and the decision to `preventDefault()`.
-3. **Shadow nodes are immutable once sealed.** A node is sealed when it is appended to a parent,
-   cloned, or passed to `complete_root`. `append_child` on a sealed node is an error.
+3. **JS instances are immutable once React completes them.** `appendInitialChild` only runs on an
+   instance React is still building; nothing mutates a completed instance (freeze them in development
+   builds of the renderer so a violation throws).
 4. **Every JS→native call validates its input** and reports errors without changing committed state.
-   A rejected `complete_root` leaves the previous tree mounted. Internal invariants of native data
-   the native code produced itself (the differ's output) are `expect`ed, not validated.
+   A rejected `commit` leaves the previous tree mounted. Internal invariants of native data the native
+   code produced itself (the child-list differ's output) are `expect`ed, not validated.
 5. **Tags** are JS-allocated `u32`s, unique per root for the root's lifetime; a tag is the identity
    of a node across all its clones.
 6. **No whole-tree work on commit.** Any loop over all mounted nodes in a commit path is a bug,
@@ -265,11 +291,13 @@ Write these into the README limits when the plan is complete; do not half-implem
 
 ```
 React render (JS)            createInstance / cloneInstance / appendInitialChild
-  │                          → create_node / clone_node_* / append_child   (per changed node only)
+  │                          → new frozen JS instances for changed nodes only; no native calls
 React commit (JS)            replaceContainerChildren(container, childSet)
-  │                          → complete_root(layer, [handles])             (one call per layer per commit)
-Native commit                validate + diff(old root, new root), skipping Rc::ptr_eq subtrees
-  │                          → MountingTransaction
+  │                          → commit walk: skip instances === committed; collect created nodes,
+  │                            prop diffs, changed child lists
+  │                          → commit(layer, payload_json)                 (one call per layer per commit)
+Native commit                validate the whole payload; diff each changed child list against the
+  │                          mounted children → MountingTransaction
 Mount                        apply Remove, Delete, Create, Update, Insert to the mounting layer;
   │                          mark style/layout/paint dirt per node
 Style resolution             recompute computed styles for dirty nodes (and descendants whose
@@ -281,46 +309,44 @@ Paint                        re-record only canvas items whose own visuals or si
 Events                       hover re-hit-test if geometry under the mouse changed; queue events
 ```
 
-Everything above runs synchronously inside `complete_root`, so `useLayoutEffect` and ref measurements
-after a commit see the new layout (as in Fabric's synchronous commits).
+Everything above runs synchronously inside `commit`, so `useLayoutEffect` and ref measurements after
+a commit see the new layout (as in Fabric's synchronous commits).
 
 Outside commits, native-only changes (hover/focus state, viewport resize, scroll, transitions, text
 editing) enter the same pipeline at **Style resolution** or **Geometry** without any JS involvement.
 
-### 3.4 Shadow nodes and handles
+### 3.4 Shadow tree and commit payload (decision D2)
 
-```rust
-// native/shadow.rs (Godot-free)
-pub struct ShadowNode {
-    pub tag: u32,
-    pub kind: Kind,                          // View | Text | Button | TextInput
-    pub props: Rc<PropsSpec>,                // typed, validated; shared between clones that did not change props
-    children: RefCell<Vec<Rc<ShadowNode>>>,  // mutable only while unsealed
-    sealed: Cell<bool>,
-}
-impl ShadowNode {
-    pub fn new(tag: u32, kind: Kind, props: Rc<PropsSpec>) -> Rc<Self>;
-    pub fn clone_with(&self, props: Option<Rc<PropsSpec>>, keep_children: bool) -> Rc<Self>; // seals self
-    pub fn append_child(&self, child: Rc<ShadowNode>) -> Result<(), ShadowError>;          // seals child
-    pub fn seal(&self);
-    pub fn children(&self) -> std::cell::Ref<'_, [Rc<ShadowNode>]>;
+The persistent shadow tree is the tree of JS `Instance` objects (3.9). Native holds no shadow nodes;
+it holds the mounted tree (3.7). The commit payload is the only thing that crosses:
+
+```ts
+// src/native.ts — serialized with JSON.stringify, one string per commit per layer
+interface CommitPayload {
+  created: { tag: number; kind: NativeKind; props: NativeProps }[];  // full native props of new tags
+  updated: { tag: number; props: NativePropsDiff }[];                // changed keys only; null resets
+  children: { tag: number; children: number[] }[];                   // every node whose child list
+                                                                     // changed, and every created node
+                                                                     // with children; tag 0 = layer root
 }
 ```
 
 ```rust
-// native/lib.rs — the handle class
-#[derive(GodotClass)]
-#[class(no_init, base = RefCounted)]
-pub struct ShadowNodeHandle {
-    base: Base<RefCounted>,
-    node: Rc<ShadowNode>,
-    root: InstanceId,        // the ReactUiRoot that created it; cross-root use is an error
-}
+// native/commit.rs (Godot-free)
+pub struct CommitPayload { pub created: Vec<CreatedNode>, pub updated: Vec<UpdatedNode>, pub children: Vec<ChildList> }
+pub fn validate(payload: &CommitPayload, mounted: &impl MountedTree) -> Result<ValidatedCommit, CommitError>;
+pub fn plan(validated: &ValidatedCommit, mounted: &impl MountedTree) -> MountingTransaction;
 ```
 
-- JS never sees `ShadowNode` internals; it passes handles back to `ReactUiRoot` methods.
-- Every native clone allocates one handle object. Phase F0 measures that cost and the GC reclaim on
-  native and Web before anything is built on it.
+- **Validation before any change** (O(payload) plus O(depth) per moved child): created tags must be
+  new for this root's lifetime and unique; updated tags must be mounted (or created in this payload)
+  and may not change kind; every child tag must be mounted or created; after applying, each tag has at
+  most one parent and no node is its own ancestor (walk the new parent chain); `Text` and `TextInput`
+  have no children; every created node must end up attached or the commit is rejected; props diffs
+  merge into valid `PropsSpec`s. Any failure returns an error and leaves the mounted tree unchanged.
+- **Planning** turns each changed child list into `Remove`/`Insert` against the mounted children (3.7);
+  a removed tag that is not re-inserted anywhere in the same payload is `Delete`d with the mounted
+  descendants still under it.
 - Kinds and rules: `Text` carries its string in the `text` prop and has no children (React Native's
   rule: raw strings must be inside `<Text>`; the renderer's `createTextInstance` throws). `TextInput`
   has no children. `Button` renders its label through a child `Text`.
@@ -332,14 +358,16 @@ pub struct ShadowNodeHandle {
   (`tabIndex`, `autoFocus`, `draggable`, text input props, `role` and `aria*`). Event handlers and
   everything else stay in JS. `src/props.ts` holds the table of native props; anything not in it is
   JS-only.
-- **Diff.** `cloneInstance` compares old and new native props by key (compiled style objects compare
-  by identity because the compiler interns them). A diff is a JSON object of changed keys; `null`
-  resets a key to its default. Native merges the diff over the node's previous `PropsSpec` and
-  validates the result (unknown keys and invalid values are errors), producing a new `Rc<PropsSpec>`.
-  An empty diff means no native call at all.
-- **Transport.** One short JSON string per changed node, parsed by `serde_json`. This is the Fabric
-  `RawProps` analog; there is no batch and no whole-state message. Phase F0 measures the cost; if the
-  string boundary is ever the bottleneck, that is the trigger for the deferred binding work in 2.3.
+- **Diff.** The commit walk compares each changed instance's native props with the committed
+  instance of the same tag, key by key (compiled style objects compare by identity because the
+  compiler interns them). A diff is an object of changed keys; `null` resets a key to its default.
+  Native merges it over the node's previous `PropsSpec` and validates the result (unknown keys and
+  invalid values are errors). A handler-only change produces no diff and no payload entry.
+- **Transport.** One JSON string per commit per layer containing only changed nodes, parsed by
+  `serde_json`. F0 measured a 3-key diff at 0.84 µs (native) and 3.1 µs (Web) to cross and parse, and a
+  40-property style at 5.3 µs and 20 µs. This is the `RawProps` analog; there is no whole-state
+  message. If the string boundary is ever the bottleneck (F4 measures it), that is the trigger for the
+  deferred binding work in 2.3.
 
 ### 3.6 Native style resolution
 
@@ -394,14 +422,12 @@ pub struct MountedNode {
   Stylo, canvas items, accessibility element; clear focus/hover/capture/selection references),
   `Create`, `Update` (props → style dirt), `Insert` (attach at index). This replaces `Model`,
   `apply_batch`, `sync_model`, and the flat `rects`/`clips`/`paint_order` maps.
-- **Validation inside the diff.** The differ visits only nodes that are not pointer-identical to the
-  committed tree. A tag that appears twice in the new tree, a handle from another root, or a child of
-  a `Text`/`TextInput` rejects the whole commit with an error and leaves the previous tree mounted.
-- **Child list diff.** Common prefix and suffix by tag are stable. For the middle, children present in
-  both lists that keep relative order (longest increasing subsequence of old indices) stay; others
-  are `Remove`d and `Insert`ed. New tags are `Create`d (with their whole subtree) and `Insert`ed; old
-  tags not present are `Remove`d and their subtrees `Delete`d. Recurse only into pairs that are not
-  `Rc::ptr_eq`.
+- **Validation** of the whole payload happens before any change (3.4).
+- **Child list diff** (per entry in `payload.children`, against the mounted children of that tag):
+  common prefix and suffix by tag are stable. For the middle, children present in both lists that keep
+  relative order (longest increasing subsequence of old indices) stay; others are `Remove`d and
+  `Insert`ed. Tags created in this payload are `Create`d and `Insert`ed; old children not present are
+  `Remove`d, and `Delete`d with their remaining mounted descendants if no other entry re-inserts them.
 - **Incremental geometry.** After `compute_layout`, walk from each layer root; for each node compare
   the new Taffy layout with the stored geometry; descend into children only if the node is an
   ancestor of a node marked layout-dirty in this pass, or its size changed. A clean subtree with an
@@ -461,33 +487,40 @@ interface Instance {               // one per clone; never mutated after React c
   readonly tag: number;
   readonly kind: NativeKind;
   readonly props: UIProps;         // full React props (handlers included)
-  readonly native: NativeProps;    // the native subset, for diffing
-  readonly handle: ShadowNodeHandle;
-  readonly children: Instance[];   // filled by appendInitialChild while building
+  readonly native: NativeProps;    // the native subset (compiled style interned), for diffing
+  readonly children: Instance[];   // filled by appendInitialChild while building; shared by reference
 }
 ```
 
+No host config method calls native during render.
+
 | Host config | Behaviour |
 | --- | --- |
-| `createInstance(type, props, root)` | allocate tag; `create_node(tag, kind, json(nativeProps))`; new public handle for the tag |
+| `createInstance(type, props, root)` | allocate tag; build `native` from props; new public handle for the tag |
 | `createTextInstance` | throw `Text strings must be rendered within a <Text> component` |
 | `shouldSetTextContent(type, props)` | `type === 'text'` and children are scalar |
-| `appendInitialChild(parent, child)` | push to `parent.children`; `append_child(parent.handle, child.handle)` |
+| `appendInitialChild(parent, child)` | push to `parent.children` (parent is still being built) |
 | `finalizeInitialChildren` | `false` (autoFocus is native) |
-| `cloneInstance(inst, type, oldProps, newProps, keepChildren)` | diff native props, then: keep children + no diff → new `Instance` sharing `inst.handle`, no native call (only handlers changed); keep children + diff → `clone_node_with_new_props`; new children + no diff → `clone_node_with_new_children`; new children + diff → `clone_node_with_new_children_and_props`. React then re-appends children with `appendInitialChild` when they changed. Return a new `Instance` whenever `oldProps !== newProps` or children changed |
-| `cloneHiddenInstance` / unhide | clone with `hidden: true` / `false` in the diff |
+| `cloneInstance(inst, type, oldProps, newProps, keepChildren)` | new `Instance` with the same tag, new `props`/`native`, and `children` = `inst.children` when `keepChildren`, else a fresh array that React fills with `appendInitialChild` |
+| `cloneHiddenInstance` / unhide | clone with `hidden: true` / `false` in `native` |
 | `cloneHiddenTextInstance` | unreachable (no text instances); throw |
 | `createContainerChildSet` / `appendChildToContainerChildSet` | a plain array of instances |
 | `finalizeContainerChildren` | nothing |
-| `replaceContainerChildren(container, set)` | `complete_root(container.layer, set.map(i => i.handle))`; then the commit walk below |
+| `replaceContainerChildren(container, set)` | run the commit walk, call `commit(container.layer, JSON.stringify(payload))`, throw its error if any, then apply the walk's map updates and native deletions |
 | `getPublicInstance` | the per-tag public handle (stable across clones) |
 | `cloneMutableInstance`, `cloneMutableTextInstance` | read where 0.33 calls them (`react-reconciler.development.js:16979-16984`); implement if reachable with our configuration, else record why not |
 
-**Commit walk.** After a successful `complete_root`, JS updates `committedByTag: Map<number, Instance>`
-by walking the new child set and skipping any instance identical (`===`) to the one already recorded
-for its tag. Persistent mode clones every ancestor of a changed node, so this visits only changed
-paths. Deleted tags come from `take_commit_deletions()` and are removed from `committedByTag` and the
-public-handle map. Event dispatch and public handles read `committedByTag`; nothing reads React fibers.
+**Commit walk** (pure function, `src/commit.ts`): `buildCommit(committedByTag, previousRootTags,
+newRootChildren) -> { payload, updates }`. Visit the new root children recursively; an instance
+identical (`===`) to `committedByTag.get(tag)` is skipped with its whole subtree. Otherwise: a tag not
+yet committed goes into `created` (full native props), a committed tag whose native props differ goes
+into `updated` (the diff), and if its child tag list differs from the committed instance's (or it is
+new and has children) it goes into `children`; then visit its children. The layer root's child tag list
+is compared with `previousRootTags` (entry tag 0). Persistent mode clones every ancestor of a changed
+node, so the walk visits only changed paths. `updates` (new `committedByTag` entries) is applied only
+after `commit` succeeds; `take_commit_deletions()` then gives the tags to drop from `committedByTag` and
+the public-handle map. Event dispatch and public handles read `committedByTag`; nothing reads React
+fibers. A rejected commit throws at the React commit boundary (the existing `container.failure` path).
 
 **Removed.** `flush()`, the `committed` style-key map, the `Container`/`Instance` parent links,
 `applyBatch`, `refreshStyles` (breakpoints are native), and JS pseudo-state flags. `findByTestID`
@@ -505,7 +538,7 @@ target.
 Rules (all **must**):
 
 1. Only input-origin entry points emit `events_ready`: `gui_input`, `OS_IME_UPDATE`, `_set_text`,
-   accessibility action callbacks. Calls from JS (`complete_root`, commands) and lifecycle
+   accessibility action callbacks. Calls from JS (`commit`, commands) and lifecycle
    notifications queue events for the next emit or for the owner's per-frame `dispatchEvents()`.
 2. `dispatch_depth` guards nesting: input arriving while JS is inside a dispatch is queued with
    `cancelable: false`.
@@ -740,10 +773,10 @@ elsewhere need `pub(crate)` (never `pub`). All `#[func]`/`#[signal]` declaration
 
 | Module | Contents | Godot-free? |
 | --- | --- | --- |
-| `lib.rs` | `ReactUiRoot`, `ShadowNodeHandle`, `IControl` impl, `#[func]`/`#[signal]` surface | no |
+| `lib.rs` | `ReactUiRoot`, `IControl` impl, `#[func]`/`#[signal]` surface | no |
 | `props.rs` | `Kind`, `PropsSpec`, `StyleLayers`, `StyleSpec` longhands, diff merge, validation, Taffy mapping (from today's `protocol.rs`) | yes |
-| `shadow.rs` | `ShadowNode`, sealing, clones | yes |
-| `diff.rs` | `MountingTransaction`, child-list diff, commit validation | yes |
+| `commit.rs` | `CommitPayload`, validation, planning (3.4) | yes |
+| `diff.rs` | `MountingTransaction`, child-list diff (LIS) | yes |
 | `computed_style.rs` | layer resolution, inheritance, dirty propagation, breakpoint index | yes |
 | `mount.rs` | `MountedNode`, transaction application, incremental geometry, hit test | mixed |
 | `render_tree.rs` | canvas-item hierarchy (replaces `render_items.rs`) | no |
@@ -753,7 +786,7 @@ elsewhere need `pub(crate)` (never `pub`). All `#[func]`/`#[signal]` declaration
 | `motion.rs`, `style_engine.rs`, `layout.rs`, `paint.rs`, `geometry.rs`, `profile.rs` | existing, adapted to tags | mixed |
 
 TypeScript (`src/`): `native.ts` (host interface, payload types, validating parsers), `renderer.ts`
-(persistent host config, commit walk, drain loop), `events.ts` (Phase 1 dispatch, rebased on paths),
+(persistent host config, drain loop), `commit.ts` (commit walk and payload), `events.ts` (Phase 1 dispatch, rebased on paths),
 `props.ts` (native prop table and diff), `styles.ts` (compiler to layers), `types.ts`,
 `components.tsx` (`View`, `Text`, `Button`, `TextInput`, `Portal`), `kit/*.tsx`.
 
@@ -768,14 +801,8 @@ names in `demo/typings` after regenerating.
 
 | Method | Returns | Notes |
 | --- | --- | --- |
-| `create_node(tag: i64, kind: GString, props_json: GString)` | `Option<Gd<ShadowNodeHandle>>` | `None` on error; JS throws `takeLastError()` |
-| `clone_node_with_new_props(node, props_diff_json)` | handle | keeps children |
-| `clone_node_with_new_children(node)` | handle | empty children, unsealed |
-| `clone_node_with_new_children_and_props(node, props_diff_json)` | handle | empty children, unsealed |
-| `append_child(parent, child)` | `GString` error or empty | parent must be unsealed; seals child |
-| `complete_root(layer: i64, children: Array<Gd<ShadowNodeHandle>>)` | `GString` error or empty | validate, diff, mount, style, layout, geometry, paint, queue events |
+| `commit(layer: i64, payload_json: GString)` | `GString` error or empty | validate the whole payload, plan, mount, style, layout, geometry, paint, queue events (3.3, 3.4) |
 | `take_commit_deletions()` | `PackedInt64Array` | tags deleted by the last successful commit |
-| `take_last_error()` | `GString` | for methods that return `None` |
 
 `kind` strings: `view`, `text`, `button`, `textinput`.
 
@@ -925,7 +952,15 @@ side on native paths.
 **Gate**: native gate (including `verify:interaction`) and Web gate (including
 `verify:interaction:web`).
 
-### Phase F0 — Evidence for the Fabric core (no product changes)
+### Phase F0 — Evidence for the Fabric core — done (`4f7dd0d`), decision D2
+
+Results are in `docs/INTERACTION_PROGRESS.md`. Handle creation passed; reclamation failed, which led
+to decision D2 (JS shadow tree). The probe stays in the tree behind the `probe` feature (`--probe` on
+the build scripts) for re-measurement; its Files list also included `native/lib.rs` (`mod probe;`),
+`demo/src/main.ts`, `scripts/build.mjs`, `scripts/probe-web.mjs` and the generated `probe.ts.uid` and
+`.gen.ts`. GodotJS cannot pass a JS array to a typed `Array<Gd<T>>` parameter (godot-rust rejects the
+untyped array, `godot-core-0.5.5/src/private.rs:539`); only untyped `VarArray` parameters work.
+The original tasks are kept below as the record of what was measured.
 
 **Files**: `native/probe.rs` (new, compiled only with cargo feature `probe`), `Cargo.toml` (feature),
 `scripts/build-native.mjs` and `scripts/build-web.mjs` (pass `--features probe` when asked),
@@ -949,18 +984,16 @@ side on native paths.
    (existing), (c) the mouse sweeps across 200 cells with `hover:` styles, (d) the viewport resizes
    across the `md` breakpoint. Record JS reconcile time, commit time, native batch time, draw CPU time,
    and React commit count.
-5. **Decision**: if 1 passes, proceed with the native shadow tree as written. If it fails, stop and
-   report with the numbers; the documented alternative is a JS-side persistent shadow tree whose commit
-   sends only changed nodes to the mounting layer (same mounting layer, same native style resolution),
-   which Ben must approve.
+5. **Decision**: if 1 passes, proceed with native shadow nodes; otherwise use a JS-side persistent
+   shadow tree whose commit sends only changed nodes to the mounting layer. Outcome: D2.
 
 **Gate**: progress log contains every measurement with the platform, build mode and host memory
 state; `cargo test` and `pnpm test` unchanged; the probe is off in default builds (check the
 default `.dylib` and `.wasm` sizes are unchanged).
 
-### Phase F1 — Shadow tree, props and differ (Godot-free)
+### Phase F1 — Props, commit validation and differ (Godot-free)
 
-**Files**: `native/props.rs` (from `native/protocol.rs`), `native/shadow.rs`, `native/diff.rs`,
+**Files**: `native/props.rs` (from `native/protocol.rs`), `native/commit.rs`, `native/diff.rs`,
 `native/computed_style.rs`, `native/lib.rs` (module declarations only), Rust tests.
 
 1. `props.rs`: `Kind`, `PropsSpec`, `StyleLayers`, `StyleSpec` longhands (`overflowX`/`overflowY`
@@ -968,15 +1001,16 @@ default `.dylib` and `.wasm` sizes are unchanged).
    Result<PropsSpec, String>` with `null` resets, validation (today's `StyleSpec::validate` rules,
    kind-specific props, `deny_unknown_fields`), and `taffy_style` for a computed style. Port every
    existing `protocol.rs` test.
-2. `shadow.rs` per 3.4, with tests: sealing on clone/append/commit, append to sealed fails, clones
-   share untouched props and children by `Rc::ptr_eq`.
-3. `diff.rs` per 3.7: `diff(old: &[Rc<ShadowNode>], new: &[Rc<ShadowNode>], mounted: &impl
-   MountedTags) -> Result<MountingTransaction, CommitError>`. Tests: identical trees → empty; one prop
-   change deep in a 2,000-node tree visits only its path (assert visit count); insert/remove/move with
-   minimal operations (LIS); subtree delete emits `Delete` for each tag; duplicate tag and
-   text-with-children rejected; a property test that applying the transaction to the old structure
-   yields the new structure for random trees (`PROPERTY_TEST_CASES` cases with a fixed seed; implement
-   the generator in the test, no new crate).
+2. `commit.rs` per 3.4: `CommitPayload` serde types (`deny_unknown_fields`), `validate` and `plan`
+   against a `MountedTree` trait (implemented by a plain test structure here and by the mounting layer in
+   F3). Tests for every validation rule in 3.4 (new/duplicate/reused tags, kind change, unknown child,
+   two parents, cycle, children of `Text`/`TextInput`, unattached created node, invalid prop diff),
+   each asserting the mounted structure is unchanged after rejection.
+3. `diff.rs` per 3.7: child-list diff producing `Remove`/`Insert` with LIS for moves; `Delete` for
+   removed subtrees not re-inserted (including a subtree moved to another parent in the same payload,
+   which must not be deleted). Tests: unchanged list → nothing; insert/remove/move minimal; a property
+   test that applying `plan` to the old structure yields the new structure for random tree edits
+   (`PROPERTY_TEST_CASES` cases, fixed seed, generator written in the test, no new crate).
 4. `computed_style.rs` per 3.6: `resolve(layers, inherited, conditions) -> ComputedStyle`, inherited
    subset extraction, dirty rules, breakpoint index. Tests: layer order and overrides, state and
    breakpoint conditions, inheritance and overriding, `focus` vs `focusWithin`, propagation stops when
@@ -984,18 +1018,22 @@ default `.dylib` and `.wasm` sizes are unchanged).
 
 **Gate**: `cargo test`, Clippy. (No runtime change yet; `protocol.rs` may remain until F3 deletes it.)
 
-### Phase F2 — JS style compiler and native-prop table
+### Phase F2 — JS style compiler, native-prop table and commit walk
 
-**Files**: `src/styles.ts`, `src/types.ts`, `src/props.ts` (new), `tests/styles.test.ts`,
-`tests/props.test.ts` (new).
+**Files**: `src/styles.ts`, `src/types.ts`, `src/props.ts` (new), `src/commit.ts` (new),
+`tests/styles.test.ts`, `tests/props.test.ts` (new), `tests/commit.test.ts` (new).
 
 1. `compileStyle(className, style) -> CompiledStyle` per 3.6 (layers, longhands, interning, unknown
    classes throw, `focus-visible:` and `focus-within:` variants). Keep `resolveStyles` working until F3
    switches over, then delete it.
 2. `src/props.ts`: native prop table (4.2), `nativeProps(kind, props)`, `diffNativeProps(old, new) ->
-   string | null` (JSON of changed keys with `null` resets; `null` when unchanged).
-3. Tests: compile output for every utility family, variant combinations, interning identity, diff
-   output and stability.
+   NativePropsDiff | null` (changed keys with `null` resets; `null` when unchanged).
+3. `src/commit.ts`: `buildCommit` per 3.9, pure and independent of React.
+4. Tests: compile output for every utility family, variant combinations, interning identity, diff
+   output and stability; `buildCommit` on hand-built instance trees: unchanged tree → empty payload
+   and zero visits below the root; one changed leaf in a 2,000-node tree → one `updated` entry and a
+   visit count equal to its depth; handler-only change → no entry; moves and reparenting → only the
+   affected `children` entries; new subtree → `created` for each node.
 
 **Gate**: `pnpm test:types`, `pnpm test`.
 
@@ -1008,11 +1046,13 @@ existing verifier green.
 `native/render_items.rs`), `native/style_engine.rs`, `native/motion.rs`, `native/geometry.rs`,
 `native/layout.rs`, `native/paint.rs`, `native/events.rs` (path), `native/protocol.rs` (deleted),
 `src/renderer.ts`, `src/native.ts`, `src/events.ts`, `src/components.tsx`, `src/index.ts`, tests
-(`tests/recording-host.ts` becomes a fake implementing the 4.1 API in JS), `demo/**` (raw strings
+(`tests/recording-host.ts` becomes a fake host that applies commit payloads to a JS structure and
+records them), `demo/**` (raw strings
 moved into `<Text>`, `refreshStyles` calls removed, `focus:` → `focus-within:` where needed),
 verifiers, typings.
 
-1. **Native commit API** (4.1) and `ShadowNodeHandle`. Regenerate typings.
+1. **Native commit API** (4.1) using `commit.rs` and `diff.rs` against the mounting layer. Regenerate
+   typings.
 2. **Mounting layer** (3.7): transaction application, per-tag maps replacing `Model`, `handles`,
    `visuals`, `rects`, `clips`, `content_clips`, `paint_order`, `opacities`, `items`.
 3. **Style resolution wiring**: pseudo-state changes from hover/press/focus mark nodes dirty;
@@ -1045,11 +1085,11 @@ only, each recorded). Settled PNGs inspected against the Phase 1 captures.
 Rerun every F0 benchmark scenario on the new renderer (same host, same build mode) and also record the
 snapshot commit counters. **Pass** requires all of:
 
-1. One cell changes at 2,000 cells: JS commit time and native `complete_root` time are each at most
-   `MAX_SCALE_RATIO` × the same scenario at 50 cells, and `mutations` is a small constant (no
-   proportional work).
-2. Hover sweep across 200 cells: zero React commits, zero `create_node`/`clone_node*` calls,
-   `contentRecords` only for nodes whose paint changed.
+1. One cell changes at 2,000 cells: JS commit time (render + commit walk) and native `commit` time
+   are each at most `MAX_SCALE_RATIO` × the same scenario at 50 cells; the payload size and
+   `mutations` are the same at both sizes.
+2. Hover sweep across 200 cells: zero React commits, zero `commit` calls, `contentRecords` and
+   `boxRecords` only for nodes whose paint changed.
 3. Resize across `md`: zero React commits; restyled nodes equal the nodes that use `md:` classes.
 4. Every cell changes at 2,000 cells: total time per update lower than the F0 baseline.
 5. An idle frame after a commit records zero canvas-item commands (`boxRecords`/`contentRecords`
@@ -1226,7 +1266,9 @@ Japanese or Pinyin input source (screenshots), or report that it could not be do
 copy/cut. **Investigation (Web paste)**: reproduce whether the first paste after changing the system
 clipboard is stale; record the order of the browser `paste` event, the Godot key event and the
 clipboard callback; propose a fix only with a platform-causal argument (AGENTS.md "Web Fix
-Validation"); stop and report before any engine change.
+Validation"). The engine checkout `~/Development/godot` is shared by all of Breaka: prefer a fix in
+this repository when the causal argument allows it; if the cause is in the engine, fix it there in
+its own commit, rebuild the Web template per `docs/WEB.md`, and record both in the decision log.
 
 **I7D — multi-line.** `multiline`, `rows`, wrapping, `insertLineBreak`, vertical caret movement with
 desired x, line/document/page movement, internal vertical scroll with chaining, `keyboardType:
@@ -1245,7 +1287,8 @@ and scrolls.
 ### Phase I8 — Component kit
 
 **Files**: `src/kit/*.tsx`, `src/index.ts`, `tests/kit.test.ts`, demo, verifiers. No native changes; if
-a component seems to need one, stop and report.
+a component turns out to need one, add it in the relevant native module and record why in the
+decision log.
 
 | Component | Built from | Keyboard |
 | --- | --- | --- |
@@ -1390,7 +1433,12 @@ drift.
   `Array` and packed arrays (`jsb_type_convert.cpp:256-266`); strings to `String`/`StringName`.
 - GodotJS RefCounted lifetime: binding takes one native reference; RefCounted wrappers start weak and
   are promoted to strong only while native code also holds references; the GC callback releases the
-  reference (`modules/GodotJS/bridge/jsb_environment.cpp:1166-1180, 1229-1237, 1355-1425`).
+  reference (`modules/GodotJS/bridge/jsb_environment.cpp:1166-1180, 1229-1237, 1355-1425`). GodotJS
+  does not report native memory to V8 (no `AdjustAmountOfExternalAllocatedMemory` in
+  `modules/GodotJS`; only a manual full-GC request, `jsb_environment.cpp:3433-3450`), so native
+  memory behind wrappers does not drive collection (F0, decision D2).
+- A typed `Array<Gd<T>>` parameter rejects arrays from GodotJS (`godot-core-0.5.5/src/private.rs:539`);
+  use untyped `VarArray` if an array parameter is ever needed.
 - The JS name of `events_ready` is `eventsReady`; `Signal.connect(Callable.create(fn))` /
   `disconnect` (Phase 1).
 
@@ -1437,8 +1485,8 @@ drift.
 
 | Risk | Mitigation |
 | --- | --- |
-| Handle allocation per clone or GC reclaim is too slow, especially on Web | Phase F0 measures before anything is built; documented fallback needs Ben's approval |
-| Persistent clones keep native nodes alive until JS GC runs | F0 measures reclaim time; F4 records live handle counts during the benchmark |
+| Native handle reclaim tied to JS GC | Measured in F0; resolved by D2 (no native shadow nodes) |
+| Commit walk or payload parse grows with change size for large updates | F4 criterion 4 compares every-cell updates with the F0 baseline |
 | The F3 cut-over breaks motion | `motion.rs` is ported to tags early in F3 and `verify:motion` runs throughout |
 | Re-entrant JS during `gui_input` | Phase 1 rules (3.10), with runtime tests for unmount, detach and target removal |
 | `focus:` semantics change (ancestors → `focus-within:`) | F3 records every affected demo/verifier usage |
