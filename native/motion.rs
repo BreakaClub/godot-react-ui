@@ -169,6 +169,7 @@ impl ReactUiRoot {
             return;
         }
         self.stats.nodes_restyled += changes.len() as u64;
+        self.sync_gained_transitions(changes);
         let mut changed = Vec::new();
         let mut intrinsic_changes = Vec::new();
         let mut immediate: BTreeSet<(u32, DimensionAxis)> = BTreeSet::new();
@@ -259,7 +260,7 @@ impl ReactUiRoot {
                 },
             );
         }
-        let tags: Vec<u32> = changes.iter().map(|change| change.tag).collect();
+        let tags = self.style_engine_tags(changes);
         self.update_style_engine(&tags, &immediate);
         self.apply_presentation();
         self.flush_layout();
@@ -302,6 +303,12 @@ impl ReactUiRoot {
                 .taffy_style()
                 .expect("a stored computed style was valid")
         });
+        if change.previous.as_ref().is_none_or(|previous| {
+            previous.overflow_x != node.computed.overflow_x
+                || previous.overflow_y != node.computed.overflow_y
+        }) {
+            self.hit_stale = true;
+        }
         let layout_changed = previous_authored.as_ref() != Some(&authored);
         if layout_changed {
             self.tree
@@ -324,6 +331,60 @@ impl ReactUiRoot {
         self.paint_dirty.insert(tag);
         if shaping_changed && has_text && rebuilt.insert(tag) {
             self.refresh_paragraph(tag);
+        }
+    }
+
+    /// The changed nodes Stylo must hear about. Stylo only animates a node whose style has a
+    /// `transition`, so it is told about a node only while the node has one or has just lost one
+    /// (which cancels what was running). Every other restyle (a colour change on a thousand plain
+    /// cells) would cost Stylo a write per node and a traversal of every sibling of each, for
+    /// nothing.
+    fn style_engine_tags(&self, changes: &[StyleChange]) -> Vec<u32> {
+        changes
+            .iter()
+            .filter(|change| {
+                self.mounted.nodes.get(&change.tag).is_some_and(|node| {
+                    node.computed.transition.is_some()
+                        || change
+                            .previous
+                            .as_ref()
+                            .is_some_and(|previous| previous.transition.is_some())
+                })
+            })
+            .map(|change| change.tag)
+            .collect()
+    }
+
+    /// A node that gains a `transition` in the same change that changes a value must animate from
+    /// the value it had. Stylo was not told about the node while it had no transition, so tell it
+    /// that previous style first; the change itself is then written on top of it.
+    fn sync_gained_transitions(&mut self, changes: &[StyleChange]) {
+        let now = self.clock_seconds();
+        let mut synced = false;
+        for change in changes {
+            let (Some(previous), Some(node)) =
+                (&change.previous, self.mounted.nodes.get(&change.tag))
+            else {
+                continue;
+            };
+            if previous.transition.is_some() || node.computed.transition.is_none() {
+                continue;
+            }
+            self.style_engine
+                .update(
+                    change.tag,
+                    previous,
+                    self.overrides.get(&change.tag),
+                    &BTreeSet::new(),
+                    now,
+                )
+                .expect("validated style update");
+            synced = true;
+        }
+        if synced {
+            self.style_engine
+                .resolve(now)
+                .expect("monotonic native CSS clock");
         }
     }
 

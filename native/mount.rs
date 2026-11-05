@@ -599,6 +599,7 @@ impl ReactUiRoot {
             node.parent = None;
             node.render.detach();
         }
+        self.hit_stale = true;
         if let Parent::Node(parent) = removal.parent {
             self.layout_dirty.insert(parent);
         }
@@ -622,6 +623,7 @@ impl ReactUiRoot {
             .expect("the planned index is within the layout child list");
         child.parent = Some(insertion.parent);
         child.render.attach(parent_item);
+        self.hit_stale = true;
         match insertion.parent {
             Parent::Layer(layer) => {
                 self.mounted.roots[layer].insert(insertion.index, insertion.tag)
@@ -709,6 +711,7 @@ impl ReactUiRoot {
         self.forget_motion(tag);
         self.layout_dirty.remove(&tag);
         self.paint_dirty.remove(&tag);
+        self.hit_stale = true;
         // Nothing may keep pointing at a deleted element; JS drops events for tags it no longer has.
         if self.hovered == Some(tag) {
             self.hovered = None;
@@ -841,6 +844,7 @@ impl ReactUiRoot {
             return on_dirty_path;
         }
         node.geometry = geometry;
+        self.hit_stale = true;
         node.render.set_location(geometry.location);
         let shape_changed = !previous.laid_out
             || previous.size != geometry.size

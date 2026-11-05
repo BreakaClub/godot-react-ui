@@ -181,9 +181,11 @@ CanvasItem RIDs with cached resources and one Control for the whole React tree.
 A node whose computed style has `transition: {properties: ('width'|'height'|'opacity'|'backgroundColor')[],
 durationMs: number, delayMs?: number, easing?: 'linear'|'ease'|'ease-in'|'ease-out'|'ease-in-out'}` is a
 *motion node*. Duration and delay are finite nonnegative milliseconds. Easing defaults to CSS `ease`. A retained
-Blitz/Stylo style tree owns numeric/color interpolation, delay and reversal shortening: every mounted node is
-mirrored into it incrementally by tag (`insert`, `update`, `remove`, `set_children`), but only motion nodes are
-sampled and presented differently from their computed style. One root-owned Godot process clock advances it; no JS
+Blitz/Stylo style tree owns numeric/color interpolation, delay and reversal shortening. Every mounted node has an
+element in it, kept in tree order (`insert`, `remove`, `set_children`), but a node's style is written to it only
+while the node is a motion node or has just stopped being one (which cancels what was running); a node that gains
+a `transition` in the change that changes a value is first given its previous style, so it animates from it.
+Only motion nodes are sampled and presented differently from their computed style (decision D9). One root-owned Godot process clock advances it; no JS
 animation frames or per-frame commits are required. The clock pauses when the root leaves the scene tree and
 resumes when the same root reenters.
 

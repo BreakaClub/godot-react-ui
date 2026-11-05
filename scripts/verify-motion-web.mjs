@@ -7,8 +7,13 @@ import puppeteer from 'puppeteer-core';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // `--baseline` records the pre-Fabric benchmark scenarios (Phase F0) and never touches the motion evidence.
+// `--acceptance` reruns the same scenarios on the Fabric renderer and checks Phase F4's criteria
+// (docs/INTERACTION_PLAN.md); it writes to its own directory so the F0 evidence stays intact.
 const baseline = process.argv.includes('--baseline');
-const output = resolve(root, 'artifacts', baseline ? 'fabric-baseline' : 'motion-web-verification');
+const acceptance = process.argv.includes('--acceptance');
+if (baseline && acceptance) throw new Error('Choose one scenario mode: --baseline or --acceptance.');
+const scenarioMode = baseline || acceptance;
+const output = resolve(root, 'artifacts', baseline ? 'fabric-baseline' : acceptance ? 'fabric-acceptance' : 'motion-web-verification');
 const packBuffer = await readFile(resolve(root, 'artifacts', 'web-debug', 'index.pck'));
 const expectedPack = {
   bytes: packBuffer.byteLength,
@@ -44,17 +49,17 @@ const BASELINE_RESIZE_PAIRS = 10;
 const BASELINE_NARROW_VIEWPORT = { width: 700, height: 800 };
 const BASELINE_DRAIN_EVERY = 25;
 const quick = process.argv.includes('--quick');
-for (const argument of process.argv.slice(2)) assert.ok(['--quick', '--baseline'].includes(argument), `Unknown argument ${argument}`);
+for (const argument of process.argv.slice(2)) assert.ok(['--quick', '--baseline', '--acceptance'].includes(argument), `Unknown argument ${argument}`);
 const repetitions = Number(process.env.MOTION_BENCH_REPETITIONS ?? (quick ? 3 : 30));
 assert.ok(Number.isSafeInteger(repetitions) && repetitions > 0, 'MOTION_BENCH_REPETITIONS must be a positive integer');
 const counts = process.env.MOTION_BENCH_COUNTS
   ? process.env.MOTION_BENCH_COUNTS.split(',').map(Number)
-  : baseline ? BASELINE_COUNTS : quick ? [50] : [50, 500, 2000];
+  : scenarioMode ? BASELINE_COUNTS : quick ? [50] : [50, 500, 2000];
 assert.ok(counts.every((count) => Number.isSafeInteger(count) && count > 0), 'MOTION_BENCH_COUNTS must contain positive integers');
 
 const report = {
   url, startedAt: new Date().toISOString(), passed: false,
-  configuration: { quick, baseline, repetitions, counts, devicePixelRatios: baseline ? [1] : [1, 2] },
+  configuration: { quick, baseline, acceptance, repetitions, counts, devicePixelRatios: scenarioMode ? [1] : [1, 2] },
   measurementNotes: [
     'Synthetic fixtures update every keyed cell; offscreen cells remain laid out and are not virtualized.',
     'Native draw timings measure CPU shaping and draw-command submission, not GPU execution or display scanout.',
@@ -740,7 +745,7 @@ function newProfileCollector() {
     },
   };
 }
-async function baselineScenario(name, count, drive) {
+async function baselineScenario(name, count, drive, gridChildren = count) {
   console.log(`GODOT_REACT_BASELINE_START ${scope}/${name}`);
   await page.evaluate(() => { globalThis.godotBenchmarkCounters.commits = 0; });
   const collector = newProfileCollector();
@@ -757,7 +762,7 @@ async function baselineScenario(name, count, drive) {
   });
   const stages = profileSummary(collector.collected);
   const grid = await find('bench-grid');
-  check(`${name}: the fixture still has its ${count} cells`, grid.children.length === count);
+  check(`${name}: the fixture still has its ${count} cells (${gridChildren} children under the grid)`, grid.children.length === gridChildren);
   const counts = {
     reactCommits: evidence.reactCommits,
     jsFlushSamples: collector.collected.js.samples.filter((sample) => sample.kind === 'flush').length,
@@ -769,18 +774,39 @@ async function baselineScenario(name, count, drive) {
     nativeBatches: after.batches - before.batches,
     layoutPasses: after.layoutPasses - before.layoutPasses,
     paintPasses: after.paintPasses - before.paintPasses,
+    mutations: after.mutations - before.mutations,
+    nodesUpdated: after.nodesUpdated - before.nodesUpdated,
+    nodesRestyled: after.nodesRestyled - before.nodesRestyled,
+    boxRecords: after.boxRecords - before.boxRecords,
+    contentRecords: after.contentRecords - before.contentRecords,
   };
-  const result = { name, scope, count, nodes: after.nodeCount, counts, stages, summary: traceSummary(evidence.trace) };
+  // Per-commit figures from the raw samples. A React update is one `reconcile` window containing one
+  // `flush` (the commit walk, the JSON encode and the native call); the renderer-owned JS cost of a
+  // commit is the window minus the native call.
+  const flushes = collector.collected.js.samples.filter((sample) => sample.kind === 'flush' && sample.commandCount > 0);
+  const reconciles = collector.collected.js.samples.filter((sample) => sample.kind === 'reconcile');
+  const jsCommitMs = reconciles.length === flushes.length
+    ? reconciles.map((sample, index) => sample.durationMs - flushes[index].nativeCallMs) : [];
+  const derived = {
+    jsCommitMs: distribution(jsCommitMs),
+    jsWalkMs: distribution(flushes.map((sample) => sample.walkMs)),
+    nativeCommitMicros: distribution(collector.collected.native.samples.filter((sample) => sample.kind === 'batch').map((sample) => sample.totalMicros)),
+    payloadChars: distribution(flushes.map((sample) => sample.jsonChars)),
+    payloadEntries: distribution(flushes.map((sample) => sample.commandCount)),
+    visitedNodes: distribution(flushes.map((sample) => sample.visitedNodes)),
+  };
+  const result = { name, scope, count, nodes: after.nodeCount, counts, derived, stages, summary: traceSummary(evidence.trace) };
   const path = resolve(output, scope, `${name}.json`);
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, JSON.stringify(result, null, 2) + '\n');
-  report.benchmarks.push({ scope, name, count, path, counts, stages });
+  report.benchmarks.push({ scope, name, count, path, counts, derived, stages });
   const median = (side, key) => stages[side][key]?.p50;
   console.log(`GODOT_REACT_BASELINE_PASSED ${scope}/${name} ${JSON.stringify({
     counts, reconcileP50Ms: median('js', 'reconcile.durationMs'), flushP50Ms: median('js', 'flush.fullFlushMs'),
     eventsP50Ms: median('js', 'events.durationMs'), batchP50Micros: median('native', 'batch.totalMicros'),
     drawP50Micros: median('native', 'draw.cpuMicros'),
   })}`);
+  return result;
 }
 /** Cell centres in canvas CSS pixels, from one snapshot (cell geometry does not change during a sweep). */
 async function cellPositions(count) {
@@ -800,8 +826,23 @@ async function cellPositions(count) {
     };
   });
 }
+/** Appendix A: the allowed growth of a one-node change from 50 to 2,000 nodes. */
+const MAX_SCALE_RATIO = 2;
+/** The F0 baseline's median React reconcile time for updating every cell of the 2,000-cell fixture (docs/INTERACTION_PROGRESS.md, Phase F0). */
+const F0_EVERY_CELL_2000_RECONCILE_P50_MS = 41.30;
+/** The F0 baseline's median native draw CPU time for the same update; F0 drew in the frame after its reconcile window. */
+const F0_EVERY_CELL_2000_DRAW_P50_MS = 15.885;
+/** Cells per row of the bounded fan-out fixture. */
+const ROW_SIZE = 50;
+/**
+ * Tags in a payload have more digits at 2,000 cells than at 50 (they count up through every node ever
+ * mounted), so the payload of the same one-node change may differ by this many characters.
+ */
+const MAX_TAG_DIGIT_GROWTH_CHARS = 4;
+const IDLE_FRAMES = 6;
+
 async function runBaselineScenarios() {
-  scope = 'fabric-baseline-dpr1';
+  scope = baseline ? 'fabric-baseline-dpr1' : 'fabric-acceptance-dpr1';
   await size(BENCHMARK_VIEWPORT, 1);
   await page.evaluate(() => globalThis.__godotMotionProbe.start(false, []));
   await new Promise((resolve) => setTimeout(resolve, IDLE_SAMPLE_MS));
@@ -811,43 +852,151 @@ async function runBaselineScenarios() {
   // and changes only when its mode does, so it is rendered once.
   let phase = 1;
   const nextPhase = () => phase++;
+  const results = new Map();
   for (const count of counts) {
-    // (a) one cell's colour changes; (b) every cell's colour changes (the existing scenario).
-    for (const [name, only] of [[`${count}-a-one-cell-colour`, 0], [`${count}-b-every-cell-colour`, undefined]]) {
-      for (let warmup = 0; warmup < WARMUP_UPDATES; warmup++) await renderBenchmark({ count, text: false, mode: 'paint', phase: nextPhase(), only });
-      await baselineScenario(name, count, async (drain) => {
+    // (a) one cell's colour changes; (b) every cell's colour changes (the existing scenario). The
+    // acceptance run also measures (a) with memoized cells, as a real app keeps list rows.
+    const colourScenarios = [[`${count}-a-one-cell-colour`, 0, false], [`${count}-b-every-cell-colour`, undefined, false]];
+    if (acceptance) {
+      colourScenarios.splice(1, 0, [`${count}-a-one-cell-colour-memo`, 0, true], [`${count}-a-one-cell-rows`, 0, true, ROW_SIZE]);
+    }
+    for (const [name, only, memoCells, rowSize] of colourScenarios) {
+      for (let warmup = 0; warmup < WARMUP_UPDATES; warmup++) await renderBenchmark({ count, text: false, mode: 'paint', phase: nextPhase(), only, memoCells, rowSize });
+      results.set(name, await baselineScenario(name, count, async (drain) => {
         for (let index = 0; index < repetitions; index++) {
-          await renderBenchmark({ count, text: false, mode: 'paint', phase: nextPhase(), only });
+          await renderBenchmark({ count, text: false, mode: 'paint', phase: nextPhase(), only, memoCells, rowSize });
           if ((index + 1) % BASELINE_DRAIN_EVERY === 0) await drain();
         }
-      });
+      }, rowSize === undefined ? count : Math.ceil(count / rowSize)));
+    }
+    if (acceptance) {
+      // (e) an idle frame after a commit records nothing: wait for native to go quiet, then watch it.
+      await paintFrames();
+      const idleBefore = await activity();
+      for (let frame = 0; frame < IDLE_FRAMES; frame++) await paintFrames();
+      const idleAfter = await activity();
+      results.set(`${count}-e-idle-frames`, { before: idleBefore, after: idleAfter });
     }
     // (c) the mouse sweeps across up to 200 cells carrying `hover:` styles.
     await renderBenchmark({ count, text: false, mode: 'hover', phase: nextPhase() });
     const positions = await cellPositions(Math.min(count, BASELINE_HOVER_CELLS));
     await page.mouse.move(1, 1);
     await paintFrames();
-    await baselineScenario(`${count}-c-hover-sweep`, count, async (drain) => {
+    results.set(`${count}-c-hover-sweep`, await baselineScenario(`${count}-c-hover-sweep`, count, async (drain) => {
       for (const [index, position] of positions.entries()) {
         await page.mouse.move(position.x, position.y);
         await paintFrames();
         if ((index + 1) % BASELINE_DRAIN_EVERY === 0) await drain();
       }
-    });
+    }));
+    results.get(`${count}-c-hover-sweep`).moves = positions.length;
     // (d) the viewport crosses the `md` breakpoint (768 logical px) and back, repeatedly.
     await renderBenchmark({ count, text: false, mode: 'responsive', phase: nextPhase() });
     await page.mouse.move(1, 1);
-    await baselineScenario(`${count}-d-breakpoint-resize`, count, async (drain) => {
+    results.set(`${count}-d-breakpoint-resize`, await baselineScenario(`${count}-d-breakpoint-resize`, count, async (drain) => {
       for (let pair = 0; pair < BASELINE_RESIZE_PAIRS; pair++) {
         await size(BASELINE_NARROW_VIEWPORT, 1);
         await drain();
         await size(BENCHMARK_VIEWPORT, 1);
         await drain();
       }
-    });
+    }));
   }
   await page.evaluate(() => globalThis.godotReactDemo.restoreDemo());
   await paintFrames();
+  if (acceptance) acceptanceCriteria(results);
+}
+
+/**
+ * The decision (docs/INTERACTION_PLAN.md, decision log) that explains the JS clauses of criterion 1
+ * for the flat variants: every cell is a child of one parent, and React rebuilds the parent's child
+ * list on every update, so JS time follows the sibling count. The rows variant bounds every parent's
+ * fan-out and meets the same clauses. A failure with a decision is reported with it and does not fail
+ * the run; any other failing criterion does.
+ */
+const FLAT_LIST_DEVIATION = 'D8';
+
+/** Phase F4's pass criteria, evaluated on the scenario results and recorded in the report. */
+function acceptanceCriteria(results) {
+  const verdicts = [];
+  const criterion = (name, passed, detail, deviation) => {
+    verdicts.push({ name, passed: Boolean(passed), ...(deviation !== undefined && !passed ? { deviation } : {}), detail });
+    report.assertions.push({ scope, name: `F4: ${name}`, passed: Boolean(passed) || deviation !== undefined, detail });
+  };
+  const small = counts[0];
+  const large = counts.at(-1);
+  // 1. One cell changes: cost at 2,000 cells against 50, for the commit and for native. The flat
+  // variants put every cell under one parent; the rows variant bounds every parent's fan-out.
+  for (const variant of ['a-one-cell-colour', 'a-one-cell-colour-memo', 'a-one-cell-rows']) {
+    const few = results.get(`${small}-${variant}`);
+    const many = results.get(`${large}-${variant}`);
+    const ratio = (key, field) => many.derived[key][field] / few.derived[key][field];
+    const deviation = variant === 'a-one-cell-rows' ? undefined : FLAT_LIST_DEVIATION;
+    criterion(`1 (${variant}): JS commit time at ${large} cells is at most ${MAX_SCALE_RATIO}x the ${small}-cell time`,
+      ratio('jsCommitMs', 'p50') <= MAX_SCALE_RATIO,
+      { few: few.derived.jsCommitMs.p50, many: many.derived.jsCommitMs.p50, ratio: ratio('jsCommitMs', 'p50') }, deviation);
+    criterion(`1 (${variant}): the renderer's commit walk at ${large} cells is at most ${MAX_SCALE_RATIO}x the ${small}-cell time`,
+      ratio('jsWalkMs', 'p50') <= MAX_SCALE_RATIO,
+      { few: few.derived.jsWalkMs.p50, many: many.derived.jsWalkMs.p50, ratio: ratio('jsWalkMs', 'p50') }, deviation);
+    criterion(`1 (${variant}): native commit time at ${large} cells is at most ${MAX_SCALE_RATIO}x the ${small}-cell time`,
+      ratio('nativeCommitMicros', 'p50') <= MAX_SCALE_RATIO,
+      { few: few.derived.nativeCommitMicros.p50, many: many.derived.nativeCommitMicros.p50, ratio: ratio('nativeCommitMicros', 'p50') });
+    const mutationsPerCommit = [few, many].map((result) => result.counts.mutations / result.counts.nativeBatches);
+    criterion(`1 (${variant}): payload size and mutations per commit do not depend on the cell count`,
+      few.derived.payloadEntries.p50 === many.derived.payloadEntries.p50 &&
+      Math.abs(few.derived.payloadChars.p50 - many.derived.payloadChars.p50) <= MAX_TAG_DIGIT_GROWTH_CHARS &&
+      mutationsPerCommit[0] === mutationsPerCommit[1],
+      { payloadChars: [few.derived.payloadChars.p50, many.derived.payloadChars.p50],
+        payloadEntries: [few.derived.payloadEntries.p50, many.derived.payloadEntries.p50], mutationsPerCommit });
+  }
+  // 2. A hover sweep causes no React commit and no commit call, and re-records only the cells whose paint changed.
+  for (const count of counts) {
+    const sweep = results.get(`${count}-c-hover-sweep`);
+    criterion(`2 (${count} cells): the hover sweep causes zero React commits and zero native commits`,
+      sweep.counts.reactCommits === 0 && sweep.counts.nativeBatches === 0,
+      { reactCommits: sweep.counts.reactCommits, nativeBatches: sweep.counts.nativeBatches });
+    // Each move unhovers the previous cell and hovers the next: at most two boxes per move, no text.
+    criterion(`2 (${count} cells): the sweep re-records only cells whose paint changed (at most 2 boxes per move, no content)`,
+      sweep.counts.boxRecords <= 2 * sweep.moves && sweep.counts.contentRecords === 0,
+      { boxRecords: sweep.counts.boxRecords, contentRecords: sweep.counts.contentRecords, moves: sweep.moves });
+  }
+  // 3. A resize across `md` causes no React commit and restyles exactly the nodes that use `md:` classes.
+  for (const count of counts) {
+    const resize = results.get(`${count}-d-breakpoint-resize`);
+    const crossings = 2 * BASELINE_RESIZE_PAIRS;
+    criterion(`3 (${count} cells): the resize causes zero React commits`, resize.counts.reactCommits === 0,
+      { reactCommits: resize.counts.reactCommits });
+    criterion(`3 (${count} cells): the resize restyles exactly the ${count} nodes that use md: classes, per crossing`,
+      resize.counts.nodesRestyled === count * crossings,
+      { nodesRestyled: resize.counts.nodesRestyled, expected: count * crossings });
+  }
+  // 4. Every cell changes: total time per update lower than the F0 baseline. F0's reconcile window
+  // ended before it drew (the draw ran in the next frame); the Fabric renderer paints inside the
+  // commit, so its reconcile window is the whole update and F0's total is the window plus its draw.
+  const every = results.get(`${large}-b-every-cell-colour`);
+  const f0TotalMs = F0_EVERY_CELL_2000_RECONCILE_P50_MS + F0_EVERY_CELL_2000_DRAW_P50_MS;
+  criterion(`4: updating every cell at ${large} cells takes less in total than the F0 baseline (${f0TotalMs.toFixed(2)} ms median: reconcile + draw)`,
+    large === 2000 && every.stages.js['reconcile.durationMs'].p50 < f0TotalMs,
+    { totalP50Ms: every.stages.js['reconcile.durationMs'].p50, baselineMs: f0TotalMs,
+      baselineReconcileMs: F0_EVERY_CELL_2000_RECONCILE_P50_MS, baselineDrawMs: F0_EVERY_CELL_2000_DRAW_P50_MS,
+      paintInsideWindowMs: every.stages.native['draw.cpuMicros'].p50 / 1000 });
+  // 5. An idle frame after a commit records no canvas-item commands.
+  for (const count of counts) {
+    const idle = results.get(`${count}-e-idle-frames`);
+    criterion(`5 (${count} cells): ${IDLE_FRAMES} idle frames after a commit record no box or content commands`,
+      idle.after.boxRecords === idle.before.boxRecords && idle.after.contentRecords === idle.before.contentRecords &&
+      idle.after.paintPasses === idle.before.paintPasses,
+      { box: [idle.before.boxRecords, idle.after.boxRecords], content: [idle.before.contentRecords, idle.after.contentRecords],
+        paintPasses: [idle.before.paintPasses, idle.after.paintPasses] });
+  }
+  report.criteria = verdicts;
+  for (const verdict of verdicts) {
+    console.log(`GODOT_REACT_CRITERION ${verdict.passed ? 'PASS' : verdict.deviation ? `FAIL (recorded deviation ${verdict.deviation})` : 'FAIL'} ${verdict.name} ${JSON.stringify(verdict.detail)}`);
+  }
+  const failed = verdicts.filter((verdict) => !verdict.passed && verdict.deviation === undefined);
+  if (failed.length > 0) {
+    throw new Error(`Phase F4 criteria failed:\n${failed.map((verdict) => `${verdict.name}: ${JSON.stringify(verdict.detail)}`).join('\n')}`);
+  }
 }
 
 async function observe(observedPage) {
@@ -1044,7 +1193,7 @@ try {
     await packObserver.verifyPackTransfer();
     check('WebAssembly page is cross-origin isolated', await page.evaluate(() => crossOriginIsolated));
     await installProbe();
-    if (baseline) {
+    if (scenarioMode) {
       await runBaselineScenarios();
     } else {
       for (const dpr of [1, 2]) {
@@ -1079,7 +1228,7 @@ try {
   await writeFile(resolve(output, 'report.json'), JSON.stringify(report, null, 2) + '\n');
   await writeFile(resolve(output, 'browser.log'), report.console.map((entry) => `[${entry.type}] ${entry.text}`).join('\n') + '\n');
 }
-if (report.passed && !process.exitCode) console.log(baseline ? 'GODOT_REACT_BASELINE_VERIFY_PASSED' : 'GODOT_REACT_MOTION_VERIFY_PASSED', JSON.stringify({
+if (report.passed && !process.exitCode) console.log(baseline ? 'GODOT_REACT_BASELINE_VERIFY_PASSED' : acceptance ? 'GODOT_REACT_ACCEPTANCE_VERIFY_PASSED' : 'GODOT_REACT_MOTION_VERIFY_PASSED', JSON.stringify({
   assertions: report.assertions.length, captures: report.captures.length, benchmarks: report.benchmarks.length,
   quick, report: resolve(output, 'report.json'),
 }));

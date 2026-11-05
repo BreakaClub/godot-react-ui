@@ -105,6 +105,10 @@ pub struct ReactUiRoot {
     layout_dirty: BTreeSet<u32>,
     /// Nodes whose canvas items may need re-recording.
     paint_dirty: BTreeSet<u32>,
+    /// Something that decides which element is under the pointer changed since the last hit test:
+    /// a node moved or resized, the tree's structure changed, or an element started or stopped
+    /// clipping its children.
+    hit_stale: bool,
     /// Nodes whose text paragraph must be rebuilt.
     pending_text: BTreeSet<u32>,
     pending_style_removals: Vec<u32>,
@@ -163,6 +167,7 @@ impl IControl for ReactUiRoot {
             ring_drawn: None,
             layout_dirty: BTreeSet::new(),
             paint_dirty: BTreeSet::new(),
+            hit_stale: false,
             pending_text: BTreeSet::new(),
             pending_style_removals: Vec::new(),
             deletions: Vec::new(),

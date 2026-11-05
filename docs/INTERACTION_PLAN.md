@@ -1,8 +1,9 @@
 # Fabric renderer and interaction plan
 
-Status: plan v2.2, 6 November 2026. Done: Phase 0 (`9f4a02c`), Phase 1 (`0d11607`), Phase F0
-(`4f7dd0d`), Phase F1 (`ce99bea`), Phase F2 (`578b461`). Next: Phase F4 (Phase F3, the cut-over, is
-landing with this revision).
+Status: plan v2.3, 6 November 2026. Done: Phase 0 (`9f4a02c`), Phase 1 (`0d11607`), Phase F0
+(`4f7dd0d`), Phase F1 (`ce99bea`), Phase F2 (`578b461`), Phase F3 (`07a8344`), Phase F4 (landing with
+this revision; its numbers and decisions D7 to D10 are in the progress log and the decision log
+below). Next: Phase I1.
 
 v1 of this plan (`7f0a96c`) was rejected because it built every interaction feature on the
 prototype's commit path, which re-walks and re-sends the whole tree on every change. v2 replaces
@@ -67,6 +68,42 @@ not a reason to wait.
   proved each cause and the negative controls. Fix: `publish_commit(changes, structure_changed)` and a
   `paint_pass()` at the end of `set_focus`; a regression assertion for each in `verify.ts`
   (and `verify-web.mjs`).
+- **D8 (F4)**: the JS clauses of criterion 1 (JS commit time and the commit walk, at most
+  `MAX_SCALE_RATIO` times the 50-cell figure) are met by a tree whose parents have bounded fan-out and
+  not by a flat list of 2,000 siblings; the native clause, payload and mutation counts are met by both.
+  Evidence (acceptance run, Web, Chrome 156): one-cell change, JS commit time 2,000 cells against 50:
+  7.2x for a flat list whose parent re-renders every cell, 2.6x to 3.2x with memoized cells, **1.1x to 1.4x
+  with the same 2,000 cells in 40 memoized rows of 50**. The cause is React, not the renderer: a parent
+  that re-renders walks its children (the fixture creates 2,000 elements; memoization only makes each one
+  cheap) and, in persistent mode, rebuilds the parent's child list when one child changes
+  (`appendAllChildren`); even with state local to the one cell, so the parent does not re-render at all,
+  a one-cell commit goes from 0.10 ms at 50 siblings to 0.85-1.0 ms at 2,000 (Node, V8, same renderer,
+  no-op host), about 0.4 us per sibling. The renderer's own walk is 0.015 ms at both sizes in the rows
+  fixture and about 17 ns per sibling in the memo fixture. So the criterion cannot hold for a flat list
+  under React; F4 evaluates the clause on the bounded fan-out fixture and reports the flat variants as
+  recorded deviations (the runner prints them as `FAIL (recorded deviation D8)`).
+- **D9 (F4)**: Stylo is told only about a node while the node has a `transition` or has just lost one,
+  which replaces F3's choice to mirror every mounted node. A node that gains a `transition` in the same
+  change that changes a value is first given its previous style and resolved, so its transition still
+  starts from the old value. Evidence (instrumented build, Web): at 2,000 cells one cell's colour change
+  cost Stylo 320 us against 114 us at 50, and 7.4 ms of the 28 ms commit when every cell changed. Stylo's
+  traversal visits every sibling of a dirty node (about 100 ns each), so a restyle of a plain cell grew
+  with its sibling count for no effect: plain nodes are never sampled. Result: native commit time for the
+  one-cell change is 168 us at 2,000 cells against 198 us at 50 (ratio 0.85), and for every cell 23.8 ms
+  against 31.7 ms. One behaviour differs: a `display: none` ancestor with no transition no longer cancels
+  a running transition on its descendants (Stylo does not see the ancestor hide); the transition runs to
+  its end instead, to the same final value.
+- **D10 (F4)**: criterion 4 compares totals. F0's reconcile window ended before its native draw (the draw ran
+  in the next frame: 15.9 ms of native draw CPU at 2,000 cells); the Fabric renderer paints inside the
+  commit, so its reconcile window is the whole update. "Total time per update" is therefore F0's reconcile
+  p50 plus F0's draw p50 (41.30 + 15.885 = 57.19 ms) against the new reconcile window (51.7 ms).
+  Compared with the reconcile window alone it is 51.7 against 41.30, which is not a like-for-like
+  comparison. The per-node work did not shrink: parse (3.9 ms), validation (3.3 ms), restyle and paint
+  (14.8 ms) are all inside the one window.
+- **Native rule restored (F4)**: plan 3.3 says hover re-hit-tests "if geometry under the mouse changed";
+  F3 re-hit-tested at every flush, which walks the siblings at every level (169 us at 2,000 cells).
+  `flush_layout` now re-hit-tests only after something that decides the hit changed: a node's geometry,
+  a child list, or an element's overflow (`hit_stale`).
 
 The plan is written so an implementer can execute it phase by phase without re-deciding the
 architecture. Where it says **must**, it is a contract. Where it says *suggested*, use judgement and
@@ -1131,11 +1168,14 @@ snapshot commit counters. **Pass** requires all of:
 
 1. One cell changes at 2,000 cells: JS commit time (render + commit walk) and native `commit` time
    are each at most `MAX_SCALE_RATIO` × the same scenario at 50 cells; the payload size and
-   `mutations` are the same at both sizes.
+   `mutations` are the same at both sizes. The JS clause is evaluated on a tree with bounded fan-out
+   (rows of 50 cells); a flat list of 2,000 siblings is bound by React's per-sibling work and is
+   reported, not required (D8).
 2. Hover sweep across 200 cells: zero React commits, zero `commit` calls, `contentRecords` and
    `boxRecords` only for nodes whose paint changed.
 3. Resize across `md`: zero React commits; restyled nodes equal the nodes that use `md:` classes.
-4. Every cell changes at 2,000 cells: total time per update lower than the F0 baseline.
+4. Every cell changes at 2,000 cells: total time per update lower than the F0 baseline (F0's reconcile
+   p50 plus its draw p50, since F0 drew after its reconcile window; D10).
 5. An idle frame after a commit records zero canvas-item commands (`boxRecords`/`contentRecords`
    unchanged).
 

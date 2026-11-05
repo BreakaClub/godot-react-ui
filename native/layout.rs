@@ -94,12 +94,16 @@ impl ReactUiRoot {
             self.pressed = None;
             self.refresh_interaction();
         }
-        let hit = if self.pointer_known {
-            self.mounted.hit_test(self.pointer)
-        } else {
-            None
-        };
-        self.update_hover(hit);
+        // The element under the pointer can only have changed if something that decides it did, and
+        // finding it walks the siblings at every level, so a flush that moved nothing skips it.
+        if std::mem::take(&mut self.hit_stale) {
+            let hit = if self.pointer_known {
+                self.mounted.hit_test(self.pointer)
+            } else {
+                None
+            };
+            self.update_hover(hit);
+        }
         self.geometry_micros = micros(geometry_started);
         self.phase_layout_micros += self.last_layout_micros;
         self.phase_geometry_micros += self.geometry_micros;
