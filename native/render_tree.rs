@@ -361,7 +361,8 @@ impl ReactUiRoot {
     /// was redrawn or cleared.
     fn update_focus_ring(&mut self) -> bool {
         let viewport = self.viewport_box();
-        let target = self.focused.and_then(|tag| {
+        // The ring marks a keyboard focus only (plan 3.13): a press focuses without it.
+        let target = self.focused.filter(|_| self.focus_visible).and_then(|tag| {
             let node = self.mounted.nodes.get(&tag)?;
             let (rect, clip) = self.mounted.absolute_geometry(tag, viewport)?;
             let radius = node.computed.border_radius.unwrap_or(0.0) as i32;

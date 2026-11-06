@@ -11,7 +11,7 @@ import {
   type DispatchResult, type PathNode, type UIEventMap,
 } from './events';
 import {
-  checkCapture, commitPayload, findTag, readDeletions, readEvents, readNodeRect, readSnapshot, resolveEvent,
+  checkCapture, checkFocus, commitPayload, findTag, readDeletions, readEvents, readNodeRect, readSnapshot, resolveEvent,
   type NativeEvent, type NativeEventType, type NativeHost, type NativePointerEvent,
   type NativeSnapshot, type NativeSnapshotNode,
 } from './native';
@@ -23,6 +23,8 @@ const LAYER_ROOT_TAG = 0;
 const MAIN_LAYER = 0;
 const OVERLAY_LAYER = 1;
 const MAX_TAG = 0xffff_ffff;
+/** `focusNode`'s `focusVisible` argument for "follow how the user last gave input". */
+const FOCUS_VISIBLE_BY_MODALITY = -1;
 const EMPTY_CONTEXT = Object.freeze({});
 /**
  * Guard against an event storm. Each round drains everything native has queued; handlers that keep
@@ -133,6 +135,17 @@ function captureMethods(host: NativeHost, tag: number): Pick<UIHandle, 'setPoint
   };
 }
 
+/** The focus methods of the handle of `tag`, which native validates. */
+function focusMethods(host: NativeHost, tag: number): Pick<UIHandle, 'focus' | 'blur'> {
+  return {
+    focus(options) {
+      const visible = options?.focusVisible;
+      checkFocus(host.focusNode(tag, visible === undefined ? FOCUS_VISIBLE_BY_MODALITY : visible ? 1 : 0), 'focus');
+    },
+    blur() { checkFocus(host.blurNode(tag), 'blur'); },
+  };
+}
+
 /** The public handle of a tag; created on first use and stable across clones. */
 function handleFor(root: RootState, tag: number): UIHandle {
   let handle = root.handles.get(tag);
@@ -142,6 +155,7 @@ function handleFor(root: RootState, tag: number): UIHandle {
       get testID() { return root.committed.get(tag)?.props.testID; },
       getRect() { return readNodeRect(root.host, tag); },
       ...captureMethods(root.host, tag),
+      ...focusMethods(root.host, tag),
     };
     root.handles.set(tag, handle);
   }
@@ -347,6 +361,11 @@ function dispatch(root: RootState, native: NativeEvent): DispatchResult {
   if (!addressesRoot && !root.committed.has(native.target)) return NOT_DISPATCHED;
   if (native.type === 'pointerenter' || native.type === 'pointerleave') return dispatchEnterLeave(root, native);
   const path = pathNodes(root, native.path);
+  if (native.type === 'focus' || native.type === 'blur') {
+    // The other side of a focus change, if it still exists.
+    const related = liveInstance(root, native.relatedTarget);
+    return dispatchEvent(native, path, related === undefined ? null : handleFor(root, related.tag), root);
+  }
   if (isClickFamily(native.type) && path.some((node) => node.props.disabled)) return NOT_DISPATCHED;
   return dispatchEvent(native, path, null, root);
 }
@@ -369,6 +388,7 @@ export function createRoot(host: NativeHost, options: RootOptions): UIRoot {
       testID: undefined,
       getRect() { return readNodeRect(host, LAYER_ROOT_TAG); },
       ...captureMethods(host, LAYER_ROOT_TAG),
+      ...focusMethods(host, LAYER_ROOT_TAG),
     },
   };
   const onUncaughtError = (error: Error) => {

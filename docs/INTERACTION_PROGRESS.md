@@ -1315,3 +1315,168 @@ touch page with real touch events and CDP):
 - Plan I2's demo (pad and knob in the Interaction tab) cannot fit its fixed, non-scrolling body (D14).
 - Plan 3.24 and the I2 Files list omit `native/snapshot.rs` (4.5 says `pointers` arrives with I2), the two new
   modules, `demo/src/labs.tsx` and `tests/recording-host.ts`.
+
+## Phase I3 - Focus and keyboard
+
+Date: 6 November 2026. Same host and builds as I1 and I2. Decisions D17 to D19 are in the plan's decision log with
+their evidence.
+
+### What changed, by file
+
+| File | Change |
+| --- | --- |
+| `native/props.rs` | `tabIndex` (`0` or `-1`, any node kind) and `autoFocus` props, merged and validated; one test |
+| `native/focus.rs` (new, Godot-free) | `FocusTree`, `nearest_focusable`, `is_focusable`, `is_tabbable`, `tab_stops` (document order, a visibility predicate), `next_tab_stop` (wraps; continues from a non-stop's place), the `Modality` enum. 7 unit tests |
+| `native/keymap.rs` (new, pure over Godot's `Key`) | DOM `key` (typed character, else name, else printable label, else `Unidentified`) and `code` (physical key; modifiers by side), `is_modifier_key`. 7 unit tests |
+| `native/keyboard_input.rs` (new) | key events dispatched (awaited) to the focused element or to root listeners, Tab and Enter/Space default actions and the consume rule, `advance_focus` along the tab stops, `focus_node` and `blur_node`, `autoFocus` |
+| `native/events.rs` | `KeyData`, `FocusData`; `KeyDown`, `KeyUp`; `Focus` and `Blur` now carry `relatedTarget` and `focusVisible` |
+| `native/lib.rs` | `modality` and `activation_key`; `set_focus` with the related element and visibility (a same-element change of visibility only restyles); `focus_node` and `blur_node` (`#[func]`); the old key branch, `advance_focus` and Enter/Space code replaced by `handle_key`; the root takes key focus in `ready()` if an element was focused before it entered the tree |
+| `native/mount.rs`, `native/render_tree.rs`, `native/pointer_input.rs`, `native/snapshot.rs` | `FocusTree` for the mounted tree and `autoFocus` after each commit; the ring only for a keyboard focus; a press focuses the nearest focusable ancestor-or-self and sets the modality; the snapshot reports `modality` |
+| `src/props.ts`, `src/native.ts`, `src/events.ts`, `src/components.tsx`, `src/renderer.ts`, `src/index.ts` | `tabIndex`, `autoFocus`; `keydown`/`keyup` (`UIKeyboardEvent`, `onKeyDown(Capture)`, `onKeyUp(Capture)`); focus events with `relatedTarget` and `focusVisible`; the handle's `focus()` and `blur()`; the host's `focusNode` and `blurNode` |
+| `tests/*` | the fake host's focus API and key events; key capture/bubble/preventDefault/repeat, root key events, focus events with related targets, handle focus, the new props |
+| `demo/src/keyboard-lab.tsx` (new), `demo/src/labs.tsx` | the Keyboard lab: buttons (one disabled, one with no `focus:` class), two keyed buttons that trade places, a `tabIndex={0}` card with `focus-visible:` styles and a key log, a `tabIndex={-1}` element, a dialog with a JS focus trap and `autoFocus`, `focus()` buttons |
+| `demo/src/verify.ts` | one assertion inverted (D17); the `05-keyboard-focus` step always presses Tab at least once (it used to be a mouse focus) and a new assertion probes the ring after it |
+| `demo/src/verify-interaction.ts`, `scripts/verify-interaction-web.mjs` | the keyboard scenarios, native and Web (the ring is a pixel of the canvas screenshot on Web) |
+| `demo/typings/godot7.gen.d.ts` | the two new methods |
+| `native/PROTOCOL.md`, `README.md`, `docs/INTERACTION_PLAN.md` | focus and keyboard, D17 to D19, the I3 task text |
+
+### Gate
+
+Verification tiers changed during this phase (D20, at Ben's request): the phase-done tier is the unit suites, the
+typecheck, Clippy, `verify:interaction` and `verify` natively, `verify:motion` because `render_tree.rs` changed,
+and the Web interaction verifier because browser keyboard input changed. `verify:web` and `verify:motion:web` are in
+the batch regression (see the batch section). Logs are in `/tmp/i3-gate/`.
+
+| Command | Result |
+| --- | --- |
+| `pnpm test:types` / `pnpm test` | clean / **71 passed** (66 before) |
+| `cargo test --locked` | **110 passed** (95 before: 7 `focus`, 7 `keymap`, 1 `props`; the wire-shape test in `events` was extended) |
+| `cargo clippy --locked --all-targets -- -D warnings`, also `--features probe` | 0 warnings |
+| `rustup run stable rustfmt --edition 2024 --check native/lib.rs` | clean |
+| `pnpm build:native` | ok (dylib 10,545,600 bytes, default build; I2: 10,525,280) |
+| `pnpm gen:types` | exit 0; only `demo/typings/godot7.gen.d.ts` changed (`focusNode`, `blurNode`) and a second run left it identical. It could not pass first: `src/native.ts` already used the new host methods, so the typings were generated with `$GODOT --headless --audio-driver Dummy --editor --generate-types --path demo` after `pnpm build:native` (plan 0.3) |
+| `pnpm build` | ok |
+| `pnpm verify` (native, both viewports) | exit 0 on the final tree; existing assertions unchanged except the one D17 names |
+| `pnpm verify:motion` (native, both viewports) | exit 0, assertions unchanged |
+| `pnpm verify:interaction` (native, both viewports) | exit 0, adds `verifyKeyboard` (38 assertions) and the root-key check in the HUD section |
+| `pnpm build:web` | ok; Wasm 6,737,867 bytes (I2: 6,712,485) |
+| `pnpm verify:interaction:web` (port 8097) | passed: **610 assertions** (422 before), 66 captures (54 before), mouse half at both pixel ratios and orientations |
+
+The server on 8097 was `node scripts/serve-web.mjs` with `PORT=8097`.
+
+### The native verifiers are flaky on this host, before and after I1 to I3
+
+On the final tree `pnpm verify:interaction` passed 7 of 11 full runs and `pnpm verify` 5 of 8 (everything after the
+implementation was complete; the runs are logged in `/tmp/i3-gate/`). The failures name different, mouse or window
+dependent assertions each time: `Entering a child hovers its parent`, `The Interaction tab mounts its lab`,
+`Dragging inside the track moves the knob: value 0, captured true, moves 15`, `Label-to-padding release activates
+the same button`, and once the I3 assertion `With no element focused a key goes to root listeners, as target 0:
+w,Control` (a `Control` key arrived that the verifier never sends) and once a `windowFocused:false` state dump. At
+the pre-I1 commit `1b7a14b` the interaction verifier failed 4 of 6 runs, with `Entering a child hovers its parent`.
+Every gate above is a passing full run; a failing run was repeated, never edited around.
+
+What is proven: Godot sends this Control `MOUSE_EXIT` while the verifier's pointer is over an element and
+`has_point` has not returned false (diagnostic `godot_print`s in `update_hover`, `MOUSE_EXIT` and `has_point`, run
+with `pnpm verify:motion` and then removed; `lib.rs` is byte-identical to the build that was gated), and the
+pre-I1 code clears hover on `MOUSE_EXIT` in the same way (`git show 1b7a14b:native/lib.rs`). What is not proven:
+who sends it. The stray `Control` key and `windowFocused:false` point at real input and window focus on a host
+that was in use while the windows were open; I did not move the cursor or lock input to check. Nothing in the code
+was changed for it.
+
+### Rasters compared with the pre-I1 build
+
+The same worktree at `1b7a14b`, every native capture of the last run of each workflow against it, with a script that
+classifies each differing pixel (`classify.py` in the session scratchpad): **94 pairs, 20 identical**. A pair whose
+hover, pressed or focused element differs from the baseline's is a pair where the hover differs by timing (above),
+and its pixels are not comparable; there were 2 in the last runs (`native/portrait/04-incremented`, hovered 21 in the
+baseline and none now, and `native-interaction/portrait/06-self-removed`, none in the baseline and 106 now). The rest
+differ for three reasons:
+
+- **The focus ring is gone for mouse focus (D17), 43 pairs** (13 `native`, 23 `native-motion`, 7 `native-interaction`). At least 90 % of each pair's differing pixels are the ring's
+  blue (125, 168, 255 and its blends) in the baseline, now the button's own colour or the page's. Inspected: `03-pressed`, `04-incremented`
+  (the ring around `increment`), `06-context-accent`, `07-inventory`, `08-reordered`, `10-filtered`, `12-reentry`, the
+  motion lab's `01-closed`, `03-open`, `07-long-narrow`, `10-removed`, `11-remounted`, `13-paint-settled`,
+  `14-owner-remounted`, and the interaction lab's `01-interaction` (the `04 Interaction` tab) and `06-self-removed`
+  (the `Takes focus` button: the baseline has the ring and the indigo `focus:` border, the new capture only the
+  border, which is `focus:` applying to a pointer focus as D17 says).
+- **Mid-transition motion captures, 25 pairs** (sampled at wall-clock offsets, as in I1 and I2; they also contain the
+  same ring pixels). Not counted in the 43.
+- **The engine frame number in the interaction log text**, together with the ring: 122 non-ring pixels in the
+  landscape `06-self-removed` and `07-reattached`, 312 in the portrait `05-enter-leave` and `07-reattached`
+  (`down frame=366` against `368` in the landscape `06-self-removed`, viewed side by side).
+
+`05-keyboard-focus`, a capture of a mouse focus in the baseline, is now a real keyboard focus (D17) and its pixels
+equal the baseline's, ring included. The new captures were inspected, native and Web: `15-keyboard-ring` (the card
+after Tab: ring and the `focus-visible:` fill, six `keydown`/`keyup` Tab lines, focus lines naming where focus
+came from), `16-mouse-focus-no-ring` and `17-focus-trap` (the ring on `More`, the dialog's last button, after
+Shift+Tab wrapped to it).
+
+### Negative controls
+
+Each new regression assertion was checked to fail without its fix (the fix reverted alone, `pnpm build:native`, the
+verifier; the sources were restored from copies and compared afterwards):
+
+| Reverted | Failing assertion |
+| --- | --- |
+| the ring is drawn for any focus | `A press paints no ring` |
+| Tab follows tag order, not document order | `After a reorder Tab follows the new document order: kb-first,kb-activate,kb-plain,kb-swap-a,kb-swap-b,... != kb-first,kb-activate,kb-plain,kb-swap-b,kb-swap-a,...` |
+| Enter and Space queue a fake `pointerdown` | `Enter is one keyboard click: pointer 0, no pointer type, no pointerdown: clicks 1, pointerdowns 1, last click type "" id 0 d0` |
+| `repeat` is always false | `Key events carry DOM key, code and repeat: keydown key=A code=KeyA repeat=false|...` |
+| `autoFocus` is ignored | `autoFocus focuses the dialog's first button when it mounts: kb-open` |
+| the default action runs although `preventDefault()` was called | `Tab at the last button wraps to the first (the trap): dlg-cancel` |
+| Enter clicks on `keydown` | `Enter activates the focused button: inventory 1, map 2, help 0, panel 1, label 0, locked false` (a `verify:interaction` HUD assertion that was already there) |
+| `focus()` is always a keyboard focus | `focus() after a press is not a keyboard focus` |
+| Tab focus is not visible (`verify.ts`) | `A Tab focus paints the focus ring on the button even when its style has no focus rule` |
+
+### Verification added
+
+Natively and on Web (Web: the ring is read from the canvas screenshot with an inline PNG decoder):
+
+- Tab visits `Button`s and `tabIndex={0}` elements in document order and wraps; Shift+Tab walks it backwards; a
+  disabled button and a `tabIndex={-1}` element are skipped; two keyed buttons that trade places change the order
+  Tab follows (so it is the document, not creation order);
+- Tab onto a button with no `focus:` class paints the ring (a focus change that restyles nothing still paints,
+  D7's defect); the card shows the ring and matches `focus-visible:`; a press focuses without the ring and matches
+  `focus:` but not `focus-visible:`;
+- `focus` and `blur` name the element focus came from and went to, and whether it was a keyboard focus;
+- key events carry the DOM `key`, `code` and `repeat` (a typed `a` is `KeyA` with key `a`, Shift+`a` is `A`, arrow
+  keys, `Tab`), `keyup` follows `keydown`, and with nothing focused they reach root listeners as target 0;
+- Enter and Space on a focused button are one `click` of pointer 0 with no pointer type and no `pointerdown`; `:active`
+  applies while Space is held; nothing clicks until the key is released; the held key's repeats neither click nor
+  release; the HUD scenario's keys reach the game when native does not consume them;
+- a modal dialog written in JS from `onKeyDown`, `preventDefault()` and `focus()` keeps Tab inside itself (Tab at
+  its last button wraps to the first, Shift+Tab at its first wraps to the last), `autoFocus` focuses its first
+  button when it mounts, and Escape closes it and returns focus to its opener;
+- `focus()` after a press is not a keyboard focus, `focus({ focusVisible: true })` shows the ring, and `focus()` on
+  an element that cannot take focus throws `focus failed: node N cannot take focus: it is not a button and has no
+  tabIndex`.
+
+### Choices the plan left open
+
+- D17 to D19 list the ring, modality and key choices.
+- **`tabIndex` values.** Only `0` and `-1` are accepted (any other value is a validation error, as the plan says
+  positive values are out of scope); it is a native prop on every kind of element.
+- **Root key focus.** The root takes Godot key focus when an element is focused (including one focused by a commit
+  before the root entered the tree), not at `ready()` (plan 3.11).
+- **New modules.** `focus.rs`, `keymap.rs` and `keyboard_input.rs` (plan 3.24 lists `focus.rs` and `keymap.rs`; the
+  glue to Godot's key events is the third, as `pointer_input.rs` was for I2).
+- **A demo page.** The Keyboard lab is a page on the registry (`showLab('keyboard')`), not a section of the
+  Interaction tab (D14).
+
+### Engine findings
+
+- A Godot `InputEventKey` from a real keyboard carries `unicode`; `Input.parseInputEvent` leaves it as the script set
+  it, so the verifier's helper sets it (the DOM `key` of a typed character comes from it).
+- `Key` has no distinct left and right `Shift`/`Control`/`Alt`/`Meta`; the side comes from the event's `location`
+  (`KeyLocation`), which the verifier's events leave unspecified, and `dom_code` reads that as the left key.
+- Godot grants the root key focus on every left press before any handler runs (`viewport.cpp:1976`), so a press on
+  an element that takes no focus needs the post-press release D11 describes; a press on one that does (a button or a
+  `tabIndex` element) leaves key focus alone.
+
+### Plan problems found
+
+- Plan I3 says the ring shows for `:focus-visible` and the F3 verifier asserts a mouse press paints it; the two
+  contradict (D17).
+- The F3 verifier's `05-keyboard-focus` never pressed Tab (the mouse had already focused the button), so it was
+  not a keyboard-focus capture and the assertion named `Tab reaches increment` could not fail (D17).
+- Plan 3.24 omits `native/keyboard_input.rs`, `demo/src/keyboard-lab.tsx` and `tests/recording-host.ts`.

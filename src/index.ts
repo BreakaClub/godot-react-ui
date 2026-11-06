@@ -2,7 +2,7 @@ export { View, Text, Button, Portal } from './components';
 export type { UIProps, UIHandle } from './components';
 export { EventPhase } from './events';
 export type {
-  EventPhaseValue, UIAnyEvent, UIEvent, UIEventMap, UIFocusEvent, UIMouseFields, UIPointerEvent, UISyntheticEvent,
+  EventPhaseValue, UIAnyEvent, UIEvent, UIEventMap, UIFocusEvent, UIKeyboardEvent, UIMouseFields, UIPointerEvent, UISyntheticEvent,
   UIWheelEvent,
 } from './events';
 export { createRoot } from './renderer';

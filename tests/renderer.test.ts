@@ -149,6 +149,7 @@ test('native boundary rejects invalid data and surfaces failed commits', () => {
     drainEvents: () => '[]', getSnapshot: () => '{"nodes":[]}',
     getNodeRect: () => 'null', findByTestId: () => -1, resolveEvent: () => '',
     setPointerCapture: () => '', releasePointerCapture: () => '', hasPointerCapture: () => false,
+    focusNode: () => '', blurNode: () => '',
   };
   assert.throws(() => createRoot(malformed, { subscribeToEvents: NO_SUBSCRIPTION }), /Invalid native/);
   const host = new RecordingHost();

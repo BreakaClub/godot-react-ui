@@ -6,6 +6,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { inflateSync } from 'node:zlib';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
@@ -57,6 +58,19 @@ const OUTSIDE_THE_PAGE_PX = 300;
 // The pad's paint at rest: indigo-50 (`hover:` is indigo-100).
 const PAD_REST_COLOR = '#eef2ff';
 const FIRST_TOUCH_ID = 2;
+// The native focus ring (`FOCUS_RING_COLOR` in native/lib.rs, #7da8ff), a 2 px inset stroke, so one
+// logical pixel inside an element's left edge is on it. 8-bit channels, tolerance in channel steps.
+const FOCUS_RING_RGB = [0x7d, 0xa8, 0xff];
+const FOCUS_RING_TOLERANCE = 6;
+const FOCUS_RING_PROBE_INSET = 1;
+// Far more than the keyboard lab has tab stops: a loop that reaches this is a bug.
+const MAX_TAB_STEPS = 40;
+// The Activate button's paint while a key holds it (`active:bg-indigo-800`) and at rest.
+const ACTIVATE_ACTIVE_COLOR = '#3730a3';
+const ACTIVATE_REST_COLOR = '#4f46e5';
+// The card's paint when its focus is a keyboard focus (`focus-visible:bg-amber-100`) and at rest.
+const CARD_FOCUS_VISIBLE_COLOR = '#fef3c7';
+const CARD_REST_COLOR = '#ffffff';
 const EMSCRIPTEN_STARTUP_DIAGNOSTIC = 'Blocking on the main thread is very dangerous, see https://emscripten.org/docs/porting/pthreads.html#blocking-on-the-main-browser-thread';
 const viewports = [
   { name: 'landscape', width: 1120, height: 800, deviceScaleFactor: 1 },
@@ -684,8 +698,10 @@ async function runCooperationScenario() {
   // The owner gives the root key focus with no element focused: W still reaches the game, Tab does
   // not because it moved focus.
   await demo('grabSurfaceFocus');
+  await demo('resetRootKeys');
   await pressKey('w');
   await expectCounts('W reaches the game while the root has focus and no element is focused', (seen) => seen.unhandledKeys[KEY_W] === 2);
+  check('With no element focused a key goes to root listeners, as target 0', (await demo('rootKeys')).join(',') === 'w', await demo('rootKeys'));
   await pressKey('Tab');
   await expectFocused((await find('hud-inventory')).id, 'Tab focuses the first button');
   check('A Tab that moved focus is consumed', (await counts()).unhandledKeys[KEY_TAB] === 1);
@@ -925,6 +941,255 @@ async function runPointersScenario() {
   await demo('grabSurfaceFocus');
 }
 
+/** Decode an 8-bit, non-interlaced RGB or RGBA PNG (what Chrome's canvas screenshots are). */
+function decodePng(buffer) {
+  let offset = 8;
+  let header;
+  const data = [];
+  while (offset < buffer.length) {
+    const length = buffer.readUInt32BE(offset);
+    const type = buffer.toString('ascii', offset + 4, offset + 8);
+    const body = buffer.subarray(offset + 8, offset + 8 + length);
+    if (type === 'IHDR') header = { width: body.readUInt32BE(0), height: body.readUInt32BE(4), depth: body[8], colorType: body[9], interlace: body[12] };
+    if (type === 'IDAT') data.push(body);
+    offset += 12 + length;
+  }
+  assert.ok(header && header.depth === 8 && header.interlace === 0 && [2, 6].includes(header.colorType), `Unsupported screenshot PNG ${JSON.stringify(header)}`);
+  const channels = header.colorType === 6 ? 4 : 3;
+  const stride = header.width * channels;
+  const raw = inflateSync(Buffer.concat(data));
+  const pixels = Buffer.alloc(stride * header.height);
+  for (let y = 0; y < header.height; y += 1) {
+    const filter = raw[y * (stride + 1)];
+    const line = raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1));
+    for (let x = 0; x < stride; x += 1) {
+      const left = x >= channels ? pixels[y * stride + x - channels] : 0;
+      const up = y > 0 ? pixels[(y - 1) * stride + x] : 0;
+      const upLeft = y > 0 && x >= channels ? pixels[(y - 1) * stride + x - channels] : 0;
+      let value = line[x];
+      if (filter === 1) value += left;
+      else if (filter === 2) value += up;
+      else if (filter === 3) value += Math.floor((left + up) / 2);
+      else if (filter === 4) {
+        const estimate = left + up - upLeft;
+        const pa = Math.abs(estimate - left); const pb = Math.abs(estimate - up); const pc = Math.abs(estimate - upLeft);
+        value += pa <= pb && pa <= pc ? left : pb <= pc ? up : upLeft;
+      }
+      pixels[y * stride + x] = value & 0xff;
+    }
+  }
+  return { ...header, channels, pixels };
+}
+
+/** Whether the focus ring is drawn on `testID`: a pixel of the real canvas, one logical pixel inside its left edge. */
+async function ringOn(testID) {
+  const [{ rect }, data] = await Promise.all([find(testID), snapshot()]);
+  const canvas = await page.$('canvas');
+  assert.ok(canvas, 'Godot canvas vanished');
+  const image = decodePng(Buffer.from(await canvas.screenshot({ type: 'png', timeout: ACTION_TIMEOUT_MS })));
+  await canvas.dispose();
+  const scale = image.width / data.width;
+  const x = Math.floor((rect.x + FOCUS_RING_PROBE_INSET) * scale);
+  const y = Math.floor((rect.y + rect.height / 2) * scale);
+  const offset = (y * image.width + x) * image.channels;
+  return FOCUS_RING_RGB.every((channel, index) => Math.abs(image.pixels[offset + index] - channel) <= FOCUS_RING_TOLERANCE);
+}
+
+/** Every `kb-` element in document order that Tab stops on: enabled buttons and `tabIndex={0}` elements. */
+async function expectedTabOrder() {
+  const data = await snapshot();
+  const byId = new Map(data.nodes.map((node) => [node.id, node]));
+  const order = [];
+  const visit = (id) => {
+    const node = byId.get(id);
+    assert.ok(node, `Missing native node ${id}`);
+    const { testID, tabIndex, disabled } = node.props;
+    const tabbable = (node.kind === 'button' && disabled !== true && tabIndex !== -1) || tabIndex === 0;
+    if (typeof testID === 'string' && testID.startsWith('kb-') && tabbable) order.push(testID);
+    node.children.forEach(visit);
+  };
+  byId.get(0).children.forEach(visit);
+  return order;
+}
+
+async function testIDOf(id) {
+  if (id === null) return 'none';
+  const node = (await snapshot()).nodes.find((candidate) => candidate.id === id);
+  return typeof node?.props.testID === 'string' ? node.props.testID : `#${id}`;
+}
+
+/**
+ * Plan I3 with real Chrome keyboard input: Tab order, the focus ring and focus-visible, DOM key events
+ * and repeats, keyboard activation without pointer events, a focus trap and `focus()`. Mirrors
+ * demo/src/verify-interaction.ts; the ring is a pixel of the canvas screenshot.
+ */
+async function runKeyboardScenario() {
+  await demo('showLab', 'keyboard');
+  await waitUntil('the keyboard lab mounts', () => nodeExists('keyboard-lab'));
+  await demo('grabSurfaceFocus');
+  await focusCanvas();
+  const focusedTestID = async () => testIDOf(await focusedId());
+  const settleKeys = () => frames();
+  const tab = async (shift = false) => {
+    if (shift) await page.keyboard.down('Shift');
+    await page.keyboard.press('Tab');
+    if (shift) await page.keyboard.up('Shift');
+    await settleKeys();
+  };
+  const tabTo = async (testID, shift = false) => {
+    for (let step = 0; step <= MAX_TAB_STEPS && (await focusedTestID()) !== testID; step += 1) await tab(shift);
+    check(`Tab reaches ${testID}`, (await focusedTestID()) === testID, { focused: await focusedTestID() });
+  };
+  const keyLines = async () => (await text('kb-log')).split('\n').filter((line) => line !== '');
+  const focusLines = async () => (await text('kb-focus-log')).split('\n').filter((line) => line !== '');
+  const expectFocusedTestID = async (testID, name) => {
+    await waitUntil(name, async () => (await focusedTestID()) === testID);
+    check(name, true, { focused: testID });
+  };
+
+  // Tab stops on every enabled button and tabIndex 0 element, in document order, and wraps; Shift+Tab
+  // walks it backwards.
+  const stops = await expectedTabOrder();
+  check('The lab has the tab stops the test needs', stops.length >= 6 && !stops.includes('kb-disabled') && !stops.includes('kb-skip') && stops.includes('kb-card'), stops);
+  const forward = [];
+  for (let step = 0; step < stops.length + 1; step += 1) {
+    await tab();
+    forward.push(await focusedTestID());
+  }
+  check('Tab visits the stops in document order and wraps', forward.join(',') === [...stops, stops[0]].join(','), { forward, stops });
+  const backward = [];
+  for (let step = 0; step < stops.length; step += 1) {
+    await tab(true);
+    backward.push(await focusedTestID());
+  }
+  check('Shift+Tab walks it backwards, wrapping to the last', backward.join(',') === [...stops].reverse().join(','), { backward });
+
+  // Tab follows the document, not creation order.
+  await click('kb-swap');
+  const stopsAfter = await expectedTabOrder();
+  check('The swap changed the document order', stopsAfter.join(',') !== stops.join(',') && stopsAfter.indexOf('kb-swap-b') < stopsAfter.indexOf('kb-swap-a'), stopsAfter);
+  await demo('grabSurfaceFocus');
+  await focusCanvas();
+  await tabTo(stopsAfter[0]);
+  const swapped = [await focusedTestID()];
+  for (let step = 1; step < stopsAfter.length; step += 1) {
+    await tab();
+    swapped.push(await focusedTestID());
+  }
+  check('After a reorder Tab follows the new document order', swapped.join(',') === stopsAfter.join(','), { swapped, stopsAfter });
+
+  // Keyboard focus shows the ring and matches focus-visible, with no `focus:` style needed.
+  await tabTo('kb-plain');
+  let state = await snapshot();
+  check('Tab focus is a keyboard focus', state.focusVisible === true && state.modality === 'keyboard', { focusVisible: state.focusVisible, modality: state.modality });
+  check('Tab onto a button with no focus rule paints the ring', await ringOn('kb-plain'));
+  const order = await expectedTabOrder();
+  await tab();
+  check('Tab continues in document order', (await focusedTestID()) === order[order.indexOf('kb-plain') + 1]);
+  await tabTo('kb-card');
+  check('Keyboard focus draws the ring and matches focus-visible:', (await ringOn('kb-card')) && (await find('kb-card')).style.backgroundColor === CARD_FOCUS_VISIBLE_COLOR);
+  const before = order[order.indexOf('kb-card') - 1];
+  await waitUntil('focus names where it came from', async () => (await focusLines()).at(-1) === `focus related=${before} visible=true`);
+  check('focus names the element focus came from and that it is a keyboard focus', true, await focusLines());
+  await capture('15-keyboard-ring');
+
+  // A press focuses without the ring and without focus-visible; `focus:` still applies.
+  await click('kb-skip');
+  await expectFocusedTestID('kb-skip', 'A press focuses an element with tabIndex -1');
+  await waitUntil('blur names where focus went', async () => (await focusLines()).at(-1) === 'blur related=kb-skip visible=true');
+  state = await snapshot();
+  check('Pointer focus is not a keyboard focus', state.focusVisible === false && state.modality === 'pointer');
+  check('A press paints no ring', !(await ringOn('kb-skip')));
+  await click('kb-card');
+  await expectFocusedTestID('kb-card', 'Pressing the card focuses it');
+  check('Pressing the card paints no ring', !(await ringOn('kb-card')));
+  const pressed = (await find('kb-card')).style;
+  check('focus: applies to pointer focus, focus-visible: does not', pressed.backgroundColor === CARD_REST_COLOR && pressed.borderColor === '#6366f1', pressed);
+  await waitUntil('a pointer focus says so', async () => (await focusLines()).at(-1) === 'focus related=kb-skip visible=false');
+  check('A pointer focus says so', true, await focusLines());
+  await capture('16-mouse-focus-no-ring');
+
+  // Tab from a tabIndex -1 element continues from its place; keyboard use brings the ring back.
+  await click('kb-skip');
+  await tab();
+  await expectFocusedTestID('kb-open', 'Tab from a skipped element continues after it in document order');
+  check('and the ring is back', (await snapshot()).focusVisible === true && (await ringOn('kb-open')));
+
+  // Key events: DOM key and code, shift, and the repeats of a held key.
+  await tabTo('kb-card', true);
+  await page.keyboard.press('a');
+  await page.keyboard.down('Shift');
+  await page.keyboard.down('A');
+  await page.keyboard.down('A');
+  await page.keyboard.up('A');
+  await page.keyboard.up('Shift');
+  // The repeat is unique to this sequence (the log still holds the Shift+Tab that brought focus here).
+  await waitUntil('the card logged the held key repeating', async () => (await keyLines()).includes('keydown key=A code=KeyA repeat=true'));
+  await waitUntil('the card logged the last key release', async () => (await keyLines()).at(-1) === 'keyup key=Shift code=ShiftLeft repeat=false');
+  const lines = await keyLines();
+  check('A shifted letter is its capital with the physical key as code', lines.includes('keydown key=A code=KeyA repeat=false'), lines);
+  check('A held key repeats as keydown with repeat set', lines.includes('keydown key=A code=KeyA repeat=true'), lines);
+  check('A modifier is a key of its own, with its side', lines.at(-1) === 'keyup key=Shift code=ShiftLeft repeat=false', lines);
+  await page.keyboard.press('ArrowLeft');
+  await waitUntil('the card logged the arrow key', async () => (await keyLines()).includes('keydown key=ArrowLeft code=ArrowLeft repeat=false'));
+  check('A key that types nothing has its DOM name', true, await keyLines());
+
+  // Enter clicks a button once and no pointer events are made up; Space holds the active style until
+  // its release, and a held key's repeats do nothing more.
+  await tabTo('kb-activate');
+  const activate = () => text('kb-activate-status');
+  check('The button starts untouched', (await activate()) === 'clicks 0, pointerdowns 0, last click none', await activate());
+  await page.keyboard.press('Enter');
+  await waitUntil('Enter clicks the button', async () => (await activate()) === 'clicks 1, pointerdowns 0, last click type "" id 0 d0');
+  check('Enter is one keyboard click: pointer 0, no pointer type, no pointerdown', true, await activate());
+  await page.keyboard.down(' ');
+  await waitUntil('active: applies while Space is held', async () => (await find('kb-activate')).style.backgroundColor === ACTIVATE_ACTIVE_COLOR);
+  check('Nothing clicks until the key is released', (await activate()).startsWith('clicks 1,'), await activate());
+  await page.keyboard.down(' ');
+  await page.keyboard.down(' ');
+  await settleKeys();
+  check("A held key's repeats neither click nor release", (await activate()).startsWith('clicks 1,') && (await find('kb-activate')).style.backgroundColor === ACTIVATE_ACTIVE_COLOR, await activate());
+  await page.keyboard.up(' ');
+  await waitUntil('releasing Space clicks once', async () => (await activate()) === 'clicks 2, pointerdowns 0, last click type "" id 0 d0');
+  await waitUntil('the style returns to rest', async () => (await find('kb-activate')).style.backgroundColor === ACTIVATE_REST_COLOR);
+  check('Releasing Space clicks once and the style returns to rest', true, await activate());
+
+  // A focus trap in JS: Tab wraps inside the dialog, Escape closes it and gives focus back.
+  await click('kb-open');
+  await expectFocusedTestID('dlg-ok', "autoFocus focuses the dialog's first button when it mounts");
+  await tab();
+  await expectFocusedTestID('dlg-cancel', 'Tab moves inside the dialog');
+  await tab();
+  await expectFocusedTestID('dlg-more', 'to its last button');
+  await tab();
+  await expectFocusedTestID('dlg-ok', 'Tab at the last button wraps to the first (the trap)');
+  await tab(true);
+  await expectFocusedTestID('dlg-more', 'Shift+Tab at the first wraps to the last');
+  await capture('17-focus-trap');
+  await page.keyboard.press('Escape');
+  await waitUntil('Escape closes the dialog', async () => !(await nodeExists('kb-dialog')));
+  await expectFocusedTestID('kb-open', 'Escape returns focus to its opener');
+
+  // `focus()` from JS follows the input modality (a click is pointer input) unless it says otherwise,
+  // and refuses an element that cannot take focus.
+  await click('kb-focus-card');
+  await expectFocusedTestID('kb-card', 'focus() after a press focuses the card');
+  state = await snapshot();
+  check('focus() after a press is not a keyboard focus', state.focusVisible === false && !(await ringOn('kb-card')));
+  await click('kb-focus-card-visible');
+  await waitUntil('focus({ focusVisible: true }) shows the ring', async () => (await snapshot()).focusVisible === true);
+  check('focus({ focusVisible: true }) shows the ring', await ringOn('kb-card'));
+  await click('kb-focus-bad');
+  await expectTextWhere('kb-focus-status', 'focus() on an element that cannot take focus throws',
+    (value) => /focus failed: node \d+ cannot take focus: it is not a button and has no tabIndex/.test(value));
+
+  await page.mouse.move(1, 1);
+  await frames();
+  await demo('restoreDemo');
+  await waitUntil('the demo returns', () => nodeExists('app'));
+  await demo('grabSurfaceFocus');
+}
+
 /**
  * Plan I2, touch half, on the page with real touch support: a tap with the engine's mouse emulation
  * on (one pointer, never a mouse press, no hover left), two fingers through CDP (two ids), and a
@@ -1111,6 +1376,7 @@ async function runWorkflow(viewport) {
 
   await runCooperationScenario();
   await runPointersScenario();
+  await runKeyboardScenario();
 
   // This page keeps running across viewports (the native verifier gets a fresh process for each),
   // so leave a fresh root: the lab's log and click counters must not leak into the next viewport.

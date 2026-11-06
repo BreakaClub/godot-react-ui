@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createRoot, type RootOptions, type UIRoot } from '../src';
 import type { CommitPayload } from '../src/commit';
 import type {
-  NativeEvent, NativeEventType, NativeFocusEventType, NativeHost, NativePointerEvent,
+  NativeEvent, NativeEventType, NativeFocusEventType, NativeHost, NativeKeyEvent, NativePointerEvent,
   NativePointerEventType, NativeSnapshot, NativeSnapshotNode, NativeWheelEvent, PackedTags,
 } from '../src/native';
 
@@ -61,7 +61,7 @@ export function node(id: number, kind: 'view' | 'text' | 'button'): NativeSnapsh
 /** One call across the native boundary, for tests that assert what did and did not cross. */
 export type NativeCall =
   | 'commit' | 'takeCommitDeletions' | 'drainEvents' | 'getSnapshot' | 'getNodeRect' | 'findByTestId' | 'resolveEvent'
-  | 'setPointerCapture' | 'releasePointerCapture' | 'hasPointerCapture';
+  | 'setPointerCapture' | 'releasePointerCapture' | 'hasPointerCapture' | 'focusNode' | 'blurNode';
 
 /**
  * A fake native host that implements the commit API in JavaScript: it applies each payload to a
@@ -89,6 +89,11 @@ export class RecordingHost implements NativeHost {
   readonly pointersDown = new Set<number>();
   /** Capture by pointer id: the element receiving that pointer's events. */
   readonly captures = new Map<number, number>();
+  /** The tags `focus()` may focus (native decides focusability; the fake is told). */
+  readonly focusable = new Set<number>();
+  /** Every `focusNode` and `blurNode` request: tag and the focusVisible argument (undefined for blur). */
+  readonly focusRequests: Array<{ tag: number; focusVisible: number | undefined }> = [];
+  focused: number | null = null;
   /** Extra events appended to every drain, for storm tests. */
   produceEvents: (() => NativeEvent[]) | undefined;
   private nextSeq = 1;
@@ -205,6 +210,22 @@ export class RecordingHost implements NativeHost {
     return this.captures.get(pointerId) === tag;
   }
 
+  focusNode(tag: number, focusVisible: number): string {
+    this.calls.push('focusNode');
+    this.focusRequests.push({ tag, focusVisible });
+    if (!this.nodes.has(tag) || tag === 0) return `node ${tag} is not mounted`;
+    if (!this.focusable.has(tag)) return `node ${tag} cannot take focus: it is not a button and has no tabIndex`;
+    this.focused = tag;
+    return '';
+  }
+
+  blurNode(tag: number): string {
+    this.calls.push('blurNode');
+    this.focusRequests.push({ tag, focusVisible: undefined });
+    if (this.focused === tag) this.focused = null;
+    return '';
+  }
+
   getNodeRect(tag: number): string {
     this.calls.push('getNodeRect');
     return JSON.stringify(this.nodes.get(tag)?.rect ?? null);
@@ -221,7 +242,7 @@ export class RecordingHost implements NativeHost {
     const snapshot: NativeSnapshot = {
       clockMs: 0, transitions: [],
       nodes: [...this.nodes.values()],
-      width: 1024, height: 768, hovered: null, focused: null, pressed: null, pointers: [],
+      width: 1024, height: 768, hovered: null, focused: this.focused, pressed: null, focusVisible: false, modality: 'keyboard', pointers: [],
       stats: {
         batches: this.commits.length, nodeCount: this.nodes.size - 1, layoutPasses: 0, paintPasses: 0, layoutMicros: 0,
         nodesCreated: 0, nodesUpdated: 0, nodesDeleted: 0, nodesRestyled: 0, mutations: 0, boxRecords: 0, contentRecords: 0,
@@ -250,7 +271,8 @@ export class RecordingHost implements NativeHost {
   event(target: number, type: NativeEventType, overrides: Partial<NativePointerEvent> = {}): NativeEvent {
     const event = isFocusType(type)
       ? this.focusEvent(target, type)
-      : type === 'wheel' ? this.wheelEvent(target) : this.pointerEvent(target, type, overrides);
+      : type === 'wheel' ? this.wheelEvent(target)
+        : type === 'keydown' || type === 'keyup' ? this.keyEvent(target, type) : this.pointerEvent(target, type, overrides);
     this.events.push(event);
     return event;
   }
@@ -279,8 +301,21 @@ export class RecordingHost implements NativeHost {
     };
   }
 
-  focusEvent(target: number, type: NativeFocusEventType, cancelable = false): NativeEvent {
-    return { seq: this.nextSeq++, target, path: this.pathOf(target), cancelable, timeStamp: 1.5, type };
+  focusEvent(target: number, type: NativeFocusEventType, related: number | null = null, focusVisible = false): NativeEvent {
+    return {
+      seq: this.nextSeq++, target, path: this.pathOf(target), cancelable: false, timeStamp: 1.5, type,
+      relatedTarget: related, focusVisible,
+    };
+  }
+
+  /** A key press or release; a `keydown` is cancelable, as native awaits JS's answer. */
+  keyEvent(target: number, type: 'keydown' | 'keyup', overrides: Partial<NativeKeyEvent> = {}): NativeKeyEvent {
+    return {
+      seq: this.nextSeq++, target, path: this.pathOf(target), cancelable: type === 'keydown', timeStamp: 1.5, type,
+      key: 'a', code: 'KeyA', repeat: false, isComposing: false,
+      shiftKey: false, ctrlKey: false, altKey: false, metaKey: false,
+      ...overrides,
+    };
   }
 }
 

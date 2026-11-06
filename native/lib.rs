@@ -2,7 +2,10 @@ mod commit;
 mod computed_style;
 mod diff;
 mod events;
+mod focus;
 mod geometry;
+mod keyboard_input;
+mod keymap;
 mod layout;
 mod motion;
 mod mount;
@@ -38,13 +41,15 @@ use taffy::prelude::{NodeId, TaffyTree};
 use commit::{CommitPayload, LAYER_COUNT};
 use computed_style::{InteractionState, PseudoStates, restyle};
 use events::{
-    DropEffect, EventOutcome, EventPayload, EventQueue, Modifiers, PointerData, PointerType,
+    DropEffect, EventOutcome, EventPayload, EventQueue, FocusData, Modifiers, PointerData,
+    PointerType,
 };
+use focus::Modality;
 use motion::{IntrinsicTrack, TransitionRecord};
 use mount::Mounted;
 use pointer::{
-    DOM_BUTTON_NONE, DOM_BUTTON_PRIMARY, DOM_BUTTONS_PRIMARY, KEYBOARD_POINTER_ID,
-    MOUSE_POINTER_ID, cursor_shape, dom_buttons,
+    DOM_BUTTON_NONE, DOM_BUTTON_PRIMARY, KEYBOARD_POINTER_ID, MOUSE_POINTER_ID, cursor_shape,
+    dom_buttons,
 };
 use pointer_state::{ClickCounter, PointerTable};
 use profile::{Profiler, micros};
@@ -131,6 +136,10 @@ pub struct ReactUiRoot {
     focused: Option<u32>,
     pressed: Option<u32>,
     pressed_by_keyboard: bool,
+    /// The key that pressed a focused button, while it is held.
+    activation_key: Option<Key>,
+    /// How the user last gave input (plan 3.13).
+    modality: Modality,
     focus_visible: bool,
     /// Where the mouse is, which of its buttons are down and which modifiers are held.
     pointer: Vector2,
@@ -190,6 +199,8 @@ impl IControl for ReactUiRoot {
             focused: None,
             pressed: None,
             pressed_by_keyboard: false,
+            activation_key: None,
+            modality: Modality::Keyboard,
             focus_visible: false,
             pointer: Vector2::ZERO,
             pointer_known: false,
@@ -251,8 +262,12 @@ impl IControl for ReactUiRoot {
         }
         self.apply_presentation();
         self.flush_layout();
-        // No `grab_focus()` here: the root takes key focus only when an element is focused, or
-        // when its owner calls `grabFocus()` (plan 3.11).
+        // The root takes key focus only when an element is focused, or when its owner calls
+        // `grabFocus()` (plan 3.11). An element focused by a commit before the root entered the
+        // tree (`autoFocus`) could not take it then.
+        if self.focused.is_some() {
+            self.base_mut().grab_focus();
+        }
     }
 
     fn on_notification(&mut self, what: ControlNotification) {
@@ -280,6 +295,7 @@ impl IControl for ReactUiRoot {
                 if self.pressed_by_keyboard {
                     self.pressed = None;
                     self.pressed_by_keyboard = false;
+                    self.activation_key = None;
                 }
                 self.refresh_interaction();
             }
@@ -291,6 +307,7 @@ impl IControl for ReactUiRoot {
                 self.cancel_all_pointers();
                 self.pressed = None;
                 self.pressed_by_keyboard = false;
+                self.activation_key = None;
                 self.refresh_interaction();
             }
             ControlNotification::ENTER_TREE if self.font.is_some() => {
@@ -305,7 +322,7 @@ impl IControl for ReactUiRoot {
                 self.events.retain(|payload| {
                     matches!(
                         payload,
-                        EventPayload::Blur
+                        EventPayload::Blur(_)
                             | EventPayload::PointerLeave(_)
                             | EventPayload::PointerCancel(_)
                     )
@@ -436,6 +453,32 @@ impl ReactUiRoot {
     fn has_pointer_capture(&self, tag: i64, pointer_id: i64) -> bool {
         ids(tag, pointer_id)
             .is_ok_and(|(tag, pointer_id)| self.pointers.has_capture(pointer_id, tag))
+    }
+
+    /// `element.focus()`: focus `tag` and give the root Godot key focus. `focus_visible` is -1 to follow
+    /// the input modality, 0 for never, 1 for always. An empty return is success; otherwise nothing
+    /// changed (a node that is not mounted or cannot take focus).
+    #[func]
+    fn focus_node(&mut self, tag: i64, focus_visible: i64) -> GString {
+        let result = u32::try_from(tag)
+            .map_err(|_| format!("tag {tag} is not a u32"))
+            .and_then(|tag| self.focus_node_checked(tag, focus_visible));
+        match result {
+            Ok(()) => GString::new(),
+            Err(error) => GString::from(&error),
+        }
+    }
+
+    /// `element.blur()`: nothing happens unless `tag` holds focus.
+    #[func]
+    fn blur_node(&mut self, tag: i64) -> GString {
+        let result = u32::try_from(tag)
+            .map_err(|_| format!("tag {tag} is not a u32"))
+            .and_then(|tag| self.blur_node_checked(tag));
+        match result {
+            Ok(()) => GString::new(),
+            Err(error) => GString::from(&error),
+        }
     }
 
     /// The root-local rectangle of a node as JSON, or `null` if no such node is mounted.
@@ -747,45 +790,7 @@ impl ReactUiRoot {
         } else if let Ok(drag) = event.clone().try_cast::<InputEventScreenDrag>() {
             self.handle_touch_drag(&drag);
         } else if let Ok(key) = event.try_cast::<InputEventKey>() {
-            if key.is_echo() {
-                return;
-            }
-            self.pointer_modifiers = modifiers_of(&key);
-            let code = key.get_keycode();
-            if code == Key::TAB && key.is_pressed() {
-                // Consume Tab only when it moved focus; otherwise it belongs to the game and to
-                // Godot's own focus navigation (plan 3.11).
-                if self.advance_focus(key.is_shift_pressed()) {
-                    self.base_mut().accept_event();
-                }
-            } else if code == Key::ENTER || code == Key::KP_ENTER || code == Key::SPACE {
-                if key.is_pressed() {
-                    if let Some(id) = self.focused.filter(|id| {
-                        self.mounted.nodes.contains_key(id) && !self.mounted.is_disabled(*id)
-                    }) {
-                        self.pressed = Some(id);
-                        self.pressed_by_keyboard = true;
-                        self.refresh_interaction();
-                        let data = self.synthetic_pointer_data(DOM_BUTTONS_PRIMARY, 0);
-                        self.queue(id, EventPayload::PointerDown(data));
-                        self.base_mut().accept_event();
-                    }
-                } else if self.pressed_by_keyboard {
-                    // The release ends the keyboard press that is in flight, and is consumed with
-                    // it. A release with no press behind it belongs to the game.
-                    let pressed = self.pressed.take();
-                    self.pressed_by_keyboard = false;
-                    if let Some(id) = pressed.filter(|id| self.focused == Some(*id)) {
-                        let data = self.synthetic_pointer_data(0, 0);
-                        self.queue(id, EventPayload::PointerUp(data));
-                        self.queue(id, EventPayload::Click(data));
-                    }
-                    self.refresh_interaction();
-                    if pressed.is_some() {
-                        self.base_mut().accept_event();
-                    }
-                }
-            }
+            self.handle_key(&key);
         }
     }
 
@@ -817,49 +822,43 @@ impl ReactUiRoot {
             .push_crossing(target, path, related_path, payload, event_time_ms());
     }
 
-    /// Move focus, queueing `blur` and `focus`. `visible` says whether the focus came from the
-    /// keyboard (`:focus-visible`).
+    /// Move focus, queueing `blur` (to the element losing it) and `focus` (to the one gaining it),
+    /// each naming the other. `visible` says whether the new focus is a keyboard focus
+    /// (`:focus-visible` and the focus ring); focusing the focused element again only updates that.
     pub(crate) fn set_focus(&mut self, next: Option<u32>, visible: bool) {
+        let visible = visible && next.is_some();
         if self.focused == next {
+            if self.focus_visible != visible {
+                self.focus_visible = visible;
+                self.refresh_interaction();
+                self.paint_pass();
+            }
             return;
         }
-        if let Some(id) = self.focused
-            && self.mounted.nodes.contains_key(&id)
-        {
-            self.queue(id, EventPayload::Blur);
+        let previous = self
+            .focused
+            .filter(|id| self.mounted.nodes.contains_key(id));
+        if let Some(id) = previous {
+            let blur = FocusData {
+                related_target: next,
+                focus_visible: self.focus_visible,
+            };
+            self.queue(id, EventPayload::Blur(blur));
         }
         self.focused = next;
-        self.focus_visible = next.is_some() && visible;
+        self.focus_visible = visible;
         if let Some(id) = next {
-            self.queue(id, EventPayload::Focus);
+            let focus = FocusData {
+                related_target: previous,
+                focus_visible: visible,
+            };
+            self.queue(id, EventPayload::Focus(focus));
         }
         self.refresh_interaction();
         // The focus ring is drawn by the paint pass, but focus does not always restyle anything
         // (only elements with a `focus:` class do), and a restyle is what normally leads to a
         // pass. Without this the ring would wait for the next unrelated paint.
         self.paint_pass();
-    }
-
-    /// Move focus to the next (or previous) tabbable element, wrapping. Returns whether focus
-    /// moved, which is what decides if the key press is consumed.
-    fn advance_focus(&mut self, backwards: bool) -> bool {
-        let before = self.focused;
-        let buttons = self.visible_enabled_buttons();
-        if buttons.is_empty() {
-            self.set_focus(None, false);
-            return self.focused != before;
-        }
-        let current = self
-            .focused
-            .and_then(|id| buttons.iter().position(|candidate| *candidate == id));
-        let index = match (current, backwards) {
-            (Some(index), false) => (index + 1) % buttons.len(),
-            (Some(index), true) => (index + buttons.len() - 1) % buttons.len(),
-            (None, false) => 0,
-            (None, true) => buttons.len() - 1,
-        };
-        self.set_focus(Some(buttons[index]), true);
-        self.focused != before
     }
 }
 

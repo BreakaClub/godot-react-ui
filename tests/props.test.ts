@@ -71,6 +71,20 @@ test('a diff names exactly the changed keys, with null for a key that returned t
   }
 });
 
+test('tabIndex and autoFocus are native props with a 0 or -1 tabIndex and an absent false', () => {
+  assert.deepEqual(nativeProps('view', { tabIndex: 0, autoFocus: true }, false), { tabIndex: 0, autoFocus: true });
+  assert.deepEqual(nativeProps('view', { tabIndex: -1, autoFocus: false }, false), { tabIndex: -1 }, 'false is the default');
+  assert.deepEqual(nativeProps('button', { autoFocus: undefined }, false), {});
+  for (const invalid of [1, 2, -2, 100, 0.5, Number.NaN]) {
+    // @ts-expect-error tabIndex is typed 0 | -1; the runtime check is for callers that bypass the types
+    assert.throws(() => nativeProps('view', { tabIndex: invalid }, false), /tabIndex must be 0 or -1/, String(invalid));
+  }
+  assert.deepEqual(diffNativeProps({}, { tabIndex: 0, autoFocus: true }), { tabIndex: 0, autoFocus: true });
+  assert.deepEqual(diffNativeProps({ tabIndex: 0 }, { tabIndex: -1 }), { tabIndex: -1 });
+  assert.deepEqual(diffNativeProps({ tabIndex: -1, autoFocus: true }, {}), { tabIndex: null, autoFocus: null });
+  assert.equal(diffNativeProps({ tabIndex: 0 }, { tabIndex: 0 }), null);
+});
+
 test('equal styles that were interned apart do not produce a diff', () => {
   const left = compileStyle('p-1 bg-white');
   const equalButDistinct: NativeProps = { style: { layers: left.layers.map((layer) => ({ ...layer })) } };

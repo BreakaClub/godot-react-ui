@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createElement as h } from 'react';
-import { View, type UIFocusEvent, type UIPointerEvent, type UIWheelEvent } from '../src';
+import { View, type UIFocusEvent, type UIKeyboardEvent, type UIPointerEvent, type UIWheelEvent } from '../src';
 import { EventPhase, exclusiveAncestry } from '../src/events';
 import { createTestRoot, RecordingHost } from './recording-host';
 
@@ -475,6 +475,117 @@ test('handles capture pointers through native, which validates, and report the f
   // Native's refusal is an error, and nothing changed.
   assert.throws(() => handle.capture(9), /setPointerCapture failed: pointer 9 is not active/);
   assert.equal(host.captures.has(9), false);
+  root.unmount();
+});
+
+test('key events run capture then bubble, carry their key and report preventDefault', () => {
+  const host = new RecordingHost();
+  const { root } = createTestRoot(host);
+  const log: string[] = [];
+  const seen: UIKeyboardEvent[] = [];
+  root.render(h(View, {
+    testID: 'outer', onKeyDownCapture: () => log.push('outer:capture'), onKeyDown: () => log.push('outer:bubble'),
+    onKeyUp: () => log.push('outer:keyup'),
+  }, h(View, {
+    testID: 'inner', tabIndex: 0,
+    onKeyDown(event) {
+      log.push(`inner:${event.key}:${event.code}:${event.repeat}`);
+      seen.push(event);
+      if (event.key === 'Tab') event.preventDefault();
+    },
+  })));
+  const inner = requireNode(root, 'inner');
+  const a = host.keyEvent(inner, 'keydown', { key: 'a', code: 'KeyA', shiftKey: true });
+  const repeat = host.keyEvent(inner, 'keydown', { key: 'a', code: 'KeyA', repeat: true });
+  const tab = host.keyEvent(inner, 'keydown', { key: 'Tab', code: 'Tab' });
+  const release = host.keyEvent(inner, 'keyup', { key: 'a', code: 'KeyA' });
+  host.events.push(a, repeat, tab, release);
+  root.dispatchEvents();
+  assert.deepEqual(log, [
+    'outer:capture', 'inner:a:KeyA:false', 'outer:bubble',
+    'outer:capture', 'inner:a:KeyA:true', 'outer:bubble',
+    'outer:capture', 'inner:Tab:Tab:false', 'outer:bubble',
+    'outer:keyup',
+  ]);
+  const [first, second] = seen;
+  assert.ok(first && second);
+  assert.equal(first.type, 'keydown');
+  assert.equal(first.cancelable, true, 'native awaits the answer to a keydown');
+  assert.equal(first.shiftKey, true);
+  assert.equal(second.repeat, true, 'a held key repeats as keydown with repeat set');
+  assert.deepEqual(host.resolutions, [
+    { seq: a.seq, defaultPrevented: false, dropEffect: '' },
+    { seq: repeat.seq, defaultPrevented: false, dropEffect: '' },
+    { seq: tab.seq, defaultPrevented: true, dropEffect: '' },
+  ], 'native keeps an unprevented key for its default action and the game, and skips them for a prevented one');
+  root.unmount();
+});
+
+test('a key with no focused element goes to root listeners only', () => {
+  const host = new RecordingHost();
+  const { root } = createTestRoot(host);
+  root.render(h(View, { testID: 'element', onKeyDown: () => { throw new Error('nothing is focused'); } }));
+  const pressed: string[] = [];
+  root.addEventListener('keydown', (event) => {
+    pressed.push(`${event.key}:${event.target.id}`);
+    event.preventDefault();
+  });
+  const key = host.keyEvent(0, 'keydown', { key: 'w', code: 'KeyW' });
+  host.events.push(key);
+  root.dispatchEvents();
+  assert.deepEqual(pressed, ['w:0']);
+  assert.deepEqual(host.resolutions, [{ seq: key.seq, defaultPrevented: true, dropEffect: '' }]);
+  root.unmount();
+});
+
+test('focus and blur name the element on the other side and whether the focus is a keyboard focus', () => {
+  const host = new RecordingHost();
+  const { root } = createTestRoot(host);
+  const log: string[] = [];
+  const seen: UIFocusEvent[] = [];
+  const watch = (name: string) => ({
+    testID: name, tabIndex: 0 as const,
+    onFocus: (event: UIFocusEvent) => { log.push(`${name}:focus:${event.relatedTarget?.testID ?? 'none'}:${event.focusVisible}`); seen.push(event); },
+    onBlur: (event: UIFocusEvent) => log.push(`${name}:blur:${event.relatedTarget?.testID ?? 'none'}:${event.focusVisible}`),
+  });
+  root.render(h(View, null, h(View, watch('a')), h(View, watch('b'))));
+  const a = requireNode(root, 'a');
+  const b = requireNode(root, 'b');
+  host.events.push(host.focusEvent(a, 'focus', null, true));
+  host.events.push(host.focusEvent(a, 'blur', b, true), host.focusEvent(b, 'focus', a, true));
+  // A focus whose other side is already gone is a focus with no related element.
+  host.events.push(host.focusEvent(b, 'blur', 9999, false));
+  root.dispatchEvents();
+  assert.deepEqual(log, ['a:focus:none:true', 'a:blur:b:true', 'b:focus:a:true', 'b:blur:none:false']);
+  assert.equal(seen[0]?.bubbles, true, 'focus bubbles, as React\'s onFocus does');
+  root.unmount();
+});
+
+test('handles focus and blur through native, which says why it refuses', () => {
+  const host = new RecordingHost();
+  const { root } = createTestRoot(host);
+  const handles: { focus(options?: { focusVisible?: boolean }): void; blur(): void }[] = [];
+  const collect = (event: UIPointerEvent) => { handles.push(event.currentTarget); };
+  root.render(h(View, null,
+    h(View, { testID: 'card', tabIndex: 0, onPointerDown: collect }),
+    h(View, { testID: 'plain', onPointerDown: collect })));
+  const card = requireNode(root, 'card');
+  const plain = requireNode(root, 'plain');
+  host.focusable.add(card);
+  host.event(card, 'pointerdown');
+  host.event(plain, 'pointerdown');
+  root.dispatchEvents();
+  const [cardHandle, plainHandle] = handles;
+  assert.ok(cardHandle && plainHandle);
+  cardHandle.focus();
+  cardHandle.focus({ focusVisible: true });
+  cardHandle.focus({ focusVisible: false });
+  assert.deepEqual(host.focusRequests.map((request) => request.focusVisible), [-1, 1, 0],
+    'by default focus follows the input modality; an option forces it either way');
+  assert.equal(host.focused, card);
+  cardHandle.blur();
+  assert.equal(host.focused, null);
+  assert.throws(() => plainHandle.focus(), /focus failed: node \d+ cannot take focus/);
   root.unmount();
 });
 

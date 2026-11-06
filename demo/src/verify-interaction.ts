@@ -1,5 +1,5 @@
 import {
-  Control, DirAccess, DisplayServer, Engine, FileAccess, GError, Input, InputEventKey, InputEventMouseButton,
+  Color, Control, DirAccess, DisplayServer, Engine, FileAccess, GError, Input, InputEventKey, InputEventMouseButton,
   InputEventMouseMotion, InputEventPanGesture, InputEventScreenDrag, InputEventScreenTouch, Key, MouseButton,
   MouseButtonMask, Node, OS, ProjectSettings, RenderingServer, Vector2,
 } from 'godot';
@@ -17,6 +17,8 @@ export interface InteractionInspection extends DemoInspection {
   /** Render a page in place of the app: the pass-through HUD, the pointer lab. */
   showLab(name: LabName): void;
   pointerCancels(): number;
+  rootKeys(): string[];
+  resetRootKeys(): void;
   resetPointerCancels(): void;
   restoreDemo(): void;
   passthrough(): PassthroughCounts;
@@ -45,6 +47,19 @@ const CLICK_SEQUENCE_PAUSE_MS = 650;
 const CLICK_SLOP_BREAKER_PX = 10;
 /** How far outside the window the knob test drags: beyond the root and the window itself. */
 const OUTSIDE_THE_ROOT_PX = 300;
+/** The focus ring's colour (`FOCUS_RING_COLOR` in native/lib.rs) and how far a raster may stray. */
+const FOCUS_RING_COLOR = new Color(0.49, 0.66, 1.0);
+const FOCUS_RING_TOLERANCE = 0.02;
+/** The ring is a 2px inset stroke, so one pixel inside an element's left edge is on it. */
+const FOCUS_RING_PROBE_INSET = 1;
+/** The Activate button's paint while a key holds it (`active:bg-indigo-800`) and at rest (`bg-indigo-600`). */
+const ACTIVATE_ACTIVE_COLOR = '#3730a3';
+const ACTIVATE_REST_COLOR = '#4f46e5';
+/** The card's paint when its focus is a keyboard focus (`focus-visible:bg-amber-100`) and at rest. */
+const CARD_FOCUS_VISIBLE_COLOR = '#fef3c7';
+const CARD_REST_COLOR = '#ffffff';
+/** Far more than the lab has tab stops: a loop that reaches this is a bug, not slow input. */
+const MAX_TAB_STEPS = 40;
 /** The pad's paint at rest: indigo-50 (`hover:` is indigo-100). */
 const PAD_REST_COLOR = '#eef2ff';
 /** The touch indices of the multi-touch test and the pointer ids they get (plan: base 2). */
@@ -135,6 +150,36 @@ function touchDrag(index: number, position: Vector2, relative: Vector2): void {
   event.position = position;
   event.relative = relative;
   Input.parseInputEvent(event);
+}
+
+interface KeySpec {
+  keycode: Key;
+  /** The character the key types, if any (a real device reports it; the helper has to say). */
+  unicode?: number;
+  shift?: boolean;
+  ctrl?: boolean;
+  echo?: boolean;
+}
+
+function keyEvent(spec: KeySpec, pressed: boolean): void {
+  const event = new InputEventKey();
+  event.keycode = spec.keycode;
+  event.physicalKeycode = spec.keycode;
+  event.keyLabel = spec.keycode;
+  event.unicode = spec.unicode ?? 0;
+  event.pressed = pressed;
+  event.echo = spec.echo === true;
+  event.shiftPressed = spec.shift === true;
+  event.ctrlPressed = spec.ctrl === true;
+  Input.parseInputEvent(event);
+}
+
+/** Press and release a key (with the character it types, so DOM `key` has it). */
+async function tap(spec: KeySpec): Promise<void> {
+  keyEvent(spec, true);
+  await settle();
+  keyEvent(spec, false);
+  await settle();
 }
 
 function move(position: Vector2): void {
@@ -294,6 +339,24 @@ function padTally(api: DemoInspection): PadTally {
   };
 }
 
+/** Every `kb-` element in document order that Tab stops on: enabled buttons and `tabIndex={0}` elements. */
+function expectedTabOrder(api: DemoInspection): string[] {
+  const snapshot = api.snapshot();
+  const byId = new Map(snapshot.nodes.map(node => [node.id, node]));
+  const order: string[] = [];
+  const visit = (id: number): void => {
+    const node = byId.get(id);
+    assert(node, `Missing native node ${id}`);
+    const testID = node.props.testID;
+    const tabIndex = node.props.tabIndex;
+    const tabbable = (node.kind === 'button' && node.props.disabled !== true && tabIndex !== -1) || tabIndex === 0;
+    if (typeof testID === 'string' && testID.startsWith('kb-') && tabbable) order.push(testID);
+    node.children.forEach(visit);
+  };
+  byId.get(0)?.children.forEach(visit);
+  return order;
+}
+
 const HUD_TARGETS = [
   'hud-inventory', 'hud-map', 'hud-help', 'hud-lock', 'hud-panel', 'hud-wheel-consume', 'hud-wheel-pass',
 ] as const;
@@ -379,8 +442,10 @@ async function verifyGodotCooperation(owner: Node, api: InteractionInspection, c
   // not because it moved focus.
   api.grabSurfaceFocus();
   await settle();
-  await keyPress(Key.KeyW);
+  api.resetRootKeys();
+  await tap({ keycode: Key.KeyW, unicode: 'w'.charCodeAt(0) });
   assert(counts(api).unhandledKeys[Key.KeyW] === 2, 'W reaches the game while the root has focus and no element is focused');
+  assert(api.rootKeys().join(',') === 'w', `With no element focused a key goes to root listeners, as target 0: ${api.rootKeys().join(',')}`);
   await keyPress(Key.KeyTab);
   assert(api.snapshot().focused === get(api, 'hud-inventory').id, `Tab focuses the first button: ${api.snapshot().focused}`);
   assert(counts(api).unhandledKeys[Key.KeyTab] === 1, 'A Tab that moved focus is consumed');
@@ -691,6 +756,182 @@ async function verifyPointers(owner: Node, api: InteractionInspection, capture: 
   await settle();
 }
 
+/**
+ * Plan I3: focus and keyboard. Tab follows document order, the ring and `:focus-visible` mark keyboard
+ * focus only, key events carry DOM `key`/`code`/`repeat`, Enter and Space activate a button without
+ * pointer events, a JS focus trap holds, and `focus()` follows (or forces) the input modality.
+ */
+async function verifyKeyboard(owner: Node, api: InteractionInspection, capture: (name: string) => Promise<void>): Promise<void> {
+  api.showLab('keyboard');
+  await settle();
+  api.grabSurfaceFocus();
+  await settle();
+  const testIDOf = (id: number | null): string => {
+    if (id === null) return 'none';
+    const node = api.snapshot().nodes.find(candidate => candidate.id === id);
+    const testID = node?.props.testID;
+    return typeof testID === 'string' ? testID : `#${id}`;
+  };
+  const focusedTestID = () => testIDOf(api.snapshot().focused);
+  const ringOn = (testID: string): boolean => {
+    const { rect } = get(api, testID);
+    RenderingServer.forceDraw();
+    const image = owner.getViewport()?.getTexture()?.getImage();
+    assert(image, 'Native verification requires a rendered viewport');
+    const color = image.getPixel(Math.floor(rect.x + FOCUS_RING_PROBE_INSET), Math.floor(rect.y + rect.height / 2));
+    return Math.abs(color.r - FOCUS_RING_COLOR.r) <= FOCUS_RING_TOLERANCE &&
+      Math.abs(color.g - FOCUS_RING_COLOR.g) <= FOCUS_RING_TOLERANCE && Math.abs(color.b - FOCUS_RING_COLOR.b) <= FOCUS_RING_TOLERANCE;
+  };
+  const tab = (shift = false) => tap({ keycode: Key.KeyTab, shift });
+  /** Tab (or Shift+Tab) until `testID` has focus; a bound, not a retry: the order is known. */
+  const tabTo = async (testID: string, shift = false): Promise<void> => {
+    for (let step = 0; step <= MAX_TAB_STEPS && focusedTestID() !== testID; step++) await tab(shift);
+    assert(focusedTestID() === testID, `Tab reaches ${testID}: ${focusedTestID()}`);
+  };
+  const keyLines = () => text(api, 'kb-log').split('\n').filter(line => line !== '');
+  const focusLines = () => text(api, 'kb-focus-log').split('\n').filter(line => line !== '');
+
+  // Tab stops on every enabled button and tabIndex 0 element, in document order, and wraps; not on a
+  // disabled button, a tabIndex -1 element or a plain view. Shift+Tab walks it backwards.
+  const stops = expectedTabOrder(api);
+  assert(stops.length >= 6 && !stops.includes('kb-disabled') && !stops.includes('kb-skip') && stops.includes('kb-card'),
+    `The lab has the tab stops the test needs: ${stops.join(',')}`);
+  const forward: string[] = [];
+  for (let step = 0; step < stops.length + 1; step++) {
+    await tab();
+    forward.push(focusedTestID());
+  }
+  assert(forward.join(',') === [...stops, stops[0]].join(','), `Tab visits the stops in document order and wraps: ${forward.join(',')} != ${stops.join(',')}`);
+  const backward: string[] = [];
+  for (let step = 0; step < stops.length; step++) {
+    await tab(true);
+    backward.push(focusedTestID());
+  }
+  assert(backward.join(',') === [...stops].reverse().join(','), `Shift+Tab walks it backwards from the first stop, wrapping to the last: ${backward.join(',')}`);
+
+  // Tab follows the document, not creation order: two keyed buttons trade places and so does Tab.
+  const stopsBefore = expectedTabOrder(api);
+  await click(api, 'kb-swap');
+  const stopsAfter = expectedTabOrder(api);
+  assert(stopsAfter.join(',') !== stopsBefore.join(',') && stopsAfter.indexOf('kb-swap-b') < stopsAfter.indexOf('kb-swap-a'),
+    `The swap changed the document order: ${stopsAfter.join(',')}`);
+  api.grabSurfaceFocus();
+  await tabTo(stopsAfter[0] ?? 'none');
+  const swapped: string[] = [focusedTestID()];
+  for (let step = 1; step < stopsAfter.length; step++) {
+    await tab();
+    swapped.push(focusedTestID());
+  }
+  assert(swapped.join(',') === stopsAfter.join(','), `After a reorder Tab follows the new document order: ${swapped.join(',')} != ${stopsAfter.join(',')}`);
+
+  // Keyboard focus shows the ring and matches focus-visible, with no `focus:` style needed.
+  api.grabSurfaceFocus();
+  await tabTo('kb-plain');
+  assert(api.snapshot().focusVisible && api.snapshot().modality === 'keyboard', 'Tab focus is a keyboard focus');
+  assert(ringOn('kb-plain'), 'Tab onto a button with no focus rule paints the ring (a focus change that restyles nothing still paints)');
+  const order = expectedTabOrder(api);
+  await tab();
+  assert(focusedTestID() === order[order.indexOf('kb-plain') + 1], `Tab continues in document order: ${focusedTestID()}`);
+  await tabTo('kb-card');
+  assert(ringOn('kb-card') && get(api, 'kb-card').style.backgroundColor === CARD_FOCUS_VISIBLE_COLOR,
+    'Keyboard focus draws the ring and matches focus-visible:');
+  const before = order[order.indexOf('kb-card') - 1];
+  assert(focusLines().slice(-1).join('') === `focus related=${before} visible=true`,
+    `focus names the element focus came from and that it is a keyboard focus: ${focusLines().join('|')}`);
+  await capture('15-keyboard-ring');
+
+  // A press focuses without the ring and without focus-visible; `focus:` still applies.
+  await click(api, 'kb-skip');
+  assert(focusedTestID() === 'kb-skip', `A press focuses an element with tabIndex -1: ${focusedTestID()}`);
+  assert(focusLines().slice(-1).join('') === 'blur related=kb-skip visible=true', `blur names the element focus went to and keeps its own visibility: ${focusLines().join('|')}`);
+  assert(!api.snapshot().focusVisible && api.snapshot().modality === 'pointer', 'Pointer focus is not a keyboard focus');
+  assert(!ringOn('kb-skip'), 'A press paints no ring');
+  await click(api, 'kb-card');
+  assert(focusedTestID() === 'kb-card' && !ringOn('kb-card'), 'Pressing the card focuses it without the ring');
+  const pressed = get(api, 'kb-card').style;
+  assert(pressed.backgroundColor === CARD_REST_COLOR && pressed.borderColor === '#6366f1',
+    `focus: applies to pointer focus, focus-visible: does not: ${JSON.stringify(pressed)}`);
+  assert(focusLines().slice(-1).join('') === 'focus related=kb-skip visible=false', `A pointer focus says so: ${focusLines().join('|')}`);
+  await capture('16-mouse-focus-no-ring');
+
+  // Tab from a tabIndex -1 element continues from its place; keyboard use brings the ring back.
+  await click(api, 'kb-skip');
+  await tab();
+  assert(focusedTestID() === 'kb-open', `Tab from a skipped element continues after it in document order: ${focusedTestID()}`);
+  assert(api.snapshot().focusVisible && ringOn('kb-open'), 'and the ring is back');
+
+  // Key events: DOM key and code, shift, and the repeats of a held key.
+  await tabTo('kb-card', true);
+  await tap({ keycode: Key.KeyA, unicode: 97 });
+  keyEvent({ keycode: Key.KeyA, unicode: 65, shift: true }, true);
+  await settle();
+  keyEvent({ keycode: Key.KeyA, unicode: 65, shift: true, echo: true }, true);
+  await settle();
+  keyEvent({ keycode: Key.KeyA, unicode: 65, shift: true }, false);
+  await settle();
+  await tap({ keycode: Key.KeyLeft });
+  await tap({ keycode: Key.KeyC, ctrl: true });
+  assert(keyLines().join('|') === [
+    'keydown key=a code=KeyA repeat=false', 'keyup key=a code=KeyA repeat=false',
+    'keydown key=A code=KeyA repeat=false', 'keydown key=A code=KeyA repeat=true', 'keyup key=A code=KeyA repeat=false',
+    'keydown key=ArrowLeft code=ArrowLeft repeat=false', 'keyup key=ArrowLeft code=ArrowLeft repeat=false',
+    'keydown key=c code=KeyC repeat=false', 'keyup key=c code=KeyC repeat=false',
+  ].slice(-6).join('|'), `Key events carry DOM key, code and repeat: ${keyLines().join('|')}`);
+
+  // Enter clicks a button once and no pointer events are made up; Space holds the active style until
+  // its release, and a held key's repeats do nothing more.
+  await tabTo('kb-activate');
+  const activate = () => text(api, 'kb-activate-status');
+  assert(activate() === 'clicks 0, pointerdowns 0, last click none', `The button starts untouched: ${activate()}`);
+  await tap({ keycode: Key.KeyEnter });
+  assert(activate() === 'clicks 1, pointerdowns 0, last click type "" id 0 d0',
+    `Enter is one keyboard click: pointer 0, no pointer type, no pointerdown: ${activate()}`);
+  keyEvent({ keycode: Key.KeySpace, unicode: 32 }, true);
+  await settle();
+  assert(get(api, 'kb-activate').style.backgroundColor === ACTIVATE_ACTIVE_COLOR, `active: applies while Space is held: ${get(api, 'kb-activate').style.backgroundColor}`);
+  assert(activate().startsWith('clicks 1,'), 'Nothing clicks until the key is released');
+  keyEvent({ keycode: Key.KeySpace, unicode: 32, echo: true }, true);
+  keyEvent({ keycode: Key.KeySpace, unicode: 32, echo: true }, true);
+  await settle();
+  assert(activate().startsWith('clicks 1,') && get(api, 'kb-activate').style.backgroundColor === ACTIVATE_ACTIVE_COLOR, 'A held key\'s repeats neither click nor release');
+  keyEvent({ keycode: Key.KeySpace, unicode: 32 }, false);
+  await settle();
+  assert(activate() === 'clicks 2, pointerdowns 0, last click type "" id 0 d0', `Releasing Space clicks once: ${activate()}`);
+  assert(get(api, 'kb-activate').style.backgroundColor === ACTIVATE_REST_COLOR, 'and the style returns to rest');
+
+  // A focus trap in JS: Tab wraps inside the dialog, Escape closes it and gives focus back.
+  await click(api, 'kb-open');
+  assert(focusedTestID() === 'dlg-ok', `autoFocus focuses the dialog's first button when it mounts: ${focusedTestID()}`);
+  await tab();
+  assert(focusedTestID() === 'dlg-cancel', 'Tab moves inside the dialog');
+  await tab();
+  assert(focusedTestID() === 'dlg-more', 'to its last button');
+  await tab();
+  assert(focusedTestID() === 'dlg-ok', `Tab at the last button wraps to the first (the trap): ${focusedTestID()}`);
+  await tab(true);
+  assert(focusedTestID() === 'dlg-more', `Shift+Tab at the first wraps to the last: ${focusedTestID()}`);
+  await capture('17-focus-trap');
+  await tap({ keycode: Key.KeyEscape });
+  assert(!api.find('kb-dialog') && focusedTestID() === 'kb-open', `Escape closes the dialog and focus returns to its opener: ${focusedTestID()}`);
+
+  // `focus()` from JS follows the input modality (a click is pointer input) unless it says otherwise,
+  // and refuses an element that cannot take focus.
+  await click(api, 'kb-focus-card');
+  assert(focusedTestID() === 'kb-card' && !api.snapshot().focusVisible && !ringOn('kb-card'), 'focus() after a press is not a keyboard focus');
+  await click(api, 'kb-focus-card-visible');
+  assert(focusedTestID() === 'kb-card' && api.snapshot().focusVisible && ringOn('kb-card'), 'focus({ focusVisible: true }) shows the ring');
+  await click(api, 'kb-focus-bad');
+  assert(/focus failed: node \d+ cannot take focus: it is not a button and has no tabIndex/.test(text(api, 'kb-focus-status')),
+    `focus() on an element that cannot take focus throws: ${text(api, 'kb-focus-status')}`);
+
+  move(FAR_CORNER);
+  await settle();
+  api.restoreDemo();
+  await settle();
+  api.grabSurfaceFocus();
+  await settle();
+}
+
 export async function runInteractionVerification(owner: Node, api: InteractionInspection): Promise<void> {
   const directory = OS.getEnvironment('GODOT_REACT_ARTIFACTS') || 'user://react-ui-verification';
   assert(DirAccess.makeDirRecursiveAbsolute(directory) === GError.Ok, 'Cannot create evidence directory');
@@ -845,6 +1086,7 @@ export async function runInteractionVerification(owner: Node, api: InteractionIn
 
   await verifyGodotCooperation(owner, api, capture);
   await verifyPointers(owner, api, capture);
+  await verifyKeyboard(owner, api, capture);
 
   console.log('GODOT_REACT_INTERACTION_VERIFY_PASSED', JSON.stringify({captures, dispatchTiming: timing}));
 }

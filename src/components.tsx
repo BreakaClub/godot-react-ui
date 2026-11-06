@@ -1,5 +1,5 @@
 import { Children, createElement, forwardRef, useContext, type ReactNode } from 'react';
-import type { UIFocusEvent, UIPointerEvent, UIWheelEvent } from './events';
+import type { UIFocusEvent, UIKeyboardEvent, UIPointerEvent, UIWheelEvent } from './events';
 import type { LayoutRect } from './native';
 import { createOverlayPortal, OverlayContext } from './renderer';
 import type { StyleProp } from './types';
@@ -19,6 +19,15 @@ export interface UIHandle {
   /** Ends this element's capture of `pointerId`. Does nothing if it is not capturing it. */
   releasePointerCapture(pointerId: number): void;
   hasPointerCapture(pointerId: number): boolean;
+  /**
+   * Focus the element and give the root Godot key focus. The focus shows the ring and matches
+   * `focus-visible:` if it is a keyboard focus: `focusVisible` says so, else it follows how the user last
+   * gave input. Throws for an element that is gone or cannot take focus (not a `Button`, no `tabIndex`,
+   * or disabled).
+   */
+  focus(options?: { focusVisible?: boolean }): void;
+  /** Takes focus away if this element has it. */
+  blur(): void;
 }
 
 export interface UIProps {
@@ -27,6 +36,15 @@ export interface UIProps {
   style?: StyleProp;
   testID?: string;
   disabled?: boolean;
+  /** `0` makes the element focusable and tabbable, `-1` focusable but skipped by Tab. Buttons need neither. */
+  tabIndex?: 0 | -1;
+  /** Focus the element when it is first mounted (the first such element of a commit, in document order). */
+  autoFocus?: boolean;
+  /** A key press or repeat. Cancelable: `preventDefault()` keeps Tab, Enter and Space from acting. */
+  onKeyDown?: (event: UIKeyboardEvent) => void;
+  onKeyDownCapture?: (event: UIKeyboardEvent) => void;
+  onKeyUp?: (event: UIKeyboardEvent) => void;
+  onKeyUpCapture?: (event: UIKeyboardEvent) => void;
   onClick?: (event: UIPointerEvent) => void;
   onClickCapture?: (event: UIPointerEvent) => void;
   onPointerDown?: (event: UIPointerEvent) => void;

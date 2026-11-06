@@ -16,6 +16,9 @@ use taffy::style::{
 };
 use taffy::style_helpers::{auto, fr, length, minmax};
 
+/// The `tabIndex` values the plan allows (3.13): `0` in the tab order, `-1` focusable only.
+pub const TAB_INDICES: [i32; 2] = [0, -1];
+
 /// What a node is. `TextInput` joins this enum with the text input phase.
 #[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -600,6 +603,12 @@ pub struct PropsSpec {
     pub hidden: Option<bool>,
     #[serde(rename = "testID")]
     pub test_id: Option<String>,
+    /// `0` makes the element focusable and tabbable, `-1` focusable but skipped by Tab (plan 3.13).
+    /// Buttons are focusable and tabbable without it.
+    pub tab_index: Option<i32>,
+    /// Focus this element when it is first mounted (the first such element of a commit, in document
+    /// order).
+    pub auto_focus: Option<bool>,
 }
 
 /// A change to one prop inside a commit payload. JSON `null` resets the prop to its default and an
@@ -645,6 +654,10 @@ pub struct PropsDiff {
     pub hidden: Patch<bool>,
     #[serde(default, rename = "testID")]
     pub test_id: Patch<String>,
+    #[serde(default)]
+    pub tab_index: Patch<i32>,
+    #[serde(default)]
+    pub auto_focus: Patch<bool>,
 }
 
 impl PropsSpec {
@@ -656,6 +669,8 @@ impl PropsSpec {
             disabled: diff.disabled.apply(&self.disabled),
             hidden: diff.hidden.apply(&self.hidden),
             test_id: diff.test_id.apply(&self.test_id),
+            tab_index: diff.tab_index.apply(&self.tab_index),
+            auto_focus: diff.auto_focus.apply(&self.auto_focus),
         }
     }
 
@@ -666,7 +681,17 @@ impl PropsSpec {
         if self.text.is_some() && kind != Kind::Text {
             return Err("text is only valid on text nodes".into());
         }
+        if let Some(index) = self.tab_index
+            && !TAB_INDICES.contains(&index)
+        {
+            return Err(format!("tabIndex must be 0 or -1, not {index}"));
+        }
         Ok(())
+    }
+
+    /// The element asks to be focused when it is first mounted.
+    pub fn is_auto_focus(&self) -> bool {
+        self.auto_focus == Some(true)
     }
 
     pub fn is_disabled(&self) -> bool {
@@ -1010,6 +1035,8 @@ mod tests {
             disabled: Some(true),
             hidden: None,
             test_id: Some("id".into()),
+            tab_index: Some(0),
+            auto_focus: None,
         };
         // Absent keys are kept, null resets, a value sets.
         let merged = merge_diff(
@@ -1028,6 +1055,39 @@ mod tests {
         let cleared = merge_diff(&previous, Kind::Text, r#"{"style":null,"testID":null}"#).unwrap();
         assert_eq!(cleared.style, None);
         assert_eq!(cleared.test_id, None);
+    }
+
+    #[test]
+    fn tab_index_and_auto_focus_merge_reset_and_validate() {
+        let previous = PropsSpec {
+            tab_index: Some(0),
+            ..PropsSpec::default()
+        };
+        let merged =
+            merge_diff(&previous, Kind::View, r#"{"tabIndex":-1,"autoFocus":true}"#).unwrap();
+        assert_eq!(merged.tab_index, Some(-1));
+        assert!(merged.is_auto_focus());
+        let reset =
+            merge_diff(&merged, Kind::View, r#"{"tabIndex":null,"autoFocus":null}"#).unwrap();
+        assert_eq!(reset.tab_index, None);
+        assert!(!reset.is_auto_focus());
+        for json in [
+            r#"{"tabIndex":1}"#,
+            r#"{"tabIndex":-2}"#,
+            r#"{"tabIndex":100}"#,
+        ] {
+            let error = merge_diff(&previous, Kind::View, json).unwrap_err();
+            assert!(
+                error.starts_with("tabIndex must be 0 or -1"),
+                "{json}: {error}"
+            );
+        }
+        assert!(merge_diff(&previous, Kind::View, r#"{"tabIndex":"0"}"#).is_err());
+        assert!(merge_diff(&previous, Kind::Button, r#"{"autoFocus":1}"#).is_err());
+        // Any kind may take a tabIndex or ask for focus.
+        for kind in [Kind::View, Kind::Text, Kind::Button] {
+            assert!(merge_diff(&previous, kind, r#"{"tabIndex":0,"autoFocus":true}"#).is_ok());
+        }
     }
 
     #[test]

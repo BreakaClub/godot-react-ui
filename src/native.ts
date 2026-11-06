@@ -35,6 +35,14 @@ export interface NativeHost {
   releasePointerCapture(tag: number, pointerId: number): string;
   hasPointerCapture(tag: number, pointerId: number): boolean;
   /**
+   * `element.focus()`: focus the element and give the root Godot key focus. `focusVisible` is -1 to
+   * follow the input modality, 0 for never, 1 for always. An empty string means success; anything
+   * else says why nothing changed (not mounted, or it cannot take focus).
+   */
+  focusNode(tag: number, focusVisible: number): string;
+  /** `element.blur()`: nothing happens unless the element holds focus. An empty string means success. */
+  blurNode(tag: number): string;
+  /**
    * Answer the one event native is awaiting (`cancelable: true`). An empty string means success.
    * `dropEffect` is '' (not set), 'none', 'copy', 'move' or 'link'.
    */
@@ -90,7 +98,8 @@ export type NativePointerEventType =
   | 'click' | 'dblclick' | 'auxclick' | 'contextmenu';
 export type NativeWheelEventType = 'wheel';
 export type NativeFocusEventType = 'focus' | 'blur';
-export type NativeEventType = NativePointerEventType | NativeWheelEventType | NativeFocusEventType;
+export type NativeKeyEventType = 'keydown' | 'keyup';
+export type NativeEventType = NativePointerEventType | NativeWheelEventType | NativeKeyEventType | NativeFocusEventType;
 
 /** '' is synthetic keyboard activation, as in browsers. */
 export type NativePointerType = 'mouse' | 'touch' | '';
@@ -147,9 +156,28 @@ export interface NativeWheelEvent extends NativeMouseFields {
 
 export interface NativeFocusEvent extends NativeEventBase {
   type: NativeFocusEventType;
+  /** The element on the other side of the focus change, if there is one. */
+  relatedTarget: number | null;
+  /** The (new, for `focus`; old, for `blur`) focus is a keyboard focus. */
+  focusVisible: boolean;
 }
 
-export type NativeEvent = NativePointerEvent | NativeWheelEvent | NativeFocusEvent;
+/** A key press, echo or release; `keydown` is cancelable. */
+export interface NativeKeyEvent extends NativeEventBase {
+  type: NativeKeyEventType;
+  /** DOM `KeyboardEvent.key`. */
+  key: string;
+  /** DOM `KeyboardEvent.code`. */
+  code: string;
+  repeat: boolean;
+  isComposing: boolean;
+  shiftKey: boolean;
+  ctrlKey: boolean;
+  altKey: boolean;
+  metaKey: boolean;
+}
+
+export type NativeEvent = NativePointerEvent | NativeWheelEvent | NativeKeyEvent | NativeFocusEvent;
 
 export interface LayoutRect {
   x: number;
@@ -202,6 +230,10 @@ export interface NativeSnapshot {
   hovered: number | null;
   focused: number | null;
   pressed: number | null;
+  /** The focused element's focus is a keyboard focus: `:focus-visible` matches and the ring is drawn. */
+  focusVisible: boolean;
+  /** How the user last gave input. */
+  modality: 'keyboard' | 'pointer';
   /** Every pointer native knows: the mouse, and each touch while it is down. */
   pointers: NativePointerState[];
 }
@@ -276,11 +308,16 @@ function eventType(value: unknown): NativeEventType {
   switch (value) {
     case 'pointerdown': case 'pointerup': case 'pointermove': case 'pointerenter':
     case 'pointerleave': case 'pointercancel': case 'click': case 'dblclick': case 'auxclick':
-    case 'contextmenu': case 'wheel': case 'focus': case 'blur':
+    case 'contextmenu': case 'wheel': case 'keydown': case 'keyup': case 'focus': case 'blur':
       return value;
     default:
       throw new Error(`Invalid native event type: ${String(value)}`);
   }
+}
+
+function modality(value: unknown): 'keyboard' | 'pointer' {
+  if (value === 'keyboard' || value === 'pointer') return value;
+  throw new Error(`Invalid native modality: ${String(value)}`);
 }
 
 function pointerType(value: unknown): NativePointerType {
@@ -347,8 +384,18 @@ function nativeEvent(entry: unknown): NativeEvent {
       return pointerEvent(type, base, event);
     case 'wheel':
       return wheelEvent(base, event);
+    case 'keydown': case 'keyup':
+      return {
+        ...base, type, key: string(event.key, 'event.key'), code: string(event.code, 'event.code'),
+        repeat: boolean(event.repeat, 'event.repeat'), isComposing: boolean(event.isComposing, 'event.isComposing'),
+        shiftKey: boolean(event.shiftKey, 'event.shiftKey'), ctrlKey: boolean(event.ctrlKey, 'event.ctrlKey'),
+        altKey: boolean(event.altKey, 'event.altKey'), metaKey: boolean(event.metaKey, 'event.metaKey'),
+      };
     case 'focus': case 'blur':
-      return { ...base, type };
+      return {
+        ...base, type, relatedTarget: optionalId(event.relatedTarget, 'event.relatedTarget'),
+        focusVisible: boolean(event.focusVisible, 'event.focusVisible'),
+      };
   }
 }
 
@@ -482,6 +529,8 @@ export function readSnapshot(host: NativeHost): NativeSnapshot {
     hovered: optionalId(snapshot.hovered, 'snapshot.hovered'),
     focused: optionalId(snapshot.focused, 'snapshot.focused'),
     pressed: optionalId(snapshot.pressed, 'snapshot.pressed'),
+    focusVisible: boolean(snapshot.focusVisible, 'snapshot.focusVisible'),
+    modality: modality(snapshot.modality),
     pointers: array(snapshot.pointers, 'snapshot.pointers').map((entry) => {
       const pointer = record(entry, 'pointer');
       const type = pointer.type;
@@ -518,6 +567,11 @@ export function commitPayload(host: NativeHost, layer: number, payload: CommitPa
 
 /** Throw if native refused a pointer-capture request (DOM throws `NotFoundError` or `InvalidStateError`). */
 export function checkCapture(error: string, method: string): void {
+  if (error !== '') throw new Error(`${method} failed: ${error}`);
+}
+
+/** Throw if native refused a focus request (DOM's `focus()` ignores these silently; ours says why). */
+export function checkFocus(error: string, method: string): void {
   if (error !== '') throw new Error(`${method} failed: ${error}`);
 }
 

@@ -19,6 +19,7 @@ use crate::computed_style::{
     StyleTree, chain, restyle, states_used,
 };
 use crate::diff::{Insertion, MountingTransaction, Parent, Removal};
+use crate::focus::FocusTree;
 use crate::geometry::{BoxRect, intersect_clip, intersects};
 use crate::pointer::ButtonTree;
 use crate::profile::{Sample, micros};
@@ -182,6 +183,12 @@ impl StyleTree for Mounted {
     fn store_computed(&mut self, tag: u32, computed: ComputedStyle) -> Option<ComputedStyle> {
         let node = self.nodes.get_mut(&tag)?;
         Some(std::mem::replace(&mut node.computed, computed))
+    }
+}
+
+impl FocusTree for Mounted {
+    fn tab_index_of(&self, tag: u32) -> Option<i32> {
+        self.nodes.get(&tag).and_then(|node| node.props.tab_index)
     }
 }
 
@@ -511,6 +518,7 @@ impl ReactUiRoot {
         self.settle_structure(&touched);
         self.publish_commit(&dry_run.changes, !touched.is_empty());
         self.refresh_interaction();
+        self.apply_auto_focus(&validated);
         self.stats.batches += 1;
         self.stats.node_count = self.mounted.nodes.len();
         let mount_micros = micros(mount_started)
@@ -868,20 +876,6 @@ impl ReactUiRoot {
             self.paint_dirty.insert(tag);
         }
         shape_changed || on_dirty_path
-    }
-
-    /// Document-order list of the tabbable buttons that are visible.
-    pub(crate) fn visible_enabled_buttons(&self) -> Vec<u32> {
-        let viewport = self.viewport_box();
-        self.mounted
-            .document_order()
-            .into_iter()
-            .filter(|tag| {
-                self.mounted.kind_of(*tag) == Some(Kind::Button)
-                    && !self.mounted.is_disabled(*tag)
-                    && self.mounted.visible_for_input(*tag, viewport)
-            })
-            .collect()
     }
 
     pub(crate) fn viewport_box(&self) -> BoxRect {

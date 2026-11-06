@@ -1201,6 +1201,8 @@ declare module "godot" {
         set_pointer_capture: "setPointerCapture";
         release_pointer_capture: "releasePointerCapture";
         has_pointer_capture: "hasPointerCapture";
+        focus_node: "focusNode";
+        blur_node: "blurNode";
         get_node_rect: "getNodeRect";
         find_by_test_id: "findByTestId";
         drain_events: "drainEvents";
@@ -1219,6 +1221,8 @@ declare module "godot" {
         setPointerCapture(tag: int64, pointerId: int64): string
         releasePointerCapture(tag: int64, pointerId: int64): string
         hasPointerCapture(tag: int64, pointerId: int64): boolean
+        focusNode(tag: int64, focusVisible: int64): string
+        blurNode(tag: int64): string
         getNodeRect(tag: int64): string
         findByTestId(testId: string): int64
         drainEvents(): string

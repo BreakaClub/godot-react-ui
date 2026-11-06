@@ -5,6 +5,7 @@ use serde_json::{Value, json};
 
 use crate::ReactUiRoot;
 use crate::commit::LAYER_COUNT;
+use crate::focus::Modality;
 use crate::geometry::{BoxRect, intersect_clip};
 use crate::pointer_state::PointerKind;
 
@@ -106,6 +107,10 @@ impl ReactUiRoot {
             "width": self.viewport_size.x, "height": self.viewport_size.y,
             "hovered": self.hovered, "focused": self.focused, "pressed": self.pressed,
             "focusVisible": self.focus_visible,
+            "modality": match self.modality {
+                Modality::Keyboard => "keyboard",
+                Modality::Pointer => "pointer",
+            },
             "pointers": pointers,
             "clockMs": self.clock_ms,
             "transitions": self.transitions.values().collect::<Vec<_>>(),

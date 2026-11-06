@@ -199,8 +199,11 @@ export async function runVerification(owner: Node, api: DemoInspection): Promise
   pointer(point(api, 'increment'), true);
   await capture('03-pressed');
   const pressed = get(api, 'increment').rect;
-  assert(isFocusRingColor(viewportPixel(owner, pressed.x + FOCUS_RING_PROBE_INSET, pressed.y + pressed.height / 2)),
-    'A mouse press paints the focus ring on the pressed button even when its style has no focus rule');
+  // The ring marks a keyboard focus (plan 3.13, D17): pressing a button focuses it without the ring.
+  // The regression this assertion used to guard (a focus change that restyles nothing must still
+  // paint the ring) is covered with keyboard focus by the Keyboard lab in verify:interaction.
+  assert(!isFocusRingColor(viewportPixel(owner, pressed.x + FOCUS_RING_PROBE_INSET, pressed.y + pressed.height / 2)),
+    'A mouse press focuses the pressed button without painting the focus ring');
   pointer(point(api, 'increment'), false);
   await settle();
   if (text(api, 'counter-value') !== '1') throw new Error(`Native click updates useState: ${inputFailureState(owner, api)}`);
@@ -225,9 +228,18 @@ export async function runVerification(owner: Node, api: DemoInspection): Promise
   assert(text(api, 'counter-value') === '0', 'Releasing outside the button cancels activation');
 
   const increment = get(api, 'increment').id;
-  for (let i = 0; api.snapshot().focused !== increment && i < MAX_INPUT_TARGETS; i++) await key(Key.KeyTab);
+  // The release above left `increment` focused by the mouse. At least one Tab is pressed so the
+  // focus that is captured is a keyboard focus (plan 3.13, D17), which is the one that paints the ring.
+  let tabs = 0;
+  do {
+    await key(Key.KeyTab);
+    tabs++;
+  } while (api.snapshot().focused !== increment && tabs < MAX_INPUT_TARGETS);
   assert(api.snapshot().focused === increment, 'Tab reaches increment');
   await capture('05-keyboard-focus');
+  const tabbed = get(api, 'increment').rect;
+  assert(isFocusRingColor(viewportPixel(owner, tabbed.x + FOCUS_RING_PROBE_INSET, tabbed.y + tabbed.height / 2)),
+    'A Tab focus paints the focus ring on the button even when its style has no focus rule');
   await key(Key.KeyEnter);
   assert(text(api, 'counter-value') === '5', 'Keyboard activates native target');
   await click(api, 'accent-toggle');

@@ -62,6 +62,8 @@ so JS drops its instances and public handles.
 | `disabled` | boolean |
 | `hidden` | boolean (Suspense: the node and its subtree take no space) |
 | `testID` | string |
+| `tabIndex` | `0` or `-1` (any node kind) |
+| `autoFocus` | boolean |
 
 JS compiles `className` and `style` once per distinct input into ordered **layers** (`src/styles.ts`;
 shorthands `padding`, `margin`, `gap` and `overflow` are expanded to longhands there). Native resolves
@@ -185,17 +187,50 @@ browser model, not an IPC round trip.
   Enter and leave events also carry `relatedPath`, the other side's path. `wheel` carries the same pointer fields
   (`button` -1, `pointerType` `"mouse"`) plus `deltaX,deltaY` in wheel ticks, positive down and right: one per notch
   of a discrete wheel, scaled by Godot's `factor` (or a pan gesture's `delta`) for smooth devices, which is what
-  `ScrollContainer` scales by page / 8. It is cancelable. `focus` and `blur` carry no extra fields.
+  `ScrollContainer` scales by page / 8. It is cancelable. `keydown` and `keyup` carry `key`, `code`, `repeat`,
+  `isComposing` (always false until Phase I7) and the four modifiers; `keydown` is cancelable (see "Focus and
+  keyboard"). `focus` and `blur` carry `relatedTarget` (the element on the other side of the change, or `null`)
+  and `focusVisible` (the new focus, for `focus`; the old one, for `blur`).
   Only a mouse `pointerdown` on an enabled element is cancelable; its default action is focusing the nearest
   enabled button (and taking Godot key focus), which `preventDefault()` skips. `click` still follows a prevented
   `pointerdown`, as in browsers.
 - Native emits one `pointerleave` (target the element left, `relatedTarget` the element entered) and one
   `pointerenter` (target the element entered, `relatedTarget` the element left). JS dispatches them to the
   elements actually crossed, below the lowest common ancestor, without bubbling.
-- Enter/Space on a focused button keeps its synthetic `pointerdown`/`pointerup`/`click` with `pointerId: 0` and
-  `pointerType: ""`; they are not cancelable.
+- Enter/Space on a focused button makes one `click` with `pointerId: 0`, `pointerType: ""` and `detail: 0` when the
+  key is released (not cancelable). No `pointerdown` or `pointerup` is made up for it.
 - A press in flight when the window loses OS focus is cancelled natively (Godot drops mouse focus and its
   synthetic release never reaches `gui_input`): JS gets `pointercancel`.
+
+## Focus and keyboard
+
+- **Focusable** (`native/focus.rs`, unit tested): a `Button`, or any element with a `tabIndex` (`0` or `-1`; any
+  other value is a commit error), unless it or an ancestor is disabled. **Tabbable**: focusable, not `tabIndex`
+  `-1`, and visible. Tab order is document order (pre-order of the mounted tree, the main layer first), never paint
+  order; Tab and Shift+Tab wrap, and from an element that is not a stop (say `tabIndex` `-1`) they continue from its
+  place in document order.
+- **Focus moves.** An un-prevented primary `pointerdown` focuses the nearest focusable ancestor-or-self, else clears
+  focus (and hands key focus back, see "Godot co-operation"). Tab moves along the tab stops. `focus_node(tag,
+  focus_visible: int) -> String` focuses an element and gives the root Godot key focus (`focus_visible` -1 follows
+  the input modality, 0 never, 1 always; an unmounted or non-focusable element is an error that says why);
+  `blur_node(tag) -> String` blurs it only if it holds focus. `autoFocus` focuses the first element a commit
+  created that asked for it and can take it, in document order, after layout. Changing focus queues `blur` to the
+  element losing it and `focus` to the one gaining it, each naming the other.
+- **Modality and the ring.** Native tracks how the user last gave input (the snapshot's `modality`): any press makes
+  it `pointer`, a key press other than a bare modifier makes it `keyboard`; it starts as `keyboard`. A focus is a
+  keyboard focus (`focusVisible`; `focus-visible:` styles match and the ring is drawn) if it came from Tab, or from
+  `focus_node` or `autoFocus` while the modality is `keyboard`; a press focuses without it.
+- **Key events.** While the root holds Godot key focus every key press, repeat (`repeat: true`) and release is queued
+  as `keydown` or `keyup` to the focused element, or to root listeners (target 0, empty path) when none is focused.
+  Both are awaited: JS answers `preventDefault()` before native acts. Native then runs the default action unless
+  prevented and consumes the key (keeps it from the game) only if JS prevented it or a default action ran. `key` and
+  `code` follow plan Appendix B (`native/keymap.rs`, unit tested): `key` is the typed character, else the key's name,
+  else its printable label (so Ctrl+C reads `c`), else `Unidentified`; `code` comes from the physical keycode (the
+  logical one for a synthetic event that has none) and, for modifiers, the key's side.
+- **Default actions.** Tab (without Ctrl, Alt or Meta) moves focus and is consumed only if it moved. Enter, keypad
+  Enter and Space press a focused enabled `Button`: the press (and `active:` style) starts on `keydown`, its
+  repeats belong to it (consumed, nothing more), and the `click` follows the matching `keyup`. A `keyup` with no
+  press behind it belongs to the game.
 
 ## Pointer model
 

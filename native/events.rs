@@ -68,8 +68,30 @@ pub struct WheelData {
     pub delta_y: f32,
 }
 
-/// One variant per wire `type`. Focus fields (`relatedTarget`, `focusVisible`) arrive with the
-/// keyboard model.
+/// A key press or release (plan 3.14): `key` and `code` follow the DOM (`keymap.rs`), `repeat` is
+/// true for the echoes Godot sends while a key is held.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyData {
+    pub key: String,
+    pub code: &'static str,
+    pub repeat: bool,
+    /// True while an IME composition is in progress (text input arrives with Phase I7).
+    pub is_composing: bool,
+    #[serde(flatten)]
+    pub modifiers: Modifiers,
+}
+
+/// `focus` and `blur`: the element on the other side of the change, and whether the focus (the
+/// element's, for `blur`) is a keyboard focus, which `:focus-visible` and the focus ring follow.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FocusData {
+    pub related_target: Option<u32>,
+    pub focus_visible: bool,
+}
+
+/// One variant per wire `type`.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum EventPayload {
@@ -89,8 +111,10 @@ pub enum EventPayload {
     /// The secondary button was pressed.
     ContextMenu(PointerData),
     Wheel(WheelData),
-    Focus,
-    Blur,
+    KeyDown(KeyData),
+    KeyUp(KeyData),
+    Focus(FocusData),
+    Blur(FocusData),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -292,6 +316,26 @@ mod tests {
         }
     }
 
+    fn focus() -> FocusData {
+        FocusData {
+            related_target: Some(3),
+            focus_visible: true,
+        }
+    }
+
+    fn key(repeat: bool) -> KeyData {
+        KeyData {
+            key: "a".to_string(),
+            code: "KeyA",
+            repeat,
+            is_composing: false,
+            modifiers: Modifiers {
+                ctrl_key: true,
+                ..Modifiers::default()
+            },
+        }
+    }
+
     fn prevented() -> EventOutcome {
         EventOutcome {
             default_prevented: true,
@@ -306,10 +350,16 @@ mod tests {
     #[test]
     fn sequence_numbers_start_at_one_and_increase() {
         let mut queue = EventQueue::new();
-        assert_eq!(queue.push(1, vec![1], EventPayload::Focus, STAMP), 1);
-        assert_eq!(queue.push(1, vec![1], EventPayload::Blur, STAMP), 2);
         assert_eq!(
-            queue.push_awaited(2, vec![2], EventPayload::Focus, STAMP),
+            queue.push(1, vec![1], EventPayload::Focus(focus()), STAMP),
+            1
+        );
+        assert_eq!(
+            queue.push(1, vec![1], EventPayload::Blur(focus()), STAMP),
+            2
+        );
+        assert_eq!(
+            queue.push_awaited(2, vec![2], EventPayload::Focus(focus()), STAMP),
             3
         );
         let seqs: Vec<_> = queue.drain().iter().map(|event| event.seq).collect();
@@ -320,7 +370,7 @@ mod tests {
     #[test]
     fn only_awaited_events_are_cancelable_and_only_while_awaited() {
         let mut queue = EventQueue::new();
-        queue.push(1, vec![1], EventPayload::Focus, STAMP);
+        queue.push(1, vec![1], EventPayload::Focus(focus()), STAMP);
         let seq = queue.push_awaited(2, vec![2], EventPayload::PointerDown(pointer()), STAMP);
         let drained = queue.drain();
         assert!(!drained[0].cancelable);
@@ -343,20 +393,20 @@ mod tests {
     #[test]
     fn resolving_an_event_that_is_not_awaited_is_an_error() {
         let mut queue = EventQueue::new();
-        let plain = queue.push(1, vec![1], EventPayload::Focus, STAMP);
+        let plain = queue.push(1, vec![1], EventPayload::Focus(focus()), STAMP);
         assert_eq!(
             queue.resolve(plain, prevented()),
             Err("event 1 is not awaiting a result".to_string())
         );
         assert!(queue.resolve(99, prevented()).is_err());
-        let awaited = queue.push_awaited(2, vec![2], EventPayload::Blur, STAMP);
+        let awaited = queue.push_awaited(2, vec![2], EventPayload::Blur(focus()), STAMP);
         assert!(queue.resolve(awaited + 1, prevented()).is_err());
     }
 
     #[test]
     fn resolving_twice_is_an_error_and_keeps_the_first_answer() {
         let mut queue = EventQueue::new();
-        let seq = queue.push_awaited(2, vec![2], EventPayload::Focus, STAMP);
+        let seq = queue.push_awaited(2, vec![2], EventPayload::Focus(focus()), STAMP);
         assert!(queue.resolve(seq, prevented()).is_ok());
         assert_eq!(
             queue.resolve(seq, EventOutcome::default()),
@@ -368,14 +418,14 @@ mod tests {
     #[test]
     fn take_outcome_without_resolve_is_not_prevented_and_clears_the_wait() {
         let mut queue = EventQueue::new();
-        let seq = queue.push_awaited(2, vec![2], EventPayload::Focus, STAMP);
+        let seq = queue.push_awaited(2, vec![2], EventPayload::Focus(focus()), STAMP);
         assert_eq!(queue.take_outcome(seq), EventOutcome::default());
         assert!(
             queue.resolve(seq, prevented()).is_err(),
             "no longer awaited"
         );
         // A new awaited event may start once the previous wait ended.
-        let next = queue.push_awaited(2, vec![2], EventPayload::Blur, STAMP);
+        let next = queue.push_awaited(2, vec![2], EventPayload::Blur(focus()), STAMP);
         assert_eq!(next, 2);
     }
 
@@ -383,19 +433,22 @@ mod tests {
     #[should_panic(expected = "an awaited event is already pending")]
     fn two_events_cannot_be_awaited_at_once() {
         let mut queue = EventQueue::new();
-        queue.push_awaited(1, vec![1], EventPayload::Focus, STAMP);
-        queue.push_awaited(1, vec![1], EventPayload::Blur, STAMP);
+        queue.push_awaited(1, vec![1], EventPayload::Focus(focus()), STAMP);
+        queue.push_awaited(1, vec![1], EventPayload::Blur(focus()), STAMP);
     }
 
     #[test]
     fn retain_keeps_only_matching_payloads() {
         let mut queue = EventQueue::new();
-        queue.push(1, vec![1], EventPayload::Focus, STAMP);
-        queue.push(1, vec![1], EventPayload::Blur, STAMP);
+        queue.push(1, vec![1], EventPayload::Focus(focus()), STAMP);
+        queue.push(1, vec![1], EventPayload::Blur(focus()), STAMP);
         queue.push(1, vec![1], EventPayload::PointerLeave(pointer()), STAMP);
         queue.push(1, vec![1], EventPayload::Click(pointer()), STAMP);
         queue.retain(|payload| {
-            matches!(payload, EventPayload::Blur | EventPayload::PointerLeave(_))
+            matches!(
+                payload,
+                EventPayload::Blur(_) | EventPayload::PointerLeave(_)
+            )
         });
         let types: Vec<_> = queue
             .drain()
@@ -473,8 +526,14 @@ mod tests {
             }),
             STAMP,
         );
-        queue.push(6, vec![6], EventPayload::Focus, STAMP);
-        queue.push(6, vec![6], EventPayload::Blur, STAMP);
+        events.extend(queue.drain().iter().map(wire));
+        queue.take_outcome(11);
+        queue.push_awaited(6, vec![6], EventPayload::KeyDown(key(true)), STAMP);
+        events.extend(queue.drain().iter().map(wire));
+        queue.take_outcome(12);
+        queue.push(6, vec![6], EventPayload::KeyUp(key(false)), STAMP);
+        queue.push(6, vec![6], EventPayload::Focus(focus()), STAMP);
+        queue.push(6, vec![6], EventPayload::Blur(focus()), STAMP);
         events.extend(queue.drain().iter().map(wire));
         let mut entered_wire = pointer_wire("pointerenter", false, 4, 5, &entered);
         entered_wire["relatedPath"] = json!([7, 1]);
@@ -494,8 +553,17 @@ mod tests {
             pointer_wire("contextmenu", false, 9, 5, &data),
             pointer_wire("pointercancel", false, 10, 5, &moved),
             wheel_wire,
-            json!({"seq": 12, "target": 6, "path": [6], "cancelable": false, "timeStamp": STAMP, "type": "focus"}),
-            json!({"seq": 13, "target": 6, "path": [6], "cancelable": false, "timeStamp": STAMP, "type": "blur"}),
+            // A key event is awaited (cancelable) and carries its key beside the modifiers.
+            json!({"seq": 12, "target": 6, "path": [6], "cancelable": true, "timeStamp": STAMP, "type": "keydown",
+                   "key": "a", "code": "KeyA", "repeat": true, "isComposing": false,
+                   "shiftKey": false, "ctrlKey": true, "altKey": false, "metaKey": false}),
+            json!({"seq": 13, "target": 6, "path": [6], "cancelable": false, "timeStamp": STAMP, "type": "keyup",
+                   "key": "a", "code": "KeyA", "repeat": false, "isComposing": false,
+                   "shiftKey": false, "ctrlKey": true, "altKey": false, "metaKey": false}),
+            json!({"seq": 14, "target": 6, "path": [6], "cancelable": false, "timeStamp": STAMP, "type": "focus",
+                   "relatedTarget": 3, "focusVisible": true}),
+            json!({"seq": 15, "target": 6, "path": [6], "cancelable": false, "timeStamp": STAMP, "type": "blur",
+                   "relatedTarget": 3, "focusVisible": true}),
         ];
         assert_eq!(events, expected);
         assert_eq!(events[3]["relatedTarget"], json!(7));

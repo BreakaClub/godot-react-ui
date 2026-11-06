@@ -1,9 +1,9 @@
 # Fabric renderer and interaction plan
 
-Status: plan v2.5, 6 November 2026. Done: Phase 0 (`9f4a02c`), Phase 1 (`0d11607`), Phase F0
+Status: plan v2.6, 6 November 2026. Done: Phase 0 (`9f4a02c`), Phase 1 (`0d11607`), Phase F0
 (`4f7dd0d`), Phase F1 (`ce99bea`), Phase F2 (`578b461`), Phase F3 (`07a8344`), Phase F4 (`e60f6e5`;
 its numbers and decisions D7 to D10 are in the progress log and the decision log below), Phase I1
-(decisions D11 to D13), Phase I2 (decisions D14 to D16). Next: Phase I3.
+(decisions D11 to D13), Phase I2 (decisions D14 to D16), Phase I3 (decisions D17 to D19); decision D20 sets the verification tiers. Next: Phase I4.
 
 v1 of this plan (`7f0a96c`) was rejected because it built every interaction feature on the
 prototype's commit path, which re-walks and re-sends the whole tree on every change. v2 replaces
@@ -153,6 +153,45 @@ not a reason to wait.
   `2 + Godot touch index` natively; Godot's Web build numbers touches by the browser's contact identifier,
   which keeps counting across taps (id 7 for the fifth tap in a session), so only distinctness and the range
   are asserted there.
+- **D17 (I3)**: the focus ring is drawn for keyboard focus only, so the F3 assertion in `demo/src/verify.ts`
+  that a mouse press paints the ring on the pressed button is inverted: a mouse press focuses without it. The two
+  cannot both hold: plan 3.13 says the ring is drawn only for focus-visible focus and a press is not (and I3's
+  verification list asks for "focus ring only after keyboard focus (PNGs)"). What the old assertion protected, D7's
+  defect that a focus change which restyles nothing never reached a paint pass, still matters and is now covered
+  where the ring is drawn: the Keyboard lab Tabs onto a button with no `focus:` class (`kb-plain`) and probes the
+  ring's pixels natively and in the Web page, and `verify.ts` itself now probes the ring after Tab reaches
+  `increment`, which has no `focus:` rule either (`A Tab focus paints the focus ring ...`). That step needed a
+  second adjustment to the owner: the old loop pressed Tab only while `increment` was not focused, and the press
+  just before it had already focused `increment` with the mouse, so `05-keyboard-focus` was a mouse focus and no
+  Tab was pressed; the loop now always presses Tab at least once, so the capture is the keyboard focus its name
+  says (its pixels equal the pre-I1 capture). The change touches one existing assertion; every other existing
+  assertion, including the keyboard ones, is unchanged. Evidence: before the change `pnpm verify` failed with
+  exactly that message and nothing else.
+- **D18 (I3)**: input modality starts as `keyboard`, a press (any button or touch) makes it `pointer`, and a key
+  press other than a bare modifier makes it `keyboard`; `focus()` and `autoFocus` with no explicit
+  `focusVisible` follow it (Tab is always a keyboard focus). Before any pointer input `autoFocus` therefore shows
+  the ring, as in browsers. The plan says only "while the modality is keyboard"; browsers' extra heuristic (a key
+  press makes the already-focused element focus-visible) is not implemented, as the plan does not ask for it.
+- **D19 (I3)**: choices the plan did not make. (a) Every key press, repeat and release is awaited by JS while the
+  root holds key focus, including keys native has no use for, because root listeners and `preventDefault()` need
+  them; a dispatch costs about a tenth of a millisecond for a cheap handler (I1 measurements). (b) Enter and Space
+  activate only `Button`s: an element with `tabIndex` is focusable and takes key events but is not a control. (c)
+  The repeats of an activation key are consumed while the press it started is in flight, so a held Enter does not
+  leak to the game one repeat at a time; the `keyup` that completes it must be the key that started it. (d) Tab
+  with Ctrl, Alt or Meta is left alone. (e) `focus()` on a disabled or non-focusable element is an error that says
+  which; DOM ignores it silently, but a `focus()` that does nothing hides a bug. (f) `blur` carries the visibility
+  the element had; `focus` the one it gets.
+- **D20 (coordinator, at Ben's request)**: verification runs in tiers, defined in 0.4.1, instead of every native
+  and Web verifier at every phase. While iterating: the affected unit tests and the typecheck. When a task is done:
+  the new or changed verifier sections, natively, in landscape. When a phase is done, before its commit: the unit
+  suites, typecheck, Clippy, `verify:interaction` and `verify`, `verify:motion` only for the files 0.4.1 names, and the
+  Web interaction verifier only if the phase changed Web-specific behaviour. At the end of each batch and before
+  final acceptance: one full regression run (`build:web` and all six verifiers). Evidence: AGENTS.md says to prefer
+  the narrowest check that proves the change while iterating and to run the broader suites before calling work done;
+  the per-phase Web gate (a Wasm build and three browser verifiers) was the main cost of I1 and I2. Phases F0 to I2
+  were gated with every verifier and keep the gate lines they were gated by; the gate lines of I3 to I11 are
+  rewritten to point at the tiers. The `--only=<name>` section filter 0.4.1 allows does not exist yet; the first phase
+  that needs to run one verifier section adds it to `scripts/verify.mjs` and `verify-interaction-web.mjs`.
 - **Native rule restored (F4)**: plan 3.3 says hover re-hit-tests "if geometry under the mouse changed";
   F3 re-hit-tested at every flush, which walks the siblings at every level (169 us at 2,000 cells).
   `flush_layout` now re-hit-tests only after something that decides the hit changed: a node's geometry,
@@ -173,7 +212,8 @@ record what you chose.
    session. The Files list is the expected set; if a task genuinely needs another file (a build
    entry point, a shared test helper), touch it and record why in the progress log.
 3. Work one task at a time. After each task, run that task's tests. After each phase, run the phase
-   **Gate**. Do not start the next phase until the gate passes.
+   **Gate**, which means the phase-done tier of 0.4.1 (D20), not every verifier. Do not start the next
+   phase until the gate passes.
 4. Record every phase gate in `docs/INTERACTION_PROGRESS.md`: commands run, pass/fail counts,
    artifact paths you inspected, measurements, anything you chose that this plan left open.
 5. Commit at the end of each phase (optionally after each passing task) in the `godot-react-ui`
@@ -261,9 +301,31 @@ GODOT_REACT_WEB_URL=http://127.0.0.1:8097 pnpm verify:motion:web
 GODOT_REACT_WEB_URL=http://127.0.0.1:8097 pnpm verify:interaction:web
 ```
 
-Stop your server when the Web gate is done. Bound every wait and check the process and its log if
+Stop your server when the Web run (0.4.1) is done. Bound every wait and check the process and its log if
 something stalls. `artifacts/web-verification/failure.png` is never cleared by the verifier; judge a
 run by its report and log.
+
+#### 0.4.1 Verification tiers (D20)
+
+Running every native and Web verifier for every phase is the main cost of the work, so use the narrowest
+tier that proves what you changed (AGENTS.md: prefer the narrowest check while iterating, run the broader
+suites before calling work done):
+
+- **While iterating**: only the affected unit tests (`cargo test <module or test name>`,
+  `pnpm exec tsx --test tests/<file>.test.ts`) and `pnpm test:types`.
+- **When a task is done**: `pnpm build:native` if native changed, then `pnpm build`; then the new or
+  changed verifier sections natively, in one viewport (landscape) unless the change depends on the
+  viewport. If `verify:interaction` cannot run one section yet, add a section filter (for example
+  `--only=<name>`, passed through `scripts/verify.mjs`, and the same flag in `verify-interaction-web.mjs`).
+- **When a phase is done, before its commit** (this is what a phase's **Gate** means, "native gate"):
+  `cargo test`, `pnpm test`, `pnpm test:types`, Clippy; `pnpm verify:interaction` (every section, both
+  viewports) and `pnpm verify`. `pnpm verify:motion` only if the phase touched `motion.rs`,
+  `style_engine.rs`, `computed_style.rs`, the layout or geometry code in `mount.rs`, or `render_tree.rs`.
+  **Web only if the phase changed Web-specific behaviour** (touch, DPR, IME or virtual keyboard,
+  clipboard, browser input): then `pnpm build:web` and `verify:interaction:web` alone ("Web gate").
+- **End of each batch** (after I3, then every two or three phases) **and before final acceptance**: the
+  full regression run, `pnpm build:web` and all six verifiers (`verify`, `verify:motion`,
+  `verify:interaction`, `verify:web`, `verify:motion:web`, `verify:interaction:web`).
 
 Baselines: at `7f0a96c`, `cargo test` 19, `pnpm test` 13, Clippy 0 warnings, `verify:web` 249
 assertions, `verify:motion:web` 433 assertions (`docs/INTERACTION_PROGRESS.md`).
@@ -1060,8 +1122,11 @@ field and record why.
 
 ## 5. Phases
 
-Every phase lists **Files** (expected), **Tasks**, and a **Gate**. "Native gate" = every command in 0.4
-except the Web block; "Web gate" adds the Web block. Every gate also requires: Clippy 0 warnings,
+Every phase lists **Files** (expected), **Tasks**, and a **Gate**. "Native gate" = the phase-done tier of
+0.4.1 (unit tests, typecheck, Clippy, `pnpm verify:interaction`, `pnpm verify`, and `pnpm verify:motion` only for
+the code 0.4.1 names); "Web gate" = `pnpm build:web` and `verify:interaction:web`, required only when the phase
+changed Web-specific behaviour (D20). The full regression run of 0.4.1 happens at the end of each batch, not per
+phase. Phases F0 to I2 were gated, as their lines say, with every verifier. Every gate also requires: Clippy 0 warnings,
 README "Current limits" and `native/PROTOCOL.md` updated for what landed, `docs/INTERACTION_PROGRESS.md`
 updated, a commit.
 
@@ -1240,7 +1305,7 @@ snapshot commit counters. **Pass** requires all of:
 If a criterion fails, profile before changing anything (AGENTS.md root cause first) and report if the
 fix is not local.
 
-**Gate**: all criteria met and recorded; native and Web gates still green.
+**Gate**: all criteria met and recorded; native and Web gates still green (gated, as written, with every verifier).
 
 ### Phase I1 — Godot co-operation
 
@@ -1309,12 +1374,13 @@ fix is not local.
 6. `keydown` (cancelable, repeats) → default actions (Tab, button press) → accept rule; `keyup` →
    button click; keyboard `click` with `pointerId 0`, `pointerType ""`, `detail 0`; target 0 when no
    element is focused.
-7. **Demo**: a dialog with a JS focus trap, a `tabIndex={0}` card, a key log.
+7. **Demo**: a dialog with a JS focus trap, a `tabIndex={0}` card, a key log (D14: the Keyboard lab page; it
+   also has two keyed buttons that trade places, so Tab order is shown to follow the document, not creation).
 8. **Verify**: Tab order is document order; the trap holds; focus ring only after keyboard focus
    (PNGs); held key ⇒ `repeat: true`; Enter on a button ⇒ one `click`, no `pointerdown`; `active:`
    style while Space is held; existing keyboard assertions still pass.
 
-**Gate**: native gate and Web gate.
+**Gate**: native gate; Web gate (browser keyboard input changed).
 
 ### Phase I4 — Positioning, z-order, overlays
 
@@ -1333,7 +1399,7 @@ fix is not local.
 5. **Verify**: the popover covers later content and receives clicks above it; it is not clipped
    (pixel check); Tab order unchanged.
 
-**Gate**: native gate and Web gate.
+**Gate**: native gate (including `verify:motion` if it touches the layout, geometry or render code 0.4.1 names); Web gate only if the phase changed Web-specific behaviour.
 
 ### Phase I5 — Scroll containers
 
@@ -1360,7 +1426,7 @@ fix is not local.
    no re-record of scrolled content during a scroll; Web touch swipe scrolls with momentum and cancels
    the pressed item's click; `touch-none` element gets `pointermove` instead.
 
-**Gate**: native gate and Web gate.
+**Gate**: native gate; Web gate (wheel, touch and DPR scrolling are Web-specific).
 
 ### Phase I6 — Text layout and selection
 
@@ -1378,12 +1444,12 @@ fix is not local.
 7. **Verify**: drag across two paragraphs; double and triple click; `select-none` skipped; Cmd/Ctrl+C
    to clipboard (native `DisplayServer.clipboardGet()`; Web with clipboard permissions); PNGs.
 
-**Gate**: native gate and Web gate.
+**Gate**: native gate (including `verify:motion` if it touches the layout or style code 0.4.1 names); Web gate only if the phase changed Web-specific behaviour.
 
 ### Phase I7 — TextInput
 
-Four commits (I7A–I7D), each with its own native gate; the Web gate after I7D (and after I7B if it
-changed Web-relevant code).
+Four commits (I7A–I7D), each with its own native gate; the Web gate after I7D (IME and the virtual keyboard
+are Web-specific), and after I7B if it changed Web-relevant code.
 
 **Files**: `native/props.rs`, `native/text_input.rs`, `native/text_input_godot.rs`,
 `native/text_layout.rs`, `native/layout.rs`, `native/mount.rs`, `native/render_tree.rs`,
@@ -1430,7 +1496,7 @@ InputMap, Backspace/Delete over an emoji ZWJ sequence, maxLength, transform, rea
 blocked copy, undo/redo, caret visible in PNGs, horizontal scroll follows the caret, multi-line wraps
 and scrolls.
 
-**Gate**: native gate and Web gate after I7D.
+**Gate**: native gate after each of I7A to I7D; Web gate after I7D.
 
 ### Phase I8 — Component kit
 
@@ -1452,7 +1518,7 @@ Each with `disabled`, controlled and uncontrolled forms, `aria-*` passthrough, W
 behaviour. Tests with the fake host; an "Inputs" demo section bound to one state object; verify each
 by mouse, keyboard and (Web) touch.
 
-**Gate**: native gate and Web gate.
+**Gate**: native gate; Web gate only if the phase changed Web-specific behaviour.
 
 ### Phase I9 — Drag and drop
 
@@ -1475,7 +1541,7 @@ by mouse, keyboard and (Web) touch.
    coordinates, ghost in a mid-drag PNG, no `click` after a drag; Web touch: hold then move drags,
    quick swipe scrolls.
 
-**Gate**: native gate and Web gate.
+**Gate**: native gate; Web gate (touch drags are Web-specific).
 
 ### Phase I10 — Accessibility
 
@@ -1495,7 +1561,7 @@ by mouse, keyboard and (Web) touch.
    is missing, stop and ask Ben. Record a short VoiceOver check or report that it could not be done.
    Record `DisplayServer.hasFeature(FEATURE_ACCESSIBILITY_SCREEN_READER)` on Web for the README.
 
-**Gate**: native gate (including the AX dump) and Web gate (regression).
+**Gate**: native gate (including the AX dump); Web gate (browser accessibility is Web-specific).
 
 ### Phase I11 — World-space UI recipe
 
@@ -1512,11 +1578,11 @@ by mouse, keyboard and (Web) touch.
    `TextInput` works; the anchored label tracks the node; PNGs. Web: same if the Web template renders
    3D, else record the evidence and limit the claim to native.
 
-**Gate**: native gate (including `verify:world`) and Web gate.
+**Gate**: native gate (including `verify:world`); Web gate only if the phase changed Web-specific behaviour.
 
 ### Final acceptance
 
-All gates pass from a clean build; README limits list exactly 2.3 plus anything recorded as not done;
+All gates pass from a clean build, and the full regression run of 0.4.1 (every native and Web verifier) passes; README limits list exactly 2.3 plus anything recorded as not done;
 `native/PROTOCOL.md` documents the v2 native API; `docs/MOTION_ARCHITECTURE.md` matches the new data
 flow; the progress log has every gate's evidence and the F0/F4 measurements side by side.
 

@@ -46,6 +46,7 @@ export default class Main extends Node {
   /** A full-window Control behind the React root: the "game" the HUD sits over. */
   private backdrop: ColorRect | null = null;
   private pointerCancels = 0;
+  private rootKeys: string[] = [];
   private passthrough: PassthroughCounts = { backdropPresses: 0, unhandledPresses: 0, unhandledWheels: 0, unhandledPans: 0, unhandledKeys: {} };
 
   override _ready(): void {
@@ -69,6 +70,9 @@ export default class Main extends Node {
       restoreDemo: () => this.requireRenderer().render(createElement(App)),
       // A page in place of the app: the HUD over the backdrop Control (plan I1), the pointer lab (I2), ...
       showLab: (name: LabName) => this.requireRenderer().render(labElement(name)),
+      /** The `key` of every `keydown` addressed to the root itself (no element focused), in order. */
+      rootKeys: () => [...this.rootKeys],
+      resetRootKeys: () => { this.rootKeys = []; },
       /** `pointercancel`s the root's own listener saw since the last reset. */
       pointerCancels: () => this.pointerCancels,
       resetPointerCancels: () => { this.pointerCancels = 0; },
@@ -230,6 +234,9 @@ export default class Main extends Node {
     });
     this.renderer = renderer;
     renderer.addEventListener('pointercancel', () => { this.pointerCancels += 1; });
+    renderer.addEventListener('keydown', event => {
+      if (event.target.id === 0) this.rootKeys.push(event.key);
+    });
     setLabOwner({
       unmountRoot: () => this.unmount(),
       detachSurface: () => {

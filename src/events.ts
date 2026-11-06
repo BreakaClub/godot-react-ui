@@ -1,7 +1,7 @@
 import type { UIHandle, UIProps } from './components';
 import type {
-  NativeEvent, NativeEventType, NativeFocusEvent, NativeFocusEventType, NativeMouseFields,
-  NativePointerEvent, NativePointerEventType, NativePointerType, NativeWheelEvent,
+  NativeEvent, NativeEventType, NativeFocusEvent, NativeFocusEventType, NativeKeyEvent, NativeKeyEventType,
+  NativeMouseFields, NativePointerEvent, NativePointerEventType, NativePointerType, NativeWheelEvent,
 } from './native';
 
 /** DOM `Event.eventPhase`. */
@@ -64,11 +64,34 @@ export interface UIWheelEvent extends UISyntheticEvent<'wheel'>, UIMouseFields {
   readonly deltaY: number;
 }
 
-export interface UIFocusEvent extends UISyntheticEvent<NativeFocusEventType> {}
+export interface UIFocusEvent extends UISyntheticEvent<NativeFocusEventType> {
+  /** The element focus came from (`focus`) or goes to (`blur`), if there is one and it still exists. */
+  readonly relatedTarget: UIHandle | null;
+  /** The focus is a keyboard focus (Tab, or `focus()` after keyboard input): the ring and `:focus-visible`. */
+  readonly focusVisible: boolean;
+}
+
+/**
+ * A key press, repeat or release. `keydown` is cancelable: preventing it keeps native's default action
+ * (Tab moving focus, Enter and Space pressing a button) and the game from seeing the key.
+ */
+export interface UIKeyboardEvent extends UISyntheticEvent<NativeKeyEventType> {
+  /** DOM `key`: the character typed, else the key's name (`Enter`, `ArrowLeft`, ...). */
+  readonly key: string;
+  /** DOM `code`: the physical key (`KeyA`, `Digit1`, `ShiftLeft`, ...). */
+  readonly code: string;
+  /** True for the repeats Godot sends while a key is held. */
+  readonly repeat: boolean;
+  readonly isComposing: boolean;
+  readonly shiftKey: boolean;
+  readonly ctrlKey: boolean;
+  readonly altKey: boolean;
+  readonly metaKey: boolean;
+}
 
 /** Kept so handler types written against the first event model still compile. */
 export type UIEvent = UIPointerEvent;
-export type UIAnyEvent = UIPointerEvent | UIWheelEvent | UIFocusEvent;
+export type UIAnyEvent = UIPointerEvent | UIWheelEvent | UIKeyboardEvent | UIFocusEvent;
 
 export interface UIEventMap {
   pointerdown: UIPointerEvent;
@@ -82,6 +105,8 @@ export interface UIEventMap {
   auxclick: UIPointerEvent;
   contextmenu: UIPointerEvent;
   wheel: UIWheelEvent;
+  keydown: UIKeyboardEvent;
+  keyup: UIKeyboardEvent;
   focus: UIFocusEvent;
   blur: UIFocusEvent;
 }
@@ -175,8 +200,36 @@ class WheelEventImpl extends MouseEventImpl<'wheel'> implements UIWheelEvent {
 }
 
 class FocusEventImpl extends SyntheticEvent<NativeFocusEventType> implements UIFocusEvent {
-  constructor(native: NativeFocusEvent, target: UIHandle, bubbles: boolean) {
+  readonly relatedTarget: UIHandle | null;
+  readonly focusVisible: boolean;
+
+  constructor(native: NativeFocusEvent, target: UIHandle, related: UIHandle | null, bubbles: boolean) {
     super(native.type, target, bubbles, native.cancelable, native.timeStamp);
+    this.relatedTarget = related;
+    this.focusVisible = native.focusVisible;
+  }
+}
+
+class KeyboardEventImpl extends SyntheticEvent<NativeKeyEventType> implements UIKeyboardEvent {
+  readonly key: string;
+  readonly code: string;
+  readonly repeat: boolean;
+  readonly isComposing: boolean;
+  readonly shiftKey: boolean;
+  readonly ctrlKey: boolean;
+  readonly altKey: boolean;
+  readonly metaKey: boolean;
+
+  constructor(native: NativeKeyEvent, target: UIHandle, bubbles: boolean) {
+    super(native.type, target, bubbles, native.cancelable, native.timeStamp);
+    this.key = native.key;
+    this.code = native.code;
+    this.repeat = native.repeat;
+    this.isComposing = native.isComposing;
+    this.shiftKey = native.shiftKey;
+    this.ctrlKey = native.ctrlKey;
+    this.altKey = native.altKey;
+    this.metaKey = native.metaKey;
   }
 }
 
@@ -189,6 +242,10 @@ function isFocusEvent(event: UIAnyEvent): event is UIFocusEvent {
 
 function isWheelEvent(event: UIAnyEvent): event is UIWheelEvent {
   return event.type === 'wheel';
+}
+
+function isKeyboardEvent(event: UIAnyEvent): event is UIKeyboardEvent {
+  return event.type === 'keydown' || event.type === 'keyup';
 }
 
 /** One entry per native event type: whether it bubbles and which prop receives each phase. */
@@ -208,7 +265,7 @@ function pointerSpec(
     invoke(props, isCapture, event) {
       const handler = isCapture ? capture?.(props) : bubble(props);
       if (handler === undefined) return;
-      if (isFocusEvent(event) || isWheelEvent(event)) {
+      if (isFocusEvent(event) || isWheelEvent(event) || isKeyboardEvent(event)) {
         throw new Error(`UI internal error: ${event.type} reached a pointer event handler`);
       }
       handler(event);
@@ -227,6 +284,23 @@ function wheelSpec(
       if (handler === undefined) return;
       if (!isWheelEvent(event)) {
         throw new Error(`UI internal error: ${event.type} reached a wheel event handler`);
+      }
+      handler(event);
+    },
+  };
+}
+
+function keySpec(
+  bubble: (props: UIProps) => Handler<UIKeyboardEvent>,
+  capture: (props: UIProps) => Handler<UIKeyboardEvent>,
+): EventSpec {
+  return {
+    bubbles: true,
+    invoke(props, isCapture, event) {
+      const handler = isCapture ? capture(props) : bubble(props);
+      if (handler === undefined) return;
+      if (!isKeyboardEvent(event)) {
+        throw new Error(`UI internal error: ${event.type} reached a keyboard event handler`);
       }
       handler(event);
     },
@@ -261,6 +335,8 @@ const EVENT_TABLE: Record<NativeEventType, EventSpec> = {
   auxclick: pointerSpec(true, (p) => p.onAuxClick),
   contextmenu: pointerSpec(true, (p) => p.onContextMenu),
   wheel: wheelSpec((p) => p.onWheel, (p) => p.onWheelCapture),
+  keydown: keySpec((p) => p.onKeyDown, (p) => p.onKeyDownCapture),
+  keyup: keySpec((p) => p.onKeyUp, (p) => p.onKeyUpCapture),
   focus: focusSpec((p) => p.onFocus),
   blur: focusSpec((p) => p.onBlur),
 };
@@ -311,7 +387,7 @@ export const NOT_DISPATCHED: DispatchResult = Object.freeze({ defaultPrevented: 
 
 function createEvent(
   native: NativeEvent, target: UIHandle, related: UIHandle | null, bubbles: boolean,
-): PointerEventImpl | WheelEventImpl | FocusEventImpl {
+): PointerEventImpl | WheelEventImpl | KeyboardEventImpl | FocusEventImpl {
   switch (native.type) {
     case 'pointerdown': case 'pointermove': case 'pointerup':
     case 'pointerenter': case 'pointerleave': case 'pointercancel': case 'click': case 'dblclick':
@@ -319,8 +395,10 @@ function createEvent(
       return new PointerEventImpl(native, target, related, bubbles);
     case 'wheel':
       return new WheelEventImpl(native, target, bubbles);
+    case 'keydown': case 'keyup':
+      return new KeyboardEventImpl(native, target, bubbles);
     case 'focus': case 'blur':
-      return new FocusEventImpl(native, target, bubbles);
+      return new FocusEventImpl(native, target, related, bubbles);
   }
 }
 

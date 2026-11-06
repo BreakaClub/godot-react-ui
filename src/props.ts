@@ -20,6 +20,10 @@ export interface NativeProps {
   /** Suspense is showing a fallback: the element and its subtree take no space. */
   readonly hidden?: true;
   readonly testID?: string;
+  /** `0` is focusable and in the tab order; `-1` focusable only. Buttons need neither. */
+  readonly tabIndex?: 0 | -1;
+  /** Focus the element when it is first mounted. */
+  readonly autoFocus?: true;
 }
 
 /** The changed keys of a node's native props; `null` resets a key to its default. */
@@ -29,7 +33,7 @@ export type NativePropsDiff = { [K in keyof NativeProps]?: NativeProps[K] | null
  * The keys of {@link NativeProps}, which is the whole table of native props: a React prop that is
  * not here is JavaScript-only. Native rejects any other key (`deny_unknown_fields`).
  */
-export const NATIVE_PROP_KEYS = ['style', 'text', 'disabled', 'hidden', 'testID'] as const satisfies readonly (keyof NativeProps)[];
+export const NATIVE_PROP_KEYS = ['style', 'text', 'disabled', 'hidden', 'testID', 'tabIndex', 'autoFocus'] as const satisfies readonly (keyof NativeProps)[];
 
 /** The text a `text` element shows, or `undefined` if its children are not plain strings or numbers. */
 export function scalarText(children: ReactNode): string | undefined {
@@ -75,6 +79,11 @@ export function nativeProps(kind: NativeKind, props: UIProps, hidden: boolean, p
   if (props.disabled === true) native.disabled = true;
   if (hidden) native.hidden = true;
   if (props.testID !== undefined) native.testID = props.testID;
+  if (props.tabIndex !== undefined) {
+    if (props.tabIndex !== 0 && props.tabIndex !== -1) throw new Error(`tabIndex must be 0 or -1, not ${String(props.tabIndex)}`);
+    native.tabIndex = props.tabIndex;
+  }
+  if (props.autoFocus === true) native.autoFocus = true;
   return native;
 }
 
@@ -109,6 +118,14 @@ export function diffNativeProps(previous: NativeProps, next: NativeProps): Nativ
   }
   if (previous.testID !== next.testID) {
     diff.testID = next.testID ?? null;
+    changed = true;
+  }
+  if (previous.tabIndex !== next.tabIndex) {
+    diff.tabIndex = next.tabIndex ?? null;
+    changed = true;
+  }
+  if (previous.autoFocus !== next.autoFocus) {
+    diff.autoFocus = next.autoFocus ?? null;
     changed = true;
   }
   return changed ? diff : null;

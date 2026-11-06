@@ -10,9 +10,10 @@ use godot::classes::{
 use godot::prelude::*;
 
 use crate::events::{EventPayload, PointerData, PointerType, WheelData};
+use crate::focus::{Modality, nearest_focusable};
 use crate::pointer::{
     DOM_BUTTON_NONE, DOM_BUTTON_PRIMARY, DOM_BUTTON_SECONDARY, DOM_BUTTONS_PRIMARY,
-    MOUSE_POINTER_ID, dom_button_of, enabled_button_ancestor, shared_button_target, wheel_ticks,
+    MOUSE_POINTER_ID, dom_button_of, shared_button_target, wheel_ticks,
 };
 use crate::pointer_state::{Capture, PointerKind, Press, touch_pointer_id};
 use crate::{ROOT_TARGET, ReactUiRoot, event_time_ms, modifiers_of};
@@ -110,6 +111,7 @@ impl ReactUiRoot {
     /// while handling `pointerdown`: nothing native may run afterwards (plan 3.3 rule 4).
     fn press_mouse(&mut self, button: i8, hit: Option<u32>) -> bool {
         let primary = button == DOM_BUTTON_PRIMARY;
+        self.modality = Modality::Pointer;
         // A button pressed while another is down goes where the capture says.
         let target = self
             .pointers
@@ -229,6 +231,7 @@ impl ReactUiRoot {
     /// A finger went down (or another one did). Returns false when JS left the root outside the
     /// scene tree while handling `pointerdown`.
     fn press_touch(&mut self, id: u32, position: Vector2) -> bool {
+        self.modality = Modality::Pointer;
         let hit = self.mounted.hit_test(position);
         let target = hit.filter(|tag| !self.mounted.is_disabled(*tag));
         let detail = self.clicks.press(
@@ -404,7 +407,7 @@ impl ReactUiRoot {
     fn run_pointerdown_default(&mut self, hit: Option<u32>, prevented: bool) {
         let target_removed = hit.is_some_and(|id| !self.mounted.nodes.contains_key(&id));
         if !prevented && !target_removed {
-            let focus = hit.and_then(|id| enabled_button_ancestor(&self.mounted, id));
+            let focus = hit.and_then(|id| nearest_focusable(&self.mounted, id));
             if focus.is_some() {
                 self.base_mut().grab_focus();
             }
@@ -417,7 +420,7 @@ impl ReactUiRoot {
     /// with `grabFocus()`, until the next press). Godot grants focus to a focusable Control for
     /// every left press that reaches it, before any handler runs (`viewport.cpp:1976-1990`), so a
     /// press that leaves no element focused hands it back: keys then go to the game (plan 3.11).
-    fn release_key_focus_without_element(&mut self) {
+    pub(crate) fn release_key_focus_without_element(&mut self) {
         if self.focused.is_none() && self.base().has_focus() {
             self.base_mut().release_focus();
         }
