@@ -1,6 +1,7 @@
 # Text input (Phase I7): notes and report
 
-Branch `text-input`, rebased once onto `main` at `710adc3` (Phase I6, text selection). Phase I7 of
+Branch `text-input`, rebased onto `main` at `710adc3` (Phase I6, text selection) and again onto `6c6abd7` (Phase I9, the stock
+engine profile and the freshness guard; sections "Rebase onto 6c6abd7" and "The real accessibility tree" below). Phase I7 of
 `docs/INTERACTION_PLAN.md`: the `TextInput` element (single-line and multi-line), IME and the virtual keyboard,
 clipboard and undo, the controlled-value protocol, the kit `TextField`, accessibility, and typing in world space.
 `docs/INTERACTION_PLAN.md` and `docs/INTERACTION_PROGRESS.md` were not touched: the decisions below (numbered T1 and up
@@ -124,15 +125,14 @@ selection, replace selected text and set value, mirroring `LineEdit` (`line_edit
 (`text_edit.cpp:760-840`). The a11y lab has a name field, a text area and a read-only field, `scripts/a11y-expectations.mjs`
 expects `AXTextField` and `AXTextArea` with their `AXValue`, and the Godot-side half of `pnpm verify:a11y` selects, replaces and
 sets the text through the actions' callable and checks the result; with the replace action made a whole-text replacement it
-fails at "A replace-selected-text action replaces the selection". **Not verified:** the platform's tree. The engine that runs
-this project has no accessibility driver (`GODOT_REACT_A11Y_UNSUPPORTED`, exit 2, as before), so nothing in the update pass
-has run in an engine: not `create_sub_text_edit_elements`, not the line placement, not `update_set_text_selection`. The
-platform-tree check waits for an engine with AccessKit (`docs/tracks/accessibility.md`, "To finish the verification").
+fails at "A replace-selected-text action replaces the selection". On Breaka's own engine the platform tree is not read (no
+accessibility driver, `GODOT_REACT_A11Y_UNSUPPORTED`, exit 2); on the stock engine it is, and that is the next section.
 
 - **T17. A `TextInput` is always a text field.** Its `role` can only remove it from the tree. A `View` with
   `role="textbox"` stays unexposed: it has no text, selection or edit to offer.
-- **T18. The text is line elements, not a value.** As `LineEdit` and `TextEdit` do: one element per line of the shaped
-  display text, with the selection set against them. A line owns its start offset and not its end, so a caret at the
+- **T18. The text is line elements, not a value.** As `LineEdit` and `TextEdit` do: one element per row of the text, each
+  hard line shaped on its own (the first reading of the real tree changed this from rows of one paragraph, see "The real
+  accessibility tree"), with the selection set against them. A line owns its start offset and not its end, so a caret at the
   start of the next line is on that line; the last line owns the end of the text (`line_for_offset`, tested). A line's
   elements are made inside the update and `free_element` is refused there, so they are freed where the display is shaped
   again (`reshape_display`, `refresh_text_input`) and where the box changes shape (`update_node_geometry`), never inside one,
@@ -140,7 +140,7 @@ platform-tree check waits for an engine with AccessKit (`docs/tracks/accessibili
 - **T19. A field with no name is named by its placeholder**, as `LineEdit::_get_accessibility_name` does.
 - **T20. Assistive edits are edits.** They go through `beforeinput`, so JS can refuse one and hears the `input`. A
   set-value puts the caret after the text, which `ReplaceText` (the virtual keyboard's, caret at 0) does not.
-- **T21. The a11y lab is 900x900**, taller than before, for three more fields.
+- **T21. The a11y lab is 900x900**, taller than before, for four more fields.
 
 ## World-space typing
 
@@ -150,6 +150,93 @@ item. The IME window position is not placed from the projected caret: `update_im
 in its own viewport and that viewport's screen transform, which is the main window's for a root in the main window and
 only approximately right for one in a `SubViewport` on a quad. Recorded, not fixed: it needs the projection, which only the
 owner has.
+
+## The real accessibility tree
+
+`pnpm verify:a11y --engine=stock` reads the lab's tree from the macOS Accessibility API through the stock engine's AccessKit
+adapter (Godot 4.7.2, `docs/tracks/stock-engine.md`). The dump tool (`scripts/ax-dump.swift`, read only) now also reads, for a
+text field or area, `AXSelectedText`, `AXSelectedTextRange`, `AXNumberOfCharacters`, `AXVisibleCharacterRange`,
+`AXInsertionPointLineNumber`, the text by range (`AXStringForRange`, a parameterized read), the attribute names and the names
+of the attributes that could be set (`AXUIElementIsAttributeSettable`, which sets nothing). `scripts/a11y-expectations.mjs` judges
+the lab's four text inputs (a name field edited by the Godot-side half and left with "Lovelace" selected, a two-line text area,
+a read-only field selected whole, and an empty field with only a placeholder).
+
+**A control.** Because a gap has to be told from a defect, a scene of stock controls (`tests/fixtures/ax-lab/stock-controls.tscn`: a
+`LineEdit`, a read-only one, an empty one with a placeholder, and a `TextEdit`) was run through the same engine and adapter, and its
+tree recorded (`macos-stock-controls.json`). `tests/a11y-expectations.test.ts` compares the recorded reading of the lab's inputs with it
+attribute by attribute: role, role description, subrole, enabled, every attribute name, every settable attribute name, and whether an
+`AXValue` exists.
+
+**Defect found and fixed (T22).** The first reading (a diagnostic window of the lab, before any verifier run) differed from the control
+in one thing: the text area "first\nsecond" read **13** characters, with the caret at the end at offset 13, where the stock `TextEdit` reads
+12. The server (`create_sub_text_edit_elements`) adds a line break to every row but the last, and the rows of one paragraph carry their
+own `\n`, so each line break was read twice. `TextEdit` shapes each hard line separately; so does the library now (`text_line_placement`:
+each hard line shaped on its own, its rows paired with the rows the input draws, a selection end being a column in a hard line on the
+row that holds it). The unit tests of `hard_line_starts` and `hard_line_of` pin the mapping, and the expectation fails on the old reading
+("a11y-notes: AXNumberOfCharacters is 13, expected 12", checked by running the expectations over that first reading).
+
+**What the real tree shows now** (the run's `ax-before.json` and `ax-after.json`, recorded as `tests/fixtures/ax-lab/macos-*.json`):
+
+| Text input | Role | Text | Selection | Other |
+| --- | --- | --- | --- | --- |
+| Name | `AXTextField` "text field", title `Name` | `AXValue` "Ada", then "Ada Lovelace" after the Godot-side set-value | caret `{3,0}`, then `{4,8}` and `AXSelectedText` "Lovelace" | 160 x 20.5 points at 0.5 points per pixel; no placeholder while it has text |
+| Notes | `AXTextArea` "text entry area", title `Notes` | no `AXValue`; `AXStringForRange` "first\nsecond", 12 characters | caret `{12,0}`, `AXInsertionPointLineNumber` 1 | |
+| Reference (read-only) | `AXTextField` | "Fixed" | `{5,0}`, then `{0,5}` | `AXValue` still settable |
+| Search (empty, no label) | `AXTextField`, title `Search` (the placeholder names it) | "" | `{0,0}` | `AXPlaceholderValue` "Search" |
+
+Frames fit the snapshot geometry with the rest of the lab (one scale and offset, residual within 2 points). The text-run elements the
+server makes are not elements in the macOS tree (children: none, for the control as well).
+
+**`GODOT_REACT_A11Y_GAP`s** (what the engine or adapter cannot convey; each shown by the control, so none is this library's):
+- A text area has no `AXValue` in the platform tree (the stock `TextEdit` has none); its text is read by range, which the run checks.
+- A read-only field is not marked read-only: `AXValue` stays settable, as for a stock `LineEdit` with `editable` off, and the adapter has no
+  attribute for it. `FLAG_READONLY` is set; nothing on macOS carries it. (Whether a screen reader still reads it, VoiceOver was not run.)
+
+**Not a gap, a difference.** The stock controls advertise `AXScrollToVisible` even outside a scroll container; the library offers
+scroll-into-view only inside one (decision of the scroll phase, `docs/tracks/accessibility.md`), so its text inputs advertise none.
+That is not a defect: nothing could scroll.
+
+**Still not verified:** platform focus (the window is not the key window in a run, `docs/tracks/stock-engine.md` S9), the actions on a text
+field through the real adapter (the dump tool performs none; the actions are checked through the action callable, as before), and VoiceOver
+by hand.
+
+## Rebase onto 6c6abd7 and fit-up to Phase I9
+
+`git rebase main` (rerere on) replayed the 18 commits of this branch; main is Phase I9 (drag and drop), the stock engine profile and the
+freshness guard. Conflicts and how they were decided (both sides' intent kept):
+- **Events (`native/events.rs`, `src/events.ts`, `src/native.ts`, `src/renderer.ts`, `tests/recording-host.ts`):** both families of events
+  (the text input's `beforeinput`, `input`, `selectionchange`, `compositionstart|update|end` and I9's `drag*`) are in every union, table and
+  switch; the two `selectionchange` shapes of T1 are kept. `isContinuous` lists the text events as not continuous.
+- **Pointer, frames and Escape (`native/pointer_input.rs`, `native/lib.rs`, `native/motion.rs`):** the drag machine owns the pointer first (as
+  main has it) and the text selection drag second; both tick from `process()`; `update_process` asks for frames for either.
+- **`ContentKey` and oversampling:** main's `6c6abd7` and this branch's `5aef575` are the same idea (the viewport's oversampling reaches
+  `TextParagraph::draw_ex`; it is in the cache key so a scale change repaints). Main's version stood for `Text`, including
+  `native/drag_ghost.rs`; the text input's part of `5aef575` (its `EditTextKey`, `draw_text`, and repainting inputs on a scale change)
+  stayed on top of it. `5aef575` and `ea0527e` are kept as commits.
+- **Verifiers (`demo/src/verify-interaction.ts`, `scripts/verify-interaction-web.mjs`, labs):** the `drag` and `forms` sections side by
+  side, both in `SECTIONS`; the Web touch workflow runs the drag and the forms scenarios.
+- **a11y (`scripts/a11y-expectations.mjs`, `tests/a11y-expectations.test.ts`, `scripts/verify-a11y.mjs`):** main's scroll expectations and
+  the text input ones together; main's longer deadline kept.
+
+Fit-up, each decided here and tested:
+- **T23. A text input keeps its press, whatever draggable element it sits in.** `begin_drag_gesture` declines a press whose hit is a text
+  input, so under a `draggable` ancestor the press places the caret, a move selects text, and no `dragstart` follows, as for an HTML
+  `<input>`. Test: the drag section's draggable form (`input-chip`): a press in its field and a move past the drag threshold selects text
+  and makes no drag, and a press beside the field drags the form. With the decline removed it fails at "A press in a text input under a
+  draggable element starts no drag".
+- **T24. The ghost shows a dragged text input's text, not its caret.** The ghost copies boxes and paragraphs the source's items last
+  recorded; a text input draws from its own text item, so `text_input_ghost_texts` hands the ghost each input's paragraph (or placeholder)
+  ready, with no selection, preedit or caret, and `GhostText::record` draws it with the same oversampling key as the live item (so it is
+  sharp at DPR 2, as `Text` in the ghost is since `6c6abd7`). Test: the ghost's field region has dark text pixels and no pixel of the
+  field's indigo caret, with the source's caret verified on first. Fails without the copy at "The ghost of a form shows its field's text".
+- **T25. Arbitration stays thumb, then drag, then selection, and the text input's own press is last.** Found while testing it: a press that
+  grabbed a text area's scrollbar thumb also placed the caret (the arbitration flag only gated the selection drag). The input's own press
+  now runs only when no thumb was grabbed. Test (forms section): dragging a text area's thumb scrolls its text and leaves the caret;
+  fails at "and leaves the caret where it was" without the fix.
+- **T26. Scripts.** This branch adds no script that calls `selectEngine(`; `GUARDS` in `tests/freshness.test.ts` is unchanged and its test
+  passes. (`scripts/build.mjs` gained an entry point for `verify-text-input.ts`; the Web scripts it touched were already guarded.)
+- **T27. Typings.** `pnpm gen:types` after the rebase changed nothing tracked except the two `jsb.*.bundle.d.ts` files' line endings
+  (restored); `demo/typings/godot7.gen.d.ts` and `demo/gen/**` are as committed. No `#[func]` was added by the rebase or the fit-up.
 
 ## Web paste: investigation and decision (Phase I7C)
 
