@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, Checkbox, RadioGroup, Select, Slider, Switch, Text, View } from 'godot-react-ui';
+import { Button, Checkbox, RadioGroup, Select, Slider, Switch, Text, TextField, View, type UIInputEvent } from 'godot-react-ui';
 
 /** Everything the page's controls edit, in one object: the readout is this object as JSON. */
 interface InputsState {
@@ -9,11 +9,15 @@ interface InputsState {
   volume: number;
   fruit: string | null;
   shipping: string | null;
+  nickname: string;
 }
 
 const INITIAL_STATE: InputsState = {
-  subscribe: false, notifications: false, size: 'medium', volume: 40, fruit: null, shipping: null,
+  subscribe: false, notifications: false, size: 'medium', volume: 40, fruit: null, shipping: null, nickname: '',
 };
+
+/** The nickname is valid from this many characters; fewer, once something is typed, is an error. */
+const NICKNAME_MIN_LENGTH = 3;
 
 interface Choice {
   value: string;
@@ -77,7 +81,7 @@ function ChoiceSelect(props: {
 }
 
 /**
- * Phase I8: the input kit (Checkbox, Switch, RadioGroup, Slider, Select) bound to one state object, whose JSON is the
+ * Phase I8: the input kit (Checkbox, Switch, RadioGroup, Slider, Select, TextField) bound to one state object, whose JSON is the
  * readout the verifier parses. Locked copies show the `disabled` look; Reverse reorders the radio items, which the
  * group must follow; the first select sits mid-page and the second at the bottom, where its list has to flip. The third has
  * forty items, more than fit under it: its list is capped to the room and scrolls.
@@ -95,7 +99,7 @@ export function InputsLab() {
     <View testID="inputs-lab" className="w-full h-full bg-slate-50 p-6 gap-3">
       <View className="gap-1">
         <Text className="text-2xl text-slate-900">Inputs</Text>
-        <Text className="text-sm text-slate-500">Checkbox, Switch, RadioGroup, Slider and Select, bound to one state object.</Text>
+        <Text className="text-sm text-slate-500">Checkbox, Switch, RadioGroup, Slider, Select and TextField, bound to one state object.</Text>
       </View>
 
       <View className="flex-row gap-6">
@@ -138,6 +142,12 @@ export function InputsLab() {
         <Button testID="inputs-next" className={labButton} onClick={() => setNextClicks(value => value + 1)}>{`Next ${nextClicks}`}</Button>
         <ChoiceSelect id="long" value={option} placeholder="Pick an option" choices={LONG_LIST} onChange={setOption} />
       </View>
+
+      <TextField
+        testID="inputs-nickname" className="w-64" label="Nickname" helperText={`At least ${NICKNAME_MIN_LENGTH} characters`}
+        errorText={state.nickname.length > 0 && state.nickname.length < NICKNAME_MIN_LENGTH ? 'Too short' : undefined}
+        value={state.nickname} onChange={(event: UIInputEvent) => patch({ nickname: event.value })}
+      />
 
       <View className="rounded-lg bg-slate-900 p-3">
         <Text testID="inputs-json" className="text-xs text-emerald-300">{JSON.stringify(state, null, JSON_INDENT)}</Text>

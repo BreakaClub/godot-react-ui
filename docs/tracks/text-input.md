@@ -95,6 +95,26 @@ Enter is a line break.
 - **T14. A triple click selects all of the text**, in a text area too (`LineEdit`'s rule). `HTMLTextAreaElement`
   selects a line; not built, no consumer.
 
+## Kit `TextField`
+
+`src/kit/text-field.tsx`, exported with `TextFieldProps`: a column of a label `Text`, a `TextInput` and a helper or error
+`Text`. Every `TextInput` prop passes through (controlled, uncontrolled, `multiline`, ...), the ref is the input's
+handle, `className`/`style` style the root and `label*`, `input*` and `message*` props style the parts, and the parts
+have test ids `${testID}-label`, `-input` and `-message`. An error takes the helper's place, in rose, and the input's
+border turns rose (the palette has no red). A press on the label focuses the input unless it is disabled. Tests:
+`tests/text-field.test.ts` (8; six mutants of the component each fail one of them). It is in the Inputs lab (a
+Nickname field with a three-character minimum) and the Inputs section checks the label's press, the helper giving way
+to the error and back, and the value in the readout (captures `29-inputs-text-field-error`); with the label's press
+removed the section fails at "A press on the label focuses the input".
+
+- **T15. No `aria-labelledby` or `aria-describedby`.** The plan and the kit notes asked for them "if native accepts";
+  native's props have `ariaLabel` and `ariaDescription` only, and an unknown prop fails the commit. They are not typed.
+  The kit does what they would do with the text it has: the label becomes the input's `aria-label`, the error (else the
+  helper) its `aria-description`, and either can be overridden. Relationship props would be a change to the
+  accessibility model (the next section), not to the kit.
+- **T16. The Inputs section's tab stops include text inputs.** `tabStops` counted buttons and `tabIndex` 0; native makes a
+  `TextInput` a tab stop (`focus.rs`), so the helper does too.
+
 ## Web paste: investigation and decision (Phase I7C)
 
 **Reproduced.** Chrome (headless, clipboard permissions granted), the engine's own `clipboard_get` path, 1120x800:
@@ -143,4 +163,4 @@ clipboard changed inserts the new text".
 
 ## Owed
 
-The kit `TextField`, accessibility, world-space typing, the gates, merge notes.
+Accessibility, world-space typing, the gates, merge notes.

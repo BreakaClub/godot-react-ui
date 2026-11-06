@@ -1210,7 +1210,7 @@ function tabStops(api: DemoInspection, prefix: string): string[] {
     .filter(node => {
       const testID = node.props.testID;
       const tabIndex = node.props.tabIndex;
-      const tabbable = (node.kind === 'button' && node.props.disabled !== true && tabIndex !== -1) || tabIndex === 0;
+      const tabbable = ((node.kind === 'button' || node.kind === 'textinput') && node.props.disabled !== true && tabIndex !== -1) || tabIndex === 0;
       return tabbable && typeof testID === 'string' && testID.startsWith(prefix);
     })
     .sort((left, right) => left.documentIndex - right.documentIndex)
@@ -1419,6 +1419,7 @@ interface InputsReadout {
   volume: number;
   fruit: string | null;
   shipping: string | null;
+  nickname: string;
 }
 
 function isNullableString(value: unknown): value is string | null {
@@ -1432,14 +1433,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function readInputs(api: DemoInspection): InputsReadout {
   const parsed: unknown = JSON.parse(text(api, 'inputs-json'));
   assert(isRecord(parsed), `The readout is an object: ${text(api, 'inputs-json')}`);
-  const { subscribe, notifications, size, volume, fruit, shipping } = parsed;
+  const { subscribe, notifications, size, volume, fruit, shipping, nickname } = parsed;
   assert(typeof subscribe === 'boolean' && typeof notifications === 'boolean' && typeof volume === 'number'
-    && isNullableString(size) && isNullableString(fruit) && isNullableString(shipping), `The readout has the lab's fields: ${text(api, 'inputs-json')}`);
-  return { subscribe, notifications, size, volume, fruit, shipping };
+    && isNullableString(size) && isNullableString(fruit) && isNullableString(shipping) && typeof nickname === 'string',
+  `The readout has the lab's fields: ${text(api, 'inputs-json')}`);
+  return { subscribe, notifications, size, volume, fruit, shipping, nickname };
 }
 
 /** The lab's starting state (`INITIAL_STATE` in inputs-lab.tsx). */
-const INPUTS_INITIAL: InputsReadout = { subscribe: false, notifications: false, size: 'medium', volume: 40, fruit: null, shipping: null };
+const INPUTS_INITIAL: InputsReadout = { subscribe: false, notifications: false, size: 'medium', volume: 40, fruit: null, shipping: null, nickname: '' };
 /** A switch's thumb travels `trackWidth - thumbSize - 2 * thumbInset` = 44 - 20 - 4 and starts `thumbInset` in. */
 const SWITCH_TRAVEL_PX = 20;
 const SWITCH_INSET_PX = 2;
@@ -1551,7 +1553,7 @@ async function verifyInputs(owner: Node, api: InteractionInspection, capture: (n
   // ---- Rest: the state, the tab stops (the radio group has mounted over two commits) ------------------------------
   assert(JSON.stringify(state()) === JSON.stringify(INPUTS_INITIAL), `The lab starts from its initial state: ${text(api, 'inputs-json')}`);
   const stops = tabStops(api, 'inputs-');
-  assert(stops.join(',') === 'inputs-checkbox,inputs-switch,inputs-radio-medium,inputs-radio-reverse,inputs-slider-thumb,inputs-fruit,inputs-next,inputs-long,inputs-shipping',
+  assert(stops.join(',') === 'inputs-checkbox,inputs-switch,inputs-radio-medium,inputs-radio-reverse,inputs-slider-thumb,inputs-fruit,inputs-next,inputs-long,inputs-nickname-input,inputs-shipping',
     `One radio item is a tab stop (the selected one), locked controls and the disabled item are none: ${stops.join(',')}`);
   for (const size of ['small', 'large']) {
     assert(nodeOf(`inputs-radio-${size}`).props.tabIndex === -1, `The unselected ${size} item is not a tab stop`);
@@ -1909,10 +1911,30 @@ async function verifyInputs(owner: Node, api: InteractionInspection, capture: (n
   api.resizeSurface(full.width, full.height);
   await settle();
 
+  // ---- TextField: a label that focuses the input, a helper that gives way to an error, and the value in the readout ----
+  const nickname = 'inputs-nickname';
+  assert(api.find(`${nickname}-label`) && api.find(`${nickname}-input`) && api.find(`${nickname}-message`), 'The field has its label, input and message');
+  assert(text(api, `${nickname}-message`) === 'At least 3 characters', `The helper is showing: ${text(api, `${nickname}-message`)}`);
+  assert(nodeOf(`${nickname}-input`).props.ariaLabel === 'Nickname' && nodeOf(`${nickname}-input`).props.ariaDescription === 'At least 3 characters',
+    `The input is named by its label and described by its helper: ${JSON.stringify([nodeOf(`${nickname}-input`).props.ariaLabel, nodeOf(`${nickname}-input`).props.ariaDescription])}`);
+  await click(api, `${nickname}-label`);
+  assert(focusedTestID() === `${nickname}-input`, `A press on the label focuses the input: ${focusedTestID()}`);
+  const typeCharacter = async (character: string): Promise<void> => {
+    await tap({ keycode: character.toUpperCase().charCodeAt(0), unicode: character.charCodeAt(0) });
+  };
+  await typeCharacter('a');
+  await typeCharacter('b');
+  assert(text(api, `${nickname}-message`) === 'Too short', `Two characters are an error: ${text(api, `${nickname}-message`)}`);
+  assert(nodeOf(`${nickname}-input`).props.ariaDescription === 'Too short', 'The error is what describes the input');
+  await capture('29-inputs-text-field-error', overflowing);
+  await typeCharacter('c');
+  assert(text(api, `${nickname}-message`) === 'At least 3 characters', `Three are not: ${text(api, `${nickname}-message`)}`);
+  assert(state().nickname === 'abc', `The readout holds what was typed: ${text(api, 'inputs-json')}`);
+
   // The page ends in the state the controls were driven to, and all of it was one object.
   const finalState = state();
   assert(finalState.subscribe && finalState.notifications && finalState.size === 'large' && finalState.fruit === 'date'
-    && finalState.shipping === null && finalState.volume === 25, `The final state: ${text(api, 'inputs-json')}`);
+    && finalState.shipping === null && finalState.volume === 25 && finalState.nickname === 'abc', `The final state: ${text(api, 'inputs-json')}`);
   await capture('28-inputs-final', overflowing);
   move(FAR_CORNER);
   await settle();

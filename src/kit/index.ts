@@ -12,5 +12,7 @@ export type {
 export { Slider } from './slider';
 export type { SliderOrientation, SliderRangeProps, SliderRootProps, SliderThumbProps, SliderTrackProps } from './slider';
 export { Switch } from './switch';
+export { TextField } from './text-field';
+export type { TextFieldProps } from './text-field';
 export type { SwitchProps } from './switch';
 export type { PartProps } from './parts';

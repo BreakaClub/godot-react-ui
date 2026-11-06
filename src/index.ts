@@ -5,12 +5,12 @@ export type {
 export { TextInput, isTextInputHandle } from './text-input';
 export type { TextInputProps } from './text-input';
 export type { KeyboardType } from './props';
-export { Checkbox, RadioGroup, ScrollView, Select, Slider, Switch } from './kit';
+export { Checkbox, RadioGroup, ScrollView, Select, Slider, Switch, TextField } from './kit';
 export type {
   CheckboxProps, CheckedState, PartProps, RadioGroupItemProps, RadioGroupRootProps, RadioOrientation, ScrollViewProps,
   SelectContentProps, SelectIconProps, SelectItemIndicatorProps, SelectItemProps, SelectItemTextProps, SelectRootProps,
   SelectTriggerProps, SelectValueProps, SliderOrientation, SliderRangeProps, SliderRootProps, SliderThumbProps,
-  SliderTrackProps, SwitchProps,
+  SliderTrackProps, SwitchProps, TextFieldProps,
 } from './kit';
 export { EventPhase } from './events';
 export type {
