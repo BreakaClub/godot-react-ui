@@ -26,6 +26,7 @@ use crate::filter::{ColorMatrix, FilterEffect};
 use crate::filter_faults::{self as faults, Fault};
 use crate::geometry::BoxRect;
 use crate::motion::{resolved_backdrop_filter, resolved_filter};
+use crate::render_tree::Oversampling;
 use crate::style_engine::current_color;
 
 /// The most pairs of bilinear fetches per axis the shaders' arrays hold (`blur::MAX_PAIRS`).
@@ -393,8 +394,9 @@ struct NodeEffect {
     backdrop_material: Option<MaterialSlot>,
     group_material: Option<MaterialSlot>,
     fill: Gd<StyleBoxFlat>,
-    /// What the backdrop's fill last drew: size and corner radius.
-    fill_key: Option<(Vector2, i32)>,
+    /// What the backdrop's fill last drew: size, corner radius and, for a rounded one (whose antialiasing is one device
+    /// pixel wide), the oversampling it was drawn at.
+    fill_key: Option<(Vector2, i32, Oversampling)>,
     /// The copy rectangle currently set (None: copy disabled).
     region: Option<PixelRect>,
     backdrop_plan: Option<BlurPlan>,
@@ -867,6 +869,8 @@ impl ReactUiRoot {
     }
 
     fn update_backdrop(&mut self, tag: u32, effect: &FilterEffect, scale: f32, levels: u32) {
+        // Read once for the pass: the root caches the level its items are drawn at.
+        let oversampling = self.oversampling();
         let blur_plan = plan(effect.sigma_css_px * scale, levels);
         let kind = if blur_plan.is_some() {
             ShaderKind::BackdropBlur
@@ -923,15 +927,25 @@ impl ReactUiRoot {
         // and the inherited opacity.
         let size = node.geometry.size;
         let radius = node.computed.border_radius.unwrap_or(0.0).round() as i32;
-        if state.fill_key != Some((size, radius)) {
+        // Only a rounded shape is antialiased, so only it depends on the scale (the box item's rule, `BoxKey`).
+        let shape_oversampling = if radius > 0 {
+            oversampling
+        } else {
+            Oversampling::NONE
+        };
+        let fill_key = (size, radius, shape_oversampling);
+        if state.fill_key != Some(fill_key) {
             let bounds = Rect2::new(Vector2::ZERO, size);
             rs.canvas_item_clear(draw);
             rs.canvas_item_set_custom_rect_ex(draw, true)
                 .rect(bounds)
                 .done();
             state.fill.set_corner_radius_all(radius);
+            // `StyleBoxFlat::draw` outside `NOTIFICATION_DRAW` reads an oversampling of 1: the feather is set to one
+            // device pixel here, or the shape's corners would be blurred at scale two and not match the box's.
+            state.fill.set_aa_size(shape_oversampling.feather());
             state.fill.draw(draw, bounds);
-            state.fill_key = Some((size, radius));
+            state.fill_key = Some(fill_key);
         }
     }
 
