@@ -25,7 +25,9 @@ const executablePath = process.env.CHROME ?? '/Applications/Google Chrome.app/Co
 const output = engine.artifactPath('web-interaction-verification');
 const STARTUP_TIMEOUT_MS = 180_000;
 const ACTION_TIMEOUT_MS = 15_000;
-const TOTAL_TIMEOUT_MS = 600_000;
+// Four viewports of every section and the touch page, with the scroll and drag sections waiting on real time (momentum, the touch
+// hold, edge auto-scroll), in one browser.
+const TOTAL_TIMEOUT_MS = 1_200_000;
 const POLL_MS = 50;
 // `--only=<section>[,<section>]` runs just those sections (plan 0.4.1); the names are the native verifier's, and `touch`
 // is this verifier's touch page. An unknown name is an error: a typo must not skip a section.
@@ -1535,6 +1537,10 @@ const HOLD_DEADLINE_MS = 5_000;
 const TOUCH_SWIPE_STEP_PX = 15;
 const DRAG_LIST_ROWS = 20;
 
+async function idOf(testID) {
+  return (await find(testID)).id;
+}
+
 async function dragState() {
   return (await snapshot()).drag;
 }
@@ -1582,7 +1588,6 @@ async function runDragScenario() {
     await page.mouse.move(target.x, target.y);
     await frames();
   };
-  const idOf = async (testID) => (await find(testID)).id;
   const settled = async (predicate, name) => waitUntil(name, async () => predicate(await dragState()));
 
   check('Nothing is dragging at first', (await dragState()).session === 0, await dragState());
@@ -1692,7 +1697,8 @@ async function runDragScenario() {
   const blended = AMBER_100_RGB.map((channel, index) => channel * GHOST_OPACITY + PAGE_FILL_RGB[index] * (1 - GHOST_OPACITY));
   const ghostPixel = await canvasPixel(probe);
   check('The ghost is the chip at 60 % over the page', near(ghostPixel, blended, GHOST_PIXEL_TOLERANCE), { ghostPixel, blended });
-  check('The source stays at full opacity', near(await canvasPixel({ x: paletteRect.x + GHOST_PROBE_INSET, y: probe.y }), AMBER_100_RGB, GHOST_PIXEL_TOLERANCE));
+  const sourcePixel = await canvasPixel({ x: paletteRect.x + GHOST_PROBE_INSET, y: paletteRect.y + paletteRect.height / 2 });
+  check('The source stays at full opacity', near(sourcePixel, AMBER_100_RGB, GHOST_PIXEL_TOLERANCE), sourcePixel);
   await capture('31-drag-ghost');
   await page.mouse.up();
   await frames();

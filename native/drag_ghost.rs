@@ -11,6 +11,7 @@
 
 use godot::prelude::*;
 
+use crate::geometry::BoxRect;
 use crate::mount::Mounted;
 use crate::render_tree::{ContentKey, GHOST_DRAW_INDEX, RenderNode, RootItem};
 
@@ -39,7 +40,7 @@ impl DragGhost {
     pub(crate) fn capture(
         mounted: &mut Mounted,
         canvas_parent: Rid,
-        viewport: crate::geometry::BoxRect,
+        viewport: BoxRect,
         source: u32,
         grab: Vector2,
     ) -> Option<Self> {
