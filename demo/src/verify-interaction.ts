@@ -3,10 +3,12 @@ import {
   InputEventMouseButton, InputEventMouseMotion, InputEventPanGesture, InputEventScreenDrag, InputEventScreenTouch, Key,
   MouseButton, MouseButtonMask, Node, OS, ProjectSettings, RenderingServer, ThemeDB, Time, Vector2,
 } from 'godot';
-import type { NativeActivity, RendererProfile, UISelection } from '../../src';
+import type { NativeActivity, NativeProfile, RendererProfile, UISelection } from '../../src';
 import type { LayoutRect, NativeScrollState, NativeSnapshot, NativeSnapshotNode } from '../../src/native';
+import type { BenchmarkProps } from './benchmark';
 import type { LabName } from './labs';
 import type { PassthroughCounts } from './main';
+import { verifyHidpi } from './verify-hidpi';
 import { bindVerifierKeys, parseVerifierEvent } from './verifier-input';
 import { verifyTextInput } from './verify-text-input';
 import type { DemoInspection } from './verify';
@@ -15,7 +17,9 @@ export interface InteractionInspection extends DemoInspection {
   /** Detach/reattach the same native Control, preserving the React root and state. */
   surfaceAttached(attached: boolean): void;
   profile(enabled: boolean): void;
-  takeProfile(): { js: RendererProfile };
+  takeProfile(): { js: RendererProfile; native: NativeProfile };
+  /** Render the F4 benchmark fixture in place of the app. */
+  benchmark(props: BenchmarkProps): void;
   /** Render a page in place of the app: the pass-through HUD, the pointer lab. */
   showLab(name: LabName): void;
   pointerCancels(): number;
@@ -3346,7 +3350,7 @@ async function verifyDragging(owner: Node, api: InteractionInspection, capture: 
 }
 
 /** The sections of this verifier, in the order they run (plan 0.4.1: `--only=<name>[,<name>]` runs just those). */
-const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard', 'positioning', 'inputs', 'scroll', 'selection', 'drag', 'forms'] as const;
+const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard', 'positioning', 'inputs', 'scroll', 'selection', 'drag', 'forms', 'hidpi'] as const;
 type Section = (typeof SECTIONS)[number];
 
 function isSection(value: string): value is Section {
@@ -3407,6 +3411,7 @@ export async function runInteractionVerification(owner: Node, api: InteractionIn
   if (sections.has('selection')) await timed('selection', () => verifySelection(owner, api, capture));
   if (sections.has('drag')) await timed('drag', () => verifyDragging(owner, api, capture));
   if (sections.has('forms')) await timed('forms', () => verifyTextInput(owner, api, capture));
+  if (sections.has('hidpi')) await timed('hidpi', () => verifyHidpi(owner, api, capture));
 
   console.log('GODOT_REACT_INTERACTION_VERIFY_PASSED', JSON.stringify({sections: [...sections], sectionMs, captures, dispatchTiming: timing}));
 }
