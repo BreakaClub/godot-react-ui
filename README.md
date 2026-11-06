@@ -114,7 +114,7 @@ This is a strict, typed **Tailwind-like subset**, not Tailwind's CSS compiler or
 | Motion | Inline `transition: { properties, durationMs, delayMs?, easing? }` (`width`, `height`, `opacity`, `backgroundColor`) and `interpolateSize: 'numeric-only' \| 'allow-keywords'` |
 | Variants | `sm:` 640, `md:` 768, `lg:` 1024, `xl:` 1280, `2xl:` 1536; `hover:`, `active:`, `focus:` (the focused element only), `focus-visible:`, `focus-within:` (the focused element and its ancestors), `disabled:`; combinations such as `md:hover:bg-indigo-100` |
 
-The palette includes slate, indigo, emerald, amber, and rose shades 50–950, plus white, black, and transparent. These are familiar Tailwind v3 sRGB hex values. Breakpoints use the surface's logical width, not physical display pixels. [Style types](src/types.ts), the [native protocol](native/PROTOCOL.md), [motion architecture](docs/MOTION_ARCHITECTURE.md), and the [Blitz/Stylo evaluation](docs/BLITZ_EVALUATION.md) document the supported surface and boundaries.
+The palette is all 22 Tailwind v3 colours, shades 50–950, plus white, black, and transparent, as sRGB hex values. Breakpoints use the surface's logical width, not physical display pixels. [Style types](src/types.ts), the [native protocol](native/PROTOCOL.md), [motion architecture](docs/MOTION_ARCHITECTURE.md), and the [Blitz/Stylo evaluation](docs/BLITZ_EVALUATION.md) document the supported surface and boundaries.
 
 ## Architecture and performance boundary
 

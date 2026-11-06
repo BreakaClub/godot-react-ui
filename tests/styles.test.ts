@@ -209,6 +209,21 @@ test('compiled styles match the native contract fixture, which the Rust tests pa
   checkFixture('compiled-styles.json', fixture);
 });
 
+test('every Tailwind v3 colour and shade compiles', () => {
+  const names = [
+    'slate', 'gray', 'zinc', 'neutral', 'stone', 'red', 'orange', 'amber', 'yellow', 'lime', 'green',
+    'emerald', 'teal', 'cyan', 'sky', 'blue', 'indigo', 'violet', 'purple', 'fuchsia', 'pink', 'rose',
+  ];
+  const shades = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950];
+  for (const name of names) {
+    for (const shade of shades) {
+      assert.match(String(layersOf(`bg-${name}-${shade}`)[0]?.style.backgroundColor), /^#[0-9a-f]{6}$/, `bg-${name}-${shade}`);
+    }
+  }
+  assert.equal(layersOf('text-sky-800')[0]?.style.color, '#075985');
+  assert.throws(() => compileStyle('bg-sky-55'), /Unsupported utility class "bg-sky-55"/);
+});
+
 test('selection utilities compile to the longhands native reads', () => {
   const style = (className: string) => layersOf(className)[0]?.style;
   assert.deepEqual(style('select-none'), { userSelect: 'none' });
