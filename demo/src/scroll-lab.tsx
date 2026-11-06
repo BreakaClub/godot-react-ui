@@ -63,7 +63,7 @@ function ListSection() {
 function QuietSection() {
   return (
     <Section title="Quiet list">
-      <ScrollView testID="quiet-list" className={box} focusable={false} contentClassName="gap-1 p-2">
+      <ScrollView testID="quiet-list" className={box} contentClassName="gap-1 p-2">
         {indexes(QUIET_ROWS).map(index => (
           <View key={index} testID={`quiet-row-${index}`} className="h-9 shrink-0 justify-center rounded-lg bg-amber-100 px-3"><Text className="text-sm text-amber-800">{`Quiet ${index}`}</Text></View>
         ))}
@@ -125,10 +125,11 @@ function NestedSection({ contain }: { contain: boolean }) {
 function TouchSection() {
   const [pad, setPad] = useState({ down: 0, moves: 0, cancels: 0 });
   const [clicks, setClicks] = useState(0);
+  const [bars, setBars] = useState(true);
   const list = useRef<UIHandle>(null);
   return (
     <Section title="Touch list">
-      <ScrollView ref={list} testID="touch-list" className={`${box} scrollbar-[#e11d48]`} focusable={false} contentClassName="p-2">
+      <ScrollView ref={list} testID="touch-list" className={`${box} ${bars ? 'scrollbar-[#e11d48]' : 'scrollbar-none'}`} focusable={false} contentClassName="p-2">
         <View
           testID="touch-pad"
           className="h-12 shrink-0 touch-none justify-center rounded-lg bg-amber-100 px-3"
@@ -142,7 +143,10 @@ function TouchSection() {
           <Button key={index} testID={`touch-row-${index}`} className={row} onClick={() => setClicks(current => current + 1)}>{`Touch ${index}`}</Button>
         ))}
       </ScrollView>
-      <Button testID="touch-top" className={labButton} onClick={() => list.current?.scrollTo({ top: 0 })}>Top</Button>
+      <View className="flex-row gap-1">
+        <Button testID="touch-top" className={labButton} onClick={() => list.current?.scrollTo({ top: 0 })}>Top</Button>
+        <Button testID="touch-bars" className={labButton} onClick={() => setBars(current => !current)}>{bars ? 'Hide bar' : 'Show bar'}</Button>
+      </View>
       <Text testID="touch-status" className="text-xs text-slate-600">{`pad down ${pad.down}, moves ${pad.moves}, cancels ${pad.cancels}, clicks ${clicks}`}</Text>
     </Section>
   );

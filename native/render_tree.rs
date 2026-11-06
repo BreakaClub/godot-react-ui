@@ -409,6 +409,8 @@ impl ReactUiRoot {
             let (boxed, contented) = self.paint_node(tag);
             self.stats.box_records += u64::from(boxed);
             self.stats.content_records += u64::from(contented);
+            // The scrollbars' look (`scrollbar-width`, `scrollbar-color`) is a paint input too.
+            self.paint_scroll_overlay(tag);
         }
         changed |= self.update_focus_ring();
         if changed {

@@ -217,6 +217,16 @@ mod tests {
             at(0.0, 12.0),
             "pan-y takes no horizontal movement"
         );
+
+        let horizontal_only = PanAllowed { x: true, y: false };
+        let mut gesture = PanGesture::new(at(50.0, 50.0));
+        gesture.moved(at(70.0, 50.0), |_| Some(owner(horizontal_only)));
+        let step = gesture.moved(at(60.0, 80.0), |_| panic!("decided"));
+        assert_eq!(
+            step.scroll,
+            at(10.0, 0.0),
+            "pan-x takes no vertical movement"
+        );
     }
 
     #[test]

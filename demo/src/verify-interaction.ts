@@ -1893,6 +1893,23 @@ async function verifyScrolling(owner: Node, api: InteractionInspection, capture:
   const inside = (inner: LayoutRect, outer: LayoutRect) => inner.x >= outer.x - GEOMETRY_TOLERANCE && inner.y >= outer.y - GEOMETRY_TOLERANCE
     && inner.x + inner.width <= outer.x + outer.width + GEOMETRY_TOLERANCE && inner.y + inner.height <= outer.y + outer.height + GEOMETRY_TOLERANCE;
 
+  // The row (a `testID` starting with `prefix`) that is hovered, and the one at a point. Nodes are read from the snapshot, so
+  // a row's label counts as its row.
+  const hoveredRow = (prefix = 'list-row-'): string | undefined => {
+    const snapshot = api.snapshot();
+    let current = snapshot.nodes.find(node => node.id === snapshot.hovered);
+    while (current && !String(current.props.testID).startsWith(prefix)) {
+      const parent: number | null = current.parent;
+      current = snapshot.nodes.find(node => node.id === parent);
+    }
+    return current === undefined ? undefined : String(current.props.testID);
+  };
+  const rowUnder = (at: Vector2, prefix = 'list-row-'): string => {
+    const row = api.snapshot().nodes.find(node => new RegExp(`^${prefix}\\d+$`).test(String(node.props.testID)) && node.rect.y <= at.y && at.y < node.rect.y + node.rect.height);
+    assert(row, `A row is under ${at.x},${at.y}`);
+    return String(row.props.testID);
+  };
+
   // ---- Ranges: what Taffy says the content reaches, as DOM numbers ---------------------------------------------
   const initial = scrollOf('scroll-list');
   const listRect = rectOf('scroll-list');
@@ -1974,28 +1991,23 @@ async function verifyScrolling(owner: Node, api: InteractionInspection, capture:
   assert(paintIs(image, centerOf(touchThumb), CUSTOM_THUMB), `scrollbar-[#e11d48] colours it: ${describePaint(image, centerOf(touchThumb))}`);
   const carousel = scrollOf('carousel');
   assert(carousel.maxScrollLeft > 0 && carousel.thumbs?.x === null && carousel.thumbs.y === null, 'scrollbar-none hides the bars of a list that still scrolls');
+  // The look of a bar is a paint input: changing it with no scroll and no layout change redraws it.
+  const touchThumbCentre = centerOf(touchThumb);
+  await click(api, 'touch-bars');
+  const hidden = scrollOf('touch-list');
+  assert(hidden.maxScrollTop > 0 && hidden.thumbs?.y === null, 'scrollbar-none, set while the list rests, takes the bar away');
+  assert(paintIs(frameImage(owner), touchThumbCentre, '#ffffff'), `And the thumb is no longer drawn: ${describePaint(frameImage(owner), touchThumbCentre)}`);
+  await click(api, 'touch-bars');
+  assert(paintIs(frameImage(owner), touchThumbCentre, CUSTOM_THUMB), 'Taking it off draws the thumb again');
+  move(FAR_CORNER);
+  await settle();
 
   // ---- Clicks and hover go to the content under the pointer, wherever it was scrolled to -----------------------------
-  const hoveredRow = (): string | undefined => {
-    const snapshot = api.snapshot();
-    let current = snapshot.nodes.find(node => node.id === snapshot.hovered);
-    while (current && !/^list-row-/.test(String(current.props.testID))) {
-      const parent: number | null = current.parent;
-      current = snapshot.nodes.find(node => node.id === parent);
-    }
-    return current === undefined ? undefined : String(current.props.testID);
-  };
-  const pointerRow = (): string => {
-    const point = listCentre();
-    const row = api.snapshot().nodes.find(node => /^list-row-\d+$/.test(String(node.props.testID)) && node.rect.y <= point.y && point.y < node.rect.y + node.rect.height);
-    assert(row, 'A row is under the pointer');
-    return String(row.props.testID);
-  };
   await wheel(listCentre(), scrollingDown);
   const rowBeforeScroll = hoveredRow();
   for (let tick = 0; tick < SEVERAL_TICKS; tick++) await wheel(listCentre(), scrollingDown);
   assert(near(top('scroll-list'), (SEVERAL_TICKS + 1) * tickY('scroll-list')), 'The list scrolled four steps');
-  assert(hoveredRow() === pointerRow(), `After a scroll, the hover is on the row now under the stationary pointer: ${hoveredRow()} != ${pointerRow()}`);
+  assert(hoveredRow() === rowUnder(listCentre()), `After a scroll, the hover is on the row now under the stationary pointer: ${hoveredRow()} != ${rowUnder(listCentre())}`);
   assert(hoveredRow() !== rowBeforeScroll, `The pointer is over a different row than before the scroll moved the list: ${rowBeforeScroll}`);
   const targetRow = 'list-row-3';
   assert(inside(rectOf(targetRow), listRect), `Row 3 is in view at its scrolled place: ${JSON.stringify(rectOf(targetRow))}`);
@@ -2040,8 +2052,12 @@ async function verifyScrolling(owner: Node, api: InteractionInspection, capture:
   assert(api.snapshot().focused === get(api, 'list-row-1').id, 'A click focuses the row button');
   const page = scrollOf('scroll-list').clientHeight;
   const line = page / SCROLL_PAGE_DIVISOR;
+  const stationary = point(api, 'list-row-1');
+  assert(hoveredRow() === 'list-row-1', 'The mouse rests on row 1, which it clicked');
   await keyPress(Key.KeyPagedown);
   assert(near(top('scroll-list'), page), `Page Down scrolls a page: ${top('scroll-list')}`);
+  assert(hoveredRow() === rowUnder(stationary) && hoveredRow() !== 'list-row-1',
+    `A key scroll under a mouse that did not move hands the hover to the row now under it: ${hoveredRow()} != ${rowUnder(stationary)}`);
   await keyPress(Key.KeyDown);
   assert(near(top('scroll-list'), page + line), `Arrow Down a page / 8: ${top('scroll-list')}`);
   await keyPress(Key.KeyUp);
@@ -2057,6 +2073,24 @@ async function verifyScrolling(owner: Node, api: InteractionInspection, capture:
   assert(api.snapshot().focused === get(api, 'list-row-0').id, 'Shift+Tab moves to row 0');
   await keyPress(Key.KeySpace);
   assert(text(api, 'list-status').includes('clicked row 0') && top('scroll-list') === 0, 'Space on a focused button presses it and does not scroll');
+
+  // With nothing in React listening (the quiet list has no onScroll, so no commit follows a scroll), the hover still
+  // follows a scroll under a mouse that did not move.
+  await click(api, 'quiet-row-1');
+  assert(api.snapshot().focused === get(api, 'quiet-list').id, 'A press on a row focuses its focusable ancestor, the quiet list');
+  const quietRest = point(api, 'quiet-row-1');
+  const quietHovered = hoveredRow('quiet-row-');
+  assert(quietHovered === 'quiet-row-1', `The mouse rests on the row it pressed: ${quietHovered}`);
+  const commitsBeforeKey = stats().batches;
+  await keyPress(Key.KeyPagedown);
+  assert(stats().batches === commitsBeforeKey, 'The key scroll committed nothing');
+  assert(hoveredRow('quiet-row-') === rowUnder(quietRest, 'quiet-row-') && hoveredRow('quiet-row-') !== quietHovered,
+    `A scroll under a mouse that did not move hands the hover to the row now under it, with no React in between: ${hoveredRow('quiet-row-')}`);
+  await keyPress(Key.KeyHome);
+  move(FAR_CORNER);
+  await settle();
+  api.grabSurfaceFocus();
+  await settle();
 
   // The list itself takes focus, and Space then pages (Shift+Space back).
   await click(api, 'scroll-title');
