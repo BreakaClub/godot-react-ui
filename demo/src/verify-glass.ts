@@ -1,6 +1,6 @@
 import { Color, Engine, Image, InputEventMouseButton, InputEventMouseMotion, MouseButton, Node, Vector2, Window } from 'godot';
 import type { NativeSnapshot, NativeSnapshotNode } from '../../src/native';
-import { GLASS_BLOB_IDS } from './glass-lab';
+import { DUAL_ROW_PX, GLASS_BLOB_IDS } from './glass-lab';
 import { grab, settleFrames, type FaultControl } from './verify-filters';
 import { assertionTally, parseVerifierEvent } from './verifier-input';
 import { pressAction, typeText, waitForCaretOn } from './verify-text-input';
@@ -246,12 +246,38 @@ function meanBrightness(image: Image, x: number, y: number, size: number): numbe
 
 // ---- The checks ----------------------------------------------------------------------------------------------------------
 
+/** The card with a filter and a backdrop-filter: the backdrop-blurred circles behind it have no step this large between two pixels. */
+const SOFT_STEP_LEVELS = 12;
+
+/**
+ * A card that has both `backdrop-blur-xl` and `drop-shadow-lg`: its items hang with the backdrop outside the group (so the
+ * glass shows its blurred backdrop, not a white slab), and the circles behind it are softened along a row across two edges.
+ */
+async function checkDual(owner: Node, api: GlassInspection, capture: GlassCapture, label: string): Promise<void> {
+  await lookAt(api, 'glass-dual-card');
+  const image = grab(owner);
+  const ratio = pixelRatio(image, api);
+  const card = node(api, 'glass-dual-card');
+  assert(card.effects?.layout === 'both' && card.effects.backdrop?.plan && card.effects.filter,
+    `${label}: the card with backdrop-blur-xl and drop-shadow-lg draws both: ${JSON.stringify(card.effects)}`);
+  const box = boxOf(card.rect, ratio);
+  const y = Math.round((node(api, 'glass-dual').rect.y + DUAL_ROW_PX) * ratio);
+  let widest = 0;
+  for (let x = box.x0 + Math.round(CARD_RADIUS * ratio); x < box.x1 - Math.round(CARD_RADIUS * ratio); x += 1) {
+    widest = Math.max(widest, levelsApart(image.getPixel(x, y), image.getPixel(x + 1, y)));
+  }
+  console.log('GODOT_REACT_GLASS_DUAL', JSON.stringify({ label, widest: round(widest, TENTH) }));
+  assert(widest <= SOFT_STEP_LEVELS, `${label}: the circles behind the dual card are blurred: ${widest.toFixed(1)} levels between two neighbours (limit ${SOFT_STEP_LEVELS})`);
+  await capture(`${label}-dual`, GLASS_BLOB_IDS);
+}
+
 /** What each text's contrast must reach: large text (the brand, a card's title) 3:1, the rest 4.5:1. */
 const TEXTS: ReadonlyArray<{ testID: string; need: number }> = [
   { testID: 'glass-brand', need: LARGE_TEXT_CONTRAST },
   { testID: 'glass-card-title-0', need: LARGE_TEXT_CONTRAST },
   { testID: 'glass-card-body-0', need: NORMAL_TEXT_CONTRAST },
   { testID: 'glass-stack-title', need: LARGE_TEXT_CONTRAST },
+  { testID: 'glass-dual-title', need: LARGE_TEXT_CONTRAST },
 ];
 
 async function checkContrast(owner: Node, api: GlassInspection, texts: ReadonlyArray<{ testID: string; need: number }>, label: string): Promise<void> {
@@ -604,6 +630,7 @@ async function verifyStates(owner: Node, api: GlassInspection, capture: GlassCap
   await checkBorder(owner, api, 'glass-card-0', CARD_RADIUS, `${label} page`);
   await checkBorder(owner, api, 'glass-bar', BAR_RADIUS, `${label} page`);
   await checkBarBlurs(owner, api, capture, label);
+  await checkDual(owner, api, capture, label);
   await checkScrollStable(owner, api, label);
   await checkHover(owner, api, capture, label);
   await checkInput(owner, api, capture, label);

@@ -9,7 +9,8 @@ import { Portal, ScrollView, Text, View, useRootSize } from 'godot-react-ui';
  * an edge's 10 to 90 width gives the blur's standard deviation, a flat patch gives a colour function's output.
  */
 export type FiltersScene =
-  | 'edge' | 'stack' | 'scroll' | 'portal' | 'native' | 'colour' | 'godot' | 'cost' | 'nested' | 'opacity' | 'text' | 'clip';
+  | 'edge' | 'stack' | 'scroll' | 'portal' | 'native' | 'colour' | 'godot' | 'cost' | 'nested' | 'opacity' | 'text' | 'clip'
+  | 'both' | 'blocked' | 'order' | 'corner' | 'edge-h' | 'fade' | 'busy' | 'text-change';
 
 export interface FiltersLabProps {
   scene: FiltersScene;
@@ -29,6 +30,17 @@ export interface FiltersLabProps {
   variant?: string;
   /** `scroll` (variant `moving`): the panel's `left`, in CSS pixels. */
   offset?: number;
+  /** `both`, `blocked`: whether the element's `filter` (`both`) or the filter above the panel (`blocked`) is on. */
+  filterOn?: boolean;
+  /** `both`: whether the element's `backdrop-filter` is on. */
+  backdropOn?: boolean;
+  /** `fade`: the filtered element's opacity. */
+  opacity?: number;
+  /** `busy`: how many rows the filtered list has, and the width of the unrelated element beside it. */
+  rows?: number;
+  side?: number;
+  /** `text-change`: the text of the fixed-size text node inside the filtered element. */
+  text?: string;
 }
 
 /** The lab's panel: left and right 40 px of the window are left uncovered, and it is 180 px tall, so it fits a 400 px window (device pixel ratio two). */
@@ -301,6 +313,130 @@ function TextScene({ radius = 12 }: FiltersLabProps) {
   );
 }
 
+/** The shadow `both` puts on its panel: strong enough to read from a pixel under a panel whose fill is 20 % opaque. */
+export const BOTH_SHADOW = 'drop-shadow(0px 10px 8px rgba(0,0,0,0.9))';
+/** How far below the `both` panel's bottom edge the shadow is read, in CSS pixels. */
+export const BOTH_SHADOW_PROBE_PX = 4;
+
+/**
+ * A translucent panel with both `filter` and `backdrop-filter` on the one element, as `backdrop-blur-xl drop-shadow-lg`
+ * writes them. `filterOn` and `backdropOn` switch each, to take either away and bring it back.
+ */
+function BothScene({ radius = 12, filterOn = true, backdropOn = true, variant = 'style' }: FiltersLabProps) {
+  const shape = `${PANEL_CLASS} rounded-[24px] bg-[#ffffff33]`;
+  return (
+    <View className="absolute inset-0">
+      <Edge />
+      {variant === 'classes'
+        ? <View testID="panel" className={`${shape} backdrop-blur-xl drop-shadow-lg`} />
+        : <View testID="panel" className={shape} style={{ backdropFilter: backdropOn ? `blur(${radius}px)` : 'none', filter: filterOn ? BOTH_SHADOW : 'none' }} />}
+    </View>
+  );
+}
+
+/** The edge scene's frosted panel inside an element that has a filter while `filterOn`: held back, and drawn when the filter goes. */
+function BlockedScene({ radius = 8, filterOn = true }: FiltersLabProps) {
+  return (
+    <View className="absolute inset-0">
+      <Edge />
+      <View testID="outer" className="absolute inset-0" style={{ filter: filterOn ? 'blur(2px)' : 'none' }}>
+        <View testID="panel" className={PANEL_CLASS} style={{ backdropFilter: `blur(${radius}px)` }} />
+      </View>
+    </View>
+  );
+}
+
+/** A backdrop with no blur (it reads no mipmap) drawn before a filter group: the group must still read its mipmaps. */
+function OrderScene({ radius = 8 }: FiltersLabProps) {
+  return (
+    <View className="absolute inset-0 bg-slate-500">
+      <View testID="plain" className="absolute left-[10px] top-[10px] h-[60px] w-[120px] bg-[#336699]" style={{ backdropFilter: 'brightness(0.5)' }} />
+      <View testID="panel" className="absolute left-0 right-0 top-[100px] h-[180px] flex-row" style={{ filter: `blur(${radius}px)` }}>
+        <View className="flex-1 bg-black" />
+        <View className="flex-1 bg-white" />
+      </View>
+    </View>
+  );
+}
+
+/** The corner scene's panel: its left and top are near the target's origin, so the group's mip region starts left of and above it. */
+export const CORNER_LEFT = 10;
+export const CORNER_TOP = 10;
+export const CORNER_HEIGHT = 180;
+function CornerScene({ radius = 16, width = 312 }: FiltersLabProps) {
+  return (
+    <View className="absolute inset-0 bg-slate-500">
+      <View testID="panel" className="absolute flex-row" style={{ left: CORNER_LEFT, top: CORNER_TOP, width, height: CORNER_HEIGHT, filter: `blur(${radius}px)` }}>
+        <View className="flex-1 bg-black" />
+        <View className="flex-1 bg-white" />
+      </View>
+    </View>
+  );
+}
+
+/** The edge scene turned: black above, white below, so the blurred edge is read down a column. */
+export const EDGE_H_LEFT = 40;
+export const EDGE_H_WIDTH = 300;
+function EdgeHorizontalScene({ radius = 12, target = 'backdrop' }: FiltersLabProps) {
+  if (target === 'filter') {
+    return (
+      <View className="absolute inset-0 bg-slate-500">
+        <View testID="panel" className="absolute bottom-[10%] top-[10%] flex-col" style={{ left: EDGE_H_LEFT, width: EDGE_H_WIDTH, filter: `blur(${radius}px)` }}>
+          <View className="flex-1 bg-black" />
+          <View className="flex-1 bg-white" />
+        </View>
+      </View>
+    );
+  }
+  return (
+    <View className="absolute inset-0">
+      <View className="absolute inset-0 flex-col">
+        <View className="flex-1 bg-black" />
+        <View className="flex-1 bg-white" />
+      </View>
+      <View testID="panel" className="absolute bottom-[20%] top-[20%]" style={{ left: EDGE_H_LEFT, width: EDGE_H_WIDTH, backdropFilter: `blur(${radius}px)` }} />
+    </View>
+  );
+}
+
+/** A filtered element whose own opacity is `opacity`: at 0 the engine draws none of it, and a group around it must not either. */
+function FadeScene({ radius = 4, opacity = 1 }: FiltersLabProps) {
+  return (
+    <View className="absolute inset-0 bg-white">
+      <View testID="faded" className="absolute left-[40px] top-[40px] h-[120px] w-[160px] bg-black" style={{ filter: `blur(${radius}px)`, opacity }} />
+    </View>
+  );
+}
+
+/** A filtered list of `rows` rows beside an element whose `side` changes: a change there cannot move anything in the list. */
+export const BUSY_ROW = 3;
+function BusyScene({ rows = 400, side = 100 }: FiltersLabProps) {
+  return (
+    <View className="absolute inset-0 bg-white">
+      <View testID="list" className="absolute left-[40px] top-[40px] w-[200px]" style={{ filter: 'blur(2px)' }}>
+        {Array.from({ length: rows }, (_, index) => (
+          <View key={index} className={index % 2 === 0 ? 'bg-black' : 'bg-slate-400'} style={{ height: BUSY_ROW }} />
+        ))}
+      </View>
+      <View testID="unrelated" className="absolute left-[300px] top-[40px] h-[40px] bg-blue-500" style={{ width: side }} />
+    </View>
+  );
+}
+
+/** A fixed-size text node in a filtered box: more text overflows it without changing its size or its parent's. */
+export const TEXT_CHANGE_TOP = 40;
+export const TEXT_CHANGE_LEFT = 40;
+export const TEXT_CHANGE_BOX = { width: 200, height: 30 } as const;
+function TextChangeScene({ radius = 2, text = 'ok' }: FiltersLabProps) {
+  return (
+    <View className="absolute inset-0 bg-white">
+      <View testID="holder" className="absolute" style={{ left: TEXT_CHANGE_LEFT, top: TEXT_CHANGE_TOP, ...TEXT_CHANGE_BOX, filter: `blur(${radius}px)` }}>
+        <Text testID="fixed-text" className="h-[20px] w-[140px] text-lg text-black">{text}</Text>
+      </View>
+    </View>
+  );
+}
+
 export function FiltersLab(props: FiltersLabProps): ReactNode {
   switch (props.scene) {
     case 'edge': return <EdgeScene {...props} />;
@@ -315,5 +451,13 @@ export function FiltersLab(props: FiltersLabProps): ReactNode {
     case 'opacity': return <OpacityScene {...props} />;
     case 'clip': return <ClipScene {...props} />;
     case 'text': return <TextScene {...props} />;
+    case 'both': return <BothScene {...props} />;
+    case 'blocked': return <BlockedScene {...props} />;
+    case 'order': return <OrderScene {...props} />;
+    case 'corner': return <CornerScene {...props} />;
+    case 'edge-h': return <EdgeHorizontalScene {...props} />;
+    case 'fade': return <FadeScene {...props} />;
+    case 'busy': return <BusyScene {...props} />;
+    case 'text-change': return <TextChangeScene {...props} />;
   }
 }

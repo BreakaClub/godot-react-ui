@@ -11,7 +11,7 @@ import type { LabName } from './labs';
 import type { PassthroughCounts } from './main';
 import { verifyHidpi } from './verify-hidpi';
 import { assertionTally, bindVerifierKeys, parseVerifierEvent, verifierClipboard } from './verifier-input';
-import { measureFilterCost, verifyFilterFaults, verifyFilters } from './verify-filters';
+import { measureFilterCost, verifyFilterFaults, verifyFilterSizes, verifyFilters } from './verify-filters';
 import { GLASS_FAULT_CONTROLS, verifyGlass } from './verify-glass';
 import { verifyTextInput } from './verify-text-input';
 import type { DemoInspection } from './verify';
@@ -31,6 +31,8 @@ export interface InteractionInspection extends DemoInspection {
   godotContent(kind: 'none' | '2d' | '3d'): void;
   /** Scale the root's Control. */
   scaleSurface(factor: number): void;
+  mirrorSurface(on: boolean): void;
+  shiftCanvas(x: number, y: number): void;
   /** Scroll a scroll container to `top` through the programmatic path. */
   scrollTo(testID: string, top: number): void;
   pointerCancels(): number;
@@ -3543,9 +3545,9 @@ async function verifyDragging(owner: Node, api: InteractionInspection, capture: 
 }
 
 /** The sections of this verifier, in the order they run (plan 0.4.1: `--only=<name>[,<name>]` runs just those). */
-const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard', 'positioning', 'inputs', 'scroll', 'selection', 'drag', 'forms', 'hidpi', 'filters', 'glass', 'filters-cost', 'filters-faults'] as const;
+const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard', 'positioning', 'inputs', 'scroll', 'selection', 'drag', 'forms', 'hidpi', 'filters', 'glass', 'filters-sizes', 'filters-cost', 'filters-faults'] as const;
 /** Sections that measure or need a special build rather than verify: they run only when `--only=` names them. */
-const OPT_IN_SECTIONS: readonly Section[] = ['filters-cost', 'filters-faults'];
+const OPT_IN_SECTIONS: readonly Section[] = ['filters-sizes', 'filters-cost', 'filters-faults'];
 type Section = (typeof SECTIONS)[number];
 
 function isSection(value: string): value is Section {
@@ -3612,6 +3614,7 @@ export async function runInteractionVerification(owner: Node, api: InteractionIn
   if (sections.has('hidpi')) await timed('hidpi', () => verifyHidpi(owner, api, capture));
   if (sections.has('filters')) await timed('filters', () => verifyFilters(owner, api, capture));
   if (sections.has('glass')) await timed('glass', () => verifyGlass(owner, api, capture));
+  if (sections.has('filters-sizes')) await timed('filters-sizes', () => verifyFilterSizes(owner, api, capture));
   if (sections.has('filters-cost')) await timed('filters-cost', () => measureFilterCost(owner, api));
   if (sections.has('filters-faults')) await timed('filters-faults', () => verifyFilterFaults(owner, api, capture, GLASS_FAULT_CONTROLS));
 

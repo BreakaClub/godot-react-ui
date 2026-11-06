@@ -1,8 +1,9 @@
 import { DisplayServer, Engine, Image, Rid, InputEventMouseButton, InputEventMouseMotion, MouseButton, Node, OS, RenderingServer, Time, Vector2, Window } from 'godot';
 import type { NativeActivity, NativeSnapshot, NativeSnapshotNode } from '../../src/native';
 import {
-  COLOUR_CELL, MOVING_SIZE, MOVING_TOP, PANEL_HEIGHT, PANEL_INSET, PANEL_TOP, SCROLL_ROW, SHAPE_RADIUS, STRIPE_PX,
-  SWATCH_COLOURS, type FiltersLabProps,
+  BOTH_SHADOW_PROBE_PX, BUSY_ROW, COLOUR_CELL, CORNER_HEIGHT, CORNER_LEFT, CORNER_TOP, EDGE_H_LEFT, EDGE_H_WIDTH, MOVING_SIZE,
+  MOVING_TOP, PANEL_HEIGHT, PANEL_INSET, PANEL_TOP, SCROLL_ROW, SHAPE_RADIUS, STRIPE_PX, SWATCH_COLOURS, TEXT_CHANGE_BOX,
+  TEXT_CHANGE_LEFT, TEXT_CHANGE_TOP, type FiltersLabProps,
 } from './filters-lab';
 import type { GlassInspection } from './verify-glass';
 import { assertionTally, parseVerifierEvent } from './verifier-input';
@@ -20,6 +21,11 @@ export interface FiltersInspection {
   offsetSurface(x: number, y: number): void;
   scaleSurface(factor: number): void;
   scrollTo(testID: string, top: number): void;
+  /** Mirror the root left to right about its own middle (a negative x scale), or put it back. */
+  mirrorSurface(on: boolean): void;
+  /** Move the viewport's canvas transform, as a `Camera2D` does, without telling the root anything. */
+  shiftCanvas(x: number, y: number): void;
+  surfaceAttached(attached: boolean): void;
 }
 
 /** `overflowing`: test ids of nodes that reach past the window by design (the glass lab's blobs). */
@@ -136,9 +142,12 @@ interface EdgeMeasurement {
 }
 
 /** Render the edge scene and measure the edge through the panel's middle against a Gaussian of the plan's radius. */
-async function measureEdge(owner: Node, api: FiltersInspection, props: FiltersLabProps): Promise<EdgeMeasurement | undefined> {
-  api.showFilters(props);
-  await settleFrames();
+async function measureEdge(owner: Node, api: FiltersInspection, props: FiltersLabProps, shiftX = 0, mirrored = false, show = true): Promise<EdgeMeasurement | undefined> {
+  // `show`: false reads what is already drawn, without a commit (a test of something that needs none).
+  if (show) {
+    api.showFilters(props);
+    await settleFrames();
+  }
   const image = grab(owner);
   const ratio = pixelRatio(image, api);
   const panel = node(api, 'panel');
@@ -146,16 +155,19 @@ async function measureEdge(owner: Node, api: FiltersInspection, props: FiltersLa
   assert(effects, `The panel has a filter that is drawn: ${JSON.stringify(props)}`);
   const plan = (props.target === 'filter' ? effects.filter : effects.backdrop)?.plan;
   assert(plan, `The panel's blur has a plan: ${JSON.stringify(props)}`);
-  const centre = Math.round(api.snapshot().width / 2 * ratio);
+  // `shiftX`: where the root has been moved to on the window, in CSS pixels; the edge is read where it is now.
+  const centre = Math.round((api.snapshot().width / 2 + shiftX) * ratio);
   const y = Math.floor((PANEL_TOP + PANEL_HEIGHT / 2) * ratio);
   // How far from the middle the profile is read: not into the panel's own sides, and for a filtered panel not within three
-  // radii of its outer edge, where its blurred content fades into the page.
+  // radii of its outer edge, where its blurred content fades into the page; and not off the render target.
   const inset = props.target === 'filter' ? 0 : PANEL_INSET;
   const half = (api.snapshot().width / 2 - inset) * ratio;
-  const span = Math.min(Math.ceil(4 * plan.achievedPx + 40), Math.floor(half - 6), props.target === 'filter' ? Math.floor(half - 3 * plan.achievedPx) : Infinity);
+  const span = Math.min(Math.ceil(4 * plan.achievedPx + 40), Math.floor(half - 6), props.target === 'filter' ? Math.floor(half - 3 * plan.achievedPx) : Infinity, centre - 6, image.getWidth() - centre - 6);
   // A 10 to 90 width needs the profile to reach a standard deviation and a quarter on each side.
   if (span < 1.5 * plan.achievedPx) return undefined;
   let profile = row(image, y, centre - span, centre + span);
+  // A mirrored root draws white where it drew black: the profile falls, and is read from the other end.
+  if (mirrored) profile = profile.reverse();
   if (props.target === 'filter') {
     // The panel's own top and bottom fade its blurred content into the page by a constant fraction along this row, which is
     // a gain and an offset on the edge: the two plateaus at the ends give them back.
@@ -879,6 +891,318 @@ async function verifyNesting(api: FiltersInspection, announceError = true): Prom
   await settleFrames();
 }
 
+// ---- Both properties on one element --------------------------------------------------------------------------------------
+
+/** The states the element goes through: each takes one property away or brings it back (filter, backdrop-filter). */
+const BOTH_STEPS: readonly (readonly [boolean, boolean])[] = [
+  [true, true], [false, true], [true, true], [true, false], [true, true], [false, false], [true, true],
+];
+const BOTH_RADIUS = 12;
+/** The shadow darkens the white half 4 px under the panel to about 0.86; nothing does when it is off. */
+const BOTH_SHADOW_DARKER_THAN = 0.93;
+const BOTH_SHADOW_LIGHTER_THAN = 0.99;
+
+async function verifyBothOnOneElement(owner: Node, api: FiltersInspection, capture: FiltersCapture): Promise<void> {
+  for (const [filterOn, backdropOn] of BOTH_STEPS) {
+    api.showFilters({ scene: 'both', radius: BOTH_RADIUS, filterOn, backdropOn });
+    await settleFrames();
+    const image = grab(owner);
+    const ratio = pixelRatio(image, api);
+    const panel = node(api, 'panel');
+    const label = `Both properties on one element (filter ${filterOn ? 'on' : 'off'}, backdrop-filter ${backdropOn ? 'on' : 'off'})`;
+    const layout = filterOn && backdropOn ? 'both' : filterOn ? 'group' : backdropOn ? 'backdrop' : undefined;
+    assert(layout === undefined ? panel.effects === null : panel.effects?.layout === layout,
+      `${label}: its items hang as ${layout ?? 'none'} (the backdrop outside the group): ${JSON.stringify(panel.effects)}`);
+    // The backdrop: a panel with a 20 % white fill over the edge, so the profile is 0.2 + 0.8 of the blurred edge.
+    const centre = Math.round(api.snapshot().width / 2 * ratio);
+    const y = Math.floor((PANEL_TOP + PANEL_HEIGHT / 2) * ratio);
+    const sigma = BOTH_RADIUS * ratio;
+    const span = Math.min(Math.ceil(4 * sigma + 40), Math.floor((api.snapshot().width / 2 - PANEL_INSET) * ratio) - 6);
+    const raw = rowProfile(image, y, centre - span, centre + span);
+    const profile = normalise(raw, raw[0] ?? 0, raw[raw.length - 1] ?? 1);
+    const width = width1090(profile);
+    if (backdropOn) {
+      assert(widthOk(width, sigma), `${label}: the backdrop is blurred by ${BOTH_RADIUS}px: the edge is ${width.toFixed(2)} px wide, a Gaussian of ${sigma.toFixed(1)} has ${(WIDTH_10_90_SIGMAS * sigma).toFixed(2)}`);
+    } else {
+      assert(width < 2, `${label}: with no backdrop-filter the edge behind the panel is sharp (${width.toFixed(2)} px wide)`);
+    }
+    // The shadow: the white half of the page, a few pixels under the panel.
+    const under = channelAt(image, centre + 100 * ratio, (PANEL_TOP + PANEL_HEIGHT + BOTH_SHADOW_PROBE_PX) * ratio);
+    if (filterOn) {
+      assert(under < BOTH_SHADOW_DARKER_THAN, `${label}: the drop-shadow darkens the page under the panel: ${under.toFixed(3)}`);
+    } else {
+      assert(under > BOTH_SHADOW_LIGHTER_THAN, `${label}: with no filter there is no shadow under the panel: ${under.toFixed(3)}`);
+    }
+    if (filterOn && backdropOn) await capture('filters-both');
+  }
+  // As a developer writes it.
+  api.showFilters({ scene: 'both', variant: 'classes' });
+  await settleFrames();
+  const written = node(api, 'panel').effects;
+  assert(written?.layout === 'both' && written.backdrop?.plan && written.filter?.kind === 'GroupBlur',
+    `Both properties on one element, written as backdrop-blur-xl drop-shadow-lg: ${JSON.stringify(written)}`);
+}
+
+// ---- An element held back by a filter above it is drawn when the filter goes -----------------------------------------------
+
+async function verifyBlockedReturns(owner: Node, api: FiltersInspection, announceError = true): Promise<void> {
+  const radius = 8;
+  for (const [step, filterOn] of ([true, false, true, false] as const).entries()) {
+    if (step === 0 && announceError) console.log('GODOT_REACT_EXPECT_ERROR which has a filter');
+    api.showFilters({ scene: 'blocked', radius, filterOn });
+    await settleFrames();
+    const panel = node(api, 'panel');
+    if (filterOn) {
+      assert(panel.effects === null, `A frosted panel inside a filtered element is held back (step ${step}): ${JSON.stringify(panel.effects)}`);
+      continue;
+    }
+    assert(panel.effects?.backdrop, `The panel is drawn once the filter above it is gone (step ${step}): it was held back, and nothing looked at it again: ${JSON.stringify(panel.effects)}`);
+    const image = grab(owner);
+    const ratio = pixelRatio(image, api);
+    const centre = Math.round(api.snapshot().width / 2 * ratio);
+    const y = Math.floor((PANEL_TOP + PANEL_HEIGHT / 2) * ratio);
+    const profile = rowProfile(image, y, centre - 60 * ratio, centre + 60 * ratio);
+    assert(widthOk(width1090(profile), radius * ratio), `The panel is blurred by ${radius}px once the filter above it is gone (step ${step}): ${width1090(profile).toFixed(2)} px wide`);
+  }
+}
+
+// ---- A group reads its mipmaps whatever was drawn before it (Compatibility) ----------------------------------------------
+
+async function verifyGroupAfterPlainBackdrop(owner: Node, api: FiltersInspection): Promise<void> {
+  for (const radius of [8, 24]) {
+    const measured = await measureEdge(owner, api, { scene: 'order', target: 'filter', radius });
+    assert(measured, `The panel is wide enough to measure a ${radius}px blur`);
+    checkEdge(`filter blur ${radius}px after a backdrop that reads no mipmap`, radius * pixelRatio(grab(owner), api), measured);
+  }
+}
+
+/** Where the edge is on the window while the root's origin is off it, in CSS pixels. */
+const ORIGIN_OFF_SCREEN_EDGE_X = 150;
+
+async function verifyGroupWithRootOriginOffScreen(owner: Node, api: FiltersInspection): Promise<void> {
+  const shift = ORIGIN_OFF_SCREEN_EDGE_X - api.snapshot().width / 2;
+  api.offsetSurface(shift, 0);
+  try {
+    const measured = await measureEdge(owner, api, { scene: 'edge', target: 'filter', radius: 8 }, shift);
+    assert(measured, 'The panel is wide enough to measure a 8px blur');
+    checkEdge('filter blur 8px with the root\'s origin off screen', 8 * pixelRatio(grab(owner), api), measured);
+  } finally {
+    api.offsetSurface(0, 0);
+    await settleFrames();
+  }
+}
+
+// ---- A group near the target's corner keeps its edge in place --------------------------------------------------------------
+
+const CORNER_WIDTHS = [296, 300, 304, 308, 312, 316, 320, 324, 328] as const;
+const CORNER_RADIUS = 16;
+/** The model puts the blur within 0.1 px of where it is; the engine's truncation of a negative origin moved it by up to 0.65. */
+const CORNER_POSITION_TOLERANCE_PX = 0.3;
+
+async function verifyGroupAtTheCorner(owner: Node, api: FiltersInspection): Promise<void> {
+  let worst = 0;
+  let worstWidth = 0;
+  for (const width of CORNER_WIDTHS) {
+    api.showFilters({ scene: 'corner', radius: CORNER_RADIUS, width });
+    await settleFrames();
+    const image = grab(owner);
+    const ratio = pixelRatio(image, api);
+    const plan = node(api, 'panel').effects?.filter?.plan;
+    assert(plan, `The corner panel has a filter that is drawn: ${width}`);
+    const centre = Math.round((CORNER_LEFT + width / 2) * ratio);
+    const y = Math.floor((CORNER_TOP + CORNER_HEIGHT / 2) * ratio);
+    const span = Math.min(Math.ceil(4 * plan.achievedPx + 40), Math.floor(width / 2 * ratio - 3 * plan.achievedPx));
+    assert(span >= 1.5 * plan.achievedPx, `The corner panel is wide enough to measure: ${width}`);
+    const raw = row(image, y, centre - span, centre + span);
+    const shift = Math.abs(halfCrossing(normalise(raw, raw[0] ?? 0, raw[raw.length - 1] ?? 1)) - span);
+    if (shift > worst) {
+      worst = shift;
+      worstWidth = width;
+    }
+  }
+  console.log('GODOT_REACT_FILTERS_CORNER', JSON.stringify({ worst, worstWidth }));
+  assert(worst <= CORNER_POSITION_TOLERANCE_PX,
+    `A blurred panel near the target's corner keeps its edge in place: it is ${worst.toFixed(2)} px off at width ${worstWidth} (limit ${CORNER_POSITION_TOLERANCE_PX})`);
+}
+
+// ---- The edge turned: down a column, which is where a target that does not halve vertically shows -----------------------
+
+/** A column profile of the edge scene turned, against a Gaussian of the plan's radius. */
+async function measureEdgeTurned(owner: Node, api: FiltersInspection, props: FiltersLabProps): Promise<EdgeMeasurement | undefined> {
+  api.showFilters(props);
+  await settleFrames();
+  const image = grab(owner);
+  const ratio = pixelRatio(image, api);
+  const effects = node(api, 'panel').effects;
+  assert(effects, `The panel has a filter that is drawn: ${JSON.stringify(props)}`);
+  const plan = (props.target === 'filter' ? effects.filter : effects.backdrop)?.plan;
+  assert(plan, `The panel's blur has a plan: ${JSON.stringify(props)}`);
+  const height = api.snapshot().height;
+  const centre = Math.round(height / 2 * ratio);
+  const x = Math.floor((EDGE_H_LEFT + EDGE_H_WIDTH / 2) * ratio);
+  const half = height * (props.target === 'filter' ? 0.4 : 0.3) * ratio;
+  const span = Math.min(Math.ceil(4 * plan.achievedPx + 40), Math.floor(half - 6), props.target === 'filter' ? Math.floor(half - 3 * plan.achievedPx) : Infinity);
+  if (span < 1.5 * plan.achievedPx) return undefined;
+  let profile = columnProfile(image, x, centre - span, centre + span);
+  if (props.target === 'filter') profile = normalise(profile, profile[0] ?? 0, profile[profile.length - 1] ?? 1);
+  let worst = 0;
+  profile.forEach((value, index) => { worst = Math.max(worst, Math.abs(value - normalCdf((index - span + 0.5) / plan.achievedPx))); });
+  return {
+    detail: JSON.stringify({ plan, target: [image.getWidth(), image.getHeight()], ratio, span }),
+    achievedPx: plan.achievedPx, clamped: plan.clamped, width: width1090(profile), worst, shift: halfCrossing(profile) - span,
+  };
+}
+
+async function verifyBlurAccuracyTurned(owner: Node, api: FiltersInspection): Promise<void> {
+  for (const target of ['backdrop', 'filter'] as const) {
+    for (const radius of [12, 24, 40]) {
+      const measured = await measureEdgeTurned(owner, api, { scene: 'edge-h', target, radius });
+      if (measured === undefined) continue;
+      checkEdge(`${target} blur ${radius}px, edge turned`, radius * pixelRatio(grab(owner), api), measured);
+    }
+  }
+}
+
+// ---- The viewport moves under the root (a Camera2D) -------------------------------------------------------------------------
+
+/** Far enough to take the panel out of the region it was copied for, which reaches 30 px or so past it. */
+const CANVAS_SHIFTS = [150, -110] as const;
+
+async function verifyCanvasTransformFollowed(owner: Node, api: FiltersInspection): Promise<void> {
+  const props: FiltersLabProps = { scene: 'edge', target: 'backdrop', radius: 8 };
+  api.showFilters(props);
+  await settleFrames();
+  try {
+    for (const x of CANVAS_SHIFTS) {
+      api.shiftCanvas(x, 0);
+      const measured = await measureEdge(owner, api, props, x, false, false);
+      assert(measured, 'The panel is wide enough to measure a 8px blur');
+      checkEdge(`backdrop blur 8px with the canvas moved by ${x} px and no commit after it`, 8 * pixelRatio(grab(owner), api), measured);
+    }
+  } finally {
+    api.shiftCanvas(0, 0);
+    await settleFrames();
+  }
+}
+
+// ---- A mirrored root ---------------------------------------------------------------------------------------------------
+
+async function verifyMirroredRoot(owner: Node, api: FiltersInspection): Promise<void> {
+  api.mirrorSurface(true);
+  try {
+    for (const target of ['filter', 'backdrop'] as const) {
+      const measured = await measureEdge(owner, api, { scene: 'edge', target, radius: 8 }, 0, true);
+      assert(measured, 'The panel is wide enough to measure a 8px blur');
+      checkEdge(`${target} blur 8px under a mirrored root`, 8 * pixelRatio(grab(owner), api), measured);
+    }
+  } finally {
+    api.mirrorSurface(false);
+    await settleFrames();
+  }
+}
+
+// ---- Text that overflows a fixed-size box inside a filtered element, changed ---------------------------------------------------
+
+const LONG_TEXT = 'The quick brown fox jumps over the lazy dog while the five boxing wizards jump quickly over it.';
+/** CSS pixels under the filtered box where only the overflowing text can be, and how wide it is read. */
+const OVERFLOW_PROBE = { gap: 30, height: 50, width: 140 } as const;
+
+async function verifyTextChangeGrowsGroup(owner: Node, api: FiltersInspection): Promise<void> {
+  const darkBelow = (): number => {
+    const image = grab(owner);
+    const ratio = pixelRatio(image, api);
+    const top = Math.floor((TEXT_CHANGE_TOP + TEXT_CHANGE_BOX.height + OVERFLOW_PROBE.gap) * ratio);
+    let dark = 0;
+    for (let y = top; y < top + OVERFLOW_PROBE.height * ratio; y += 1) {
+      for (let x = Math.floor(TEXT_CHANGE_LEFT * ratio); x < (TEXT_CHANGE_LEFT + OVERFLOW_PROBE.width) * ratio; x += 1) {
+        if (image.getPixel(x, y).r < 0.7) dark += 1;
+      }
+    }
+    return dark;
+  };
+  api.showFilters({ scene: 'text-change', text: 'ok' });
+  await settleFrames();
+  assert(darkBelow() === 0, 'Nothing is drawn under the filtered box before its text grows');
+  api.showFilters({ scene: 'text-change', text: LONG_TEXT });
+  await settleFrames();
+  const ratio = pixelRatio(grab(owner), api);
+  const dark = darkBelow();
+  assert(dark > 40 * ratio * ratio, `The overflowing text of a fixed-size node is drawn when it changes, though no box moved: ${dark} dark pixels under the box`);
+}
+
+// ---- A filtered element nobody can see costs nothing --------------------------------------------------------------------------
+
+/**
+ * A group's buffer on Compatibility (and Web) is the render target's back buffer, and an opaque target's is RGB10_A2
+ * (`texture_storage.cpp:2567`): ten bits of colour and two of alpha, so a half-transparent element in a group is drawn at 2/3 or 1/3.
+ * Only the culling and the ends are asserted exactly; between them the coverage may be a third off.
+ */
+const GROUP_ALPHA_STEP_TOLERANCE = 0.2;
+
+async function verifyFadedGroupIsNotDrawn(owner: Node, api: FiltersInspection): Promise<void> {
+  for (const [opacity, culled] of [[1, false], [0.5, false], [0, true], [0.5, false], [0, true], [1, false]] as const) {
+    api.showFilters({ scene: 'fade', opacity });
+    await settleFrames();
+    const faded = node(api, 'faded');
+    assert(faded.effects?.filter?.culled === culled,
+      `A filtered element at opacity ${opacity} ${culled ? 'is' : 'is not'} culled, its group with it: ${JSON.stringify(faded.effects)}`);
+    const image = grab(owner);
+    const ratio = pixelRatio(image, api);
+    const middle = channelAt(image, (faded.rect.x + faded.rect.width / 2) * ratio, (faded.rect.y + faded.rect.height / 2) * ratio);
+    assert(near(middle, 1 - opacity, GROUP_ALPHA_STEP_TOLERANCE), `A filtered element at opacity ${opacity} shows ${(1 - opacity).toFixed(2)} of black over white: ${middle.toFixed(3)}`);
+  }
+}
+
+// ---- A change elsewhere does not measure a group's subtree again -----------------------------------------------------------------
+
+async function verifyUnrelatedChangesDoNotWalk(owner: Node, api: FiltersInspection): Promise<void> {
+  const rows = 400;
+  api.showFilters({ scene: 'busy', rows, side: 100 });
+  await settleFrames();
+  const before = api.activity().effects;
+  const sides = [120, 140, 160, 180];
+  for (const side of sides) {
+    api.showFilters({ scene: 'busy', rows, side });
+    await settleFrames();
+  }
+  const after = api.activity().effects;
+  console.log('GODOT_REACT_FILTERS_REFRESH', JSON.stringify({
+    rows, changes: sides.length, refreshes: after.refreshes - before.refreshes, microseconds: after.refreshMicros - before.refreshMicros,
+    subtreeWalks: after.subtreeWalks - before.subtreeWalks,
+  }));
+  assert(after.subtreeWalks === before.subtreeWalks,
+    `A change beside a filtered list of ${rows} rows does not measure the list again: ${before.subtreeWalks} -> ${after.subtreeWalks} walks`);
+  api.showFilters({ scene: 'busy', rows: rows + 1, side: 180 });
+  await settleFrames();
+  const grown = api.activity().effects.subtreeWalks;
+  assert(grown > after.subtreeWalks, `A row added to the list measures it again: ${after.subtreeWalks} -> ${grown} walks`);
+  assert(node(api, 'list').rect.height === (rows + 1) * BUSY_ROW, 'The list is one row taller');
+  // The picture is the list's still.
+  const image = grab(owner);
+  assert(image.getWidth() > 0, 'The page is drawn');
+}
+
+// ---- A commit made while the root is outside the tree --------------------------------------------------------------------------
+
+async function verifyCommitOutsideTheTree(owner: Node, api: FiltersInspection): Promise<void> {
+  const props: FiltersLabProps = { scene: 'edge', target: 'backdrop', radius: 16 };
+  api.showFilters({ scene: 'edge', target: 'backdrop', radius: 8 });
+  await settleFrames();
+  api.surfaceAttached(false);
+  try {
+    api.showFilters({ scene: 'edge', target: 'backdrop', radius: 0 });
+    api.showFilters(props);
+    await settleFrames();
+  } finally {
+    api.surfaceAttached(true);
+  }
+  await settleFrames();
+  assert(node(api, 'panel').effects?.backdrop, `A frosted panel committed while the root was outside the tree is drawn once it is back: ${JSON.stringify(node(api, 'panel').effects)}`);
+  const measured = await measureEdge(owner, api, props, 0, false, false);
+  assert(measured, 'The panel is wide enough to measure a 16px blur');
+  checkEdge('backdrop blur 16px committed while the root was outside the tree', 16 * pixelRatio(grab(owner), api), measured);
+}
+
 // ---- Selected text stays readable over the blur -------------------------------------------------------------------------
 
 async function verifyTextOverBlur(owner: Node, api: FiltersInspection, capture: FiltersCapture): Promise<void> {
@@ -920,7 +1244,7 @@ export async function verifyFilters(owner: Node, api: FiltersInspection, capture
   hoverAt(new Vector2(2, 2));
   await settleFrames();
   const fresh = api.activity().effects;
-  assert(fresh.itemsCreated === 0 && fresh.materialsCreated === 0 && fresh.shadersCreated === 0 && !fresh.primer,
+  assert(fresh.itemsCreated === 0 && fresh.materialsCreated === 0 && fresh.shadersCreated === 0 && fresh.probes === 0 && fresh.subtreeWalks === 0,
     `A tree that has used no filter has made no item, material or shader: ${JSON.stringify(fresh)}`);
   await verifyNothingWhenUnused(api);
   await verifyBlurAccuracy(owner, api, capture);
@@ -936,7 +1260,33 @@ export async function verifyFilters(owner: Node, api: FiltersInspection, capture
   await verifyColourFunctions(owner, api, capture);
   await verifyDropShadow(owner, api, capture);
   await verifyNesting(api);
+  await verifyBothOnOneElement(owner, api, capture);
+  await verifyBlockedReturns(owner, api);
+  await verifyGroupAfterPlainBackdrop(owner, api);
+  await verifyGroupWithRootOriginOffScreen(owner, api);
+  await verifyGroupAtTheCorner(owner, api);
+  await verifyBlurAccuracyTurned(owner, api);
+  await verifyCanvasTransformFollowed(owner, api);
+  await verifyMirroredRoot(owner, api);
+  await verifyTextChangeGrowsGroup(owner, api);
+  await verifyFadedGroupIsNotDrawn(owner, api);
+  await verifyUnrelatedChangesDoNotWalk(owner, api);
+  await verifyCommitOutsideTheTree(owner, api);
   await verifyTextOverBlur(owner, api, capture);
+}
+
+/**
+ * The blur at a target size the section is not otherwise run at (`--viewport=1920x1080`, `1366x768`): a size that does not halve
+ * to the level a blur reads puts the blur in the wrong place on the renderers that place texels by the target. Opt-in:
+ * `--only=filters-sizes`.
+ */
+export async function verifyFilterSizes(owner: Node, api: FiltersInspection, capture: FiltersCapture): Promise<void> {
+  hoverAt(new Vector2(2, 2));
+  await settleFrames();
+  const { width, height } = api.snapshot();
+  console.log('GODOT_REACT_FILTERS_SIZE', JSON.stringify({ width, height, renderer: RenderingServer.getCurrentRenderingMethod() }));
+  await verifyBlurAccuracy(owner, api, capture);
+  await verifyBlurAccuracyTurned(owner, api);
 }
 
 // ---- Cost (opt-in: `--only=filters-cost`) -------------------------------------------------------------------------------
@@ -1046,6 +1396,8 @@ export async function measureFilterCost(owner: Node, api: FiltersInspection): Pr
 const FAULT_ENV = 'GODOT_REACT_FILTER_FAULT';
 /** The blur levels a Compatibility target of this size has (`native/blur.rs` `max_level`) bound the largest texel, 2^4. */
 const LARGEST_TEXEL_PX = 16;
+/** The RenderingDevice back buffers keep levels to 32 px texels for the radii the lab uses (level five). */
+const LARGEST_RD_TEXEL_PX = 32;
 
 /**
  * One regression guard: `run` is the check that guards a fix, `fault` names the fault that takes the fix out
@@ -1061,6 +1413,11 @@ export interface FaultControl {
   overflowing?: readonly string[];
   /** Why the fault cannot show on this window or renderer, when it cannot. */
   notApplicable?(owner: Node, api: FiltersInspection & GlassInspection): string | undefined;
+}
+
+/** The rendering method the window runs on. */
+function renderer(): string {
+  return RenderingServer.getCurrentRenderingMethod();
 }
 
 const FAULT_CONTROLS: readonly FaultControl[] = [
@@ -1101,6 +1458,75 @@ const FAULT_CONTROLS: readonly FaultControl[] = [
   {
     fault: 'shadow-box-only', guards: 'a drop-shadow is drawn beyond the element\'s box',
     run: verifyDropShadow, fails: /A hard drop-shadow\(6px 6px\)/u,
+  },
+  {
+    fault: 'backdrop-in-wrapper', guards: 'an element with a filter and a backdrop-filter draws its backdrop outside its own group',
+    run: verifyBothOnOneElement, fails: /Both properties on one element/u,
+  },
+  {
+    fault: 'keep-effect-state', guards: 'an effect that goes and comes back starts with nothing of the last one',
+    run: verifyBothOnOneElement, fails: /Both properties on one element/u,
+  },
+  {
+    fault: 'blocked-forgotten', guards: 'an element held back by a filter above it is drawn when the filter goes',
+    run: (owner, api) => verifyBlockedReturns(owner, api), fails: /once the filter above it is gone/u,
+  },
+  {
+    fault: 'root-primer', guards: 'a group reads its mipmaps after a backdrop that reads none, and with the root\'s origin off screen (Compatibility probe)',
+    run: async (owner, api) => {
+      await verifyGroupAfterPlainBackdrop(owner, api);
+      await verifyGroupWithRootOriginOffScreen(owner, api);
+    },
+    fails: /after a backdrop that reads no mipmap|origin off screen/u,
+    notApplicable: () => renderer() === 'gl_compatibility' ? undefined : 'the probe is for the Compatibility renderer only',
+  },
+  {
+    fault: 'region-chain', guards: 'Mobile and Forward+ place a level\'s texels by the whole target, not the copy region',
+    run: async (owner, api) => {
+      await verifyBlurAccuracy(owner, api, async () => {});
+      await verifyBlurAccuracyTurned(owner, api);
+    },
+    fails: /blur \d+px/u,
+    notApplicable: (_owner, api) => {
+      if (renderer() === 'gl_compatibility') return 'Compatibility places texels by the copy region (the fault is the model it already has)';
+      const { width, height } = api.snapshot();
+      return width % LARGEST_RD_TEXEL_PX === 0 && height % LARGEST_RD_TEXEL_PX === 0
+        ? `a ${width} x ${height} target halves exactly at every level a blur reads; run the section on a portrait window or a size that does not (--viewport)` : undefined;
+    },
+  },
+  {
+    fault: 'dual-filter-on-forward-plus', guards: 'Forward+ is planned with its own, wider chain',
+    run: verifyBlurAccuracy, fails: /blur \d+px/u,
+    notApplicable: () => renderer() === 'forward_plus' ? undefined : 'this is Forward+\'s model only',
+  },
+  {
+    fault: 'corner-rect', guards: 'a group under a mirrored root is drawn where it is',
+    run: verifyMirroredRoot, fails: /under a mirrored root/u,
+  },
+  {
+    fault: 'stale-viewport', guards: 'a backdrop follows the viewport\'s canvas transform with no commit',
+    run: verifyCanvasTransformFollowed, fails: /canvas moved by/u,
+  },
+  {
+    fault: 'walk-every-subtree', guards: 'a change beside a filtered list does not measure the list again',
+    run: verifyUnrelatedChangesDoNotWalk, fails: /does not measure the list again/u,
+  },
+  {
+    fault: 'visible-at-zero-opacity', guards: 'a filtered element at opacity 0 is not drawn as a group',
+    run: verifyFadedGroupIsNotDrawn, fails: /culled/u,
+  },
+  {
+    fault: 'text-unnoticed', guards: 'changed text that overflows a fixed-size node inside a group is drawn',
+    run: verifyTextChangeGrowsGroup, fails: /overflowing text/u,
+  },
+  {
+    fault: 'keep-transform-out-of-tree', guards: 'an effect committed while the root is outside the tree is drawn when it is back',
+    run: verifyCommitOutsideTheTree, fails: /outside the tree/u,
+  },
+  {
+    fault: 'truncated-bias', guards: 'a group near the target\'s origin keeps its edge in place (the engine truncates a negative origin toward zero)',
+    run: verifyGroupAtTheCorner, fails: /near the target's corner/u,
+    notApplicable: () => renderer() === 'gl_compatibility' ? undefined : 'Mobile and Forward+ place texels by the target, not the region',
   },
 ];
 

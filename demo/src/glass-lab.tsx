@@ -94,6 +94,24 @@ function GlassStack() {
   );
 }
 
+/** The row of the dual card's decor the verifier reads: below its text, across two of the circles behind it. */
+export const DUAL_ROW_PX = 145;
+
+/** A glass card that also has a drop shadow, as `backdrop-blur-xl ... drop-shadow-lg` is written: both properties on one element. */
+function GlassDual() {
+  return (
+    <View testID="glass-dual" className="relative" style={{ height: STACK_HEIGHT }}>
+      {STACK_DECOR.map(shape => (
+        <View key={shape.colour} className="absolute rounded-full" style={{ left: shape.left, top: shape.top, width: shape.size, height: shape.size, backgroundColor: shape.colour }} />
+      ))}
+      <View testID="glass-dual-card" className={`absolute left-0 top-6 h-44 w-3/4 gap-2 rounded-3xl p-5 drop-shadow-lg ${GLASS}`}>
+        <Text testID="glass-dual-title" className="text-xl text-white">Frost and shadow</Text>
+        <Text className="text-sm text-white/80">Blur and drop shadow on one card.</Text>
+      </View>
+    </View>
+  );
+}
+
 /** A glass card with a text input in it: its caret, selection and placeholder must read on the glass. */
 function GlassSearch() {
   return (
@@ -153,6 +171,7 @@ export function GlassLab() {
           {CARDS.map((card, index) => <GlassCard key={card.title} index={index} width={cardWidth} onAdd={open} />)}
         </View>
         <GlassStack />
+        <GlassDual />
         <GlassSearch />
         <View className="gap-3">
           {ROWS.map(row => (

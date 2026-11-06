@@ -2,7 +2,7 @@ import { createElement } from 'react';
 import {
   BaseMaterial3D, BoxMesh, Callable, Camera3D, Color, ColorRect, Control, DirAccess, DisplayServer, Engine, FileAccess, InputEvent, InputEventKey,
   InputEventMouseButton, InputEventPanGesture, InputMap, MeshInstance3D, MouseButton, Node, Node3D, ReactUiRoot, OS, StandardMaterial3D,
-  Time, Vector2, Vector3,
+  Time, Transform2D, Vector2, Vector2I, Vector3, Window,
 } from 'godot';
 import { createClassBinder } from 'godot.annotations';
 import { createRoot, readActivity, takeNativeProfile, type ReactRoot } from '../../src';
@@ -14,6 +14,9 @@ import { selectionLabControls } from './selection-lab';
 import { observeInputFailure, runVerification } from './verify';
 import { BenchmarkApp, type BenchmarkProps } from './benchmark';
 import { runProbe } from './probe';
+
+/** `--logical-viewport=WxH` (after `--`): the size the render target and the root have, whatever the window's. */
+const LOGICAL_VIEWPORT_ARGUMENT = '--logical-viewport=';
 import { runInteractionVerification } from './verify-interaction';
 import { runMotionVerification } from './verify-motion';
 import { VerifierInputIsolation, injectsOwnInput } from './verifier-input';
@@ -69,6 +72,8 @@ export default class Main extends Node {
       this.isolation = VerifierInputIsolation.begin(window);
     }
     this.updateDisplayScale();
+    const logical = userArgs.find(argument => argument.startsWith(LOGICAL_VIEWPORT_ARGUMENT));
+    if (logical !== undefined) this.useLogicalViewport(logical.slice(LOGICAL_VIEWPORT_ARGUMENT.length));
     this.createBackdrop();
     this.mount();
     const api = {
@@ -177,6 +182,18 @@ export default class Main extends Node {
       offsetSurface: (x: number, y: number) => { this.requireSurface().position = new Vector2(x, y); },
       /** Scale the root's Control (everything it draws), as a world-space owner might. */
       scaleSurface: (factor: number) => { this.requireSurface().scale = new Vector2(factor, factor); },
+      /** Mirror the root left to right in place (a negative x scale about its left edge, moved right by its width), or put it back. */
+      mirrorSurface: (on: boolean) => {
+        const surface = this.requireSurface();
+        surface.scale = on ? new Vector2(-1, 1) : new Vector2(1, 1);
+        surface.position = on ? new Vector2(surface.size.x, 0) : new Vector2(0, 0);
+      },
+      /** Move the window's canvas transform, as a `Camera2D` does: nothing is told but the renderer. */
+      shiftCanvas: (x: number, y: number) => {
+        const window = this.getWindow();
+        if (!window) throw new Error('The demo requires its owning Window');
+        window.canvasTransform = new Transform2D(0, new Vector2(x, y));
+      },
       /** Scroll a scroll container, found by `testID`, to `top`: the programmatic path of `scrollTo`. */
       scrollTo: (testID: string, top: number) => {
         const found = this.requireRenderer().findByTestID(testID);
@@ -334,6 +351,20 @@ export default class Main extends Node {
     if (!file) throw new Error('Cannot write the probe result');
     file.storeString(JSON.stringify(result, null, 2));
     file.close();
+  }
+
+  /**
+   * Draw at a fixed size whatever the window is: the window's content scale in `viewport` mode, aspect kept, so the render target is
+   * `WxH` (a verifier can run at 1920 x 1080 or 1366 x 768 on a display that has neither) and the root is laid out at that size.
+   */
+  private useLogicalViewport(size: string): void {
+    const match = /^(\d+)x(\d+)$/u.exec(size);
+    if (match?.[1] === undefined || match[2] === undefined) throw new Error(`${LOGICAL_VIEWPORT_ARGUMENT}WxH, not ${size}`);
+    const window = this.getWindow();
+    if (!window) throw new Error('A logical viewport requires the owning Window');
+    window.contentScaleMode = Window.ContentScaleMode.ContentScaleModeViewport;
+    window.contentScaleAspect = Window.ContentScaleAspect.ContentScaleAspectKeep;
+    window.contentScaleSize = new Vector2I(Number(match[1]), Number(match[2]));
   }
 
   private updateDisplayScale(): void {
