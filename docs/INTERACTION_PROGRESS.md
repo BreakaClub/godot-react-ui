@@ -2029,3 +2029,13 @@ Reviewed and hardened on the `hidpi` branch, which fast-forwarded onto `944ca90`
 - **Negative controls, one window each:** no oversampling fails 17 checks; no redraw hook fails 3, exactly the stale-scale checks; the earlier window-term rule fails `verify:world`.
 - **Inspected by the coordinator:** `hidpi-dpr2-lab.png`: text and box edges are crisp at scale 2.
 - **Not run on this commit:** the other interaction sections and the rest of the Web suite. They wait for the batch regression.
+
+## Verifier integrity and the full palette (D46)
+
+Built on the `verifier-integrity` branch from an independent review of the tooling; the per-finding report and evidence are in `docs/tracks/verifier-integrity.md`.
+
+- **Agent's gates, on `944ca90`:** `pnpm test` 401 passed, `test:types` clean on both profiles, `pnpm verify`, `verify:interaction --only=selection,forms`, `verify:interaction:web --only=forms` on a port the verifier opened itself, `cargo test` 545 passed. Pasteboard text hashes before and after the native and Web runs matched. `main.ts` reproduced: with `open_scripts` seeded, one headless `--generate-types` converted 254 lines to tabs; with the guard, the file stayed byte-identical.
+- **Coordinator's check after rebasing onto `6d470b0` (HiDPI, palette):** `cargo test` 549 passed, Clippy clean, fmt clean, `pnpm test` exit 0, `test:types` clean on both profiles, and `verify:interaction --only=hidpi,selection` passed in both viewports, both marked partial as they should be. The one conflict kept both sides, including wrapping the Web `hidpi` scenario in the new per-section counting.
+- **Not verified:** whether headless Chrome reaches the OS pasteboard. A check would write to it, so the Web verifiers swap `navigator.clipboard` and assume it does.
+
+**Palette (`6d470b0`):** all 22 Tailwind v3 colours, generated from tailwindcss 3.4.17's own data; the 55 existing values were checked against it and did not change. `pnpm test` 371 passed.
