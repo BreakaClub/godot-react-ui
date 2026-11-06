@@ -1,5 +1,5 @@
-import { Callable, DirAccess, Engine, FileAccess, GArray, InputEventKey, Key, OS, ReactUiRoot } from 'godot';
-import type { NativeSnapshot, NativeSnapshotNode } from '../../src';
+import { Callable, DirAccess, Engine, FileAccess, GArray, InputEventKey, Key, OS, ReactUiRoot, Vector2 } from 'godot';
+import type { LayoutRect, NativeScrollState, NativeSnapshot, NativeSnapshotNode } from '../../src';
 import { checkElements, checkFocus, type Reading } from '../../scripts/a11y-expectations.mjs';
 import { findByLabel, flatten, type FlatNode } from '../../scripts/ax-tree.mjs';
 import { A11Y_INITIAL_SIZE, A11Y_SLIDER_MAX, A11Y_SLIDER_START } from './a11y-panel';
@@ -38,6 +38,25 @@ const ACTION_BLUR = 2;
 const ACTION_INCREMENT = 3;
 const ACTION_DECREMENT = 4;
 const ACTION_SET_VALUE = 5;
+const ACTION_SCROLL_UP = 6;
+const ACTION_SCROLL_DOWN = 7;
+const ACTION_SCROLL_LEFT = 8;
+const ACTION_SCROLL_RIGHT = 9;
+const ACTION_SET_SCROLL_OFFSET = 10;
+const ACTION_SCROLL_INTO_VIEW = 11;
+
+/** `AccessibilityServer.AccessibilityScrollUnit`, which the platform adapter sends with a scroll action. */
+const SCROLL_UNIT_ITEM = 0;
+const SCROLL_UNIT_PAGE = 1;
+/** A scroll step is the client size divided by this (`SCROLL_PAGE_DIVISOR` in native/scroll.rs). */
+const SCROLL_PAGE_DIVISOR = 8;
+/** Where a set-scroll-offset request puts the scroll view, and a request far past its end. */
+const REQUESTED_SCROLL_TOP = 40;
+const SCROLL_PAST_END = 100_000;
+/** Offsets are floats; this is how far a reading may differ from the step it should be. */
+const SCROLL_TOLERANCE = 0.01;
+/** The scroll view's border (`border`): its client area starts this far inside its rectangle. */
+const SCROLLER_BORDER_PX = 1;
 
 /** What a run that could not read the platform tree logs, so `scripts/verify-a11y.mjs` can tell it from a failure. */
 export const UNSUPPORTED_MARKER = 'GODOT_REACT_A11Y_UNSUPPORTED';
@@ -231,10 +250,57 @@ export async function runA11yVerification(api: A11yInspection): Promise<void> {
   const savesBefore = get(api, 'a11y-saves').text;
   await assistiveAction(api, 'a11y-delete', ACTION_CLICK);
   assert(get(api, 'a11y-saves').text === savesBefore, 'A click action on a disabled button does nothing');
+  // ---- Scroll actions on a scroll container, as the platform adapter would deliver them ---------------------------
+  const scrollOf = (): NativeScrollState => {
+    const scroll = get(api, 'a11y-scroller').scroll;
+    assert(scroll, 'The scroll view is a scroll container');
+    return scroll;
+  };
+  const clientRect = (): LayoutRect => {
+    const { rect } = get(api, 'a11y-scroller');
+    return { x: rect.x + SCROLLER_BORDER_PX, y: rect.y + SCROLLER_BORDER_PX, width: scrollOf().clientWidth, height: scrollOf().clientHeight };
+  };
+  const inView = (testID: string): boolean => {
+    const client = clientRect();
+    const { rect } = get(api, testID);
+    return rect.y >= client.y - SCROLL_TOLERANCE && rect.y + rect.height <= client.y + client.height + SCROLL_TOLERANCE;
+  };
+  const step = scrollOf().clientHeight / SCROLL_PAGE_DIVISOR;
+  const focusBefore = api.snapshot().focused;
+  assert(scrollOf().scrollTop === 0 && scrollOf().maxScrollTop > 0 && scrollOf().maxScrollLeft === 0,
+    `The scroll view starts at the top with room to scroll down only: ${JSON.stringify(scrollOf())}`);
+  assert(!inView('a11y-scroll-end'), 'The last item starts out of view');
+  const near = (actual: number, expected: number): boolean => Math.abs(actual - expected) <= SCROLL_TOLERANCE;
+  await assistiveAction(api, 'a11y-scroller', ACTION_SCROLL_DOWN, SCROLL_UNIT_ITEM);
+  assert(near(scrollOf().scrollTop, step), `A scroll-down action by an item scrolls a step: ${scrollOf().scrollTop} for ${step}`);
+  await assistiveAction(api, 'a11y-scroller', ACTION_SCROLL_DOWN, SCROLL_UNIT_PAGE);
+  assert(near(scrollOf().scrollTop, step + scrollOf().clientHeight), `and by a page scrolls the client height: ${scrollOf().scrollTop}`);
+  await assistiveAction(api, 'a11y-scroller', ACTION_SCROLL_UP, SCROLL_UNIT_PAGE);
+  assert(near(scrollOf().scrollTop, step), `A scroll-up action by a page goes back: ${scrollOf().scrollTop}`);
+  await assistiveAction(api, 'a11y-scroller', ACTION_SCROLL_UP);
+  assert(near(scrollOf().scrollTop, 0), `A scroll-up action with no unit scrolls an item, as the engine reads it: ${scrollOf().scrollTop}`);
+  await assistiveAction(api, 'a11y-scroller', ACTION_SCROLL_UP, SCROLL_UNIT_PAGE);
+  assert(scrollOf().scrollTop === 0, 'Scrolling up at the top stays there');
+  await assistiveAction(api, 'a11y-scroller', ACTION_SCROLL_RIGHT, SCROLL_UNIT_PAGE);
+  await assistiveAction(api, 'a11y-scroller', ACTION_SCROLL_LEFT, SCROLL_UNIT_PAGE);
+  assert(scrollOf().scrollLeft === 0 && scrollOf().scrollTop === 0, 'Sideways actions leave a vertical-only view where it was');
+  await assistiveAction(api, 'a11y-scroller', ACTION_SET_SCROLL_OFFSET, new Vector2(0, REQUESTED_SCROLL_TOP));
+  assert(near(scrollOf().scrollTop, REQUESTED_SCROLL_TOP), `A set-scroll-offset action scrolls to the offset: ${scrollOf().scrollTop}`);
+  await assistiveAction(api, 'a11y-scroller', ACTION_SET_SCROLL_OFFSET, new Vector2(0, SCROLL_PAST_END));
+  assert(scrollOf().scrollTop === scrollOf().maxScrollTop, `and clamps a request past the end to the end: ${scrollOf().scrollTop}`);
+  assert(inView('a11y-scroll-end'), 'which shows the last item');
+  await assistiveAction(api, 'a11y-scroller', ACTION_SET_SCROLL_OFFSET, new Vector2(0, 0));
+  assert(scrollOf().scrollTop === 0 && !inView('a11y-scroll-end'), 'A set-scroll-offset action to zero goes back to the top');
+  await assistiveAction(api, 'a11y-scroll-end', ACTION_SCROLL_INTO_VIEW);
+  assert(inView('a11y-scroll-end') && scrollOf().scrollTop > 0, `A scroll-into-view action on the last item scrolls it into view: ${scrollOf().scrollTop}`);
+  await assistiveAction(api, 'a11y-message-1', ACTION_SCROLL_INTO_VIEW);
+  assert(inView('a11y-message-1'), 'and one on the first row scrolls back to it');
+  assert(api.snapshot().focused === focusBefore, 'Scrolling moved no focus');
   // End with focus on the slider, so the platform's focused element is the slider's thumb.
   await assistiveAction(api, 'a11y-volume-thumb', ACTION_FOCUS);
   assert(api.snapshot().focused === get(api, 'a11y-volume-thumb').id, 'A focus action focuses the slider thumb');
   assert(surface.hasFocus(), 'The root holds Godot key focus while an element is focused');
+
   await settle();
   console.log('GODOT_REACT_A11Y_NATIVE_PASSED');
 

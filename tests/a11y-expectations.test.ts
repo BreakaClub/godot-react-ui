@@ -22,6 +22,7 @@ const RECTS: Record<string, Frame> = {
   'a11y-size-medium': { x: 112, y: 320, width: 100, height: 40 },
   'a11y-size-large': { x: 218, y: 320, width: 90, height: 40 },
   'a11y-volume-thumb': { x: 120, y: 380, width: 20, height: 20 },
+  'a11y-scroller': { x: 16, y: 420, width: 320, height: 96 },
 };
 
 const snapshots: Record<string, { rect: Frame }> = Object.fromEntries(
@@ -57,6 +58,7 @@ function reading(phase: 0 | 1, variation: Variation = {}): Reading {
     ['a11y-size-medium', { role: 'AXRadioButton', title: 'Medium', value: values('a11y-size-medium') }],
     ['a11y-size-large', { role: 'AXRadioButton', title: 'Large', value: values('a11y-size-large') }],
     ['a11y-volume-thumb', { role: 'AXSlider', description: 'Volume', value: values('a11y-volume-thumb'), minValue: 0, maxValue: 100 }],
+    ['a11y-scroller', { role: 'AXScrollArea', description: 'Messages' }],
   ];
   const children = nodes.filter(([id]) => id !== variation.remove).map(([id, base]) => node(id, base));
   children.push({ role: 'AXStaticText', value: phase === 0 ? 'Saved 0 times' : 'Saved 1 times', frame: { x: 650, y: 560, width: 90, height: 12 } });
@@ -85,6 +87,10 @@ test('each way a reading can be wrong is named', () => {
   assert.ok(failuresOf({ extra: [{ role: 'AXButton', title: 'Save', frame: frameOf('a11y-save') }] })
     .some(failure => failure.includes('found 2')));
   assert.ok(failuresOf({ patch: { 'a11y-delete': { enabled: true } } }).some(failure => failure.startsWith('a11y-delete: AXEnabled is true')));
+  assert.ok(failuresOf({ remove: 'a11y-scroller' }).some(failure => failure.startsWith('a11y-scroller: expected one AXScrollArea named "Messages", found 0')),
+    'a scroll container that is not in the tree is named');
+  assert.ok(failuresOf({ patch: { 'a11y-scroller': { role: 'AXGroup' } } }).some(failure => failure.startsWith('a11y-scroller: expected one AXScrollArea')),
+    'and so is one that is exposed as a plain group');
   assert.ok(failuresOf({ patch: { 'a11y-volume-thumb': { maxValue: 10 } } }).some(failure => failure.includes('range is 0..10')));
   assert.ok(failuresOf({ patch: { 'a11y-select-all': { value: 0 } } }).some(failure => failure.includes('mixed')));
   assert.deepEqual(failuresOf({ patch: { 'a11y-select-all': { value: 0, valueDescription: 'mixed' } } }), [], 'a description counts');

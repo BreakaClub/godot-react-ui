@@ -51,6 +51,8 @@ pub(crate) enum AxRole {
     Image,
     Region,
     Tooltip,
+    /// A scroll container with no `role` of its own (Godot's `ScrollContainer`).
+    ScrollView,
 }
 
 /// What an element's children are to the accessibility tree.
@@ -162,6 +164,32 @@ pub(crate) fn resolve_role(kind: Kind, props: &PropsSpec) -> Option<Resolved> {
     })
 }
 
+/// A scroll container with something to scroll, role aside: the roles `resolve_role` leaves unexposed
+/// (an unroled `View`) become scroll views, and the position and range of each axis that can move go
+/// to the platform with the scroll actions.
+fn scroll_view_role(node: &AxNode<'_>) -> Option<Resolved> {
+    (node.props.role.is_none() && node.kind == Kind::View && node.scroll.is_some())
+        .then(|| Resolved::new(AxRole::ScrollView, Content::Expose))
+}
+
+/// One axis of a scroll container that has something to scroll: where it is and where it can go. A
+/// reversed axis (`column-reverse`, `row-reverse`) has a negative `min` and a `max` of zero, as
+/// `scrollTop` does in the DOM.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct AxScrollAxis {
+    pub(crate) position: f64,
+    pub(crate) min: f64,
+    pub(crate) max: f64,
+}
+
+/// A scroll container's scroll position and range. An axis that cannot move (its content fits, or it
+/// is not a scrolling axis) is `None`, so what is reported is what an assistive technology can do.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct AxScroll {
+    pub(crate) x: Option<AxScrollAxis>,
+    pub(crate) y: Option<AxScrollAxis>,
+}
+
 /// A mounted element as the accessibility tree reads it.
 pub(crate) struct AxNode<'a> {
     pub(crate) kind: Kind,
@@ -177,6 +205,12 @@ pub(crate) struct AxNode<'a> {
     /// `display: none`, or `hidden` (Suspense): no box, nothing to read.
     pub(crate) display_none: bool,
     pub(crate) clips_children: bool,
+    /// `Some` for a scroll container (`overflow` is `scroll` or `auto` on an axis), whether or not it
+    /// has anything to scroll right now.
+    pub(crate) scroll: Option<AxScroll>,
+    /// Some scroll container around the element, in the paint tree, has something to scroll: the
+    /// element can be asked to scroll itself into view.
+    pub(crate) in_scrollable: bool,
 }
 
 /// The mounted tree, as far as the accessibility tree needs it.
@@ -228,7 +262,7 @@ fn visit(
     }
     let real_disabled = parent_real_disabled || node.props.is_disabled();
     let disabled = parent_disabled || real_disabled || node.props.aria_disabled == Some(true);
-    let resolved = resolve_role(node.kind, node.props);
+    let resolved = resolve_role(node.kind, node.props).or_else(|| scroll_view_role(&node));
     let child_parent = if let Some(resolved) = resolved {
         entries.push(AxEntry {
             tag,
@@ -279,11 +313,17 @@ const DEFAULT_RANGE_MAX: f64 = 100.0;
 
 /// What the element can be asked to do. Native performs `click`, `focus` and `blur` itself (as the
 /// keyboard and `focus()` do); `adjust` is `increment`, `decrement` and `set value`, which JS answers.
+/// Scrolling is native too, as the wheel and `scrollBy` are: `scroll_y` is scroll up and down, `scroll_x`
+/// left and right (each with `set scroll offset`), and `scroll_into_view` is on the contents of a
+/// scroll container.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct AxActions {
     pub(crate) click: bool,
     pub(crate) focus: bool,
     pub(crate) adjust: bool,
+    pub(crate) scroll_x: bool,
+    pub(crate) scroll_y: bool,
+    pub(crate) scroll_into_view: bool,
 }
 
 /// Everything the accessibility tree says about one element. Equal values need no update.
@@ -312,6 +352,8 @@ pub(crate) struct AxProps {
     pub(crate) live: Option<LiveSpec>,
     /// `Some(true)` is vertical.
     pub(crate) vertical: Option<bool>,
+    /// A scroll container's position and range, whatever its role.
+    pub(crate) scroll: Option<AxScroll>,
     pub(crate) actions: AxActions,
 }
 
@@ -412,10 +454,14 @@ pub(crate) fn props_of(source: &impl AxSource, entry: &AxEntry) -> AxProps {
         vertical: props
             .aria_orientation
             .map(|orientation| orientation == OrientationSpec::Vertical),
+        scroll: node.scroll,
         actions: AxActions {
             click: resolved.activates && !entry.disabled,
             focus: (node.kind == Kind::Button || props.tab_index.is_some()) && !entry.real_disabled,
             adjust: resolved.ranged && resolved.role == AxRole::Slider && !entry.disabled,
+            scroll_x: node.scroll.is_some_and(|scroll| scroll.x.is_some()),
+            scroll_y: node.scroll.is_some_and(|scroll| scroll.y.is_some()),
+            scroll_into_view: node.in_scrollable,
         },
     }
 }
@@ -429,6 +475,12 @@ pub(crate) enum AxAction {
     Increment,
     Decrement,
     SetValue,
+    ScrollUp,
+    ScrollDown,
+    ScrollLeft,
+    ScrollRight,
+    SetScrollOffset,
+    ScrollIntoView,
 }
 
 impl AxAction {
@@ -438,6 +490,12 @@ impl AxAction {
     const INCREMENT: i64 = 3;
     const DECREMENT: i64 = 4;
     const SET_VALUE: i64 = 5;
+    const SCROLL_UP: i64 = 6;
+    const SCROLL_DOWN: i64 = 7;
+    const SCROLL_LEFT: i64 = 8;
+    const SCROLL_RIGHT: i64 = 9;
+    const SET_SCROLL_OFFSET: i64 = 10;
+    const SCROLL_INTO_VIEW: i64 = 11;
 
     /// The number bound into the action's callable.
     pub(crate) fn code(self) -> i64 {
@@ -448,6 +506,12 @@ impl AxAction {
             AxAction::Increment => Self::INCREMENT,
             AxAction::Decrement => Self::DECREMENT,
             AxAction::SetValue => Self::SET_VALUE,
+            AxAction::ScrollUp => Self::SCROLL_UP,
+            AxAction::ScrollDown => Self::SCROLL_DOWN,
+            AxAction::ScrollLeft => Self::SCROLL_LEFT,
+            AxAction::ScrollRight => Self::SCROLL_RIGHT,
+            AxAction::SetScrollOffset => Self::SET_SCROLL_OFFSET,
+            AxAction::ScrollIntoView => Self::SCROLL_INTO_VIEW,
         }
     }
 
@@ -459,6 +523,12 @@ impl AxAction {
             Self::INCREMENT => Some(AxAction::Increment),
             Self::DECREMENT => Some(AxAction::Decrement),
             Self::SET_VALUE => Some(AxAction::SetValue),
+            Self::SCROLL_UP => Some(AxAction::ScrollUp),
+            Self::SCROLL_DOWN => Some(AxAction::ScrollDown),
+            Self::SCROLL_LEFT => Some(AxAction::ScrollLeft),
+            Self::SCROLL_RIGHT => Some(AxAction::ScrollRight),
+            Self::SET_SCROLL_OFFSET => Some(AxAction::SetScrollOffset),
+            Self::SCROLL_INTO_VIEW => Some(AxAction::ScrollIntoView),
             _ => None,
         }
     }
@@ -731,6 +801,8 @@ mod tests {
         /// Root-local position, then size.
         rect: [f32; 4],
         display_none: bool,
+        scroll: Option<AxScroll>,
+        in_scrollable: bool,
     }
 
     /// A mounted tree as test data.
@@ -756,6 +828,8 @@ mod tests {
                     children: children.to_vec(),
                     rect: [0.0, 0.0, 10.0, 10.0],
                     display_none: false,
+                    scroll: None,
+                    in_scrollable: false,
                 },
             );
             self
@@ -791,6 +865,8 @@ mod tests {
                 height: node.rect[3],
                 display_none: node.display_none,
                 clips_children: false,
+                scroll: node.scroll,
+                in_scrollable: node.in_scrollable,
             })
         }
     }
@@ -1048,9 +1124,9 @@ mod tests {
         assert_eq!(
             all[0].actions,
             AxActions {
-                click: false,
                 focus: true,
-                adjust: true
+                adjust: true,
+                ..AxActions::default()
             }
         );
         assert_eq!(
@@ -1105,7 +1181,7 @@ mod tests {
             AxActions {
                 click: true,
                 focus: true,
-                adjust: false
+                ..AxActions::default()
             }
         );
         assert!(!by_tag(1).actions.click, "a group is not activated");
@@ -1167,11 +1243,212 @@ mod tests {
             AxAction::Increment,
             AxAction::Decrement,
             AxAction::SetValue,
+            AxAction::ScrollUp,
+            AxAction::ScrollDown,
+            AxAction::ScrollLeft,
+            AxAction::ScrollRight,
+            AxAction::SetScrollOffset,
+            AxAction::ScrollIntoView,
         ] {
             assert_eq!(AxAction::from_code(action.code()), Some(action));
         }
         assert_eq!(AxAction::from_code(-1), None);
-        assert_eq!(AxAction::from_code(6), None);
+        assert_eq!(AxAction::from_code(12), None);
+    }
+
+    // ---- Scroll containers ------------------------------------------------------------------------
+
+    fn axis(position: f64, min: f64, max: f64) -> Option<AxScrollAxis> {
+        Some(AxScrollAxis { position, min, max })
+    }
+
+    /// A tree of a scroll container (1) holding a button (2) and a bare text row (3).
+    fn scroller(scroll: AxScroll, role: &str) -> Tree {
+        let mut tree = Tree::new(&[1]);
+        tree.add(1, Kind::View, props(role), &[2, 3])
+            .add(2, Kind::Button, PropsSpec::default(), &[])
+            .add(3, Kind::Text, text("Row"), &[]);
+        tree.nodes.get_mut(&1).unwrap().scroll = Some(scroll);
+        for tag in [2, 3] {
+            tree.nodes.get_mut(&tag).unwrap().in_scrollable =
+                scroll.x.is_some() || scroll.y.is_some();
+        }
+        tree
+    }
+
+    fn props_at(tree: &Tree, tag: u32) -> AxProps {
+        let entry = *walk(tree)
+            .iter()
+            .find(|entry| entry.tag == tag)
+            .expect("the tag is exposed");
+        props_of(tree, &entry)
+    }
+
+    #[test]
+    fn an_unroled_scroll_container_is_a_scroll_view_that_exposes_its_children() {
+        let tree = scroller(
+            AxScroll {
+                x: None,
+                y: axis(0.0, 0.0, 120.0),
+            },
+            "{}",
+        );
+        assert_eq!(
+            entries(&tree),
+            vec![
+                (1, None, AxRole::ScrollView),
+                (2, Some(1), AxRole::Button),
+                (3, Some(1), AxRole::StaticText),
+            ],
+            "the container is exposed in its own right and the rows attach to it"
+        );
+        // A bare View that does not scroll still is not exposed.
+        let mut plain = Tree::new(&[1]);
+        plain.add(1, Kind::View, PropsSpec::default(), &[2]).add(
+            2,
+            Kind::Button,
+            PropsSpec::default(),
+            &[],
+        );
+        assert_eq!(entries(&plain), vec![(2, None, AxRole::Button)]);
+    }
+
+    #[test]
+    fn a_role_of_its_own_wins_over_scroll_view_and_none_still_hides_the_container() {
+        let scroll = AxScroll {
+            x: None,
+            y: axis(10.0, 0.0, 120.0),
+        };
+        let listbox = scroller(scroll, r#"{"role":"listbox"}"#);
+        assert_eq!(entries(&listbox)[0], (1, None, AxRole::ListBox));
+        assert_eq!(
+            props_at(&listbox, 1).scroll,
+            Some(scroll),
+            "the position and range are reported whatever the role"
+        );
+        assert!(props_at(&listbox, 1).actions.scroll_y);
+        let hidden = scroller(scroll, r#"{"role":"none"}"#);
+        assert_eq!(
+            entries(&hidden)[0],
+            (2, None, AxRole::Button),
+            "an author's role=none keeps the container out of the tree"
+        );
+    }
+
+    #[test]
+    fn a_scroll_view_reports_the_position_and_range_of_the_axes_that_can_move() {
+        let scroll = AxScroll {
+            x: axis(4.0, 0.0, 30.0),
+            y: axis(60.0, 0.0, 120.0),
+        };
+        let tree = scroller(scroll, "{}");
+        let view = props_at(&tree, 1);
+        assert_eq!(view.role, AxRole::ScrollView);
+        assert_eq!(view.scroll, Some(scroll));
+        assert!(view.actions.scroll_x && view.actions.scroll_y);
+        assert!(
+            !view.actions.scroll_into_view,
+            "the container is not inside a scroll container of its own"
+        );
+
+        let vertical_only = scroller(
+            AxScroll {
+                x: None,
+                y: axis(0.0, 0.0, 120.0),
+            },
+            "{}",
+        );
+        let actions = props_at(&vertical_only, 1).actions;
+        assert!(actions.scroll_y && !actions.scroll_x);
+
+        let reversed = scroller(
+            AxScroll {
+                x: None,
+                y: axis(-80.0, -120.0, 0.0),
+            },
+            "{}",
+        );
+        assert_eq!(
+            props_at(&reversed, 1).scroll.and_then(|scroll| scroll.y),
+            axis(-80.0, -120.0, 0.0),
+            "a reversed axis keeps its negative range"
+        );
+    }
+
+    #[test]
+    fn a_scroll_view_with_nothing_to_scroll_offers_no_scrolling() {
+        let tree = scroller(AxScroll::default(), "{}");
+        let view = props_at(&tree, 1);
+        assert_eq!(view.role, AxRole::ScrollView);
+        assert_eq!(view.scroll, Some(AxScroll::default()));
+        assert_eq!(view.actions, AxActions::default());
+        assert!(
+            !props_at(&tree, 2).actions.scroll_into_view,
+            "its contents are all in view already"
+        );
+    }
+
+    #[test]
+    fn the_contents_of_a_scrollable_container_can_be_scrolled_into_view() {
+        let tree = scroller(
+            AxScroll {
+                x: None,
+                y: axis(0.0, 0.0, 120.0),
+            },
+            "{}",
+        );
+        assert!(props_at(&tree, 2).actions.scroll_into_view);
+        assert!(props_at(&tree, 3).actions.scroll_into_view);
+        assert!(
+            props_at(&tree, 2).scroll.is_none(),
+            "only the container has a position"
+        );
+    }
+
+    #[test]
+    fn a_new_scroll_position_or_range_is_a_change_of_the_container_element() {
+        let at = |position: f64| {
+            scroller(
+                AxScroll {
+                    x: None,
+                    y: axis(position, 0.0, 120.0),
+                },
+                "{}",
+            )
+        };
+        let mut registry = Registry::default();
+        let mut server = FakeServer::new();
+        sync(
+            &mut registry,
+            &mut server,
+            &desired_of(&[(1, None), (2, Some(1)), (3, Some(1))]),
+        );
+        let before = at(0.0);
+        for tag in [1, 2, 3] {
+            registry.mark_applied(tag, props_at(&before, tag));
+        }
+        let after = at(40.0);
+        assert!(
+            registry.needs_apply(1, &props_at(&after, 1)),
+            "a new scroll position is a change of the container's element"
+        );
+        for tag in [2, 3] {
+            // The source moves the rows' bounds with the scroll (they are root-local), so in a real tree
+            // they are set again too; this tree keeps them still, and an element that is equal is
+            // left alone.
+            assert!(!registry.needs_apply(tag, &props_at(&after, tag)));
+        }
+        let wider = scroller(
+            AxScroll {
+                x: None,
+                y: axis(0.0, 0.0, 200.0),
+            },
+            "{}",
+        );
+        assert!(
+            registry.needs_apply(1, &props_at(&wider, 1)),
+            "a longer range is a change too"
+        );
     }
 
     // ---- Registry ---------------------------------------------------------------------------------

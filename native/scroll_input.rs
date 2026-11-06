@@ -215,6 +215,8 @@ impl ReactUiRoot {
         self.hit_stale = true;
         self.paint_scroll_overlay(tag);
         self.queue_scroll_event(tag);
+        // The position is part of a scroll view's accessibility element, and its contents' bounds move.
+        self.request_accessibility_update();
     }
 
     fn scroll_data(&self, tag: u32) -> Option<ScrollData> {

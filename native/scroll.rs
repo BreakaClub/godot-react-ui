@@ -501,6 +501,45 @@ pub(crate) fn key_scroll_delta(key: ScrollKey, shift: bool, link: &ScrollLink) -
     }
 }
 
+/// Which way an assistive technology scrolls a container: the on-screen direction, so down is
+/// towards `max` for a reversed axis too.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ScrollDirection {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+/// How far an assistive technology scrolls (`AccessibilityScrollUnit`): one step (an item, a line) or a
+/// page.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ScrollUnit {
+    Item,
+    Page,
+}
+
+/// How far an assistive technology's scroll action moves a container whose client size is `client`,
+/// in pixels (not clamped). The same distances as the arrow and Page keys, and as `ScrollContainer`'s
+/// own accessibility actions (`scroll_container.cpp:451-478`): an item is a page divided by
+/// [`SCROLL_PAGE_DIVISOR`].
+pub(crate) fn assistive_scroll_delta(
+    direction: ScrollDirection,
+    unit: ScrollUnit,
+    client: Vec2,
+) -> Vec2 {
+    let distance = |axis: Axis| match unit {
+        ScrollUnit::Item => client.get(axis) / SCROLL_PAGE_DIVISOR,
+        ScrollUnit::Page => client.get(axis),
+    };
+    match direction {
+        ScrollDirection::Up => Vec2::new(0.0, -distance(Axis::Y)),
+        ScrollDirection::Down => Vec2::new(0.0, distance(Axis::Y)),
+        ScrollDirection::Left => Vec2::new(-distance(Axis::X), 0.0),
+        ScrollDirection::Right => Vec2::new(distance(Axis::X), 0.0),
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct KeyScrollOutcome {
     /// Whether a container moved; the keydown default action was taken.
@@ -1369,6 +1408,50 @@ mod tests {
         assert_eq!(
             key(ScrollKey::PageUp, false, &target),
             Vec2::new(0.0, -800.0)
+        );
+    }
+
+    #[test]
+    fn an_assistive_scroll_moves_an_item_or_a_page_in_the_direction_asked() {
+        assert_eq!(
+            CLIENT,
+            Vec2::new(400.0, 800.0),
+            "the distances below are of this client"
+        );
+        let delta = |direction, unit| assistive_scroll_delta(direction, unit, CLIENT);
+        assert_eq!(
+            delta(ScrollDirection::Down, ScrollUnit::Item),
+            Vec2::new(0.0, 100.0)
+        );
+        assert_eq!(
+            delta(ScrollDirection::Up, ScrollUnit::Item),
+            Vec2::new(0.0, -100.0)
+        );
+        assert_eq!(
+            delta(ScrollDirection::Right, ScrollUnit::Item),
+            Vec2::new(50.0, 0.0)
+        );
+        assert_eq!(
+            delta(ScrollDirection::Left, ScrollUnit::Item),
+            Vec2::new(-50.0, 0.0)
+        );
+        assert_eq!(
+            delta(ScrollDirection::Down, ScrollUnit::Page),
+            Vec2::new(0.0, 800.0)
+        );
+        assert_eq!(
+            delta(ScrollDirection::Left, ScrollUnit::Page),
+            Vec2::new(-400.0, 0.0)
+        );
+        // The keyboard's steps are the same distances.
+        let target = link(ranges(300.0, 3000.0), Vec2::ZERO);
+        assert_eq!(
+            delta(ScrollDirection::Down, ScrollUnit::Item),
+            key(ScrollKey::ArrowDown, false, &target)
+        );
+        assert_eq!(
+            delta(ScrollDirection::Down, ScrollUnit::Page),
+            key(ScrollKey::PageDown, false, &target)
         );
     }
 

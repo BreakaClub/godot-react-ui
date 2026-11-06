@@ -21,6 +21,9 @@ export const ELEMENTS = [
   { id: 'a11y-size-medium', label: 'Medium', roles: ['AXRadioButton'], value: [1, 0] },
   { id: 'a11y-size-large', label: 'Large', roles: ['AXRadioButton'], value: [0, 1] },
   { id: 'a11y-volume-thumb', label: 'Volume', roles: ['AXSlider'], value: [30, 80], range: [0, 100] },
+  // A scroll container is a SCROLL_VIEW, which AccessKit maps to AXScrollArea; its scroll position and range
+  // travel as the scroll bars' values, which this table does not judge (they were not read from the adapter).
+  { id: 'a11y-scroller', label: 'Messages', roles: ['AXScrollArea'] },
 ];
 /** Static text whose content changes with the Godot-side input. */
 const SAVES_LABELS = ['Saved 0 times', 'Saved 1 times'];

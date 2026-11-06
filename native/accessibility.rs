@@ -24,22 +24,24 @@
 use godot::classes::AccessibilityServer;
 use godot::classes::accessibility_server::{
     AccessibilityAction, AccessibilityFlags, AccessibilityLiveMode, AccessibilityPopupType,
-    AccessibilityRole,
+    AccessibilityRole, AccessibilityScrollUnit,
 };
 use godot::obj::Singleton;
 use godot::prelude::*;
 
 use crate::ReactUiRoot;
 use crate::accessibility_model::{
-    AxAction, AxNode, AxProps, AxRole, AxSource, Desired, ElementServer, MIXED_DESCRIPTION,
-    Registry, props_of, walk,
+    AxAction, AxNode, AxProps, AxRole, AxScroll, AxScrollAxis, AxSource, Desired, ElementServer,
+    MIXED_DESCRIPTION, Registry, props_of, walk,
 };
 use crate::computed_style::StyleChange;
+use crate::diff::Parent;
 use crate::events::{AccessibilityActionData, AccessibilityActionKind, EventPayload};
 use crate::focus::is_focusable;
 use crate::geometry::BoxRect;
 use crate::mount::Mounted;
 use crate::props::{DisplaySpec, LiveSpec};
+use crate::scroll::{ScrollDirection, ScrollRange, ScrollUnit, Vec2, assistive_scroll_delta};
 
 /// The method the action callables call, with the AccessKit request's data, the node's tag and the
 /// action's code (`AxAction::code`).
@@ -56,6 +58,35 @@ impl Accessibility {
     pub(crate) fn mark_structure_dirty(&mut self) {
         self.registry.mark_structure_dirty();
     }
+}
+
+impl Mounted {
+    /// Some scroll container around `tag`, in the paint tree (where `reveal_node` looks), has something
+    /// to scroll: the element can be scrolled into view.
+    fn in_scrollable_container(&self, tag: u32) -> bool {
+        let mut current = self.nodes.get(&tag).and_then(|node| node.paint_parent);
+        while let Some(Parent::Node(container)) = current {
+            let Some(node) = self.nodes.get(&container) else {
+                return false;
+            };
+            let ranges = node.geometry.scroll_ranges;
+            if node.is_scroll_container() && (ranges.x.is_scrollable() || ranges.y.is_scrollable())
+            {
+                return true;
+            }
+            current = node.paint_parent;
+        }
+        false
+    }
+}
+
+/// One axis of a scroll container, when it has anything to scroll.
+fn scroll_axis(range: ScrollRange, position: f32) -> Option<AxScrollAxis> {
+    range.is_scrollable().then(|| AxScrollAxis {
+        position: f64::from(position),
+        min: f64::from(range.min()),
+        max: f64::from(range.max()),
+    })
 }
 
 impl AxSource for Mounted {
@@ -79,6 +110,14 @@ impl AxSource for Mounted {
             height: rect.height,
             display_none: node.computed.display == Some(DisplaySpec::None),
             clips_children: node.clips_content(),
+            scroll: node.is_scroll_container().then(|| {
+                let ranges = node.geometry.scroll_ranges;
+                AxScroll {
+                    x: scroll_axis(ranges.x, node.scroll.offset.x),
+                    y: scroll_axis(ranges.y, node.scroll.offset.y),
+                }
+            }),
+            in_scrollable: self.in_scrollable_container(tag),
         })
     }
 }
@@ -149,6 +188,7 @@ fn server_role(role: AxRole) -> AccessibilityRole {
         AxRole::Image => AccessibilityRole::IMAGE,
         AxRole::Region => AccessibilityRole::REGION,
         AxRole::Tooltip => AccessibilityRole::TOOLTIP,
+        AxRole::ScrollView => AccessibilityRole::SCROLL_VIEW,
     }
 }
 
@@ -173,6 +213,26 @@ fn requested_number(data: &Variant) -> Option<f64> {
                 .and_then(|text| text.to_string().trim().parse::<f64>().ok())
         })?;
     number.is_finite().then_some(number)
+}
+
+/// How far a scroll action goes. The request carries an `AccessibilityScrollUnit`, or nothing, which
+/// the engine reads as its first value, one item (`scroll_container.cpp:451`). `None` is a value that
+/// is neither.
+fn requested_scroll_unit(data: &Variant) -> Option<ScrollUnit> {
+    if data.is_nil() {
+        return Some(ScrollUnit::Item);
+    }
+    let ord = i32::try_from(data.try_to::<i64>().ok()?).ok()?;
+    match AccessibilityScrollUnit::try_from_ord(ord)? {
+        AccessibilityScrollUnit::ITEM => Some(ScrollUnit::Item),
+        AccessibilityScrollUnit::PAGE => Some(ScrollUnit::Page),
+        _ => None,
+    }
+}
+
+/// The offset a set-scroll-offset request asks for: a `Vector2` of `scrollLeft` and `scrollTop`.
+fn requested_scroll_offset(data: &Variant) -> Option<Vector2> {
+    data.try_to::<Vector2>().ok()
 }
 
 impl ReactUiRoot {
@@ -338,6 +398,16 @@ impl ReactUiRoot {
         if let Some(vertical) = props.vertical {
             server.update_set_list_orientation(element, vertical);
         }
+        if let Some(scroll) = props.scroll {
+            if let Some(x) = scroll.x {
+                server.update_set_scroll_x(element, x.position);
+                server.update_set_scroll_x_range(element, x.min, x.max);
+            }
+            if let Some(y) = scroll.y {
+                server.update_set_scroll_y(element, y.position);
+                server.update_set_scroll_y_range(element, y.min, y.max);
+            }
+        }
         let root = self.to_gd();
         let callable = |action: AxAction| {
             Callable::from_object_method(&root, ACTION_METHOD)
@@ -378,6 +448,44 @@ impl ReactUiRoot {
                 element,
                 AccessibilityAction::SET_VALUE,
                 &callable(AxAction::SetValue),
+            );
+        }
+        if actions.scroll_y {
+            server.update_add_action(
+                element,
+                AccessibilityAction::SCROLL_UP,
+                &callable(AxAction::ScrollUp),
+            );
+            server.update_add_action(
+                element,
+                AccessibilityAction::SCROLL_DOWN,
+                &callable(AxAction::ScrollDown),
+            );
+        }
+        if actions.scroll_x {
+            server.update_add_action(
+                element,
+                AccessibilityAction::SCROLL_LEFT,
+                &callable(AxAction::ScrollLeft),
+            );
+            server.update_add_action(
+                element,
+                AccessibilityAction::SCROLL_RIGHT,
+                &callable(AxAction::ScrollRight),
+            );
+        }
+        if actions.scroll_x || actions.scroll_y {
+            server.update_add_action(
+                element,
+                AccessibilityAction::SET_SCROLL_OFFSET,
+                &callable(AxAction::SetScrollOffset),
+            );
+        }
+        if actions.scroll_into_view {
+            server.update_add_action(
+                element,
+                AccessibilityAction::SCROLL_INTO_VIEW,
+                &callable(AxAction::ScrollIntoView),
             );
         }
     }
@@ -465,8 +573,67 @@ impl ReactUiRoot {
                     );
                 }
             },
+            AxAction::ScrollUp => self.assistive_scroll(tag, ScrollDirection::Up, data),
+            AxAction::ScrollDown => self.assistive_scroll(tag, ScrollDirection::Down, data),
+            AxAction::ScrollLeft => self.assistive_scroll(tag, ScrollDirection::Left, data),
+            AxAction::ScrollRight => self.assistive_scroll(tag, ScrollDirection::Right, data),
+            AxAction::SetScrollOffset => match requested_scroll_offset(data) {
+                Some(offset) => {
+                    // A scroll container that stopped being one since the request is gone, like a node.
+                    if self.is_scroll_container_tag(tag)
+                        && let Err(error) =
+                            self.scroll_to_checked(tag, f64::from(offset.x), f64::from(offset.y))
+                    {
+                        godot_error!(
+                            "ReactUiRoot: accessibility set-scroll-offset failed: {error}"
+                        );
+                    }
+                }
+                None => {
+                    godot_error!(
+                        "ReactUiRoot: accessibility set-scroll-offset for node {tag} carried no Vector2: {data}"
+                    );
+                }
+            },
+            // The request's scroll hint (where in the container to put the element) is not used: this
+            // is the least scrolling that shows the element, as `scrollIntoView({block: 'nearest'})`.
+            AxAction::ScrollIntoView => {
+                if let Err(error) = self.scroll_into_view_checked(tag) {
+                    godot_error!("ReactUiRoot: accessibility scroll-into-view failed: {error}");
+                }
+            }
         }
         self.deliver();
+    }
+
+    fn is_scroll_container_tag(&self, tag: u32) -> bool {
+        self.mounted
+            .nodes
+            .get(&tag)
+            .is_some_and(|node| node.is_scroll_container())
+    }
+
+    /// Scroll up, down, left or right by an item or a page (`data` says which), through `scrollBy`.
+    fn assistive_scroll(&mut self, tag: u32, direction: ScrollDirection, data: &Variant) {
+        let Some(unit) = requested_scroll_unit(data) else {
+            godot_error!(
+                "ReactUiRoot: accessibility scroll for node {tag} carried no scroll unit: {data}"
+            );
+            return;
+        };
+        let Some(client) = self
+            .mounted
+            .nodes
+            .get(&tag)
+            .filter(|node| node.is_scroll_container())
+            .map(|node| node.geometry.padding_box())
+        else {
+            return;
+        };
+        let delta = assistive_scroll_delta(direction, unit, Vec2::new(client.width, client.height));
+        if let Err(error) = self.scroll_by_checked(tag, f64::from(delta.x), f64::from(delta.y)) {
+            godot_error!("ReactUiRoot: accessibility scroll failed: {error}");
+        }
     }
 
     fn queue_adjustment(&mut self, tag: u32, action: AccessibilityActionKind, value: Option<f64>) {
