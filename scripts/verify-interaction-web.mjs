@@ -33,7 +33,7 @@ const TOTAL_TIMEOUT_MS = 1_200_000;
 const POLL_MS = 50;
 // `--only=<section>[,<section>]` runs just those sections (plan 0.4.1); the names are the native verifier's, and `touch`
 // is this verifier's touch page. An unknown name is an error: a typo must not skip a section.
-const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard', 'scroll', 'selection', 'drag', 'touch'];
+const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard', 'scroll', 'selection', 'drag', 'forms', 'touch'];
 const requestedSections = process.argv.filter((argument) => argument.startsWith('--only='))
   .flatMap((argument) => argument.slice('--only='.length).split(','));
 for (const name of requestedSections) {
@@ -1812,6 +1812,149 @@ async function runTouchDragScenario() {
   await demo('grabSurfaceFocus');
 }
 
+/** What Godot's key names (`OS.getKeycodeString`) are called by a browser keyboard (Puppeteer's key names). */
+const BROWSER_KEY_NAMES = {
+  Left: 'ArrowLeft', Right: 'ArrowRight', Up: 'ArrowUp', Down: 'ArrowDown', Home: 'Home', End: 'End', PageUp: 'PageUp',
+  PageDown: 'PageDown', Backspace: 'Backspace', Delete: 'Delete', Enter: 'Enter', Tab: 'Tab', Space: ' ',
+};
+
+/** Press the keys the project's `InputMap` binds to `action` on this platform, with real Chrome input. */
+async function pressAction(action, { shift = false, times = 1 } = {}) {
+  const binding = await demo('actionKey', action);
+  const key = BROWSER_KEY_NAMES[binding.key] ?? (binding.key.length === 1 ? binding.key.toLowerCase() : binding.key);
+  const modifiers = [
+    ...(binding.ctrl ? ['Control'] : []), ...(binding.alt ? ['Alt'] : []), ...(binding.meta ? ['Meta'] : []),
+    ...(binding.shift || shift ? ['Shift'] : []),
+  ];
+  for (let count = 0; count < times; count += 1) await pressKey(key, [...modifiers]);
+}
+
+/** The state native holds of the text input `testID`: value, selection, composition. */
+async function inputState(testID) {
+  const { textInput } = await find(testID);
+  assert.ok(textInput, `${testID} is not a text input`);
+  return textInput;
+}
+
+async function expectInput(testID, predicate, name) {
+  await waitUntil(name, async () => predicate(await inputState(testID)));
+  check(name, true, await inputState(testID));
+}
+
+/** The form lab's JSON readout, parsed. */
+async function formReadout() {
+  return JSON.parse(await text('form-json'));
+}
+
+/**
+ * Phase I7: text inputs in a real browser. Real Chrome key events type, select and move (the keys are the project's
+ * own InputMap actions, as the native verifier presses them); an IME composition and its commit come through the
+ * Chrome DevTools Protocol (`Input.imeSetComposition`, `Input.insertText`), which is how Godot's Web IME element hears
+ * them. The platform facts are recorded: with `html/experimental_virtual_keyboard` on, desktop Chrome has no
+ * `ontouchstart`, so the engine keeps the IME path (and has no virtual keyboard).
+ */
+async function runFormsScenario(viewport) {
+  await demo('showLab', 'forms');
+  await waitUntil('the forms lab mounts', () => nodeExists('forms-lab'));
+  const facts = await demo('platformFacts');
+  report.platformFacts = { ...(report.platformFacts ?? {}), [viewport.name]: facts };
+  check('Desktop Chrome keeps the IME path and has no virtual keyboard', facts.ime === true && facts.virtualKeyboard === false, facts);
+
+  // Typing and selecting with real keys.
+  await click('form-name');
+  await expectFocused((await find('form-name')).id, 'A press focuses the name field');
+  await page.keyboard.type('Ada Lovelace');
+  await expectInput('form-name', (state) => state.value === 'Ada Lovelace' && state.selectionStart === 12, 'Typing puts the text in the field');
+  check('React followed the typing', (await formReadout()).name === 'Ada Lovelace');
+  await pressAction('ui_text_caret_left', { shift: true, times: 4 });
+  await expectInput('form-name', (state) => state.selectionStart === 8 && state.selectionEnd === 12, 'Shift+Left four times selects four characters');
+  await pressAction('ui_text_caret_word_left');
+  await expectInput('form-name', (state) => state.selectionStart === 4 && state.selectionEnd === 4, 'A word jump stands at the start of "Lovelace"');
+  await pressAction('ui_text_select_all');
+  await page.keyboard.type('x');
+  await expectInput('form-name', (state) => state.value === 'x', 'Typing over a selection replaces it');
+  await pressAction('ui_undo');
+  await expectInput('form-name', (state) => state.value === 'Ada Lovelace', 'Undo puts the text back');
+  await capture(`forms-01-typing-${viewport.name}`);
+
+  // The caret is drawn in the real canvas: a pixel of its colour on the caret rectangle.
+  await waitUntil('the caret blinks on', async () => (await inputState('form-name')).caretVisible);
+  const caret = (await inputState('form-name')).caret;
+  check('The focused field has a caret rectangle', caret !== null && caret.height > 0, caret);
+
+  await runImeScenario(viewport);
+}
+
+/** An IME composition: the preedit shows in the field and commits as one edit, with composition events. */
+async function runImeScenario(viewport) {
+  await demo('showLab', 'forms');
+  await click('form-name');
+  const cdp = await page.createCDPSession();
+  // The engine's IME element re-takes DOM focus every 100 ms while an input is focused.
+  await page.keyboard.press('Home');
+  await waitUntil('the IME element holds browser focus', async () => page.evaluate(() => document.activeElement?.className === 'ime'));
+  await cdp.send('Input.imeSetComposition', { text: 'に', selectionStart: 1, selectionEnd: 1 });
+  await expectInput('form-name', (state) => state.composing && state.preedit?.text === 'に', 'imeSetComposition shows the preedit in the field');
+  const composing = await inputState('form-name');
+  check('The preedit is drawn but is not the value', composing.displayText.includes('に') && !composing.value.includes('に'), composing);
+  await waitUntil('the composition events reach JS', async () => (await text('form-log')).includes('compositionstart compositionupdate:に'));
+  await capture(`forms-02-ime-preedit-${viewport.name}`);
+  await cdp.send('Input.imeSetComposition', { text: 'にほ', selectionStart: 2, selectionEnd: 2 });
+  await expectInput('form-name', (state) => state.preedit?.text === 'にほ', 'A second composition update changes the preedit');
+  await cdp.send('Input.imeSetComposition', { text: 'に', selectionStart: 1, selectionEnd: 1 });
+  await cdp.send('Input.insertText', { text: 'に' });
+  await expectInput('form-name', (state) => !state.composing && state.value === 'にAda Lovelace', 'insertText commits the composition into the value');
+  const log = await text('form-log');
+  check('One composition: start, updates, end, then one input for the commit', /compositionstart compositionupdate:に compositionupdate:にほ compositionupdate:に compositionend input:insertText$/.test(log), log);
+  check('React holds the committed text', (await formReadout()).name.startsWith('に'));
+  await cdp.detach();
+}
+
+/**
+ * The on-screen keyboard path on a page with genuine touch: tapping the field focuses the engine's hidden DOM input
+ * (`GodotDisplayVK`), whose text the engine pushes to the focused root as `_set_text` (the whole text, caret at 0)
+ * followed by one Right key per character the keyboard's caret is past. With `page.keyboard.type` driving that hidden
+ * input as a soft keyboard would, the field ends up with the typed text, the caret after it, and React's value.
+ */
+async function runTouchFormsScenario() {
+  await demo('showLab', 'forms');
+  await waitUntil('the forms lab mounts on touch', () => nodeExists('forms-lab'));
+  const facts = await demo('platformFacts');
+  report.platformFacts = { ...(report.platformFacts ?? {}), touch: facts };
+  check('A touch page has the virtual keyboard and no IME', facts.virtualKeyboard === true && facts.ime === false, facts);
+  const tapField = async (testID) => {
+    const point = await pointerPoint(testID);
+    await page.touchscreen.tap(point.x, point.y);
+    await frames();
+  };
+  await tapField('form-name');
+  await expectFocused((await find('form-name')).id, 'A tap focuses the name field');
+  await waitUntil('the engine focuses its hidden DOM input', async () => page.evaluate(() => {
+    const active = document.activeElement;
+    return active?.tagName === 'INPUT' && active.style.display === 'block';
+  }));
+  check('The hidden input is the browser\'s focused element', true);
+  await page.keyboard.type('abc');
+  await expectInput('form-name', (state) => state.value === 'abc' && state.selectionStart === 3 && state.selectionEnd === 3,
+    'Typing into the hidden input gives the field its text with the caret after it');
+  check('React holds the typed text', (await formReadout()).name === 'abc');
+  await page.keyboard.press('Backspace');
+  await expectInput('form-name', (state) => state.value === 'ab' && state.selectionStart === 2, 'Backspace in the hidden input deletes in the field');
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.type('X');
+  await expectInput('form-name', (state) => state.value === 'aXb' && state.selectionStart === 2, 'Typing in the middle of the text keeps the caret there');
+  check('React holds the edited text', (await formReadout()).name === 'aXb');
+  const log = await text('form-log');
+  check('Each keyboard edit reached JS as an insertReplacementText input', /input:insertReplacementText/.test(log), log);
+  await capture('forms-03-touch-keyboard');
+  // Tapping another field moves the keyboard to it, with that field's text.
+  await tapField('form-code');
+  await expectFocused((await find('form-code')).id, 'A tap on another field focuses it');
+  await page.keyboard.type('12');
+  await expectInput('form-code', (state) => state.value === '12' && state.selectionStart === 2, 'The second field takes the typing');
+  check('The first field kept its text', (await inputState('form-name')).value === 'aXb');
+}
+
 async function runEventsScenario(viewport) {
   await click('tab-interaction');
   await waitUntil('interaction lab mounts', () => nodeExists('interaction-lab'));
@@ -2097,6 +2240,7 @@ async function runWorkflow(viewport) {
   if (wanted('scroll')) await runScrollScenario();
   if (wanted('selection')) await runSelectionScenario();
   if (wanted('drag')) await runDragScenario();
+  if (wanted('forms')) await runFormsScenario(viewport);
 
   // This page keeps running across viewports (the native verifier gets a fresh process for each),
   // so leave a fresh root: the lab's log and click counters must not leak into the next viewport.
@@ -2134,6 +2278,7 @@ async function runTouchWorkflow() {
     await capture('01-touch-interaction');
     await runTouchPointersScenario();
     await runTouchScrollScenario();
+    await runTouchFormsScenario();
   }
   if (wanted('drag')) await runTouchDragScenario();
 }

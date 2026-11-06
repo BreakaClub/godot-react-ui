@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, Text, TextInput, View, type UIInputEvent } from 'godot-react-ui';
+import { Button, Text, TextInput, View, type UICompositionEvent, type UIInputEvent } from 'godot-react-ui';
 
 /** Everything the page's fields edit, in one object: the readout is this object as JSON. */
 interface FormState {
@@ -19,6 +19,8 @@ const CODE_MAX_LENGTH = 6;
 const NOTES_ROWS = 3;
 /** Spaces in the JSON readout's indentation. */
 const JSON_INDENT = 2;
+/** How many of the name field's latest events the log keeps. */
+const LOG_LENGTH = 12;
 
 const field = 'w-64 rounded-md border border-slate-300 bg-white px-3 py-2 text-base text-slate-900 placeholder-slate-400 caret-indigo-600 focus:border-indigo-500';
 const labelClass = 'text-sm text-slate-700';
@@ -33,6 +35,9 @@ const labButton = 'rounded-lg border border-slate-200 bg-white text-slate-700 px
 export function FormsLab() {
   const [state, setState] = useState<FormState>(INITIAL_STATE);
   const [free, setFree] = useState('');
+  // The name field's composition and input events, in order: what an IME or a virtual keyboard did to it.
+  const [log, setLog] = useState<readonly string[]>([]);
+  const note = (entry: string) => setLog(current => [...current, entry].slice(-LOG_LENGTH));
   const patch = (change: Partial<FormState>) => setState(current => ({ ...current, ...change }));
   const submit = () => setState(current => ({ ...current, submitted: current.submitted + 1 }));
 
@@ -47,7 +52,10 @@ export function FormsLab() {
         <Text className={`w-24 ${labelClass}`}>Name</Text>
         <TextInput
           testID="form-name" className={field} placeholder="Your name" value={state.name} onSubmit={submit}
-          onChange={(event: UIInputEvent) => patch({ name: event.value })}
+          onChange={(event: UIInputEvent) => { patch({ name: event.value }); note(`input:${event.inputType}`); }}
+          onCompositionStart={() => note('compositionstart')}
+          onCompositionUpdate={(event: UICompositionEvent) => note(`compositionupdate:${event.data}`)}
+          onCompositionEnd={() => note('compositionend')}
         />
       </View>
 
@@ -103,8 +111,10 @@ export function FormsLab() {
       </View>
 
       <View className="flex-row gap-3">
-        <Button testID="form-reset" className={labButton} onClick={() => { setState(INITIAL_STATE); setFree(''); }}>Reset</Button>
+        <Button testID="form-reset" className={labButton} onClick={() => { setState(INITIAL_STATE); setFree(''); setLog([]); }}>Reset</Button>
       </View>
+
+      <Text testID="form-log" className="text-xs text-slate-500">{log.join(' ')}</Text>
 
       <View className="rounded-lg bg-slate-900 p-3">
         <Text testID="form-json" className="text-xs text-emerald-300">{JSON.stringify(state, null, JSON_INDENT)}</Text>

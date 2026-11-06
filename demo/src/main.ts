@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import {
   Callable, Color, ColorRect, Control, DirAccess, DisplayServer, Engine, FileAccess, InputEvent, InputEventKey,
-  InputEventMouseButton, InputEventPanGesture, MouseButton, Node, ReactUiRoot, OS, Time, Vector2,
+  InputEventMouseButton, InputEventPanGesture, InputMap, MouseButton, Node, ReactUiRoot, OS, Time, Vector2,
 } from 'godot';
 import { createClassBinder } from 'godot.annotations';
 import { createRoot, readActivity, takeNativeProfile, type ReactRoot } from '../../src';
@@ -114,6 +114,30 @@ export default class Main extends Node {
       resetPassthrough: () => { this.passthrough = { backdropPresses: 0, unhandledPresses: 0, unhandledWheels: 0, unhandledPans: 0, unhandledKeys: {} }; },
       /** The cursor Godot would show with the pointer at (x, y), through the root's `_get_cursor_shape`. */
       cursorShapeAt: (x: number, y: number) => this.requireSurface().getCursorShape(new Vector2(x, y)),
+      /**
+       * The first key the project's `InputMap` binds to `action`, as the engine names it (`Left`, `Home`, `A`) with its
+       * modifiers, so a browser verifier can press the keys that mean "word left" on this platform with real input.
+       */
+      actionKey: (action: string) => {
+        const events = InputMap.actionGetEvents(action);
+        for (let index = 0; index < events.size(); index++) {
+          const event = events.get(index);
+          if (event instanceof InputEventKey) {
+            const code = event.keycode !== 0 ? event.keycode : event.physicalKeycode;
+            return {
+              key: OS.getKeycodeString(code), shift: event.shiftPressed, ctrl: event.ctrlPressed, alt: event.altPressed,
+              meta: event.metaPressed,
+            };
+          }
+        }
+        throw new Error(`The InputMap binds no key to ${action}`);
+      },
+      /** What the platform offers text input: an IME and an on-screen keyboard (on the Web they exclude each other). */
+      platformFacts: () => ({
+        ime: DisplayServer.hasFeature(DisplayServer.Feature.FeatureIme),
+        virtualKeyboard: DisplayServer.hasFeature(DisplayServer.Feature.FeatureVirtualKeyboard),
+        clipboard: DisplayServer.hasFeature(DisplayServer.Feature.FeatureClipboard),
+      }),
       /** Whether the root holds Godot key focus. */
       surfaceHasFocus: () => this.requireSurface().hasFocus(),
       /** Whether the root asks for `process()` frames and for `_input` (native's one decision, `update_process`). */
