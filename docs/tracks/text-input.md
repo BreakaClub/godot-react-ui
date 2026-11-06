@@ -115,6 +115,33 @@ removed the section fails at "A press on the label focuses the input".
 - **T16. The Inputs section's tab stops include text inputs.** `tabStops` counted buttons and `tabIndex` 0; native makes a
   `TextInput` a tab stop (`focus.rs`), so the helper does too.
 
+## Accessibility
+
+`native/accessibility_model.rs` (Godot-free, mutants killed by its tests) and `native/text_input_godot/accessibility.rs`
+(the Godot side). A `TextInput` is a `TEXT_FIELD` or, with `multiline`, a `MULTILINE_TEXT_FIELD`; it has a name, a
+description, a placeholder while one shows, `FLAG_READONLY`, its text and its selection, and the actions focus, set text
+selection, replace selected text and set value, mirroring `LineEdit` (`line_edit.cpp:1245-1332`) and `TextEdit`
+(`text_edit.cpp:760-840`). The a11y lab has a name field, a text area and a read-only field, `scripts/a11y-expectations.mjs`
+expects `AXTextField` and `AXTextArea` with their `AXValue`, and the Godot-side half of `pnpm verify:a11y` selects, replaces and
+sets the text through the actions' callable and checks the result; with the replace action made a whole-text replacement it
+fails at "A replace-selected-text action replaces the selection". **Not verified:** the platform's tree. The engine that runs
+this project has no accessibility driver (`GODOT_REACT_A11Y_UNSUPPORTED`, exit 2, as before), so nothing in the update pass
+has run in an engine: not `create_sub_text_edit_elements`, not the line placement, not `update_set_text_selection`. The
+platform-tree check waits for an engine with AccessKit (`docs/tracks/accessibility.md`, "To finish the verification").
+
+- **T17. A `TextInput` is always a text field.** Its `role` can only remove it from the tree. A `View` with
+  `role="textbox"` stays unexposed: it has no text, selection or edit to offer.
+- **T18. The text is line elements, not a value.** As `LineEdit` and `TextEdit` do: one element per line of the shaped
+  display text, with the selection set against them. A line owns its start offset and not its end, so a caret at the
+  start of the next line is on that line; the last line owns the end of the text (`line_for_offset`, tested). A line's
+  elements are made inside the update and `free_element` is refused there, so they are freed where the display is shaped
+  again (`reshape_display`, `refresh_text_input`) and where the box changes shape (`update_node_geometry`), never inside one,
+  and the field is set again in the next update because its text, selection and scroll are part of what it is compared by.
+- **T19. A field with no name is named by its placeholder**, as `LineEdit::_get_accessibility_name` does.
+- **T20. Assistive edits are edits.** They go through `beforeinput`, so JS can refuse one and hears the `input`. A
+  set-value puts the caret after the text, which `ReplaceText` (the virtual keyboard's, caret at 0) does not.
+- **T21. The a11y lab is 900x900**, taller than before, for three more fields.
+
 ## Web paste: investigation and decision (Phase I7C)
 
 **Reproduced.** Chrome (headless, clipboard permissions granted), the engine's own `clipboard_get` path, 1120x800:
@@ -163,4 +190,4 @@ clipboard changed inserts the new text".
 
 ## Owed
 
-Accessibility, world-space typing, the gates, merge notes.
+World-space typing, the gates, merge notes.

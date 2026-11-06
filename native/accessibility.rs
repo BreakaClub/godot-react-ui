@@ -42,6 +42,7 @@ use crate::geometry::BoxRect;
 use crate::mount::Mounted;
 use crate::props::{DisplaySpec, LiveSpec};
 use crate::scroll::{ScrollDirection, ScrollRange, ScrollUnit, Vec2, assistive_scroll_delta};
+use crate::text_input_godot::ax_text_field;
 
 /// The method the action callables call, with the AccessKit request's data, the node's tag and the
 /// action's code (`AxAction::code`).
@@ -51,6 +52,8 @@ const ACTION_METHOD: &str = "_on_accessibility_action";
 #[derive(Default)]
 pub(crate) struct Accessibility {
     registry: Registry<Rid>,
+    /// The line elements of each text field's text (`text_input_godot/accessibility.rs`).
+    pub(crate) text_lines: crate::text_input_godot::TextLines,
 }
 
 impl Accessibility {
@@ -118,6 +121,10 @@ impl AxSource for Mounted {
                 }
             }),
             in_scrollable: self.in_scrollable_container(tag),
+            text_field: node
+                .text_input
+                .as_ref()
+                .map(|state| ax_text_field(state, (node.scroll.offset.x, node.scroll.offset.y))),
         })
     }
 }
@@ -189,6 +196,8 @@ fn server_role(role: AxRole) -> AccessibilityRole {
         AxRole::Region => AccessibilityRole::REGION,
         AxRole::Tooltip => AccessibilityRole::TOOLTIP,
         AxRole::ScrollView => AccessibilityRole::SCROLL_VIEW,
+        AxRole::TextField => AccessibilityRole::TEXT_FIELD,
+        AxRole::MultilineTextField => AccessibilityRole::MULTILINE_TEXT_FIELD,
     }
 }
 
@@ -335,7 +344,7 @@ impl ReactUiRoot {
     /// Set everything on one element. A node already sent to the platform is replaced by a new one
     /// that has only a role and a name, so every property is set here, every time.
     fn apply_accessibility(
-        &self,
+        &mut self,
         server: &mut Gd<AccessibilityServer>,
         element: Rid,
         tag: u32,
@@ -407,6 +416,9 @@ impl ReactUiRoot {
                 server.update_set_scroll_y(element, y.position);
                 server.update_set_scroll_y_range(element, y.min, y.max);
             }
+        }
+        if let Some(field) = &props.text_field {
+            self.apply_text_field_accessibility(server, element, tag, field, props.bounds);
         }
         let root = self.to_gd();
         let callable = |action: AxAction| {
@@ -507,12 +519,14 @@ impl ReactUiRoot {
     /// element and, with it, ours. Forget them without freeing (as `ItemList` does).
     pub(crate) fn forget_accessibility_elements(&mut self) {
         self.accessibility.registry.forget_all();
+        self.accessibility.text_lines.clear();
     }
 
     /// The root is being destroyed outside the tree: free what the engine has not.
     pub(crate) fn release_accessibility_elements(&mut self) {
         let elements = self.accessibility.registry.root_elements();
         self.accessibility.registry.forget_all();
+        self.accessibility.text_lines.clear();
         if elements.is_empty() {
             return;
         }
@@ -556,6 +570,11 @@ impl ReactUiRoot {
                 if let Err(error) = self.blur_node_checked(tag) {
                     godot_error!("ReactUiRoot: accessibility blur failed: {error}");
                 }
+            }
+            AxAction::SetTextSelection => self.assistive_set_selection(tag, data),
+            AxAction::ReplaceSelectedText => self.assistive_replace_selected(tag, data),
+            AxAction::SetValue if self.text_state(tag).is_some() => {
+                self.assistive_set_value(tag, data);
             }
             AxAction::Increment => {
                 self.queue_adjustment(tag, AccessibilityActionKind::Increment, None)

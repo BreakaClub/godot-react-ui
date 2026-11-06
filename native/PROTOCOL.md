@@ -386,7 +386,19 @@ font size, whatever it holds, so typing never lays out; a long value scrolls.
   and a fixed selection colour (`#3b82f659`).
 - **Platform.** Gaining focus starts the IME and shows the on-screen keyboard where the engine has them (`FEATURE_IME`,
   `FEATURE_VIRTUAL_KEYBOARD`); `NOTIFICATION_OS_IME_UPDATE` becomes the preedit, and `_set_text` (the Web virtual
-  keyboard's hook) an `insertReplacementText` edit with the caret at 0. Copy, cut and paste use `DisplayServer`'s clipboard.
+  keyboard's hook) an `insertReplacementText` edit with the caret at 0. Copy, cut and paste use `DisplayServer`'s clipboard,
+  except that on the Web a paste asks the browser (`navigator.clipboard.readText()` through `JavaScriptBridge`) and pastes
+  when it answers, because `clipboard_get` there returns the text the previous call read; a refused read is logged and
+  pastes nothing. IME and keyboard calls run with the root's base guard held, since the Web engine notifies every node
+  of a window focus change from inside them.
+- **Accessibility.** A `TextInput` is a text field (`TEXT_FIELD`, or `MULTILINE_TEXT_FIELD` with `multiline`) whatever
+  its `role`, which can only remove it (`none`, `presentation`). It is named by `aria-label`, else its `placeholder`; its
+  text is not a value but one element per line of the shaped display text (`create_sub_text_edit_elements`, bullets for a
+  secure input, the preedit spliced in), placed in the root's space and freed and made again when the text, the shaping
+  or the box it wraps to changes; its selection is `update_set_text_selection` against those elements. Actions: focus,
+  `set text selection` (`{start_char, end_char}`, code points of the display text), and, unless `readOnly` or disabled,
+  `replace selected text` (an `insertText` edit) and `set value` (an `insertReplacementText` edit with the caret after it),
+  both through `beforeinput`. Not read from a platform tree: the engine that runs this project has no accessibility driver.
 
 ## Focus and keyboard
 
@@ -471,7 +483,7 @@ Godot's `Input` dispatches every `InputEventGesture` twice (once explicitly and 
 `core/input/input.cpp:995-1003` and `:1046-1048`), so a pan gesture, real or parsed, reaches JS as two `wheel` events
 with the same deltas, exactly as it reaches Godot's own `ScrollContainer`. Native does not filter this.
 
-Limits: no text input/IME, touch text selection, accessibility tree, drag and drop with Godot `Control`s (the plan's
+Limits: no touch text selection, accessibility tree, drag and drop with Godot `Control`s (the plan's
 3.19: `_can_drop_data` is synchronous on `&self`, where a JS answer cannot be had; `endedOutsideRoot` plus the release
 point is what a game uses) or with files or `setDragImage`, images, rich inline text, rounded clip
 masks, `position: sticky`, CSS stacking contexts (`zIndex` orders siblings of one paint parent), a public CSS stylesheet/selector API, arbitrary keyframe animations, or custom native

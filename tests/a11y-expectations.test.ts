@@ -10,7 +10,7 @@ import { findByLabel, flatten, labelOf, type AxNode, type Frame } from '../scrip
 // platform's adapter; they are not recordings of one.
 const SCALE = 0.5;
 const ORIGIN = { x: 639, y: 400 };
-const WINDOW: Frame = { x: 639, y: 368, width: 450, height: 382 };
+const WINDOW: Frame = { x: 639, y: 368, width: 450, height: 450 };
 
 const RECTS: Record<string, Frame> = {
   'a11y-save': { x: 16, y: 120, width: 80, height: 40 },
@@ -31,6 +31,9 @@ const RECTS: Record<string, Frame> = {
   'a11y-message-3': { x: 24, y: 476, width: 304, height: 20 },
   'a11y-message-4': { x: 24, y: 500, width: 304, height: 20 },
   'a11y-message-5': { x: 24, y: 524, width: 304, height: 20 },
+  'a11y-name': { x: 16, y: 530, width: 320, height: 42 },
+  'a11y-notes': { x: 16, y: 584, width: 320, height: 72 },
+  'a11y-readonly': { x: 16, y: 668, width: 320, height: 42 },
 };
 const IN_VIEW = ['a11y-message-1', 'a11y-message-2', 'a11y-message-3'];
 
@@ -71,6 +74,9 @@ function reading(phase: 0 | 1, variation: Variation = {}): Reading {
     ...(['a11y-message-1', 'a11y-message-2', 'a11y-message-3', 'a11y-message-4'] as const).map((id, index): [string, AxNode] => [
       id, { role: 'AXStaticText', value: `Message ${index + 1}`, actionNames: ['AXScrollToVisible'] },
     ]),
+    ['a11y-name', { role: 'AXTextField', description: 'Name', enabled: true, value: phase === 0 ? 'Ada' : 'Ada Lovelace' }],
+    ['a11y-notes', { role: 'AXTextArea', description: 'Notes', enabled: true, value: 'first\nsecond' }],
+    ['a11y-readonly', { role: 'AXTextField', description: 'Reference', value: 'Fixed' }],
   ];
   const children = nodes.filter(([id]) => id !== variation.remove).map(([id, base]) => node(id, base));
   children.push({ role: 'AXStaticText', value: phase === 0 ? 'Saved 0 times' : 'Saved 1 times', frame: { x: 650, y: 560, width: 90, height: 12 } });
@@ -109,6 +115,19 @@ test('each way a reading can be wrong is named', () => {
   assert.ok(failuresOf({ extra: [{ role: 'AXGroup', description: 'Size', frame: frameOf('a11y-size') }] }).some(failure => failure.includes('found 2')), 'two Size groups are wrong');
   assert.ok(failuresOf({ extra: [{ role: 'AXStaticText', value: 'Secret' }] }).some(failure => failure.includes('"Secret" is inside an aria-hidden subtree')));
   assert.ok(failuresOf({ extra: [{ role: 'AXButton', description: 'Hidden text' }] }).some(failure => failure.includes('"Hidden text"')));
+});
+
+test('a text field is a text field or a text area with its text, and a wrong reading of either is named', () => {
+  const failuresOf = (variation: Variation, phase: 0 | 1 = 0) => checkElements(reading(phase, variation), phase, snapshots);
+  assert.ok(failuresOf({ patch: { 'a11y-name': { value: 'Ada Lovelace' } } })
+    .some(failure => failure === 'a11y-name: AXValue is "Ada Lovelace", expected "Ada"'), 'the text before the Godot-side edit');
+  assert.ok(failuresOf({ patch: { 'a11y-name': { value: 'Ada' } } }, 1)
+    .some(failure => failure === 'a11y-name: AXValue is "Ada", expected "Ada Lovelace"'), 'and after it');
+  assert.ok(failuresOf({ patch: { 'a11y-notes': { role: 'AXTextField' } } })
+    .some(failure => failure.startsWith('a11y-notes: expected one AXTextArea named "Notes", found 0')), 'a text area exposed as a one-line field');
+  assert.ok(failuresOf({ patch: { 'a11y-name': { role: 'AXStaticText' } } })
+    .some(failure => failure.startsWith('a11y-name: expected one AXTextField named "Name", found 0')), 'a field exposed as static text');
+  assert.ok(failuresOf({ remove: 'a11y-readonly' }).some(failure => failure.startsWith('a11y-readonly: expected one AXTextField')));
 });
 
 test('a frame that does not agree with the others, or leaves the window, is reported', () => {

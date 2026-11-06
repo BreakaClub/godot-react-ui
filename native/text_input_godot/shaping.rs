@@ -332,6 +332,8 @@ impl ReactUiRoot {
         }
         self.layout_dirty.insert(tag);
         self.paint_dirty.insert(tag);
+        // The text elements assistive technologies read were made from the old shaping.
+        self.discard_text_accessibility(tag);
         true
     }
 
@@ -381,6 +383,7 @@ impl ReactUiRoot {
         state.generation += 1;
         self.layout_dirty.insert(tag);
         self.paint_dirty.insert(tag);
+        self.discard_text_accessibility(tag);
     }
 
     /// The layout of what the input draws (its display text), for the caret, the selection, the

@@ -1145,6 +1145,8 @@ impl ReactUiRoot {
             || previous.padding != geometry.padding;
         if shape_changed {
             self.paint_dirty.insert(tag);
+            // A text input's lines are wrapped to its box: new lines, new text elements.
+            self.discard_text_accessibility(tag);
         }
         if shape_changed || previous.scroll_ranges != geometry.scroll_ranges {
             // The client area or the content's reach changed: the offset may no longer be reachable,

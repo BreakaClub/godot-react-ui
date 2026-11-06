@@ -53,6 +53,10 @@ pub(crate) enum AxRole {
     Tooltip,
     /// A scroll container with no `role` of its own (Godot's `ScrollContainer`).
     ScrollView,
+    /// A single-line `TextInput` (Godot's `LineEdit`).
+    TextField,
+    /// A `TextInput` with `multiline` (Godot's `TextEdit`).
+    MultilineTextField,
 }
 
 /// What an element's children are to the accessibility tree.
@@ -80,6 +84,8 @@ pub(crate) struct Resolved {
     pub(crate) activates: bool,
     /// The role has a numeric value in a range.
     pub(crate) ranged: bool,
+    /// A `TextInput`: it has text, a selection and edit actions.
+    pub(crate) text_field: bool,
     content: Content,
 }
 
@@ -91,8 +97,20 @@ impl Resolved {
             toggle: false,
             activates: false,
             ranged: false,
+            text_field: false,
             content,
         }
+    }
+
+    const fn editable_text(multiline: bool) -> Self {
+        let role = if multiline {
+            AxRole::MultilineTextField
+        } else {
+            AxRole::TextField
+        };
+        let mut resolved = Self::new(role, Content::Opaque);
+        resolved.text_field = true;
+        resolved
     }
 
     const fn activating(mut self) -> Self {
@@ -110,9 +128,17 @@ impl Resolved {
 /// The role of an element: its explicit `role`, else the implicit one of its kind. `None` means the
 /// element is not exposed itself (its children attach to the nearest exposed ancestor).
 ///
-/// `textbox` is not exposed yet: a text field's value, selection and editing actions come with
-/// `TextInput` (Phase I7), and a field the user cannot read or edit would be a false claim.
+/// A `TextInput` is a text field whatever its `role` says (as an HTML `<input>` is), unless the role
+/// takes it out of the tree (`none`, `presentation`). A `View` with `role="textbox"` is still not
+/// exposed: it has no text, selection or editing for an assistive technology to use, and exposing it
+/// would claim a field the user cannot read or edit.
 pub(crate) fn resolve_role(kind: Kind, props: &PropsSpec) -> Option<Resolved> {
+    if kind == Kind::TextInput {
+        return match props.role {
+            Some(RoleSpec::None | RoleSpec::Presentation) => None,
+            _ => Some(Resolved::editable_text(props.is_multiline())),
+        };
+    }
     let Some(role) = props.role else {
         return match kind {
             Kind::Button => Some(Resolved::new(AxRole::Button, Content::Fold).activating()),
@@ -211,6 +237,38 @@ pub(crate) struct AxNode<'a> {
     /// Some scroll container around the element, in the paint tree, has something to scroll: the
     /// element can be asked to scroll itself into view.
     pub(crate) in_scrollable: bool,
+    /// `Some` for a `TextInput`.
+    pub(crate) text_field: Option<AxTextField>,
+}
+
+/// What an assistive technology reads in a text field, from the edit buffer.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct AxTextField {
+    pub(crate) multiline: bool,
+    /// The `readOnly` prop: the text can be read and selected, not edited.
+    pub(crate) read_only: bool,
+    /// The text drawn: the value with the IME's preedit spliced in, a bullet for each character of a
+    /// secure input's value (what `LineEdit` shapes, and so what its text elements read).
+    pub(crate) text: String,
+    /// The input is showing its placeholder: it has no text and no preedit.
+    pub(crate) placeholder_shown: bool,
+    /// The anchor and the focus of the selection (the caret when they are equal), in code points of
+    /// `text`: the unit `AccessibilityServer::update_set_text_selection` counts characters in. While
+    /// an IME composes the selection is collapsed after the preedit's conversion start.
+    pub(crate) selection: (usize, usize),
+    /// How far the text is scrolled, which places its lines.
+    pub(crate) scroll: (f32, f32),
+}
+
+/// The line of a text field that holds `offset`, for `update_set_text_selection`, which wants the
+/// element of the line the character is on. `lines` are the lines' code point ranges in text order.
+/// A line owns its start and not its end (the end is the next line's start, where a caret stands at
+/// the start of the next line), and the last line owns the end of the text too.
+pub(crate) fn line_for_offset(lines: &[std::ops::Range<usize>], offset: usize) -> Option<usize> {
+    lines
+        .iter()
+        .position(|range| range.start <= offset && offset < range.end)
+        .or_else(|| lines.len().checked_sub(1))
 }
 
 /// The mounted tree, as far as the accessibility tree needs it.
@@ -321,6 +379,10 @@ pub(crate) struct AxActions {
     pub(crate) click: bool,
     pub(crate) focus: bool,
     pub(crate) adjust: bool,
+    /// A text field's `set text selection`, offered unless it is disabled.
+    pub(crate) set_selection: bool,
+    /// A text field's `replace selected text` and `set value`: offered unless it is disabled or `readOnly`.
+    pub(crate) edit: bool,
     pub(crate) scroll_x: bool,
     pub(crate) scroll_y: bool,
     pub(crate) scroll_into_view: bool,
@@ -354,6 +416,8 @@ pub(crate) struct AxProps {
     pub(crate) vertical: Option<bool>,
     /// A scroll container's position and range, whatever its role.
     pub(crate) scroll: Option<AxScroll>,
+    /// A text field's text and selection.
+    pub(crate) text_field: Option<AxTextField>,
     pub(crate) actions: AxActions,
 }
 
@@ -419,6 +483,22 @@ pub(crate) fn props_of(source: &impl AxSource, entry: &AxEntry) -> AxProps {
     if resolved.role != AxRole::StaticText {
         value = props.aria_value_text.clone().unwrap_or_default();
     }
+    let mut name = name;
+    let mut placeholder = props.aria_placeholder.clone().unwrap_or_default();
+    if let Some(field) = node.text_field.as_ref().filter(|_| resolved.text_field) {
+        // The text is in the field's text elements, not in a value. A field with no name is named by
+        // its placeholder, as `LineEdit` does (`_get_accessibility_name`).
+        value = String::new();
+        let shown = props.placeholder.clone().unwrap_or_default();
+        if name.is_empty() {
+            name = shown.clone();
+        }
+        if !field.placeholder_shown {
+            placeholder = String::new();
+        } else if placeholder.is_empty() {
+            placeholder = shown;
+        }
+    }
     let range = resolved.ranged.then(|| AxRange {
         now: props.aria_value_now,
         min: props.aria_value_min.unwrap_or(DEFAULT_RANGE_MIN),
@@ -431,7 +511,7 @@ pub(crate) fn props_of(source: &impl AxSource, entry: &AxEntry) -> AxProps {
         name,
         description: props.aria_description.clone().unwrap_or_default(),
         value,
-        placeholder: props.aria_placeholder.clone().unwrap_or_default(),
+        placeholder,
         bounds: AxBounds {
             x: node.x,
             y: node.y,
@@ -439,7 +519,11 @@ pub(crate) fn props_of(source: &impl AxSource, entry: &AxEntry) -> AxProps {
             height: node.height,
         },
         disabled: entry.disabled,
-        read_only: props.aria_read_only == Some(true),
+        read_only: props.aria_read_only == Some(true)
+            || node
+                .text_field
+                .as_ref()
+                .is_some_and(|field| field.read_only),
         required: props.aria_required == Some(true),
         modal: props.aria_modal == Some(true),
         clips_children: node.clips_children,
@@ -455,10 +539,20 @@ pub(crate) fn props_of(source: &impl AxSource, entry: &AxEntry) -> AxProps {
             .aria_orientation
             .map(|orientation| orientation == OrientationSpec::Vertical),
         scroll: node.scroll,
+        text_field: node.text_field.clone().filter(|_| resolved.text_field),
         actions: AxActions {
             click: resolved.activates && !entry.disabled,
-            focus: (node.kind == Kind::Button || props.tab_index.is_some()) && !entry.real_disabled,
+            focus: (matches!(node.kind, Kind::Button | Kind::TextInput)
+                || props.tab_index.is_some())
+                && !entry.real_disabled,
             adjust: resolved.ranged && resolved.role == AxRole::Slider && !entry.disabled,
+            set_selection: resolved.text_field && !entry.disabled,
+            edit: resolved.text_field
+                && !entry.disabled
+                && node
+                    .text_field
+                    .as_ref()
+                    .is_some_and(|field| !field.read_only),
             scroll_x: node.scroll.is_some_and(|scroll| scroll.x.is_some()),
             scroll_y: node.scroll.is_some_and(|scroll| scroll.y.is_some()),
             scroll_into_view: node.in_scrollable,
@@ -481,6 +575,10 @@ pub(crate) enum AxAction {
     ScrollRight,
     SetScrollOffset,
     ScrollIntoView,
+    /// A text field's selection: the data is `{start_char, end_char}`.
+    SetTextSelection,
+    /// A text field's selected text replaced by the data, a string.
+    ReplaceSelectedText,
 }
 
 impl AxAction {
@@ -496,6 +594,8 @@ impl AxAction {
     const SCROLL_RIGHT: i64 = 9;
     const SET_SCROLL_OFFSET: i64 = 10;
     const SCROLL_INTO_VIEW: i64 = 11;
+    const SET_TEXT_SELECTION: i64 = 12;
+    const REPLACE_SELECTED_TEXT: i64 = 13;
 
     /// The number bound into the action's callable.
     pub(crate) fn code(self) -> i64 {
@@ -512,6 +612,8 @@ impl AxAction {
             AxAction::ScrollRight => Self::SCROLL_RIGHT,
             AxAction::SetScrollOffset => Self::SET_SCROLL_OFFSET,
             AxAction::ScrollIntoView => Self::SCROLL_INTO_VIEW,
+            AxAction::SetTextSelection => Self::SET_TEXT_SELECTION,
+            AxAction::ReplaceSelectedText => Self::REPLACE_SELECTED_TEXT,
         }
     }
 
@@ -529,6 +631,8 @@ impl AxAction {
             Self::SCROLL_RIGHT => Some(AxAction::ScrollRight),
             Self::SET_SCROLL_OFFSET => Some(AxAction::SetScrollOffset),
             Self::SCROLL_INTO_VIEW => Some(AxAction::ScrollIntoView),
+            Self::SET_TEXT_SELECTION => Some(AxAction::SetTextSelection),
+            Self::REPLACE_SELECTED_TEXT => Some(AxAction::ReplaceSelectedText),
             _ => None,
         }
     }
@@ -803,6 +907,7 @@ mod tests {
         display_none: bool,
         scroll: Option<AxScroll>,
         in_scrollable: bool,
+        text_field: Option<AxTextField>,
     }
 
     /// A mounted tree as test data.
@@ -830,6 +935,7 @@ mod tests {
                     display_none: false,
                     scroll: None,
                     in_scrollable: false,
+                    text_field: None,
                 },
             );
             self
@@ -867,6 +973,7 @@ mod tests {
                 clips_children: false,
                 scroll: node.scroll,
                 in_scrollable: node.in_scrollable,
+                text_field: node.text_field.clone(),
             })
         }
     }
@@ -1249,11 +1356,13 @@ mod tests {
             AxAction::ScrollRight,
             AxAction::SetScrollOffset,
             AxAction::ScrollIntoView,
+            AxAction::SetTextSelection,
+            AxAction::ReplaceSelectedText,
         ] {
             assert_eq!(AxAction::from_code(action.code()), Some(action));
         }
         assert_eq!(AxAction::from_code(-1), None);
-        assert_eq!(AxAction::from_code(12), None);
+        assert_eq!(AxAction::from_code(14), None);
     }
 
     // ---- Scroll containers ------------------------------------------------------------------------
@@ -1832,5 +1941,193 @@ mod tests {
         let mut tree = Tree::single(Kind::Button, PropsSpec::default());
         tree.place(1, [1.0, 2.0, 3.0, 4.0]);
         props_of(&tree, &walk(&tree)[0])
+    }
+
+    fn text_input_props(json: &str) -> PropsSpec {
+        props(json)
+    }
+
+    /// The properties of every exposed element of `tree`, in document order.
+    fn all_props(tree: &Tree) -> Vec<AxProps> {
+        walk(tree)
+            .iter()
+            .map(|entry| props_of(tree, entry))
+            .collect()
+    }
+
+    fn field(text: &str, selection: (usize, usize)) -> AxTextField {
+        AxTextField {
+            text: text.to_string(),
+            selection,
+            placeholder_shown: text.is_empty(),
+            ..AxTextField::default()
+        }
+    }
+
+    fn text_input(props: PropsSpec, field: AxTextField) -> Tree {
+        let mut tree = Tree::single(Kind::TextInput, props);
+        tree.nodes.get_mut(&1).unwrap().text_field = Some(field);
+        tree
+    }
+
+    #[test]
+    fn a_text_input_is_a_text_field_and_a_multi_line_one_a_text_area() {
+        let single = text_input(text_input_props("{}"), field("abc", (3, 3)));
+        assert_eq!(entries(&single), vec![(1, None, AxRole::TextField)]);
+        let multi = text_input(
+            text_input_props(r#"{"multiline":true}"#),
+            field("a\nb", (0, 0)),
+        );
+        assert_eq!(entries(&multi), vec![(1, None, AxRole::MultilineTextField)]);
+        // The role prop cannot make it something else, only take it out of the tree.
+        let textbox = text_input(text_input_props(r#"{"role":"textbox"}"#), field("", (0, 0)));
+        assert_eq!(entries(&textbox), vec![(1, None, AxRole::TextField)]);
+        let removed = text_input(
+            text_input_props(r#"{"role":"presentation"}"#),
+            field("", (0, 0)),
+        );
+        assert!(entries(&removed).is_empty());
+        // A `View` with `role="textbox"` has nothing to read or edit and stays unexposed.
+        let view = Tree::single(Kind::View, props(r#"{"role":"textbox"}"#));
+        assert!(entries(&view).is_empty());
+    }
+
+    #[test]
+    fn a_text_field_reads_its_text_and_selection_not_a_value() {
+        let tree = text_input(
+            text_input_props(
+                r#"{"ariaLabel":"Name","ariaDescription":"As on your card","placeholder":"Ada"}"#,
+            ),
+            field("hello", (1, 4)),
+        );
+        let all = all_props(&tree);
+        let field_props = &all[0];
+        assert_eq!(field_props.name, "Name");
+        assert_eq!(field_props.description, "As on your card");
+        assert_eq!(field_props.value, "", "the text is in the text elements");
+        assert_eq!(
+            field_props.placeholder, "",
+            "a placeholder is read only while it shows"
+        );
+        assert_eq!(field_props.text_field.as_ref().unwrap().text, "hello");
+        assert_eq!(field_props.text_field.as_ref().unwrap().selection, (1, 4));
+        assert!(!field_props.read_only);
+    }
+
+    #[test]
+    fn an_empty_field_with_no_name_is_named_by_its_placeholder() {
+        let tree = text_input(
+            text_input_props(r#"{"placeholder":"Search"}"#),
+            field("", (0, 0)),
+        );
+        let all = all_props(&tree);
+        assert_eq!(
+            all[0].name, "Search",
+            "as LineEdit names a field with no name"
+        );
+        assert_eq!(all[0].placeholder, "Search");
+        let typed = text_input(
+            text_input_props(r#"{"placeholder":"Search"}"#),
+            field("a", (1, 1)),
+        );
+        let all = all_props(&typed);
+        assert_eq!(all[0].name, "Search", "the placeholder still names it");
+        assert_eq!(all[0].placeholder, "", "but is no longer shown");
+    }
+
+    #[test]
+    fn a_text_field_offers_focus_selection_and_editing_unless_it_cannot() {
+        let editable = all_props(&text_input(text_input_props("{}"), field("a", (0, 0))));
+        assert_eq!(
+            editable[0].actions,
+            AxActions {
+                focus: true,
+                set_selection: true,
+                edit: true,
+                ..AxActions::default()
+            }
+        );
+        let read_only = AxTextField {
+            read_only: true,
+            ..field("a", (0, 0))
+        };
+        let frozen = all_props(&text_input(
+            text_input_props(r#"{"readOnly":true}"#),
+            read_only,
+        ));
+        assert!(frozen[0].read_only);
+        assert_eq!(
+            frozen[0].actions,
+            AxActions {
+                focus: true,
+                set_selection: true,
+                ..AxActions::default()
+            },
+            "a read-only field is read and selected, not edited"
+        );
+        let disabled = all_props(&text_input(
+            text_input_props(r#"{"disabled":true}"#),
+            field("a", (0, 0)),
+        ));
+        assert_eq!(disabled[0].actions, AxActions::default());
+        assert!(disabled[0].disabled);
+    }
+
+    #[test]
+    fn a_change_of_text_selection_or_scroll_is_a_change_to_apply() {
+        let base = text_input(text_input_props("{}"), field("abc", (3, 3)));
+        let before = all_props(&base).remove(0);
+        for changed in [
+            field("abcd", (3, 3)),
+            field("abc", (0, 3)),
+            AxTextField {
+                scroll: (12.0, 0.0),
+                ..field("abc", (3, 3))
+            },
+        ] {
+            let after = all_props(&text_input(text_input_props("{}"), changed)).remove(0);
+            assert_ne!(before, after);
+        }
+    }
+
+    #[test]
+    fn a_selection_endpoint_belongs_to_the_line_it_starts_on() {
+        // "ab\ncd" shaped as two lines: the first owns "ab\n", the second "cd" and the end of the text.
+        let lines = [0..3, 3..5];
+        assert_eq!(line_for_offset(&lines, 0), Some(0));
+        assert_eq!(line_for_offset(&lines, 2), Some(0), "before the break");
+        assert_eq!(
+            line_for_offset(&lines, 3),
+            Some(1),
+            "the start of the next line"
+        );
+        assert_eq!(
+            line_for_offset(&lines, 5),
+            Some(1),
+            "the end of the text is on the last line"
+        );
+        // A blank line in the middle and an empty line after a final break.
+        let blanks = [0..3, 3..4, 4..6, 6..6];
+        assert_eq!(line_for_offset(&blanks, 3), Some(1));
+        assert_eq!(
+            line_for_offset(&blanks, 6),
+            Some(3),
+            "the line after a final break"
+        );
+        assert_eq!(line_for_offset(&[], 0), None);
+        assert_eq!(
+            line_for_offset(std::slice::from_ref(&(0..0)), 0),
+            Some(0),
+            "an empty text has its one line"
+        );
+    }
+
+    #[test]
+    fn the_text_actions_have_codes_of_their_own() {
+        assert_ne!(
+            AxAction::SetTextSelection.code(),
+            AxAction::ReplaceSelectedText.code()
+        );
+        assert_ne!(AxAction::SetTextSelection.code(), AxAction::SetValue.code());
     }
 }

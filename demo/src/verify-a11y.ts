@@ -1,8 +1,10 @@
-import { Callable, DirAccess, Engine, FileAccess, GArray, InputEventKey, Key, OS, ReactUiRoot, Vector2 } from 'godot';
+import { Callable, DirAccess, Engine, FileAccess, GArray, GDictionary, InputEventKey, Key, OS, ReactUiRoot, Vector2 } from 'godot';
 import type { LayoutRect, NativeScrollState, NativeSnapshot, NativeSnapshotNode } from '../../src';
 import { checkElements, checkFocus, type Reading } from '../../scripts/a11y-expectations.mjs';
 import { findByLabel, flatten, type FlatNode } from '../../scripts/ax-tree.mjs';
-import { A11Y_INITIAL_SIZE, A11Y_SLIDER_MAX, A11Y_SLIDER_START } from './a11y-panel';
+import {
+  A11Y_INITIAL_SIZE, A11Y_NAME_START, A11Y_NOTES_START, A11Y_READONLY_TEXT, A11Y_SLIDER_MAX, A11Y_SLIDER_START,
+} from './a11y-panel';
 import { parseVerifierEvent } from './verifier-input';
 
 /** What the owner exposes (`godotReactA11y`) to the verifier. */
@@ -44,6 +46,13 @@ const ACTION_SCROLL_LEFT = 8;
 const ACTION_SCROLL_RIGHT = 9;
 const ACTION_SET_SCROLL_OFFSET = 10;
 const ACTION_SCROLL_INTO_VIEW = 11;
+const ACTION_SET_TEXT_SELECTION = 12;
+const ACTION_REPLACE_SELECTED_TEXT = 13;
+/** What the text actions put in the name field, in the order the verifier applies them. */
+const SELECTED_FROM = 1;
+const SELECTED_TO = 3;
+const REPLACEMENT = 'XY';
+const NEW_VALUE = 'Ada Lovelace';
 
 /** `AccessibilityServer.AccessibilityScrollUnit`, which the platform adapter sends with a scroll action. */
 const SCROLL_UNIT_ITEM = 0;
@@ -204,6 +213,10 @@ export async function runA11yVerification(api: A11yInspection): Promise<void> {
   assert(propsOf(api, 'a11y-hidden').ariaHidden === true, 'The hidden subtree is marked aria-hidden');
   assert(get(api, 'a11y-delete').props.disabled === true, 'Delete is disabled');
   assert(api.snapshot().nodes.every(node => node.kind !== 'text' || isAbsent(node.props.role)), 'Text has no explicit role');
+  assert(get(api, 'a11y-name').kind === 'textinput' && get(api, 'a11y-name').textInput?.value === A11Y_NAME_START && propsOf(api, 'a11y-name').ariaLabel === 'Name',
+    'The name field is a text input with its text and its label');
+  assert(propsOf(api, 'a11y-notes').multiline === true && get(api, 'a11y-notes').textInput?.value === A11Y_NOTES_START, 'The notes field is a text area');
+  assert(propsOf(api, 'a11y-readonly').readOnly === true, 'The reference field is read-only');
 
   // ---- The dump tool reaches this process whatever the engine exposes: the window is always there ----------
   const outline = await readTree(directory, 'ax-window.json', nodes => nodes.some(node => node.role === 'AXWindow'));
@@ -273,6 +286,34 @@ export async function runA11yVerification(api: A11yInspection): Promise<void> {
   const savesBefore = get(api, 'a11y-saves').text;
   await assistiveAction(api, 'a11y-delete', ACTION_CLICK);
   assert(get(api, 'a11y-saves').text === savesBefore, 'A click action on a disabled button does nothing');
+  // ---- Text field actions: the platform reads the text and its selection and changes them -------------------------
+  const textOf = (testID: string): { value: string; selection: [number, number]; eventCount: number } => {
+    const state = get(api, testID).textInput;
+    assert(state, `${testID} is a text input`);
+    return { value: state.value, selection: [state.selectionStart, state.selectionEnd], eventCount: state.eventCount };
+  };
+  await assistiveAction(api, 'a11y-name', ACTION_FOCUS);
+  assert(api.snapshot().focused === get(api, 'a11y-name').id, 'A focus action focuses a text field');
+  await assistiveAction(api, 'a11y-name', ACTION_SET_TEXT_SELECTION, GDictionary.create({ start_char: SELECTED_FROM, end_char: SELECTED_TO }));
+  assert(textOf('a11y-name').selection.join() === `${SELECTED_FROM},${SELECTED_TO}`, `A set-text-selection action selects: ${textOf('a11y-name').selection}`);
+  assert(textOf('a11y-name').value === A11Y_NAME_START, 'and changes no text');
+  await assistiveAction(api, 'a11y-name', ACTION_REPLACE_SELECTED_TEXT, REPLACEMENT);
+  assert(textOf('a11y-name').value === `${A11Y_NAME_START[0]}${REPLACEMENT}`, `A replace-selected-text action replaces the selection: ${textOf('a11y-name').value}`);
+  assert(textOf('a11y-name').selection.join() === '3,3', `and leaves the caret after it: ${textOf('a11y-name').selection}`);
+  await assistiveAction(api, 'a11y-name', ACTION_SET_VALUE, NEW_VALUE);
+  assert(textOf('a11y-name').value === NEW_VALUE, `A set-value action sets the text: ${textOf('a11y-name').value}`);
+  assert(textOf('a11y-name').selection.join() === `${NEW_VALUE.length},${NEW_VALUE.length}`, `with the caret after it: ${textOf('a11y-name').selection}`);
+  const readOnlyCount = textOf('a11y-readonly').eventCount;
+  await assistiveAction(api, 'a11y-readonly', ACTION_SET_VALUE, 'changed');
+  await assistiveAction(api, 'a11y-readonly', ACTION_REPLACE_SELECTED_TEXT, 'changed');
+  assert(textOf('a11y-readonly').value === A11Y_READONLY_TEXT && textOf('a11y-readonly').eventCount === readOnlyCount, 'The edit actions change a read-only field not at all');
+  await assistiveAction(api, 'a11y-readonly', ACTION_SET_TEXT_SELECTION, GDictionary.create({ start_char: 0, end_char: A11Y_READONLY_TEXT.length }));
+  assert(textOf('a11y-readonly').selection.join() === `0,${A11Y_READONLY_TEXT.length}`, 'but its text can be selected');
+  await assistiveAction(api, 'a11y-notes', ACTION_SET_VALUE, 'one\ntwo\nthree');
+  assert(textOf('a11y-notes').value === 'one\ntwo\nthree', 'A set-value action gives a text area its line breaks');
+  await assistiveAction(api, 'a11y-notes', ACTION_SET_VALUE, A11Y_NOTES_START);
+  assert(textOf('a11y-notes').value === A11Y_NOTES_START, 'and puts them back');
+  await assistiveAction(api, 'a11y-name', ACTION_BLUR);
   // ---- Scroll actions on a scroll container, as the platform adapter would deliver them ---------------------------
   const scrollOf = (): NativeScrollState => {
     const scroll = get(api, 'a11y-scroller').scroll;

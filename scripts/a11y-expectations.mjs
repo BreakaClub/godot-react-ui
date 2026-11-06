@@ -53,6 +53,11 @@ export const ELEMENTS = [
   { id: 'a11y-size-medium', label: 'Medium', roles: ['AXRadioButton'], value: [1, 0] },
   { id: 'a11y-size-large', label: 'Large', roles: ['AXRadioButton'], value: [0, 1] },
   { id: 'a11y-volume-thumb', label: 'Volume', roles: ['AXSlider'], value: [30, 80], range: [0, 100] },
+  // A text input is a text field (AXTextField) or a text area (AXTextArea); its text is its AXValue, which the Godot-side
+  // half changes with the assistive actions (replace selected text, set value). The read-only field cannot be edited.
+  { id: 'a11y-name', label: 'Name', roles: ['AXTextField'], enabled: true, text: ['Ada', 'Ada Lovelace'] },
+  { id: 'a11y-notes', label: 'Notes', roles: ['AXTextArea'], enabled: true, text: ['first\nsecond', 'first\nsecond'] },
+  { id: 'a11y-readonly', label: 'Reference', roles: ['AXTextField'], text: ['Fixed', 'Fixed'] },
   // A scroll container is a SCROLL_VIEW. The macOS adapter has no scroll area role, so it is AXUnknown (SCROLL_ROLE_GAP);
   // AXScrollArea would be right if an adapter had one, and either is accepted, one noted.
   { id: 'a11y-scroller', label: 'Messages', roles: ['AXScrollArea', 'AXUnknown'], scroll: true },
@@ -91,6 +96,9 @@ export function checkElements(reading, phase, snapshots, notes = []) {
     }
     if (expected.value !== undefined && numeric(node.value) !== expected.value[phase]) {
       failures.push(`${expected.id}: AXValue is ${JSON.stringify(node.value)}, expected ${expected.value[phase]}`);
+    }
+    if (expected.text !== undefined && String(node.value ?? '') !== expected.text[phase]) {
+      failures.push(`${expected.id}: AXValue is ${JSON.stringify(node.value)}, expected ${JSON.stringify(expected.text[phase])}`);
     }
     if (expected.mixed) {
       // Conveyed (AXValue 2, or a description saying so) is a pass. Unchecked is what this engine can do, and is noted.

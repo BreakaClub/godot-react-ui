@@ -15,6 +15,7 @@
 //!   caret's blink.
 //! - `platform.rs`: the IME window, the virtual keyboard and the clipboard.
 //! - `web_clipboard.rs`: a paste on the Web, which the browser answers later.
+//! - `accessibility.rs`: a text input's text elements, selection and actions for assistive technologies.
 //!
 //! # Rules
 //!
@@ -32,6 +33,7 @@
 //!   multi-line one vertically (it is also a scroll container for wheel, touch and thumb dragging;
 //!   key scrolling never applies to an input, because its keys move the caret).
 
+mod accessibility;
 mod keys;
 mod paint;
 mod pipeline;
@@ -49,6 +51,7 @@ use crate::text_input::{EditBuffer, EditConfig, EditError};
 use crate::text_layout::{TextDirection, TextLayoutError};
 use crate::text_offsets::OffsetError;
 
+pub(crate) use accessibility::{TextLines, ax_text_field};
 pub(crate) use keys::TextActionTable;
 pub(crate) use pipeline::TextCommandOutcome;
 pub(crate) use pointer::TextDrag;
