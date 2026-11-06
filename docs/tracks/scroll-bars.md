@@ -1,7 +1,7 @@
 # Track: scroll bar accessibility elements (plan D42)
 
-Branch `scroll-bars`, based on main `6c6abd7`, rebased onto `944ca90` (Phase I7) while it was being built and onto `2c152d9` (HiDPI,
-D45) at the end. Notes and report for the coordinator; `docs/INTERACTION_PLAN.md` and `docs/INTERACTION_PROGRESS.md` are not edited
+Branch `scroll-bars`, based on main `6c6abd7`, rebased onto `944ca90` (Phase I7) while it was being built, onto `2c152d9` (HiDPI,
+D45), and last onto `67aeea9` (verifier integrity, D46). Notes and report for the coordinator; `docs/INTERACTION_PLAN.md` and `docs/INTERACTION_PROGRESS.md` are not edited
 here. This is the owed item of `docs/tracks/stock-engine.md` (S14, "Owed"): a screen reader on macOS could read a scroll view's
 contents and not where in them it was, because the macOS adapter ignores the scroll properties plan D38 sets on a node.
 
@@ -128,28 +128,33 @@ must have native's frame).
 
 ## Checks
 
-Run once each on the rebased tree (`eed0e68` on `2c152d9`), in order, by `artifacts/logs/gates.sh`; the logs are in `artifacts/logs/` and
-the verifiers' own evidence is in `artifacts/stock/native-a11y/run/` and `artifacts/native-interaction/`.
+Run once each on the final tree (`deadd2e` on main `67aeea9`, after the verifier-integrity work of D46), in order, by
+`artifacts/logs/gates2.sh`; the logs are `artifacts/logs/rebase2-*.log` and the verifiers' own evidence is in
+`artifacts/stock/native-a11y/run/` and `artifacts/native-interaction/`.
 
 | Command | Engine | Result |
 | --- | --- | --- |
-| `cargo test --locked` | n/a | 566 passed (21 are new: 15 in `accessibility_model/scroll_bars.rs`, 6 in the model's tests) |
+| `cargo test --locked` | n/a | 570 passed (21 are this work's: 15 in `accessibility_model/scroll_bars.rs`, 6 in the model's tests) |
 | `cargo clippy --locked --all-targets` | n/a | 0 warnings |
 | `rustup run stable cargo fmt --check` | n/a | clean |
 | `pnpm test:types` | breaka, stock | clean, clean (the stock one after the stock library was rebuilt: the freshness guard refuses it before) |
-| `pnpm test` | n/a | 375 passed (5 are new: the bars wrong in each way, the recorded bar following the scroll, the bars against the stock controls, the text area that stopped overflowing, and the old tree without bars) |
+| `pnpm test` | n/a | 407 passed (5 are this work's: the bars wrong in each way, the recorded bar following the scroll, the bars against the stock controls, the text area that stopped overflowing, and the old tree without bars; main's actions and mixed-checkbox tests run beside them) |
 | `pnpm build:native` | stock, then breaka (the default, installed last) | succeed |
-| `pnpm verify:a11y` | stock | **passed**. Geometry scale 0.500, residual 0.000 points over 27, 29, 25 and 25 elements; the readings are `ax-before.json`, `ax-scrolled.json`, `ax-scrolled-end.json`, `ax-log-fits.json` and `ax-after.json`. A foreign mouse motion and a focus loss were reported at launch; it passed, so it was not repeated. Platform focus was not checked (the window is not key) |
-| `pnpm verify:a11y` | breaka (default) | its Godot-side half **passed** (`GODOT_REACT_A11Y_NATIVE_PASSED`, which now includes tracks, the bar actions against the arrow keys, and the log shrinking and growing), then `GODOT_REACT_A11Y_UNSUPPORTED`, exit 2, "not verified": the engine has no AccessKit. Under D22 the runner repeated it three times because each attempt had a disturbance; the outcome was the same |
-| `pnpm verify:interaction --only=scroll` | breaka (default) | passed, landscape and portrait (a foreign mouse motion and a focus loss each, passed) |
+| `pnpm gen:types` | breaka | succeeds; `godot7.gen.d.ts` regenerates to what is committed (the `_on_accessibility_scroll_bar_action` func); the two `jsb.*.bundle.d.ts` it rewrites differ from the committed ones only by CRLF and were put back |
+| `pnpm verify:a11y` | stock | **passed**. Geometry scale 0.500, residual 0.000 points over 27, 29, 25 and 25 elements; the readings are `ax-before.json`, `ax-scrolled.json`, `ax-scrolled-end.json`, `ax-log-fits.json` and `ax-after.json`. D46 marks the pass partial: platform focus was not checked (the window is not key), and the gaps are the mixed checkbox, the group, the text areas' `AXValue`, the read-only field, and the scroll views' role, position and actions on the container itself (the bars carry the position). One focus loss reached no root and no input in flight (`reachesRoot: false`); it did not matter |
+| `pnpm verify:interaction --only=scroll` | breaka (default) | passed, landscape and portrait (2305 scroll checks each), marked partial because only that section ran |
+
+Not re-run after the last rebase, on the coordinator's instruction: the default `pnpm verify:a11y`. Before it, on `eed0e68`, its
+Godot-side half passed (`GODOT_REACT_A11Y_NATIVE_PASSED`, which includes the tracks, the bar actions against the arrow keys and the log
+shrinking and growing) and the run ended `GODOT_REACT_A11Y_UNSUPPORTED`, exit 2, "not verified": Breaka's engine has no AccessKit.
 
 Before the final run, `pnpm verify:a11y --engine=stock` ran three more times while this was built, and none is a gate result: the first
 (the lab as first written) passed; the second failed in the Godot-side half at "whose new bar steps its text: 69", which was this work's
 own expectation being wrong (a set-value leaves the caret after the text and the text area scrolls to show it, so the bar is at the end
 of its range, 69 of 69, not at the start; the assertion now steps back from the end) and not a defect of the bars; the third passed and
-is the source of the re-recorded fixtures. Not run: the Web verifiers (the Web export has no accessibility code in the engine),
-`verify`, `verify:motion` and the other interaction sections (nothing outside accessibility changed behaviour; `getScrollState` gained a
-field).
+is the source of the re-recorded fixtures. The final stock run reads the same lab, so the recordings were not repeated. Not run: the Web
+verifiers (the Web export has no accessibility code in the engine), `verify`, `verify:motion` and the other interaction sections
+(nothing outside accessibility changed behaviour; `getScrollState` gained a field).
 
 ### Negative controls: each new assertion fails without its fix
 
@@ -171,7 +176,8 @@ The real tree, two builds of the stock library with the changes named, and one r
 | The bars at all | Not run as a build: the real reading of the lab before this work (`HEAD` before the commit, from the stock-engine track) judged by the new expectations fails with `a11y-scroller: expected 1 scroll bar(s) (vertical), found 0`; a recorded reading with the bars stripped fails for each of the three scroll containers (a test) |
 
 Each of these two runs was repeated by `native-run.mjs` under D22 (three attempts), because a focus-loss disturbance was in the log of the
-first and the second attempt; the failure was the same in every attempt.
+first and the second attempt; the failure was the same in every attempt. (They ran on the tree before D46's retry rule; a negative
+control on the current tree takes `--no-retry`.)
 
 ## Not verified
 
@@ -195,4 +201,9 @@ first and the second attempt; the failure was the same in every attempt.
 - `NativeScrollState` gained a required `tracks`; code that builds one (three tests did) needs `tracks: null`.
 - The lab is 900 x 1000 now (`scripts/verify-a11y.mjs`) and has two more elements, so the recorded readings and
   `snapshot-geometry-after.json` were all re-recorded; their ids are the lab's `testID`s as before.
+- Rebasing onto D46 conflicted in `scripts/a11y-expectations.{mjs,d.mts}`, `scripts/verify-a11y.mjs` and `tests/a11y-expectations.test.ts`; both
+  sides were kept. A bar's `AXIncrement` and `AXDecrement` are judged by D46's `checkActions` (`BAR_ACTIONS`), `checkScrollView` takes the
+  element's id, and `checkElements` keeps its `mixedGap` option and gains the scroll state in its snapshots.
+- `demo/gen/godot/src/verify-hidpi.ts.gen.ts` is the generated file of main's HiDPI verifier; it was missing from main and is committed
+  here with the typings.
 - Plan D42 can say its owed item is done; D38's "Not done, on purpose" (a transform on the content as `ItemList` has) is unchanged.
