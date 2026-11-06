@@ -23,7 +23,7 @@ Compatibility = OpenGL 4.1 over Metal, Mobile = Metal 4.0 Forward Mobile). D40 (
 | `exp2` | A stock canvas group applies inherited modulate twice (0.25 under a 0.5 ancestor). | The group's shader composites the buffer's alpha and ignores `COLOR`. |
 | `exp2` | A backdrop inside a group, or a group inside a group, draws wrong colours (the back buffer slot is the white default), not nothing. | One `ERROR` per element, and the inner effect is not drawn. |
 | `exp3` | Stale mip data in a copy region's border: a bilinear read is clean only when the region is grown by about 4 texels (16 px at level 2, 24 at 3, 48 at 4). | `CONTAMINATION_TEXELS = 3.5`, plus the kernel's own reach, rounded up. |
-| `exp4` | A copy region whose origin or size is not a multiple of the level's texel size shifts that level by up to half a texel: 8 px blur at level 3 came out 3 px off (error 0.198, against 0.006 aligned). `gaussian_blur` halves the region with truncating shifts (`copy_effects.cpp:276-279`). | `blur::copy_region` aligns outwards to the level. |
+| `exp4` | A copy region whose origin or size is not a multiple of the level's texel size shifts that level by up to half a texel: 8 px blur at level 3 came out 3 px off (error 0.198, against 0.006 aligned). `gaussian_blur` halves the region with truncating shifts (`copy_effects.cpp:276-279`). | `blur::copy_region` aligns outwards to the level. After `chain_map` (next row) this is no longer what keeps the blur in place: see "Negative controls" (an unaligned region leaves at most 0.125 px and 2.5 % of width, aligned 0.8 %). |
 | portrait run | For a target or region that is not a multiple of 2^L the engine's level texels are not at `2^L (j + 0.5)` (a 900 px target's level 3 has 112 rows over 900 px; an edge 200 px down was 0.87 px off, and `uv * size` is wrong the same way). | `blur::chain_map` replays the integer halving per axis and the shader finds texels through it. |
 | `exp5` | A canvas group with `fit_empty` is `clear()`ed by the culler every frame (`renderer_canvas_cull.cpp:233`), and `Item::clear()` drops its clip owner (`renderer_canvas_render.h:459`): its composite ignores an ancestor's clip (black at x=250 beyond a clip at 200). A group with its own command is not cleared and is clipped. | The wrapper draws its own rectangle; a hidden child carries the larger mipmap region. |
 | `ViewportTexture` | `get_size()` of a Window multiplies the physical size by the stretch scale again (2240 x 1600 for a 1120 x 800 target at content scale 2). | The target size is the visible rectangle times the stretch scale. |
@@ -136,6 +136,45 @@ at 2, 4, 8, 12, 16, 24 and 40 px for both targets at DPR 2 (`verifyRootTransform
 `filters-dpr2-edge-backdrop.png`, `filters-dpr2-edge-filter.png`, `filters-dpr2-shape.png`; the Web section runs every check at
 both ratios and both orientations.
 
+## Negative controls
+
+Every assertion that guards a fix has to fail when the fix is taken out. `native/filter_faults.rs` puts each fix back out, one
+at a time, at the single site where it lives; the faults exist only in a library built with `pnpm build:native --faults` (cargo
+feature `filter-faults`, its own `target/faults`), and `pnpm build:native` afterwards restores the default (a `strings` check of
+the installed file tells which one is there). A fault is switched by the environment variable `GODOT_REACT_FILTER_FAULT`, read at
+the fault's site on every use, so the opt-in `filters-faults` section (`--only=filters-faults`, both viewports with
+`node scripts/verify.mjs --interaction --only=filters-faults`) switches them with `OS.setEnvironment` in one process. For each
+control it runs the guarding check with the fault off (it must pass) and on (it must fail, with the message of that check), clears
+every effect between the two so items, materials and (for the one fault that changes a shader's source) shaders are made again,
+and saves the broken picture as `filters-fault-<name>.png`.
+
+| Fault | What is put back | Check that must fail | Failure measured (landscape 1120 x 800 unless noted) |
+| --- | --- | --- | --- |
+| `merged-copy` | the copy asked of the draw item, not a separate one before it (D40 b) | stacked panels: B over A blurs A's blur | 22.80 px wide where 29.0 is expected (the variances add) and a single blur is 20.50; portrait 22.40 |
+| `no-primer` | no Compatibility primer | filter blur accuracy | `filter blur 2px`: 2.46 px wide for a 5.13 px Gaussian (a hard edge, level 0 read). Skipped on Mobile, which has no primer |
+| `stale-rects` | a copy or group rectangle computed once, never followed | a panel in a scrolling list, a moving panel | "Scrolling by 37 moved the panel's copy rectangle" |
+| `fit-empty-group` | the wrapper left to the engine to fit (no command of its own, `fit_empty`) | an ancestor's clip cuts the blur | beyond the clip edge the page reads 0.290 where 0.392 is expected (`filters-fault-fit-empty-group.png`) |
+| `textbook-chain` | texels at `2^L (j + 0.5)` instead of the engine's halving | edge accuracy at every radius, on a target that is not a multiple of 16 | portrait only: `backdrop blur 16px`, departure from a Gaussian 0.1007 against 0.02 (`filters-fault-textbook-chain.png`); skipped on 1120 x 800, which halves exactly at every level it keeps |
+| `no-nesting-check` | a filter in a filter is drawn, wrongly, and not reported | nested elements are reported and not drawn | "The inner filter inside it is not drawn" |
+| `double-modulate` | the group composite multiplies the inherited opacity again | opacity applies once | 0.251 where 0.5 is expected (the stock composite's 0.25) |
+| `shadow-box-only` | the composite covers only the box, not the shadow | a hard `drop-shadow(6px 6px)` is drawn | 0.392 (the page) where black 0 is expected, 3 px beyond the card |
+
+Results: both viewports pass with every applicable control holding (landscape seven, portrait all eight; each fault failed with its own
+check's message, not another). Captures: `artifacts/filters-iter/faults-landscape/` and `artifacts/filters-iter/faults-portrait/`,
+`filters-fault-<name>.png`; inspected: `merged-copy` (B's blur no wider than A's where they overlap, and stale vertical stripes below A),
+`fit-empty-group` (the halo drawn at the clip's edge) and `textbook-chain` (a faceted edge across the panel).
+
+The first run of the fault for the copy rectangle's alignment found that no check failed, and that is the result: since the shader
+places texels with `chain_map` (from the region's own origin and size), alignment is no longer what keeps the blur in place. The
+section measures that instead of asserting a failure: the moving panel at radii 16 and 24 over 41 positions every 3 px (every phase
+of a 16 px texel), once aligned and once not: aligned, a worst edge shift of 0.000 px (0.125 px in portrait) and a worst width error
+of 0.8 % (1.0 %); unaligned, 0.125 px and 2.5 % (1.9 %), inside the 0.8 px and 4 % limits of the other checks. The old claim in
+`copy_region`'s comment (and the `exp4` row above) described the shader before `chain_map`; both now say so.
+
+Two further assertions came out of building the controls: the accuracy check asserts the blurred edge's position (half crossing
+within 0.8 px of the sharp edge; the value is printed only when it fails, and it passed at every radius, both targets, DPR 1 and 2), and the moving panel runs at a second radius (16) so a
+level-4 texel grid meets the panel's edges at several phases.
+
 ## Limits found
 
 See the README ("Filters and frosted glass") for the user-facing list. Beyond it:
@@ -143,9 +182,9 @@ See the README ("Filters and frosted glass") for the user-facing list. Beyond it
 * **Clip edge**: a filtered element's descendants are drawn into the group's buffer clipped by their ancestors' scissor, so
   content beyond an ancestor's clip is absent from the blurred picture and the blur fades at the clip edge (CSS blurs the whole
   element, then clips).
-* **Transparent render targets**: not exercised. The back buffer of a transparent target holds premultiplied colour; the backdrop
-  reads it as straight alpha, so a frosted panel over a transparent target is expected to be wrong. A `SubViewport` with
-  `transparent_bg` is the case to check (world-space UI, I11) before relying on it.
+* **Transparent render targets**: not exercised, so not claimed. Whether the back buffer of a transparent target holds
+  premultiplied or straight colour, and what the backdrop shader then reads, was not measured; a `SubViewport` with
+  `transparent_bg` (world-space UI, I11) is the case to measure before relying on a frosted panel there.
 * **Colour clamping**: lists compose into one matrix; there is no clamp between functions (`brightness(2) contrast(0.5)` differs
   from a browser where an intermediate value leaves 0 to 1).
 * **`backdrop-filter: opacity()`** blends the filtered backdrop with the unfiltered one (the engine's alpha blend), not with the page.
@@ -165,4 +204,59 @@ See the README ("Filters and frosted glass") for the user-facing list. Beyond it
 * **Group = wrapper with its own rectangle** (not `fit_empty`) after `exp5`; the group's region is a separate hidden child.
 * **Texels through `chain_map`** instead of avoiding unaligned regions: cutting a region inward at the target's far edge would
   leave unblurred strips exactly where a "blur the whole page" element sits.
-* **Faults are not product hooks**: see "Negative controls".
+* **Faults are a build feature, not a product hook**: `filter-faults` is a cargo feature built into its own target directory; in a
+  default build `faults::active` is a constant `false` and the library contains no trace of the variable name (`strings` finds it
+  once in the faults library and not in the default one).
+* **Alignment kept**, though `chain_map` made it unnecessary for correctness: it tightens an unaligned region's 2.5 % width error
+  to 0.8 % for under a texel of region, and its unit tests stay. It is not claimed as a guard.
+
+## Gates
+
+Run from the worktree with `GODOT=/Applications/Godot48.app/Contents/MacOS/Godot`, rustup's cargo first on `PATH` and
+`CARGO_BUILD_JOBS=3`, each once, on the final code (commit `7b5f095` plus this file and the README):
+
+| Gate | Result |
+| --- | --- |
+| `cargo test --locked` | 525 passed (also with `--features filter-faults`) |
+| `cargo clippy --locked --all-targets` | 0 warnings (also with `--features filter-faults`) |
+| `rustup run stable cargo fmt --check` | clean |
+| `pnpm test:types`, `pnpm test` | clean; 308 pass |
+| `pnpm verify:interaction` | landscape and portrait passed, every section including `filters` (about 14 s a window) |
+| `pnpm verify`, `pnpm verify:motion`, `pnpm verify:world` | each passed, landscape and portrait |
+| `--only=filters` with engine arguments `--rendering-method mobile --rendering-driver metal` (Metal 4.0, Forward Mobile) | passed, landscape (the one RenderingDevice run; Forward+ was not run) |
+| `filters-faults` (landscape 1120 x 800, portrait 600 x 900) | every applicable control held; see "Negative controls" |
+| `pnpm build:web`, then `GODOT_REACT_WEB_URL=http://127.0.0.1:8104 pnpm verify:interaction:web` | passed: 1363 assertions, 123 captures, headless Chrome at device scale 1 and 2, landscape and portrait |
+
+The Mobile run was made with the repository's runner (`scripts/native-run.mjs` `runNativeVerifier`) and `--rendering-method mobile
+--rendering-driver metal` as engine arguments; the Mobile cost table is in "Cost". The `no-primer` control is Compatibility-only
+(the primer is not made on Mobile) and the faults section was not run on Mobile.
+
+Inspected captures (all read, not only asserted): native landscape and portrait under `artifacts/native-interaction/<viewport>/`
+(`filters-edge-backdrop`, `filters-edge-filter`, `filters-shape`, `filters-stacked`, `filters-portal-scrim`, `filters-godot-2d`,
+`filters-godot-3d`, `filters-clip`, `filters-opacity`, `filters-drop-shadow`, `filters-colour-*`, `filters-scroll-*`,
+`filters-moving-8`, `filters-moving-16`, `filters-text-selection`, `filters-dpr2-edge-backdrop`, `filters-dpr2-edge-filter`,
+`filters-dpr2-shape`); Web under `artifacts/web-interaction-verification/{landscape,portrait,retina-landscape,retina-portrait}/`
+(`filters-*.png`; that directory's `failure.png` is from an earlier failed run, not this one); Mobile under
+`artifacts/filters-iter/rd-landscape/`; negative controls under `artifacts/filters-iter/faults-{landscape,portrait}/`.
+`artifacts/` is ignored by git.
+
+## Merge notes
+
+Conflict risk, by file (this branch touched them after Phase I6; main has moved since): `scripts/native-run.mjs` (the
+`GODOT_REACT_EXPECT_ERROR` marker, small and committed alone), `scripts/build.mjs` (one entry point, committed alone),
+`scripts/build-native.mjs` (`--faults`), `demo/src/verify-interaction.ts` (sections `filters`, `filters-cost`, `filters-faults`, the opt-in
+list), `demo/src/main.ts` (the `showFilters`, `godotContent`, `scaleSurface` and `scrollTo` entries of the debug api),
+`scripts/verify-interaction-web.mjs` (the `filters` section and `capture(name, {geometry})`), `native/render_tree.rs` (`RenderNode`
+gains `parent`, `draw_index`, `backdrop`, `group`; `attach`, `detach` and `set_draw_index` act on `outer_item()`),
+`native/props.rs`, `native/lib.rs`, `src/styles.ts`, `src/types.ts`, `Cargo.toml` and `Cargo.lock` (`stylo_static_prefs`, the same
+rev as the other Stylo crates, and the `filter-faults` feature). No `#[func]` was added, so no typings or `demo/gen` changed.
+
+**Drag ghost (I9).** `DragGhost::capture` builds a second render tree of `RenderNode::new()` copies that replay the source's
+recorded box and content commands (`recorded()`), at 0.6 opacity; it does not see effect items, because those are made only for
+mounted nodes by `sync_effects` and live in `RenderNode.backdrop` and `.group`, which `RenderNode::new()` leaves empty. What I
+expect after merging: the ghost of a filtered source is the source drawn *without* its filter or backdrop-filter, a sharp copy
+(a frosted panel's ghost shows its translucent fill and border over whatever is under it, unblurred; a `blur-sm` card's ghost is
+sharp); no error, no extra item, nothing leaks, and the source itself keeps its effect while it is dragged. The ghost does not
+nest into a group, so it cannot trip the nesting error. If a filtered ghost is wanted, the way is to give the ghost copy its own
+group or backdrop from the source's `FilterEffect` through the same `ensure_group` and `ensure_backdrop`, in the ghost's items,
+which is not done here.
