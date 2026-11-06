@@ -41,6 +41,23 @@ fn keyboard_type(
 }
 
 impl ReactUiRoot {
+    /// Run `call`, an engine call that may notify this node before it returns.
+    ///
+    /// The Web game runs on the browser's main thread, where the engine's IME and virtual keyboard
+    /// calls move DOM focus (`GodotIME.ime_active(false)` and `GodotDisplayVK` call
+    /// `canvas.focus()` and `HTMLElement.focus()`). The canvas's capturing `focus` and `blur`
+    /// listeners run during that call, on the same thread, and reach the engine's
+    /// `window_event_callback`, which sends `NOTIFICATION_WM_WINDOW_FOCUS_IN` or `_OUT` to every
+    /// node (`display_server_web.cpp` `_send_window_event_callback`, `library_godot_display.js`
+    /// `godot_js_display_notification_cb`). Reached while this method's `&mut self` is live, that
+    /// notification panics at `bind_mut` ("already bound"). Holding the base guard marks the borrow
+    /// inaccessible for the duration of `call`, which is what makes a re-entrant call legal: the
+    /// guard is the same one `self.base_mut().grab_focus()` takes.
+    fn call_engine<R>(&mut self, call: impl FnOnce() -> R) -> R {
+        let _reentrancy = self.base_mut();
+        call()
+    }
+
     fn window_id(&self) -> i32 {
         self.base()
             .get_window()
@@ -134,19 +151,23 @@ impl ReactUiRoot {
         }
         let window_id = self.window_id();
         let mut display = DisplayServer::singleton();
-        if display.has_feature(Feature::IME) {
-            display
-                .window_set_ime_position_ex(Vector2i::ZERO)
-                .window_id(window_id)
-                .done();
-            display
-                .window_set_ime_active_ex(false)
-                .window_id(window_id)
-                .done();
-        }
-        if display.has_feature(Feature::VIRTUAL_KEYBOARD) {
-            display.virtual_keyboard_hide();
-        }
+        let has_ime = display.has_feature(Feature::IME);
+        let has_virtual_keyboard = display.has_feature(Feature::VIRTUAL_KEYBOARD);
+        self.call_engine(|| {
+            if has_ime {
+                display
+                    .window_set_ime_position_ex(Vector2i::ZERO)
+                    .window_id(window_id)
+                    .done();
+                display
+                    .window_set_ime_active_ex(false)
+                    .window_id(window_id)
+                    .done();
+            }
+            if has_virtual_keyboard {
+                display.virtual_keyboard_hide();
+            }
+        });
     }
 
     /// Put the IME window at the caret of the input (`LineEdit::_update_ime_window_position`): the
@@ -160,10 +181,12 @@ impl ReactUiRoot {
             return;
         }
         let window_id = self.window_id();
-        display
-            .window_set_ime_active_ex(true)
-            .window_id(window_id)
-            .done();
+        self.call_engine(|| {
+            display
+                .window_set_ime_active_ex(true)
+                .window_id(window_id)
+                .done();
+        });
         let caret = match self.text_input_caret_position(tag) {
             Ok(caret) => caret,
             Err(error) => {
@@ -176,10 +199,12 @@ impl ReactUiRoot {
             Some(window) => screen_transform(&window) * in_viewport,
             None => in_viewport,
         };
-        display
-            .window_set_ime_position_ex(Vector2i::new(on_screen.x as i32, on_screen.y as i32))
-            .window_id(window_id)
-            .done();
+        self.call_engine(|| {
+            display
+                .window_set_ime_position_ex(Vector2i::new(on_screen.x as i32, on_screen.y as i32))
+                .window_id(window_id)
+                .done();
+        });
     }
 
     /// Ask the platform for its on-screen keyboard for the input (`LineEdit::show_virtual_keyboard`):
@@ -197,6 +222,7 @@ impl ReactUiRoot {
         if config.read_only {
             return;
         }
+        let value = state.buffer.value();
         let (start, end) = state.buffer.selection_utf16();
         let rect = self
             .mounted
@@ -212,14 +238,16 @@ impl ReactUiRoot {
             i32::try_from(start).unwrap_or(i32::MAX),
             i32::try_from(end).unwrap_or(i32::MAX),
         );
-        display
-            .virtual_keyboard_show_ex(state.buffer.value().as_str())
-            .position(rect)
-            .type_(kind)
-            .max_length(max_length)
-            .cursor_start(start)
-            .cursor_end(end)
-            .done();
+        self.call_engine(|| {
+            display
+                .virtual_keyboard_show_ex(value.as_str())
+                .position(rect)
+                .type_(kind)
+                .max_length(max_length)
+                .cursor_start(start)
+                .cursor_end(end)
+                .done();
+        });
     }
 
     /// Read the clipboard as text (`ui_paste`).

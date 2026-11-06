@@ -1892,21 +1892,32 @@ async function runImeScenario(viewport) {
   const cdp = await page.createCDPSession();
   // The engine's IME element re-takes DOM focus every 100 ms while an input is focused.
   await page.keyboard.press('Home');
+  // The key must have reached the field before the composition starts: the engine's IME start drops the last raw key that is
+  // still queued (`DisplayServerWeb::_ime_callback`, case 0), because on a real keyboard that key is the one that began the
+  // composition. A Home that was still queued would be dropped, and the preedit would open at the end of the text.
+  await expectInput('form-name', (state) => state.selectionStart === 0 && state.selectionEnd === 0, 'Home moves the caret to the start');
   await waitUntil('the IME element holds browser focus', async () => page.evaluate(() => document.activeElement?.className === 'ime'));
-  await cdp.send('Input.imeSetComposition', { text: 'に', selectionStart: 1, selectionEnd: 1 });
-  await expectInput('form-name', (state) => state.composing && state.preedit?.text === 'に', 'imeSetComposition shows the preedit in the field');
+  await cdp.send('Input.imeSetComposition', { text: 'ñ', selectionStart: 1, selectionEnd: 1 });
+  await expectInput('form-name', (state) => state.composing && state.preedit?.text === 'ñ', 'imeSetComposition shows the preedit in the field');
   const composing = await inputState('form-name');
-  check('The preedit is drawn but is not the value', composing.displayText.includes('に') && !composing.value.includes('に'), composing);
-  await waitUntil('the composition events reach JS', async () => (await text('form-log')).includes('compositionstart compositionupdate:に'));
+  check('The preedit is drawn but is not the value', composing.displayText.includes('ñ') && !composing.value.includes('ñ'), composing);
+  await waitUntil('the composition events reach JS', async () => (await text('form-log')).includes('compositionstart compositionupdate:ñ'));
   await capture(`forms-02-ime-preedit-${viewport.name}`);
-  await cdp.send('Input.imeSetComposition', { text: 'にほ', selectionStart: 2, selectionEnd: 2 });
-  await expectInput('form-name', (state) => state.preedit?.text === 'にほ', 'A second composition update changes the preedit');
-  await cdp.send('Input.imeSetComposition', { text: 'に', selectionStart: 1, selectionEnd: 1 });
-  await cdp.send('Input.insertText', { text: 'に' });
-  await expectInput('form-name', (state) => !state.composing && state.value === 'にAda Lovelace', 'insertText commits the composition into the value');
+  await cdp.send('Input.imeSetComposition', { text: 'ñe', selectionStart: 2, selectionEnd: 2 });
+  await expectInput('form-name', (state) => state.preedit?.text === 'ñe', 'A second composition update changes the preedit');
+  await cdp.send('Input.imeSetComposition', { text: 'ñ', selectionStart: 1, selectionEnd: 1 });
+  await cdp.send('Input.insertText', { text: 'ñ' });
+  await expectInput('form-name', (state) => !state.composing && state.value === 'ñAda Lovelace', 'insertText commits the composition into the value');
   const log = await text('form-log');
-  check('One composition: start, updates, end, then one input for the commit', /compositionstart compositionupdate:に compositionupdate:にほ compositionupdate:に compositionend input:insertText$/.test(log), log);
-  check('React holds the committed text', (await formReadout()).name.startsWith('に'));
+  check('One composition: start, updates, end, then one input for the commit', /compositionstart compositionupdate:ñ compositionupdate:ñe compositionupdate:ñ compositionend input:insertText$/.test(log), log);
+  check('React holds the committed text', (await formReadout()).name.startsWith('ñ'));
+  // Leaving the field turns the IME off. The engine does that by focusing the canvas, whose focus listener notifies every node
+  // at once, on the game's own thread; the root must be able to take that notification in the middle of its own call.
+  await waitUntil('the IME element holds browser focus again', async () => page.evaluate(() => document.activeElement?.className === 'ime'));
+  await click('form-reset');
+  await expectFocused((await find('form-reset')).id, 'A press on the button takes focus from the name field');
+  await waitUntil('the IME element is hidden and the canvas has browser focus', async () => page.evaluate(() => document.activeElement?.tagName === 'CANVAS'));
+  check('Leaving a field with the IME focused raised no error', fatalErrors.length === 0, fatalErrors);
   await cdp.detach();
 }
 
