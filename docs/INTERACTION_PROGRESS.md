@@ -1999,3 +1999,12 @@ Built on the `drag-drop` branch; the full report, decisions I9-1 to I9-16 and ne
 - **Inspected:** `37-drag-ghost.png` (landscape): the ghost follows the pointer at 60 % and the source stays at full opacity.
 
 **Not run after the rebase:** the other interaction sections, `verify`, `verify:motion` and the Web verifier. They wait for the batch regression.
+
+## Freshness guard (`941334b`)
+
+Built on the `freshness` branch; decisions F1 to F10 are in `docs/tracks/freshness.md`. Every run, export and typecheck compares a digest of the real sources with the one recorded when the installed build was made, and refuses a stale build before any window opens, naming the changed files and the command to fix it. `build:native` and `build:web` clean this crate when cargo's mtime check would have kept a stale artifact.
+
+- **Agent's gates:** 15 new unit tests; every refusal shown from the command line, including the restored-mtime case (cargo printed `Finished` with the mutant still in its output, the verifier refused, and `build:native` rebuilt it to the pristine digest); `verify:interaction --only=events` passed in both viewports.
+- **Coordinator's check after rebasing onto `2f6d368` (I9):** `pnpm test` 343 passed, `test:types` clean on both profiles, both libraries rebuilt.
+- **Not verified end to end:** the Web guard, because no Web build was run. The next Web gate exercises it.
+- **After this merge:** each checkout needs one `pnpm build:native`, and `pnpm build:web` where it exports, because older stamps have no digest and are refused once.
