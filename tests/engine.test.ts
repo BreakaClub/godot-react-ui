@@ -6,7 +6,7 @@ import { argsWithoutEngine, selectEngine, selectEngineName } from '../scripts/en
 
 test('the Web export presets of both profiles differ only in their name, path and templates', () => {
   // A setting turned on in one preset alone makes one engine's Web build behave differently for no engine reason.
-  const presets = readFileSync(resolve(import.meta.dirname, '../demo/export_presets.cfg'), 'utf8')
+  const presets = readFileSync(resolve('demo/export_presets.cfg'), 'utf8')
     .split(/^\[preset\.\d+\]$/m).slice(1)
     .map(preset => preset.split('\n')
       .filter(line => line.includes('=') && !/^(name|export_path|custom_template\/\w+)=/.test(line))
