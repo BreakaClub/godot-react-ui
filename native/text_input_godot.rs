@@ -15,6 +15,7 @@
 //!   caret's blink.
 //! - `platform.rs`: the IME window, the virtual keyboard and the clipboard.
 //! - `web_clipboard.rs`: a paste on the Web, which the browser answers later.
+//! - `web_keyboard.rs`: keeping the engine's hidden soft keyboard element in step with the text (the Web).
 //! - `accessibility.rs`: a text input's text elements, selection and actions for assistive technologies.
 //!
 //! # Rules
@@ -41,6 +42,7 @@ mod platform;
 mod pointer;
 mod shaping;
 mod web_clipboard;
+mod web_keyboard;
 
 use std::collections::BTreeSet;
 use std::fmt;

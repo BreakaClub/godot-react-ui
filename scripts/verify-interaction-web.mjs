@@ -2191,6 +2191,13 @@ async function runTouchFormsScenario() {
   await page.keyboard.type('12');
   await expectInput('form-code', (state) => state.value === '12' && state.selectionStart === 2, 'The second field takes the typing');
   check('The first field kept its text', (await inputState('form-name')).value === 'aXb');
+  // The element the engine types into holds the keyboard's own text. When native keeps less than it was sent (maxLength),
+  // the element must be told, or the next key would send the text that was cut back.
+  await page.keyboard.type('abcdefgh');
+  await expectInput('form-code', (state) => state.value === '12abcd', 'The field stops at its maxLength');
+  await waitUntil('the keyboard element holds the text the field kept', async () => (await keyboardElement())?.value === '12abcd');
+  await page.keyboard.press('Backspace');
+  await expectInput('form-code', (state) => state.value === '12abc', 'Backspace takes one character off the text the field kept, not off the text that was cut');
   // A text area asks for a multi-line keyboard: the engine's hidden element is then a textarea, which takes Enter as a line break.
   await tapField('form-notes');
   await expectFocused((await find('form-notes')).id, 'A tap focuses the text area');
@@ -2199,6 +2206,63 @@ async function runTouchFormsScenario() {
   await expectInput('form-notes', (state) => state.value === 'a\nb' && state.selectionStart === 3 && state.selectionEnd === 3,
     'Typing into the hidden textarea gives the text area its lines with the caret after them');
   check('React holds the lines', (await formReadout()).notes === 'a\nb');
+}
+
+/**
+ * The element the engine's soft keyboard types into (`GodotDisplayVK`) while it is up: the page's focused element, with
+ * the styles the engine gives it. `null` when there is none.
+ */
+async function keyboardElement() {
+  return page.evaluate(() => {
+    const element = document.activeElement;
+    if (!element || element.style.zIndex !== '-1' || element.style.display !== 'block') return null;
+    return { tag: element.tagName, value: element.value, selectionStart: element.selectionStart, selectionEnd: element.selectionEnd };
+  });
+}
+
+/**
+ * Text that native changes under the soft keyboard: the keyboard's element holds the whole text and sends all of it with
+ * every key, so what native changes must reach the element too (`native/text_input_godot/web_keyboard.rs`). A field
+ * cleared by its own submit must start empty again, and a field that refuses an edit must not get the refused text back
+ * with the next key.
+ */
+async function runTouchSoftKeyboardScenario() {
+  await demo('showLab', 'forms-extra');
+  await waitUntil('the extra lab mounts on touch', () => nodeExists('forms-extra-lab'));
+  const tapField = async (testID) => {
+    const point = await pointerPoint(testID);
+    await page.touchscreen.tap(point.x, point.y);
+    await frames();
+  };
+  const readout = async () => JSON.parse(await text('extra-json'));
+
+  // A message box: type, Enter sends it and clears it, and the next message starts from nothing.
+  await tapField('extra-chat');
+  await expectFocused((await find('extra-chat')).id, 'A tap focuses the chat field');
+  await waitUntil('the engine focuses its hidden DOM input', async () => (await keyboardElement())?.tag === 'INPUT');
+  await page.keyboard.type('hi');
+  await expectInput('extra-chat', (state) => state.value === 'hi', 'The chat field takes the typing');
+  await page.keyboard.press('Enter');
+  await waitUntil('the submit sent the message', async () => (await readout()).sent === 1);
+  await expectInput('extra-chat', (state) => state.value === '', 'and cleared the field');
+  await waitUntil('the keyboard element was cleared with the field', async () => (await keyboardElement())?.value === '');
+  await page.keyboard.type('x');
+  await expectInput('extra-chat', (state) => state.value === 'x' && state.selectionStart === 1, 'The next message starts from nothing, not from the one that was sent');
+  check('React holds the new message', (await readout()).chat === 'x');
+
+  // A field that refuses what is not a number: the refused key does not come back with the next one.
+  await tapField('extra-digits');
+  await expectFocused((await find('extra-digits')).id, 'A tap focuses the digits field');
+  await waitUntil('the engine focuses its hidden DOM input for it', async () => (await keyboardElement())?.tag === 'INPUT');
+  await page.keyboard.type('12');
+  await expectInput('extra-digits', (state) => state.value === '12', 'Digits are taken');
+  await page.keyboard.type('a');
+  await expectInput('extra-digits', (state) => state.value === '12' && state.selectionStart === 2, 'A letter is refused and the field is put back with its caret');
+  await waitUntil('the keyboard element was put back too', async () => (await keyboardElement())?.value === '12');
+  await page.keyboard.type('3');
+  await expectInput('extra-digits', (state) => state.value === '123', 'The next digit is taken: the letter did not come back with it');
+  check('React holds the digits', (await readout()).digits === '123');
+  await capture('forms-06-touch-soft-keyboard');
 }
 
 async function runEventsScenario(viewport) {
@@ -2755,6 +2819,7 @@ async function runTouchWorkflow() {
     await runTouchPointersScenario();
     await runTouchScrollScenario();
     await runTouchFormsScenario();
+    await runTouchSoftKeyboardScenario();
   });
   if (wanted('drag')) await section('drag', runTouchDragScenario);
 }

@@ -420,6 +420,8 @@ impl ReactUiRoot {
         self.reshape_display(tag);
         self.settle_text_input(tag, true);
         self.report_selection(tag);
+        // An on-screen keyboard on the Web types into an element of the page that holds the text it last saw.
+        self.sync_virtual_keyboard_element(tag, true);
         Ok(TextCommandOutcome::Applied)
     }
 
