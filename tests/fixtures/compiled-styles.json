@@ -165,6 +165,29 @@
     }
   },
   {
+    "className": "relative absolute fixed top-4 -left-2 right-1/2 bottom-auto inset-x-0 z-10 -z-5 md:static",
+    "compiled": {
+      "layers": [
+        {
+          "style": {
+            "bottom": "auto",
+            "left": 0,
+            "position": "fixed",
+            "right": 0,
+            "top": 16,
+            "zIndex": -5
+          }
+        },
+        {
+          "minWidth": 768,
+          "style": {
+            "position": "static"
+          }
+        }
+      ]
+    }
+  },
+  {
     "className": "overflow-hidden shrink-0",
     "style": [
       {

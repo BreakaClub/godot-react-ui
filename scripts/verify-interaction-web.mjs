@@ -24,6 +24,15 @@ const STARTUP_TIMEOUT_MS = 180_000;
 const ACTION_TIMEOUT_MS = 15_000;
 const TOTAL_TIMEOUT_MS = 600_000;
 const POLL_MS = 50;
+// `--only=<section>[,<section>]` runs just those sections (plan 0.4.1); the names are the native verifier's, and `touch`
+// is this verifier's touch page. An unknown name is an error: a typo must not skip a section.
+const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard', 'touch'];
+const requestedSections = process.argv.filter((argument) => argument.startsWith('--only='))
+  .flatMap((argument) => argument.slice('--only='.length).split(','));
+for (const name of requestedSections) {
+  if (!SECTIONS.includes(name)) throw new Error(`Unknown section "${name}"; the sections are ${SECTIONS.join(', ')}`);
+}
+const wanted = (name) => requestedSections.length === 0 || requestedSections.includes(name);
 const GEOMETRY_TOLERANCE = 2;
 const DISPATCH_SAMPLES = 40;
 // Hover paint of the crossing panel's parent: slate-100 at rest, slate-200 while hovered.
@@ -1259,16 +1268,7 @@ async function runTouchPointersScenario() {
   await demo('grabSurfaceFocus');
 }
 
-async function runWorkflow(viewport) {
-  activeViewport = viewport.name;
-  await page.setViewport({ width: viewport.width, height: viewport.height, deviceScaleFactor: viewport.deviceScaleFactor });
-  await waitUntil('logical viewport resize', async () => {
-    const data = await snapshot();
-    return data.width === viewport.width && data.height === viewport.height;
-  });
-  check('Godot logical viewport matches browser CSS viewport', true,
-    { width: viewport.width, height: viewport.height, deviceScaleFactor: viewport.deviceScaleFactor });
-
+async function runEventsScenario(viewport) {
   await click('tab-interaction');
   await waitUntil('interaction lab mounts', () => nodeExists('interaction-lab'));
   await capture('01-interaction');
@@ -1373,10 +1373,23 @@ async function runWorkflow(viewport) {
   report.timing[viewport.name] = { cheapHandler: cheap, stateUpdatingHandler: stateful };
   check('Dispatch timing recorded', cheap.samples === DISPATCH_SAMPLES && stateful.samples === DISPATCH_SAMPLES);
   console.log(`GODOT_REACT_WEB_DISPATCH_TIMING ${viewport.name} ${JSON.stringify(report.timing[viewport.name])}`);
+}
 
-  await runCooperationScenario();
-  await runPointersScenario();
-  await runKeyboardScenario();
+async function runWorkflow(viewport) {
+  activeViewport = viewport.name;
+  await page.setViewport({ width: viewport.width, height: viewport.height, deviceScaleFactor: viewport.deviceScaleFactor });
+  await waitUntil('logical viewport resize', async () => {
+    const data = await snapshot();
+    return data.width === viewport.width && data.height === viewport.height;
+  });
+  check('Godot logical viewport matches browser CSS viewport', true,
+    { width: viewport.width, height: viewport.height, deviceScaleFactor: viewport.deviceScaleFactor });
+
+  if (wanted('events')) await runEventsScenario(viewport);
+
+  if (wanted('cooperation')) await runCooperationScenario();
+  if (wanted('pointers')) await runPointersScenario();
+  if (wanted('keyboard')) await runKeyboardScenario();
 
   // This page keeps running across viewports (the native verifier gets a fresh process for each),
   // so leave a fresh root: the lab's log and click counters must not leak into the next viewport.
@@ -1423,7 +1436,7 @@ try {
     });
     await loadPage({ width: viewports[0].width, height: viewports[0].height, deviceScaleFactor: 1 });
     for (const viewport of viewports) await runWorkflow(viewport);
-    await runTouchWorkflow();
+    if (wanted('touch')) await runTouchWorkflow();
     checkBrowserErrors();
     report.passed = true;
   })(), TOTAL_TIMEOUT_MS, 'Browser interaction verification');

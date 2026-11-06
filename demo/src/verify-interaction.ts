@@ -1,10 +1,10 @@
 import {
-  Color, Control, DirAccess, DisplayServer, Engine, FileAccess, GError, InputEventKey, InputEventMouseButton,
+  Color, Control, DirAccess, DisplayServer, Engine, FileAccess, GError, Image, InputEventKey, InputEventMouseButton,
   InputEventMouseMotion, InputEventPanGesture, InputEventScreenDrag, InputEventScreenTouch, Key, MouseButton,
   MouseButtonMask, Node, OS, ProjectSettings, RenderingServer, Vector2,
 } from 'godot';
 import type { RendererProfile } from '../../src';
-import type { NativeSnapshot, NativeSnapshotNode } from '../../src/native';
+import type { LayoutRect, NativeSnapshot, NativeSnapshotNode } from '../../src/native';
 import type { LabName } from './labs';
 import type { PassthroughCounts } from './main';
 import { parseVerifierEvent } from './verifier-input';
@@ -74,6 +74,32 @@ const SECOND_TOUCH_ID = 3;
 const EMPTY_POINT_SEARCH_STEP = 24;
 /** Where the root is moved inside the window to tell root-local from viewport coordinates. */
 const SURFACE_OFFSET = new Vector2(50, 30);
+/** The positioning lab's paint (Tailwind colours of its classes) and how far a raster pixel may stray from them. */
+const STACK_A = '#6366f1';
+const STACK_B = '#10b981';
+const STACK_C = '#f59e0b';
+const CLIP_CHILD = '#f43f5e';
+const FIXED_BOX = '#4338ca';
+const POPOVER_FILL = '#fffbeb';
+const LATER_FILL = '#4f46e5';
+const PAGE_FILL = '#f8fafc';
+const PAINT_TOLERANCE = 0.02;
+/**
+ * Points in a 128 x 64 cell of the lab, relative to its top-left corner, that the red box (100 px right and 40 px
+ * down, 64 x 48) covers: inside the cell, past its right edge but still left of the next cell, and below its bottom edge
+ * (and above the next section).
+ */
+const CELL_CHILD_INSIDE = new Vector2(110, 50);
+const CELL_CHILD_BEYOND_RIGHT = new Vector2(140, 50);
+const CELL_CHILD_BEYOND_BOTTOM = new Vector2(110, 70);
+/** A probe this far inside a popover's left edge is on its padding, where it paints its own fill. */
+const POPOVER_PADDING_PROBE_PX = 3;
+/** The gap between the lab's menu button and the popover, and how far the popover must reach below the card to prove it is not clipped. */
+const POPOVER_GAP_PX = 4;
+const POPOVER_OVERHANG_PX = 40;
+/** The fixed box sits 8 px from the viewport's right and bottom edges and is 64 x 32. */
+const FIXED_BOX_INSET = 8;
+const FIXED_BOX_SIZE = new Vector2(64, 32);
 /** A trackpad pan in wheel ticks, to check a gesture reaches JS with its own deltas. */
 const PAN_DELTA = new Vector2(0.5, -2);
 
@@ -242,6 +268,11 @@ async function click(api: DemoInspection, id: string): Promise<void> {
   await settle();
 }
 
+/** An absolute or fixed element is taken out of its parent's flow: it may overlap its siblings and leave its parent. */
+function isOutOfFlow(node: NativeSnapshotNode): boolean {
+  return node.style.position === 'absolute' || node.style.position === 'fixed';
+}
+
 /** Measures actual Taffy output, including sibling separation and viewport clipping. */
 function geometry(snapshot: NativeSnapshot): void {
   for (const node of snapshot.nodes) {
@@ -253,14 +284,14 @@ function geometry(snapshot: NativeSnapshot): void {
     const children = node.children.map(id => snapshot.nodes.find(candidate => candidate.id === id));
     for (let i = 0; i < children.length; i++) {
       const first = children[i];
-      if (!first || first.rect.width === 0 || first.rect.height === 0) continue;
+      if (!first || first.rect.width === 0 || first.rect.height === 0 || isOutOfFlow(first)) continue;
       const a = first.rect;
       assert(a.x >= r.x - GEOMETRY_TOLERANCE && a.y >= r.y - GEOMETRY_TOLERANCE &&
         a.x + a.width <= r.x + r.width + GEOMETRY_TOLERANCE &&
         a.y + a.height <= r.y + r.height + GEOMETRY_TOLERANCE, `Child ${first.id} escapes parent ${node.id}`);
       for (let j = i + 1; j < children.length; j++) {
         const second = children[j];
-        if (!second || second.rect.width === 0 || second.rect.height === 0) continue;
+        if (!second || second.rect.width === 0 || second.rect.height === 0 || isOutOfFlow(second)) continue;
         const b = second.rect;
         const overlapX = Math.min(a.x+a.width,b.x+b.width)-Math.max(a.x,b.x);
         const overlapY = Math.min(a.y+a.height,b.y+b.height)-Math.max(a.y,b.y);
@@ -1098,8 +1129,245 @@ async function verifyEvents(
 }
 
 
+/** One frame of the window, for reading pixels. */
+function frameImage(owner: Node): Image {
+  RenderingServer.forceDraw();
+  const image = owner.getViewport()?.getTexture()?.getImage();
+  assert(image, 'Native verification requires a rendered viewport');
+  return image;
+}
+
+function paintIs(image: Image, at: Vector2, hex: string): boolean {
+  const color = image.getPixel(Math.floor(at.x), Math.floor(at.y));
+  const expected = Color.fromString(hex, new Color(0, 0, 0, 0));
+  return Math.abs(color.r - expected.r) <= PAINT_TOLERANCE && Math.abs(color.g - expected.g) <= PAINT_TOLERANCE
+    && Math.abs(color.b - expected.b) <= PAINT_TOLERANCE;
+}
+
+function describePaint(image: Image, at: Vector2): string {
+  return `#${image.getPixel(Math.floor(at.x), Math.floor(at.y)).toHtml(false)} at ${at.x},${at.y}`;
+}
+
+function centerOf(rect: LayoutRect): Vector2 {
+  return new Vector2(rect.x + rect.width / 2, rect.y + rect.height / 2);
+}
+
+/** The rectangle both `a` and `b` cover, or `undefined`. */
+function intersection(a: LayoutRect, b: LayoutRect): LayoutRect | undefined {
+  const x = Math.max(a.x, b.x);
+  const y = Math.max(a.y, b.y);
+  const right = Math.min(a.x + a.width, b.x + b.width);
+  const bottom = Math.min(a.y + a.height, b.y + b.height);
+  return right > x && bottom > y ? { x, y, width: right - x, height: bottom - y } : undefined;
+}
+
+/** Tab stops whose test id starts with `prefix`, in document order, across both layers. */
+function tabStops(api: DemoInspection, prefix: string): string[] {
+  return api.snapshot().nodes
+    .filter(node => {
+      const testID = node.props.testID;
+      const tabIndex = node.props.tabIndex;
+      const tabbable = (node.kind === 'button' && node.props.disabled !== true && tabIndex !== -1) || tabIndex === 0;
+      return tabbable && typeof testID === 'string' && testID.startsWith(prefix);
+    })
+    .sort((left, right) => left.documentIndex - right.documentIndex)
+    .map(node => String(node.props.testID));
+}
+
+/**
+ * Plan I4: `position`, insets and `zIndex`, and the overlay layer. Paint order follows document order and then
+ * `zIndex` among what one parent paints; an absolute box is painted and clipped by its containing block, not its
+ * parent; a fixed one by nothing but the window; a popover in a `Portal` covers and takes clicks from the content
+ * below it and is not clipped by the card it was opened from.
+ */
+async function verifyPositioning(owner: Node, api: InteractionInspection, capture: (name: string) => Promise<void>): Promise<void> {
+  api.showLab('hud');
+  await settle();
+  api.showLab('positioning');
+  await settle();
+  move(FAR_CORNER);
+  await settle();
+  const nodeOf = (testID: string): NativeSnapshotNode => get(api, testID);
+  const rectOf = (testID: string): LayoutRect => nodeOf(testID).rect;
+  const hoveredAt = async (at: Vector2): Promise<number | null> => {
+    move(at);
+    await settle();
+    return api.snapshot().hovered;
+  };
+  const status = () => text(api, 'pos-status');
+
+  // ---- Stacking: document order, then zIndex, among what one parent paints -------------------------------------
+  const a = rectOf('pos-z-a');
+  const b = rectOf('pos-z-b');
+  const c = rectOf('pos-z-c');
+  const overlapAB = intersection(a, b);
+  const overlapBC = intersection(b, c);
+  assert(overlapAB && overlapBC, 'The stacking boxes overlap as the lab intends');
+  const pointAB = centerOf(overlapAB);
+  const pointBC = centerOf(overlapBC);
+  const pointC = new Vector2(c.x + c.width - POPOVER_GAP_PX - 2, c.y + c.height / 2);
+  assert(!intersection(b, { x: pointC.x, y: pointC.y, width: 1, height: 1 }), 'The point only C covers is outside B');
+  let image = frameImage(owner);
+  assert(paintIs(image, pointAB, STACK_B), `B is above A, which comes first in the document: ${describePaint(image, pointAB)}`);
+  assert(paintIs(image, pointBC, STACK_B), `C, though last in the document, is behind B for z-index -10: ${describePaint(image, pointBC)}`);
+  assert(paintIs(image, pointC, STACK_C), `C shows where nothing covers it: ${describePaint(image, pointC)}`);
+  assert(await hoveredAt(pointAB) === nodeOf('pos-z-b').id, 'A pointer over A and B reaches the topmost, B');
+  assert(await hoveredAt(pointBC) === nodeOf('pos-z-b').id, 'A pointer over B and C reaches B, not the later C');
+  assert(await hoveredAt(pointC) === nodeOf('pos-z-c').id, 'And reaches C where only C is');
+  const paintIndex = (testID: string) => nodeOf(testID).paintIndex;
+  assert(paintIndex('pos-z-c') < paintIndex('pos-z-a') && paintIndex('pos-z-a') < paintIndex('pos-z-b'),
+    `The stack paints C, A, B back to front: ${paintIndex('pos-z-c')}, ${paintIndex('pos-z-a')}, ${paintIndex('pos-z-b')}`);
+  assert(nodeOf('pos-z-a').paintParent === nodeOf('pos-stack').id, 'An absolute box is painted by its relative parent');
+  await capture('18-positioning-stacking');
+
+  // A style change that raises A re-sorts what its parent paints, in the picture and under the pointer.
+  await click(api, 'pos-z-toggle');
+  assert(text(api, 'pos-z-toggle') === 'Lower A', `The toggle raised A: ${text(api, 'pos-z-toggle')}`);
+  image = frameImage(owner);
+  assert(paintIs(image, pointAB, STACK_A), `With z-index 10 A is above B: ${describePaint(image, pointAB)}`);
+  assert(paintIs(image, pointBC, STACK_B), `B still covers C: ${describePaint(image, pointBC)}`);
+  assert(await hoveredAt(pointAB) === nodeOf('pos-z-a').id, 'The raised A takes the pointer');
+  assert(paintIndex('pos-z-c') < paintIndex('pos-z-b') && paintIndex('pos-z-b') < paintIndex('pos-z-a'),
+    'The stack now paints C, B, A back to front');
+  await capture('19-positioning-raised');
+  await click(api, 'pos-z-toggle');
+  image = frameImage(owner);
+  assert(paintIs(image, pointAB, STACK_B), `Lowering A restores the order: ${describePaint(image, pointAB)}`);
+
+  // ---- Clipping: the containing block clips an absolute box; an ancestor in between does not; fixed is free -------
+  const cell1 = rectOf('pos-clip-1');
+  const wrap = rectOf('pos-clip-wrap');
+  const inside = (cell: LayoutRect) => new Vector2(cell.x + CELL_CHILD_INSIDE.x, cell.y + CELL_CHILD_INSIDE.y);
+  const beyondRight = (cell: LayoutRect) => new Vector2(cell.x + CELL_CHILD_BEYOND_RIGHT.x, cell.y + CELL_CHILD_BEYOND_RIGHT.y);
+  const beyondBottom = (cell: LayoutRect) => new Vector2(cell.x + CELL_CHILD_BEYOND_BOTTOM.x, cell.y + CELL_CHILD_BEYOND_BOTTOM.y);
+  image = frameImage(owner);
+  assert(paintIs(image, inside(cell1), CLIP_CHILD), `The part of the box inside its relative overflow-hidden parent shows: ${describePaint(image, inside(cell1))}`);
+  assert(paintIs(image, beyondRight(cell1), PAGE_FILL), `The part beyond the parent's right edge is clipped: ${describePaint(image, beyondRight(cell1))}`);
+  assert(paintIs(image, beyondBottom(cell1), PAGE_FILL), `The part beyond the parent's bottom edge is clipped: ${describePaint(image, beyondBottom(cell1))}`);
+  assert(paintIs(image, inside(wrap), CLIP_CHILD), `The second box shows inside the cell: ${describePaint(image, inside(wrap))}`);
+  assert(paintIs(image, beyondRight(wrap), CLIP_CHILD), `A box whose containing block is outside its overflow-hidden parent is not clipped by it: ${describePaint(image, beyondRight(wrap))}`);
+  assert(paintIs(image, beyondBottom(wrap), CLIP_CHILD), `Nor below it: ${describePaint(image, beyondBottom(wrap))}`);
+  assert(await hoveredAt(inside(cell1)) === nodeOf('pos-clip-child-1').id, 'A pointer inside the parent reaches the box');
+  assert(await hoveredAt(beyondRight(cell1)) !== nodeOf('pos-clip-child-1').id, 'A pointer over the clipped part does not');
+  assert(await hoveredAt(beyondRight(wrap)) === nodeOf('pos-clip-child-2').id, 'A pointer over the part that escaped reaches the box');
+  const viewport = api.snapshot();
+  const fixedRect = rectOf('pos-fixed');
+  const near = (actual: number, expected: number) => Math.abs(actual - expected) <= GEOMETRY_TOLERANCE;
+  assert(near(fixedRect.x, viewport.width - FIXED_BOX_INSET - FIXED_BOX_SIZE.x) && near(fixedRect.y, viewport.height - FIXED_BOX_INSET - FIXED_BOX_SIZE.y)
+    && near(fixedRect.width, FIXED_BOX_SIZE.x) && near(fixedRect.height, FIXED_BOX_SIZE.y),
+  `A fixed box sits against the window's right and bottom edges, though its parent is elsewhere: ${JSON.stringify(fixedRect)}`);
+  image = frameImage(owner);
+  assert(paintIs(image, centerOf(fixedRect), FIXED_BOX), `A fixed box inside an overflow-hidden parent is not clipped: ${describePaint(image, centerOf(fixedRect))}`);
+  assert(await hoveredAt(centerOf(fixedRect)) === nodeOf('pos-fixed').id, 'A pointer over the fixed box reaches it');
+  assert(nodeOf('pos-fixed').paintParent === 0 && nodeOf('pos-fixed').parent === nodeOf('pos-clip-3').id,
+    'A fixed box is painted by the layer root and still a child of its parent in the tree');
+  assert(nodeOf('pos-clip-child-2').paintParent === nodeOf('pos-clip-wrap').id && nodeOf('pos-clip-child-2').parent === nodeOf('pos-clip-2').id,
+    'An absolute box is painted by its nearest positioned ancestor, past the static parent it is a child of');
+  const fixedClip = nodeOf('pos-fixed').clipRect;
+  assert(fixedClip && fixedClip.x === 0 && fixedClip.y === 0 && fixedClip.width === viewport.width && fixedClip.height === viewport.height,
+    `Only the window clips a fixed box: ${JSON.stringify(fixedClip)}`);
+  await capture('20-positioning-clipping');
+  move(FAR_CORNER);
+  await settle();
+
+  // ---- Popover: the overlay layer, anchored with getRect(), above later content, not clipped by its card -------------
+  const cardRect = rectOf('pos-card');
+  const menuRect = rectOf('pos-menu');
+  const laterRect = rectOf('pos-later');
+  const closedStops = tabStops(api, 'pos-');
+  assert(closedStops.join(',') === 'pos-z-toggle,pos-menu,pos-later', `The lab's tab stops while closed: ${closedStops.join(',')}`);
+  assert(!api.find('pos-popover') && status().startsWith('open false'), `The popover starts closed: ${status()}`);
+  await click(api, 'pos-menu');
+  assert(status().startsWith('open true'), `The Menu button opens it: ${status()}`);
+  const cardClicksAfterOpen = Number(/card clicks (\d+)/.exec(status())?.[1]);
+  assert(cardClicksAfterOpen === 1, `The Menu button, inside the card, bubbled its click to the card: ${status()}`);
+  const popover = nodeOf('pos-popover');
+  const backdrop = nodeOf('pos-backdrop');
+  assert(popover.layer === 1 && backdrop.layer === 1 && nodeOf('pos-item-delete').layer === 1, 'The popover and its backdrop are in the overlay layer');
+  assert(Math.abs(popover.rect.x - menuRect.x) <= GEOMETRY_TOLERANCE
+    && Math.abs(popover.rect.y - (menuRect.y + menuRect.height + POPOVER_GAP_PX)) <= GEOMETRY_TOLERANCE,
+  `The popover is anchored under the button with getRect(): ${JSON.stringify(popover.rect)} under ${JSON.stringify(menuRect)}`);
+  assert(backdrop.rect.x === 0 && backdrop.rect.y === 0 && backdrop.rect.width === viewport.width && backdrop.rect.height === viewport.height,
+    `The backdrop covers the window: ${JSON.stringify(backdrop.rect)}`);
+  const cardBottom = cardRect.y + cardRect.height;
+  assert(popover.rect.y + popover.rect.height >= cardBottom + POPOVER_OVERHANG_PX, 'The popover reaches well below the card that clips its content');
+  const covered = intersection(popover.rect, laterRect);
+  assert(covered, 'The popover covers part of the content below the card');
+  move(FAR_CORNER);
+  await settle();
+  image = frameImage(owner);
+  const belowCard = new Vector2(popover.rect.x + POPOVER_PADDING_PROBE_PX, cardBottom + POPOVER_OVERHANG_PX / 2);
+  assert(paintIs(image, belowCard, POPOVER_FILL), `The popover is not clipped by the overflow-hidden card: ${describePaint(image, belowCard)}`);
+  const overLater = new Vector2(popover.rect.x + POPOVER_PADDING_PROBE_PX, covered.y + covered.height / 2);
+  assert(paintIs(image, overLater, POPOVER_FILL) && !paintIs(image, overLater, LATER_FILL),
+    `Where the popover covers the later button it is the popover that shows: ${describePaint(image, overLater)}`);
+  assert(await hoveredAt(overLater) === popover.id, 'And a pointer there reaches the popover');
+  assert(await hoveredAt(centerOf(rectOf('pos-z-toggle'))) === backdrop.id, 'The backdrop takes the pointer from the main layer under it');
+  const openStops = tabStops(api, 'pos-');
+  assert(openStops.join(',') === 'pos-z-toggle,pos-menu,pos-later,pos-item-rename,pos-item-duplicate,pos-item-delete',
+    `Overlay stops come after every main stop, in document order: ${openStops.join(',')}`);
+  await capture('21-positioning-popover');
+
+  // Tab from the Menu button visits the main stops that follow it, then the popover's, then wraps to the first.
+  const focusedTestID = (): string => {
+    const id = api.snapshot().focused;
+    const testID = api.snapshot().nodes.find(node => node.id === id)?.props.testID;
+    return typeof testID === 'string' ? testID : 'none';
+  };
+  assert(focusedTestID() === 'pos-menu', `The Menu button has focus: ${focusedTestID()}`);
+  const visited: string[] = [];
+  for (let step = 0; step < openStops.length - 1; step++) {
+    await tap({ keycode: Key.KeyTab });
+    visited.push(focusedTestID());
+  }
+  assert(visited.join(',') === 'pos-later,pos-item-rename,pos-item-duplicate,pos-item-delete,pos-z-toggle',
+    `Tab walks the main stops, then the popover's, then wraps: ${visited.join(',')}`);
+
+  // A click where a popover item lies over the later button is the item's, not the later button's; the
+  // click bubbles through the overlay tree, not through the card the popover was opened from.
+  const items = ['pos-item-rename', 'pos-item-duplicate', 'pos-item-delete'];
+  const overlapping = items.map(item => ({ item, area: intersection(rectOf(item), laterRect) })).find(entry => entry.area !== undefined);
+  assert(overlapping?.area, 'One of the popover items lies over the later button');
+  await hoveredAt(centerOf(overlapping.area));
+  pointer(centerOf(overlapping.area), true);
+  await settle();
+  pointer(centerOf(overlapping.area), false);
+  await settle();
+  const pickedName = overlapping.item.replace('pos-item-', '');
+  assert(status().toLowerCase().includes(`item ${pickedName}`) && status().startsWith('open false'),
+    `The click chose the item and closed the popover: ${status()}`);
+  assert(status().includes('later clicks 0'), `The click did not reach the later button under the item: ${status()}`);
+  assert(status().includes(`card clicks ${cardClicksAfterOpen},`), `A click in the popover does not bubble to the card: ${status()}`);
+  assert(!api.find('pos-popover') && !api.find('pos-backdrop'), 'The popover and its backdrop unmounted');
+
+  // The backdrop closes the popover and takes the click away from the content under it.
+  await click(api, 'pos-menu');
+  assert(status().startsWith('open true'), 'The Menu button opens it again');
+  const reopened = rectOf('pos-popover');
+  const justLeft = new Vector2(laterRect.x + POPOVER_PADDING_PROBE_PX, laterRect.y + laterRect.height / 2);
+  assert(justLeft.x < reopened.x, 'A point on the later button lies left of the popover');
+  await hoveredAt(justLeft);
+  pointer(justLeft, true);
+  await settle();
+  pointer(justLeft, false);
+  await settle();
+  assert(status().startsWith('open false') && status().includes('backdrop closes 1') && status().includes('later clicks 0'),
+    `A click on the backdrop over the later button closes the popover and does not click the button: ${status()}`);
+
+  // With the popover gone, the same point clicks the button, and Tab visits the main stops as it did.
+  await click(api, 'pos-later');
+  assert(status().includes('later clicks 1'), `The later button works with the popover closed: ${status()}`);
+  assert(tabStops(api, 'pos-').join(',') === closedStops.join(','), 'The tab stops are what they were before the popover');
+  move(FAR_CORNER);
+  await settle();
+  api.restoreDemo();
+  await settle();
+  api.grabSurfaceFocus();
+  await settle();
+}
+
 /** The sections of this verifier, in the order they run (plan 0.4.1: `--only=<name>[,<name>]` runs just those). */
-const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard'] as const;
+const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard', 'positioning'] as const;
 type Section = (typeof SECTIONS)[number];
 
 function isSection(value: string): value is Section {
@@ -1144,6 +1412,7 @@ export async function runInteractionVerification(owner: Node, api: InteractionIn
   if (sections.has('cooperation')) await verifyGodotCooperation(owner, api, capture);
   if (sections.has('pointers')) await verifyPointers(owner, api, capture);
   if (sections.has('keyboard')) await verifyKeyboard(owner, api, capture);
+  if (sections.has('positioning')) await verifyPositioning(owner, api, capture);
 
   console.log('GODOT_REACT_INTERACTION_VERIFY_PASSED', JSON.stringify({sections: [...sections], captures, dispatchTiming: timing}));
 }

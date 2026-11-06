@@ -20,11 +20,12 @@ use crate::computed_style::{
 };
 use crate::diff::{Insertion, MountingTransaction, Parent, Removal};
 use crate::focus::FocusTree;
-use crate::geometry::{BoxRect, intersect_clip, intersects};
+use crate::geometry::{BoxRect, intersects};
 use crate::pointer::ButtonTree;
 use crate::profile::{Sample, micros};
-use crate::props::{CursorSpec, Kind, PropsSpec};
+use crate::props::{CursorSpec, Kind, PositionSpec, PropsSpec};
 use crate::render_tree::RenderNode;
+use crate::stacking::{self, Frame, PaintTree, Stacking, StackingTree};
 use crate::{CORNER_DETAIL, ReactUiRoot};
 
 /// The four sides of a box edge, as Taffy resolves them.
@@ -36,7 +37,8 @@ pub(crate) struct Edges {
     pub(crate) bottom: f32,
 }
 
-/// Where Taffy put a node, relative to its parent, and the edges that position its content.
+/// Where Taffy put a node, in the frame of its paint parent (its tree parent unless it is out of flow,
+/// `stacking.rs`), and the edges that position its content.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct NodeGeometry {
     pub(crate) location: Vector2,
@@ -101,8 +103,14 @@ pub(crate) struct MountedNode {
     pub(crate) kind: Kind,
     pub(crate) layer: usize,
     pub(crate) props: PropsSpec,
+    /// The tree parent: events, inheritance, layout and document order follow it.
     pub(crate) parent: Option<Parent>,
     pub(crate) children: Vec<u32>,
+    /// Who paints and hit-tests this node, and whose frame `geometry.location` is in. It differs from
+    /// `parent` for an absolute element whose containing block is further up, and for a fixed one.
+    pub(crate) paint_parent: Option<Parent>,
+    /// The nodes this one paints, back to front.
+    pub(crate) paint_children: Vec<u32>,
     pub(crate) computed: ComputedStyle,
     pub(crate) layout: NodeId,
     pub(crate) visual: Visual,
@@ -117,6 +125,11 @@ pub(crate) struct Mounted {
     pub(crate) nodes: HashMap<u32, MountedNode>,
     /// Each layer's top-level children, in order.
     pub(crate) roots: [Vec<u32>; LAYER_COUNT],
+    /// What each layer paints directly, back to front.
+    pub(crate) paint_roots: [Vec<u32>; LAYER_COUNT],
+    /// Every node whose computed `position` is `absolute` or `fixed`: the nodes whose paint parent can
+    /// differ from their tree parent, and the only ones re-examined when the tree or a position changes.
+    pub(crate) out_of_flow: BTreeSet<u32>,
     /// Every tag the root ever created: tags are never reused.
     pub(crate) used: BTreeSet<u32>,
     pub(crate) breakpoints: BreakpointIndex,
@@ -192,6 +205,54 @@ impl FocusTree for Mounted {
     }
 }
 
+impl StackingTree for Mounted {
+    fn tree_parent(&self, tag: u32) -> Option<Parent> {
+        self.nodes.get(&tag)?.parent
+    }
+
+    fn tree_children(&self, parent: Parent) -> &[u32] {
+        MountedTree::children(self, parent)
+    }
+
+    fn stacking(&self, tag: u32) -> Option<Stacking> {
+        let computed = &self.nodes.get(&tag)?.computed;
+        Some(Stacking {
+            position: computed.position.unwrap_or(PositionSpec::Static),
+            z_index: computed.z_index.unwrap_or(0),
+        })
+    }
+}
+
+impl PaintTree for Mounted {
+    fn layer_count(&self) -> usize {
+        LAYER_COUNT
+    }
+
+    fn paint_roots(&self, layer: usize) -> &[u32] {
+        &self.paint_roots[layer]
+    }
+
+    fn paint_children(&self, tag: u32) -> &[u32] {
+        self.nodes
+            .get(&tag)
+            .map_or(&[], |node| &node.paint_children)
+    }
+
+    fn paint_parent(&self, tag: u32) -> Option<Parent> {
+        self.nodes.get(&tag)?.paint_parent
+    }
+
+    fn frame(&self, tag: u32) -> Option<Frame> {
+        let node = self.nodes.get(&tag)?;
+        Some(Frame {
+            location: node.geometry.location,
+            size: node.geometry.size,
+            clip: node.clips_content().then(|| node.geometry.padding_box()),
+            pointer_target: node.computed.is_pointer_target(),
+        })
+    }
+}
+
 impl ButtonTree for Mounted {
     fn kind_of(&self, tag: u32) -> Option<Kind> {
         self.nodes.get(&tag).map(|node| node.kind)
@@ -233,46 +294,14 @@ impl Mounted {
         false
     }
 
-    /// The root-local rectangle of `tag` and the clip its ancestors impose on it, or `None` if it
-    /// is not mounted. Both are computed by walking up the parents: cost proportional to depth.
+    /// The root-local rectangle of `tag` and the clip its paint ancestors impose on it, or `None` if it
+    /// is not mounted. Computed by walking up the paint parents: cost proportional to depth.
     pub(crate) fn absolute_geometry(
         &self,
         tag: u32,
         viewport: BoxRect,
     ) -> Option<(BoxRect, Option<BoxRect>)> {
-        let mut path = self.path_of(tag);
-        if path.is_empty() {
-            return None;
-        }
-        path.reverse();
-        let mut origin = Vector2::ZERO;
-        let mut clip = Some(viewport);
-        for (position, current) in path.iter().enumerate() {
-            let node = &self.nodes[current];
-            origin += node.geometry.location;
-            if position + 1 == path.len() {
-                let rect = BoxRect {
-                    x: origin.x,
-                    y: origin.y,
-                    width: node.geometry.size.x,
-                    height: node.geometry.size.y,
-                };
-                return Some((rect, clip));
-            }
-            if node.clips_content() {
-                let local = node.geometry.padding_box();
-                clip = intersect_clip(
-                    clip,
-                    Some(BoxRect {
-                        x: origin.x + local.x,
-                        y: origin.y + local.y,
-                        width: local.width,
-                        height: local.height,
-                    }),
-                );
-            }
-        }
-        None
+        stacking::absolute_geometry(self, tag, viewport)
     }
 
     /// Whether `tag` has a visible area an event could reach.
@@ -285,39 +314,10 @@ impl Mounted {
             })
     }
 
-    /// The topmost element at `point` (root-local), descending the hierarchy in reverse paint
-    /// order. A clipping element only hands the point to its children inside its padding box. An
-    /// element with `pointer-events: none` is never the answer, but its children still can be
-    /// (CSS semantics, plan 3.7).
+    /// The topmost element at `point` (root-local), descending the paint tree in reverse paint order,
+    /// the overlay layer first (`stacking::hit_test`).
     pub(crate) fn hit_test(&self, point: Vector2) -> Option<u32> {
-        for layer in (0..LAYER_COUNT).rev() {
-            for tag in self.roots[layer].iter().rev() {
-                if let Some(hit) = self.hit_node(*tag, point) {
-                    return Some(hit);
-                }
-            }
-        }
-        None
-    }
-
-    fn hit_node(&self, tag: u32, point_in_parent: Vector2) -> Option<u32> {
-        let node = self.nodes.get(&tag)?;
-        let local = point_in_parent - node.geometry.location;
-        let descend = !node.clips_content() || node.geometry.padding_box().contains(local);
-        if descend {
-            for child in node.children.iter().rev() {
-                if let Some(hit) = self.hit_node(*child, local) {
-                    return Some(hit);
-                }
-            }
-        }
-        let border_box = BoxRect {
-            x: 0.0,
-            y: 0.0,
-            width: node.geometry.size.x,
-            height: node.geometry.size.y,
-        };
-        (node.computed.is_pointer_target() && border_box.contains(local)).then_some(tag)
+        stacking::hit_test(self, point)
     }
 
     /// The cursor to show at `point`: the computed `cursor` of the element a pointer there would
@@ -618,6 +618,10 @@ impl ReactUiRoot {
         if let Some(node) = self.mounted.nodes.get_mut(&removal.tag) {
             node.parent = None;
             node.render.detach();
+            // Whoever painted it no longer does; a later insertion settles its new paint parent.
+            if let Some(painter) = node.paint_parent.take() {
+                self.paint_dirty_parents.insert(painter);
+            }
         }
         self.hit_stale = true;
         if let Parent::Node(parent) = removal.parent {
@@ -642,7 +646,12 @@ impl ReactUiRoot {
             .insert_child_at_index(parent_layout, insertion.index, child.layout)
             .expect("the planned index is within the layout child list");
         child.parent = Some(insertion.parent);
+        // Painted by the tree parent until the paint structure is settled (`settle_paint_structure`),
+        // which moves an out-of-flow element to its containing block.
+        child.paint_parent = Some(insertion.parent);
         child.render.attach(parent_item);
+        self.paint_reeval.insert(insertion.tag);
+        self.paint_dirty_parents.insert(insertion.parent);
         self.hit_stale = true;
         match insertion.parent {
             Parent::Layer(layer) => {
@@ -672,6 +681,8 @@ impl ReactUiRoot {
             props: props.clone(),
             parent: None,
             children: Vec::new(),
+            paint_parent: None,
+            paint_children: Vec::new(),
             computed: ComputedStyle::default(),
             layout,
             visual: Visual::new(),
@@ -731,6 +742,12 @@ impl ReactUiRoot {
         self.forget_motion(tag);
         self.layout_dirty.remove(&tag);
         self.paint_dirty.remove(&tag);
+        self.paint_reeval.remove(&tag);
+        self.mounted.out_of_flow.remove(&tag);
+        self.paint_dirty_parents.remove(&Parent::Node(tag));
+        if let Some(painter) = node.paint_parent {
+            self.paint_dirty_parents.insert(painter);
+        }
         self.hit_stale = true;
         // Nothing may keep pointing at a deleted element; JS drops events for tags it no longer has.
         if self.hovered == Some(tag) {
@@ -749,7 +766,8 @@ impl ReactUiRoot {
         // `node.render` drops here and frees the canvas items.
     }
 
-    /// After the transaction: sibling order in the render tree and the style engine's tree.
+    /// After the transaction: the style engine's tree, and the paint lists of the parents whose child
+    /// lists changed (`settle_paint_structure` orders them).
     fn settle_structure(&mut self, touched: &BTreeSet<Parent>) {
         for parent in touched {
             let children: Vec<u32> = match parent {
@@ -759,18 +777,94 @@ impl ReactUiRoot {
                     None => continue,
                 },
             };
-            for (index, child) in children.iter().enumerate() {
-                if let Some(node) = self.mounted.nodes.get_mut(child) {
-                    node.render.set_draw_index(
-                        i32::try_from(index).expect("a child list fits an i32 draw index"),
-                    );
-                }
-            }
+            self.paint_dirty_parents.insert(*parent);
             self.style_engine.set_children(*parent, &children);
         }
         for tag in std::mem::take(&mut self.pending_style_removals) {
             self.style_engine.remove(tag);
         }
+    }
+
+    /// Settle who paints what (plan 3.8): re-examine the nodes whose tree parent, `position` or
+    /// `zIndex` changed and every out-of-flow node (an ancestor's change of place or of `position`
+    /// can move their containing block; their number, not the tree's size, is the cost), move the
+    /// canvas items of those that changed paint parent, and re-order the paint list of every paint
+    /// parent affected, giving its items their draw index. Runs before geometry, which reads the
+    /// paint lists.
+    pub(crate) fn settle_paint_structure(&mut self) {
+        if self.paint_reeval.is_empty() && self.paint_dirty_parents.is_empty() {
+            return;
+        }
+        let explicit = std::mem::take(&mut self.paint_reeval);
+        let implicit: Vec<u32> = self.mounted.out_of_flow.iter().copied().collect();
+        for tag in explicit.iter().copied().chain(implicit) {
+            let Some(node) = self.mounted.nodes.get(&tag) else {
+                continue;
+            };
+            let position = node.computed.position.unwrap_or(PositionSpec::Static);
+            if position.is_out_of_flow() {
+                self.mounted.out_of_flow.insert(tag);
+            } else {
+                self.mounted.out_of_flow.remove(&tag);
+            }
+            let desired = stacking::paint_parent(&self.mounted, tag);
+            let current = self.mounted.nodes[&tag].paint_parent;
+            if desired != current {
+                self.move_paint_item(tag, desired);
+                if let Some(previous) = current {
+                    self.paint_dirty_parents.insert(previous);
+                }
+            }
+            // Its z-index or position may have changed where it sorts, wherever it is painted.
+            if explicit.contains(&tag)
+                && let Some(painter) = desired
+            {
+                self.paint_dirty_parents.insert(painter);
+            }
+        }
+        for parent in std::mem::take(&mut self.paint_dirty_parents) {
+            if let Parent::Node(tag) = parent
+                && !self.mounted.nodes.contains_key(&tag)
+            {
+                continue;
+            }
+            let list = stacking::painted_by(&self.mounted, parent, &self.mounted.out_of_flow);
+            for (index, child) in list.iter().enumerate() {
+                if let Some(node) = self.mounted.nodes.get_mut(child) {
+                    node.render.set_draw_index(
+                        i32::try_from(index).expect("a paint list fits an i32 draw index"),
+                    );
+                }
+            }
+            match parent {
+                Parent::Layer(layer) => self.mounted.paint_roots[layer] = list,
+                Parent::Node(tag) => {
+                    if let Some(node) = self.mounted.nodes.get_mut(&tag) {
+                        node.paint_children = list;
+                    }
+                }
+            }
+            self.hit_stale = true;
+        }
+    }
+
+    /// Re-parent a node's canvas items under the content item (or layer item) of its new paint parent.
+    fn move_paint_item(&mut self, tag: u32, painter: Option<Parent>) {
+        let item = painter.map(|painter| match painter {
+            Parent::Layer(layer) => self.layer_item(layer),
+            Parent::Node(node) => self.mounted.nodes[&node].render.content_item,
+        });
+        let node = self
+            .mounted
+            .nodes
+            .get_mut(&tag)
+            .expect("a re-parented node is mounted");
+        match item {
+            Some(item) => node.render.attach(item),
+            None => node.render.detach(),
+        }
+        node.paint_parent = painter;
+        self.hit_stale = true;
     }
 
     /// Rebuild a node's text paragraph from its props and computed style. Returns whether the text
@@ -819,6 +913,15 @@ impl ReactUiRoot {
         }
         for layer in 0..LAYER_COUNT {
             self.update_children_geometry(Parent::Layer(layer), &dirty_paths);
+        }
+        // An out-of-flow node is located in its containing block, which a change anywhere between the
+        // two can move without any layout flag on the path from the tree's root, so each is compared on
+        // every pass. This loop is over the out-of-flow nodes only (plan 3.2 invariant 6, named here).
+        let out_of_flow: Vec<u32> = self.mounted.out_of_flow.iter().copied().collect();
+        for tag in out_of_flow {
+            if self.update_node_geometry(tag, &dirty_paths) {
+                self.update_children_geometry(Parent::Node(tag), &dirty_paths);
+            }
         }
     }
 

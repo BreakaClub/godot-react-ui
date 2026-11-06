@@ -5,6 +5,10 @@ export type Justification = 'start' | 'end' | 'center' | 'space-between' | 'spac
 export type HexColor = `#${string}`;
 export type TransitionProperty = 'width' | 'height' | 'opacity' | 'backgroundColor';
 export type Overflow = 'visible' | 'hidden';
+/** `fixed` is relative to the layer, `absolute` to the nearest positioned ancestor, `relative` to its own flow position. */
+export type Position = 'static' | 'relative' | 'absolute' | 'fixed';
+/** Pixels or a percentage of the containing block (either may be negative), or `auto`. */
+export type Inset = number | 'auto' | `${number}%`;
 /** `none` stops an element itself being the target of a pointer; its children still can be. */
 export type PointerEvents = 'auto' | 'none';
 export type Cursor =
@@ -66,13 +70,27 @@ export interface Style {
   pointerEvents?: PointerEvents;
   /** Inherited. */
   cursor?: Cursor;
+  position?: Position;
+  /** Offsets from the containing block's edges for `relative`, `absolute` and `fixed` elements. */
+  top?: Inset;
+  right?: Inset;
+  bottom?: Inset;
+  left?: Inset;
+  /** Shorthand for `top`, `right`, `bottom` and `left`. */
+  inset?: Inset;
+  /**
+   * Orders an element among the siblings its paint parent paints (React Native's `zIndex`: it applies to
+   * every element, creates no stacking context, and an `absolute` element competes with its containing
+   * block's children, not with its own siblings).
+   */
+  zIndex?: number;
 }
 
 /**
  * What native receives: every shorthand (`padding`, `margin`, `gap`, `overflow`) is expanded to its
  * longhands by the style compiler, so merging layers is a plain ordered overwrite.
  */
-export type LonghandStyle = Omit<Style, 'padding' | 'margin' | 'gap' | 'overflow'>;
+export type LonghandStyle = Omit<Style, 'padding' | 'margin' | 'gap' | 'overflow' | 'inset'>;
 
 export type StyleProp = Style | readonly StyleProp[] | false | null | undefined;
 

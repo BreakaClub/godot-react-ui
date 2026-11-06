@@ -21,12 +21,15 @@ fn style_json(style: &crate::computed_style::ComputedStyle) -> Value {
 impl ReactUiRoot {
     /// Every node with its geometry (root-local), computed style and presentation. Node 0 stands
     /// for the main layer's root, as it did in protocol v1; the overlay layer's top-level nodes
-    /// report a null parent and `layer: 1`.
+    /// report a null parent and `layer: 1`. `parent` and `children` are the React tree's;
+    /// `paintParent` and `paintIndex` (back to front among what its paint parent paints) are the
+    /// paint tree's, which `rect` and `clipRect` follow, and `documentIndex` is the pre-order place.
     pub(crate) fn snapshot_json(&self) -> Value {
         let viewport = self.viewport_box();
         let mut nodes = vec![json!({
             "id": 0, "kind": "view", "text": "", "parent": null, "layer": 0,
             "children": self.mounted.roots[0], "style": {}, "props": {},
+            "paintParent": null, "paintIndex": 0, "documentIndex": -1,
             "rect": viewport, "clipRect": viewport,
             "presentation": {
                 "width": viewport.width, "height": viewport.height,
@@ -34,12 +37,21 @@ impl ReactUiRoot {
                 "opacity": 1.0, "backgroundColor": "#00000000",
             },
         })];
+        let document_index: std::collections::HashMap<u32, usize> = self
+            .mounted
+            .document_order()
+            .into_iter()
+            .enumerate()
+            .map(|(index, tag)| (tag, index))
+            .collect();
         for layer in 0..LAYER_COUNT {
-            let mut stack: Vec<(u32, Vector2, Option<BoxRect>)> = self.mounted.roots[layer]
+            let mut stack: Vec<(u32, usize, Vector2, Option<BoxRect>)> = self.mounted.paint_roots
+                [layer]
                 .iter()
-                .map(|tag| (*tag, Vector2::ZERO, Some(viewport)))
+                .enumerate()
+                .map(|(index, tag)| (*tag, index, Vector2::ZERO, Some(viewport)))
                 .collect();
-            while let Some((tag, parent_origin, inherited_clip)) = stack.pop() {
+            while let Some((tag, paint_index, parent_origin, inherited_clip)) = stack.pop() {
                 let node = &self.mounted.nodes[&tag];
                 let origin = parent_origin + node.geometry.location;
                 let rect = BoxRect {
@@ -48,15 +60,18 @@ impl ReactUiRoot {
                     width: node.geometry.size.x,
                     height: node.geometry.size.y,
                 };
-                let parent = match node.parent {
+                let as_node = |parent: Option<crate::diff::Parent>| match parent {
                     Some(crate::diff::Parent::Node(parent)) => Some(parent),
                     Some(crate::diff::Parent::Layer(0)) => Some(0),
                     Some(crate::diff::Parent::Layer(_)) | None => None,
                 };
+                let parent = as_node(node.parent);
                 nodes.push(json!({
                     "id": tag, "kind": node.kind, "layer": node.layer,
                     "text": node.props.text.as_deref().unwrap_or(""),
                     "parent": parent, "children": node.children,
+                    "paintParent": as_node(node.paint_parent), "paintIndex": paint_index,
+                    "documentIndex": document_index.get(&tag),
                     "style": style_json(&node.computed),
                     "props": node.props,
                     "rect": rect, "clipRect": inherited_clip,
@@ -76,8 +91,8 @@ impl ReactUiRoot {
                 } else {
                     inherited_clip
                 };
-                for child in &node.children {
-                    stack.push((*child, origin, content_clip));
+                for (index, child) in node.paint_children.iter().enumerate() {
+                    stack.push((*child, index, origin, content_clip));
                 }
             }
         }

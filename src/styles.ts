@@ -1,5 +1,5 @@
 import type {
-  CompiledStyle, Cursor, Dimension, HexColor, LonghandStyle, PseudoState, Style, StyleLayer, StyleProp,
+  CompiledStyle, Cursor, Dimension, HexColor, Inset, LonghandStyle, PseudoState, Style, StyleLayer, StyleProp,
 } from './types';
 
 const SPACING_UNIT = 4;
@@ -60,6 +60,8 @@ const CURSORS: readonly Cursor[] = [
 const STATIC_UTILITIES: Readonly<Record<string, Style>> = {
   ...Object.fromEntries(CURSORS.map((cursor): [string, Style] => [`cursor-${cursor}`, { cursor }])),
   'pointer-events-auto': { pointerEvents: 'auto' }, 'pointer-events-none': { pointerEvents: 'none' },
+  static: { position: 'static' }, relative: { position: 'relative' },
+  absolute: { position: 'absolute' }, fixed: { position: 'fixed' },
   'overflow-hidden': { overflow: 'hidden' }, 'overflow-visible': { overflow: 'visible' },
   'overflow-x-hidden': { overflowX: 'hidden' }, 'overflow-x-visible': { overflowX: 'visible' },
   'overflow-y-hidden': { overflowY: 'hidden' }, 'overflow-y-visible': { overflowY: 'visible' },
@@ -130,6 +132,29 @@ function parseDimension(value: string): Dimension | undefined {
   return parsePixels(value);
 }
 
+/** The largest `zIndex` native accepts: a 32-bit signed integer. */
+const MAX_Z_INDEX = 2 ** 31 - 1;
+
+function parseInset(value: string, negative: boolean): Inset | undefined {
+  const dimension = parseDimension(value);
+  if (dimension === undefined) return undefined;
+  if (dimension === 'auto') return negative ? undefined : 'auto';
+  if (typeof dimension === 'number') return negative && dimension !== 0 ? -dimension : dimension;
+  if (!negative) return dimension;
+  const percent = Number(dimension.slice(0, -1));
+  return percent === 0 ? '0%' : `${-percent}%`;
+}
+
+function parseZIndex(value: string, negative: boolean): number | undefined {
+  const arbitrary = /^\[(-?\d+)\]$/.exec(value);
+  const digits = arbitrary?.[1] ?? (/^\d+$/.test(value) ? value : undefined);
+  if (value === 'auto') return negative ? undefined : 0;
+  if (digits === undefined) return undefined;
+  const parsed = Number(digits);
+  if (!Number.isSafeInteger(parsed) || Math.abs(parsed) > MAX_Z_INDEX) return undefined;
+  return negative && parsed !== 0 ? -parsed : parsed;
+}
+
 function parseColor(value: string): HexColor | undefined {
   const named = lookup(colors, value);
   if (named !== undefined) return named;
@@ -165,6 +190,26 @@ function utilityStyle(utility: string): Style | undefined {
       case 'gap-x': return { columnGap: value };
       case 'gap-y': return { rowGap: value };
     }
+  }
+
+  const inset = /^(-?)(inset-x|inset-y|inset|top|right|bottom|left)-(.+)$/.exec(utility);
+  if (inset?.[2] !== undefined && inset[3] !== undefined) {
+    const value = parseInset(inset[3], inset[1] === '-');
+    if (value === undefined) return undefined;
+    switch (inset[2]) {
+      case 'inset': return { inset: value };
+      case 'inset-x': return { left: value, right: value };
+      case 'inset-y': return { top: value, bottom: value };
+      case 'top': return { top: value };
+      case 'right': return { right: value };
+      case 'bottom': return { bottom: value };
+      case 'left': return { left: value };
+    }
+  }
+  const zIndex = /^(-?)z-(.+)$/.exec(utility);
+  if (zIndex?.[2] !== undefined) {
+    const value = parseZIndex(zIndex[2], zIndex[1] === '-');
+    return value === undefined ? undefined : { zIndex: value };
   }
 
   const dimension = /^(w|h|min-w|min-h|max-w|max-h|basis)-(.+)$/.exec(utility);
@@ -249,7 +294,7 @@ function isStyleArray(style: StyleProp): style is readonly StyleProp[] {
 
 /** Expand shorthands into the longhands native understands, in the order they enter a layer. */
 function mergeLonghands(target: LonghandStyle, source: Readonly<Style>): void {
-  const { padding, margin, gap, overflow, transition, ...properties } = source;
+  const { padding, margin, gap, overflow, inset, transition, ...properties } = source;
   if (padding !== undefined) {
     target.paddingTop = padding;
     target.paddingRight = padding;
@@ -269,6 +314,12 @@ function mergeLonghands(target: LonghandStyle, source: Readonly<Style>): void {
   if (overflow !== undefined) {
     target.overflowX = overflow;
     target.overflowY = overflow;
+  }
+  if (inset !== undefined) {
+    target.top = inset;
+    target.right = inset;
+    target.bottom = inset;
+    target.left = inset;
   }
   // The compiled style is interned and frozen, so it must not share objects with the caller's style.
   if (transition !== undefined) target.transition = { ...transition, properties: [...transition.properties] };

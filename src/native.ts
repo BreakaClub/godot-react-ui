@@ -192,8 +192,16 @@ export interface NativeSnapshotNode {
   /** 0 is the main layer, 1 the overlay layer. */
   layer: number;
   text: string;
+  /** The React tree's parent; events, inheritance, layout and Tab order follow it. */
   parent: number | null;
   children: number[];
+  /** Who paints and hit-tests the node: its parent, unless it is `absolute` or `fixed`. */
+  paintParent: number | null;
+  /** Its place among what its paint parent paints, back to front (`zIndex`, then document order). */
+  paintIndex: number;
+  /** Its place in document order (pre-order of the whole tree, main layer first). */
+  documentIndex: number;
+  /** Root-local, and clipped through the paint ancestors. */
   rect: LayoutRect;
   clipRect: LayoutRect | null;
   presentation: { width: number; height: number; widthIsAuto: boolean; heightIsAuto: boolean; opacity: number; backgroundColor: string };
@@ -323,6 +331,12 @@ function modality(value: unknown): 'keyboard' | 'pointer' {
 function pointerType(value: unknown): NativePointerType {
   if (value === 'mouse' || value === 'touch' || value === '') return value;
   throw new Error(`Invalid native pointer type: ${String(value)}`);
+}
+
+function integer(value: unknown, label: string): number {
+  const result = number(value, label);
+  if (!Number.isInteger(result)) throw new Error(`Invalid native ${label}: expected an integer`);
+  return result;
 }
 
 function nonnegativeInteger(value: unknown, label: string): number {
@@ -496,6 +510,9 @@ export function readSnapshot(host: NativeHost): NativeSnapshot {
         text: string(node.text, 'node.text'),
         parent: optionalId(node.parent, 'node.parent'),
         children: array(node.children, 'node.children').map((child) => id(child, 'child ID')),
+        paintParent: optionalId(node.paintParent, 'node.paintParent'),
+        paintIndex: nonnegativeInteger(node.paintIndex, 'node.paintIndex'),
+        documentIndex: integer(node.documentIndex, 'node.documentIndex'),
         rect: rect(node.rect, 'node.rect'),
         clipRect: node.clipRect === null ? null : rect(node.clipRect, 'node.clipRect'),
         presentation: {

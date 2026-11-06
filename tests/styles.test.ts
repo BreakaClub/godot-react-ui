@@ -106,6 +106,41 @@ test('every cursor keyword has a utility, and only those', () => {
   ]);
 });
 
+test('position, inset and z-index utilities and styles compile to native longhands', () => {
+  for (const position of ['static', 'relative', 'absolute', 'fixed']) {
+    assert.deepEqual(layersOf(position), [{ style: { position } }], position);
+  }
+  assert.deepEqual(layersOf('absolute top-4 left-1/2 -right-2 bottom-px')[0]?.style, {
+    bottom: 1, left: '50%', position: 'absolute', right: -8, top: 16,
+  });
+  assert.deepEqual(layersOf('inset-0')[0]?.style, { bottom: 0, left: 0, right: 0, top: 0 });
+  assert.deepEqual(layersOf('inset-x-0 inset-y-2')[0]?.style, { bottom: 8, left: 0, right: 0, top: 8 });
+  assert.deepEqual(layersOf('inset-0 top-auto left-[12px] right-full -bottom-1/4')[0]?.style, {
+    bottom: '-25%', left: 12, right: '100%', top: 'auto',
+  });
+  assert.deepEqual(layersOf('-top-0 -left-[50%]')[0]?.style, { left: '-50%', top: 0 });
+  assert.deepEqual(layersOf('z-0')[0]?.style, { zIndex: 0 });
+  assert.deepEqual(layersOf('z-50 z-[7]')[0]?.style, { zIndex: 7 });
+  assert.deepEqual(layersOf('-z-10')[0]?.style, { zIndex: -10 });
+  assert.deepEqual(layersOf('z-[-3]')[0]?.style, { zIndex: -3 });
+  assert.deepEqual(layersOf('z-auto')[0]?.style, { zIndex: 0 });
+  // Inline styles use the same longhands; `inset` is the shorthand the compiler expands.
+  assert.deepEqual(layersOf('', { position: 'fixed', inset: 0, left: 5, zIndex: 2 })[0]?.style, {
+    bottom: 0, left: 5, position: 'fixed', right: 0, top: 0, zIndex: 2,
+  });
+  assert.deepEqual(layersOf('md:absolute hover:-top-2'), [
+    { minWidth: 768, style: { position: 'absolute' } },
+    { states: ['hover'], style: { top: -8 } },
+  ]);
+  for (const utility of [
+    'sticky', 'top', 'top-', 'top-foo', '-top-auto', 'inset-x', 'left-1/0', 'z-', 'z-foo', '-z-auto', 'z-1.5',
+    'z-[1.5]', `z-${'9'.repeat(30)}`, 'z-2147483648', 'z-[-2147483649]', 'zindex-1', 'position-absolute',
+  ]) {
+    assert.throws(() => compileStyle(utility), /Unsupported/, utility);
+  }
+  assert.deepEqual(layersOf('z-2147483647')[0]?.style, { zIndex: 2147483647 });
+});
+
 test('compileStyle interns equal inputs and freezes the result', () => {
   const first = compileStyle('p-1 m-2', { width: 1 });
   assert.equal(compileStyle('m-2 p-1', { width: 1 }), first, 'key order does not matter for equal layers');
@@ -159,6 +194,7 @@ test('compiled styles match the native contract fixture, which the Rust tests pa
     { className: 'hover:bg-indigo-700 active:bg-indigo-800 focus:border-indigo-500 focus-visible:border-indigo-600 focus-within:bg-slate-50 disabled:opacity-50' },
     { className: 'md:hover:bg-indigo-100 w-[50%] h-[123px] max-w-xl text-[23px] text-center bg-[#1234] rounded-[9px] w-1/2' },
     { className: 'pointer-events-none hover:cursor-pointer cursor-ew-resize pointer-events-auto' },
+    { className: 'relative absolute fixed top-4 -left-2 right-1/2 bottom-auto inset-x-0 z-10 -z-5 md:static' },
     {
       className: 'overflow-hidden shrink-0',
       style: [{ height: 'auto', padding: 4, interpolateSize: 'allow-keywords', transition: {

@@ -310,6 +310,11 @@ impl ReactUiRoot {
         }) {
             self.hit_stale = true;
         }
+        if change.previous.as_ref().is_none_or(|previous| {
+            previous.position != node.computed.position || previous.z_index != node.computed.z_index
+        }) {
+            self.paint_reeval.insert(tag);
+        }
         let layout_changed = previous_authored.as_ref() != Some(&authored);
         if layout_changed {
             self.tree

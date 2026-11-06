@@ -12,7 +12,7 @@ use serde::{Deserialize as DeriveDeserialize, Serialize};
 use taffy::geometry::{Point, Rect, Size};
 use taffy::style::{
     AlignItems, Display, FlexDirection, FlexWrap, JustifyContent, LengthPercentage,
-    LengthPercentageAuto, Overflow,
+    LengthPercentageAuto, Overflow, Position,
 };
 use taffy::style_helpers::{auto, fr, length, minmax};
 
@@ -135,6 +135,30 @@ pub enum InterpolateSize {
 pub enum OverflowSpec {
     Visible,
     Hidden,
+}
+
+/// CSS `position`, without `sticky` (a non-goal, plan 2.3). `relative`, `absolute` and `fixed` make
+/// an element positioned: a containing block for the absolute descendants below it (plan 3.15).
+#[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PositionSpec {
+    Static,
+    Relative,
+    Absolute,
+    Fixed,
+}
+
+impl PositionSpec {
+    /// `absolute` and `fixed` take the element out of the flow of its parent, and out of its parent's
+    /// paint order when its containing block is another element.
+    pub(crate) fn is_out_of_flow(self) -> bool {
+        matches!(self, PositionSpec::Absolute | PositionSpec::Fixed)
+    }
+
+    /// Whether the element is a containing block for the absolute elements below it.
+    pub(crate) fn is_positioned(self) -> bool {
+        self != PositionSpec::Static
+    }
 }
 
 /// CSS `pointer-events`: `none` makes an element itself never the target of a pointer; its
@@ -299,6 +323,51 @@ pub struct StyleSpec {
     pub overflow_y: Option<OverflowSpec>,
     pub pointer_events: Option<PointerEventsSpec>,
     pub cursor: Option<CursorSpec>,
+    pub position: Option<PositionSpec>,
+    pub top: Option<Inset>,
+    pub right: Option<Inset>,
+    pub bottom: Option<Inset>,
+    pub left: Option<Inset>,
+    /// Orders an element among the siblings that share its paint parent (plan 3.8); React Native's
+    /// `zIndex`, which applies to every element and creates no stacking context.
+    pub z_index: Option<i32>,
+}
+
+/// An inset (`top`, `right`, `bottom`, `left`): pixels or a percentage of the containing block, either
+/// of which may be negative, or `auto`.
+#[derive(Clone, Debug, DeriveDeserialize, Serialize, PartialEq)]
+#[serde(untagged)]
+pub enum Inset {
+    Num(f32),
+    Text(String),
+}
+
+impl Inset {
+    pub(crate) fn value(&self) -> Result<ParsedDimension, String> {
+        match self {
+            Self::Num(value) if value.is_finite() => Ok(ParsedDimension::Length(*value)),
+            Self::Num(_) => Err("inset must be a finite number".into()),
+            Self::Text(value) if value == "auto" => Ok(ParsedDimension::Auto),
+            Self::Text(value) => {
+                let percent = value
+                    .strip_suffix('%')
+                    .and_then(|number| number.parse::<f32>().ok())
+                    .filter(|number| number.is_finite())
+                    .ok_or_else(|| {
+                        format!("invalid inset {value:?}; expected auto, a number or a percentage")
+                    })?;
+                Ok(ParsedDimension::Percent(percent / 100.0))
+            }
+        }
+    }
+}
+
+pub(crate) fn inset(value: &Option<Inset>) -> Result<LengthPercentageAuto, String> {
+    Ok(match value.as_ref().map(Inset::value).transpose()? {
+        Some(ParsedDimension::Length(value)) => LengthPercentageAuto::length(value),
+        Some(ParsedDimension::Percent(value)) => LengthPercentageAuto::percent(value),
+        Some(ParsedDimension::Auto) | None => auto(),
+    })
 }
 
 pub(crate) enum ParsedDimension {
@@ -437,6 +506,12 @@ impl StyleSpec {
             overflow_y,
             pointer_events,
             cursor,
+            position,
+            top,
+            right,
+            bottom,
+            left,
+            z_index,
         );
     }
 
@@ -452,6 +527,16 @@ impl StyleSpec {
             ("maxWidth", &self.max_width),
             ("maxHeight", &self.max_height),
             ("flexBasis", &self.flex_basis),
+        ] {
+            if let Some(value) = value {
+                value.value().map_err(|error| format!("{name}: {error}"))?;
+            }
+        }
+        for (name, value) in [
+            ("top", &self.top),
+            ("right", &self.right),
+            ("bottom", &self.bottom),
+            ("left", &self.left),
         ] {
             if let Some(value) = value {
                 value.value().map_err(|error| format!("{name}: {error}"))?;
@@ -522,6 +607,18 @@ impl StyleSpec {
             overflow: Point {
                 x: overflow(self.overflow_x),
                 y: overflow(self.overflow_y),
+            },
+            position: match self.position.unwrap_or(PositionSpec::Static) {
+                PositionSpec::Static => Position::Static,
+                PositionSpec::Relative => Position::Relative,
+                PositionSpec::Absolute => Position::Absolute,
+                PositionSpec::Fixed => Position::Fixed,
+            },
+            inset: Rect {
+                left: inset(&self.left)?,
+                right: inset(&self.right)?,
+                top: inset(&self.top)?,
+                bottom: inset(&self.bottom)?,
             },
             display: match self.display.unwrap_or(DisplaySpec::Flex) {
                 DisplaySpec::Flex => Display::Flex,
@@ -728,7 +825,8 @@ mod tests {
         "gridTemplateColumns":3,"backgroundColor":"#fff","color":"#000","fontSize":12,
         "borderRadius":4,"borderWidth":1,"borderColor":"#123","opacity":0.5,"textAlign":"right",
         "transition":{"properties":["width"],"durationMs":10},"interpolateSize":"allow-keywords",
-        "overflowX":"hidden","overflowY":"hidden","pointerEvents":"none","cursor":"ew-resize"
+        "overflowX":"hidden","overflowY":"hidden","pointerEvents":"none","cursor":"ew-resize",
+        "position":"absolute","top":1,"right":"10%","bottom":-2,"left":"auto","zIndex":-3
     }"##;
 
     fn style(json: &str) -> StyleSpec {
@@ -873,6 +971,213 @@ mod tests {
         ] {
             assert!(serde_json::from_str::<StyleSpec>(json).is_err(), "{json}");
         }
+    }
+
+    #[test]
+    fn position_insets_and_z_index_parse_and_validate() {
+        for (json, expected) in [
+            ("static", PositionSpec::Static),
+            ("relative", PositionSpec::Relative),
+            ("absolute", PositionSpec::Absolute),
+            ("fixed", PositionSpec::Fixed),
+        ] {
+            let parsed = style(&format!(r#"{{"position":"{json}"}}"#));
+            assert_eq!(parsed.position, Some(expected), "{json}");
+        }
+        assert!(PositionSpec::Absolute.is_out_of_flow() && PositionSpec::Fixed.is_out_of_flow());
+        assert!(!PositionSpec::Relative.is_out_of_flow() && !PositionSpec::Static.is_out_of_flow());
+        assert!(PositionSpec::Relative.is_positioned() && !PositionSpec::Static.is_positioned());
+        // Insets may be negative, percentages or auto; `sticky` and the z-index of a fraction are not accepted.
+        for json in [
+            r#"{"top":-12}"#,
+            r#"{"left":"-50%"}"#,
+            r#"{"right":"auto"}"#,
+            r#"{"bottom":"25.5%"}"#,
+            r#"{"zIndex":-1}"#,
+            r#"{"zIndex":50}"#,
+        ] {
+            let parsed = style(json);
+            parsed
+                .validate()
+                .unwrap_or_else(|error| panic!("{json}: {error}"));
+            parsed
+                .taffy_style()
+                .unwrap_or_else(|error| panic!("{json}: {error}"));
+        }
+        for json in [
+            r#"{"position":"sticky"}"#,
+            r#"{"position":"Absolute"}"#,
+            r#"{"zIndex":1.5}"#,
+            r#"{"zIndex":"1"}"#,
+            r#"{"inset":0}"#,
+        ] {
+            assert!(serde_json::from_str::<StyleSpec>(json).is_err(), "{json}");
+        }
+        for json in [
+            r#"{"top":"12px"}"#,
+            r#"{"left":"fifty%"}"#,
+            r#"{"right":"%"}"#,
+        ] {
+            assert!(style(json).validate().is_err(), "{json}");
+        }
+        assert_eq!(
+            style(r#"{"zIndex":-3}"#).z_index,
+            Some(-3),
+            "a negative z-index survives parsing"
+        );
+    }
+
+    /// Plan I4, task 1: which frame is the `location` of an absolute node expressed in? Taffy at the
+    /// pinned revision (`oof.rs`, "its `location` is relative to the containing block's border box")
+    /// lays an absolute box out in its containing block and reports `location` there, not in its parent,
+    /// so the mounting layer's frames follow the paint-parent rule and need no correction. This test
+    /// records the observed rule, with a static parent that is neither the containing block nor at the
+    /// containing block's origin.
+    #[test]
+    fn an_absolute_grandchild_is_located_in_its_containing_block_not_its_parent() {
+        use taffy::prelude::*;
+
+        let mut tree: TaffyTree<()> = TaffyTree::new();
+        let make = |tree: &mut TaffyTree<()>, json: &str, children: &[NodeId]| {
+            tree.new_with_children(style(json).taffy_style().unwrap(), children)
+                .unwrap()
+        };
+        // root (500 x 400, not positioned)
+        //  └─ block (relative, 300 x 300 at 50, 40, border 5, padding 7): the containing block
+        //      └─ parent (static, 100 x 100, margin 20 from the block's content box)
+        //          └─ child (absolute, left 11, top 13, 30 x 30)
+        let child = make(
+            &mut tree,
+            r#"{"position":"absolute","left":11,"top":13,"width":30,"height":30}"#,
+            &[],
+        );
+        let parent = make(
+            &mut tree,
+            r#"{"width":100,"height":100,"marginLeft":20,"marginTop":20}"#,
+            &[child],
+        );
+        let block = make(
+            &mut tree,
+            r#"{"position":"relative","width":300,"height":300,"marginLeft":50,"marginTop":40,
+                "borderWidth":5,"paddingTop":7,"paddingLeft":7}"#,
+            &[parent],
+        );
+        let root = make(&mut tree, r#"{"width":500,"height":400}"#, &[block]);
+        tree.compute_layout(root, Size::MAX_CONTENT).unwrap();
+
+        let block_layout = tree.layout(block).unwrap();
+        let parent_layout = tree.layout(parent).unwrap();
+        let child_layout = tree.layout(child).unwrap();
+        assert_eq!(
+            (block_layout.location.x, block_layout.location.y),
+            (50.0, 40.0)
+        );
+        // The static parent sits in the block's content box (border and padding) plus its own margin.
+        assert_eq!(
+            (parent_layout.location.x, parent_layout.location.y),
+            (32.0, 32.0)
+        );
+        // The absolute box is placed by its insets from the containing block's padding box: 11 + border 5
+        // from the block's border-box edge. The parent's offset (32, 32) is not in it.
+        assert_eq!(
+            (child_layout.location.x, child_layout.location.y),
+            (16.0, 18.0)
+        );
+        assert_eq!(
+            (child_layout.size.width, child_layout.size.height),
+            (30.0, 30.0)
+        );
+    }
+
+    /// With no positioned ancestor the containing block is the layer root; `fixed` always is, even
+    /// inside a positioned ancestor.
+    #[test]
+    fn an_absolute_box_without_a_positioned_ancestor_and_a_fixed_one_use_the_root() {
+        use taffy::prelude::*;
+
+        let mut tree: TaffyTree<()> = TaffyTree::new();
+        let make = |tree: &mut TaffyTree<()>, json: &str, children: &[NodeId]| {
+            tree.new_with_children(style(json).taffy_style().unwrap(), children)
+                .unwrap()
+        };
+        let absolute = make(
+            &mut tree,
+            r#"{"position":"absolute","right":10,"bottom":10,"width":30,"height":30}"#,
+            &[],
+        );
+        let fixed = make(
+            &mut tree,
+            r#"{"position":"fixed","left":0,"top":0,"width":20,"height":20}"#,
+            &[],
+        );
+        let relative = make(
+            &mut tree,
+            r#"{"position":"relative","width":100,"height":100,"marginLeft":60,"marginTop":60}"#,
+            &[fixed],
+        );
+        let wrapper = make(
+            &mut tree,
+            r#"{"width":200,"height":200,"marginLeft":70,"marginTop":30}"#,
+            &[absolute, relative],
+        );
+        let root = make(&mut tree, r#"{"width":500,"height":400}"#, &[wrapper]);
+        tree.compute_layout(root, Size::MAX_CONTENT).unwrap();
+
+        let absolute_layout = tree.layout(absolute).unwrap();
+        assert_eq!(
+            (absolute_layout.location.x, absolute_layout.location.y),
+            (500.0 - 10.0 - 30.0, 400.0 - 10.0 - 30.0),
+            "anchored to the root's right and bottom, not the wrapper's"
+        );
+        let fixed_layout = tree.layout(fixed).unwrap();
+        assert_eq!(
+            (fixed_layout.location.x, fixed_layout.location.y),
+            (0.0, 0.0),
+            "fixed ignores the relative ancestor"
+        );
+    }
+
+    /// Evidence for the workaround in `layout::compute_tree`: at the pinned Taffy revision a node keeps its
+    /// list of hoisted (out-of-flow) boxes when it loses every child, because a childless node is laid out
+    /// as a leaf, whose output has no positioning area, so `compute_oof_layout` returns before replacing the
+    /// list; the rounding pass then reads the deleted boxes. When a Taffy update fixes this, this test fails:
+    /// delete it and the workaround.
+    #[test]
+    #[should_panic(expected = "invalid SlotMap key used")]
+    fn taffy_keeps_a_stale_hoisted_list_when_its_container_loses_every_child() {
+        use taffy::prelude::*;
+
+        let mut tree: TaffyTree<()> = TaffyTree::new();
+        let make = |tree: &mut TaffyTree<()>, json: &str, children: &[NodeId]| {
+            tree.new_with_children(style(json).taffy_style().unwrap(), children)
+                .unwrap()
+        };
+        let item = make(&mut tree, r#"{"height":20}"#, &[]);
+        let popover = make(
+            &mut tree,
+            r#"{"position":"absolute","left":10,"top":10,"width":50}"#,
+            &[item],
+        );
+        let backdrop = make(
+            &mut tree,
+            r#"{"position":"absolute","left":0,"top":0,"right":0,"bottom":0}"#,
+            &[],
+        );
+        let root = make(
+            &mut tree,
+            r#"{"width":200,"height":100}"#,
+            &[backdrop, popover],
+        );
+        tree.compute_layout(root, Size::MAX_CONTENT).unwrap();
+        assert_eq!(tree.layout(popover).unwrap().location.x, 10.0);
+
+        tree.remove_child_at_index(root, 1).unwrap();
+        tree.remove_child_at_index(root, 0).unwrap();
+        for node in [item, popover, backdrop] {
+            tree.remove(node).unwrap();
+        }
+        tree.compute_layout(root, Size::MAX_CONTENT).unwrap();
+        assert_eq!(tree.layout(root).unwrap().size.width, 200.0);
     }
 
     #[test]

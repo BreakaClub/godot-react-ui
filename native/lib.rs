@@ -30,6 +30,7 @@ mod scroll;
 #[cfg_attr(not(test), allow(dead_code))]
 mod selection;
 mod snapshot;
+mod stacking;
 mod style_engine;
 // Integrated in Phase I7 (TextInput); remove the attribute then.
 #[cfg_attr(not(test), allow(dead_code))]
@@ -57,6 +58,7 @@ use taffy::prelude::{NodeId, TaffyTree};
 
 use commit::{CommitPayload, LAYER_COUNT};
 use computed_style::{InteractionState, PseudoStates, restyle};
+use diff::Parent;
 use events::{
     DropEffect, EventOutcome, EventPayload, EventQueue, FocusData, Modifiers, PointerData,
     PointerType,
@@ -132,6 +134,11 @@ pub struct ReactUiRoot {
     layout_dirty: BTreeSet<u32>,
     /// Nodes whose canvas items may need re-recording.
     paint_dirty: BTreeSet<u32>,
+    /// Nodes whose paint parent or sort position must be re-examined: a new tree parent, a changed
+    /// `position` or `zIndex` (`settle_paint_structure`).
+    paint_reeval: BTreeSet<u32>,
+    /// Paint parents whose paint list must be rebuilt.
+    paint_dirty_parents: BTreeSet<Parent>,
     /// Something that decides which element is under the pointer changed since the last hit test:
     /// a node moved or resized, the tree's structure changed, or an element started or stopped
     /// clipping its children or being a pointer target (`pointer-events`).
@@ -202,6 +209,8 @@ impl IControl for ReactUiRoot {
             ring_drawn: None,
             layout_dirty: BTreeSet::new(),
             paint_dirty: BTreeSet::new(),
+            paint_reeval: BTreeSet::new(),
+            paint_dirty_parents: BTreeSet::new(),
             hit_stale: false,
             pending_text: BTreeSet::new(),
             pending_style_removals: Vec::new(),

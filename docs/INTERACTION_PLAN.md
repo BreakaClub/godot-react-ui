@@ -1,10 +1,11 @@
 # Fabric renderer and interaction plan
 
-Status: plan v2.6, 6 November 2026. Done: Phase 0 (`9f4a02c`), Phase 1 (`0d11607`), Phase F0
+Status: plan v2.7, 6 November 2026. Done: Phase 0 (`9f4a02c`), Phase 1 (`0d11607`), Phase F0
 (`4f7dd0d`), Phase F1 (`ce99bea`), Phase F2 (`578b461`), Phase F3 (`07a8344`), Phase F4 (`e60f6e5`;
 its numbers and decisions D7 to D10 are in the progress log and the decision log below), Phase I1
 (`edf6081`; decisions D11 to D13), Phase I2 (`fd11f41`; decisions D14 to D16), Phase I3 (`dec1f5d`; decisions D17 to
-D19); decision D20 sets the verification tiers. Next: Phase I4.
+D19); decision D20 sets the verification tiers; decisions D21 and D22 isolate the native verifiers from real input
+(Task 0). Phase I4 is done (decisions D23 to D26). Next: Phase I5.
 
 v1 of this plan (`7f0a96c`) was rejected because it built every interaction feature on the
 prototype's commit path, which re-walks and re-sends the whole tree on every change. v2 replaces
@@ -191,8 +192,9 @@ not a reason to wait.
   the narrowest check that proves the change while iterating and to run the broader suites before calling work done;
   the per-phase Web gate (a Wasm build and three browser verifiers) was the main cost of I1 and I2. Phases F0 to I2
   were gated with every verifier and keep the gate lines they were gated by; the gate lines of I3 to I11 are
-  rewritten to point at the tiers. The `--only=<name>` section filter 0.4.1 allows does not exist yet; the first phase
-  that needs to run one verifier section adds it to `scripts/verify.mjs` and `verify-interaction-web.mjs`.
+  rewritten to point at the tiers. The `--only=<name>[,<name>]` section filter 0.4.1 allows exists since I4 (`pnpm verify:interaction --only=positioning`;
+  `scripts/verify.mjs` and `scripts/verify-interaction-web.mjs`); the sections are `events`, `cooperation`, `pointers`,
+  `keyboard`, `positioning`, and `touch` on the Web page.
 - **D21 (Task 0, before I4)**: a native verifier window is isolated from the real keyboard, mouse and window system, and
   reports what still gets in. Evidence (progress log, "Task 0", with the traces): a real mouse sends the verifier's window
   `InputEventMouseMotion`s with device 32 and positions far outside the window (another display) for as long as the window
@@ -226,6 +228,43 @@ not a reason to wait.
   failure with one is run again, at most twice, then fails with every attempt's log kept (`run-attempt-N.log`) and the
   disturbances named. This is the only retry any verify script makes; frequent disturbances would be the signal to add
   resistance, not retries (`tests/native-run.test.ts` covers the policy with a stand-in for Godot).
+- **D23 (I4)**: the paint tree is the React tree except for out-of-flow elements: an `absolute` element's **paint parent** is its
+  containing block (the nearest ancestor whose `position` is not `static`, else the layer root), a `fixed` element's the
+  layer root, everything else's its parent (`native/stacking.rs`). Evidence: the plan's task 1, recorded as two Rust tests
+  over the pinned Taffy (`props::tests::an_absolute_grandchild_is_located_in_its_containing_block_not_its_parent` and
+  `...a_fixed_one_use_the_root`): the `Layout.location` of an absolute grandchild is relative to its **containing block's
+  border box**, not its parent (oof.rs, "its `location` is relative to the containing block's border box"; here
+  (16, 18) in the block against its parent's (32, 32), for `left: 11, top: 13` and a 5 px border), and a fixed box is
+  located in the root. That is exactly the frame of the paint parent's content item, so the stored `location` needs no
+  correction and the canvas item attaches under the containing block's **content** item (which is clipped to its padding
+  box when it clips, so a `relative` + `overflow-hidden` parent clips its absolute children and a static one between them
+  and their containing block does not). Hit testing, absolute rectangles, the focus ring and the snapshot's `rect` and
+  `clipRect` walk the paint parents; events, inheritance, layout, Tab order and `documentIndex` keep the tree.
+  `zIndex` is React Native's: every element, any integer that fits an `i32`, no stacking context; the elements one paint
+  parent paints sort by (`zIndex`, document order), the document order of an out-of-flow descendant being its place in the
+  whole tree.
+- **D24 (I4)**: `layout::compute_tree` marks the output of a leaf with the positioning area of an empty container. Evidence:
+  the first run of the positioning section panicked in Taffy (`taffy_tree.rs:564, invalid SlotMap key used`) when the
+  popover closed, and a Taffy-only test reproduces it (`props::tests::taffy_keeps_a_stale_hoisted_list_when_its_container_loses_every_child`,
+  `should_panic`): Taffy lays a childless node out as a leaf, whose output has no positioning area, and `compute_oof_layout`
+  (`oof.rs:351`) returns before replacing the list of out-of-flow boxes the node was the containing block of, so the list
+  names deleted nodes and the rounding pass reads them. A layer root whose last child was a popover, or a card whose only
+  child was absolute, is exactly that. Flexbox marks an empty container the same way (`flexbox.rs:656`). The workaround
+  is one assignment in the measure closure, covered by `layout::tests::a_container_that_loses_its_last_out_of_flow_child_lays_out_again`
+  (which fails without it); the `should_panic` test fails when a Taffy update fixes the defect, which is the signal to
+  delete both.
+- **D25 (I4)**: two loops over the out-of-flow elements only join the named exceptions to invariant 3.2.6. After a commit that
+  changes a child list or a style change that changes a `position` or `zIndex`, every out-of-flow element's paint parent is
+  re-examined (`Mounted::settle_paint_structure`); and geometry compares every out-of-flow element on every pass. Evidence:
+  an absolute element is located in its containing block, which a change anywhere between the two (a static ancestor
+  that moved, a keyed reorder above) can move without a layout flag on the path from the root, so the incremental
+  walk, which only visits the children of an ancestor of a dirty node, cannot be relied on for it. The cost is the number
+  of out-of-flow elements, not the tree's size.
+- **D26 (I4)**: events from inside a `<Portal>` bubble along the native path (the overlay tree up to its top-level node, plan
+  3.10 rule 8), not through the React ancestors of the `<Portal>`, which DOM and React DOM would; the plan's native path
+  rule decides, and a handler that wants the DOM behaviour passes it through props. Tab stops follow document order,
+  main layer first, so a popover's come after every main stop and the main stops are in the order they were
+  (verified: the popover opens and Tab from the Menu button visits the stops after it, then the popover's, then wraps).
 - **Native rule restored (F4)**: plan 3.3 says hover re-hit-tests "if geometry under the mouse changed";
   F3 re-hit-tested at every flush, which walks the siblings at every level (169 us at 2,000 cells).
   `flush_layout` now re-hit-tests only after something that decides the hit changed: a node's geometry,
@@ -684,8 +723,8 @@ box        transform = location relative to paint parent; modulate alpha = opaci
 ```
 
 - **Paint parent**: the parent's `content` (or `scroll`) item, except `position: absolute` attaches to
-  its containing block's item (nearest positioned ancestor, else the layer root) and
-  `position: fixed` attaches to the layer root. An absolute element whose containing block is outside
+  its containing block's `content` (or `scroll`) item (nearest positioned ancestor, else the layer root) and
+  `position: fixed` attaches to the layer root (D23). An absolute element whose containing block is outside
   an `overflow-hidden` ancestor therefore escapes that clip and that scroller, which is CSS's rule.
 - **Sibling order**: draw index = rank by (`zIndex` default 0, document order). `zIndex` orders
   siblings under the same paint parent only, as in React Native.
@@ -865,7 +904,8 @@ Rules (all **must**):
 
 - `position: static|relative|absolute|fixed` and `top/right/bottom/left` (number, `%`, `auto`) map to
   Taffy, which implements containing blocks at the pinned revision
-  (`~/.cargo/git/checkouts/taffy-bd4586f5551dc460/fca167c/src/style/mod.rs:354-385`).
+  (`~/.cargo/git/checkouts/taffy-bd4586f5551dc460/fca167c/src/style/mod.rs:354-385`). The `location` Taffy reports for
+  an absolute element is relative to its containing block's border box (D23), which is the frame of its paint parent.
 - Clipping and scrolling of out-of-flow boxes follow from the paint-parent rule in 3.8.
 - `zIndex` orders siblings under one paint parent (React Native semantics). Popovers, menus, dialogs
   and toasts render through `<Portal>` into the overlay layer, which always covers the main layer.
@@ -1419,7 +1459,10 @@ fix is not local.
 ### Phase I4 — Positioning, z-order, overlays
 
 **Files**: `native/props.rs`, `native/mount.rs`, `native/render_tree.rs`, `src/types.ts`,
-`src/styles.ts`, `src/components.tsx`, tests, demo, verifiers.
+`src/styles.ts`, `src/components.tsx`, tests, demo, verifiers. As built: also `native/stacking.rs` (new, Godot-free),
+`native/layout.rs`, `native/motion.rs`, `native/snapshot.rs`, `native/lib.rs`, `src/native.ts`, `tests/recording-host.ts`,
+`tests/styles.test.ts` and its fixture, `demo/src/positioning-lab.tsx` and `demo/src/labs.tsx`, `native/PROTOCOL.md`,
+README; `render_tree.rs` and `components.tsx` needed no change (the overlay layer and `<Portal>` existed since F3).
 
 1. **Evidence first**: a Rust test recording whether Taffy's `Layout.location` for an absolute
    grandchild is relative to its parent or its containing block; build the paint-parent transform on
@@ -1434,6 +1477,11 @@ fix is not local.
    (pixel check); Tab order unchanged.
 
 **Gate**: native gate (including `verify:motion` if it touches the layout, geometry or render code 0.4.1 names); Web gate only if the phase changed Web-specific behaviour.
+Done as built (`mount.rs`, `layout.rs` and `motion.rs` changed, so `verify:motion` ran; nothing Web-specific changed, so
+there is no Web gate): the progress log, Phase I4. Plan problems found: the task text says the popover is "anchored with
+`getRect()`" and the plan 4.4 lists `get_node_rect`, both of which existed since F3; Taffy's stale hoisted list (D24) is not
+in the plan; the verifiers' geometry check rejected every out-of-flow element (a child outside its parent, overlapping
+siblings), so `verify-interaction.ts` skips out-of-flow elements in it.
 
 ### Phase I5 — Scroll containers
 

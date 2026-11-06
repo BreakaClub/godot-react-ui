@@ -66,7 +66,7 @@ so JS drops its instances and public handles.
 | `autoFocus` | boolean |
 
 JS compiles `className` and `style` once per distinct input into ordered **layers** (`src/styles.ts`;
-shorthands `padding`, `margin`, `gap` and `overflow` are expanded to longhands there). Native resolves
+shorthands `padding`, `margin`, `gap`, `overflow` and `inset` are expanded to longhands there). Native resolves
 a node's **computed style**: its parent's inherited properties (`color`, `fontSize`, `textAlign`,
 `interpolateSize`, `pointerEvents`, `cursor`), then every layer whose conditions hold, in order. A layer applies when the root's
 logical width is at least its `minWidth` and every listed state holds: `hover` and `active` apply to the
@@ -88,7 +88,9 @@ positive integer (equal fractional columns); backgroundColor/color/borderColor
 pixels; opacity 0..1; textAlign `left|center|right`; pointerEvents `auto|none` and cursor
 `default|pointer|text|move|grab|grabbing|not-allowed|crosshair|wait|progress|help|ew-resize|ns-resize|nesw-resize|nwse-resize`
 (both inherited; see "Godot co-operation" below); transition, interpolateSize and overflowX/overflowY
-`visible|hidden` as described below. Unsupported properties fail explicitly. Default is a flex column,
+`visible|hidden` as described below. `position` is `static|relative|absolute|fixed` (not inherited; `sticky` is
+rejected), `top`/`right`/`bottom`/`left` are finite numbers (negative allowed), percentage strings (negative
+allowed) or `"auto"`, and `zIndex` is a 32-bit integer; see "Positioning and stacking" below. Unsupported properties fail explicitly. Default is a flex column,
 transparent background, white 16px text, no spacing, normal flex shrinking. Text is shaped and wrapped
 with Godot `TextParagraph`; there is no JS text measurement callback.
 
@@ -106,10 +108,38 @@ parents the child boxes). Sibling order is the child-list order. Layer 0 and lay
 item; the focus ring is a top-most item above both. Only an element whose own visuals or size changed
 re-records; an idle frame records nothing.
 
-Native hit testing descends the hierarchy in reverse paint order and hands a point to a clipping
-element's children only inside its padding box. An element whose computed `pointerEvents` is `none` is never
+Native hit testing descends the **paint tree** in reverse paint order, the overlay layer first, and hands a
+point to a clipping element's paint children only inside its padding box. An element whose computed `pointerEvents` is `none` is never
 the hit, but its children are still tested (CSS semantics). The root clips drawing and input to its own
 rectangle. Enabled buttons participate in Tab/Shift-Tab focus (document order) and Enter/Space activation.
+
+## Positioning and stacking
+
+`position`, the four insets and `zIndex` are layout and paint properties. Layout is Taffy's: an `absolute` element is
+placed by its insets in its **containing block**, the padding box of its nearest `relative`, `absolute` or `fixed`
+ancestor, else the layer's root (the root's size is the window's); `fixed` is placed in the layer's root whatever its
+ancestors are. At the pinned Taffy revision `Layout.location` of such an element is relative to its containing block's
+border box, not to its parent (`props::tests::an_absolute_grandchild_is_located_in_its_containing_block_not_its_parent`).
+
+What is drawn and hit follows the **paint tree**, which differs from the React tree (events, inheritance, Tab order,
+layout) only for out-of-flow elements (`native/stacking.rs`): an element's **paint parent** is its parent, except that an
+`absolute` element's is its containing block and a `fixed` element's is the layer's root. An element's geometry
+(`location`) is in its paint parent's frame, its canvas items hang under its paint parent's content item, and the
+clips and scroll offsets that apply to it are its paint ancestors', so an `absolute` element whose containing block
+is outside an `overflow: hidden` parent is not clipped by that parent, and one inside a `relative` hidden parent is.
+Siblings of one paint parent (the elements it paints: its children, and the out-of-flow descendants it is the
+containing block of) are painted in ascending (`zIndex`, document order), where `zIndex` defaults to 0 and applies to
+every element, as in React Native (no stacking contexts). The overlay layer (layer 1) is drawn above and hit-tested
+before layer 0 whatever the `zIndex`es. Tab order and `documentIndex` are document order, main layer first.
+
+The mounted tree keeps each element's `paint_parent` and `paint_children` and a set of the out-of-flow elements. After
+a commit that changes a child list, or a style change that changes a `position` or `zIndex`, the paint parents of those
+elements and of every out-of-flow element are re-examined and the affected paint lists are rebuilt, before geometry
+(`Mounted::settle_paint_structure`); geometry compares every out-of-flow element on every pass, because a change
+anywhere between it and its containing block moves it with no layout flag on the way. These two loops run over the
+out-of-flow elements only (plan 3.2, invariant 6, named exception). A childless element is laid out by Taffy as a
+leaf, which does not replace the list of out-of-flow boxes it was the containing block of; `layout::compute_tree` gives
+leaf output the positioning area of an empty container so that the list is replaced when its last child goes.
 
 ## Godot co-operation
 
@@ -145,9 +175,11 @@ button does not activate it. Disabled buttons and descendants of disabled ancest
 ## Queries
 
 - `get_snapshot() -> String`: `{nodes, stats, width, height, hovered, focused, pressed, focusVisible,
-  clockMs, transitions}`. Each node is `{id, kind, layer, text, parent, children, rect, clipRect, style,
-  props, presentation}`: `id` is the tag, `rect` is root-local logical pixels, `clipRect` the clip its
-  ancestors impose (or `null`), `style` the node's **computed** style (unset properties omitted) and `props`
+  clockMs, transitions}`. Each node is `{id, kind, layer, text, parent, children, paintParent, paintIndex,
+  documentIndex, rect, clipRect, style, props, presentation}`: `id` is the tag, `parent` and `children` are the React
+  tree's, `paintParent` is who paints the node (`parent`'s rule, `0` for the main layer's root, `null` in the overlay)
+  and `paintIndex` its place, back to front, among what that paint parent paints, `documentIndex` its pre-order place
+  (node 0 reports `-1`), `rect` is root-local logical pixels, `clipRect` the clip its paint ancestors impose (or `null`), `style` the node's **computed** style (unset properties omitted) and `props`
   the native props it was last given. Node `0` stands for the main layer's root (`parent: null`); layer 0's
   top-level nodes report `parent: 0`, layer 1's report `null` and `layer: 1`. `stats` is
   `{layoutPasses, batches (= commits), commits, nodeCount, paintPasses, layoutMicros, nodesCreated,
@@ -284,7 +316,7 @@ Godot's `Input` dispatches every `InputEventGesture` twice (once explicitly and 
 with the same deltas, exactly as it reaches Godot's own `ScrollContainer`. Native does not filter this.
 
 Limits: no scrolling, text input/IME, text selection, accessibility tree, images, rich inline text, rounded clip
-masks, `position`/`z-index`, a public CSS stylesheet/selector API, arbitrary keyframe animations, or custom native
+masks, `position: sticky`, CSS stacking contexts (`zIndex` orders siblings of one paint parent), a public CSS stylesheet/selector API, arbitrary keyframe animations, or custom native
 materials. Both overflow axes clip together (`hidden` on either clips the padding box). Native drawing uses owned
 CanvasItem RIDs with cached resources and one Control for the whole React tree.
 
