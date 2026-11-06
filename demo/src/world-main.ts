@@ -1,0 +1,459 @@
+import { createElement } from 'react';
+import {
+  BaseMaterial3D, Callable, Camera3D, Color, DisplayServer, Image, InputEvent, InputEventKey, InputEventMouse,
+  InputEventMouseButton, InputEventMouseMotion, InputEventScreenDrag, InputEventScreenTouch, MeshInstance3D,
+  MouseButton, Node, OS, QuadMesh, ReactUiRoot, StandardMaterial3D, SubViewport, Time, Vector2, Vector2I, Vector3,
+} from 'godot';
+import { createClassBinder } from 'godot.annotations';
+import { createRoot, type NativeSnapshot, type NativeSnapshotNode, type ReactRoot } from '../../src';
+import { intersectQuad, quadPixelToLocal, type QuadHit, type QuadSurface } from './world-geometry';
+import { WorldPanel } from './world-panel';
+import { runWorldVerification } from './verify-world';
+
+const bind = createClassBinder();
+const MICROSECONDS_PER_MILLISECOND = 1000;
+
+/** The panel's pixels: the `SubViewport` size and the coordinate space of the input forwarded to it. */
+const PANEL_WIDTH = 480;
+const PANEL_HEIGHT = 320;
+/** The quad's width in world units; the camera below is placed so that a panel pixel lands on about one screen pixel. */
+const QUAD_WIDTH = 1.5;
+/** Same aspect as the panel, so a panel pixel is square on the quad. */
+const QUAD_HEIGHT = QUAD_WIDTH * PANEL_HEIGHT / PANEL_WIDTH;
+/** Turned and tilted away from the camera on purpose: an axis-aligned quad would hide a wrong ray-plane mapping. */
+const QUAD_ROTATION_DEGREES = { x: -8, y: 24, z: 0 };
+/** Far enough that the quad fits the portrait window, near enough that a panel pixel is about a screen pixel. */
+const CAMERA_POSITION = { x: 0, y: 0.25, z: 2.6 };
+const CAMERA_FOV_DEGREES = 50;
+/** A backdrop behind the quad shows that the panel's transparent margin really is see-through. */
+const BACKDROP_SIZE = { x: 9, y: 6 };
+const BACKDROP_Z = -0.8;
+/** Tailwind slate-300. */
+const BACKDROP_COLOR = new Color(0.796, 0.835, 0.882, 1);
+
+/** Narrowing: `copy` is an instance of exactly the class `original` is. */
+function isSameClass<T extends InputEvent>(copy: InputEvent, original: T): copy is T {
+  return Object.getPrototypeOf(copy) === Object.getPrototypeOf(original);
+}
+
+/**
+ * `event` copied, every field included (modifiers, button mask, double click, ...). The original may still
+ * be on its way to other nodes, so the position is rewritten on the copy.
+ */
+function copyEvent<T extends InputEvent>(event: T): T {
+  const copy = event.duplicate();
+  if (!(copy instanceof InputEvent) || !isSameClass(copy, event)) throw new Error('InputEvent.duplicate() returned a different class');
+  return copy;
+}
+
+function isWheelButton(button: MouseButton): boolean {
+  return button === MouseButton.MouseButtonWheelUp || button === MouseButton.MouseButtonWheelDown
+    || button === MouseButton.MouseButtonWheelLeft || button === MouseButton.MouseButtonWheelRight;
+}
+
+/** What the "game" behind the panel saw, for the verifier: input nothing consumed. */
+export interface WorldCounts {
+  /** Primary mouse presses and touch contacts no panel consumed. */
+  gamePresses: number;
+  /** Key presses (not echoes) no panel consumed. */
+  gameKeys: number;
+  /** Pointer and wheel events the panel's root heard. */
+  panelPointerEvents: number;
+  /** Whether the pointer is currently inside the quad, as far as the owner has told the SubViewport. */
+  pointerInside: boolean;
+  /**
+   * Times the window lost OS focus since it started (never reset). Another application taking focus
+   * cancels a press in flight (plan D6), which a verifier would otherwise report as an unexplained failure.
+   */
+  windowFocusLosses: number;
+}
+
+/** A point in the panel, in `SubViewport` pixels, or in the main viewport: a plain object, so it can leave the realm. */
+export interface Point2 {
+  x: number;
+  y: number;
+}
+
+/**
+ * One Godot node owns the 3D scene, the panel's `SubViewport`, the React root inside it, and the routing
+ * of main-viewport input onto the panel. Nothing here needs physics: the camera ray is intersected with the
+ * quad's plane analytically (`world-geometry.ts`), because Breaka's Web engine has no 3D physics.
+ */
+@bind()
+export default class WorldMain extends Node {
+  private camera: Camera3D | null = null;
+  private quad: MeshInstance3D | null = null;
+  private panelViewport: SubViewport | null = null;
+  private surface: ReactUiRoot | null = null;
+  private renderer: ReactRoot | null = null;
+  private readonly web = OS.hasFeature('web');
+  private readonly panel: QuadSurface = {
+    width: QUAD_WIDTH, height: QUAD_HEIGHT, pixelWidth: PANEL_WIDTH, pixelHeight: PANEL_HEIGHT,
+  };
+  /** Whether the pointer is inside the quad as the panel's viewport has been told (enter/exit pair up). */
+  private pointerInside = false;
+  /** Mouse buttons pressed on the panel and not yet released: their motion and release are routed wherever they go. */
+  private readonly heldButtons = new Set<MouseButton>();
+  /** Where the last mouse event routed to the panel landed, for `relative` and for a release with no ray hit. */
+  private lastMousePixel: Vector2 | null = null;
+  /** Fingers that went down on the panel, by touch index, with the panel pixel they were last at. */
+  private readonly touches = new Map<number, Vector2>();
+  private counts: WorldCounts = { gamePresses: 0, gameKeys: 0, panelPointerEvents: 0, pointerInside: false, windowFocusLosses: 0 };
+  /** When not null, only events from this input device are routed or counted; see `onlyAcceptDevice`. */
+  private acceptedDevice: number | null = null;
+
+  override _ready(): void {
+    this.updateDisplayScale();
+    this.buildScene();
+    this.mount();
+    const api = {
+      snapshot: (): NativeSnapshot => this.requireRenderer().getSnapshot(),
+      find: (testID: string): NativeSnapshotNode | undefined => this.requireRenderer().findByTestID(testID),
+      mount: () => this.mount(),
+      unmount: () => this.unmount(),
+      counts: (): WorldCounts => ({ ...this.counts, pointerInside: this.pointerInside }),
+      resetCounts: () => { this.counts = { gamePresses: 0, gameKeys: 0, panelPointerEvents: 0, pointerInside: false, windowFocusLosses: this.counts.windowFocusLosses }; },
+      /**
+       * For verification: route only events whose `device` is `device`, and everything else is ignored, so a
+       * person moving a real mouse over a verifier's window cannot interleave with its injected input.
+       * `null` accepts every device again.
+       */
+      onlyAcceptDevice: (device: number | null) => { this.acceptedDevice = device; },
+      /** The panel pixel under a main-viewport point, by the same ray the input routing uses. */
+      panelPixelAt: (x: number, y: number): (Point2 & { inside: boolean }) | undefined => {
+        const hit = this.pick(new Vector2(x, y));
+        return hit === undefined ? undefined : { x: hit.x, y: hit.y, inside: hit.inside };
+      },
+      /** The main-viewport point at which a panel pixel is drawn: the inverse of `panelPixelAt`. */
+      screenPointOf: (x: number, y: number): Point2 => this.screenPointOf(x, y),
+      panelSize: (): Point2 => ({ x: PANEL_WIDTH, y: PANEL_HEIGHT }),
+      /** The main viewport's logical size: the coordinate space of `screenPointOf`. */
+      viewportSize: (): Point2 => {
+        const viewport = this.getViewport();
+        if (!viewport) throw new Error('World requires a viewport');
+        const size = viewport.getVisibleRect().size;
+        return { x: size.x, y: size.y };
+      },
+      surfaceHasFocus: (): boolean => this.requireSurface().hasFocus(),
+      grabSurfaceFocus: () => this.requireSurface().grabFocus(),
+      /** The panel's own render target, as the quad's material samples it. */
+      panelImage: (): Image => {
+        const image = this.requirePanelViewport().getTexture()?.getImage();
+        if (!image) throw new Error('The panel viewport has no image to read');
+        return image;
+      },
+    };
+    // This demo-only inspection surface is also available in the Web JS realm.
+    Object.assign(globalThis, { godotReactWorld: api });
+    console.log('GODOT_REACT_WORLD_READY');
+    const args = OS.getCmdlineUserArgs();
+    if (Array.from({ length: args.size() }, (_, i) => args.get(i)).includes('--verify-world')) {
+      void runWorldVerification(this, api).then(() => this.getTree()?.quit()).catch(error => {
+        console.error('GODOT_REACT_VERIFY_FAILED', error instanceof Error ? error.stack : String(error));
+        this.getTree()?.quit(1);
+      });
+    }
+  }
+
+  /** Web: the canvas is sized in device pixels, so the window divides its logical size by the ratio. */
+  private updateDisplayScale(): void {
+    if (!this.web) return;
+    const window = this.getWindow();
+    if (!window) throw new Error('Web demo requires its owning Window');
+    const scale = DisplayServer.screenGetScale();
+    if (!Number.isFinite(scale) || scale <= 0) throw new Error('Invalid display scale');
+    if (window.contentScaleFactor !== scale) window.contentScaleFactor = scale;
+  }
+
+  private buildScene(): void {
+    const camera = new Camera3D();
+    camera.setName('Camera');
+    camera.fov = CAMERA_FOV_DEGREES;
+    this.addChild(camera);
+    camera.lookAtFromPosition(new Vector3(CAMERA_POSITION.x, CAMERA_POSITION.y, CAMERA_POSITION.z), new Vector3(0, 0, 0));
+    camera.current = true;
+    this.camera = camera;
+
+    this.addChild(this.createBackdrop());
+
+    // The panel renders into its own SubViewport; the quad shows that viewport's texture.
+    const viewport = new SubViewport();
+    viewport.setName('PanelViewport');
+    viewport.size = new Vector2I(PANEL_WIDTH, PANEL_HEIGHT);
+    viewport.transparentBg = true;
+    viewport.renderTargetUpdateMode = SubViewport.UpdateMode.UpdateAlways;
+    this.addChild(viewport);
+    this.panelViewport = viewport;
+
+    const material = new StandardMaterial3D();
+    material.shadingMode = BaseMaterial3D.ShadingMode.ShadingModeUnshaded;
+    material.transparency = BaseMaterial3D.Transparency.TransparencyAlpha;
+    // Canvas items drawn into a transparent viewport leave premultiplied colour at their antialiased edges
+    // (rgb already scaled by alpha). The default blend would scale it again and darken every edge.
+    material.blendMode = BaseMaterial3D.BlendMode.BlendModePremultAlpha;
+    material.textureFilter = BaseMaterial3D.TextureFilter.TextureFilterLinear;
+    material.albedoTexture = viewport.getTexture();
+    const mesh = new QuadMesh();
+    mesh.size = new Vector2(QUAD_WIDTH, QUAD_HEIGHT);
+    const quad = new MeshInstance3D();
+    quad.setName('PanelQuad');
+    quad.mesh = mesh;
+    quad.materialOverride = material;
+    quad.rotationDegrees = new Vector3(QUAD_ROTATION_DEGREES.x, QUAD_ROTATION_DEGREES.y, QUAD_ROTATION_DEGREES.z);
+    this.addChild(quad);
+    this.quad = quad;
+  }
+
+  private createBackdrop(): MeshInstance3D {
+    const material = new StandardMaterial3D();
+    material.shadingMode = BaseMaterial3D.ShadingMode.ShadingModeUnshaded;
+    material.albedoColor = BACKDROP_COLOR;
+    const mesh = new QuadMesh();
+    mesh.size = new Vector2(BACKDROP_SIZE.x, BACKDROP_SIZE.y);
+    const backdrop = new MeshInstance3D();
+    backdrop.setName('Backdrop');
+    backdrop.mesh = mesh;
+    backdrop.materialOverride = material;
+    backdrop.position = new Vector3(0, 0, BACKDROP_Z);
+    return backdrop;
+  }
+
+  private mount(): void {
+    if (this.renderer) throw new Error('World is already mounted');
+    const viewport = this.requirePanelViewport();
+    const surface = new ReactUiRoot();
+    surface.setName('WorldSurface');
+    viewport.addChild(surface);
+    surface.size = new Vector2(PANEL_WIDTH, PANEL_HEIGHT);
+    this.surface = surface;
+    const renderer = createRoot(surface, {
+      now: () => Time.getTicksUsec() / MICROSECONDS_PER_MILLISECOND,
+      // As in the main demo: native emits eventsReady from inside its input callbacks, and a GodotJS
+      // Callable holds its function strongly, so unmount() must disconnect it.
+      subscribeToEvents: (listener) => {
+        const callable = Callable.create(listener);
+        surface.eventsReady.connect(callable);
+        return () => surface.eventsReady.disconnect(callable);
+      },
+    });
+    this.renderer = renderer;
+    for (const type of ['pointerdown', 'pointerup', 'pointermove', 'pointercancel', 'click', 'wheel'] as const) {
+      renderer.addEventListener(type, () => { this.counts.panelPointerEvents += 1; });
+    }
+    renderer.render(createElement(WorldPanel));
+  }
+
+  private unmount(): void {
+    if (!this.renderer || !this.surface) throw new Error('World is not mounted');
+    // The pointer leaves while the root still exists, so its hover is cleared natively. Then React cleanup,
+    // then the node: the renderer releases the native subtree it owns.
+    this.leavePanel();
+    this.renderer.unmount();
+    this.renderer = null;
+    this.surface.queueFree();
+    this.surface = null;
+    this.heldButtons.clear();
+    this.touches.clear();
+    this.lastMousePixel = null;
+  }
+
+  override _process(): void {
+    this.updateDisplayScale();
+    this.renderer?.dispatchEvents();
+  }
+
+  override _exitTree(): void {
+    if (this.renderer) this.unmount();
+    Reflect.deleteProperty(globalThis, 'godotReactWorld');
+  }
+
+  /** `NOTIFICATION_WM_MOUSE_EXIT` leaves no motion event behind, so tell the panel the pointer is gone. */
+  _notification(what: number): void {
+    if (what === Node.NOTIFICATION_WM_MOUSE_EXIT) this.leavePanel();
+    else if (what === Node.NOTIFICATION_WM_WINDOW_FOCUS_OUT) this.counts.windowFocusLosses += 1;
+  }
+
+  // ---- Input routing --------------------------------------------------------------------------------
+
+  /**
+   * Everything the main viewport's GUI left unhandled lands here: the panel gets first refusal and, when it
+   * consumes the event, the game behind it does not see it.
+   */
+  override _unhandledInput(event: InputEvent): void {
+    // Godot also turns real touches into mouse events (`emulate_mouse_from_touch`, device -1). The touch is
+    // what is routed; the emulated mouse press that comes with it would be a second press.
+    if (event.device === InputEvent.DEVICE_ID_EMULATION) return;
+    if (this.acceptedDevice !== null && event.device !== this.acceptedDevice) return;
+    if (this.routeToPanel(event)) {
+      this.getViewport()?.setInputAsHandled();
+      return;
+    }
+    if (event instanceof InputEventMouseButton && event.pressed && event.buttonIndex === MouseButton.MouseButtonLeft) {
+      this.counts.gamePresses += 1;
+    } else if (event instanceof InputEventScreenTouch && event.pressed) {
+      this.counts.gamePresses += 1;
+    } else if (event instanceof InputEventKey && event.pressed && !event.echo) {
+      this.counts.gameKeys += 1;
+    }
+  }
+
+  /** Whether the panel consumed `event`. */
+  private routeToPanel(event: InputEvent): boolean {
+    if (event instanceof InputEventMouse) return this.routeMouse(event);
+    if (event instanceof InputEventScreenTouch) return this.routeTouch(event);
+    if (event instanceof InputEventScreenDrag) return this.routeDrag(event);
+    if (event instanceof InputEventKey) return this.routeKey(event);
+    return false;
+  }
+
+  /**
+   * Where a main-viewport point lands on the panel: the camera's ray through it, moved into the quad's local
+   * space and meeting its `z = 0` plane. Misses (`undefined`) when the ray is parallel to the plane, the
+   * plane is behind the camera, or the ray meets the quad's back.
+   */
+  private pick(screen: Vector2): QuadHit | undefined {
+    const camera = this.requireCamera();
+    const quad = this.requireQuad();
+    const origin = camera.projectRayOrigin(screen);
+    const direction = camera.projectRayNormal(screen);
+    const tip = new Vector3(origin.x + direction.x, origin.y + direction.y, origin.z + direction.z);
+    // A direction is a difference of two points, so `toLocal` (which applies the inverse of the quad's
+    // global transform to a point) moves the whole ray, scale and rotation included.
+    const localOrigin = quad.toLocal(origin);
+    const localTip = quad.toLocal(tip);
+    const hit = intersectQuad(
+      localOrigin,
+      { x: localTip.x - localOrigin.x, y: localTip.y - localOrigin.y, z: localTip.z - localOrigin.z },
+      this.panel,
+    );
+    return hit !== undefined && hit.frontFacing ? hit : undefined;
+  }
+
+  private screenPointOf(x: number, y: number): Point2 {
+    const camera = this.requireCamera();
+    const local = quadPixelToLocal(this.panel, x, y);
+    const world = this.requireQuad().toGlobal(new Vector3(local.x, local.y, local.z));
+    if (camera.isPositionBehind(world)) throw new Error(`Panel pixel ${x},${y} is behind the camera`);
+    const screen = camera.unprojectPosition(world);
+    return { x: screen.x, y: screen.y };
+  }
+
+  /** The pointer entered the quad: Godot's own pair for a viewport shown outside a `SubViewportContainer`. */
+  private enterPanel(): void {
+    if (this.pointerInside) return;
+    this.requirePanelViewport().notifyMouseEntered();
+    this.pointerInside = true;
+  }
+
+  /**
+   * The pointer left the quad (or the window). The panel clears hover through the notification Godot sends a
+   * root when its viewport loses the mouse; a press that is still held keeps its mouse focus, as in a window.
+   */
+  private leavePanel(): void {
+    if (!this.pointerInside) return;
+    this.pointerInside = false;
+    const viewport = this.panelViewport;
+    if (viewport !== null && viewport.isInsideTree()) viewport.notifyMouseExited();
+  }
+
+  /**
+   * Whether the panel is to see a mouse event. A press must land on the panel; what follows it (motion, the
+   * release of a button it pressed) is routed wherever the ray lands, so a drag that leaves the quad still
+   * ends on the button it started on, as in a window. Wheel ticks are a press and a release at once and are
+   * not "held".
+   */
+  private shouldRouteMouse(event: InputEventMouse, hit: QuadHit | undefined): boolean {
+    const inside = hit?.inside === true;
+    if (!(event instanceof InputEventMouseButton)) return inside || (this.heldButtons.size > 0 && hit !== undefined);
+    if (isWheelButton(event.buttonIndex)) return inside;
+    return event.pressed ? inside : this.heldButtons.has(event.buttonIndex);
+  }
+
+  private routeMouse(event: InputEventMouse): boolean {
+    const viewport = this.requirePanelViewport();
+    const hit = this.pick(event.position);
+    if (hit?.inside === true) this.enterPanel(); else this.leavePanel();
+    if (!this.shouldRouteMouse(event, hit)) return false;
+
+    const last = this.lastMousePixel;
+    const pixel = hit !== undefined ? new Vector2(hit.x, hit.y) : last;
+    if (pixel === null) throw new Error('A mouse event was routed to the panel before any pixel was known');
+    const copy = copyEvent(event);
+    copy.position = pixel;
+    copy.globalPosition = pixel;
+    if (copy instanceof InputEventMouseMotion) {
+      copy.relative = last === null ? new Vector2(0, 0) : new Vector2(pixel.x - last.x, pixel.y - last.y);
+    }
+    if (event instanceof InputEventMouseButton && !isWheelButton(event.buttonIndex)) {
+      if (event.pressed) this.heldButtons.add(event.buttonIndex); else this.heldButtons.delete(event.buttonIndex);
+    }
+    this.lastMousePixel = pixel;
+    viewport.pushInput(copy, true);
+    return viewport.isInputHandled();
+  }
+
+  private routeTouch(event: InputEventScreenTouch): boolean {
+    const viewport = this.requirePanelViewport();
+    const known = this.touches.get(event.index);
+    const hit = this.pick(event.position);
+    // Like a press, a touch starts on the panel or not at all; its drags and its end follow it anywhere.
+    if (event.pressed ? hit?.inside !== true : known === undefined) return false;
+    const pixel = hit !== undefined ? new Vector2(hit.x, hit.y) : known;
+    if (pixel === undefined) throw new Error('A touch was routed to the panel before any pixel was known');
+    const copy = copyEvent(event);
+    copy.position = pixel;
+    if (event.pressed) this.touches.set(event.index, pixel); else this.touches.delete(event.index);
+    viewport.pushInput(copy, true);
+    return viewport.isInputHandled();
+  }
+
+  private routeDrag(event: InputEventScreenDrag): boolean {
+    const viewport = this.requirePanelViewport();
+    const known = this.touches.get(event.index);
+    const hit = this.pick(event.position);
+    if (known === undefined || hit === undefined) return false;
+    const pixel = new Vector2(hit.x, hit.y);
+    const copy = copyEvent(event);
+    copy.position = pixel;
+    copy.relative = new Vector2(pixel.x - known.x, pixel.y - known.y);
+    this.touches.set(event.index, pixel);
+    viewport.pushInput(copy, true);
+    return viewport.isInputHandled();
+  }
+
+  /** Keys follow focus: they reach the panel only while its root holds key focus inside the SubViewport. */
+  private routeKey(event: InputEventKey): boolean {
+    const surface = this.surface;
+    if (surface === null || !surface.hasFocus()) return false;
+    const viewport = this.requirePanelViewport();
+    viewport.pushInput(event, true);
+    return viewport.isInputHandled();
+  }
+
+  // ---- Lookups -------------------------------------------------------------------------------------
+
+  private requireCamera(): Camera3D {
+    if (!this.camera) throw new Error('World camera is not built');
+    return this.camera;
+  }
+
+  private requireQuad(): MeshInstance3D {
+    if (!this.quad) throw new Error('World quad is not built');
+    return this.quad;
+  }
+
+  private requirePanelViewport(): SubViewport {
+    if (!this.panelViewport) throw new Error('World panel viewport is not built');
+    return this.panelViewport;
+  }
+
+  private requireRenderer(): ReactRoot {
+    if (!this.renderer) throw new Error('World renderer is not mounted');
+    return this.renderer;
+  }
+
+  private requireSurface(): ReactUiRoot {
+    if (!this.surface) throw new Error('World surface is not mounted');
+    return this.surface;
+  }
+}

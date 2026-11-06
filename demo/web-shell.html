@@ -23,7 +23,14 @@
       const status = document.getElementById('status');
       const missing = Engine.getMissingFeatures({ threads: $GODOT_THREADS_ENABLED });
       const args = ['--audio-driver', 'Dummy'];
-      if (new URLSearchParams(location.search).get('verify') === '1') args.push('--', '--verify');
+      const params = new URLSearchParams(location.search);
+      // Arguments for the demo's scripts follow `--`. `?scene=res://world.tscn` starts that scene instead of
+      // the project's main scene through the SceneLauncher autoload: Breaka's Web engine has no
+      // command-line path overrides, so the scene cannot be given to the engine itself (docs/WORLD_SPACE.md).
+      const userArgs = [];
+      if (params.get('verify') === '1') userArgs.push('--verify');
+      if (params.get('scene') !== null) userArgs.push('--scene', params.get('scene'));
+      if (userArgs.length > 0) args.push('--', ...userArgs);
       if (missing.length) {
         status.textContent = `This browser is missing required features:\n${missing.join('\n')}`;
       } else {

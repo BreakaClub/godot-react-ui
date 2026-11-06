@@ -24,6 +24,7 @@
     "verify:motion": "node scripts/verify.mjs --motion",
     "verify:interaction": "node scripts/verify.mjs --interaction",
     "verify:interaction:web": "node scripts/verify-interaction-web.mjs",
+    "verify:world": "node scripts/verify-world.mjs",
     "test": "tsx --test tests/*.test.ts"
   },
   "dependencies": {
