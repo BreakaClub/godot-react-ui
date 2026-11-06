@@ -8,14 +8,14 @@ DOM renderer and no embedded V8 in the Web export.
 ```sh
 pnpm install
 node scripts/build-web.mjs
-node scripts/serve-web.mjs
-# Run in another terminal while the server is active:
+# The verifiers serve the export themselves, on a free port:
 pnpm verify:web
 pnpm verify:motion:web
+# To look at it by hand: node scripts/serve-web.mjs
 ```
 
 The build runs the TypeScript check and bundle before exporting with the V8 Godot
-4.8 editor. The default local URL is `http://127.0.0.1:8096`. `--release` selects the
+4.8 editor. `serve-web` listens on `http://127.0.0.1:8096` (or `PORT`). `--release` selects the
 release engine template; the Rust extension is optimized in both modes.
 `--wasm-only` builds just the side module, and `--export-only` rechecks and rebundles
 TypeScript before exporting an existing side module. The server includes the
@@ -97,15 +97,18 @@ Godot 4.7.2 with upstream GodotJS instead of Breaka's engine. The default `break
 | API input | `native/api` | `native/api/stock-4.7.2` |
 | Output | `target/web`, `artifacts/web-<mode>` | `target/stock-web`, `artifacts/stock/web-<mode>` |
 
-Serve and verify a stock export with the same selector, on a port of your own (`--release` selects the release template, as for
-`breaka`):
+Verify a stock export with the same selector (`--release` selects the release template, as for `breaka`). The verifiers serve the
+export themselves on a free port (scripts/web-verify.mjs), so there is no server to start and no port to choose:
 
 ```sh
 node scripts/build-web.mjs --engine=stock
-PORT=8100 pnpm demo:web --engine=stock &
-GODOT_REACT_WEB_URL=http://127.0.0.1:8100 pnpm verify:web --engine=stock
-GODOT_REACT_WEB_URL=http://127.0.0.1:8100 pnpm verify:interaction:web --engine=stock
+pnpm verify:web --engine=stock
+pnpm verify:interaction:web --engine=stock
 ```
+
+To look at an export by hand, `PORT=8100 pnpm demo:web --engine=stock`. A verifier pointed at that server with
+`GODOT_REACT_WEB_URL=http://127.0.0.1:8100` first compares every file the server sends with the export's receipt and refuses any
+difference.
 
 The stock debug template as first built aborted in every pthread worker (the closure compiler plus Emscripten assertions: a global
 collision in `godot.js`); `godot-stock/templates/.../web_dlink_debug.zip` was relinked without the closure compiler and works

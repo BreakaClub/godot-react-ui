@@ -49,6 +49,20 @@ A build records what it was made from: a SHA-256 of the contents (never the modi
 
 For TypeScript iteration, run `pnpm dev`. It watches the demo bundle and opens the Godot editor; run the demo there and restart its scene when changing initialization. Native extension changes require rebuilding and restarting Godot because extension hot reload is disabled. `pnpm dev` refuses to start on a library that is not a build of the current sources; it does not check again while it runs.
 
+### What a PASSED line means
+
+Each native verify script prints a summary after its windows. Read it, not just the exit code (docs/tracks/verifier-integrity.md):
+
+- `landscape: PASSED` is a run that passed on its first launch. `PASSED (PARTIAL: not run: pointers, drag)` is a run that left sections out (`--only=…`), or checks out (`verify:text-layout --headless` runs no pixel checks; the platform focus check of `verify:a11y` is skipped when the window is not the key window). A partial run is not the verification.
+- `PASSED after N disturbed failure(s). First failure: …` is a run that failed, was disturbed by something that reached the window (a real mouse event, a focus loss with a press in flight) shortly before it failed, and passed on a re-run. Its first log and captures are kept (`run-attempt-1.log`, `<window>-failed-attempt-1/`). A failure with no such disturbance is real and is not re-run. `--no-retry` runs each window once: use it for negative controls, where a re-run would hide the failure you are looking for.
+- Every window is also refused if the installed library stopped matching the sources since the script started.
+
+A verifier run keeps its own clipboard (in memory for native runs, in the page for Web runs) and never touches the Mac's.
+
+## Editing TypeScript: use an external editor
+
+Godot's script editor does not understand TypeScript. If a `.ts` or `.tsx` file is open in it when the editor saves, it rewrites the file (tabs for the indentation it thinks is wrong: `demo/src/main.ts` came out with 254 changed lines). The scripts that launch an editor (`gen:types`, `build:web`'s import, the stock typings, `pnpm dev`) take TypeScript out of the project's saved editor layout first, so none is opened by them. That cannot stop you opening a `.ts` file by hand in the Godot editor: edit TypeScript in an external editor, and keep it closed in Godot's.
+
 ## Authoring
 
 Use ordinary React, including hooks and component composition, with four native primitives (`View`, `Text`, `Button` and `Portal`):
@@ -154,7 +168,7 @@ pnpm verify:motion:web
 pnpm verify:interaction:web
 ```
 
-By default the verifiers expect the server on port 8096; set `PORT` for `demo:web` and `GODOT_REACT_WEB_URL` for every Web verifier to use another port. Web uses the browser's JS runtime through GodotJS and the Rust extension compiled to a Wasm side module. It requires the matching threaded GodotJS templates and Emscripten/lazy-table ABI described in that guide, plus its separately pinned Rust nightly.
+The Web verifiers serve the export themselves, on a free port that only they know, and stop the server when they finish: run them with no server and no port. `pnpm demo:web` is for looking at the export by hand (port 8096, or `PORT`). `GODOT_REACT_WEB_URL` names a server you started: the verifier then fetches every file of the export's receipt from it and refuses to open a browser unless each is byte for byte the export it checked (another checkout's, the other engine's, an older side module under the same pack all fail). Web uses the browser's JS runtime through GodotJS and the Rust extension compiled to a Wasm side module. It requires the matching threaded GodotJS templates and Emscripten/lazy-table ABI described in that guide, plus its separately pinned Rust nightly.
 
 Verified on 6 November 2026: 60 TypeScript/React tests, 79 Rust unit tests, Clippy, the native baseline, motion and interaction viewport workflows (26 + 52 + 16 captures, compared pixel by pixel with the previous renderer's settled captures), the Chrome debug Web baseline workflow (253 assertions, 53 captures including touch), the Chrome debug Web motion/benchmark workflow (433 assertions, 26 captures, 30 benchmark cells across 50/500/2,000 nodes at DPR 1 and DPR 2) and its acceptance mode (103 assertions), and the Chrome debug Web interaction workflow (158 assertions, 33 captures). The Web extension Wasm is 6,648,667 bytes (including Blitz/Stylo); the engine and JavaScript/PCK payloads are additional. Safari, mobile devices and the release Web preset have not been qualified.
 
