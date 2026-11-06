@@ -1,8 +1,10 @@
 # Interaction plan progress
 
-Evidence log for `docs/INTERACTION_PLAN.md`. One section per phase: commands run, pass/fail counts,
-artifact paths inspected, and every choice the plan left open. Raw command logs for a phase are kept
-outside the repository; the numbers below are copied from them.
+Evidence log for `docs/INTERACTION_PLAN.md`. One section per phase, and one per parallel track (D27; each
+track's full report is `docs/tracks/<name>.md`): commands run, pass/fail counts, artifact paths inspected,
+and every choice the plan left open. Raw command logs are kept outside the repository; the numbers below
+are copied from them. The F0 and F4 measurements stand side by side in Phase F4, "F4 criteria, measured,
+beside the F0 baseline". The last section, "Final acceptance", is for the coordinator.
 
 ## Environment notes that apply to every phase
 
@@ -17,10 +19,12 @@ outside the repository; the numbers below are copied from them.
 
   `scripts/build-native.mjs` and `scripts/build-web.mjs` already prepend `~/.cargo/bin`. For direct
   cargo commands use `export PATH="$HOME/.cargo/bin:$PATH"` first. With it, `rustc -vV` reports 1.99.1.
-- **Web gate port.** Port 8096 was already held by another tool's `node scripts/serve-web.mjs`
+- **Web gate port (Phase 0 only; superseded by D46).** Port 8096 was already held by another tool's `node scripts/serve-web.mjs`
   (started 5 Nov 21:19 by a Codex app-server, serving this same `artifacts/web-debug`). It was left
   running. The Web gate used `PORT=8097 pnpm demo:web` with `GODOT_REACT_WEB_URL=http://127.0.0.1:8097`
   for both verifiers (both scripts read that variable), and the 8097 server was stopped afterwards.
+  The Web verifiers now serve the export themselves on a free port; `GODOT_REACT_WEB_URL` only names a server whose
+  files they check against the export's receipt (README, "Verification and Web").
 - **GodotJS debugger port.** Native verifier logs contain `lws_socket_bind ... port 9229` and
   `Failed to bind debugger websocket ... debugger disabled for this runtime`. Another tool's
   long-running demo Godot process (pid 70296, started 00:36 from the Antigravity language server)
@@ -1520,6 +1524,40 @@ agrees with both landscape captures. No pixel differs for any other reason.
 I1's and I2's claims that those phases changed no pixel of the existing demo stand: the pixels that changed are the
 focus ring, and they changed in I3.
 
+## Text engine, Godot-free (`77d89d6` to `e024950`)
+
+Built on the `text-engine` branch from `fd11f41`; the full report and decisions are in `docs/tracks/text-engine.md`. Three modules, `native/text_offsets.rs`, `native/selection.rs` and `native/text_input.rs`, landed ahead of the phases that use them (D27): I6 integrated the first two and I7 all three.
+
+- **Agent's checks:** `cargo test --locked` 251 passed (95 existing, 156 new: `text_offsets` 15, `selection` 34, `text_input` 107), Clippy 0 warnings, fmt clean. No Godot, Web or JS run was made: everything was checked against fakes (boundaries computed from the text, a monospace layout).
+- **Not built in these modules, and not built by the phases after them:** caret affinity at wraps, Chrome's coalescing of consecutive Backspace or Delete into one undo entry, and DOM `insertCompositionText` input events (the preedit never enters the value). Word-granularity dragging after a double click exists in a `TextInput` (I7) and not in document selection (I6).
+
+## Scroll and drag-and-drop core, Godot-free (`c8df6bb` to `ee2e1f7`)
+
+Built on the `scroll-drag-core` branch from `fd11f41`; the report is `docs/tracks/scroll-drag-core.md`. `native/scroll.rs` (71 tests), `native/drag.rs` (50 tests) and `src/data-transfer.ts` (34 tests), integrated by I5 (D30 to D37) and I9 (D43).
+
+- **Agent's checks, at `9f922ee`:** `cargo test --locked` 216 passed, Clippy 0 warnings, fmt clean, `pnpm test:types` clean, `pnpm test` 100 passed.
+- **Negative controls:** 16 single-line mutations of `scroll.rs` and `drag.rs` and 9 of `data-transfer.ts`, each changing one rule the tests pin; every mutant failed at least one test.
+- **Not run:** Godot, Web, any verifier. Nothing used the modules yet.
+
+## Headless component library evaluation (`edf7385`)
+
+Research only; no repository file was changed. `docs/tracks/headless-kit-evaluation.md` read (and did not run) gluestack UI v5, `@rn-primitives`, react-aria/react-stately, Tamagui, Radix and Zag. Outcome, D28: the kit is hand-built, modelled on Radix's compound API and the WAI-ARIA keyboard tables. Its one open question, whether GodotJS's V8 has `Intl`, was answered by the Select track: it does not (`docs/tracks/select-anchor.md`).
+
+## World-space UI recipe, part 1 (Phase I11, `61b6ac6`, `a0e415f`)
+
+Built on the `world-space` branch from `fd11f41`; the recipe is `docs/WORLD_SPACE.md`, the implementer's notes (decisions W1 to W15) `docs/tracks/world-space.md`. A React root in a transparent `SubViewport` on an unshaded quad, input routed by an analytic ray-plane intersection.
+
+- **Agent's gates:** `pnpm verify:world` passed in both viewports (7 full runs after the last code change: 5 passed and 2 failed with a named window focus loss; the last two, the gate before the commit, were clean). `scripts/verify-world-web.mjs`, real Chrome 156 (landscape DPR 1, portrait DPR 2, a touch page): 86 assertions, 2 consecutive passes; the Web template renders the 3D scene and the `SubViewport` texture. Seven negative controls each failed with the named assertion.
+- **Found on the way:** without W14's isolation about 13 of 17 `verify:world` attempts failed on hover assertions, because real mouse motion (device 32, positions on another display) reached the window; the remaining failures were window focus losses. W14's own isolation was replaced by the shared one of Task 0 (`be28c00`, D21, D22).
+- **Not built here:** the anchored label (built in the Select track below) and typing (I7). **Not exercised:** IME and on-screen keyboards through a `SubViewport`, `UpdateWhenVisible`, minification.
+
+## Component kit, part 1 (Phase I8, `55b4b0a`, `5151c68`)
+
+Built on the `kit` branch from `edf7385`; the report (API, ARIA typing, decisions 1 to 15) is `docs/tracks/kit.md`: Checkbox, Switch, RadioGroup and Slider, TypeScript and React only.
+
+- **Agent's checks:** `pnpm test:types` clean, `pnpm test` 178 passed (73 new in `tests/kit.test.ts`), the package bundles and its declarations emit. No native, demo or verifier file changed, and nothing had been seen in a window: the layout and motion claims were reasoned from the native source.
+- **Those claims were checked later**, natively, by the Select track's `inputs` section (slider thumb overflow, centring and hit area; the Switch's `0 <-> 20` px spacer transition accepted; `disabled` opacity reaching the subtree; the RadioGroup in document order). That section has no Web counterpart, so touch on the kit controls was not exercised by a verifier.
+
 ## Task 0 - native verifiers and the real keyboard, mouse and window system
 
 Date: 6 November 2026. Decisions D21 and D22 are in the plan's decision log. The I3 section above records the flake:
@@ -1703,6 +1741,28 @@ system; its control reverts that handler.
 - The verifiers' geometry check treated every out-of-flow element as a defect (a child outside its parent, overlapping
   siblings); `verify-interaction.ts` now skips them.
 - The Taffy defect above (D24) is not in the plan.
+
+## Text layout (`0ebef3a`, `a98df16`)
+
+Built on the `text-layout` branch from `5151c68`; the report (decisions, engine evidence) is `docs/tracks/text-layout.md`. `native/text_layout.rs`: caret, hit-test and selection geometry over Godot's `TextParagraph` and `TextServer`, with the adapters to `text_input.rs` and `selection.rs`; I6 and I7 use it.
+
+- **Agent's checks:** `cargo test --locked` 431 passed (44 new), also with `--features probe`; Clippy 0 warnings in both; fmt clean; `pnpm test:types` clean; `pnpm test` 186 passed; `pnpm build:native --probe` then `pnpm verify:text-layout`: 619 checks, all passed; the default library was restored afterwards.
+- **Not built:** caret affinity, highlighting of a selected line break, `FILL` alignment, vertical text. Performance of building a layout was not measured.
+
+## Phase I10: accessibility (`e95e653`, `3ffe642`, `eb31786`, `69eb30b`; D38, D42, D44, D47)
+
+Built on the `accessibility` branch, rebased onto `a98df16`; the report and decisions are in `docs/tracks/accessibility.md`. `role` and the `aria-*` props reach native, which exposes the React tree through `AccessibilityServer` (`native/accessibility.rs`, Godot-free model in `native/accessibility_model.rs`); the lab, the macOS dump tool (`scripts/ax-dump.swift`) and the verifier were added with it. Scroll containers (D38), the real tree on the stock engine (D42), `TextInput` (D44) and scroll bar elements (D47) finished it.
+
+- **Agent's checks, on the rebased branch:** `cargo test --locked` 473 passed, Clippy 0 warnings, fmt clean, `pnpm test:types` clean, `pnpm test` 216 passed, `pnpm verify`, `verify:motion` and `verify:interaction` passed in both viewports, `pnpm verify:a11y`: the Godot-side half passed (a first run found a real defect, a set-value of `300` arriving as an integer variant and being rejected, now fixed), then the run ended exit 2, "not verified": `/Applications/Godot48.app` has no AccessKit.
+- **Not verified here, still open at the end:** VoiceOver by hand; Windows (UI Automation) and Linux (AT-SPI) trees; the Web (the Web engine has no accessibility code); platform focus. Deferred: `aria-labelledby` and `-describedby`, tooltip text, list and tree item counts and positions; `aria-live` is sent but untested.
+
+## Select, the root-size and document-order queries, and the anchored label (`610e177`, `c5807bb`, `036ced6`, `4be8e19`, `cab7d0f`)
+
+Built on the `select-anchor` branch (rebased onto `69eb30b`); the report (decisions 1 to 16, runtime checks) is `docs/tracks/select-anchor.md`. Phase I8 part 2 and Phase I11 part 2: the kit `Select`, `useRootSize` and `compareDocumentOrder`, the Inputs lab with its `inputs` verifier section, and a 2D label that follows a moving 3D node. No Rust changed.
+
+- **Agent's gates on the rebased tree:** `cargo test --locked` 473 passed, Clippy 0 warnings, fmt clean, `pnpm test:types` clean, `pnpm test` 278 passed (the branch added 62), `pnpm verify:interaction` (sections `events` to `inputs`), `pnpm verify` and `pnpm verify:world` passed in both viewports (landscape logged one focus loss and passed), `pnpm verify:a11y` ended "not verified" with the Godot-side checks passed.
+- **Found:** GodotJS's V8 has no `Intl` natively (`react-stately` would need polyfills). A resize while the list is open closes it. The anchored label is verified natively only.
+- **Deliberately not done:** Radix's press-drag-release, item groups and separators, `position="item-aligned"`; touch verification of the Select.
 
 ## Phase I5 - Scroll containers
 
@@ -2064,3 +2124,26 @@ Built on the `text-input-fixes` branch from an independent review of Phase I7; p
 **Inspected by the coordinator:** `glass-compare/retina-landscape-page.png` and `retina-landscape-sheet.png`: Godot at DPR 2 beside the same design in headless Chrome, a very close match. Interiors measured within about 1 level of 255 at DPR 1; the bar about 3 at DPR 1 and 6 at DPR 2 near the window's top edge.
 
 **Not re-run after the last rebases:** the Mobile renderer run. It ran once, in landscape, before the rebases; the batch regression does not cover it.
+
+## Filter fixes (`6a7815c`, D51)
+
+Built on the `filter-fixes` branch from `4ea0bd8` after an independent read of Phase V1 against the engine source; the findings, calibration tables and cost numbers are in `docs/tracks/filter-fixes.md`. Commits `6476bed` (native), `0527db3` (lab scenes, checks, controls, renderer and size options), `5fe2774` (a window in viewport content-scale mode, controls held to the renderers, freed materials counted), `b78677c` (the glass lab's decor), `6a7815c` (notes, README limits, the Web scenario), `ac4a8ac` (D51). Fourteen findings, each with a test that fails without its fix: Forward+ is calibrated as its own chain (blurs had come out 1.3 to 2.0 times too wide), one element can carry `filter` and `backdropFilter`, Mobile and Forward+ place a level's texels by the whole target, each Compatibility blur group has its own mip probe, blocked panels are revived, partial removal frees its material, and the rest of the list in the notes.
+
+- **Agent's gates, on the final tree:** `cargo test --locked` 623 passed (569 before), also with `--features filter-faults`; Clippy 0 warnings, also with `filter-faults`; fmt clean; `pnpm test:types` clean on both profiles; `pnpm test` 419 pass; `verify:interaction --only=filters,glass,hidpi` passed in both viewports (`filters` 26,774 and 10,463 assertions, `glass` 1,944 and 1,848, `hidpi` 488 and 494); `verify --interaction --only=filters-faults --faults --no-retry` passed in both viewports, every applicable control failing with its own check's message, and again on Mobile at `--viewport=1366x768` and `1920x1080` and on Forward+; stock `--only=filters` passed; `filters` on Mobile and on Forward+ passed in both windows; `filters-sizes` on Mobile passed (253 assertions each size); `pnpm build:web`, `pnpm verify:interaction:web --only=filters,glass`: 760 assertions with the others, 56 captures.
+- **Limits recorded, not fixed:** a Compatibility group's buffer is RGB10_A2, so alpha inside a `filter` has four levels; the truncation fix is unit-tested but did not reproduce on a real renderer; a scrolled `TextInput`'s own text overflow is not in a group's extent; the cost of culling a faded group was not measured in GPU milliseconds.
+- **Not run:** the full suites (`verify:interaction` with every section, `verify`, `verify:motion`, `verify:world`) on this tree; they wait for the final regression.
+
+## Final acceptance
+
+**Placeholder for the coordinator.** Nothing below is a result yet: fill it in from the full regression run of plan 0.4.1, on a clean build, and leave this note until then.
+
+- Date, commit, host state (`memory_pressure`, `vm.swapusage`).
+- Clean build: `pnpm build:native`, `pnpm build`, `pnpm build:web`.
+- Unit and static: `cargo test --locked`, `cargo clippy --locked --all-targets`, `cargo fmt --check`, `pnpm test`, `pnpm test:types` on both engine profiles.
+- Native verifiers, both viewports: `pnpm verify`, `verify:motion`, `verify:interaction` (every default section), `verify:world`, `verify:text-layout`, `verify:a11y` (its "not verified" exit on Breaka's engine is expected).
+- Web verifiers: `pnpm verify:web`, `verify:motion:web`, `verify:interaction:web`, `node scripts/verify-world-web.mjs`.
+- Renderer and engine runs, if any: `--renderer=mobile`, `--renderer=forward_plus`, `--engine=stock`.
+- Re-runs and disturbances: which windows were re-run under D22 and D46, with the first failure's text.
+- Where the F0 and F4 measurements stand side by side: "Phase F4", "F4 criteria, measured, beside the F0 baseline" above (F0's own tables are in "Phase F0", section 4).
+
+**Results:** not yet recorded.
