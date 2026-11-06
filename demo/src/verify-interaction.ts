@@ -2741,9 +2741,13 @@ async function verifySelectionGestures(owner: Node, api: InteractionInspection, 
   assert(text(api, 'sel-readout') === 'selected: nothing', 'The readout follows it');
   await clickAt(firstLine('sel-tail'), 3);
   assert(selected()?.text === textOf('sel-tail'), 'The tail paragraph is selected');
+  const beforeRemoval = api.selectionChanges();
   api.removeSelectionTail();
   await settle();
-  assert(api.find('sel-tail') === undefined && selected() === undefined, 'Removing what is selected clears it');
+  assert(api.find('sel-tail') === undefined, 'The tail paragraph was removed');
+  // The root hears of it (and the readout, which only asks native after a selectionchange, follows) before anything asks for the selection.
+  assert(api.selectionChanges() === beforeRemoval + 1 && text(api, 'sel-readout') === 'selected: nothing', 'Removing what is selected clears it, with a selectionchange');
+  assert(selected() === undefined, 'And nothing is selected');
 
   // ---- Painting: the highlight is in the content item, under the text ---------------------------------------------------------
   await clickAt(plainPoint);
@@ -2796,10 +2800,14 @@ async function verifySelectionGestures(owner: Node, api: InteractionInspection, 
   // A selectable element inserted between the ends changes what is selected, and nothing names it: the commit's child list does.
   await dragSelect(p1Start, firstLine('sel-live'));
   assert(same(selected(), 'sel-p1', 0, 'sel-live', selected()?.focus.offset ?? -1) && (selected()?.text ?? '').includes('\n'), `A selection from the first paragraph to the live line: ${JSON.stringify(selected())}`);
+  const beforeInsertion = api.selectionChanges();
   api.insertSelectionLine();
   await settle();
   assert(api.find('sel-inserted') !== undefined, 'The line was inserted');
-  assert(selected() === undefined, 'A selectable line inserted between the ends clears the selection');
+  // Asking for the selection would find it stale too (and clear it then); the commit must clear it first.
+  assert(api.selectionChanges() === beforeInsertion + 1 && text(api, 'sel-readout') === 'selected: nothing',
+    'A selectable line inserted between the ends clears the selection, with a selectionchange, when the commit lands');
+  assert(selected() === undefined, 'And nothing is selected');
 
   move(FAR_CORNER);
   await settle();

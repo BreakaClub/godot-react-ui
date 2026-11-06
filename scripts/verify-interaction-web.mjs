@@ -42,6 +42,7 @@ const CAPTURE_THEN_BUBBLE = 'outer:capture middle:capture inner:capture inner:bu
 // Godot's Key enum (core/os/keyboard.h): letters are their ASCII codes, special keys are KEY_SPECIAL | n.
 const KEY_SPECIAL = 1 << 22;
 const KEY_W = 'W'.charCodeAt(0);
+const KEY_C = 'C'.charCodeAt(0);
 const KEY_TAB = KEY_SPECIAL | 0x02;
 const KEY_ENTER = KEY_SPECIAL | 0x05;
 const KEY_HOME = KEY_SPECIAL | 0x0d;
@@ -1725,11 +1726,12 @@ async function runSelectionScenario() {
 
   // Copy: the text reaches the browser's clipboard through `DisplayServer.clipboard_set` -> `navigator.clipboard.writeText`.
   await page.evaluate(() => navigator.clipboard.writeText('before the copy'));
-  const keysBefore = (await counts()).unhandledKeys;
+  const keysBefore = (await counts()).unhandledKeys[KEY_C] ?? 0;
   await pressKey('c', [COMMAND_KEY]);
   await waitUntil('Cmd/Ctrl+C reaches the browser clipboard', async () => (await browserClipboard()) === state.text);
   check('Cmd/Ctrl+C copies the selected text, the paragraphs joined by a newline', true, { clipboard: await browserClipboard() });
-  check('And the key that copied is consumed', JSON.stringify((await counts()).unhandledKeys) === JSON.stringify(keysBefore), await counts());
+  // The Command or Control key itself is a key press nothing handles; the C that copied is the key that must not reach the game.
+  check('And the key that copied is consumed', ((await counts()).unhandledKeys[KEY_C] ?? 0) === keysBefore, await counts());
 
   await pressKey('a', [COMMAND_KEY]);
   const everything = (await Promise.all(SELECTABLE_LAB_TEXTS.map((testID) => text(testID)))).join('\n');
