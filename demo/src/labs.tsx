@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react';
 import { DragLab } from './drag-lab';
+import { FormsExtraLab } from './forms-extra-lab';
 import { FormsLab } from './forms-lab';
 import { HidpiLab } from './hidpi-lab';
 import { InputsLab } from './inputs-lab';
@@ -15,7 +16,7 @@ import { SelectionLab } from './selection-lab';
  * verifiers. They are separate from the Interaction tab, whose body has a fixed height, so a new section there
  * would push the others out of the window.
  */
-export type LabName = 'hud' | 'pointers' | 'keyboard' | 'positioning' | 'inputs' | 'scroll' | 'selection' | 'drag' | 'forms' | 'hidpi';
+export type LabName = 'hud' | 'pointers' | 'keyboard' | 'positioning' | 'inputs' | 'scroll' | 'selection' | 'drag' | 'forms' | 'forms-extra' | 'hidpi';
 
 export function labElement(name: LabName): ReactElement {
   switch (name) {
@@ -28,6 +29,7 @@ export function labElement(name: LabName): ReactElement {
     case 'selection': return <SelectionLab />;
     case 'drag': return <DragLab />;
     case 'forms': return <FormsLab />;
+    case 'forms-extra': return <FormsExtraLab />;
     case 'hidpi': return <HidpiLab />;
   }
 }

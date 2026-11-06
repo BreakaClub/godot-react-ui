@@ -14,6 +14,7 @@ use godot::classes::{DisplayServer, Window};
 use godot::prelude::*;
 
 use crate::ReactUiRoot;
+use crate::pointer::DOM_BUTTON_PRIMARY;
 use crate::props::KeyboardTypeSpec;
 use crate::text_input::EditCommand;
 
@@ -100,20 +101,53 @@ impl ReactUiRoot {
 
     fn text_input_blurred(&mut self, tag: u32) {
         self.text_inputs.drag = None;
-        // An unfinished composition is dropped with the focus (`LineEdit::unedit` applies it; the
-        // preedit never entered the value here, so there is nothing to keep).
-        if self
-            .text_state(tag)
-            .is_some_and(|state| state.buffer.composition().is_some())
-        {
+        // An unfinished composition is committed with the focus, as `LineEdit::unedit` applies it
+        // (`apply_ime`) and a browser commits it on blur: the preedit becomes an insertion at the caret, through
+        // `beforeinput` like any other, which JS can refuse (and then the preedit is gone). The platform session
+        // ends below and takes the OS's own copy of the marked text with it, so nothing is inserted twice.
+        //
+        // Blur happens in the middle of many things (a commit that disabled the input, a press, Tab, the root
+        // losing key focus), and `beforeinput` waits for JS, which is only for input-origin entry points
+        // (plan 3.3). The composition ends here, so the input is in a settled state, and the insertion is made
+        // from the next frame (`commit_blurred_preedits`).
+        let preedit = self.text_state(tag).and_then(|state| {
+            state
+                .buffer
+                .composition()
+                .map(|composition| composition.text().iter().collect::<String>())
+        });
+        if let Some(preedit) = preedit {
             self.run_internal_command(tag, EditCommand::CancelComposition);
+            self.text_inputs.blurred_preedits.push((tag, preedit));
         }
         self.end_platform_text_session();
         self.repaint_text_input(tag);
     }
 
+    /// Insert the preedits of the inputs that lost focus while composing (see [`Self::text_input_blurred`]). An
+    /// input that is gone, or read-only, takes nothing; `beforeinput` can prevent the insertion.
+    pub(crate) fn commit_blurred_preedits(&mut self) {
+        for (tag, preedit) in std::mem::take(&mut self.text_inputs.blurred_preedits) {
+            if self.text_state(tag).is_none() {
+                continue;
+            }
+            self.run_text_command(tag, EditCommand::InsertText(preedit));
+        }
+    }
+
+    /// Whether a pointer is down on `tag` right now: the press that is focusing it, if it is being focused. A
+    /// pointer that was used last (`modality`) says nothing of this: `focus()` from a click handler happens with
+    /// the pointer up, long after the press.
+    fn pointer_is_down_on(&self, tag: u32) -> bool {
+        self.pointers.iter().any(|(_, record)| {
+            record
+                .press_of(DOM_BUTTON_PRIMARY)
+                .is_some_and(|press| press.target == tag)
+        })
+    }
+
     fn text_input_focused(&mut self, tag: u32) {
-        let pointer_press = self.modality == crate::focus::Modality::Pointer;
+        let pointer_press = self.pointer_is_down_on(tag);
         let Some(select_on_focus) = self
             .mounted
             .nodes
@@ -177,7 +211,13 @@ impl ReactUiRoot {
             return;
         }
         let mut display = DisplayServer::singleton();
-        if !display.has_feature(Feature::IME) {
+        // A read-only input takes no composition (as `LineEdit::_edit` does nothing for one that is not
+        // editable), so the platform's IME stays off for it: it would swallow keys into a preedit that is
+        // ignored.
+        let read_only = self
+            .text_state(tag)
+            .is_some_and(|state| state.buffer.config().read_only);
+        if read_only || !display.has_feature(Feature::IME) {
             return;
         }
         let window_id = self.window_id();

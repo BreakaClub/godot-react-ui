@@ -42,6 +42,7 @@ mod pointer;
 mod shaping;
 mod web_clipboard;
 
+use std::collections::BTreeSet;
 use std::fmt;
 
 use godot::classes::TextParagraph;
@@ -234,8 +235,8 @@ impl TextInputState {
     }
 }
 
-/// A value as a text input stores it when it is given rather than typed: a single-line input has no
-/// line breaks, a multi-line one only `\n` (`\r\n` and `\r` become one).
+/// A value as a text input stores it when it is given rather than typed: a single-line input has no line breaks,
+/// a multi-line one only `\n` (`\r\n`, `\r` and the Unicode separators the text server breaks a line at become one).
 pub(crate) fn sanitize_value(value: &str, multiline: bool) -> String {
     normalise_line_breaks(value, multiline)
         .into_iter()
@@ -252,6 +253,10 @@ pub(crate) struct TextInputRoot {
     pub(crate) actions: TextActionTable,
     /// The clipboard reads the browser has yet to answer (the Web only).
     pub(crate) web_clipboard: WebClipboard,
+    /// The preedits of inputs that lost focus while composing, to insert from the next frame.
+    pub(crate) blurred_preedits: Vec<(u32, String)>,
+    /// The focused inputs whose box or font changed, whose caret is to be brought into view when layout has settled.
+    pub(crate) reveal_after_layout: BTreeSet<u32>,
 }
 
 #[cfg(test)]

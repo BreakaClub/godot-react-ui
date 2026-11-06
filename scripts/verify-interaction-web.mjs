@@ -1909,6 +1909,7 @@ async function runFormsScenario(viewport) {
   check('The focused field has a caret rectangle', caret !== null && caret.height > 0, caret);
 
   await runImeScenario(viewport);
+  await runCompositionFixesScenario();
   await runPasteScenario();
   await runMultilineScenario();
 }
@@ -2035,7 +2036,6 @@ async function runPasteScenario() {
   await setClipboard('gamma');
   await pressAction('ui_paste');
   await expectInput('form-name', (state) => state.value === 'abc alphabetagamma', 'Pasting works again once the browser allows the read');
-  await capture('forms-04-paste');
 
   // A clipboard that holds an image has no text: `readText()` resolves to "". That is no paste. It must leave a selection
   // alone, where an empty insertion over it would have deleted it.
@@ -2056,6 +2056,7 @@ async function runPasteScenario() {
   check('Pasting an image over a selection changes neither the text, the selection nor the count',
     afterImage.value === beforeImage.value && afterImage.selectionStart === 0 && afterImage.selectionEnd === beforeImage.value.length
     && afterImage.eventCount === beforeImage.eventCount, { beforeImage, afterImage });
+  await capture('forms-04-paste');
 }
 
 /** An IME composition: the preedit shows in the field and commits as one edit, with composition events. */
@@ -2093,6 +2094,57 @@ async function runImeScenario(viewport) {
   await expectFocused((await find('form-password')).id, 'Tab takes focus from the name field to the next');
   await frames();
   check('Leaving a field with the IME focused raised no error', fatalErrors.length === 0, fatalErrors);
+  await cdp.detach();
+}
+
+/**
+ * What leaving a field, or making it read-only, does to a composition in progress, in real Chrome (the IME's own
+ * commit and cancel cannot be injected natively). A composition left unfinished by leaving the field is committed as an
+ * `insertText` through `beforeinput`, as a browser and `LineEdit` do, and a `beforeinput` that refuses it discards it. A
+ * field that is made read-only while composing ends the composition, and takes keys again (every keyboard command is
+ * refused while a composition is on, and a read-only field would never have ended it).
+ */
+async function runCompositionFixesScenario() {
+  await demo('showLab', 'forms-extra');
+  await waitUntil('the extra lab mounts', () => nodeExists('forms-extra-lab'));
+  const cdp = await page.createCDPSession();
+  const readout = async () => JSON.parse(await text('extra-json'));
+  const focusPicky = async () => {
+    await click('extra-picky');
+    await expectFocused((await find('extra-picky')).id, 'A press focuses the picky field');
+    await waitUntil('the IME element holds browser focus', async () => page.evaluate(() => document.activeElement?.className === 'ime'));
+  };
+  const compose = async (text) => {
+    await cdp.send('Input.imeSetComposition', { text, selectionStart: text.length, selectionEnd: text.length });
+    await expectInput('extra-picky', (state) => state.composing && state.preedit?.text === text, `imeSetComposition shows "${text}"`);
+  };
+
+  await focusPicky();
+  await compose('yes');
+  await page.keyboard.press('Tab');
+  await expectInput('extra-picky', (state) => !state.composing && state.value === 'yes', 'Leaving the field commits the unfinished composition');
+  await waitUntil('React holds the committed text', async () => (await readout()).picky === 'yes');
+  check('and it was an insertText input', (await text('extra-json')).includes('"picky": "yes"'));
+
+  // A beforeinput that refuses the commit discards the preedit.
+  await focusPicky();
+  await pressAction('ui_text_caret_line_end');
+  await compose('nope');
+  await page.keyboard.press('Tab');
+  await waitUntil('beforeinput refused the commit', async () => (await readout()).refused === 1);
+  await expectInput('extra-picky', (state) => !state.composing && state.value === 'yes', 'A refused commit leaves the text as it was');
+  check('and the preedit is gone for good', (await readout()).picky === 'yes');
+
+  // Making the field read-only while it composes ends the composition, and the keys work again.
+  await focusPicky();
+  await compose('ka');
+  await page.keyboard.press('F7');
+  await waitUntil('the field is read-only', async () => (await readout()).locked === true);
+  await expectInput('extra-picky', (state) => !state.composing && state.value === 'yes', 'Read-only ends the composition');
+  await pressAction('ui_text_caret_line_start');
+  await expectInput('extra-picky', (state) => state.selectionStart === 0, 'and the caret keys work in the read-only field');
+  await page.keyboard.press('F7');
+  await waitUntil('the field is editable again', async () => (await readout()).locked === false);
   await cdp.detach();
 }
 

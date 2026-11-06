@@ -99,6 +99,7 @@ impl ReactUiRoot {
         let geometry_started = Instant::now();
         self.settle_paint_structure();
         self.update_geometry();
+        self.reveal_carets_after_layout();
         let viewport = self.viewport_box();
         if self
             .focused

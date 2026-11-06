@@ -12,9 +12,11 @@ use super::{
     SECURE_TEXT_BULLET, Shaped, TEXT_AREA_DEFAULT_ROWS, TEXT_INPUT_DEFAULT_COLUMNS, TextInputError,
     TextInputState,
 };
+use crate::events::{CompositionData, EventPayload};
 use crate::mount::Edges;
 use crate::props::{Kind, PropsSpec, TextAlignSpec};
 use crate::scroll::{ScrollRange, ScrollRanges};
+use crate::text_input::{CompositionEvent, is_line_break};
 use crate::text_layout::{
     GodotParagraph, GodotTextLayout, LineExtents, TextDirection, TextLayout, TextLayoutError,
 };
@@ -198,8 +200,21 @@ pub(crate) fn scroll_ranges(
     );
     let text = paragraph.get_size();
     if multiline {
-        // The last line's bottom, then the bottom padding.
-        let end = padding.top + text.y + padding.bottom;
+        // The last line's bottom, then the bottom padding. A text that ends in a line break has one more line
+        // for its caret to stand on, which the paragraph does not shape (`TextLayout` adds it, with the last
+        // line's height): it is part of the reach, or the caret on it would scroll out of view and the wheel
+        // could not bring it back.
+        let after_final_break = !state.buffer.config().secure
+            && state.buffer.display_last_char().is_some_and(is_line_break);
+        let last_line = paragraph.get_line_count() - 1;
+        let extra = if after_final_break && last_line >= 0 {
+            paragraph.get_line_ascent(last_line)
+                + paragraph.get_line_descent(last_line)
+                + paragraph.get_line_spacing()
+        } else {
+            0.0
+        };
+        let end = padding.top + text.y + extra + padding.bottom;
         ScrollRanges {
             y: ScrollRange::new((end - client.y).max(0.0), false),
             ..ScrollRanges::default()
@@ -334,12 +349,27 @@ impl ReactUiRoot {
         self.paint_dirty.insert(tag);
         // The text elements assistive technologies read were made from the old shaping.
         self.discard_text_accessibility(tag);
+        // A new font size or placeholder moves the caret.
+        self.note_text_input_box_changed(tag);
         true
+    }
+
+    /// The box of text input `tag` (or what it is shaped with) changed: if it has the focus, its caret may have
+    /// been left out of view, and is looked for once layout has settled.
+    pub(crate) fn note_text_input_box_changed(&mut self, tag: u32) {
+        if self.focused == Some(tag) && self.text_state(tag).is_some() {
+            self.text_inputs.reveal_after_layout.insert(tag);
+        }
     }
 
     /// A text input's props changed: bring its buffer's modes in line (`readOnly`, `secure`,
     /// `maxLength`; `multiline` cannot change and `defaultValue` is only the start). Returns whether
-    /// the shaping must be redone (the placeholder, the secure bullets or the rows changed).
+    /// the shaping must be redone (the placeholder, the secure bullets, the rows or a composition that
+    /// ended changed).
+    ///
+    /// A composition cannot go on in a read-only input, so turning `readOnly` on ends it (`compositionend`
+    /// is queued, and the platform's IME and keyboard close, as they do for any input that cannot be typed
+    /// into).
     pub(crate) fn sync_text_input_props(&mut self, tag: u32, previous: &PropsSpec) -> bool {
         let Some(node) = self.mounted.nodes.get_mut(&tag) else {
             return false;
@@ -350,12 +380,29 @@ impl ReactUiRoot {
         let props = &node.props;
         let secure = props.secure == Some(true);
         let secure_changed = secure != state.buffer.config().secure;
-        state.buffer.set_read_only(props.read_only == Some(true));
+        let read_only = props.read_only == Some(true);
+        let read_only_turned_on = read_only && !state.buffer.config().read_only;
+        let composition = state.buffer.set_read_only(read_only);
         state.buffer.set_secure(secure);
         state
             .buffer
             .set_max_length(props.max_length.map(|length| length as usize));
-        secure_changed || props.placeholder != previous.placeholder || props.rows != previous.rows
+        let reshape = secure_changed
+            || props.placeholder != previous.placeholder
+            || props.rows != previous.rows
+            || composition != CompositionEvent::None;
+        if composition == CompositionEvent::End {
+            self.queue(
+                tag,
+                EventPayload::CompositionEnd(CompositionData {
+                    data: String::new(),
+                }),
+            );
+        }
+        if read_only_turned_on && self.focused == Some(tag) {
+            self.end_platform_text_session();
+        }
+        reshape
     }
 
     /// Shape the display text again after the buffer's text, a composition or the secure mode

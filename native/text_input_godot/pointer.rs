@@ -169,6 +169,13 @@ impl ReactUiRoot {
     /// The primary button went up: the drag is over, and a touch screen's keyboard may show.
     pub(crate) fn text_input_pointer_up(&mut self, hit: Option<u32>) {
         self.text_inputs.drag = None;
+        // The press that focused a `selectTextOnFocus` input has ended, whether or not its own default action ran to
+        // take that note back (a prevented `pointerdown`, a grabbed scrollbar thumb): the next press is an ordinary one.
+        if let Some(tag) = self.focused_text_input()
+            && let Some(state) = self.text_state_mut(tag)
+        {
+            state.selected_by_focusing_press = false;
+        }
         if let Some(tag) =
             hit.filter(|tag| self.focused == Some(*tag) && self.text_state(*tag).is_some())
         {

@@ -308,11 +308,14 @@ impl ReactUiRoot {
     /// Whether a text input is focused in a window that has focus, which keeps the caret blinking and
     /// so needs frames (`motion.rs`'s `update_process`).
     pub(crate) fn text_input_wants_frames(&self) -> bool {
-        !self.text_inputs.window_unfocused && self.focused_text_input().is_some()
+        (!self.text_inputs.window_unfocused && self.focused_text_input().is_some())
+            || !self.text_inputs.blurred_preedits.is_empty()
     }
 
-    /// Advance the focused input's caret blink by `delta` seconds and redraw it when it flips.
+    /// Advance the focused input's caret blink by `delta` seconds and redraw it when it flips. It is also the
+    /// frame in which the preedit of an input that lost focus while composing is inserted.
     pub(crate) fn tick_text_input(&mut self, delta: f64) {
+        self.commit_blurred_preedits();
         let Some(tag) = self.focused_text_input() else {
             return;
         };
@@ -321,6 +324,17 @@ impl ReactUiRoot {
             .is_some_and(|state| state.blink.tick(delta));
         if flipped {
             self.paint_text_input(tag);
+        }
+    }
+
+    /// Bring the caret of each focused input whose box or font changed since the last layout into view (a window
+    /// resize, a padding or alignment change): nothing else moves the scroll but typing, and the scroll only clamps
+    /// when the room for the text shrinks. Called once layout has settled, so every input sees its final box.
+    pub(crate) fn reveal_carets_after_layout(&mut self) {
+        for tag in std::mem::take(&mut self.text_inputs.reveal_after_layout) {
+            if self.focused == Some(tag) {
+                self.reveal_text_caret(tag);
+            }
         }
     }
 

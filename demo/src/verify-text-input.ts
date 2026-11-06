@@ -338,6 +338,8 @@ export async function verifyTextInput(owner: Node, api: InteractionInspection, c
   await verifyModes(owner, api, capture, { focusField, selection });
   await verifyClipboard(owner, api, capture, { focusField, selection });
   await verifyMultiline(owner, api, capture, { focusField, selection });
+  await verifyTrailingBreak(owner, api, capture, { focusField, selection });
+  await verifyFixes(owner, api, capture, { focusField, focusedTestID, selection });
 }
 
 interface Helpers {
@@ -615,20 +617,20 @@ async function verifyClipboard(owner: Node, api: InteractionInspection, capture:
   verifierClipboard.set('');
   await pressAction('ui_paste');
   assert(input(api, 'form-name').eventCount === pasted && valueOf('form-name') === 'onetwothree', 'An empty clipboard pastes nothing');
-  await capture('forms-11-paste');
-
   // Nothing on the clipboard is not a paste of nothing over the selection, which would delete it: a clipboard that holds
   // an image reads as empty, and so does one of line breaks only, which a single-line input drops.
   await pressAction('ui_text_select_all');
   const selectedAll = `0,${valueOf('form-name').length}`;
   for (const clipboard of ['', '\n', '\r\n']) {
-    DisplayServer.clipboardSet(clipboard);
+    verifierClipboard.set(clipboard);
     await pressAction('ui_paste');
     assert(
       valueOf('form-name') === 'onetwothree' && input(api, 'form-name').eventCount === pasted && selection('form-name').join() === selectedAll,
       `Pasting ${JSON.stringify(clipboard)} over a selection leaves the text, the selection and the count alone: ${valueOf('form-name')}, ${selection('form-name')}`,
     );
   }
+  await capture('forms-11-paste');
+
   // maxLength cuts what does not fit; a paste that fits nothing is refused.
   await focusField('form-code');
   await pressAction('ui_text_select_all');
@@ -806,6 +808,114 @@ async function verifyMultiline(owner: Node, api: InteractionInspection, capture:
   await settle();
   assert(scrollOf(api, notes).scrollTop > scrolledBefore, `Dragging the thumb scrolls the text: ${scrolledBefore} to ${scrollOf(api, notes).scrollTop}`);
   assert(selection(notes).join() === caretBefore, `and leaves the caret where it was: ${caretBefore} to ${selection(notes)}`);
+}
+
+/**
+ * A text area whose text ends in a line break has one more line for the caret, which the paragraph does not shape. It is
+ * part of the text's height: the caret scrolls into view when Enter makes it, and the wheel reaches it.
+ */
+async function verifyTrailingBreak(owner: Node, api: InteractionInspection, capture: Capture, helpers: Helpers): Promise<void> {
+  const { focusField } = helpers;
+  // A fresh page and an empty text area.
+  api.showLab('hud');
+  await settle();
+  api.showLab('forms');
+  await settle();
+  move(FAR_CORNER);
+  await settle();
+  const notes = 'form-notes';
+  await focusField(notes);
+  await typeText('aa');
+  await pressAction('ui_text_newline');
+  await typeText('bb');
+  await pressAction('ui_text_newline');
+  await typeText('cc');
+  const inBox = (rect: LayoutRect): boolean => rect.y >= boxOf(api, notes).y && rect.y + rect.height <= boxOf(api, notes).y + boxOf(api, notes).height;
+  const lineHeight = input(api, notes).caret?.height ?? 0;
+  assert(lineHeight > 0, 'The text area has a caret rectangle');
+  const full = scrollOf(api, notes);
+  assert(full.scrollTop === 0 && full.scrollHeight - full.clientHeight < lineHeight / 2, `Three lines fill its three rows and no more: ${JSON.stringify(full)}`);
+  await pressAction('ui_text_newline');
+  assert(input(api, notes).value === 'aa\nbb\ncc\n', `Enter at the end of the text adds a line break: ${JSON.stringify(input(api, notes).value)}`);
+  const grown = scrollOf(api, notes);
+  assert(
+    grown.scrollHeight - full.scrollHeight >= lineHeight - 1,
+    `The empty line after the break is part of the text's height: ${full.scrollHeight} to ${grown.scrollHeight}`,
+  );
+  assert(grown.scrollTop > 0, `The text scrolled to the caret on its new line: ${grown.scrollTop}`);
+  const caret = input(api, notes).caret;
+  assert(caret !== null && inBox(caret), `The caret is inside the box: ${JSON.stringify(caret)} in ${JSON.stringify(boxOf(api, notes))}`);
+  await capture('forms-14-after-a-final-break');
+
+  // The wheel reaches that line too: back to the top, then down to the end of the text.
+  await pressAction('ui_text_caret_document_start');
+  assert(scrollOf(api, notes).scrollTop === 0, 'The caret at the start scrolls the text back to the top');
+  const centre = centerOf(boxOf(api, notes));
+  let atEnd = false;
+  for (let step = 0; step < MAX_STEPS && !atEnd; step++) {
+    await wheel(centre, MouseButton.MouseButtonWheelDown);
+    const state = scrollOf(api, notes);
+    atEnd = state.scrollTop >= state.scrollHeight - state.clientHeight - 1;
+  }
+  assert(atEnd, 'The wheel reached the end of the text');
+  assert(
+    Math.abs(scrollOf(api, notes).scrollTop - grown.scrollTop) <= 1,
+    `and the end is where the caret on the last line put it: ${scrollOf(api, notes).scrollTop} and ${grown.scrollTop}`,
+  );
+}
+
+/**
+ * The fixes of docs/tracks/text-input-fixes.md that need a page of their own (`forms-extra`): a kit field whose label
+ * focuses it, and a field whose box changes while it has the focus.
+ */
+async function verifyFixes(
+  owner: Node, api: InteractionInspection, capture: Capture,
+  helpers: Helpers & { focusedTestID(): string },
+): Promise<void> {
+  const { focusField, selection } = helpers;
+  api.showLab('forms-extra');
+  await settle();
+  move(FAR_CORNER);
+  await settle();
+
+  // A press on the kit label focuses a selectTextOnFocus field from a click handler, with the pointer up. The next press in
+  // the field is an ordinary press in a focused field and places the caret: it used to be taken for the press that had
+  // focused the field, and ignored.
+  await click(centerOf(node(api, 'extra-kit-label').rect));
+  assert(helpers.focusedTestID() === 'extra-kit-input', `A press on the label focuses the field: ${helpers.focusedTestID()}`);
+  const kitText = input(api, 'extra-kit-input').value;
+  assert(selection('extra-kit-input').join() === `0,${kitText.length}`, `and the field selects all of its text: ${selection('extra-kit-input')}`);
+  await click(centerOf(node(api, 'extra-kit-input').rect));
+  const placed = selection('extra-kit-input');
+  assert(placed[0] === placed[1], `A press in the focused field places the caret: ${placed}`);
+  // And a press that does focus it still selects all of it, and its release leaves the selection alone.
+  await focusField('extra-chat');
+  await click(centerOf(node(api, 'extra-kit-input').rect));
+  assert(selection('extra-kit-input').join() === `0,${kitText.length}`, `A press that focuses the field selects all of it: ${selection('extra-kit-input')}`);
+
+  // A box that changes under a focused field takes its caret with it: F6 narrows the field while its caret is at the end of
+  // a text that did not fit even the wide box.
+  await focusField('extra-resize');
+  await typeText('a text that is much too long for either width of the field');
+  const wide = input(api, 'extra-resize');
+  assert(wide.scrollLeft > 0, `The text scrolled to the caret: ${wide.scrollLeft}`);
+  const insideBox = (): boolean => {
+    const caret = input(api, 'extra-resize').caret;
+    const box = node(api, 'extra-resize').rect;
+    return caret !== null && caret.x >= box.x && caret.x + caret.width <= box.x + box.width;
+  };
+  assert(insideBox(), 'The caret is inside the wide box');
+  const wideWidth = node(api, 'extra-resize').rect.width;
+  keyEvent({ keycode: Key.KeyF6 }, true);
+  keyEvent({ keycode: Key.KeyF6 }, false);
+  await settle();
+  assert(node(api, 'extra-resize').rect.width < wideWidth, `F6 narrows the field: ${node(api, 'extra-resize').rect.width} from ${wideWidth}`);
+  assert(insideBox(), `The caret is inside the narrow box: ${JSON.stringify(input(api, 'extra-resize').caret)} in ${JSON.stringify(node(api, 'extra-resize').rect)}`);
+  await capture('forms-15-narrowed-under-the-caret');
+  keyEvent({ keycode: Key.KeyF6 }, true);
+  keyEvent({ keycode: Key.KeyF6 }, false);
+  await settle();
+  assert(node(api, 'extra-resize').rect.width === wideWidth && insideBox(), 'and again when the box is wide again');
 }
 
 /** maxLength, a transforming controlled field, read-only, a password and blocked copy. */
