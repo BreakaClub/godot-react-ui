@@ -218,7 +218,7 @@ transform and as the hit-test and geometry offset, and re-clamped after layout.
 - **Commands**: `scroll_to(tag, left, top)`, `scroll_by(tag, dx, dy)` and `scroll_into_view(tag)` return an error string (empty
   for success; a node that is not a scroll container, or a non-finite number, is an error) and end any flick;
   `get_scroll_state(tag)` returns the container's state as JSON (the event's fields, `minScrollLeft`, `maxScrollLeft`,
-  `minScrollTop`, `maxScrollTop` and the drawn `thumbs`) or `null`. `get_snapshot()` gives every node a `scroll` field with the same.
+  `minScrollTop`, `maxScrollTop`, the drawn `thumbs` and the `tracks` of the axes that scroll, drawn or not) or `null`. `get_snapshot()` gives every node a `scroll` field with the same.
 - **Frames**: `process()` runs only while native motion is running, a flick is coasting or a finger is panning
   (`update_process()` is the one decision).
 

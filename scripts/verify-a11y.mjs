@@ -24,7 +24,7 @@ const swiftSource = resolve(import.meta.dirname, 'ax-dump.swift');
 const axDump = resolve(artifactRoot, 'bin/ax-dump');
 /** The hash of the source `axDump` was compiled from, beside it: the tool is rebuilt when the source differs, whatever the file times say. */
 const axDumpSource = `${axDump}.source.sha256`;
-const resolution = '900x900';
+const resolution = '900x1000';
 // Six platform readings of the lab (two before and after the Godot-side input, two while it is scrolled, the window outline): each is
 // several seconds, because the target answers one attribute request per frame.
 const deadlineMs = 300_000;

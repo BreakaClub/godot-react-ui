@@ -13,12 +13,17 @@ export const A11Y_MESSAGE_COUNT = 12;
 export const A11Y_NAME_START = 'Ada';
 export const A11Y_NOTES_START = 'first\nsecond';
 export const A11Y_READONLY_TEXT = 'Fixed';
+/** A text area whose five lines overflow its two rows: it scrolls, so it has a vertical scroll bar. */
+export const A11Y_LOG_START = 'one\ntwo\nthree\nfour\nfive';
+/** The gallery's rows: more than its height shows, in a column wider than the view, so it scrolls on both axes. */
+export const A11Y_PHOTO_COUNT = 6;
 
 const heading = 'text-xl text-slate-900';
 const caption = 'text-sm text-slate-500';
 const button = 'rounded-lg border border-slate-300 px-4 py-2 bg-white text-slate-700 focus:border-indigo-500';
 const sizeItem = 'rounded-lg border border-slate-300 px-3 py-1 bg-white';
 const scroller = 'h-24 w-[320px] rounded-lg border border-slate-300 bg-white';
+const gallery = 'h-[72px] w-[320px] overflow-x-auto rounded-lg border border-slate-300 bg-white';
 const field = 'w-[320px] rounded-md border border-slate-300 bg-white px-3 py-2 text-base text-slate-900 focus:border-indigo-500';
 
 /**
@@ -57,6 +62,7 @@ export function A11yPanel() {
       </Slider.Root>
       <TextInput testID="a11y-name" aria-label="Name" placeholder="Your name" defaultValue={A11Y_NAME_START} className={field} />
       <TextInput testID="a11y-notes" aria-label="Notes" multiline rows={2} defaultValue={A11Y_NOTES_START} className={`${field} h-auto`} />
+      <TextInput testID="a11y-log" aria-label="Log" multiline rows={2} defaultValue={A11Y_LOG_START} className={`${field} h-auto`} />
       <TextInput testID="a11y-readonly" aria-label="Reference" readOnly defaultValue={A11Y_READONLY_TEXT} className={field} />
       <TextInput testID="a11y-search" placeholder="Search" className={field} />
       <ScrollView testID="a11y-scroller" aria-label="Messages" className={scroller} contentClassName="p-2 gap-1">
@@ -64,6 +70,11 @@ export function A11yPanel() {
           <Text key={index} testID={`a11y-message-${index + 1}`} className={caption}>{`Message ${index + 1}`}</Text>
         ))}
         <Button testID="a11y-scroll-end" className={button}>Mark all read</Button>
+      </ScrollView>
+      <ScrollView testID="a11y-gallery" aria-label="Gallery" className={gallery} contentClassName="w-[640px] p-2 gap-1">
+        {Array.from({ length: A11Y_PHOTO_COUNT }, (_, index) => (
+          <Text key={index} testID={`a11y-photo-${index + 1}`} className={caption}>{`Photo ${index + 1}`}</Text>
+        ))}
       </ScrollView>
       <View testID="a11y-hidden" aria-hidden className="gap-2">
         <Text testID="a11y-hidden-text">Hidden text</Text>

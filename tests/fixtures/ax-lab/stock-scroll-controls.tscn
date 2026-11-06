@@ -1,0 +1,113 @@
+[gd_scene format=3]
+
+[node name="Root" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="Messages" type="ScrollContainer" parent="."]
+layout_mode = 0
+offset_left = 16.0
+offset_top = 16.0
+offset_right = 336.0
+offset_bottom = 112.0
+horizontal_scroll_mode = 0
+
+[node name="Rows" type="VBoxContainer" parent="Messages"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="M1" type="Label" parent="Messages/Rows"]
+layout_mode = 2
+text = "Message 1"
+
+[node name="M2" type="Label" parent="Messages/Rows"]
+layout_mode = 2
+text = "Message 2"
+
+[node name="M3" type="Label" parent="Messages/Rows"]
+layout_mode = 2
+text = "Message 3"
+
+[node name="M4" type="Label" parent="Messages/Rows"]
+layout_mode = 2
+text = "Message 4"
+
+[node name="M5" type="Label" parent="Messages/Rows"]
+layout_mode = 2
+text = "Message 5"
+
+[node name="M6" type="Label" parent="Messages/Rows"]
+layout_mode = 2
+text = "Message 6"
+
+[node name="M7" type="Label" parent="Messages/Rows"]
+layout_mode = 2
+text = "Message 7"
+
+[node name="M8" type="Label" parent="Messages/Rows"]
+layout_mode = 2
+text = "Message 8"
+
+[node name="M9" type="Label" parent="Messages/Rows"]
+layout_mode = 2
+text = "Message 9"
+
+[node name="M10" type="Label" parent="Messages/Rows"]
+layout_mode = 2
+text = "Message 10"
+
+[node name="M11" type="Label" parent="Messages/Rows"]
+layout_mode = 2
+text = "Message 11"
+
+[node name="M12" type="Label" parent="Messages/Rows"]
+layout_mode = 2
+text = "Message 12"
+
+[node name="End" type="Button" parent="Messages/Rows"]
+layout_mode = 2
+text = "Mark all read"
+
+[node name="Both" type="ScrollContainer" parent="."]
+layout_mode = 0
+offset_left = 16.0
+offset_top = 140.0
+offset_right = 216.0
+offset_bottom = 236.0
+
+[node name="Grid" type="VBoxContainer" parent="Both"]
+layout_mode = 2
+
+[node name="B1" type="Label" parent="Both/Grid"]
+layout_mode = 2
+text = "Wide row 1 with a lot of text that makes it wider than the scroll container is"
+
+[node name="B2" type="Label" parent="Both/Grid"]
+layout_mode = 2
+text = "Wide row 2 with a lot of text that makes it wider than the scroll container is"
+
+[node name="B3" type="Label" parent="Both/Grid"]
+layout_mode = 2
+text = "Wide row 3 with a lot of text that makes it wider than the scroll container is"
+
+[node name="B4" type="Label" parent="Both/Grid"]
+layout_mode = 2
+text = "Wide row 4 with a lot of text that makes it wider than the scroll container is"
+
+[node name="B5" type="Label" parent="Both/Grid"]
+layout_mode = 2
+text = "Wide row 5 with a lot of text that makes it wider than the scroll container is"
+
+[node name="B6" type="Label" parent="Both/Grid"]
+layout_mode = 2
+text = "Wide row 6 with a lot of text that makes it wider than the scroll container is"
+
+[node name="B7" type="Label" parent="Both/Grid"]
+layout_mode = 2
+text = "Wide row 7 with a lot of text that makes it wider than the scroll container is"
+
+[node name="B8" type="Label" parent="Both/Grid"]
+layout_mode = 2
+text = "Wide row 8 with a lot of text that makes it wider than the scroll container is"

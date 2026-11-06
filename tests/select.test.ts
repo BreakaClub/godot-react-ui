@@ -781,7 +781,7 @@ function listScroll(box: number, natural: number, thumbs: NativeScrollState['thu
   const border = 2;
   return {
     scrollLeft: 0, scrollTop: 0, scrollWidth: 88, scrollHeight: natural - border, clientWidth: 88, clientHeight: box - border,
-    minScrollLeft: 0, maxScrollLeft: 0, minScrollTop: 0, maxScrollTop: natural - box, thumbs,
+    minScrollLeft: 0, maxScrollLeft: 0, minScrollTop: 0, maxScrollTop: natural - box, thumbs, tracks: null,
   };
 }
 

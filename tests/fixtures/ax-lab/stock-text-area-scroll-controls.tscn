@@ -1,0 +1,35 @@
+[gd_scene format=3]
+
+[node name="Root" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="Tall" type="TextEdit" parent="."]
+layout_mode = 0
+offset_left = 16.0
+offset_top = 16.0
+offset_right = 336.0
+offset_bottom = 88.0
+text = "Line 1\nLine 2\nLine 3\nLine 4\nLine 5\nLine 6\nLine 7\nLine 8\nLine 9\nLine 10\nLine 11\nLine 12\nA very long line that is wider than the text edit so that it can scroll sideways as well A very long line that is wider than the text edit so that it can scroll sideways as well A very long line that is wider than the text edit so that it can scroll sideways as well "
+accessibility_name = "Tall notes"
+
+[node name="Short" type="TextEdit" parent="."]
+layout_mode = 0
+offset_left = 16.0
+offset_top = 110.0
+offset_right = 336.0
+offset_bottom = 182.0
+text = "first\nsecond"
+accessibility_name = "Short notes"
+
+[node name="Line" type="LineEdit" parent="."]
+layout_mode = 0
+offset_left = 16.0
+offset_top = 204.0
+offset_right = 116.0
+offset_bottom = 246.0
+text = "A line edit with text far wider than its box so that it scrolls to follow the caret"
+caret_column = 80
+accessibility_name = "Line"

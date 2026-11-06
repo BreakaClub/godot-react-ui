@@ -638,6 +638,20 @@ impl ReactUiRoot {
         self.handle_accessibility_action(&data, tag, action);
     }
 
+    /// An assistive technology acted on one of node `tag`'s scroll bar elements (plan D42). The bar's
+    /// action callables are bound to this method with the tag, the bar's axis and the action's code
+    /// (`accessibility_model/scroll_bars.rs`); the request carries no data for an increment or a decrement.
+    #[func]
+    fn _on_accessibility_scroll_bar_action(
+        &mut self,
+        _data: Variant,
+        tag: i64,
+        axis: i64,
+        action: i64,
+    ) {
+        self.handle_scroll_bar_action(tag, axis, action);
+    }
+
     /// `element.scrollTo(left, top)`: scroll a scroll container to these offsets (as `scrollLeft` and
     /// `scrollTop`: zero or negative on a reversed axis), clamped to its range. An empty return is
     /// success; an error says why nothing changed (not mounted, not a scroll container, not finite).

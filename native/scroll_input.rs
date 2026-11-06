@@ -754,8 +754,9 @@ impl ReactUiRoot {
 
     /// A container's scroll state for `get_scroll_state`: DOM `scrollLeft`, `scrollTop`,
     /// `scrollWidth`, `scrollHeight`, `clientWidth`, `clientHeight`, the range each offset can take
-    /// (a reversed axis' range is negative) and where the scrollbar thumbs are drawn. `null` for a node
-    /// that is not a scroll container.
+    /// (a reversed axis' range is negative), where the scrollbar thumbs are drawn and where the scrollbar
+    /// tracks lie (what the accessibility tree's scroll bar elements cover). `null` for a node that is not
+    /// a scroll container.
     pub(crate) fn scroll_state_json(&self, tag: u32) -> Value {
         let (Some(data), Some(node)) = (self.scroll_data(tag), self.mounted.nodes.get(&tag)) else {
             return Value::Null;
@@ -779,13 +780,31 @@ impl ReactUiRoot {
                 };
                 json!({"x": thumb(bars.x), "y": thumb(bars.y)})
             });
+        // The tracks of every axis that scrolls, drawn or not (`scrollbar-width: none` hides the drawing only).
+        let tracks = self
+            .mounted
+            .absolute_geometry(tag, self.viewport_box())
+            .map(|(rect, _)| {
+                let client = node.geometry.padding_box();
+                let layout = node.scrollbar_layout();
+                let track = |bar: Option<Scrollbar>| {
+                    bar.map(|bar| {
+                        json!({
+                            "x": rect.x + client.x + bar.track.origin.x,
+                            "y": rect.y + client.y + bar.track.origin.y,
+                            "width": bar.track.size.x, "height": bar.track.size.y,
+                        })
+                    })
+                };
+                json!({"x": track(layout.x), "y": track(layout.y)})
+            });
         json!({
             "scrollLeft": data.scroll_left, "scrollTop": data.scroll_top,
             "scrollWidth": data.scroll_width, "scrollHeight": data.scroll_height,
             "clientWidth": data.client_width, "clientHeight": data.client_height,
             "minScrollLeft": ranges.x.min(), "maxScrollLeft": ranges.x.max(),
             "minScrollTop": ranges.y.min(), "maxScrollTop": ranges.y.max(),
-            "thumbs": thumbs,
+            "thumbs": thumbs, "tracks": tracks,
         })
     }
 }

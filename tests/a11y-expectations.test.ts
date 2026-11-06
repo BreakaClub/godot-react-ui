@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
-import { ELEMENTS, checkElements, checkFocus, type Reading } from '../scripts/a11y-expectations.mjs';
+import { ELEMENTS, checkElements, checkFocus, type Reading, type SnapshotElement, type SnapshotScroll } from '../scripts/a11y-expectations.mjs';
 import { findByLabel, flatten, labelOf, type AxNode, type Frame } from '../scripts/ax-tree.mjs';
 
 // Readings written by hand in the shape scripts/ax-dump.swift prints, for a window whose content is 0.5 points
@@ -10,7 +10,7 @@ import { findByLabel, flatten, labelOf, type AxNode, type Frame } from '../scrip
 // platform's adapter; they are not recordings of one.
 const SCALE = 0.5;
 const ORIGIN = { x: 639, y: 400 };
-const WINDOW: Frame = { x: 639, y: 368, width: 450, height: 450 };
+const WINDOW: Frame = { x: 639, y: 368, width: 450, height: 520 };
 
 const RECTS: Record<string, Frame> = {
   'a11y-save': { x: 16, y: 120, width: 80, height: 40 },
@@ -35,30 +35,76 @@ const RECTS: Record<string, Frame> = {
   'a11y-notes': { x: 16, y: 584, width: 320, height: 72 },
   'a11y-readonly': { x: 16, y: 668, width: 320, height: 42 },
   'a11y-search': { x: 16, y: 722, width: 320, height: 42 },
+  'a11y-log': { x: 16, y: 776, width: 320, height: 72 },
+  'a11y-gallery': { x: 16, y: 860, width: 320, height: 72 },
+};
+
+// The scroll containers' native state and the tracks of their bars (plan D42): what a faithful tree's AXScrollBar elements must say.
+const scrollState = (overrides: Partial<SnapshotScroll>): SnapshotScroll => ({
+  scrollLeft: 0, scrollTop: 0, minScrollLeft: 0, maxScrollLeft: 0, minScrollTop: 0, maxScrollTop: 0, tracks: null, ...overrides,
+});
+const TRACKS: Record<string, { x?: Frame; y?: Frame }> = {
+  'a11y-scroller': { y: { x: 328, y: 424, width: 6, height: 88 } },
+  'a11y-log': { y: { x: 328, y: 780, width: 6, height: 64 } },
+  'a11y-gallery': { x: { x: 18, y: 924, width: 294, height: 6 }, y: { x: 328, y: 862, width: 6, height: 58 } },
+};
+const SCROLLS: Record<string, SnapshotScroll> = {
+  'a11y-scroller': scrollState({ scrollTop: 0, maxScrollTop: 260, tracks: { x: null, y: TRACKS['a11y-scroller']?.y ?? null } }),
+  'a11y-log': scrollState({ scrollTop: 0, maxScrollTop: 60, tracks: { x: null, y: TRACKS['a11y-log']?.y ?? null } }),
+  'a11y-gallery': scrollState({
+    scrollLeft: 20, scrollTop: 10, maxScrollLeft: 330, maxScrollTop: 90,
+    tracks: { x: TRACKS['a11y-gallery']?.x ?? null, y: TRACKS['a11y-gallery']?.y ?? null },
+  }),
+  // Fits its text: a scroll container with nothing to scroll has no tracks.
+  'a11y-notes': scrollState({ tracks: { x: null, y: null } }),
 };
 const IN_VIEW = ['a11y-message-1', 'a11y-message-2', 'a11y-message-3'];
 
-const snapshots: Record<string, { rect: Frame }> = Object.fromEntries(
-  Object.entries(RECTS).map(([id, rect]) => [id, { rect }]),
+const snapshots: Record<string, SnapshotElement> = Object.fromEntries(
+  Object.entries(RECTS).map(([id, rect]) => [id, SCROLLS[id] === undefined ? { rect } : { rect, scroll: SCROLLS[id] }]),
 );
 
-function frameOf(id: string, shift = 0): Frame {
-  const rect = RECTS[id];
-  assert.ok(rect, id);
+function toFrame(rect: Frame, shift = 0): Frame {
   return {
     x: ORIGIN.x + rect.x * SCALE + shift, y: ORIGIN.y + rect.y * SCALE,
     width: rect.width * SCALE, height: rect.height * SCALE,
   };
 }
 
-interface Variation { remove?: string; shift?: Record<string, number>; patch?: Record<string, Partial<AxNode>>; extra?: AxNode[] }
+function frameOf(id: string, shift = 0): Frame {
+  const rect = RECTS[id];
+  assert.ok(rect, id);
+  return toFrame(rect, shift);
+}
+
+/** The AXScrollBar a faithful adapter shows for `axis` of scroll container `id`: native's offset, range and track, with the axis' orientation. */
+function barOf(id: string, axis: 'x' | 'y'): AxNode {
+  const scroll = SCROLLS[id];
+  const track = TRACKS[id]?.[axis];
+  assert.ok(scroll && track, `${id} ${axis}`);
+  return {
+    role: 'AXScrollBar', roleDescription: 'scroll bar',
+    value: axis === 'x' ? scroll.scrollLeft : scroll.scrollTop,
+    minValue: axis === 'x' ? scroll.minScrollLeft : scroll.minScrollTop,
+    maxValue: axis === 'x' ? scroll.maxScrollLeft : scroll.maxScrollTop,
+    orientation: axis === 'x' ? 'AXHorizontalOrientation' : 'AXVerticalOrientation',
+    frame: toFrame(track), actionNames: ['AXIncrement', 'AXDecrement'],
+  };
+}
+
+interface Variation {
+  remove?: string; shift?: Record<string, number>; patch?: Record<string, Partial<AxNode>>; extra?: AxNode[];
+  /** Change the children of an element (its scroll bars, in these tests). */
+  children?: Record<string, (children: AxNode[]) => AxNode[]>;
+}
 
 /** What a faithful adapter would show, `phase` 0 before the Godot-side input and 1 after. */
 function reading(phase: 0 | 1, variation: Variation = {}): Reading {
   const values = (id: string): number | undefined => ELEMENTS.find(element => element.id === id)?.value?.[phase];
-  const node = (id: string, base: AxNode): AxNode => ({
-    ...base, frame: frameOf(id, variation.shift?.[id] ?? 0), ...variation.patch?.[id],
-  });
+  const node = (id: string, base: AxNode): AxNode => {
+    const children = variation.children?.[id]?.(base.children ?? []) ?? base.children;
+    return { ...base, ...(children === undefined ? {} : { children }), frame: frameOf(id, variation.shift?.[id] ?? 0), ...variation.patch?.[id] };
+  };
   const nodes: Array<[string, AxNode]> = [
     ['a11y-save', { role: 'AXButton', title: 'Save', enabled: true, actionNames: ['AXPress'] }],
     ['a11y-delete', { role: 'AXButton', title: 'Delete', enabled: false }],
@@ -71,7 +117,7 @@ function reading(phase: 0 | 1, variation: Variation = {}): Reading {
     ['a11y-size-medium', { role: 'AXRadioButton', title: 'Medium', value: values('a11y-size-medium'), actionNames: ['AXPress'] }],
     ['a11y-size-large', { role: 'AXRadioButton', title: 'Large', value: values('a11y-size-large'), actionNames: ['AXPress'] }],
     ['a11y-volume-thumb', { role: 'AXSlider', description: 'Volume', value: values('a11y-volume-thumb'), minValue: 0, maxValue: 100, actionNames: ['AXIncrement', 'AXDecrement'] }],
-    ['a11y-scroller', { role: 'AXScrollArea', description: 'Messages' }],
+    ['a11y-scroller', { role: 'AXScrollArea', description: 'Messages', children: [barOf('a11y-scroller', 'y')] }],
     ...(['a11y-message-1', 'a11y-message-2', 'a11y-message-3', 'a11y-message-4'] as const).map((id, index): [string, AxNode] => [
       id, { role: 'AXStaticText', value: `Message ${index + 1}`, actionNames: ['AXScrollToVisible'] },
     ]),
@@ -85,6 +131,15 @@ function reading(phase: 0 | 1, variation: Variation = {}): Reading {
       role: 'AXTextArea', title: 'Notes', enabled: true, numberOfCharacters: 12, selectedTextRange: { location: 12, length: 0 },
       selectedText: '', insertionPointLineNumber: 1, stringForRange: 'first\nsecond',
       settableAttributeNames: ['AXFocused', 'AXSelectedTextRange', 'AXValue'],
+    }],
+    ['a11y-log', {
+      role: 'AXTextArea', title: 'Log', enabled: true, numberOfCharacters: 23, selectedTextRange: { location: 23, length: 0 },
+      selectedText: '', insertionPointLineNumber: 4, stringForRange: 'one\ntwo\nthree\nfour\nfive',
+      settableAttributeNames: ['AXFocused', 'AXSelectedTextRange', 'AXValue'], children: [barOf('a11y-log', 'y')],
+    }],
+    ['a11y-gallery', {
+      role: 'AXScrollArea', description: 'Gallery',
+      children: [{ role: 'AXStaticText', value: 'Photo 1', actionNames: ['AXScrollToVisible'] }, barOf('a11y-gallery', 'x'), barOf('a11y-gallery', 'y')],
     }],
     ['a11y-readonly', {
       role: 'AXTextField', title: 'Reference', value: 'Fixed', numberOfCharacters: 5, stringForRange: 'Fixed',
@@ -169,6 +224,45 @@ test('a text field is a text field or a text area with its text, selection and p
   assert.deepEqual(checkElements(reading(0), 0, snapshots, notes), []);
   assert.ok(notes.some(note => note.startsWith('a11y-notes: a text area has no AXValue')));
   assert.ok(notes.some(note => note.startsWith('a11y-readonly: the platform does not say that a read-only field is read-only')));
+});
+
+test('a scroll container has an AXScrollBar for each axis that can move, and a wrong reading of any is named', () => {
+  assert.deepEqual(checkElements(reading(0), 0, snapshots), []);
+  assert.deepEqual(checkElements(reading(1), 1, snapshots), []);
+  const failuresOf = (variation: Variation) => checkElements(reading(1, variation), 1, snapshots);
+  const edit = (id: string, change: Partial<AxNode>): Variation => ({ children: { [id]: children => children.map(child => (child.role === 'AXScrollBar' ? { ...child, ...change } : child)) } });
+  const messages = 'a11y-scroller vertical scroll bar';
+  // How many there are, and which axis each is.
+  assert.ok(failuresOf({ children: { 'a11y-scroller': () => [] } }).includes('a11y-scroller: expected 1 scroll bar(s) (vertical), found 0'), 'a scroll view with no bar');
+  assert.ok(failuresOf({ children: { 'a11y-notes': () => [barOf('a11y-scroller', 'y')] } }).includes('a11y-notes: expected 0 scroll bar(s) (none), found 1'),
+    'a text area that fits its text has no bar');
+  assert.ok(failuresOf({ children: { 'a11y-gallery': children => children.slice(0, 2) } }).includes('a11y-gallery: expected 2 scroll bar(s) (horizontal, vertical), found 1'),
+    'a bar missing for an axis that scrolls');
+  assert.ok(failuresOf({ children: { 'a11y-log': () => [] } }).includes('a11y-log: expected 1 scroll bar(s) (vertical), found 0'), 'a text area that overflows has one');
+  // Where they sit: after the content, horizontal first.
+  assert.ok(failuresOf({ children: { 'a11y-gallery': children => [children[0], children[2], children[1]].filter((child): child is AxNode => child !== undefined) } })
+    .some(failure => failure.startsWith('a11y-gallery horizontal scroll bar: AXOrientation is "AXVerticalOrientation", expected AXHorizontalOrientation')), 'the bars in the wrong order');
+  assert.ok(failuresOf({ children: { 'a11y-gallery': children => [children[1], children[2], children[0]].filter((child): child is AxNode => child !== undefined) } })
+    .includes('a11y-gallery: the scroll bars should be the last children of the scroll container, after its content'), 'bars before the content');
+  // What each says.
+  assert.ok(failuresOf(edit('a11y-scroller', { value: 12 })).includes(`${messages}: AXValue is 12, expected 0 (scrollTop)`), 'the offset');
+  assert.ok(failuresOf(edit('a11y-scroller', { maxValue: 100 })).includes(`${messages}: AXMaxValue is 100, expected 260 (maxScrollTop)`), 'the range');
+  assert.ok(failuresOf(edit('a11y-scroller', { minValue: -5 })).includes(`${messages}: AXMinValue is -5, expected 0 (minScrollTop)`), 'the start of the range');
+  assert.ok(failuresOf(edit('a11y-scroller', { orientation: 'AXUnknownOrientation' }))
+    .includes(`${messages}: AXOrientation is "AXUnknownOrientation", expected AXVerticalOrientation (the horizontal bar comes first)`), 'an orientation that was not conveyed');
+  assert.ok(failuresOf(edit('a11y-scroller', { actionNames: ['AXIncrement'] })).some(failure => failure.startsWith(`${messages}: the platform does not advertise AXDecrement`)), 'a missing action, judged by checkActions like every other element\'s');
+  assert.ok(failuresOf(edit('a11y-scroller', { actionNames: undefined })).some(failure => failure.startsWith(`${messages}: the platform does not advertise AXIncrement`)), 'and no actions at all');
+  assert.ok(failuresOf(edit('a11y-scroller', { title: 'Vertical' })).includes(`${messages}: it should have no name, it is named "Vertical"`), 'a name the stock bars do not have');
+  assert.ok(failuresOf(edit('a11y-scroller', { frame: undefined })).includes(`${messages}: the element has no AXFrame`), 'no frame');
+  // Its frame is the track: one that is somewhere else disagrees with the rest of the tree.
+  const displaced = failuresOf({ children: { 'a11y-gallery': children => children.map(child => (child.role === 'AXScrollBar' && child.frame ? { ...child, frame: { ...child.frame, x: child.frame.x + 40 } } : child)) } });
+  assert.ok(displaced.some(failure => failure.startsWith('frames disagree with the snapshot geometry')), displaced.join('\n'));
+  // A tree that did not follow a scroll keeps the old offset on its bar. Native has scrolled the view 40 pixels.
+  const scrolled: Record<string, SnapshotElement> = { ...snapshots, 'a11y-scroller': { rect: RECTS['a11y-scroller'] as Frame, scroll: { ...(SCROLLS['a11y-scroller'] as SnapshotScroll), scrollTop: 40 } } };
+  assert.ok(checkElements(reading(1), 1, scrolled).includes(`${messages}: AXValue is 0, expected 40 (scrollTop)`), 'a bar that kept its old value after a scroll');
+  // Both axes of the gallery are read from their own offsets.
+  const sideways: Record<string, SnapshotElement> = { ...snapshots, 'a11y-gallery': { rect: RECTS['a11y-gallery'] as Frame, scroll: { ...(SCROLLS['a11y-gallery'] as SnapshotScroll), scrollLeft: 50 } } };
+  assert.deepEqual(checkElements(reading(1), 1, sideways), ['a11y-gallery horizontal scroll bar: AXValue is 20, expected 50 (scrollLeft)']);
 });
 
 test('a frame that does not agree with the others, or leaves the window, is reported', () => {
@@ -260,7 +354,7 @@ test('scroll into view is advertised by a scroll view\'s contents and by nothing
 // macos-before: no scroll yet. macos-scrolled: the scroll view set to a scroll offset of 40 pixels. macos-scrolled-end: scrolled to its end.
 // macos-after: after the Godot-side input and a scroll back (the view is 8 pixels down, which is where scroll-into-view of its first row leaves it).
 const recordedReading = (name: string): Reading => JSON.parse(readFileSync(join(__dirname, 'fixtures', 'ax-lab', name), 'utf8')) as Reading;
-const recordedGeometry = JSON.parse(readFileSync(join(__dirname, 'fixtures', 'ax-lab', 'snapshot-geometry-after.json'), 'utf8')) as Record<string, { rect: Frame }>;
+const recordedGeometry = JSON.parse(readFileSync(join(__dirname, 'fixtures', 'ax-lab', 'snapshot-geometry-after.json'), 'utf8')) as Record<string, SnapshotElement>;
 const recordedScroller = (reading: Reading): AxNode => {
   const scroller = findByLabel(flatten(reading.tree), 'Messages', ['AXUnknown'])[0];
   assert.ok(scroller, 'the recording has the scroll view');
@@ -274,10 +368,15 @@ const RECORDED_POINTS_PER_PIXEL = 0.5;
 test('the recorded macOS tree of the lab passes, with what the engine cannot convey noted', () => {
   const notes: string[] = [];
   assert.deepEqual(checkElements(recordedReading('macos-after.json'), 1, recordedGeometry, notes, { mixedGap: true }), []);
-  assert.deepEqual(notes.map(note => note.split(':')[0]).sort(), ['a11y-notes', 'a11y-readonly', 'a11y-scroller', 'a11y-scroller', 'a11y-scroller', 'a11y-scroller', 'a11y-select-all', 'a11y-size']);
+  assert.deepEqual(notes.map(note => note.split(':')[0]).sort(), [
+    'a11y-gallery', 'a11y-gallery', 'a11y-gallery', 'a11y-log', 'a11y-notes', 'a11y-readonly',
+    'a11y-scroller', 'a11y-scroller', 'a11y-scroller', 'a11y-scroller', 'a11y-select-all', 'a11y-size',
+  ]);
   for (const fragment of ['AXUnknown, not AXScrollArea', 'no scroll position or range', 'no scroll up, down, left, right or set-offset action', 'leaves out scroll view children']) {
     assert.ok(noteFor(notes, 'a11y-scroller', fragment), fragment);
   }
+  // The position and range are not gaps any more: the scroll bars carry them, and they are judged against native (no failure above).
+  assert.ok(!notes.some(note => note.includes('now exposes scroll state')), notes.join('\n'));
   // The same recording judged against the other phase is wrong in exactly the values the Godot-side input changed.
   const wrongPhase = checkElements(recordedReading('macos-after.json'), 0, recordedGeometry, [], { mixedGap: true });
   assert.ok(wrongPhase.some(failure => failure.startsWith('a11y-volume-thumb: AXValue is 80, expected 30')), wrongPhase.join('\n'));
@@ -335,16 +434,96 @@ test('the recorded scroll view: AXUnknown with no scroll state, and a tree that 
     const moved = (recordedY(before, label) ?? NaN) - (recordedY(scrolled, label) ?? NaN);
     assert.equal(moved, RECORDED_SCROLL_PX * RECORDED_POINTS_PER_PIXEL, label);
   }
-  // The children in the tree follow the viewport: the top of the list, then just past the top, then the end, with the last child only there.
-  const labelsOf = (reading: Reading): string[] => recordedScroller(reading).children?.map(child => labelOf(child)) ?? [];
-  assert.deepEqual(labelsOf(before), ['Message 1', 'Message 2', 'Message 3', 'Message 4', 'Message 5']);
-  assert.deepEqual(labelsOf(scrolled), ['Message 1', 'Message 2', 'Message 3', 'Message 4', 'Message 5', 'Message 6', 'Message 7']);
+  // The content in the tree follows the viewport: the top of the list, then just past the top, then the end. The last row, the button,
+  // is in the tree at every position in this recording (an earlier one without scroll bar children left it out until the end).
+  const contentOf = (reading: Reading): AxNode[] => (recordedScroller(reading).children ?? []).filter(child => child.role !== 'AXScrollBar');
+  const labelsOf = (reading: Reading): string[] => contentOf(reading).map(child => labelOf(child));
+  assert.deepEqual(labelsOf(before), ['Message 1', 'Message 2', 'Message 3', 'Message 4', 'Message 5', 'Mark all read']);
+  assert.deepEqual(labelsOf(scrolled), ['Message 1', 'Message 2', 'Message 3', 'Message 4', 'Message 5', 'Message 6', 'Message 7', 'Mark all read']);
   assert.deepEqual(labelsOf(end), ['Message 10', 'Message 11', 'Message 12', 'Mark all read']);
   // Every child advertises scroll-into-view, and the last one is a button too.
   assert.deepEqual(findByLabel(flatten(end.tree), 'Mark all read', ['AXButton'])[0]?.actionNames, ['AXScrollToVisible', 'AXPress']);
   for (const reading of [before, scrolled, end]) {
-    for (const child of recordedScroller(reading).children ?? []) assert.ok(child.actionNames?.includes('AXScrollToVisible'), labelOf(child));
+    for (const child of contentOf(reading)) assert.ok(child.actionNames?.includes('AXScrollToVisible'), labelOf(child));
   }
+});
+
+test('the recorded scroll bar of the messages follows the scroll: 0, then 40, then the end of its range, and nothing else changes', () => {
+  const bars = ['macos-before.json', 'macos-scrolled.json', 'macos-scrolled-end.json'].map(name => {
+    const scrollBars = (recordedScroller(recordedReading(name)).children ?? []).filter(child => child.role === 'AXScrollBar');
+    assert.equal(scrollBars.length, 1, `${name}: one bar for the one axis that scrolls`);
+    assert.ok(scrollBars[0]);
+    return scrollBars[0];
+  });
+  assert.deepEqual(bars.map(bar => bar.value), [0, RECORDED_SCROLL_PX, bars[2]?.maxValue], 'the value is the scroll offset, and at the end it is the maximum');
+  assert.ok(bars.every(bar => bar.minValue === 0 && bar.maxValue === bars[0]?.maxValue && bar.orientation === 'AXVerticalOrientation'));
+  assert.deepEqual(bars.map(bar => bar.frame), [bars[0]?.frame, bars[0]?.frame, bars[0]?.frame], 'the track does not move when the content does');
+  assert.ok(bars.every(bar => bar.actionNames?.join() === 'AXIncrement,AXDecrement' && labelOf(bar) === ''));
+  // The bar is the track native reports (scaled to points), judged in checkElements: its stale value is caught.
+  const stale: Reading = structuredClone(recordedReading('macos-scrolled.json'));
+  const bar = (recordedScroller(stale).children ?? []).find(child => child.role === 'AXScrollBar');
+  assert.ok(bar);
+  bar.value = 0;
+  const failures = checkElements(stale, 1, { ...recordedGeometry, 'a11y-scroller': { ...(recordedGeometry['a11y-scroller'] as SnapshotElement), scroll: { ...(recordedGeometry['a11y-scroller']?.scroll as SnapshotScroll), scrollTop: RECORDED_SCROLL_PX } } });
+  assert.ok(failures.includes('a11y-scroller vertical scroll bar: AXValue is 0, expected 40 (scrollTop)'), failures.join('\n'));
+});
+
+/** The scroll bars among a node's children, and the other children. */
+const barsAndContent = (node: AxNode): { bars: AxNode[]; content: AxNode[] } => ({
+  bars: (node.children ?? []).filter(child => child.role === 'AXScrollBar'),
+  content: (node.children ?? []).filter(child => child.role !== 'AXScrollBar'),
+});
+
+test('the recorded scroll bars are the stock controls\' scroll bars: same element, same place, same order; what differs is documented', () => {
+  const lab = recordedReading('macos-after.json');
+  const stockContainers = recordedReading('macos-stock-scroll-controls.json');
+  const stockTextEdits = recordedReading('macos-stock-text-area-scroll-controls.json');
+  const container = (reading: Reading, bars: number): AxNode => {
+    const found = flatten(reading.tree).filter(node => barsAndContent(node).bars.length === bars && node.role === 'AXUnknown' && node.title !== 'SceneLauncher');
+    assert.equal(found.length, 1, `one container with ${bars} bar(s)`);
+    return found[0] as AxNode;
+  };
+  // A ScrollContainer that overflows on both axes against the lab's gallery, and one that overflows on one against the messages.
+  const pairs: Array<[string, AxNode, AxNode]> = [
+    ['both axes', container(stockContainers, 2), findByLabel(flatten(lab.tree), 'Gallery', ['AXUnknown'])[0] as AxNode],
+    ['one axis', container(stockContainers, 1), findByLabel(flatten(lab.tree), 'Messages', ['AXUnknown'])[0] as AxNode],
+  ];
+  for (const [name, stock, ours] of pairs) {
+    const [stockParts, ourParts] = [barsAndContent(stock), barsAndContent(ours)];
+    assert.equal(ourParts.bars.length, stockParts.bars.length, `${name}: a bar per axis that scrolls`);
+    assert.ok(stock.children?.slice(-stockParts.bars.length).every(child => child.role === 'AXScrollBar'), `${name}: the stock bars come after the content`);
+    assert.ok(ours.children?.slice(-ourParts.bars.length).every(child => child.role === 'AXScrollBar'), `${name}: and so do ours`);
+    ourParts.bars.forEach((bar, index) => {
+      const control = stockParts.bars[index] as AxNode;
+      for (const attribute of ['role', 'roleDescription', 'subrole'] as const) assert.equal(bar[attribute], control[attribute], `${name} ${index} ${attribute}`);
+      assert.equal(bar.minValue, control.minValue, `${name} ${index}: the range starts at 0`);
+      assert.equal(typeof bar.value, typeof control.value);
+      // The horizontal bar is the first, as it is in the stock container: it is wider than it is tall.
+      const horizontal = (node: AxNode): boolean => (node.frame?.width ?? 0) > (node.frame?.height ?? 0);
+      assert.equal(horizontal(bar), horizontal(control), `${name} ${index}: the same axis in the same place`);
+      assert.equal(bar.orientation, horizontal(bar) ? 'AXHorizontalOrientation' : 'AXVerticalOrientation');
+      // The differences: the stock bar says nothing of its orientation, and has the scroll-into-view action every stock Control has.
+      assert.equal(control.orientation, 'AXUnknownOrientation');
+      assert.deepEqual(control.actionNames, ['AXScrollToVisible', 'AXIncrement', 'AXDecrement']);
+      assert.deepEqual(bar.actionNames, ['AXIncrement', 'AXDecrement']);
+    });
+  }
+  // Godot's maximum is the size of the content, which the value never reaches; ours is the farthest offset the content can scroll to.
+  const stockMax = Number(barsAndContent(container(stockContainers, 1)).bars[0]?.maxValue);
+  assert.ok(stockMax > 0 && stockMax !== 251, 'the stock bar of the 12-row container has the content height as its maximum');
+  // A text area: the stock TextEdit that overflows has bars as children, one that fits its text has none, and a LineEdit never does.
+  const stockAreas = new Map(flatten(stockTextEdits.tree).filter(node => node.role === 'AXTextArea' || node.role === 'AXTextField').map(node => [labelOf(node), node]));
+  assert.deepEqual([...stockAreas.keys()].sort(), ['Line', 'Short notes', 'Tall notes']);
+  assert.equal(barsAndContent(stockAreas.get('Tall notes') as AxNode).bars.length, 2, 'a stock TextEdit with long lines and many has both bars');
+  assert.equal(barsAndContent(stockAreas.get('Short notes') as AxNode).bars.length, 0, 'one that fits its text has none');
+  assert.equal(barsAndContent(stockAreas.get('Line') as AxNode).bars.length, 0, 'a LineEdit has none, however far it scrolls its text');
+  const ourAreas = new Map(flatten(lab.tree).filter(node => node.role === 'AXTextArea' || node.role === 'AXTextField').map(node => [labelOf(node), node]));
+  assert.equal(barsAndContent(ourAreas.get('Log') as AxNode).bars.length, 1, 'ours that overflows on one axis has a bar for it');
+  assert.equal(barsAndContent(ourAreas.get('Notes') as AxNode).bars.length, 0);
+  assert.equal(barsAndContent(ourAreas.get('Name') as AxNode).bars.length, 0);
+  // The text area's children are its bars only, in both: the line elements the engine makes are not in the platform tree.
+  assert.equal(ourAreas.get('Log')?.children?.length, 1);
+  assert.ok((stockAreas.get('Tall notes')?.children ?? []).every(child => child.role === 'AXScrollBar'));
 });
 
 test('a tree that kept the children where they were before a scroll is caught by the recorded geometry', () => {
@@ -396,4 +575,31 @@ test('a mixed checkbox that reads unchecked is a recorded gap only where it was 
   // Conveyed, by value or by description, passes anywhere.
   assert.deepEqual(checkElements(reading(0, { patch: { 'a11y-select-all': { value: 0, valueDescription: 'mixed' } } }), 0, snapshots), []);
   assert.deepEqual(checkElements(reading(0), 0, snapshots), []);
+});
+
+test('the recorded text area that stopped overflowing has no scroll bar left, and the one that overflows has its bar again', () => {
+  const log = (reading: Reading): AxNode => {
+    const found = findByLabel(flatten(reading.tree), 'Log', ['AXTextArea']);
+    assert.equal(found.length, 1);
+    return found[0] as AxNode;
+  };
+  // macos-log-fits: the Godot-side half set the log to "short"; the adapter's tree has the text area and no bar under it.
+  const fits = log(recordedReading('macos-log-fits.json'));
+  assert.equal(fits.stringForRange, 'short');
+  assert.deepEqual(fits.children ?? [], []);
+  // macos-after: the text is back and its bar is, scrolled a step back from the end of its range.
+  const bars = barsAndContent(log(recordedReading('macos-after.json'))).bars;
+  assert.equal(bars.length, 1);
+  assert.equal(bars[0]?.orientation, 'AXVerticalOrientation');
+  assert.ok(Number(bars[0]?.value) > 0 && Number(bars[0]?.value) < Number(bars[0]?.maxValue));
+});
+
+test('a recorded tree without the scroll bars (the adapter\'s reading before they existed) fails for each scroll container', () => {
+  const withoutBars = (node: AxNode): AxNode => ({ ...node, ...(node.children === undefined ? {} : { children: node.children.filter(child => child.role !== 'AXScrollBar').map(withoutBars) }) });
+  const recorded = recordedReading('macos-after.json');
+  const without: Reading = { ...recorded, tree: withoutBars(recorded.tree) };
+  const failures = checkElements(without, 1, recordedGeometry);
+  assert.ok(failures.includes('a11y-scroller: expected 1 scroll bar(s) (vertical), found 0'), failures.join('\n'));
+  assert.ok(failures.includes('a11y-gallery: expected 2 scroll bar(s) (horizontal, vertical), found 0'));
+  assert.ok(failures.includes('a11y-log: expected 1 scroll bar(s) (vertical), found 0'));
 });

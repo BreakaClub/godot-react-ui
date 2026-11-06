@@ -17,11 +17,22 @@
 //! * Any `update_set_*` call on an element whose node was already sent starts a fresh node that has
 //!   only a role and a name, so an element is either set completely or not touched in an update.
 //!   [`Registry::needs_apply`] says which, by comparing against what was last applied.
+//!
+//! A scroll container's scroll bars are elements of their own, kept by `(tag, axis)` in the slot of the
+//! container (`scroll_bars.rs`): they live and die with the container's element and are created and
+//! freed on the same terms as every other element.
 
 use std::collections::HashMap;
 
 use crate::diff::diff_children;
 use crate::props::{CheckedSpec, Kind, LiveSpec, OrientationSpec, PropsSpec, RoleSpec};
+
+mod scroll_bars;
+
+pub(crate) use scroll_bars::{
+    AxScrollBar, ScrollBarAction, WantedScrollBar, axis_code, axis_from_code, scroll_bar_delta,
+    scroll_bars_of,
+};
 
 /// The `AccessibilityServer` roles this crate creates, named as the server names them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -53,6 +64,8 @@ pub(crate) enum AxRole {
     Tooltip,
     /// A scroll container with no `role` of its own (Godot's `ScrollContainer`).
     ScrollView,
+    /// One axis of a scroll container, as Godot's `ScrollBar` is.
+    ScrollBar,
     /// A single-line `TextInput` (Godot's `LineEdit`).
     TextField,
     /// A `TextInput` with `multiline` (Godot's `TextEdit`).
@@ -198,14 +211,16 @@ fn scroll_view_role(node: &AxNode<'_>) -> Option<Resolved> {
         .then(|| Resolved::new(AxRole::ScrollView, Content::Expose))
 }
 
-/// One axis of a scroll container that has something to scroll: where it is and where it can go. A
-/// reversed axis (`column-reverse`, `row-reverse`) has a negative `min` and a `max` of zero, as
-/// `scrollTop` does in the DOM.
+/// One axis of a scroll container that has something to scroll: where it is, where it can go, and
+/// where its scroll bar lies. A reversed axis (`column-reverse`, `row-reverse`) has a negative `min`
+/// and a `max` of zero, as `scrollTop` does in the DOM.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct AxScrollAxis {
     pub(crate) position: f64,
     pub(crate) min: f64,
     pub(crate) max: f64,
+    /// The scroll bar's track, root-local: the element's bounds, whether or not the bar is drawn.
+    pub(crate) track: AxBounds,
 }
 
 /// A scroll container's scroll position and range. An axis that cannot move (its content fits, or it
@@ -716,6 +731,8 @@ struct Slot<Id> {
     /// A child was added or removed since the element was last set: its node must be sent again to
     /// list the new children.
     children_changed: bool,
+    /// The scroll bar elements of this element, which are its children after the ones in `children`.
+    bars: scroll_bars::ScrollBarSlots<Id>,
 }
 
 /// Which accessibility elements exist, by tag, and how they nest.
@@ -891,6 +908,7 @@ impl<Id: Copy> Registry<Id> {
                         children: Vec::new(),
                         applied: None,
                         children_changed: false,
+                        bars: scroll_bars::ScrollBarSlots::default(),
                     },
                 );
             }
@@ -917,6 +935,7 @@ impl<Id: Copy> Registry<Id> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scroll::Axis;
 
     /// One mounted node as test data.
     struct TestNode {
@@ -1389,7 +1408,12 @@ mod tests {
     // ---- Scroll containers ------------------------------------------------------------------------
 
     fn axis(position: f64, min: f64, max: f64) -> Option<AxScrollAxis> {
-        Some(AxScrollAxis { position, min, max })
+        Some(AxScrollAxis {
+            position,
+            min,
+            max,
+            track: AxBounds::default(),
+        })
     }
 
     /// A tree of a scroll container (1) holding a button (2) and a bare text row (3).
@@ -1578,6 +1602,173 @@ mod tests {
         assert!(
             registry.needs_apply(1, &props_at(&wider, 1)),
             "a longer range is a change too"
+        );
+    }
+
+    // ---- Scroll bar elements ------------------------------------------------------------------------
+
+    /// One axis with a track, as the source reports it.
+    fn axis_with_track(position: f64, max: f64, track: [f32; 4]) -> Option<AxScrollAxis> {
+        Some(AxScrollAxis {
+            position,
+            min: 0.0,
+            max,
+            track: AxBounds {
+                x: track[0],
+                y: track[1],
+                width: track[2],
+                height: track[3],
+            },
+        })
+    }
+
+    /// The bars wanted for the element `tag` of `tree`, the way the update asks for them.
+    fn bars_at(tree: &Tree, tag: u32) -> Vec<WantedScrollBar> {
+        scroll_bars_of(tag, props_at(tree, tag).scroll)
+    }
+
+    #[test]
+    fn a_scroll_view_wants_a_bar_for_each_axis_that_can_move_with_its_position_range_orientation_and_track()
+     {
+        let scroll = AxScroll {
+            x: axis_with_track(4.0, 30.0, [2.0, 90.0, 300.0, 6.0]),
+            y: axis_with_track(60.0, 120.0, [312.0, 2.0, 6.0, 80.0]),
+        };
+        let bars = bars_at(&scroller(scroll, "{}"), 1);
+        assert_eq!(bars.len(), 2, "one element per axis");
+        let (x, y) = (&bars[0], &bars[1]);
+        assert_eq!((x.tag, x.axis, x.props.vertical), (1, Axis::X, false));
+        assert_eq!((y.tag, y.axis, y.props.vertical), (1, Axis::Y, true));
+        assert_eq!(
+            (x.props.position, x.props.min, x.props.max),
+            (4.0, 0.0, 30.0)
+        );
+        assert_eq!(
+            (y.props.position, y.props.min, y.props.max),
+            (60.0, 0.0, 120.0)
+        );
+        assert_eq!(
+            y.props.bounds,
+            AxBounds {
+                x: 312.0,
+                y: 2.0,
+                width: 6.0,
+                height: 80.0
+            },
+            "the bar covers its track"
+        );
+    }
+
+    #[test]
+    fn an_axis_that_cannot_move_has_no_bar_and_nor_does_a_view_with_nothing_to_scroll() {
+        let vertical_only = scroller(
+            AxScroll {
+                x: None,
+                y: axis_with_track(0.0, 120.0, [0.0; 4]),
+            },
+            "{}",
+        );
+        let bars = bars_at(&vertical_only, 1);
+        assert_eq!(
+            bars.iter().map(|bar| bar.axis).collect::<Vec<_>>(),
+            [Axis::Y],
+            "the sideways axis has nothing to scroll to"
+        );
+        assert!(bars_at(&scroller(AxScroll::default(), "{}"), 1).is_empty());
+        assert!(
+            bars_at(&scroller(AxScroll::default(), "{}"), 2).is_empty(),
+            "the rows are not scroll containers"
+        );
+    }
+
+    #[test]
+    fn a_reversed_axis_keeps_its_negative_range_on_its_bar() {
+        let reversed = scroller(
+            AxScroll {
+                x: None,
+                y: Some(AxScrollAxis {
+                    position: -80.0,
+                    min: -120.0,
+                    max: 0.0,
+                    track: AxBounds::default(),
+                }),
+            },
+            "{}",
+        );
+        let bar = &bars_at(&reversed, 1)[0].props;
+        assert_eq!((bar.position, bar.min, bar.max), (-80.0, -120.0, 0.0));
+    }
+
+    #[test]
+    fn a_container_has_bars_whatever_its_role_and_a_multi_line_text_input_is_one() {
+        let scroll = AxScroll {
+            x: None,
+            y: axis_with_track(10.0, 120.0, [0.0; 4]),
+        };
+        // A role of its own changes what the container is, not that it scrolls (plan D38).
+        assert_eq!(
+            bars_at(&scroller(scroll, r#"{"role":"listbox"}"#), 1).len(),
+            1
+        );
+        // A stock `TextEdit` has scroll bar children when its text overflows, so does a text area; a
+        // single-line input is not a scroll container and reports no scroll state to ask for bars.
+        let mut area = text_input(
+            text_input_props(r#"{"multiline":true}"#),
+            field("a\nb", (0, 0)),
+        );
+        area.nodes.get_mut(&1).unwrap().scroll = Some(scroll);
+        assert_eq!(entries(&area), vec![(1, None, AxRole::MultilineTextField)]);
+        assert_eq!(bars_at(&area, 1).len(), 1);
+        let line = text_input(text_input_props("{}"), field("abc", (0, 0)));
+        assert!(bars_at(&line, 1).is_empty());
+    }
+
+    #[test]
+    fn a_scroll_changes_only_the_value_of_its_bar() {
+        let at = |position: f64| {
+            bars_at(
+                &scroller(
+                    AxScroll {
+                        x: None,
+                        y: axis_with_track(position, 120.0, [312.0, 2.0, 6.0, 80.0]),
+                    },
+                    "{}",
+                ),
+                1,
+            )
+            .remove(0)
+            .props
+        };
+        let (before, after) = (at(0.0), at(40.0));
+        assert_ne!(before, after);
+        assert_eq!(
+            AxScrollBar {
+                position: 40.0,
+                ..before
+            },
+            after,
+            "the track, the range and the orientation did not change"
+        );
+    }
+
+    #[test]
+    fn a_bar_is_a_scroll_bar_role_and_exposes_nothing_of_its_own() {
+        assert_eq!(AxRole::ScrollBar, AxRole::ScrollBar);
+        let tree = scroller(
+            AxScroll {
+                x: None,
+                y: axis_with_track(0.0, 120.0, [0.0; 4]),
+            },
+            "{}",
+        );
+        assert_eq!(
+            entries(&tree),
+            vec![
+                (1, None, AxRole::ScrollView),
+                (2, Some(1), AxRole::Button),
+                (3, Some(1), AxRole::StaticText),
+            ],
+            "bars are not walked: they belong to the registry slot of their container"
         );
     }
 

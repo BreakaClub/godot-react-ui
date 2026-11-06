@@ -1437,7 +1437,7 @@ test('ScrollView can leave the tab order, reports onScroll and hands out the scr
   assert.deepEqual(seen, [64]);
   m.host.scrollStates.set(m.tag('logged'), {
     scrollLeft: 0, scrollTop: 64, scrollWidth: 300, scrollHeight: 900, clientWidth: 300, clientHeight: 400,
-    minScrollLeft: 0, maxScrollLeft: 0, minScrollTop: 0, maxScrollTop: 500, thumbs: null,
+    minScrollLeft: 0, maxScrollLeft: 0, minScrollTop: 0, maxScrollTop: 500, thumbs: null, tracks: null,
   });
   ref.current?.scrollTo({ top: 100 });
   assert.deepEqual(m.host.scrollRequests, [{ method: 'scrollTo', tag: m.tag('logged'), x: 0, y: 100 }]);

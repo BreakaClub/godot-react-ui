@@ -31,18 +31,20 @@ use godot::prelude::*;
 
 use crate::ReactUiRoot;
 use crate::accessibility_model::{
-    AxAction, AxNode, AxProps, AxRole, AxScroll, AxScrollAxis, AxSource, Desired, ElementServer,
-    MIXED_DESCRIPTION, Registry, props_of, walk,
+    AxAction, AxBounds, AxNode, AxProps, AxRole, AxScroll, AxScrollAxis, AxSource, Desired,
+    ElementServer, MIXED_DESCRIPTION, Registry, props_of, scroll_bars_of, walk,
 };
 use crate::computed_style::StyleChange;
 use crate::diff::Parent;
 use crate::events::{AccessibilityActionData, AccessibilityActionKind, EventPayload};
 use crate::focus::is_focusable;
 use crate::geometry::BoxRect;
-use crate::mount::Mounted;
+use crate::mount::{Mounted, MountedNode};
 use crate::props::{DisplaySpec, LiveSpec};
-use crate::scroll::{ScrollDirection, ScrollRange, ScrollUnit, Vec2, assistive_scroll_delta};
+use crate::scroll::{Axis, ScrollDirection, ScrollUnit, Vec2, assistive_scroll_delta};
 use crate::text_input_godot::ax_text_field;
+
+mod scroll_bars;
 
 /// The method the action callables call, with the AccessKit request's data, the node's tag and the
 /// action's code (`AxAction::code`).
@@ -83,12 +85,40 @@ impl Mounted {
     }
 }
 
-/// One axis of a scroll container, when it has anything to scroll.
-fn scroll_axis(range: ScrollRange, position: f32) -> Option<AxScrollAxis> {
-    range.is_scrollable().then(|| AxScrollAxis {
-        position: f64::from(position),
+/// Whether `axis` of `node` has anything to scroll. This is the one definition of when an axis has a
+/// scroll bar element: it decides what `AxSource::node` reports, and so which bars are created, and which
+/// are freed when the geometry changes (`prune_scroll_bar_elements`). A multi-line text input is a scroll
+/// container; a single-line one scrolls its text but is not.
+fn axis_scrolls(node: &MountedNode, axis: Axis) -> bool {
+    node.is_scroll_container() && node.geometry.scroll_ranges.get(axis).is_scrollable()
+}
+
+/// One axis of a scroll container, when it has anything to scroll: its position, its range and where
+/// its scroll bar's track lies. `rect` is the container's root-local border box; the track is laid out
+/// in its padding box, whether or not the bar is drawn (`scrollbar-width: none` hides the drawing, not
+/// the axis).
+fn scroll_axis(node: &MountedNode, rect: BoxRect, axis: Axis) -> Option<AxScrollAxis> {
+    if !axis_scrolls(node, axis) {
+        return None;
+    }
+    let range = node.geometry.scroll_ranges.get(axis);
+    let layout = node.scrollbar_layout();
+    let bar = match axis {
+        Axis::X => layout.x,
+        Axis::Y => layout.y,
+    }
+    .expect("an axis that scrolls has a scroll bar layout (scroll::scrollbars lays out every scrollable axis)");
+    let client = node.geometry.padding_box();
+    Some(AxScrollAxis {
+        position: f64::from(node.scroll.offset.get(axis)),
         min: f64::from(range.min()),
         max: f64::from(range.max()),
+        track: AxBounds {
+            x: rect.x + client.x + bar.track.origin.x,
+            y: rect.y + client.y + bar.track.origin.y,
+            width: bar.track.size.x,
+            height: bar.track.size.y,
+        },
     })
 }
 
@@ -113,12 +143,9 @@ impl AxSource for Mounted {
             height: rect.height,
             display_none: node.computed.display == Some(DisplaySpec::None),
             clips_children: node.clips_content(),
-            scroll: node.is_scroll_container().then(|| {
-                let ranges = node.geometry.scroll_ranges;
-                AxScroll {
-                    x: scroll_axis(ranges.x, node.scroll.offset.x),
-                    y: scroll_axis(ranges.y, node.scroll.offset.y),
-                }
+            scroll: node.is_scroll_container().then(|| AxScroll {
+                x: scroll_axis(node, rect, Axis::X),
+                y: scroll_axis(node, rect, Axis::Y),
             }),
             in_scrollable: self.in_scrollable_container(tag),
             text_field: node
@@ -196,6 +223,7 @@ fn server_role(role: AxRole) -> AccessibilityRole {
         AxRole::Region => AccessibilityRole::REGION,
         AxRole::Tooltip => AccessibilityRole::TOOLTIP,
         AxRole::ScrollView => AccessibilityRole::SCROLL_VIEW,
+        AxRole::ScrollBar => AccessibilityRole::SCROLL_BAR,
         AxRole::TextField => AccessibilityRole::TEXT_FIELD,
         AxRole::MultilineTextField => AccessibilityRole::MULTILINE_TEXT_FIELD,
     }
@@ -325,13 +353,22 @@ impl ReactUiRoot {
                  and were not pruned: {misplaced:?}"
             );
         }
-        let mut changed = Vec::new();
+        // What every element says, and the scroll bars the scroll containers among them want. The bars are
+        // created before any element is compared: a container that gained one lists a new child.
+        let mut described = Vec::with_capacity(desired.entries().len());
+        let mut bars = Vec::new();
         for entry in desired.entries() {
             let props = props_of(&self.mounted, entry);
-            if self.accessibility.registry.needs_apply(entry.tag, &props)
-                && let Some(element) = self.accessibility.registry.element(entry.tag)
+            bars.extend(scroll_bars_of(entry.tag, props.scroll));
+            described.push((entry.tag, props));
+        }
+        self.grow_scroll_bar_elements(root, &bars);
+        let mut changed = Vec::new();
+        for (tag, props) in described {
+            if self.accessibility.registry.needs_apply(tag, &props)
+                && let Some(element) = self.accessibility.registry.element(tag)
             {
-                changed.push((entry.tag, element, props));
+                changed.push((tag, element, props));
             }
         }
         let mut server = AccessibilityServer::singleton();
@@ -339,6 +376,7 @@ impl ReactUiRoot {
             self.apply_accessibility(&mut server, element, tag, &props);
             self.accessibility.registry.mark_applied(tag, props);
         }
+        self.apply_scroll_bar_elements(&mut server, &bars);
     }
 
     /// Set everything on one element. A node already sent to the platform is replaced by a new one

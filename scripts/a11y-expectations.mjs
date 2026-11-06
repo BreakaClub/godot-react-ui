@@ -18,16 +18,16 @@ const CONTAINMENT_SLACK = 2;
  *   state description native sets with it ("mixed") reaches no attribute the Accessibility API exposes.
  * - A scroll view (plan D38): AccessKit's macOS adapter has no scroll area role, so a SCROLL_VIEW is `AXUnknown` (a stock
  *   Godot `ScrollContainer` is too), it ignores the scroll position and range set on the node (the element has no AXValue,
- *   AXMinValue, AXMaxValue or scroll bar; the stock container conveys them through a SCROLL_BAR child element, which this
- *   library does not create), and macOS has no scroll up, down or set-offset action to advertise (only `AXScrollToVisible`,
+ *   AXMinValue, AXMaxValue or scroll bar attribute; the position is conveyed by the SCROLL_BAR child elements of plan D42,
+ *   which are checked), and macOS has no scroll up, down or set-offset action to advertise (only `AXScrollToVisible`,
  *   which the scroll view's contents do advertise). The adapter also leaves out children that lie a little beyond the
- *   viewport's edge. What it does convey is checked: the children in view, their frames, which follow the scroll, and
- *   the scroll-into-view action on the contents and nowhere else.
+ *   viewport's edge. What it does convey is checked: the children in view, their frames, which follow the scroll, the
+ *   scroll-into-view action on the contents and nowhere else, and a scroll bar for each axis that can move.
  */
 const GROUP_GAP = 'the platform tree has no group named "Size": the engine has no group role, and the macOS adapter leaves out the generic container it has (the radio buttons are in the tree)';
 const MIXED_GAP = 'the platform reports the mixed checkbox as unchecked (AXValue 0) and has no state text for it: the engine can only set a checkbox to checked or unchecked';
 const SCROLL_ROLE_GAP = 'the scroll view reaches the platform as AXUnknown, not AXScrollArea: the macOS adapter has no scroll area role (a stock Godot ScrollContainer is AXUnknown too)';
-const SCROLL_VALUES_GAP = 'the platform exposes no scroll position or range for the scroll view (no AXValue, AXMinValue, AXMaxValue or scroll bar): the macOS adapter ignores the scroll properties set on a node; a stock Godot ScrollContainer conveys them through an AXScrollBar child element';
+const SCROLL_VALUES_GAP = 'the platform exposes no scroll position or range on the scroll view itself (no AXValue, AXMinValue, AXMaxValue or AXVerticalScrollBar): the macOS adapter ignores the scroll properties set on a node, so the position is conveyed by its AXScrollBar children';
 const SCROLL_ACTIONS_GAP = 'the platform advertises no scroll up, down, left, right or set-offset action on the scroll view: macOS has AXScrollToVisible only, which its contents do advertise';
 const SCROLL_CULL_GAP = 'the platform tree leaves out scroll view children that lie beyond a margin outside the viewport, so a child scrolled far out of view is not in it until it comes near';
 /** The one action macOS has for scrolling something into view; D38's `scroll_into_view` is advertised as this. */
@@ -50,6 +50,24 @@ export const SCROLL_ITEMS = [
 ];
 /** How far (snapshot pixels) a child may poke outside the scroll view and still count as in view. */
 const VIEW_SLACK = 0.5;
+/**
+ * A scroll bar (plan D42) is an `AXScrollBar` child of the scroll container's element, after the container's other children,
+ * the horizontal bar before the vertical one (the stock `ScrollContainer` and `TextEdit` list theirs so, docs/tracks/scroll-bars.md).
+ * Its value, minimum and maximum are the container's scroll offset and its reachable offsets in Godot pixels (not points), its
+ * orientation says which axis it is, and its frame is the track the native snapshot reports. The stock bars have no name and
+ * no orientation; this library's has the orientation and no name.
+ */
+const BAR_ROLE = 'AXScrollBar';
+const BAR_ORIENTATION = { x: 'AXHorizontalOrientation', y: 'AXVerticalOrientation' };
+/** What a scroll bar advertises: the actions VoiceOver uses to move through a scroll view. Judged by `checkActions`, like every other element's. */
+const BAR_ACTIONS = [INCREMENT, DECREMENT];
+const BAR_STATE = {
+  x: { value: 'scrollLeft', min: 'minScrollLeft', max: 'maxScrollLeft' },
+  y: { value: 'scrollTop', min: 'minScrollTop', max: 'maxScrollTop' },
+};
+/** Offsets are floats; a bar's value may differ from the native offset by this much (pixels). */
+const BAR_VALUE_TOLERANCE = 0.01;
+const AXIS_NAMES = { x: 'horizontal', y: 'vertical' };
 
 /** What the lab shows and what an assistive technology must therefore read, before and after the Godot-side changes. */
 export const ELEMENTS = [
@@ -68,11 +86,16 @@ export const ELEMENTS = [
   // selection and caret are where the Godot-side half left them (a name edited and "Lovelace" selected, a read-only field
   // selected whole), a placeholder shows only while the field is empty, and a field with no label is named by its placeholder.
   // `line` is the caret's line. See checkTextField.
-  { id: 'a11y-name', label: 'Name', roles: ['AXTextField'], enabled: true, textField: {
+  // `bars` says which scroll bar elements it has as children, by axis: none for a field or an area that fits its text.
+  { id: 'a11y-name', label: 'Name', roles: ['AXTextField'], enabled: true, bars: [], textField: {
     text: ['Ada', 'Ada Lovelace'], selection: [[3, 0], [4, 8]], selected: ['', 'Lovelace'], line: [0, 0],
   } },
-  { id: 'a11y-notes', label: 'Notes', roles: ['AXTextArea'], enabled: true, textField: {
+  { id: 'a11y-notes', label: 'Notes', roles: ['AXTextArea'], enabled: true, bars: [], textField: {
     text: ['first\nsecond', 'first\nsecond'], selection: [[12, 0], [12, 0]], selected: ['', ''], line: [1, 1], multiline: true,
+  } },
+  // A text area whose text overflows its two rows scrolls, so it has a vertical scroll bar, as a stock TextEdit does.
+  { id: 'a11y-log', label: 'Log', roles: ['AXTextArea'], enabled: true, bars: ['y'], textField: {
+    text: ['one\ntwo\nthree\nfour\nfive', 'one\ntwo\nthree\nfour\nfive'], selection: [[23, 0], [23, 0]], selected: ['', ''], line: [4, 4], multiline: true,
   } },
   { id: 'a11y-readonly', label: 'Reference', roles: ['AXTextField'], textField: {
     text: ['Fixed', 'Fixed'], selection: [[5, 0], [0, 5]], selected: ['', 'Fixed'], line: [0, 0], readOnly: true,
@@ -82,7 +105,9 @@ export const ELEMENTS = [
   } },
   // A scroll container is a SCROLL_VIEW. The macOS adapter has no scroll area role, so it is AXUnknown (SCROLL_ROLE_GAP);
   // AXScrollArea would be right if an adapter had one, and either is accepted, one noted.
-  { id: 'a11y-scroller', label: 'Messages', roles: ['AXScrollArea', 'AXUnknown'], scroll: true },
+  { id: 'a11y-scroller', label: 'Messages', roles: ['AXScrollArea', 'AXUnknown'], scroll: true, bars: ['y'] },
+  // A scroll view that overflows on both axes has a bar for each.
+  { id: 'a11y-gallery', label: 'Gallery', roles: ['AXScrollArea', 'AXUnknown'], scroll: true, bars: ['x', 'y'] },
 ];
 /** Static text whose content changes with the Godot-side input. */
 const SAVES_LABELS = ['Saved 0 times', 'Saved 1 times'];
@@ -140,7 +165,8 @@ export function checkElements(reading, phase, snapshots, notes = [], { mixedGap 
       failures.push(`${expected.id}: range is ${node.minValue}..${node.maxValue}, expected ${expected.range.join('..')}`);
     }
     if (expected.actions !== undefined) failures.push(...checkActions(expected, node));
-    if (expected.scroll) checkScrollView(node, notes);
+    if (expected.bars !== undefined) failures.push(...checkScrollBars(expected, node, snapshots[expected.id], pairs));
+    if (expected.scroll) checkScrollView(expected.id, node, notes);
     else if (node.actionNames?.includes(SCROLL_TO_VISIBLE)) {
       failures.push(`${expected.id}: it advertises ${SCROLL_TO_VISIBLE} but is not inside a scroll view`);
     }
@@ -241,15 +267,56 @@ function checkTextField(expected, node, phase, notes) {
 }
 
 /** What the platform says about the scroll view itself: noted where the adapter cannot convey it (see SCROLL_ROLE_GAP). */
-function checkScrollView(node, notes) {
-  if (node.role === 'AXUnknown') notes.push(`a11y-scroller: ${SCROLL_ROLE_GAP}`);
+function checkScrollView(id, node, notes) {
+  if (node.role === 'AXUnknown') notes.push(`${id}: ${SCROLL_ROLE_GAP}`);
   const exposed = [node.value, node.minValue, node.maxValue, node.verticalScrollBar, node.horizontalScrollBar].some(value => value !== undefined);
-  if (!exposed) notes.push(`a11y-scroller: ${SCROLL_VALUES_GAP}`);
-  else notes.push(`a11y-scroller: the platform now exposes scroll state (${JSON.stringify({ value: node.value, min: node.minValue, max: node.maxValue, verticalScrollBar: node.verticalScrollBar })}); judge it in scripts/a11y-expectations.mjs`);
+  if (!exposed) notes.push(`${id}: ${SCROLL_VALUES_GAP}`);
+  else notes.push(`${id}: the platform now exposes scroll state (${JSON.stringify({ value: node.value, min: node.minValue, max: node.maxValue, verticalScrollBar: node.verticalScrollBar })}); judge it in scripts/a11y-expectations.mjs`);
   // The dump tool leaves out an empty action list, so an element with no `actionNames` advertises none.
   if (!(node.actionNames ?? []).some(name => /^AXScroll(Up|Down|Left|Right)/u.test(name))) {
-    notes.push(`a11y-scroller: ${SCROLL_ACTIONS_GAP}`);
+    notes.push(`${id}: ${SCROLL_ACTIONS_GAP}`);
   }
+}
+
+/**
+ * The scroll bars of a scroll container (plan D42): `expected.bars` lists the axes that can move, and the container must
+ * have exactly those `AXScrollBar` children, after its other children and in axis order (horizontal first). Each says the
+ * container's offset (AXValue) and reachable offsets (AXMinValue, AXMaxValue) as native has them now (`snapshot.scroll`, the
+ * native scroll state), has the orientation of its axis and the increment and decrement actions, and has no name. Its frame
+ * is the track native reports; it is appended to `pairs` so the one fit that judges every frame judges it too.
+ */
+function checkScrollBars(expected, node, snapshot, pairs) {
+  const failures = [];
+  const children = node.children ?? [];
+  const bars = children.filter(child => child.role === BAR_ROLE);
+  if (bars.length !== expected.bars.length) {
+    failures.push(`${expected.id}: expected ${expected.bars.length} scroll bar(s) (${expected.bars.map(axis => AXIS_NAMES[axis]).join(', ') || 'none'}), found ${bars.length}`);
+    return failures;
+  }
+  if (!children.slice(children.length - bars.length).every(child => child.role === BAR_ROLE)) {
+    failures.push(`${expected.id}: the scroll bars should be the last children of the scroll container, after its content`);
+  }
+  const scroll = snapshot?.scroll;
+  expected.bars.forEach((axis, index) => {
+    const bar = bars[index];
+    const name = `${expected.id} ${AXIS_NAMES[axis]} scroll bar`;
+    if (bar.orientation !== BAR_ORIENTATION[axis]) {
+      failures.push(`${name}: AXOrientation is ${JSON.stringify(bar.orientation)}, expected ${BAR_ORIENTATION[axis]} (the horizontal bar comes first)`);
+    }
+    failures.push(...checkActions({ id: name, actions: BAR_ACTIONS }, bar));
+    if (labelOf(bar) !== '') failures.push(`${name}: it should have no name, it is named ${JSON.stringify(labelOf(bar))}`);
+    if (scroll === undefined || scroll === null) return;
+    const keys = BAR_STATE[axis];
+    for (const [attribute, reading, key] of [['AXValue', bar.value, keys.value], ['AXMinValue', bar.minValue, keys.min], ['AXMaxValue', bar.maxValue, keys.max]]) {
+      if (!(Math.abs(numeric(reading) - scroll[key]) <= BAR_VALUE_TOLERANCE)) {
+        failures.push(`${name}: ${attribute} is ${JSON.stringify(reading)}, expected ${scroll[key]} (${key})`);
+      }
+    }
+    const track = scroll.tracks?.[axis];
+    if (bar.frame === undefined) failures.push(`${name}: the element has no AXFrame`);
+    else if (track !== undefined && track !== null) pairs.push({ id: name, snapshot: track, frame: bar.frame });
+  });
+  return failures;
 }
 
 /**

@@ -479,9 +479,17 @@ impl MountedNode {
     /// The overlay scrollbars as they are now, in the client (padding box) area's coordinates; none
     /// for a container with `scrollbar-width: none` or nothing to scroll.
     pub(crate) fn scrollbars(&self) -> Scrollbars {
-        if !self.is_scroll_container()
-            || self.computed.scrollbar_width == Some(ScrollbarWidthSpec::None)
-        {
+        if self.computed.scrollbar_width == Some(ScrollbarWidthSpec::None) {
+            return Scrollbars::default();
+        }
+        self.scrollbar_layout()
+    }
+
+    /// Where the scrollbars lie, whether or not they are drawn (`scrollbar-width: none` hides the
+    /// drawing, not the axis): the layout of every axis that can scroll, in the client area's
+    /// coordinates. The accessibility tree's scroll bar elements cover these tracks.
+    pub(crate) fn scrollbar_layout(&self) -> Scrollbars {
+        if !self.is_scroll_container() {
             return Scrollbars::default();
         }
         let client = self.geometry.padding_box();
@@ -1165,6 +1173,8 @@ impl ReactUiRoot {
             // The client area or the content's reach changed: the offset may no longer be reachable,
             // and the scrollbars' proportions changed.
             self.settle_scroll(tag);
+            // An axis that can no longer move has no scroll bar element any more.
+            self.prune_scroll_bar_elements(tag);
         }
         shape_changed || on_dirty_path
     }

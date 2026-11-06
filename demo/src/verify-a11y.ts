@@ -3,7 +3,7 @@ import type { LayoutRect, NativeScrollState, NativeSnapshot, NativeSnapshotNode 
 import { checkElements, checkFocus, type Reading } from '../../scripts/a11y-expectations.mjs';
 import { findByLabel, flatten, type FlatNode } from '../../scripts/ax-tree.mjs';
 import {
-  A11Y_INITIAL_SIZE, A11Y_NAME_START, A11Y_NOTES_START, A11Y_READONLY_TEXT, A11Y_SLIDER_MAX, A11Y_SLIDER_START,
+  A11Y_INITIAL_SIZE, A11Y_LOG_START, A11Y_NAME_START, A11Y_NOTES_START, A11Y_READONLY_TEXT, A11Y_SLIDER_MAX, A11Y_SLIDER_START,
 } from './a11y-panel';
 import { parseVerifierEvent } from './verifier-input';
 
@@ -50,6 +50,13 @@ const ACTION_SET_SCROLL_OFFSET = 10;
 const ACTION_SCROLL_INTO_VIEW = 11;
 const ACTION_SET_TEXT_SELECTION = 12;
 const ACTION_REPLACE_SELECTED_TEXT = 13;
+/** The codes `native/accessibility_model/scroll_bars.rs` binds into a scroll bar's callable: its axis, then its action. */
+const SCROLL_BAR_AXIS_X = 0;
+const SCROLL_BAR_AXIS_Y = 1;
+const SCROLL_BAR_INCREMENT = 0;
+const SCROLL_BAR_DECREMENT = 1;
+/** Text that fits the log's two rows: its text area has nothing to scroll while it holds this. */
+const LOG_SHORT_TEXT = 'short';
 /** What the text actions put in the name field, in the order the verifier applies them. */
 const SELECTED_FROM = 1;
 const SELECTED_TO = 3;
@@ -133,6 +140,17 @@ async function assistiveAction(api: A11yInspection, testID: string, code: number
   await settle();
 }
 
+/**
+ * An assistive technology's action on a scroll bar of `testID`'s scroll container, delivered the way the platform adapter
+ * delivers it: the bar's callable (`ReactUiRoot._on_accessibility_scroll_bar_action`, bound with the container's tag, the
+ * bar's axis and the action) called with the request's data, which an increment and a decrement do not have.
+ */
+async function scrollBarAction(api: A11yInspection, testID: string, axis: number, action: number): Promise<void> {
+  const callable = new Callable(api.surface(), '_on_accessibility_scroll_bar_action').bindv(GArray.create([get(api, testID).id, axis, action]));
+  callable.call(null);
+  await settle();
+}
+
 function write(directory: string, name: string, value: unknown): void {
   const file = FileAccess.open(`${directory}/${name}`, FileAccess.ModeFlags.Write);
   assert(file, `Cannot write ${directory}/${name}`);
@@ -144,12 +162,19 @@ async function sleep(milliseconds: number): Promise<void> {
   await new Promise(resolve => setTimeout(resolve, milliseconds));
 }
 
+/** What native knows of an element the platform tree is compared with: its rectangle, and for a scroll container its scroll state. */
+interface ElementGeometry {
+  rect: { x: number; y: number; width: number; height: number };
+  scroll?: NativeScrollState;
+}
+
 /** The native geometry of the elements the platform tree is compared with, as `checkElements` reads it. */
-function geometry(api: A11yInspection): Record<string, { rect: { x: number; y: number; width: number; height: number } }> {
-  const nodes: Record<string, { rect: { x: number; y: number; width: number; height: number } }> = {};
+function geometry(api: A11yInspection): Record<string, ElementGeometry> {
+  const nodes: Record<string, ElementGeometry> = {};
   for (const node of api.snapshot().nodes) {
     const testID = node.props.testID;
-    if (typeof testID === 'string') nodes[testID] = { rect: node.rect };
+    if (typeof testID !== 'string') continue;
+    nodes[testID] = node.scroll ? { rect: node.rect, scroll: node.scroll } : { rect: node.rect };
   }
   return nodes;
 }
@@ -376,6 +401,78 @@ export async function runA11yVerification(api: A11yInspection): Promise<void> {
   await assistiveAction(api, 'a11y-message-1', ACTION_SCROLL_INTO_VIEW);
   assert(inView('a11y-message-1'), 'and one on the first row scrolls back to it');
   assert(api.snapshot().focused === focusBefore, 'Scrolling moved no focus');
+  // ---- Scroll bar actions: each axis that can scroll has a bar whose increment and decrement scroll a step ---------
+  const scrollStateOf = (testID: string): NativeScrollState => {
+    const scroll = get(api, testID).scroll;
+    assert(scroll, `${testID} is a scroll container`);
+    return scroll;
+  };
+  const messages = scrollStateOf('a11y-scroller');
+  assert(messages.tracks?.x === null && messages.tracks?.y !== null, `The messages view has a track for its vertical axis only: ${JSON.stringify(messages.tracks)}`);
+  assert(scrollStateOf('a11y-gallery').tracks?.x !== null && scrollStateOf('a11y-gallery').tracks?.y !== null, 'The gallery has a track for each axis');
+  assert(scrollStateOf('a11y-notes').tracks?.x === null && scrollStateOf('a11y-notes').tracks?.y === null, 'A text area that fits its text has no track');
+  assert(scrollStateOf('a11y-log').tracks?.y !== null && scrollStateOf('a11y-log').maxScrollTop > 0, 'A text area that overflows has a vertical track');
+  await assistiveAction(api, 'a11y-scroller', ACTION_SET_SCROLL_OFFSET, new Vector2(0, 0));
+  // The arrow key is the step an assistive technology's increment must match.
+  focus(api, 'a11y-scroller');
+  await pressKey(Key.KeyDown);
+  const arrowStep = scrollOf().scrollTop;
+  assert(near(arrowStep, step), `The Down key scrolls a step, an eighth of the client height: ${arrowStep} for ${step}`);
+  await scrollBarAction(api, 'a11y-scroller', SCROLL_BAR_AXIS_Y, SCROLL_BAR_INCREMENT);
+  assert(near(scrollOf().scrollTop, 2 * arrowStep), `An increment action on the vertical bar scrolls the same step as the Down key: ${scrollOf().scrollTop}`);
+  await scrollBarAction(api, 'a11y-scroller', SCROLL_BAR_AXIS_Y, SCROLL_BAR_DECREMENT);
+  assert(near(scrollOf().scrollTop, arrowStep), `and a decrement action steps back: ${scrollOf().scrollTop}`);
+  await pressKey(Key.KeyUp);
+  assert(near(scrollOf().scrollTop, 0), `which is where the Up key goes too: ${scrollOf().scrollTop}`);
+  await scrollBarAction(api, 'a11y-scroller', SCROLL_BAR_AXIS_Y, SCROLL_BAR_DECREMENT);
+  assert(scrollOf().scrollTop === 0, 'A decrement at the start stays there');
+  await scrollBarAction(api, 'a11y-scroller', SCROLL_BAR_AXIS_X, SCROLL_BAR_INCREMENT);
+  assert(scrollOf().scrollLeft === 0 && scrollOf().scrollTop === 0, 'The sideways axis of a vertical-only view has no bar, so its action moves nothing');
+  await assistiveAction(api, 'a11y-scroller', ACTION_SET_SCROLL_OFFSET, new Vector2(0, SCROLL_PAST_END));
+  await scrollBarAction(api, 'a11y-scroller', SCROLL_BAR_AXIS_Y, SCROLL_BAR_INCREMENT);
+  assert(scrollOf().scrollTop === scrollOf().maxScrollTop, 'An increment at the end stays there');
+  // Both axes: the horizontal bar steps a width, the vertical one a height, and neither moves the other axis.
+  const galleryStateOf = (): NativeScrollState => scrollStateOf('a11y-gallery');
+  assert(galleryStateOf().maxScrollLeft > 0 && galleryStateOf().maxScrollTop > 0, `The gallery overflows on both axes: ${JSON.stringify(galleryStateOf())}`);
+  const galleryStep = { x: galleryStateOf().clientWidth / SCROLL_PAGE_DIVISOR, y: galleryStateOf().clientHeight / SCROLL_PAGE_DIVISOR };
+  focus(api, 'a11y-gallery');
+  await pressKey(Key.KeyRight);
+  assert(near(galleryStateOf().scrollLeft, galleryStep.x) && galleryStateOf().scrollTop === 0, `The Right key scrolls the gallery a step sideways: ${galleryStateOf().scrollLeft}`);
+  await scrollBarAction(api, 'a11y-gallery', SCROLL_BAR_AXIS_X, SCROLL_BAR_INCREMENT);
+  assert(near(galleryStateOf().scrollLeft, 2 * galleryStep.x) && galleryStateOf().scrollTop === 0,
+    `An increment on the horizontal bar scrolls the same step as the Right key, along its axis only: ${galleryStateOf().scrollLeft},${galleryStateOf().scrollTop}`);
+  await scrollBarAction(api, 'a11y-gallery', SCROLL_BAR_AXIS_X, SCROLL_BAR_DECREMENT);
+  assert(near(galleryStateOf().scrollLeft, galleryStep.x), `A decrement on the horizontal bar steps back: ${galleryStateOf().scrollLeft}`);
+  await scrollBarAction(api, 'a11y-gallery', SCROLL_BAR_AXIS_Y, SCROLL_BAR_INCREMENT);
+  assert(near(galleryStateOf().scrollTop, galleryStep.y) && near(galleryStateOf().scrollLeft, galleryStep.x),
+    `and one on the vertical bar scrolls a height step down without moving the other axis: ${galleryStateOf().scrollLeft},${galleryStateOf().scrollTop}`);
+  // A text area is a scroll container: its vertical bar scrolls its text. The platform's last reading finds the gallery and the log scrolled.
+  const logStep = scrollStateOf('a11y-log').clientHeight / SCROLL_PAGE_DIVISOR;
+  assert(scrollStateOf('a11y-log').scrollTop === 0, 'The log shows its first lines');
+  await scrollBarAction(api, 'a11y-log', SCROLL_BAR_AXIS_Y, SCROLL_BAR_INCREMENT);
+  assert(near(scrollStateOf('a11y-log').scrollTop, logStep), `An increment on a text area's bar scrolls its text a step: ${scrollStateOf('a11y-log').scrollTop} for ${logStep}`);
+  await scrollBarAction(api, 'a11y-log', SCROLL_BAR_AXIS_X, SCROLL_BAR_INCREMENT);
+  assert(scrollStateOf('a11y-log').scrollLeft === 0, 'and the text area has no sideways bar');
+  // A bar goes when its axis stops scrolling and comes back when it scrolls again: the text area's text shrinks to fit, then grows.
+  await assistiveAction(api, 'a11y-log', ACTION_SET_VALUE, LOG_SHORT_TEXT);
+  assert(scrollStateOf('a11y-log').maxScrollTop === 0 && scrollStateOf('a11y-log').tracks?.y === null && scrollStateOf('a11y-log').scrollTop === 0,
+    `A text area whose text fits has nothing to scroll and no track: ${JSON.stringify(scrollStateOf('a11y-log'))}`);
+  if (platformTree) {
+    const hasBar = (nodes: FlatNode[]): boolean => findByLabel(nodes, 'Log', ['AXTextArea']).some(node => (node.children ?? []).some(child => child.role === 'AXScrollBar'));
+    const fits = await readTree(directory, 'ax-log-fits.json', nodes => !hasBar(nodes));
+    if (fits === undefined || findByLabel(flatten(fits.tree), 'Log', ['AXTextArea']).length !== 1) failures.push('fits: the platform tree has no Log text area');
+    else if (hasBar(flatten(fits.tree))) failures.push('fits: the Log text area kept its scroll bar after its text stopped overflowing');
+  }
+  await assistiveAction(api, 'a11y-log', ACTION_SET_VALUE, A11Y_LOG_START);
+  assert(scrollStateOf('a11y-log').maxScrollTop > 0 && scrollStateOf('a11y-log').tracks?.y !== null, 'and it has a track again when its text overflows');
+  // A set-value leaves the caret after the text, and the text area scrolls to show it: it rests at the end of its range.
+  const restored = scrollStateOf('a11y-log');
+  assert(restored.scrollTop === restored.maxScrollTop, `The caret after the restored text is in view, at the end of the range: ${restored.scrollTop} of ${restored.maxScrollTop}`);
+  await scrollBarAction(api, 'a11y-log', SCROLL_BAR_AXIS_Y, SCROLL_BAR_DECREMENT);
+  assert(near(scrollStateOf('a11y-log').scrollTop, restored.maxScrollTop - logStep), `whose new bar steps its text back: ${scrollStateOf('a11y-log').scrollTop}`);
+  // An action on a scroll container with nothing to scroll, or a malformed one, moves nothing.
+  await scrollBarAction(api, 'a11y-notes', SCROLL_BAR_AXIS_Y, SCROLL_BAR_INCREMENT);
+  assert(scrollStateOf('a11y-notes').scrollTop === 0, 'A text area that fits its text has no bar to increment');
   // End with focus on the slider, so the platform's focused element is the slider's thumb.
   await assistiveAction(api, 'a11y-volume-thumb', ACTION_FOCUS);
   assert(api.snapshot().focused === get(api, 'a11y-volume-thumb').id, 'A focus action focuses the slider thumb');

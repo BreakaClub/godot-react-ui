@@ -688,7 +688,7 @@ test('scroll handles ask native, fill an omitted axis from the current state and
   const plain = requireNode(root, 'plain');
   host.scrollStates.set(list, {
     scrollLeft: 7, scrollTop: 40, scrollWidth: 300, scrollHeight: 900, clientWidth: 300, clientHeight: 400,
-    minScrollLeft: 0, maxScrollLeft: 0, minScrollTop: 0, maxScrollTop: 500, thumbs: null,
+    minScrollLeft: 0, maxScrollLeft: 0, minScrollTop: 0, maxScrollTop: 500, thumbs: null, tracks: null,
   });
   host.event(list, 'pointerdown');
   host.event(plain, 'pointerdown');

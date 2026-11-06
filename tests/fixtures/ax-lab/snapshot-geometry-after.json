@@ -133,12 +133,70 @@
       "y": 413,
       "width": 320,
       "height": 64
+    },
+    "scroll": {
+      "scrollLeft": 0,
+      "scrollTop": 0,
+      "scrollWidth": 318,
+      "scrollHeight": 62,
+      "clientWidth": 318,
+      "clientHeight": 62,
+      "minScrollLeft": 0,
+      "maxScrollLeft": 0,
+      "minScrollTop": 0,
+      "maxScrollTop": 0,
+      "thumbs": {
+        "x": null,
+        "y": null
+      },
+      "tracks": {
+        "x": null,
+        "y": null
+      }
+    }
+  },
+  "a11y-log": {
+    "rect": {
+      "x": 16,
+      "y": 489,
+      "width": 320,
+      "height": 64
+    },
+    "scroll": {
+      "scrollLeft": 0,
+      "scrollTop": 61.25,
+      "scrollWidth": 318,
+      "scrollHeight": 131,
+      "clientWidth": 318,
+      "clientHeight": 62,
+      "minScrollLeft": 0,
+      "maxScrollLeft": 0,
+      "minScrollTop": 0,
+      "maxScrollTop": 69,
+      "thumbs": {
+        "x": null,
+        "y": {
+          "x": 327,
+          "y": 519.1183471679688,
+          "width": 6,
+          "height": 27.450382232666016
+        }
+      },
+      "tracks": {
+        "x": null,
+        "y": {
+          "x": 327,
+          "y": 492,
+          "width": 6,
+          "height": 58
+        }
+      }
     }
   },
   "a11y-readonly": {
     "rect": {
       "x": 16,
-      "y": 489,
+      "y": 565,
       "width": 320,
       "height": 41
     }
@@ -146,7 +204,7 @@
   "a11y-search": {
     "rect": {
       "x": 16,
-      "y": 542,
+      "y": 618,
       "width": 320,
       "height": 41
     }
@@ -154,7 +212,7 @@
   "a11y-message-1": {
     "rect": {
       "x": 25,
-      "y": 596,
+      "y": 429,
       "width": 302,
       "height": 20
     }
@@ -162,7 +220,7 @@
   "a11y-message-2": {
     "rect": {
       "x": 25,
-      "y": 620,
+      "y": 453,
       "width": 302,
       "height": 20
     }
@@ -170,7 +228,7 @@
   "a11y-message-3": {
     "rect": {
       "x": 25,
-      "y": 644,
+      "y": 477,
       "width": 302,
       "height": 20
     }
@@ -178,7 +236,7 @@
   "a11y-message-4": {
     "rect": {
       "x": 25,
-      "y": 668,
+      "y": 501,
       "width": 302,
       "height": 20
     }
@@ -186,7 +244,7 @@
   "a11y-message-5": {
     "rect": {
       "x": 25,
-      "y": 692,
+      "y": 525,
       "width": 302,
       "height": 20
     }
@@ -194,7 +252,7 @@
   "a11y-message-6": {
     "rect": {
       "x": 25,
-      "y": 716,
+      "y": 549,
       "width": 302,
       "height": 20
     }
@@ -202,7 +260,7 @@
   "a11y-message-7": {
     "rect": {
       "x": 25,
-      "y": 740,
+      "y": 573,
       "width": 302,
       "height": 20
     }
@@ -210,7 +268,7 @@
   "a11y-message-8": {
     "rect": {
       "x": 25,
-      "y": 764,
+      "y": 597,
       "width": 302,
       "height": 20
     }
@@ -218,7 +276,7 @@
   "a11y-message-9": {
     "rect": {
       "x": 25,
-      "y": 788,
+      "y": 621,
       "width": 302,
       "height": 20
     }
@@ -226,7 +284,7 @@
   "a11y-message-10": {
     "rect": {
       "x": 25,
-      "y": 812,
+      "y": 645,
       "width": 302,
       "height": 20
     }
@@ -234,7 +292,7 @@
   "a11y-message-11": {
     "rect": {
       "x": 25,
-      "y": 836,
+      "y": 669,
       "width": 302,
       "height": 20
     }
@@ -242,7 +300,7 @@
   "a11y-message-12": {
     "rect": {
       "x": 25,
-      "y": 860,
+      "y": 693,
       "width": 302,
       "height": 20
     }
@@ -250,7 +308,7 @@
   "a11y-scroll-end": {
     "rect": {
       "x": 25,
-      "y": 884,
+      "y": 717,
       "width": 302,
       "height": 41
     }
@@ -258,15 +316,141 @@
   "a11y-scroller": {
     "rect": {
       "x": 16,
-      "y": 595,
+      "y": 671,
       "width": 320,
       "height": 96
+    },
+    "scroll": {
+      "scrollLeft": 0,
+      "scrollTop": 251,
+      "scrollWidth": 318,
+      "scrollHeight": 345,
+      "clientWidth": 318,
+      "clientHeight": 94,
+      "minScrollLeft": 0,
+      "maxScrollLeft": 0,
+      "minScrollTop": 0,
+      "maxScrollTop": 251,
+      "thumbs": {
+        "x": null,
+        "y": {
+          "x": 327,
+          "y": 739.478271484375,
+          "width": 6,
+          "height": 24.521739959716797
+        }
+      },
+      "tracks": {
+        "x": null,
+        "y": {
+          "x": 327,
+          "y": 674,
+          "width": 6,
+          "height": 90
+        }
+      }
+    }
+  },
+  "a11y-photo-1": {
+    "rect": {
+      "x": -14.75,
+      "y": 779.25,
+      "width": 624,
+      "height": 20
+    }
+  },
+  "a11y-photo-2": {
+    "rect": {
+      "x": -14.75,
+      "y": 803.25,
+      "width": 624,
+      "height": 20
+    }
+  },
+  "a11y-photo-3": {
+    "rect": {
+      "x": -14.75,
+      "y": 827.25,
+      "width": 624,
+      "height": 20
+    }
+  },
+  "a11y-photo-4": {
+    "rect": {
+      "x": -14.75,
+      "y": 851.25,
+      "width": 624,
+      "height": 20
+    }
+  },
+  "a11y-photo-5": {
+    "rect": {
+      "x": -14.75,
+      "y": 875.25,
+      "width": 624,
+      "height": 20
+    }
+  },
+  "a11y-photo-6": {
+    "rect": {
+      "x": -14.75,
+      "y": 899.25,
+      "width": 624,
+      "height": 20
+    }
+  },
+  "a11y-gallery": {
+    "rect": {
+      "x": 16,
+      "y": 779,
+      "width": 320,
+      "height": 72
+    },
+    "scroll": {
+      "scrollLeft": 39.75,
+      "scrollTop": 8.75,
+      "scrollWidth": 640,
+      "scrollHeight": 156,
+      "clientWidth": 318,
+      "clientHeight": 70,
+      "minScrollLeft": 0,
+      "maxScrollLeft": 322,
+      "minScrollTop": 0,
+      "maxScrollTop": 86,
+      "thumbs": {
+        "x": {
+          "x": 38.005470275878906,
+          "y": 842,
+          "width": 152.0437469482422,
+          "height": 6
+        },
+        "y": {
+          "x": 327,
+          "y": 785.2532348632812,
+          "width": 6,
+          "height": 26.0256404876709
+        }
+      },
+      "tracks": {
+        "x": {
+          "x": 19,
+          "y": 842,
+          "width": 306,
+          "height": 6
+        },
+        "y": {
+          "x": 327,
+          "y": 782,
+          "width": 6,
+          "height": 58
+        }
+      }
     }
   },
   "a11y-hidden-text": {
     "rect": {
       "x": 16,
-      "y": 703,
+      "y": 863,
       "width": 868,
       "height": 23
     }
@@ -274,7 +458,7 @@
   "a11y-hidden-button": {
     "rect": {
       "x": 16,
-      "y": 734,
+      "y": 894,
       "width": 868,
       "height": 41
     }
@@ -282,7 +466,7 @@
   "a11y-hidden": {
     "rect": {
       "x": 16,
-      "y": 703,
+      "y": 863,
       "width": 868,
       "height": 72
     }
@@ -292,7 +476,7 @@
       "x": 0,
       "y": 0,
       "width": 900,
-      "height": 900
+      "height": 1000
     }
   }
 }

@@ -1,0 +1,628 @@
+{
+  "nodes" : 28,
+  "pid" : 71196,
+  "tree" : {
+    "children" : [
+      {
+        "actionNames" : [
+          "AXRaise"
+        ],
+        "children" : [
+          {
+            "children" : [
+              {
+                "actionNames" : [
+                  "AXScrollToVisible"
+                ],
+                "attributeNames" : [
+                  "AXFocused",
+                  "AXChildrenInNavigationOrder",
+                  "AXTitle",
+                  "AXSelectedChildren",
+                  "AXFrame",
+                  "AXLinkedUIElements",
+                  "AXRequired",
+                  "AXMinValue",
+                  "AXPlaceholderValue",
+                  "AXEnabled",
+                  "AXMaxValue",
+                  "AXHelp",
+                  "AXChildren",
+                  "AXRole",
+                  "AXParent",
+                  "AXTopLevelUIElement",
+                  "AXSubrole",
+                  "AXOrientation",
+                  "AXValue",
+                  "AXIdentifier",
+                  "AXRoleDescription",
+                  "AXWindow",
+                  "AXSize",
+                  "AXPosition"
+                ],
+                "children" : [
+                  {
+                    "actionNames" : [
+                      "AXScrollToVisible"
+                    ],
+                    "attributeNames" : [
+                      "AXFocused",
+                      "AXFrame",
+                      "AXChildrenInNavigationOrder",
+                      "AXSelectedChildren",
+                      "AXTitle",
+                      "AXMaxValue",
+                      "AXLinkedUIElements",
+                      "AXRequired",
+                      "AXMinValue",
+                      "AXEnabled",
+                      "AXPlaceholderValue",
+                      "AXHelp",
+                      "AXChildren",
+                      "AXRole",
+                      "AXParent",
+                      "AXTopLevelUIElement",
+                      "AXSubrole",
+                      "AXOrientation",
+                      "AXValue",
+                      "AXRoleDescription",
+                      "AXIdentifier",
+                      "AXWindow",
+                      "AXSize",
+                      "AXPosition"
+                    ],
+                    "children" : [
+                      {
+                        "actionNames" : [
+                          "AXScrollToVisible"
+                        ],
+                        "children" : [
+
+                        ],
+                        "enabled" : true,
+                        "focused" : false,
+                        "frame" : {
+                          "height" : 11.5,
+                          "width" : 156,
+                          "x" : 647,
+                          "y" : 408
+                        },
+                        "orientation" : "AXUnknownOrientation",
+                        "role" : "AXStaticText",
+                        "roleDescription" : "text",
+                        "subrole" : "AXUnknown",
+                        "value" : "Message 1"
+                      },
+                      {
+                        "actionNames" : [
+                          "AXScrollToVisible"
+                        ],
+                        "children" : [
+
+                        ],
+                        "enabled" : true,
+                        "focused" : false,
+                        "frame" : {
+                          "height" : 11.5,
+                          "width" : 156,
+                          "x" : 647,
+                          "y" : 421.5
+                        },
+                        "orientation" : "AXUnknownOrientation",
+                        "role" : "AXStaticText",
+                        "roleDescription" : "text",
+                        "subrole" : "AXUnknown",
+                        "value" : "Message 2"
+                      },
+                      {
+                        "actionNames" : [
+                          "AXScrollToVisible"
+                        ],
+                        "children" : [
+
+                        ],
+                        "enabled" : true,
+                        "focused" : false,
+                        "frame" : {
+                          "height" : 11.5,
+                          "width" : 156,
+                          "x" : 647,
+                          "y" : 435
+                        },
+                        "orientation" : "AXUnknownOrientation",
+                        "role" : "AXStaticText",
+                        "roleDescription" : "text",
+                        "subrole" : "AXUnknown",
+                        "value" : "Message 3"
+                      },
+                      {
+                        "actionNames" : [
+                          "AXScrollToVisible"
+                        ],
+                        "children" : [
+
+                        ],
+                        "enabled" : true,
+                        "focused" : false,
+                        "frame" : {
+                          "height" : 11.5,
+                          "width" : 156,
+                          "x" : 647,
+                          "y" : 448.5
+                        },
+                        "orientation" : "AXUnknownOrientation",
+                        "role" : "AXStaticText",
+                        "roleDescription" : "text",
+                        "subrole" : "AXUnknown",
+                        "value" : "Message 4"
+                      },
+                      {
+                        "actionNames" : [
+                          "AXScrollToVisible"
+                        ],
+                        "children" : [
+
+                        ],
+                        "enabled" : true,
+                        "focused" : false,
+                        "frame" : {
+                          "height" : 11.5,
+                          "width" : 156,
+                          "x" : 647,
+                          "y" : 462
+                        },
+                        "orientation" : "AXUnknownOrientation",
+                        "role" : "AXStaticText",
+                        "roleDescription" : "text",
+                        "subrole" : "AXUnknown",
+                        "value" : "Message 5"
+                      },
+                      {
+                        "actionNames" : [
+                          "AXScrollToVisible",
+                          "AXPress"
+                        ],
+                        "children" : [
+
+                        ],
+                        "enabled" : true,
+                        "focused" : false,
+                        "frame" : {
+                          "height" : 15.5,
+                          "width" : 156,
+                          "x" : 647,
+                          "y" : 570
+                        },
+                        "orientation" : "AXUnknownOrientation",
+                        "role" : "AXButton",
+                        "roleDescription" : "button",
+                        "subrole" : "AXUnknown",
+                        "title" : "Mark all read"
+                      },
+                      {
+                        "actionNames" : [
+                          "AXScrollToVisible",
+                          "AXIncrement",
+                          "AXDecrement"
+                        ],
+                        "children" : [
+
+                        ],
+                        "enabled" : true,
+                        "focused" : false,
+                        "frame" : {
+                          "height" : 48,
+                          "width" : 4,
+                          "x" : 803,
+                          "y" : 408
+                        },
+                        "maxValue" : 355,
+                        "minValue" : 0,
+                        "orientation" : "AXUnknownOrientation",
+                        "role" : "AXScrollBar",
+                        "roleDescription" : "scroll bar",
+                        "subrole" : "AXUnknown",
+                        "value" : 0
+                      }
+                    ],
+                    "enabled" : true,
+                    "focused" : false,
+                    "frame" : {
+                      "height" : 48,
+                      "width" : 160,
+                      "x" : 647,
+                      "y" : 408
+                    },
+                    "orientation" : "AXUnknownOrientation",
+                    "role" : "AXUnknown",
+                    "roleDescription" : "unknown",
+                    "subrole" : "AXUnknown"
+                  },
+                  {
+                    "actionNames" : [
+                      "AXScrollToVisible"
+                    ],
+                    "attributeNames" : [
+                      "AXFocused",
+                      "AXFrame",
+                      "AXChildrenInNavigationOrder",
+                      "AXSelectedChildren",
+                      "AXTitle",
+                      "AXMaxValue",
+                      "AXLinkedUIElements",
+                      "AXRequired",
+                      "AXMinValue",
+                      "AXEnabled",
+                      "AXPlaceholderValue",
+                      "AXHelp",
+                      "AXChildren",
+                      "AXRole",
+                      "AXParent",
+                      "AXTopLevelUIElement",
+                      "AXSubrole",
+                      "AXOrientation",
+                      "AXValue",
+                      "AXRoleDescription",
+                      "AXIdentifier",
+                      "AXWindow",
+                      "AXSize",
+                      "AXPosition"
+                    ],
+                    "children" : [
+                      {
+                        "actionNames" : [
+                          "AXScrollToVisible"
+                        ],
+                        "children" : [
+
+                        ],
+                        "enabled" : true,
+                        "focused" : false,
+                        "frame" : {
+                          "height" : 11.5,
+                          "width" : 291,
+                          "x" : 647,
+                          "y" : 470
+                        },
+                        "orientation" : "AXUnknownOrientation",
+                        "role" : "AXStaticText",
+                        "roleDescription" : "text",
+                        "subrole" : "AXUnknown",
+                        "value" : "Wide row 1 with a lot of text that makes it wider than the scroll container is"
+                      },
+                      {
+                        "actionNames" : [
+                          "AXScrollToVisible"
+                        ],
+                        "children" : [
+
+                        ],
+                        "enabled" : true,
+                        "focused" : false,
+                        "frame" : {
+                          "height" : 11.5,
+                          "width" : 291,
+                          "x" : 647,
+                          "y" : 483.5
+                        },
+                        "orientation" : "AXUnknownOrientation",
+                        "role" : "AXStaticText",
+                        "roleDescription" : "text",
+                        "subrole" : "AXUnknown",
+                        "value" : "Wide row 2 with a lot of text that makes it wider than the scroll container is"
+                      },
+                      {
+                        "actionNames" : [
+                          "AXScrollToVisible"
+                        ],
+                        "children" : [
+
+                        ],
+                        "enabled" : true,
+                        "focused" : false,
+                        "frame" : {
+                          "height" : 11.5,
+                          "width" : 291,
+                          "x" : 647,
+                          "y" : 497
+                        },
+                        "orientation" : "AXUnknownOrientation",
+                        "role" : "AXStaticText",
+                        "roleDescription" : "text",
+                        "subrole" : "AXUnknown",
+                        "value" : "Wide row 3 with a lot of text that makes it wider than the scroll container is"
+                      },
+                      {
+                        "actionNames" : [
+                          "AXScrollToVisible"
+                        ],
+                        "children" : [
+
+                        ],
+                        "enabled" : true,
+                        "focused" : false,
+                        "frame" : {
+                          "height" : 11.5,
+                          "width" : 291,
+                          "x" : 647,
+                          "y" : 510.5
+                        },
+                        "orientation" : "AXUnknownOrientation",
+                        "role" : "AXStaticText",
+                        "roleDescription" : "text",
+                        "subrole" : "AXUnknown",
+                        "value" : "Wide row 4 with a lot of text that makes it wider than the scroll container is"
+                      },
+                      {
+                        "actionNames" : [
+                          "AXScrollToVisible"
+                        ],
+                        "children" : [
+
+                        ],
+                        "enabled" : true,
+                        "focused" : false,
+                        "frame" : {
+                          "height" : 11.5,
+                          "width" : 291,
+                          "x" : 647,
+                          "y" : 524
+                        },
+                        "orientation" : "AXUnknownOrientation",
+                        "role" : "AXStaticText",
+                        "roleDescription" : "text",
+                        "subrole" : "AXUnknown",
+                        "value" : "Wide row 5 with a lot of text that makes it wider than the scroll container is"
+                      },
+                      {
+                        "actionNames" : [
+                          "AXScrollToVisible"
+                        ],
+                        "children" : [
+
+                        ],
+                        "enabled" : true,
+                        "focused" : false,
+                        "frame" : {
+                          "height" : 11.5,
+                          "width" : 291,
+                          "x" : 647,
+                          "y" : 564.5
+                        },
+                        "orientation" : "AXUnknownOrientation",
+                        "role" : "AXStaticText",
+                        "roleDescription" : "text",
+                        "subrole" : "AXUnknown",
+                        "value" : "Wide row 8 with a lot of text that makes it wider than the scroll container is"
+                      },
+                      {
+                        "actionNames" : [
+                          "AXScrollToVisible",
+                          "AXIncrement",
+                          "AXDecrement"
+                        ],
+                        "children" : [
+
+                        ],
+                        "enabled" : true,
+                        "focused" : false,
+                        "frame" : {
+                          "height" : 4,
+                          "width" : 96,
+                          "x" : 647,
+                          "y" : 514
+                        },
+                        "maxValue" : 582,
+                        "minValue" : 0,
+                        "orientation" : "AXUnknownOrientation",
+                        "role" : "AXScrollBar",
+                        "roleDescription" : "scroll bar",
+                        "subrole" : "AXUnknown",
+                        "value" : 0
+                      },
+                      {
+                        "actionNames" : [
+                          "AXScrollToVisible",
+                          "AXIncrement",
+                          "AXDecrement"
+                        ],
+                        "children" : [
+
+                        ],
+                        "enabled" : true,
+                        "focused" : false,
+                        "frame" : {
+                          "height" : 44,
+                          "width" : 4,
+                          "x" : 743,
+                          "y" : 470
+                        },
+                        "maxValue" : 212,
+                        "minValue" : 0,
+                        "orientation" : "AXUnknownOrientation",
+                        "role" : "AXScrollBar",
+                        "roleDescription" : "scroll bar",
+                        "subrole" : "AXUnknown",
+                        "value" : 0
+                      }
+                    ],
+                    "enabled" : true,
+                    "focused" : false,
+                    "frame" : {
+                      "height" : 48,
+                      "width" : 100,
+                      "x" : 647,
+                      "y" : 470
+                    },
+                    "orientation" : "AXUnknownOrientation",
+                    "role" : "AXUnknown",
+                    "roleDescription" : "unknown",
+                    "subrole" : "AXUnknown"
+                  }
+                ],
+                "enabled" : true,
+                "focused" : true,
+                "frame" : {
+                  "height" : 350,
+                  "width" : 450,
+                  "x" : 639,
+                  "y" : 400
+                },
+                "orientation" : "AXUnknownOrientation",
+                "role" : "AXUnknown",
+                "roleDescription" : "unknown",
+                "subrole" : "AXUnknown"
+              },
+              {
+                "children" : [
+
+                ],
+                "enabled" : true,
+                "focused" : false,
+                "frame" : {
+                  "height" : 0,
+                  "width" : 0,
+                  "x" : 0,
+                  "y" : 1117
+                },
+                "orientation" : "AXUnknownOrientation",
+                "role" : "AXStaticText",
+                "roleDescription" : "text",
+                "subrole" : "AXUnknown"
+              }
+            ],
+            "enabled" : true,
+            "focused" : false,
+            "frame" : {
+              "height" : 350,
+              "width" : 450,
+              "x" : 639,
+              "y" : 400
+            },
+            "orientation" : "AXUnknownOrientation",
+            "role" : "AXGroup",
+            "roleDescription" : "group",
+            "subrole" : "AXUnknown"
+          },
+          {
+            "actionNames" : [
+              "AXPress"
+            ],
+            "children" : [
+
+            ],
+            "enabled" : true,
+            "focused" : false,
+            "frame" : {
+              "height" : 16,
+              "width" : 16,
+              "x" : 647,
+              "y" : 376
+            },
+            "role" : "AXButton",
+            "roleDescription" : "close button",
+            "subrole" : "AXCloseButton"
+          },
+          {
+            "actionNames" : [
+              "AXPress",
+              "AXZoomWindow",
+              "AXShowMenu"
+            ],
+            "children" : [
+              {
+                "children" : [
+                  {
+                    "children" : [
+
+                    ],
+                    "focused" : false,
+                    "frame" : {
+                      "height" : 14,
+                      "width" : 14,
+                      "x" : 694,
+                      "y" : 377
+                    },
+                    "role" : "AXGroup",
+                    "roleDescription" : "group"
+                  }
+                ],
+                "focused" : false,
+                "frame" : {
+                  "height" : 14,
+                  "width" : 14,
+                  "x" : 694,
+                  "y" : 377
+                },
+                "role" : "AXGroup",
+                "roleDescription" : "group"
+              }
+            ],
+            "enabled" : true,
+            "focused" : false,
+            "frame" : {
+              "height" : 16,
+              "width" : 16,
+              "x" : 693,
+              "y" : 376
+            },
+            "help" : "this button also has an action to zoom the window",
+            "role" : "AXButton",
+            "roleDescription" : "full screen button",
+            "subrole" : "AXFullScreenButton"
+          },
+          {
+            "actionNames" : [
+              "AXPress"
+            ],
+            "children" : [
+
+            ],
+            "enabled" : true,
+            "focused" : false,
+            "frame" : {
+              "height" : 16,
+              "width" : 16,
+              "x" : 670,
+              "y" : 376
+            },
+            "role" : "AXButton",
+            "roleDescription" : "minimize button",
+            "subrole" : "AXMinimizeButton"
+          },
+          {
+            "children" : [
+
+            ],
+            "enabled" : true,
+            "focused" : false,
+            "frame" : {
+              "height" : 16,
+              "width" : 189,
+              "x" : 721,
+              "y" : 376
+            },
+            "role" : "AXStaticText",
+            "roleDescription" : "text",
+            "value" : "stock scroll control (DEBUG)"
+          }
+        ],
+        "focused" : false,
+        "frame" : {
+          "height" : 382,
+          "width" : 450,
+          "x" : 639,
+          "y" : 368
+        },
+        "role" : "AXWindow",
+        "roleDescription" : "standard window",
+        "subrole" : "AXStandardWindow",
+        "title" : "stock scroll control (DEBUG)"
+      }
+    ],
+    "role" : "AXApplication",
+    "roleDescription" : "application",
+    "title" : "godot.macos.editor.arm64"
+  },
+  "truncated" : false
+}

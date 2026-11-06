@@ -364,6 +364,12 @@ export interface NativeScrollState {
   maxScrollTop: number;
   /** Where the overlay scrollbar thumbs are drawn, root-local; each is `null` when that axis has no bar. */
   thumbs: { x: LayoutRect | null; y: LayoutRect | null } | null;
+  /**
+   * Where the scrollbar tracks lie, root-local; each is `null` when that axis cannot scroll. Unlike `thumbs`
+   * they are there for `scrollbar-width: none` too, because the accessibility tree's scroll bar element for an
+   * axis that scrolls covers its track whether or not the bar is drawn.
+   */
+  tracks: { x: LayoutRect | null; y: LayoutRect | null } | null;
 }
 
 export interface LayoutRect {
@@ -804,6 +810,7 @@ function scrollState(value: unknown, label: string): NativeScrollState {
     minScrollLeft: number(state.minScrollLeft, `${label}.minScrollLeft`), maxScrollLeft: number(state.maxScrollLeft, `${label}.maxScrollLeft`),
     minScrollTop: number(state.minScrollTop, `${label}.minScrollTop`), maxScrollTop: number(state.maxScrollTop, `${label}.maxScrollTop`),
     thumbs: state.thumbs === null ? null : thumbRects(state.thumbs, `${label}.thumbs`),
+    tracks: state.tracks === null ? null : thumbRects(state.tracks, `${label}.tracks`),
   };
 }
 
