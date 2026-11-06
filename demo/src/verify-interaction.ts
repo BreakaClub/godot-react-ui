@@ -1388,10 +1388,14 @@ function isNullableString(value: unknown): value is string | null {
   return value === null || typeof value === 'string';
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 function readInputs(api: DemoInspection): InputsReadout {
   const parsed: unknown = JSON.parse(text(api, 'inputs-json'));
-  assert(typeof parsed === 'object' && parsed !== null, `The readout is an object: ${text(api, 'inputs-json')}`);
-  const { subscribe, notifications, size, volume, fruit, shipping } = parsed as Record<string, unknown>;
+  assert(isRecord(parsed), `The readout is an object: ${text(api, 'inputs-json')}`);
+  const { subscribe, notifications, size, volume, fruit, shipping } = parsed;
   assert(typeof subscribe === 'boolean' && typeof notifications === 'boolean' && typeof volume === 'number'
     && isNullableString(size) && isNullableString(fruit) && isNullableString(shipping), `The readout has the lab's fields: ${text(api, 'inputs-json')}`);
   return { subscribe, notifications, size, volume, fruit, shipping };
@@ -1413,6 +1417,8 @@ const SLIDER_JUMP_FRACTION = 0.25;
 /** The select's gap to its trigger (`DEFAULT_SIDE_OFFSET`) and the margin it keeps to the root's edges. */
 const SELECT_GAP_PX = 4;
 const SELECT_MARGIN_PX = 8;
+/** A probe this far inside the list's left edge is on its border and padding, where no item is. */
+const SELECT_PADDING_PROBE_PX = 2;
 /** A disabled subtree is drawn at half opacity (`disabled:opacity-50`). */
 const DISABLED_OPACITY = 0.5;
 const INDIGO_600 = '#4f46e5';
@@ -1490,6 +1496,14 @@ async function verifyInputs(owner: Node, api: InteractionInspection, capture: (n
     return node;
   };
   const overflowing = ['inputs-slider-thumb'];
+
+  // A fact the kit's choice of dependencies rested on (docs/tracks/select-anchor.md): react-stately's slider and select
+  // state use Intl.NumberFormat and Intl.ListFormat. Recorded, not asserted: the kit does not use them.
+  const intl: unknown = Reflect.get(globalThis, 'Intl');
+  const intlMember = (name: string): string => (isRecord(intl) ? typeof intl[name] : 'no Intl');
+  console.log('GODOT_REACT_RUNTIME_FACTS', JSON.stringify({
+    intl: typeof intl, numberFormat: intlMember('NumberFormat'), listFormat: intlMember('ListFormat'), segmenter: intlMember('Segmenter'),
+  }));
 
   // ---- Rest: the state, the tab stops (the radio group has mounted over two commits) ------------------------------
   assert(JSON.stringify(state()) === JSON.stringify(INPUTS_INITIAL), `The lab starts from its initial state: ${text(api, 'inputs-json')}`);
@@ -1664,6 +1678,17 @@ async function verifyInputs(owner: Node, api: InteractionInspection, capture: (n
   assert(focusedTestID() === 'inputs-fruit-item-blueberry', `A pointer over the disabled item moves nothing: ${focusedTestID()}`);
   await click(api, 'inputs-fruit-item-cherry');
   assert(api.find('inputs-fruit-list') !== undefined && state().fruit === null, 'The disabled item cannot be chosen: the list stays open');
+  assert(focusedTestID() === 'inputs-fruit-item-blueberry',
+    `Pressing the disabled item leaves focus in the list (native sends no press for a disabled element, so it is not one natively): ${focusedTestID()}`);
+  // A press on the list's own padding does not take focus out of it either.
+  const listPadding = new Vector2(list.rect.x + SELECT_PADDING_PROBE_PX, list.rect.y + list.rect.height / 2);
+  await hoveredAt(listPadding);
+  pointer(listPadding, true);
+  await settle();
+  pointer(listPadding, false);
+  await settle();
+  assert(api.find('inputs-fruit-list') !== undefined && focusedTestID() === 'inputs-fruit-item-blueberry',
+    `Pressing the list's padding keeps focus in the list: ${focusedTestID()}`);
 
   // Keys: arrows, Home and End, type-ahead, Enter.
   await tap(KEY_DOWN);
