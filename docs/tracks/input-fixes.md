@@ -125,6 +125,24 @@ geometry, fixed since). It was not written off; this is the trace, from `run-att
 - **Result.** Interference with a real cause (a press cancelled by the window losing focus), not a flaky bug of the fixes.
   The gate run after the scroll geometry fix is the evidence that it does not recur; no run was made to test it.
 
+## The Web verifier failure (portrait, "The ghost is the chip at 60 % over the page")
+
+The first `verify:interaction:web` run failed in the drag scenario of the portrait viewport, after the earlier scenarios
+(pointers with the new click-target assertions, keyboard, scroll, selection) had passed there:
+`The ghost is the chip at 60 % over the page: {"ghostPixel":[null,null,null], ...}`. From
+`artifacts/logs/inputfixes-verify-web.log` and the scenario's code (`runDragScenario`):
+
+- The scenario drops the ghost on bare page *below the drag lab's event log*: `spot.y = log.y + log.height + 40`, and reads
+  a canvas pixel one chip height lower. `[null, null, null]` is a read outside the canvas image: the point was below the
+  600 x 900 viewport. It is not a colour mismatch, so it is not the click rule (nothing in the scenario clicks) and not a
+  touch path.
+- Cause: this branch's drag lab put a chip that vanishes and its restore button in the Gestures column, the tallest of the
+  lab, 72 px taller, and in portrait the log, and the page's bare space below it, moved down with it (the failing run's
+  `30-drag-reorder.png` shows the log at about 860 px of 900). The native verifier looks for bare page with `barePage()`,
+  so it passed.
+- Fix: the chip and the button moved under the List section, which is shorter than the Gestures column, so the lab has its
+  old height again.
+
 ## Merge notes
 
 - Based on `944ca90`. Commits touch `native/` (the files in the table), `native/PROTOCOL.md` (the click rule),
