@@ -274,13 +274,20 @@ fn line_geometry(scope: &Scope<'_>) -> Outcome {
             (height - size.y).abs() <= SIZE_TOLERANCE_PER_LINE * shaped.len() as f32,
             || format!("lines are {height} tall, the paragraph says {}", size.y),
         );
-        failures.require(first.top() == scope.panel.origin.y, || {
-            format!(
-                "first line top {} is not the origin {}",
-                first.top(),
-                scope.panel.origin.y
-            )
-        });
+        // A line's top is its baseline less its ascent, and the baseline was the origin plus that same ascent:
+        // each step rounds to f32, so the top may sit an ulp or so off a fractional origin (a centred panel's).
+        // Bound it by the precision of the sum instead of demanding the two floats be identical.
+        let rounding = f32::EPSILON * (scope.panel.origin.y.abs() + first.ascent);
+        failures.require(
+            (first.top() - scope.panel.origin.y).abs() <= rounding,
+            || {
+                format!(
+                    "first line top {} is not the origin {} (rounding allowance {rounding})",
+                    first.top(),
+                    scope.panel.origin.y
+                )
+            },
+        );
         let widest = shaped.iter().map(|line| line.width).fold(0.0, f32::max);
         failures.require(widest == size.x, || {
             format!("widest line {widest}, the paragraph says {}", size.x)
