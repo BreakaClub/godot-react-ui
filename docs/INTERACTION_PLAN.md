@@ -9,8 +9,9 @@ D19); decision D20 sets the verification tiers; decisions D21 and D22 isolate th
 world-space part 1, kit part 1; kit approach D28; test-input rules D29. Phase I5 (`5858a54`; scroll containers, decisions D30 to
 D37) with scroll accessibility (D38) and the scrolling Select list (D39). Phase I6 (`1071e8d`; D41). The stock engine profile (`64e674c`;
 D42). Phase I9 (`400bea3`; D43). The freshness guard (`941334b`). Phase I7 with the kit `TextField`, `TextInput` accessibility and
-world-space typing, which finishes I8, I10's `TextInput` part and I11 (`539e787`; D44). Still open from I10: scroll bar elements (D42). In
-parallel tracks now: Phase V1 (filters and frosted glass, D40), HiDPI hardening, scroll bar elements, and an independent code review.
+world-space typing, which finishes I8, I10's `TextInput` part and I11 (`539e787`; D44). HiDPI (`6c6abd7`, hardened in `5b7faba`; D45). Still
+open from I10: scroll bar elements (D42). In parallel tracks now: Phase V1 (filters and frosted glass, D40), scroll bar elements, verifier
+integrity fixes, input fixes and `TextInput` fixes (the last three from an independent code review of the landed code).
 
 v1 of this plan (`7f0a96c`) was rejected because it built every interaction feature on the
 prototype's commit path, which re-walks and re-sends the whole tree on every change. v2 replaces
@@ -466,6 +467,16 @@ not a reason to wait.
   `clipboard_get()` on Web returns what the previous call read and the engine prevents every keydown, so no `paste` event fires; the root
   reads `navigator.clipboard.readText()` through `JavaScriptBridge` and pastes when the browser answers. The engine is unchanged, so
   anything else calling `clipboard_get` on Web is still stale. Known limit: the IME window is misplaced for a root on a world-space quad.
+- **D45 (HiDPI)**: decisions H1 to H7 and the evidence are in `docs/tracks/hidpi.md`, which is part of this log. The rule is the viewport's own
+  `get_oversampling()` and nothing else, as Godot's controls do: a window's viewport already equals its content scale, and taking the window
+  term as well drew a 1x `SubViewport` at 2x. The level is read once per paint pass and on `DRAW`, because the engine queues a redraw for
+  every canvas item when a viewport's oversampling changes, so a scale change with no commit repaints and idle frames still record nothing.
+  Rounded `StyleBoxFlat` draws use a one-device-pixel feather. Anything new that paints text must be listed in
+  `MountedNode::paints_at_oversampling`, and any rounded `StyleBoxFlat` draw must carry an `Oversampling` in its key and set
+  `oversampling.feather()`. World panels render at the window's pixels per logical pixel, which closes W9. The native demo window stays at
+  oversampling 1 on Retina, because setting `contentScaleFactor` would shrink every verifier window; the README tells an owner what to set.
+  Known limits: glyph caches at levels no viewport owns are not freed, about 20 MiB after levels 1, 2 and 3; layout and borders round to whole
+  logical pixels; the drag ghost does not follow a scale change mid-drag.
 
 The plan is written so an implementer can execute it phase by phase without re-deciding the
 architecture. Where it says **must**, it is a contract. Where it says *suggested*, use judgement and

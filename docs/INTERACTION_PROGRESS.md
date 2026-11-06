@@ -2020,3 +2020,12 @@ Built on the `text-input` branch, rebased by its own agent onto `6c6abd7` (I9, s
 - **Not verified:** native IME by hand, VoiceOver by hand, platform focus, and the text actions through the real adapter. Not re-run: stock Web and `verify-world-web` after the rebase; they wait for the batch regression.
 
 **Tooling nuisances to resolve:** running Godot's type generation rewrites the indentation of `demo/src/main.ts` (whitespace only, cause not yet found; it must not be committed), and generates `demo/gen/godot/addons/godot-react-ui/bin/react_ui.build.json.gen.ts` for the freshness stamp, now ignored.
+
+## HiDPI hardening (`5b7faba`, D45)
+
+Reviewed and hardened on the `hidpi` branch, which fast-forwarded onto `944ca90`. Evidence is in `docs/tracks/hidpi.md`.
+
+- **Gates, on that exact commit:** `cargo test` 545 passed, Clippy clean, fmt clean, `test:types` clean on both profiles, `pnpm test` 370 passed, `verify:interaction --only=hidpi,forms,drag`, `verify`, `verify:motion`, `verify:world`, `verify-interaction-web.mjs --only=hidpi` (92 assertions), `verify-world-web.mjs` (96 assertions), and a stock native run of the new section.
+- **Negative controls, one window each:** no oversampling fails 17 checks; no redraw hook fails 3, exactly the stale-scale checks; the earlier window-term rule fails `verify:world`.
+- **Inspected by the coordinator:** `hidpi-dpr2-lab.png`: text and box edges are crisp at scale 2.
+- **Not run on this commit:** the other interaction sections and the rest of the Web suite. They wait for the batch regression.
