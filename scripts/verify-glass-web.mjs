@@ -24,6 +24,9 @@ const VIEW_MARGIN_PX = 16;
 const LEVELS = 255;
 const BAR_RADIUS = 16;
 const CARD_RADIUS = 24;
+const TYPED_TEXT = 'Night drive';
+const CARET_SURROUND_PX = 4;
+const INPUT_TEXT_INSET_PX = 17;
 const SETTLE_FRAMES = 3;
 
 const TEXTS = [
@@ -36,7 +39,7 @@ const TEXTS = [
 const linear = (channel) => (channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4);
 
 export async function runGlassScenario(context) {
-  const { demo, page, frames, snapshot, find, check, decodePng, moveTo, centerOf, actionTimeoutMs } = context;
+  const { demo, page, frames, snapshot, find, check, decodePng, moveTo, centerOf, click: clickTarget, pressAction, inputState, waitUntil, actionTimeoutMs } = context;
   const capture = (name) => context.capture(name, { geometry: false });
   const settle = async () => { for (let index = 0; index < SETTLE_FRAMES; index += 1) await frames(); };
   const scrollTo = async (top) => {
@@ -133,6 +136,50 @@ export async function runGlassScenario(context) {
     check(`${label}: ${testID}'s border is an unbroken line`, dimmest >= BORDER_LIFT_LEVELS, { dimmest });
   };
 
+  /** A text input on a glass card: its placeholder, caret and selection read on the glass (Chrome's own keys type and select). */
+  const checkInput = async (label) => {
+    await lookAt('glass-search');
+    check(`${label}: the search field starts empty, showing its placeholder`, (await inputState('glass-search')).showingPlaceholder === true);
+    await checkContrast(`${label} placeholder`, [['glass-search', NORMAL_TEXT_CONTRAST]]);
+    await clickTarget('glass-search');
+    await page.keyboard.type(TYPED_TEXT);
+    await waitUntil('the typed text', async () => (await inputState('glass-search')).value === TYPED_TEXT);
+    await waitUntil('the caret blinks on', async () => (await inputState('glass-search')).caretVisible === true);
+    await capture('glass-input');
+    let shot = await grab();
+    const caret = (await inputState('glass-search')).caret;
+    check(`${label}: the focused field has a caret`, caret !== null, caret);
+    const line = box(caret, shot.ratio);
+    const surround = Math.round(CARET_SURROUND_PX * shot.ratio);
+    const caretContrast = contrastIn(shot, { x0: line.x0 - surround, y0: line.y0, x1: line.x1 + surround, y1: line.y1 });
+    check(`${label}: the caret reads against the glass behind it`, caretContrast >= LARGE_TEXT_CONTRAST, { caretContrast });
+
+    await pressAction('ui_text_select_all');
+    await waitUntil('the text is selected', async () => {
+      const state = await inputState('glass-search');
+      return state.selectionStart === 0 && state.selectionEnd === TYPED_TEXT.length;
+    });
+    await capture('glass-input-selected');
+    shot = await grab();
+    const field = await find('glass-search');
+    const end = box(field.textInput.caret, shot.ratio);
+    const text = { x0: box(field.rect, shot.ratio).x0 + Math.round(INPUT_TEXT_INSET_PX * shot.ratio), y0: end.y0, x1: end.x0, y1: end.y1 };
+    const channels = [[], [], []];
+    for (let y = text.y0; y < text.y1; y += 1) for (let x = text.x0; x < text.x1; x += 1) pixel(shot, x, y).forEach((value, index) => channels[index].push(value));
+    const highlighted = channels.map((values) => values.sort((a, b) => a - b)[Math.floor(values.length / 2)]);
+    const around = pixel(shot, end.x1 + Math.round(INPUT_TEXT_INSET_PX * shot.ratio), (end.y0 + end.y1) / 2);
+    check(`${label}: the text over the selection keeps its contrast`, contrastIn(shot, text) >= LARGE_TEXT_CONTRAST, { contrast: contrastIn(shot, text) });
+    check(`${label}: the selection's highlight is told from the field around it`, levelsApart(highlighted, around) >= TINTED_LEVELS, { highlighted, around });
+
+    // Leave the field empty and unfocused.
+    await pressAction('ui_text_backspace');
+    await moveTo({ x: 1, y: 1 });
+    await page.mouse.down();
+    await page.mouse.up();
+    await frames();
+    check(`${label}: the field is empty again`, (await inputState('glass-search')).showingPlaceholder === true);
+  };
+
   await demo('showLab', 'glass');
   await settle();
   await scrollTo(0);
@@ -176,6 +223,8 @@ export async function runGlassScenario(context) {
   await capture('glass-hover');
   check('glass: hovering the card button lightens it', hovered - rest >= HOVER_LIGHTENS_LEVELS, { rest, hovered });
   await moveTo({ x: 2, y: 2 });
+
+  await checkInput('glass');
 
   // The sheet over its scrim: the scrim darkens the page, the sheet's title reads, and Cancel closes it.
   await scrollTo(0);

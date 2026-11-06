@@ -50,6 +50,9 @@ export const ROWS = [
   { name: 'Midnight map', detail: 'Sora', colour: '#fb7185' },
 ] as const;
 
+/** The search field's placeholder. */
+export const SEARCH_PLACEHOLDER = 'Search by mood or artist';
+
 /** Crisp shapes behind the stacked panels, in CSS pixels from the stack's top left: what the stack's blur softens. */
 export const STACK_DECOR = [
   { left: 40, top: 20, size: 120, colour: '#fbbf24' },

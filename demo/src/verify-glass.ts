@@ -3,6 +3,7 @@ import type { NativeSnapshot, NativeSnapshotNode } from '../../src/native';
 import { GLASS_BLOB_IDS } from './glass-lab';
 import { grab, settleFrames, type FaultControl } from './verify-filters';
 import { parseVerifierEvent } from './verifier-input';
+import { pressAction, typeText, waitForCaretOn } from './verify-text-input';
 
 /**
  * The `glass` section of the interaction verifier: the showcase lab (`glass-lab.tsx`) captured in its states at device pixel
@@ -405,6 +406,132 @@ async function checkScrollStable(owner: Node, api: GlassInspection, label: strin
   await frames(SETTLE_FRAMES);
 }
 
+/** What is typed into the glass card's field. */
+const TYPED_TEXT = 'Night drive';
+/** Where the field's text starts: `px-4` and the border, in logical pixels. */
+const INPUT_TEXT_INSET_PX = 17;
+/** The caret is a thin line: read it with this much of its surroundings, in logical pixels, to find the glass behind it. */
+const CARET_SURROUND_PX = 4;
+
+/** The median of each channel over a box of pixels: the colour behind text that covers a minority of it. */
+function medianColour(image: Image, box: PixelBox): Color {
+  const channels: number[][] = [[], [], []];
+  for (let y = box.y0; y < box.y1; y += 1) {
+    for (let x = box.x0; x < box.x1; x += 1) {
+      const colour = image.getPixel(x, y);
+      channels[0]?.push(colour.r);
+      channels[1]?.push(colour.g);
+      channels[2]?.push(colour.b);
+    }
+  }
+  const [red = 0, green = 0, blue = 0] = channels.map(values => values.sort((a, b) => a - b)[Math.floor(values.length / 2)] ?? 0);
+  return new Color(red, green, blue, 1);
+}
+
+/**
+ * A text input on a glass card (`TextInput`): its placeholder, its caret and its selection read on the glass. The caret is a
+ * line against the field behind it, so it needs the contrast of a UI component (3:1); the text drawn over the selection's
+ * highlight must keep its contrast, and the highlight must be told from the field around it.
+ */
+async function checkInput(owner: Node, api: GlassInspection, capture: GlassCapture, label: string): Promise<void> {
+  const field = (): NativeSnapshotNode => node(api, 'glass-search');
+  const state = (): NonNullable<NativeSnapshotNode['textInput']> => {
+    const found = field().textInput;
+    assert(found, 'The glass search field is a text input');
+    return found;
+  };
+  await lookAt(api, 'glass-search');
+  assert(state().showingPlaceholder, `${label}: the field starts empty, showing its placeholder`);
+  await checkContrast(owner, api, [{ testID: 'glass-search', need: NORMAL_TEXT_CONTRAST }], `${label} placeholder`);
+
+  await click(api, 'glass-search');
+  assert(api.snapshot().focused === field().id, `${label}: pressing the field focuses it`);
+  await typeText(TYPED_TEXT);
+  assert(state().value === TYPED_TEXT, `${label}: the field holds what was typed: ${state().value}`);
+  await waitForCaretOn(api, 'glass-search');
+  await capture(`${label}-input`, GLASS_BLOB_IDS);
+  let image = grab(owner);
+  let ratio = pixelRatio(image, api);
+  const caret = state().caret;
+  assert(caret !== null, `${label}: the focused field has a caret`);
+  const line = boxOf(caret, ratio);
+  const surround = Math.round(CARET_SURROUND_PX * ratio);
+  // The line and the glass either side of it: the line is the brightest pixel, the glass the median.
+  const caretContrast = contrastIn(image, { x0: line.x0 - surround, y0: line.y0, x1: line.x1 + surround, y1: line.y1 });
+  console.log('GODOT_REACT_GLASS_INPUT', JSON.stringify({ label, caret: round(caretContrast, HUNDREDTH) }));
+  assert(caretContrast >= LARGE_TEXT_CONTRAST, `${label}: the caret reads against the glass behind it: ${caretContrast.toFixed(2)}, ${LARGE_TEXT_CONTRAST} is needed`);
+
+  await pressAction('ui_text_select_all');
+  await waitForCaretOn(api, 'glass-search');
+  await capture(`${label}-input-selected`, GLASS_BLOB_IDS);
+  assert(state().selectionStart === 0 && state().selectionEnd === TYPED_TEXT.length, `${label}: select all selects the text`);
+  image = grab(owner);
+  ratio = pixelRatio(image, api);
+  const end = boxOf(state().caret ?? caret, ratio);
+  const text: PixelBox = { x0: boxOf(field().rect, ratio).x0 + Math.round(INPUT_TEXT_INSET_PX * ratio), y0: end.y0, x1: end.x0, y1: end.y1 };
+  const selectedContrast = contrastIn(image, text);
+  const highlighted = medianColour(image, text);
+  const around = image.getPixel(end.x1 + Math.round(INPUT_TEXT_INSET_PX * ratio), Math.round((end.y0 + end.y1) / 2));
+  const apart = levelsApart(highlighted, around);
+  console.log('GODOT_REACT_GLASS_INPUT', JSON.stringify({ label, selectedText: round(selectedContrast, HUNDREDTH), highlightApart: round(apart, TENTH) }));
+  assert(selectedContrast >= LARGE_TEXT_CONTRAST, `${label}: the text over the selection keeps its contrast: ${selectedContrast.toFixed(2)}, ${LARGE_TEXT_CONTRAST} is needed`);
+  assert(apart >= TINTED_LEVELS, `${label}: the selection's highlight is told from the field around it: ${apart.toFixed(1)} levels`);
+
+  // Leave the field empty and unfocused, as the next pass finds it.
+  await pressAction('ui_text_backspace');
+  move(new Vector2(1, 1));
+  button(new Vector2(1, 1), true);
+  button(new Vector2(1, 1), false);
+  await frames(SETTLE_FRAMES);
+  assert(state().showingPlaceholder, `${label}: the field is empty again`);
+}
+
+/** How far past the press a drag starts, in logical pixels (the drag threshold is smaller). */
+const DRAG_START_PX = 12;
+/** The ghost's tile edges must stay at least this crisp for it to be called unblurred. */
+const GHOST_CRISP_LEVELS = 15;
+
+/**
+ * Dragging a glass card (`draggable`): the ghost is a copy of what the card's items recorded, a translucent box and its text
+ * at 60 %, and the card's `backdrop-filter` is not recorded, so the ghost carries no glass: over the tile row its edges stay
+ * crisp where the card at rest blurs them. This is the behaviour, not a wish: it checks that the ghost is drawn, is the card's
+ * size, and is unblurred, so a change to either side shows.
+ */
+async function checkDragGhost(owner: Node, api: GlassInspection, capture: GlassCapture, label: string): Promise<void> {
+  api.scrollTo('glass-scroll', 0);
+  await frames(SETTLE_FRAMES);
+  const card = node(api, 'glass-card-0').rect;
+  const tile = node(api, 'glass-tile-0').rect;
+  if (card.y + card.height > api.snapshot().height) {
+    console.log('GODOT_REACT_GLASS_SKIPPED', JSON.stringify({ label, check: 'drag ghost', reason: 'the card is below the fold' }));
+    return;
+  }
+  const pressAt = new Vector2(card.x + card.width / 2, card.y + DRAG_START_PX * 2);
+  const drop = new Vector2(pressAt.x, tile.y + DRAG_START_PX + (pressAt.y - card.y));
+  move(pressAt);
+  await frames(SETTLE_FRAMES);
+  button(pressAt, true);
+  await frames(SETTLE_FRAMES);
+  move(new Vector2(pressAt.x + DRAG_START_PX, pressAt.y + DRAG_START_PX));
+  await frames(SETTLE_FRAMES);
+  move(drop);
+  await frames(SETTLE_FRAMES);
+  const ghost = api.snapshot().drag.ghost;
+  assert(ghost !== null, `${label}: dragging a glass card draws a ghost`);
+  assert(Math.abs(ghost.width - card.width) <= 1 && Math.abs(ghost.height - card.height) <= 1, `${label}: the ghost is the card's size: ${JSON.stringify(ghost)}`);
+  await capture(`${label}-drag`, GLASS_BLOB_IDS);
+  const image = grab(owner);
+  const ratio = pixelRatio(image, api);
+  const row = Math.round((tile.y + tile.height / 2) * ratio);
+  const inset = Math.round(INPUT_TEXT_INSET_PX * ratio);
+  const step = widestStep(image, row, Math.round(ghost.x * ratio) + inset, Math.round((ghost.x + ghost.width) * ratio) - inset);
+  console.log('GODOT_REACT_GLASS_GHOST', JSON.stringify({ label, tileEdgeStep: round(step, TENTH) }));
+  assert(step >= GHOST_CRISP_LEVELS, `${label}: the ghost carries no blur: the tiles' edges through it are crisp (${step.toFixed(1)} levels)`);
+  button(drop, false);
+  await frames(SETTLE_FRAMES);
+  assert(api.snapshot().drag.ghost === null, `${label}: the ghost is gone when the drag ends`);
+}
+
 /** Hover over a card's button: the pill lightens, and moving off it puts it back. */
 async function checkHover(owner: Node, api: GlassInspection, capture: GlassCapture, label: string): Promise<void> {
   await lookAt(api, 'glass-card-button-0');
@@ -478,6 +605,8 @@ async function verifyStates(owner: Node, api: GlassInspection, capture: GlassCap
   await checkBarBlurs(owner, api, capture, label);
   await checkScrollStable(owner, api, label);
   await checkHover(owner, api, capture, label);
+  await checkInput(owner, api, capture, label);
+  await checkDragGhost(owner, api, capture, label);
   await checkSheet(owner, api, capture, label);
 }
 

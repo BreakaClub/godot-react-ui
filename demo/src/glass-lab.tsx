@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Button, Portal, ScrollView, Text, View, useRootSize } from 'godot-react-ui';
-import { BASE_COLOUR, BLOBS, CARDS, GLASS, ROWS, STACK_DECOR, STACK_HEIGHT, TILES, blobRect, glassLayout } from './glass-data';
+import { Button, Portal, ScrollView, Text, TextInput, View, useRootSize } from 'godot-react-ui';
+import { BASE_COLOUR, BLOBS, CARDS, GLASS, ROWS, SEARCH_PLACEHOLDER, STACK_DECOR, STACK_HEIGHT, TILES, blobRect, glassLayout } from './glass-data';
 
 /** The blobs' test ids: they bleed past the window by design, clipped by the background that holds them. */
 export const GLASS_BLOB_IDS = BLOBS.map((_, index) => `glass-blob-${index}`);
@@ -60,7 +60,7 @@ function GlassCard({ index, width, onAdd }: { index: number; width: number; onAd
   const card = CARDS[index];
   if (card === undefined) throw new Error(`There is no glass card ${index}`);
   return (
-    <View testID={`glass-card-${index}`} className={`gap-3 rounded-3xl p-5 ${GLASS}`} style={{ width }}>
+    <View testID={`glass-card-${index}`} draggable className={`gap-3 rounded-3xl p-5 ${GLASS}`} style={{ width }}>
       <View className="h-10 w-10 rounded-full" style={{ backgroundColor: card.icon }} />
       <Text testID={`glass-card-title-${index}`} className="text-xl text-white">{card.title}</Text>
       <Text testID={`glass-card-body-${index}`} className="text-sm text-white">{card.body}</Text>
@@ -90,6 +90,19 @@ function GlassStack() {
         <Text className="text-sm text-white/80">Now playing</Text>
         <Text testID="glass-stack-title" className="text-lg text-white">Glasshouse</Text>
       </View>
+    </View>
+  );
+}
+
+/** A glass card with a text input in it: its caret, selection and placeholder must read on the glass. */
+function GlassSearch() {
+  return (
+    <View testID="glass-search-card" className={`gap-3 rounded-3xl p-5 ${GLASS}`}>
+      <Text className="text-xl text-white">Find a mix</Text>
+      <TextInput
+        testID="glass-search" placeholder={SEARCH_PLACEHOLDER}
+        className="w-full rounded-xl border border-white/30 bg-black/20 px-4 py-3 text-base text-white placeholder-white/80 caret-white"
+      />
     </View>
   );
 }
@@ -140,6 +153,7 @@ export function GlassLab() {
           {CARDS.map((card, index) => <GlassCard key={card.title} index={index} width={cardWidth} onAdd={open} />)}
         </View>
         <GlassStack />
+        <GlassSearch />
         <View className="gap-3">
           {ROWS.map(row => (
             <View key={row.name} className="flex-row items-center gap-3">

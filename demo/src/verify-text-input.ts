@@ -54,13 +54,13 @@ async function frames(count: number): Promise<void> {
   while (Engine.getProcessFrames() - start < count) await new Promise(resolve => setTimeout(resolve, FRAME_POLL_MS));
 }
 
-function node(api: InteractionInspection, testID: string): NativeSnapshotNode {
+function node(api: Pick<InteractionInspection, 'find'>, testID: string): NativeSnapshotNode {
   const found = api.find(testID);
   assert(found, `Missing test target ${testID}`);
   return found;
 }
 
-function input(api: InteractionInspection, testID: string): NativeTextInputSnapshot {
+function input(api: Pick<InteractionInspection, 'find'>, testID: string): NativeTextInputSnapshot {
   const state = node(api, testID).textInput;
   assert(state, `${testID} is not a text input`);
   return state;
@@ -163,7 +163,7 @@ function keycodeOf(character: string): Key {
 }
 
 /** Type `text` a character at a time, as a keyboard does: the key goes down with the character it types, and up. */
-async function typeText(text: string): Promise<void> {
+export async function typeText(text: string): Promise<void> {
   for (const character of text) {
     const chord: KeyChord = {
       keycode: keycodeOf(character), unicode: character.codePointAt(0),
@@ -207,7 +207,7 @@ export async function pressAction(action: string, shift = false, times = 1): Pro
  * good part of a period, so a capture is taken right after the caret turned on, with most of its period left. Waiting only
  * reads the snapshot; it makes the input do nothing.
  */
-export async function waitForCaretOn(api: InteractionInspection, testID: string): Promise<void> {
+export async function waitForCaretOn(api: Pick<InteractionInspection, 'find'>, testID: string): Promise<void> {
   const MAX_FRAMES = 400;
   // The caret is drawn only while the OS window has focus, and a window the OS takes focus from while the run is
   // under way (a disturbance, which the run reports) hears of its loss and never of its return, as the verifier's

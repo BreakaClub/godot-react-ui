@@ -158,6 +158,7 @@ and saves the broken picture as `filters-fault-<name>.png`.
 | `no-nesting-check` | a filter in a filter is drawn, wrongly, and not reported | nested elements are reported and not drawn | "The inner filter inside it is not drawn" |
 | `double-modulate` | the group composite multiplies the inherited opacity again | opacity applies once | 0.251 where 0.5 is expected (the stock composite's 0.25) |
 | `shadow-box-only` | the composite covers only the box, not the shadow | a hard `drop-shadow(6px 6px)` is drawn | 0.392 (the page) where black 0 is expected, 3 px beyond the card |
+| `single-border-draw` | a translucent border drawn in one `StyleBoxFlat` call (the glass showcase, below) | the border round a glass card's corner is unbroken | dimmest point 11.0 levels above the glass (11.3 portrait) against 26.3 or more fixed; limit 18 |
 
 Results: both viewports pass with every applicable control holding (landscape seven, portrait all eight; each fault failed with its own
 check's message, not another). Captures: `artifacts/filters-iter/faults-landscape/` and `artifacts/filters-iter/faults-portrait/`,
@@ -174,6 +175,80 @@ of 0.8 % (1.0 %); unaligned, 0.125 px and 2.5 % (1.9 %), inside the 0.8 px and 4
 Two further assertions came out of building the controls: the accuracy check asserts the blurred edge's position (half crossing
 within 0.8 px of the sharp edge; the value is printed only when it fails, and it passed at every radius, both targets, DPR 1 and 2), and the moving panel runs at a second radius (16) so a
 level-4 texel grid meets the panel's edges at several phases.
+
+## Glass showcase
+
+Ben judges the look by eye, and the test patterns above are correct but are not a UI. The `glass` lab is frosted glass as a
+product developer would write it, with the utilities as a browser developer writes them (`backdrop-blur-xl backdrop-saturate-150
+bg-white/20 border border-white/30`), and the same page as plain HTML in headless Chrome to hold it against.
+
+* **Files**: `demo/src/glass-lab.tsx` (the page), `demo/src/glass-data.ts` (colours, copy and the layout rules that need numbers,
+  with no dependency on the library so the reference page uses the same), `demo/src/verify-glass.ts` and the `glass` section of the
+  interaction verifier, `scripts/verify-glass-web.mjs` (the same reads on Web), `scripts/glass-reference.mjs`
+  (`pnpm glass:reference`: the reference page; `--compare=<out.png> label=image ...` puts captures side by side). The lab is
+  registered in `labs.tsx` with a name, an import and a case.
+* **The page**: blurred colour (six circles with `blur-3xl` that bleed past the window) behind a glass bar fixed over a scrolling
+  page; crisp tiles that scroll under the bar; three glass cards, each `draggable`, with a `hover:` button; two overlapping glass
+  panels over crisp shapes; a card with a `TextInput`; a sheet over a `backdrop-blur-sm` scrim in a `Portal`.
+* **The section** (about 17 to 19 s a window, at device pixel ratio 1 and then 2 through the window's content scale): text contrast
+  on the glass (WCAG, 4.5 for body text and the placeholder, 3 for the brand, titles and the caret); the bar blurring a tile row
+  under it (widest step across the bar 1 level, 160 or more just below it); corners clean (the page outside a rounded corner is
+  the page's, the glass inside is tinted); the border an unbroken line; hover lightening the button; the scrim darkening the page to
+  0.70 and softening a tile's edge from 41 levels to 3; Cancel closing the sheet; the glass stable while a tile edge is carried
+  across the bar a pixel at a time (no step back, no step more than 2 levels off the trend); the text field's caret (contrast 7.7
+  to 8.6), the text over its selection (6.3 to 6.7) and the selection told from the field (26 to 67 levels apart); and the drag
+  ghost (below). Web has the same reads, without the stability run.
+* **Captures** (read, not only asserted): native `artifacts/native-interaction/{landscape,portrait}/glass-*.png` and
+  `glass-dpr2-*.png` (page, scrolled, hover, input, input-selected, drag, sheet); Web
+  `artifacts/web-interaction-verification/{landscape,portrait,retina-landscape,retina-portrait}/glass-*.png`; Chrome
+  `artifacts/glass-reference/chrome-<state>-<window>.png`; side by side `artifacts/glass-compare/*.png`.
+
+### Against the same CSS in Chrome
+
+The glass itself matches. Over the regions of the page that are glass (card interiors, the back panel, the page between) the mean
+difference from Chrome's raster is 0.7 to 1.3 levels of 255 at device pixel ratio 1, with a 95th percentile of 2 to 4, and
+the Web build (the library in Chrome's canvas) looks the same beside plain Chrome (compared by eye in `artifacts/glass-compare/web-*.png`, not measured). The differences are these, in the order they
+matter:
+
+| Difference | What it is | What was done |
+| --- | --- | --- |
+| A 1 px translucent border looked **dotted** at ratio 1 and **doubled** at ratio 2 | `StyleBoxFlat::draw` with a centre fades the ring's inner edge from the fill colour to the border colour (`style_box_flat.cpp:479` and the "ring inner border" gradient after it), which adds a translucent fill a second time along the ring | **Fixed** (`record_box`): the fill over the whole border box, then a ring with no centre over it, as CSS composites them. Control: `single-border-draw` |
+| `bg-white/20`, `border-white/30`, `text-white/80` did not compile | opacity modifiers on colours were unsupported | **Fixed** (`src/styles.ts`, tests): `/NN`, `/[0.37]`, `/[37%]` on any named colour or 3 or 6 digit arbitrary value; `selection-`, `caret-` and `placeholder-` take it too |
+| A glass element **inside** a backdrop-filtered ancestor (a sheet inside its scrim) is flat in Chrome and frosted here | Chrome makes each `backdrop-filter` element a *backdrop root*: a descendant sees only that element's content (the sheet's raster is 28 to 40 levels from ours, and dark and uniform). Canvas items have no such rule: a glass element sees everything drawn before it | Not a defect here. The reference page puts the sheet beside the scrim, as developers do for this reason, and `chrome-sheet-nested-*.png` keeps the nested form |
+| Blur near the **render target's edge** | A filter group's buffer holds what is drawn inside the target, and the blur reads the edge texels again beyond it (clamped); Chrome blurs the whole element, including the part beyond the window. A background blob that bleeds past the window matches within a mean of 7 levels (worst 34) in the outermost 40 px; one that merely touches the edge comes out about twice as strong at it (`blur-3xl` circles clamped inside the window: 123 against 80 levels at the edge). A backdrop blur near the edge differs by up to 12 levels (not traced further) | Not fixed: the content beyond the target is not drawn. **Let a blurred background bleed past the window**; do not end it at the edge. The lab does |
+| Text: the face and the line boxes | Godot's default face (Open Sans) against the browser's, and `text-*` here sets the size only, where Tailwind also sets the line height: a page is 5 px taller after its first block (the first tile at 173 against 168) | Recorded; not in scope. `leading-*` is unsupported |
+| The overlay scrollbar's thumb | drawn on the right edge natively; the reference hides it | none |
+
+### What a developer reaches for that is missing
+
+Checked by compiling the class (`compileStyle`) before writing the page: unsupported, with what the page did instead.
+
+| Utility | Instead |
+| --- | --- |
+| `shadow-*` (box shadow) | nothing: glass cards have no shadow. `drop-shadow-*` is a filter, and a filter group would hold the element's own backdrop (the nesting limit), so it is not a substitute |
+| `font-medium`, `font-semibold`, `font-bold`, `leading-*`, `tracking-*`, `uppercase`, `truncate` | the default face and size only |
+| `bg-gradient-*` | blurred circles for the colour behind the glass |
+| `bg-pink-500`, `bg-violet-500`, `sky`, `cyan`, `orange` ... (the palette is slate, indigo, emerald, amber, rose) | `bg-[#hex]` |
+| `border-b`, `border-t`, `ring-*`, `ml-auto`, `sticky`, `scale-*`, `translate-*`, `transition-*`, `duration-*` | a full border; `justify-between`; `fixed`; `transition` as the inline style |
+
+### Design findings
+
+Not rendering faults, but what a designer would catch: white text on `bg-white/20` glass is below WCAG AA (3.6 to 4.2 for 14 px
+text) over a bright backdrop (cyan `#22d3ee`, yellow, orange); the CSS is the same in a browser; the page's colours were deepened (the 700
+and 800 shades) until every text on the glass measured 3 or more in every window, and the field on the glass takes `bg-black/20`
+(its placeholder measured 3.7 on `bg-white/10`, 5.8 on `bg-black/20`). The default selection (`#3b82f6` at 35 %) is readable on the
+glass; the section keeps it that way.
+
+### Text input and drag ghost (I7 and I9 on glass)
+
+* The field on its glass card keeps its caret (a 1 px line, contrast 7.7 to 8.6 against the glass) and its selection readable at
+  both ratios, with I7's own typing, selecting and caret blink (the section reuses `typeText`, `pressAction` and `waitForCaretOn`).
+* **A filtered source's drag ghost is unfiltered.** `DragGhost::capture` copies the box and content commands an element recorded;
+  the effect items (the group, the copy and backdrop items) live in `RenderNode.group` and `.backdrop` and are not recorded, so the
+  ghost of a glass card is its translucent box and its text at 60 %, with no blur: the tile row's edges stay crisp through it
+  (widest step 36 levels). The section checks that the ghost is drawn, is the card's size,
+  stays unblurred and goes when the drag ends. Giving the ghost its own group or backdrop from the source's `FilterEffect` is the
+  way to a glass ghost, and is not done.
 
 ## Limits found
 
@@ -192,6 +267,8 @@ See the README ("Filters and frosted glass") for the user-facing list. Beyond it
 * **Drag ghost (I9)**: see the merge notes.
 * **Mean scale**: radii use `sqrt(|det|)` of the root-to-target transform; a rotated root keeps the copy rectangle as the bounding
   box and blurs isotropically.
+* **Render-target edge**: a filter's blur near the edge of the render target reads the edge's texels again, not the part of the
+  element beyond it (see "Glass showcase"); let backgrounds bleed past the window.
 * **Stale viewport transforms**: a change of the viewport's canvas transform or stretch with no root notification is picked up on
   the next paint pass, not the same frame.
 

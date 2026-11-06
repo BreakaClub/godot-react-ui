@@ -17,7 +17,7 @@ import puppeteer from 'puppeteer-core';
 import glassData from '../demo/src/glass-data.ts';
 
 const {
-  BASE_COLOUR, BLOBS, CARDS, GLASS_BAR_HEIGHT, GLASS_BAR_INSET, PAGE_PADDING, ROWS, STACK_DECOR, STACK_HEIGHT, TILES, blobRect, glassLayout,
+  BASE_COLOUR, BLOBS, CARDS, GLASS_BAR_HEIGHT, GLASS_BAR_INSET, PAGE_PADDING, ROWS, SEARCH_PLACEHOLDER, STACK_DECOR, STACK_HEIGHT, TILES, blobRect, glassLayout,
 } = glassData;
 
 const root = resolve(import.meta.dirname, '..');
@@ -41,6 +41,9 @@ body { margin: 0; font-family: 'Open Sans', system-ui, sans-serif; color: white;
 .text-base { font-size: 16px; line-height: 24px; } .text-lg { font-size: 18px; line-height: 28px; }
 .text-xl { font-size: 20px; line-height: 28px; } .text-3xl { font-size: 30px; line-height: 36px; }
 .w80 { color: rgba(255,255,255,.8); }
+#search { width: 100%; border-radius: 12px; border: 1px solid rgba(255,255,255,.3); background: rgba(0,0,0,.2); padding: 12px 16px; color: white; font: inherit; font-size: 16px; line-height: 24px; caret-color: white; outline: none; }
+#search::placeholder { color: rgba(255,255,255,.8); }
+#search::selection { background: rgba(59,130,246,.35); }
 .pill { border-radius: 9999px; border: 1px solid rgba(255,255,255,.3); background: rgba(255,255,255,.2); padding: 8px 20px; color: white; font: inherit; cursor: pointer; }
 .pill:hover { background: rgba(255,255,255,.4); }
 `;
@@ -82,6 +85,10 @@ function html({ width, height }) {
         <div class="col" style="position:absolute;right:0;bottom:0;height:112px;width:66.6667%;gap:4px;border-radius:24px;border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.2);padding:16px;backdrop-filter:blur(40px) saturate(1.5)">
           <span class="text-sm w80">Now playing</span><span class="text-lg">Glasshouse</span>
         </div>
+      </div>
+      <div class="glass col" style="gap:12px;border-radius:24px;padding:20px">
+        <span class="text-xl">Find a mix</span>
+        <input id="search" placeholder="${SEARCH_PLACEHOLDER}">
       </div>
       <div class="col" style="gap:12px">${rows}</div>
     </div>
@@ -144,6 +151,21 @@ async function render(outDirectory) {
       await shoot('sheet');
       await page.evaluate(() => { document.getElementById('overlay').style.display = 'none'; document.getElementById('overlay-nested').style.display = 'flex'; });
       await shoot('sheet-nested');
+      // The field on the glass card: its placeholder was in every shot above; now typed into, then selected (Chrome's own keys).
+      await page.evaluate(() => { document.getElementById('overlay-nested').style.display = 'none'; });
+      await page.evaluate(() => {
+        const field = document.getElementById('search').getBoundingClientRect();
+        const bar = document.getElementById('bar').getBoundingClientRect();
+        const scroller = document.getElementById('scroll');
+        scroller.scrollTop += Math.round(field.top - (bar.bottom + 16));
+      });
+      await page.click('#search');
+      await page.keyboard.type('Night drive');
+      await shoot('input');
+      await page.keyboard.down('Meta');
+      await page.keyboard.press('KeyA');
+      await page.keyboard.up('Meta');
+      await shoot('input-selected');
       await page.close();
     }
   } finally {
