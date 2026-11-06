@@ -235,6 +235,48 @@ export async function runFiltersScenario(context) {
       await capture(`filters-colour-${target}`);
     }
   }
+  // ---- Both properties on one element, each taken away and brought back (the native section's `verifyBothOnOneElement`) -------
+  for (const [filterOn, backdropOn] of [[true, true], [false, true], [true, true], [true, false], [true, true]]) {
+    const label = `filter ${filterOn ? 'on' : 'off'}, backdrop-filter ${backdropOn ? 'on' : 'off'}`;
+    await show({ scene: 'both', radius: 12, filterOn, backdropOn });
+    const shot = await grab();
+    const panel = await find('panel');
+    const layout = filterOn && backdropOn ? 'both' : filterOn ? 'group' : backdropOn ? 'backdrop' : undefined;
+    check(`one element with both properties (${label}): its items hang as ${layout}`, layout === undefined ? !panel.effects : panel.effects?.layout === layout, { effects: panel.effects });
+    const centre = Math.round(shot.width / 2 * shot.ratio);
+    const y = Math.floor((PANEL_TOP + PANEL_HEIGHT / 2) * shot.ratio);
+    const sigma = 12 * shot.ratio;
+    const span = Math.min(Math.ceil(4 * sigma + 40), Math.floor((shot.width / 2 - PANEL_INSET) * shot.ratio) - 6);
+    const raw = row(shot, y, centre - span, centre + span);
+    const profile = raw.map((value) => (value - raw[0]) / (raw[raw.length - 1] - raw[0]));
+    if (backdropOn) check(`one element with both properties (${label}): the backdrop is blurred by 12px`, widthOk(width1090(profile), sigma), { width: width1090(profile), ideal: WIDTH_10_90_SIGMAS * sigma });
+    else check(`one element with both properties (${label}): the backdrop is sharp`, width1090(profile) < 2, { width: width1090(profile) });
+    const under = channelAt(shot, centre + 100 * shot.ratio, (PANEL_TOP + PANEL_HEIGHT + 4) * shot.ratio);
+    check(`one element with both properties (${label}): the shadow is ${filterOn ? 'drawn' : 'absent'}`, filterOn ? under < 0.93 : under > 0.99, { under });
+  }
+
+  // ---- A panel held back by a filter above it is drawn when the filter goes -------------------------------------------------
+  for (const [step, filterOn] of [[0, true], [1, false], [2, true], [3, false]]) {
+    await show({ scene: 'blocked', radius: 8, filterOn });
+    const panel = await find('panel');
+    check(`a panel inside a filtered element is ${filterOn ? 'held back' : 'drawn once the filter is gone'} (step ${step})`, filterOn ? !panel.effects : Boolean(panel.effects?.backdrop), { effects: panel.effects });
+  }
+
+  // ---- A group after a backdrop that reads no mipmap still reads them (the Compatibility probe) ----------------------------------
+  for (const radius of [8, 24]) {
+    await show({ scene: 'order', target: 'filter', radius });
+    const shot = await grab();
+    const panel = await find('panel');
+    const planned = plan(panel, 'filter');
+    const centre = Math.round(shot.width / 2 * shot.ratio);
+    const y = Math.floor((PANEL_TOP + PANEL_HEIGHT / 2) * shot.ratio);
+    const half = (shot.width / 2) * shot.ratio;
+    const span = Math.min(Math.ceil(4 * planned.achievedPx + 40), Math.floor(half - 6), Math.floor(half - 3 * planned.achievedPx));
+    const raw = row(shot, y, centre - span, centre + span);
+    const profile = raw.map((value) => (value - raw[0]) / (raw[raw.length - 1] - raw[0]));
+    check(`filter blur ${radius}px after a backdrop that reads no mipmap`, widthOk(width1090(profile), planned.achievedPx), { width: width1090(profile), plan: planned });
+  }
+
   await demo('showFilters', { scene: 'edge', radius: 0 });
   await settle();
 }

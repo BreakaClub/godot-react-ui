@@ -445,6 +445,8 @@ struct NodeEffect {
 pub(crate) struct EffectStats {
     pub(crate) items_created: u64,
     pub(crate) materials_created: u64,
+    /// Materials freed again: every material that is not freed belongs to an element's live effect.
+    pub(crate) materials_freed: u64,
     pub(crate) shaders_created: u64,
     pub(crate) material_updates: u64,
     pub(crate) copy_rect_updates: u64,
@@ -582,6 +584,7 @@ impl Effects {
         let mut rs = server();
         if let Some(old) = slot {
             rs.free_rid(old.material);
+            self.stats.materials_freed += 1;
         }
         let material = rs.material_create();
         rs.material_set_shader(material, shader);
@@ -672,6 +675,7 @@ impl Effects {
             }
             if let Some(slot) = state.backdrop_material.take() {
                 server().free_rid(slot.material);
+                self.stats.materials_freed += 1;
             }
             state.fill_key = None;
             state.region = None;
@@ -689,6 +693,7 @@ impl Effects {
             }
             if let Some(slot) = state.group_material.take() {
                 server().free_rid(slot.material);
+                self.stats.materials_freed += 1;
             }
             state.group_plan = None;
             state.group_chain = None;
@@ -823,7 +828,15 @@ impl ReactUiRoot {
             return None;
         }
         let viewport = base.get_viewport()?;
-        let transform = viewport.get_final_transform() * base.get_global_transform_with_canvas();
+        // To the render target's pixels: the stretch, the global canvas transform, then the item's own (with the viewport's
+        // canvas transform). `Viewport::get_final_transform` is the first two for a `SubViewport`, but a `Window`'s adds
+        // `window_transform`, which maps the target to the screen (a window in `viewport` content-scale mode draws a
+        // 1920 x 1080 target into whatever size the window is): that is not where anything is in the target.
+        let transform = if faults::active(Fault::WindowTransform) {
+            viewport.get_final_transform()
+        } else {
+            viewport.get_stretch_transform() * viewport.get_global_canvas_transform()
+        } * base.get_global_transform_with_canvas();
         // The render target's size in pixels is the visible rectangle (logical) times the stretch scale.
         // `ViewportTexture::get_size()` is not it: for a Window it multiplies the physical size by the stretch
         // scale again (2240 x 1600 for a 1120 x 800 target at content scale 2).
@@ -1040,6 +1053,7 @@ impl ReactUiRoot {
                 .flatten()
             {
                 rs.free_rid(slot.material);
+                self.effects.stats.materials_freed += 1;
             }
         }
         #[cfg(feature = "filter-faults")]
@@ -1298,9 +1312,16 @@ impl ReactUiRoot {
             return;
         }
         let started = Instant::now();
+        let previous_transform = self.effects.transform;
+        let previous_target = self.effects.target;
         self.effects.transform = Some(transform);
         self.effects.target = Some(target);
-        if transform_changed {
+        // A move alone (a camera panning, a root dragged) leaves every plan as it was: only the scale or the target's size
+        // changes what a radius is in render-target pixels and how many levels there are.
+        let replan = previous_target != Some(target)
+            || previous_transform
+                .is_none_or(|previous| previous.a != transform.a || previous.b != transform.b);
+        if replan {
             // A radius is in CSS pixels and is drawn in render-target pixels, and how far a blur can reach
             // depends on the target's mip levels, so a new scale (a scaled root, a new device pixel ratio) or
             // a new target size changes every plan and every material, not only the rectangles.
@@ -1526,12 +1547,7 @@ impl ReactUiRoot {
         let region = gen_plan.map_or(gen_area, |plan| copy_region_unclipped(gen_area, &plan));
         // What the renderer generates the mipmaps for: the union of the group's rectangles, cut to the target. The
         // shader finds each level's texels through the chain maps of that region.
-        let engine_region = union_pixels(region, draw).intersection(&PixelRect {
-            x: 0,
-            y: 0,
-            width: target.0,
-            height: target.1,
-        });
+        let engine_region = region_for_engine(region, draw, target);
         let chains = (
             state
                 .group_plan
@@ -1714,7 +1730,8 @@ impl ReactUiRoot {
         json!({"backdrops": self.effects.backdrops.len(), "groups": self.effects.groups.len(),
             "blocked": self.effects.blocked.len(),
             "copiesEnabled": copies, "itemsCreated": stats.items_created,
-            "materialsCreated": stats.materials_created, "shadersCreated": stats.shaders_created,
+            "materialsCreated": stats.materials_created, "materialsFreed": stats.materials_freed,
+            "shadersCreated": stats.shaders_created,
             "materialUpdates": stats.material_updates, "copyRectUpdates": stats.copy_rect_updates,
             "subtreeWalks": stats.subtree_walks, "probes": probes,
             "refreshes": stats.refreshes, "refreshMicros": stats.refresh_micros})
@@ -1741,6 +1758,18 @@ fn union(a: BoxRect, b: BoxRect) -> BoxRect {
         width: (a.x + a.width).max(b.x + b.width) - x,
         height: (a.y + a.height).max(b.y + b.height) - y,
     }
+}
+
+/// What the renderer generates a group's mipmaps for: the union of the group's rectangles, cut to the target, which is
+/// what it makes of them (`render_target_gen_back_buffer_mipmaps` intersects its region with the target). Its coordinates
+/// are never negative, which `REGION_BIAS_PX` needs.
+fn region_for_engine(region: PixelRect, draw: PixelRect, target: (i32, i32)) -> PixelRect {
+    union_pixels(region, draw).intersection(&PixelRect {
+        x: 0,
+        y: 0,
+        width: target.0,
+        height: target.1,
+    })
 }
 
 /// The group's region: the content's area grown by the plan's reach and aligned to its level, not cut
@@ -1869,6 +1898,58 @@ mod tests {
                 assert_eq!(seen, region, "{transform:?}");
             }
         }
+    }
+
+    #[test]
+    fn the_region_handed_to_the_engine_never_starts_left_of_or_above_the_target() {
+        // A blurred element near the target's top left: its aligned region starts at -48, -32.
+        let region = PixelRect {
+            x: -48,
+            y: -32,
+            width: 352,
+            height: 336,
+        };
+        let draw = PixelRect {
+            x: -20,
+            y: -10,
+            width: 300,
+            height: 290,
+        };
+        let target = (1120, 800);
+        let cut = region_for_engine(region, draw, target);
+        assert_eq!(
+            cut,
+            PixelRect {
+                x: 0,
+                y: 0,
+                width: 304,
+                height: 304
+            }
+        );
+        // Biased and seen through the engine's truncation, it is exactly itself (the uncut one is a pixel larger).
+        let identity = transform((1.0, 0.0), (0.0, 1.0), (0.0, 0.0));
+        let local = local_rect(
+            &identity.affine_inverse(),
+            cut,
+            REGION_BIAS_PX,
+            Vector2::ZERO,
+        );
+        assert_eq!(
+            engine_rect(target_rect(&identity, Vector2::ZERO, local)),
+            cut
+        );
+        // A region past the far edge is cut there.
+        let far = region_for_engine(
+            PixelRect {
+                x: 900,
+                y: 700,
+                width: 400,
+                height: 300,
+            },
+            draw,
+            target,
+        );
+        assert_eq!((far.right(), far.bottom()), (1120, 800));
     }
 
     #[test]

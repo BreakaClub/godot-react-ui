@@ -72,6 +72,9 @@ pub(crate) enum Fault {
     TextUnnoticed,
     /// Forward+ is planned with the dual filter's variance (the model before it was measured).
     DualFilterOnForwardPlus,
+    /// The root-to-target transform is the viewport's `get_final_transform`, which for a window includes the map from the
+    /// target to the screen (a window in `viewport` content-scale mode).
+    WindowTransform,
     /// A root that is back in the tree keeps the transform its plans were made for, so an effect that was committed while
     /// it was outside is never planned.
     KeepTransformOutOfTree,
@@ -104,6 +107,7 @@ impl Fault {
             Fault::TextUnnoticed => "text-unnoticed",
             Fault::DualFilterOnForwardPlus => "dual-filter-on-forward-plus",
             Fault::KeepTransformOutOfTree => "keep-transform-out-of-tree",
+            Fault::WindowTransform => "window-transform",
         }
     }
 }

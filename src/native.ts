@@ -122,6 +122,8 @@ export interface NativeEffectsActivity {
   copiesEnabled: number;
   itemsCreated: number;
   materialsCreated: number;
+  /** Materials freed again: created minus freed is the number an element's live effects hold. */
+  materialsFreed: number;
   shadersCreated: number;
   /** Times a material's parameters were written. */
   materialUpdates: number;
@@ -947,6 +949,7 @@ function effectsActivity(value: unknown): NativeEffectsActivity {
     copiesEnabled: number(effects.copiesEnabled, 'effects.copiesEnabled'),
     itemsCreated: number(effects.itemsCreated, 'effects.itemsCreated'),
     materialsCreated: number(effects.materialsCreated, 'effects.materialsCreated'),
+    materialsFreed: number(effects.materialsFreed, 'effects.materialsFreed'),
     shadersCreated: number(effects.shadersCreated, 'effects.shadersCreated'),
     materialUpdates: number(effects.materialUpdates, 'effects.materialUpdates'),
     copyRectUpdates: number(effects.copyRectUpdates, 'effects.copyRectUpdates'),

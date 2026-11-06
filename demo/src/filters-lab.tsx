@@ -363,11 +363,13 @@ function OrderScene({ radius = 8 }: FiltersLabProps) {
 export const CORNER_LEFT = 10;
 export const CORNER_TOP = 10;
 export const CORNER_HEIGHT = 180;
-function CornerScene({ radius = 16, width = 312 }: FiltersLabProps) {
+/** The black part's share of the panel's width: the edge is that far along, near the far end of the region the group's mipmaps are made for. */
+export const CORNER_EDGE_FRACTION = 0.7;
+function CornerScene({ radius = 8, width = 312 }: FiltersLabProps) {
   return (
     <View className="absolute inset-0 bg-slate-500">
       <View testID="panel" className="absolute flex-row" style={{ left: CORNER_LEFT, top: CORNER_TOP, width, height: CORNER_HEIGHT, filter: `blur(${radius}px)` }}>
-        <View className="flex-1 bg-black" />
+        <View className="bg-black" style={{ width: Math.round(width * CORNER_EDGE_FRACTION) }} />
         <View className="flex-1 bg-white" />
       </View>
     </View>
@@ -409,7 +411,7 @@ function FadeScene({ radius = 4, opacity = 1 }: FiltersLabProps) {
 }
 
 /** A filtered list of `rows` rows beside an element whose `side` changes: a change there cannot move anything in the list. */
-export const BUSY_ROW = 3;
+export const BUSY_ROW = 1;
 function BusyScene({ rows = 400, side = 100 }: FiltersLabProps) {
   return (
     <View className="absolute inset-0 bg-white">

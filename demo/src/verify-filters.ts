@@ -1,7 +1,7 @@
 import { DisplayServer, Engine, Image, Rid, InputEventMouseButton, InputEventMouseMotion, MouseButton, Node, OS, RenderingServer, Time, Vector2, Window } from 'godot';
 import type { NativeActivity, NativeSnapshot, NativeSnapshotNode } from '../../src/native';
 import {
-  BOTH_SHADOW_PROBE_PX, BUSY_ROW, COLOUR_CELL, CORNER_HEIGHT, CORNER_LEFT, CORNER_TOP, EDGE_H_LEFT, EDGE_H_WIDTH, MOVING_SIZE,
+  BOTH_SHADOW_PROBE_PX, BUSY_ROW, COLOUR_CELL, CORNER_EDGE_FRACTION, CORNER_HEIGHT, CORNER_LEFT, CORNER_TOP, EDGE_H_LEFT, EDGE_H_WIDTH, MOVING_SIZE,
   MOVING_TOP, PANEL_HEIGHT, PANEL_INSET, PANEL_TOP, SCROLL_ROW, SHAPE_RADIUS, STRIPE_PX, SWATCH_COLOURS, TEXT_CHANGE_BOX,
   TEXT_CHANGE_LEFT, TEXT_CHANGE_TOP, type FiltersLabProps,
 } from './filters-lab';
@@ -61,6 +61,8 @@ const PROFILE_REACH_RADII = 1.6;
 const MOVING_MARGIN = 10;
 /** A second radius for the moving panel: a texel of 16 px (level four) puts the region's edges off the grid at most positions. */
 const MOVING_LARGE_RADIUS = 16;
+/** How many standard deviations each side of the edge a filtered panel's own content must be read, to find its plateaus. */
+const FILTER_PLATEAU_SIGMAS = 2.4;
 /** A radius sweep step may differ from the ideal step by this (two and a half 8-bit steps). */
 const SWEEP_STEP_TOLERANCE = 0.012;
 const SWEEP_FROM = 3;
@@ -129,6 +131,24 @@ function normalCdf(z: number): number {
   return 0.5 * (1 + erf);
 }
 
+/**
+ * How much wider than `2^level` a texel of the level is on a target of `size` pixels on the RenderingDevice renderers, which halve
+ * the whole target with integer shifts (`blur::chain_map`): the last steps of the chain, which carry most of the variance, are
+ * that much wider, and so is the blur. A target that halves exactly has 1. Compatibility halves the copy region, which the
+ * plan makes exact, so it has 1 too.
+ */
+function chainStretch(size: number, level: number): number {
+  if (RenderingServer.getCurrentRenderingMethod() === 'gl_compatibility') return 1;
+  let previous = size;
+  let scale = 1;
+  for (let step = 0; step < level; step += 1) {
+    const next = Math.max(1, Math.floor(previous / 2));
+    scale *= previous / next;
+    previous = next;
+  }
+  return scale / 2 ** level;
+}
+
 interface EdgeMeasurement {
   /** What native said it did, for the failure message. */
   detail: string;
@@ -139,15 +159,15 @@ interface EdgeMeasurement {
   worst: number;
   /** Where the profile crosses one half, minus where the sharp edge is, in physical pixels. */
   shift: number;
+  /** `chainStretch` along the profile's axis: the width may be this much wider than a Gaussian of the plan's radius. */
+  stretch: number;
 }
 
 /** Render the edge scene and measure the edge through the panel's middle against a Gaussian of the plan's radius. */
-async function measureEdge(owner: Node, api: FiltersInspection, props: FiltersLabProps, shiftX = 0, mirrored = false, show = true): Promise<EdgeMeasurement | undefined> {
-  // `show`: false reads what is already drawn, without a commit (a test of something that needs none).
-  if (show) {
-    api.showFilters(props);
-    await settleFrames();
-  }
+async function measureEdge(owner: Node, api: FiltersInspection, props: FiltersLabProps, shiftX = 0, mirrored = false, show = true, shiftY = 0): Promise<EdgeMeasurement | undefined> {
+  // `show`: false reads what is already drawn, without a commit (a test of something that needs none), after the frames it takes.
+  if (show) api.showFilters(props);
+  await settleFrames();
   const image = grab(owner);
   const ratio = pixelRatio(image, api);
   const panel = node(api, 'panel');
@@ -157,14 +177,15 @@ async function measureEdge(owner: Node, api: FiltersInspection, props: FiltersLa
   assert(plan, `The panel's blur has a plan: ${JSON.stringify(props)}`);
   // `shiftX`: where the root has been moved to on the window, in CSS pixels; the edge is read where it is now.
   const centre = Math.round((api.snapshot().width / 2 + shiftX) * ratio);
-  const y = Math.floor((PANEL_TOP + PANEL_HEIGHT / 2) * ratio);
+  const y = Math.floor((PANEL_TOP + PANEL_HEIGHT / 2 + shiftY) * ratio);
   // How far from the middle the profile is read: not into the panel's own sides, and for a filtered panel not within three
   // radii of its outer edge, where its blurred content fades into the page; and not off the render target.
   const inset = props.target === 'filter' ? 0 : PANEL_INSET;
   const half = (api.snapshot().width / 2 - inset) * ratio;
   const span = Math.min(Math.ceil(4 * plan.achievedPx + 40), Math.floor(half - 6), props.target === 'filter' ? Math.floor(half - 3 * plan.achievedPx) : Infinity, centre - 6, image.getWidth() - centre - 6);
-  // A 10 to 90 width needs the profile to reach a standard deviation and a quarter on each side.
-  if (span < 1.5 * plan.achievedPx) return undefined;
+  // A 10 to 90 width needs the profile to reach a standard deviation and a quarter on each side; a filtered panel's profile is
+  // normalised by its two ends, which have to be on the plateaus (within a percent of them: 2.4 standard deviations).
+  if (span < (props.target === 'filter' ? FILTER_PLATEAU_SIGMAS : 1.5) * plan.achievedPx) return undefined;
   let profile = row(image, y, centre - span, centre + span);
   // A mirrored root draws white where it drew black: the profile falls, and is read from the other end.
   if (mirrored) profile = profile.reverse();
@@ -187,14 +208,14 @@ async function measureEdge(owner: Node, api: FiltersInspection, props: FiltersLa
   return {
     detail: JSON.stringify({ plan, region: effects.backdrop?.region, target: [image.getWidth(), image.getHeight()], ratio, worstAt, span, ends: [profile[0], profile[profile.length - 1]] }),
     achievedPx: plan.achievedPx, clamped: plan.clamped, width: width1090(profile), worst,
-    shift: halfCrossing(profile) - span,
+    shift: halfCrossing(profile) - span, stretch: chainStretch(image.getWidth(), plan.level),
   };
 }
 
 function checkEdge(label: string, requestedPx: number, measured: EdgeMeasurement): void {
   const ideal = WIDTH_10_90_SIGMAS * measured.achievedPx;
   const error = Math.abs(measured.width - ideal);
-  assert(error <= Math.max(WIDTH_TOLERANCE * ideal, WIDTH_TOLERANCE_PX),
+  assert(error <= Math.max((WIDTH_TOLERANCE + (measured.stretch - 1)) * ideal, WIDTH_TOLERANCE_PX),
     `${label}: 10 to 90 width ${measured.width.toFixed(2)} px, a Gaussian of ${measured.achievedPx.toFixed(2)} px has ${ideal.toFixed(2)} (requested ${requestedPx.toFixed(2)} px) ${measured.detail}`);
   assert(measured.worst <= PROFILE_TOLERANCE,
     `${label}: the edge departs from a Gaussian by ${measured.worst.toFixed(4)} (limit ${PROFILE_TOLERANCE}): facets, not a smooth blur ${measured.detail}`);
@@ -209,6 +230,11 @@ async function verifyBlurAccuracy(owner: Node, api: FiltersInspection, capture: 
     for (const radius of ACCURACY_RADII) {
       const measured = await measureEdge(owner, api, { scene: 'edge', target, radius });
       const asked = requested(radius);
+      if (measured === undefined && target === 'filter') {
+        // A window too narrow for the radius (portrait, 64 px on a renderer that draws it unclamped): its plateaus are out of reach.
+        console.log('GODOT_REACT_FILTERS_SKIPPED', JSON.stringify({ target, radius, reason: 'panel too narrow for the plateaus' }));
+        continue;
+      }
       assert(measured, `The panel is wide enough to measure ${target} ${radius}px`);
       // A target with too few mip levels for the radius says so and draws what it can; every other radius is exact.
       if (measured.clamped) {
@@ -935,6 +961,12 @@ async function verifyBothOnOneElement(owner: Node, api: FiltersInspection, captu
     }
     if (filterOn && backdropOn) await capture('filters-both');
   }
+  // Every material still alive belongs to an effect that is: none was kept when its items went.
+  api.showFilters({ scene: 'both', radius: BOTH_RADIUS, filterOn: false, backdropOn: true });
+  await settleFrames();
+  const held = api.activity().effects;
+  assert(held.materialsCreated - held.materialsFreed === held.backdrops + held.groups,
+    `Both properties on one element: the materials alive are the live effects' (${held.materialsCreated} made, ${held.materialsFreed} freed, ${held.backdrops} backdrops and ${held.groups} groups live)`);
   // As a developer writes it.
   api.showFilters({ scene: 'both', variant: 'classes' });
   await settleFrames();
@@ -994,27 +1026,33 @@ async function verifyGroupWithRootOriginOffScreen(owner: Node, api: FiltersInspe
 
 // ---- A group near the target's corner keeps its edge in place --------------------------------------------------------------
 
-const CORNER_WIDTHS = [296, 300, 304, 308, 312, 316, 320, 324, 328] as const;
-const CORNER_RADIUS = 16;
-/** The model puts the blur within 0.1 px of where it is; the engine's truncation of a negative origin moved it by up to 0.65. */
-const CORNER_POSITION_TOLERANCE_PX = 0.3;
+const CORNER_WIDTHS = [304, 308, 312, 316, 320, 324, 328] as const;
+const CORNER_RADIUS = 8;
+/** The model puts the blur within 0.1 px of where it is; the engine's truncation of a negative origin moved it by 0.5 to 0.6 at this edge. */
+const CORNER_POSITION_TOLERANCE_PX = 0.25;
+
+/** How far the blurred edge of the corner panel of `width` is from where the sharp edge is, in physical pixels. */
+async function cornerShift(owner: Node, api: FiltersInspection, width: number): Promise<number> {
+  api.showFilters({ scene: 'corner', radius: CORNER_RADIUS, width });
+  await settleFrames();
+  const image = grab(owner);
+  const ratio = pixelRatio(image, api);
+  const plan = node(api, 'panel').effects?.filter?.plan;
+  assert(plan, `The corner panel has a filter that is drawn: ${width}`);
+  const black = Math.round(width * CORNER_EDGE_FRACTION);
+  const centre = Math.round((CORNER_LEFT + black) * ratio);
+  const y = Math.floor((CORNER_TOP + CORNER_HEIGHT / 2) * ratio);
+  const span = Math.min(Math.ceil(4 * plan.achievedPx + 40), Math.floor((width - black) * ratio - 3 * plan.achievedPx));
+  assert(span >= 1.5 * plan.achievedPx, `The corner panel is wide enough to measure: ${width}`);
+  const raw = row(image, y, centre - span, centre + span);
+  return Math.abs(halfCrossing(normalise(raw, raw[0] ?? 0, raw[raw.length - 1] ?? 1)) - span);
+}
 
 async function verifyGroupAtTheCorner(owner: Node, api: FiltersInspection): Promise<void> {
   let worst = 0;
   let worstWidth = 0;
   for (const width of CORNER_WIDTHS) {
-    api.showFilters({ scene: 'corner', radius: CORNER_RADIUS, width });
-    await settleFrames();
-    const image = grab(owner);
-    const ratio = pixelRatio(image, api);
-    const plan = node(api, 'panel').effects?.filter?.plan;
-    assert(plan, `The corner panel has a filter that is drawn: ${width}`);
-    const centre = Math.round((CORNER_LEFT + width / 2) * ratio);
-    const y = Math.floor((CORNER_TOP + CORNER_HEIGHT / 2) * ratio);
-    const span = Math.min(Math.ceil(4 * plan.achievedPx + 40), Math.floor(width / 2 * ratio - 3 * plan.achievedPx));
-    assert(span >= 1.5 * plan.achievedPx, `The corner panel is wide enough to measure: ${width}`);
-    const raw = row(image, y, centre - span, centre + span);
-    const shift = Math.abs(halfCrossing(normalise(raw, raw[0] ?? 0, raw[raw.length - 1] ?? 1)) - span);
+    const shift = await cornerShift(owner, api, width);
     if (shift > worst) {
       worst = shift;
       worstWidth = width;
@@ -1042,7 +1080,7 @@ async function measureEdgeTurned(owner: Node, api: FiltersInspection, props: Fil
   const x = Math.floor((EDGE_H_LEFT + EDGE_H_WIDTH / 2) * ratio);
   const half = height * (props.target === 'filter' ? 0.4 : 0.3) * ratio;
   const span = Math.min(Math.ceil(4 * plan.achievedPx + 40), Math.floor(half - 6), props.target === 'filter' ? Math.floor(half - 3 * plan.achievedPx) : Infinity);
-  if (span < 1.5 * plan.achievedPx) return undefined;
+  if (span < (props.target === 'filter' ? FILTER_PLATEAU_SIGMAS : 1.5) * plan.achievedPx) return undefined;
   let profile = columnProfile(image, x, centre - span, centre + span);
   if (props.target === 'filter') profile = normalise(profile, profile[0] ?? 0, profile[profile.length - 1] ?? 1);
   let worst = 0;
@@ -1050,6 +1088,7 @@ async function measureEdgeTurned(owner: Node, api: FiltersInspection, props: Fil
   return {
     detail: JSON.stringify({ plan, target: [image.getWidth(), image.getHeight()], ratio, span }),
     achievedPx: plan.achievedPx, clamped: plan.clamped, width: width1090(profile), worst, shift: halfCrossing(profile) - span,
+    stretch: chainStretch(image.getHeight(), plan.level),
   };
 }
 
@@ -1065,19 +1104,24 @@ async function verifyBlurAccuracyTurned(owner: Node, api: FiltersInspection): Pr
 
 // ---- The viewport moves under the root (a Camera2D) -------------------------------------------------------------------------
 
-/** Far enough to take the panel out of the region it was copied for, which reaches 30 px or so past it. */
-const CANVAS_SHIFTS = [150, -110] as const;
+/** Far enough down to take the panel out of the region it was copied for, which reaches 30 px or so past it (the panel is as wide as the window). */
+const CANVAS_SHIFTS = [[0, 300], [150, 200]] as const;
 
 async function verifyCanvasTransformFollowed(owner: Node, api: FiltersInspection): Promise<void> {
   const props: FiltersLabProps = { scene: 'edge', target: 'backdrop', radius: 8 };
   api.showFilters(props);
   await settleFrames();
   try {
-    for (const x of CANVAS_SHIFTS) {
-      api.shiftCanvas(x, 0);
-      const measured = await measureEdge(owner, api, props, x, false, false);
-      assert(measured, 'The panel is wide enough to measure a 8px blur');
-      checkEdge(`backdrop blur 8px with the canvas moved by ${x} px and no commit after it`, 8 * pixelRatio(grab(owner), api), measured);
+    for (const [x, y] of CANVAS_SHIFTS) {
+      api.shiftCanvas(x, y);
+      const label = `backdrop blur 8px with the canvas moved by ${x}, ${y} px and no commit after it`;
+      try {
+        const measured = await measureEdge(owner, api, props, x, false, false, y);
+        assert(measured, 'The panel is wide enough to measure a 8px blur');
+        checkEdge(label, 8 * pixelRatio(grab(owner), api), measured);
+      } catch (error) {
+        throw new Error(`${label}: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
   } finally {
     api.shiftCanvas(0, 0);
@@ -1091,9 +1135,13 @@ async function verifyMirroredRoot(owner: Node, api: FiltersInspection): Promise<
   api.mirrorSurface(true);
   try {
     for (const target of ['filter', 'backdrop'] as const) {
-      const measured = await measureEdge(owner, api, { scene: 'edge', target, radius: 8 }, 0, true);
-      assert(measured, 'The panel is wide enough to measure a 8px blur');
-      checkEdge(`${target} blur 8px under a mirrored root`, 8 * pixelRatio(grab(owner), api), measured);
+      try {
+        const measured = await measureEdge(owner, api, { scene: 'edge', target, radius: 8 }, 0, true);
+        assert(measured, 'The panel is wide enough to measure a 8px blur');
+        checkEdge(`${target} blur 8px under a mirrored root`, 8 * pixelRatio(grab(owner), api), measured);
+      } catch (error) {
+        throw new Error(`${target} blur 8px under a mirrored root is not drawn where it is: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
   } finally {
     api.mirrorSurface(false);
@@ -1436,11 +1484,15 @@ const FAULT_CONTROLS: readonly FaultControl[] = [
   },
   {
     fault: 'fit-empty-group', guards: 'an ancestor\'s clip still cuts a filter group\'s composite',
-    run: verifySubtree, fails: /the ancestor clips it/u,
+    run: verifySubtree, fails: /the ancestor clips it|and far above it/u,
   },
   {
     fault: 'textbook-chain', guards: 'texels are placed by the engine\'s own region halving (targets that are not a power of two)',
-    run: verifyBlurAccuracy, fails: /backdrop blur \d+px/u,
+    run: async (owner, api, capture) => {
+      await verifyBlurAccuracy(owner, api, capture);
+      await verifyBlurAccuracyTurned(owner, api);
+    },
+    fails: /backdrop blur \d+px/u,
     notApplicable: (_owner, api) => {
       const { width, height } = api.snapshot();
       return width % LARGEST_TEXEL_PX === 0 && height % LARGEST_TEXEL_PX === 0
@@ -1500,6 +1552,12 @@ const FAULT_CONTROLS: readonly FaultControl[] = [
     notApplicable: () => renderer() === 'forward_plus' ? undefined : 'this is Forward+\'s model only',
   },
   {
+    fault: 'window-transform', guards: 'rectangles and radii are in the render target\'s pixels when the window draws a fixed-size target (viewport content scale)',
+    run: verifyBlurAccuracy, fails: /the plan draws the radius asked|blur \d+px/u,
+    notApplicable: (owner) => window(owner).contentScaleMode === Window.ContentScaleMode.ContentScaleModeViewport ? undefined
+      : 'the window\'s content scale is not in viewport mode (run with --viewport=WxH)',
+  },
+  {
     fault: 'corner-rect', guards: 'a group under a mirrored root is drawn where it is',
     run: verifyMirroredRoot, fails: /under a mirrored root/u,
   },
@@ -1522,11 +1580,6 @@ const FAULT_CONTROLS: readonly FaultControl[] = [
   {
     fault: 'keep-transform-out-of-tree', guards: 'an effect committed while the root is outside the tree is drawn when it is back',
     run: verifyCommitOutsideTheTree, fails: /outside the tree/u,
-  },
-  {
-    fault: 'truncated-bias', guards: 'a group near the target\'s origin keeps its edge in place (the engine truncates a negative origin toward zero)',
-    run: verifyGroupAtTheCorner, fails: /near the target's corner/u,
-    notApplicable: () => renderer() === 'gl_compatibility' ? undefined : 'Mobile and Forward+ place texels by the target, not the region',
   },
 ];
 
@@ -1580,6 +1633,31 @@ async function verifyUnalignedRegionIsTolerated(owner: Node, api: FiltersInspect
   console.log('GODOT_REACT_FILTERS_ALIGNMENT', JSON.stringify({ aligned, unaligned }));
   assert(unaligned.shift <= ALIGNMENT_RESIDUAL_PX && unaligned.widthError <= WIDTH_TOLERANCE,
     `Without aligning the copy region the blur is still in place: shift ${unaligned.shift.toFixed(3)} px (limit ${ALIGNMENT_RESIDUAL_PX}), width error ${unaligned.widthError.toFixed(4)} (limit ${WIDTH_TOLERANCE})`);
+}
+
+/**
+ * Not a regression guard: the engine's truncation toward zero of a group's negative origin should make its region a pixel larger than
+ * the model's, which moves a blurred edge near the far end by about half a pixel (`native/filter_render.rs` tests do the arithmetic).
+ * On this fixture the real run shows the same edge position with and without the fault, so the section records both and asserts
+ * only that the fixed one is where it should be and the faulted one is inside the section's own limit.
+ */
+async function verifyTruncatedBiasResidual(owner: Node, api: FiltersInspection): Promise<void> {
+  if (renderer() !== 'gl_compatibility') return;
+  OS.unsetEnvironment(FAULT_ENV);
+  const measure = async (): Promise<number> => {
+    let worst = 0;
+    for (const width of CORNER_WIDTHS) worst = Math.max(worst, await cornerShift(owner, api, width));
+    return worst;
+  };
+  const fixed = await measure();
+  OS.setEnvironment(FAULT_ENV, 'truncated-bias');
+  api.showFilters({ scene: 'edge', radius: 0 });
+  await settleFrames();
+  const biased = await measure();
+  OS.unsetEnvironment(FAULT_ENV);
+  console.log('GODOT_REACT_FILTERS_TRUNCATION', JSON.stringify({ fixed, biased }));
+  assert(fixed <= CORNER_POSITION_TOLERANCE_PX && biased <= EDGE_POSITION_TOLERANCE_PX,
+    `The corner panel's edge is in place with the region cut (${fixed.toFixed(3)} px, limit ${CORNER_POSITION_TOLERANCE_PX}) and without (${biased.toFixed(3)} px, limit ${EDGE_POSITION_TOLERANCE_PX})`);
 }
 
 /**
@@ -1637,6 +1715,8 @@ export async function verifyFilterFaults(owner: Node, api: FiltersInspection & G
     OS.unsetEnvironment(FAULT_ENV);
   }
   await verifyUnalignedRegionIsTolerated(owner, api);
+  await reset();
+  await verifyTruncatedBiasResidual(owner, api);
   await reset();
   assert(problems.length === 0, `${problems.length} negative control(s) did not hold:\n${problems.join('\n')}`);
   assert(controlled > 0, 'At least one fault was exercised');
