@@ -29,6 +29,8 @@ await build({...shared, entryPoints: ['demo/src/world-main.ts', 'demo/src/world-
 // The text layout probe scene (docs/tracks/text-layout.md) has its own owner and verifier; the Web export
 // needs a compiled module for every demo `.ts` file.
 await build({...shared, entryPoints: ['demo/src/text-layout-probe.ts', 'demo/src/verify-text-layout.ts'], outdir: 'demo/.godot/GodotJS/src'});
+// The accessibility lab (docs/tracks/accessibility.md) likewise: its owner, its verifier and the demo-only scene.
+await build({...shared, entryPoints: ['demo/src/a11y-main.ts', 'demo/src/verify-a11y.ts'], outdir: 'demo/.godot/GodotJS/src'});
 const types = spawnSync('pnpm', ['exec', 'tsc', '-p', 'tsconfig.package.json'], {cwd:root, stdio:'inherit'});
 if (types.error) throw types.error;
 if (types.status !== 0) process.exit(types.status ?? 1);
