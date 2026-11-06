@@ -23,6 +23,9 @@ mod render_tree;
 mod selection;
 mod snapshot;
 mod style_engine;
+// Integrated in Phase I7 (TextInput); remove the attribute then.
+#[cfg_attr(not(test), allow(dead_code))]
+mod text_input;
 // Integrated in Phase I6 (text selection) and I7 (TextInput); remove the attribute then.
 #[cfg_attr(not(test), allow(dead_code))]
 mod text_offsets;
