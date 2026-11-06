@@ -111,6 +111,13 @@ pub(crate) struct BoxKey {
     pub oversampling: Oversampling,
 }
 
+impl BoxKey {
+    /// Whether the fill or the border lets what is behind show through.
+    fn is_translucent(&self) -> bool {
+        self.background.a < 1.0 || self.border_color.a < 1.0
+    }
+}
+
 /// The highlight a content item draws under its text: code points `start..end` (never empty) in `color`
 /// (plan 3.17).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -586,11 +593,28 @@ impl RenderNode {
             .rect(bounds)
             .done();
         background.set_bg_color(key.background);
-        background.set_border_color(key.border_color);
-        background.set_border_width_all(key.border_width);
         background.set_corner_radius_all(key.radius);
         background.set_aa_size(key.oversampling.feather());
-        background.draw(self.box_item, bounds);
+        if key.border_width > 0 && key.is_translucent() && !faults::active(Fault::SingleBorderDraw)
+        {
+            // `StyleBoxFlat::draw` with a centre fades the ring's inner edge from the fill colour to the border colour
+            // (`style_box_flat.cpp:479` and the "ring inner border" gradient after it), which adds the fill a second
+            // time along the ring when it is translucent: a one pixel border came out dotted at a device pixel ratio of
+            // one and doubled at two. CSS paints the background under the whole border box and the border over it, which
+            // is also what this does: the fill alone, then a ring with no centre.
+            background.set_draw_center(true);
+            background.set_border_width_all(0);
+            background.draw(self.box_item, bounds);
+            background.set_draw_center(false);
+            background.set_border_color(key.border_color);
+            background.set_border_width_all(key.border_width);
+            background.draw(self.box_item, bounds);
+            background.set_draw_center(true);
+        } else {
+            background.set_border_color(key.border_color);
+            background.set_border_width_all(key.border_width);
+            background.draw(self.box_item, bounds);
+        }
         self.box_key = Some(key);
         true
     }

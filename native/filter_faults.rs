@@ -1,6 +1,6 @@
 //! Negative controls for the filters verifier (`docs/tracks/filters.md`, "Negative controls").
 //!
-//! Each [`Fault`] puts back one of the mistakes the filters were built to avoid, at the one place the fix
+//! Each [`Fault`] puts back one of the mistakes the filters (and the glass showcase) were built to avoid, at the one place the fix
 //! lives, so the verifier can show the check that guards the fix fails without it. A fault is switched on
 //! by the environment variable [`FAULT_ENV`] naming it, read at the fault's own site every time, so the
 //! `filters-faults` verifier section can turn faults on and off in one process with
@@ -37,6 +37,9 @@ pub(crate) enum Fault {
     /// A filter group's composite multiplies by the inherited opacity again, as the stock composite does
     /// (an ancestor's opacity then applies twice).
     DoubleModulate,
+    /// A translucent box with a border is drawn in one `StyleBoxFlat` call, whose ring-inner antialiasing adds the
+    /// translucent fill a second time along the border (a dotted hairline at one pixel, doubled at two).
+    SingleBorderDraw,
     /// A drop-shadow's offset and reach are not part of the area the composite draws, so it is cut at
     /// the element's box.
     ShadowBoxOnly,
@@ -55,6 +58,7 @@ impl Fault {
             Fault::NoNestingCheck => "no-nesting-check",
             Fault::DoubleModulate => "double-modulate",
             Fault::ShadowBoxOnly => "shadow-box-only",
+            Fault::SingleBorderDraw => "single-border-draw",
         }
     }
 }
