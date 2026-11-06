@@ -104,6 +104,7 @@ export default class Main extends Node {
       changeSelectionLiveText: () => selectionLabControls().changeLiveText(),
       removeSelectionTail: () => selectionLabControls().removeTail(),
       insertSelectionLine: () => selectionLabControls().insertLine(),
+      shrinkSelectionCounter: () => selectionLabControls().shrinkCounter(),
       /** `selectionchange` events the root's own listener saw since the last reset. */
       selectionChanges: () => this.selectionChanges,
       resetSelectionChanges: () => { this.selectionChanges = 0; },

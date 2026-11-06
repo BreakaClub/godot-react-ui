@@ -1,6 +1,10 @@
 import { useLayoutEffect, useState } from 'react';
 import { Button, ScrollView, Text, View, useTextSelection } from 'godot-react-ui';
 
+/** The counter's text before and after it shrinks. */
+const INITIAL_COUNTER = '1000';
+const SHRUNK_COUNTER = '999';
+
 /** How many rows the scrolling list has: more than fit, so some are selectable but out of view. */
 const LIST_ROWS = 14;
 
@@ -16,6 +20,8 @@ export interface SelectionLabControls {
   removeTail(): void;
   /** Insert a new selectable line between the second paragraph and the live line. */
   insertLine(): void;
+  /** Make the counter's text one character shorter: "1000" becomes "999". */
+  shrinkCounter(): void;
 }
 
 let controls: SelectionLabControls | undefined;
@@ -50,11 +56,13 @@ export function SelectionLab() {
   const [count, setCount] = useState(0);
   const [showTail, setShowTail] = useState(true);
   const [showInserted, setShowInserted] = useState(false);
+  const [counter, setCounter] = useState(INITIAL_COUNTER);
   useLayoutEffect(() => {
     controls = {
       changeLiveText: () => setCount(current => current + 1),
       removeTail: () => setShowTail(false),
       insertLine: () => setShowInserted(true),
+      shrinkCounter: () => setCounter(SHRUNK_COUNTER),
     };
     return () => { controls = undefined; };
   }, []);
@@ -89,6 +97,7 @@ export function SelectionLab() {
       <View className="flex-row items-start gap-3">
         <Text testID="sel-short" className="select-text self-start rounded bg-white px-1 text-sm text-slate-900">Highlight</Text>
         <Text testID="sel-rose" className="select-text selection-[#f43f5e80] self-start rounded bg-white px-1 text-sm text-slate-900">Rose highlight</Text>
+        <Text testID="sel-counter" className="select-text self-start rounded bg-white px-1 text-sm text-slate-900">{counter}</Text>
       </View>
       <ScrollView testID="sel-scroll" className="select-text h-24 w-[520px] rounded-xl border border-slate-200 bg-white" contentClassName="gap-1 p-2">
         {indexes(LIST_ROWS).map(index => (

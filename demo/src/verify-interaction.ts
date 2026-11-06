@@ -53,6 +53,8 @@ export interface InteractionInspection extends DemoInspection {
   changeSelectionLiveText(): void;
   removeSelectionTail(): void;
   insertSelectionLine(): void;
+  /** Make the lab's counter shorter, "1000" to "999". */
+  shrinkSelectionCounter(): void;
 }
 
 const SETTLE_MS = 100;
@@ -2549,7 +2551,7 @@ const SELECTION_LAB_ROWS = 14;
 
 /** The lab's selectable texts in document order: what select all copies. */
 const SELECTABLE_LAB_TEXTS = [
-  'sel-p1', 'sel-p2', 'sel-live', 'sel-tail', 'sel-captured', 'sel-prevented', 'sel-short', 'sel-rose',
+  'sel-p1', 'sel-p2', 'sel-live', 'sel-tail', 'sel-captured', 'sel-prevented', 'sel-short', 'sel-rose', 'sel-counter',
   ...Array.from({length: SELECTION_LAB_ROWS}, (_, index) => `sel-row-${index}`),
 ];
 
@@ -2822,6 +2824,17 @@ async function verifySelectionGestures(owner: Node, api: InteractionInspection, 
   // The root hears of it (and the readout, which only asks native after a selectionchange, follows) before anything asks for the selection.
   assert(api.selectionChanges() === beforeRemoval + 1 && text(api, 'sel-readout') === 'selected: nothing', 'Removing what is selected clears it, with a selectionchange');
   assert(selected() === undefined, 'And nothing is selected');
+
+  // A text that gets shorter under a selection that covers it ("1000" to "999") clears the selection. The commit paints
+  // before the selection settles; the highlight drawn for four characters must not be placed on three (that is an ERROR
+  // line, and this verifier fails on one).
+  await clickAt(firstLine('sel-counter'), 3);
+  assert(selected()?.text === '1000', `The counter is selected: ${JSON.stringify(selected())}`);
+  const beforeShrinking = api.selectionChanges();
+  api.shrinkSelectionCounter();
+  await settle();
+  assert(textOf('sel-counter') === '999' && selected() === undefined && api.selectionChanges() === beforeShrinking + 1,
+    `Shortening the text of what is selected clears it, with a selectionchange: ${JSON.stringify(selected())}`);
 
   // ---- Painting: the highlight is in the content item, under the text ---------------------------------------------------------
   await clickAt(plainPoint);

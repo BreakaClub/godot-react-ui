@@ -73,6 +73,19 @@ impl SelectionState {
     pub(crate) fn highlight_of(&self, tag: u32) -> Option<Highlight> {
         self.highlights.get(&tag).copied()
     }
+
+    /// A `Text` node's text changed, or the node was removed, or its `userSelect` or `display` changed.
+    /// A selection that covers it is cleared at once, and so is what every node paints of it: the
+    /// commit's own paint pass runs before `settle_selection`, and would otherwise draw the old ranges
+    /// over the new text (a range past the end of a text that got shorter is a layout error). Returns
+    /// the nodes that painted a highlight, which must repaint without it.
+    fn node_changed(&mut self, tag: u32) -> Vec<u32> {
+        if !self.selection.node_changed(tag) {
+            return Vec::new();
+        }
+        self.cleared_by_change = true;
+        std::mem::take(&mut self.highlights).into_keys().collect()
+    }
 }
 
 /// Where a pointer that is not over selectable text puts the focus of a drag.
@@ -410,9 +423,8 @@ impl ReactUiRoot {
     /// `userSelect` changed: a selection that covers it is cleared. The repaint and the event follow in
     /// [`ReactUiRoot::settle_selection`], once the commit has settled.
     pub(crate) fn selection_node_changed(&mut self, tag: u32) {
-        if self.selecting.selection.node_changed(tag) {
-            self.selecting.cleared_by_change = true;
-        }
+        let repaint = self.selecting.node_changed(tag);
+        self.paint_dirty.extend(repaint);
     }
 
     /// Finish what [`ReactUiRoot::selection_node_changed`] started. `structure_changed` says the commit
@@ -826,5 +838,75 @@ mod tests {
     #[test]
     fn with_nothing_selectable_there_is_no_target() {
         assert_eq!(drag_target(&[], Vector2::new(5.0, 5.0)), None);
+    }
+
+    /// A selection over the first and second nodes, and what they paint of it.
+    fn selected_state() -> SelectionState {
+        let document = Document::new(vec![
+            SelectableNode {
+                tag: FIRST,
+                len: 4,
+                selectable: true,
+            },
+            SelectableNode {
+                tag: SECOND,
+                len: 6,
+                selectable: true,
+            },
+            SelectableNode {
+                tag: THIRD,
+                len: 5,
+                selectable: true,
+            },
+        ])
+        .expect("distinct tags");
+        let mut state = SelectionState::default();
+        let anchor = SelectionPoint {
+            tag: FIRST,
+            offset: 0,
+        };
+        let focus = SelectionPoint {
+            tag: SECOND,
+            offset: 6,
+        };
+        state
+            .selection
+            .select(&document, anchor, focus)
+            .expect("valid ends");
+        state.highlights = BTreeMap::from([(FIRST, (0, 4)), (SECOND, (0, 6))]);
+        state
+    }
+
+    #[test]
+    fn a_changed_covered_node_drops_the_highlights_with_the_selection() {
+        // "1000" becoming "999": the commit paints before the selection is settled, so a highlight that
+        // outlived the model would be placed on the shorter text.
+        let mut state = selected_state();
+        let repaint = state.node_changed(FIRST);
+        assert!(!state.is_active(), "the selection is cleared");
+        assert!(
+            state.cleared_by_change,
+            "and settling it sends the selectionchange"
+        );
+        assert_eq!(
+            state.highlight_of(FIRST),
+            None,
+            "the changed node paints nothing of it"
+        );
+        assert_eq!(state.highlight_of(SECOND), None, "nor does any other");
+        assert_eq!(
+            repaint,
+            [FIRST, SECOND],
+            "every node that painted one repaints"
+        );
+    }
+
+    #[test]
+    fn a_change_outside_the_selection_leaves_it_and_its_highlights_alone() {
+        let mut state = selected_state();
+        let repaint = state.node_changed(THIRD);
+        assert!(state.is_active() && !state.cleared_by_change);
+        assert_eq!(state.highlight_of(FIRST), Some((0, 4)));
+        assert!(repaint.is_empty());
     }
 }

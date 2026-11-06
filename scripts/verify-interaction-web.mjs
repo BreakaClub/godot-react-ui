@@ -2415,7 +2415,7 @@ const MIN_HIGHLIGHT_SHARE = 0.5;
 const SELECTION_SCAN_STEP_PX = 2;
 const SHORT_TEXT_PADDING_PX = 4;
 const FIRST_LINE_PROBE_Y = 6;
-const SELECTABLE_LAB_TEXTS = ['sel-p1', 'sel-p2', 'sel-live', 'sel-tail', 'sel-captured', 'sel-prevented', 'sel-short', 'sel-rose',
+const SELECTABLE_LAB_TEXTS = ['sel-p1', 'sel-p2', 'sel-live', 'sel-tail', 'sel-captured', 'sel-prevented', 'sel-short', 'sel-rose', 'sel-counter',
   ...Array.from({ length: 14 }, (_, index) => `sel-row-${index}`)];
 // The Command key on macOS (Godot's `ui_copy` is Cmd+C there, and Ctrl+C elsewhere, including on the Web build).
 const COMMAND_KEY = process.platform === 'darwin' ? 'Meta' : 'Control';
