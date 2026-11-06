@@ -121,12 +121,53 @@ with the caret) could fix.
 - **macOS IME** (Japanese, Pinyin): native IME cannot be injected. Tested on the buffer, and on the Web in Chrome with
   `Input.imeSetComposition`. Whether macOS also commits marked text itself when the window loses key focus, and so whether
   the engine would send the same text a second time as key events, is unknown; the root cancels the platform's marked text
-  (`window_set_ime_active(false)`) after taking the preedit, so a double insertion is not expected.
-- **A click inside the composing input** cancels the composition without committing it (the OS composition continues and
-  the next IME update restarts it at the caret). `LineEdit` applies the preedit there too. Not changed; the request was blur.
+  (`window_set_ime_active(false)`) after taking the preedit, so a double insertion is not expected. On the Web the same
+  question was answered for both ways of losing the focus (F4a): a press is committed by the browser through the engine,
+  a `focus()` by the root, never both.
+- **A click inside the composing input** cancels the composition without committing it (the OS composition is expected to
+  continue and the next IME update to restart it at the caret). `LineEdit` applies the preedit there too. Not changed; the
+  request was blur.
 - **The real adapter's actions**: the a11y verifier makes the request the adapter makes (`start_element`, `start_char`, ...)
-  through the bound callable, as before; the dump tool still performs none.
+  through the bound callable (on the stock engine, where the rows exist); the dump tool still performs none. VoiceOver was
+  not run.
+- **Negative controls.** The unit tests were each run against the fix removed (five mutants: the empty paste, the same-text
+  replacement, the line separators, read-only ending a composition, the last displayed character; each fails its test). The
+  native `forms` and Web assertions were not: one failing assertion ends a section, so each would need its own build and run,
+  and the host had no room for that. Each was instead written to fail on the old behaviour, and the Web ones failed as
+  written until they exercised the case (the first runs of the composition scenario show the engine rules in F4a).
+- **The Web touch race is not timing-proof on a real device.** The scenario makes it deterministic by dispatching the
+  element's two `input` events in one task; a real tablet's hitch is the same thing slower.
 
 ## Gates
 
-(see the end of this file, filled in after the runs)
+On the final tree (rebased onto main `15bace3`, which holds the verifier integrity work, D46). Each run once, except the
+Web run, which failed once at the rebase for a reason of the test (below) and was run again after the fix. Logs are in
+`artifacts/logs/` (not committed).
+
+| Gate | Result |
+| --- | --- |
+| `cargo test --locked` | 576 passed |
+| `cargo clippy --locked --all-targets` | no warnings |
+| `rustup run stable cargo fmt --check` | clean |
+| `pnpm test:types` (breaka) | clean |
+| `pnpm test:types --engine=stock` | clean |
+| `pnpm test` | 407 passed |
+| `pnpm verify:interaction --only=forms,inputs` | passed, both viewports (reported partial: two sections) |
+| `pnpm verify:a11y --engine=stock` | passed (`GODOT_REACT_A11Y_NATIVE_PASSED`, `GODOT_REACT_A11Y_VERIFY_PASSED`; the platform tree was on, so the second-hard-line selection ran); the recorded gaps are the old ones |
+| `pnpm build:web`, `pnpm verify:interaction:web --only=forms,touch` | passed: 308 assertions (forms 234, touch 57), 25 captures |
+
+`--only=forms` alone would skip the touch page, where the soft keyboard scenarios are, so `touch` was added. The Web run's
+first attempt after the rebase failed at `navigator.clipboard.write is not a function`: main's isolated clipboard has only
+`readText` and `writeText`, and the image-clipboard step now models "an image and no text" as the empty text `readText`
+returns.
+
+Typings: `get_text_line_elements` is the only `#[func]` added; `pnpm gen:types` was run again after the rebase and changed
+nothing (the `jsb.*.bundle.d.ts` line endings were restored, as in T27).
+
+## Merge notes
+
+- Eight commits (five of code, three of scenarios, README and notes); conflicts at the rebase were `web_clipboard.rs` (main's `crate::clipboard::read()` and the
+  new `paste_text`), `labs.tsx` (the `hidpi` lab), `verify-text-input.ts` (`verifierClipboard`) and the touch workflow in
+  `verify-interaction-web.mjs` (`section(...)`), all resolved keeping both sides.
+- `demo/typings/godot7.gen.d.ts` has two lines more.
+- The default library is installed (the stock one was built for the a11y run and then replaced).
