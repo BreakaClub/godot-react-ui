@@ -477,6 +477,17 @@ not a reason to wait.
   oversampling 1 on Retina, because setting `contentScaleFactor` would shrink every verifier window; the README tells an owner what to set.
   Known limits: glyph caches at levels no viewport owns are not freed, about 20 MiB after levels 1, 2 and 3; layout and borders round to whole
   logical pixels; the drag ghost does not follow a scale change mid-drag.
+- **D46 (verifier integrity)**: from an independent review; decisions and evidence are in `docs/tracks/verifier-integrity.md`, part of this log.
+  D22 is narrowed: a failed window is re-run only if a disturbance that can reach the system under test came within 5 s before the failure
+  on the verifier's own clock. A `window-focus-loss` counts only with a press in flight, a foreign event only if it is a mouse event, and
+  a run that never reported is a real failure. A pass after a retry says so, with the first failure's text. `--no-retry` is for negative
+  controls. Verifiers use an in-memory clipboard (`native/clipboard.rs`, `verifierClipboard`; on Web a page-memory `navigator.clipboard`), so a
+  run cannot overwrite what the person using the machine copied; no file under `demo/src` may call `DisplayServer.clipboard*`. Web verifiers
+  serve the export themselves on a free port, or require a given URL to serve every receipt file byte for byte. The Web receipt digests the
+  pack, shell and templates. The library is rechecked before every launch. `--only` and headless runs are labelled partial in the
+  marker and summary, and a section with no assertions fails. `scripts/editor-session.mjs` removes TypeScript from Godot's saved open
+  scripts before every automated editor launch, because the script editor converts indentation when it saves a file it has open (reproduced).
+  New sections go in `SECTIONS` and use `verifierClipboard`. Agents log inside their own worktree, not the shared scratch folder.
 
 The plan is written so an implementer can execute it phase by phase without re-deciding the
 architecture. Where it says **must**, it is a contract. Where it says *suggested*, use judgement and
