@@ -137,6 +137,7 @@ export default class Main extends Node {
         ime: DisplayServer.hasFeature(DisplayServer.Feature.FeatureIme),
         virtualKeyboard: DisplayServer.hasFeature(DisplayServer.Feature.FeatureVirtualKeyboard),
         clipboard: DisplayServer.hasFeature(DisplayServer.Feature.FeatureClipboard),
+        javaScriptBridge: Engine.hasSingleton('JavaScriptBridge'),
       }),
       /** Whether the root holds Godot key focus. */
       surfaceHasFocus: () => this.requireSurface().hasFocus(),

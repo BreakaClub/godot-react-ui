@@ -312,10 +312,17 @@ export async function verifyTextInput(owner: Node, api: InteractionInspection, c
     return [state.selectionStart, state.selectionEnd];
   };
 
-  await verifyTyping(owner, api, capture, { focusField, focusedTestID, selection });
-  await verifySelecting(owner, api, capture, { focusField, selection });
-  await verifyEditing(owner, api, capture, { focusField, selection });
-  await verifyModes(owner, api, capture, { focusField, selection });
+  // The clipboard is the machine's, shared with whoever is using it: put back what the run found, whatever the run does.
+  const clipboardBefore = DisplayServer.clipboardGet();
+  try {
+    await verifyTyping(owner, api, capture, { focusField, focusedTestID, selection });
+    await verifySelecting(owner, api, capture, { focusField, selection });
+    await verifyEditing(owner, api, capture, { focusField, selection });
+    await verifyModes(owner, api, capture, { focusField, selection });
+    await verifyClipboard(owner, api, capture, { focusField, selection });
+  } finally {
+    DisplayServer.clipboardSet(clipboardBefore);
+  }
 }
 
 interface Helpers {
@@ -539,6 +546,80 @@ async function verifyEditing(owner: Node, api: InteractionInspection, capture: C
   await pressAction('ui_redo', false, 2);
   assert(input(api, 'form-name').value === 'hello ', `Redo steps forward: ${input(api, 'form-name').value}`);
   assert(readForm(api).name === 'hello ', 'React followed undo and redo');
+}
+
+/** Copy, cut and paste through the system clipboard, and what a paste meets: a selection, `maxLength`, a transform. */
+async function verifyClipboard(owner: Node, api: InteractionInspection, capture: Capture, helpers: Helpers): Promise<void> {
+  const { focusField, selection } = helpers;
+  const valueOf = (testID: string): string => input(api, testID).value;
+  const log = (): string => readText(api, 'form-log');
+
+  await focusField('form-name');
+  await pressAction('ui_text_select_all');
+  await typeText('copy me please');
+
+  // Copy writes the selected text and changes nothing else; with nothing selected it writes nothing.
+  DisplayServer.clipboardSet('sentinel');
+  const counted = input(api, 'form-name').eventCount;
+  await pressAction('ui_text_select_all');
+  await pressAction('ui_copy');
+  assert(DisplayServer.clipboardGet() === 'copy me please', `Copy puts the selected text on the clipboard: ${DisplayServer.clipboardGet()}`);
+  assert(valueOf('form-name') === 'copy me please' && input(api, 'form-name').eventCount === counted, 'Copy edits nothing and makes no input event');
+  await pressAction('ui_text_caret_line_end');
+  DisplayServer.clipboardSet('sentinel');
+  await pressAction('ui_copy');
+  assert(DisplayServer.clipboardGet() === 'sentinel', `Copy with nothing selected leaves the clipboard alone: ${DisplayServer.clipboardGet()}`);
+
+  // Cut writes it and removes it, as one deleteByCut input that React sees.
+  await pressAction('ui_text_caret_word_left', true);
+  assert(selection('form-name').join() === '8,14', `Shift+word-left selects the last word: ${selection('form-name')}`);
+  await pressAction('ui_cut');
+  assert(DisplayServer.clipboardGet() === 'please', `Cut puts the selection on the clipboard: ${DisplayServer.clipboardGet()}`);
+  assert(valueOf('form-name') === 'copy me ', `Cut removes it: ${valueOf('form-name')}`);
+  assert(log().endsWith('input:deleteByCut'), `Cut is a deleteByCut input: ${log()}`);
+  assert(readForm(api).name === 'copy me ', 'React saw the cut');
+
+  // Paste inserts the clipboard at the caret, as an insertFromPaste input, and undo takes it back.
+  DisplayServer.clipboardSet('pasted text');
+  await pressAction('ui_paste');
+  assert(valueOf('form-name') === 'copy me pasted text', `Paste inserts the clipboard at the caret: ${valueOf('form-name')}`);
+  assert(selection('form-name').join() === '19,19', `The caret follows the pasted text: ${selection('form-name')}`);
+  assert(log().endsWith('input:insertFromPaste'), `Paste is an insertFromPaste input: ${log()}`);
+  assert(readForm(api).name === 'copy me pasted text', 'React saw the paste');
+  await pressAction('ui_undo');
+  assert(valueOf('form-name') === 'copy me ', `Undo takes the whole paste back: ${valueOf('form-name')}`);
+  await pressAction('ui_redo');
+  assert(valueOf('form-name') === 'copy me pasted text', `Redo pastes again: ${valueOf('form-name')}`);
+
+  // A paste replaces the selection; line breaks cannot be in a single-line input; an empty clipboard pastes nothing.
+  await pressAction('ui_text_select_all');
+  DisplayServer.clipboardSet('one\r\ntwo\nthree');
+  await pressAction('ui_paste');
+  assert(valueOf('form-name') === 'onetwothree', `A paste replaces the selection and drops the line breaks: ${valueOf('form-name')}`);
+  const pasted = input(api, 'form-name').eventCount;
+  DisplayServer.clipboardSet('');
+  await pressAction('ui_paste');
+  assert(input(api, 'form-name').eventCount === pasted && valueOf('form-name') === 'onetwothree', 'An empty clipboard pastes nothing');
+  await capture('forms-11-paste');
+
+  // maxLength cuts what does not fit; a paste that fits nothing is refused.
+  await focusField('form-code');
+  await pressAction('ui_text_select_all');
+  DisplayServer.clipboardSet('abcdefghij');
+  await pressAction('ui_paste');
+  assert(valueOf('form-code') === 'abcdef', `A paste is cut to maxLength: ${valueOf('form-code')}`);
+  assert(readForm(api).code === 'abcdef', 'React never saw the part that did not fit');
+  const full = input(api, 'form-code').eventCount;
+  await pressAction('ui_paste');
+  assert(input(api, 'form-code').eventCount === full && valueOf('form-code') === 'abcdef', 'A paste with no room makes no input event');
+
+  // A controlled field that transforms stores the pasted text transformed.
+  await focusField('form-shout');
+  await pressAction('ui_text_select_all');
+  DisplayServer.clipboardSet('quiet');
+  await pressAction('ui_paste');
+  assert(valueOf('form-shout') === 'QUIET', `A pasted text is transformed like a typed one: ${valueOf('form-shout')}`);
+  assert(readForm(api).shout === 'QUIET', 'React holds the capitals');
 }
 
 /** maxLength, a transforming controlled field, read-only, a password and blocked copy. */

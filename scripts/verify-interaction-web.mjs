@@ -109,6 +109,8 @@ let browser;
 let page;
 let activeViewport = 'startup';
 let fatalErrors = [];
+// Console errors a scenario provokes on purpose and expects once each (a refused clipboard read); anything else is fatal.
+const expectedConsoleErrors = [];
 
 function check(name, condition, detail) {
   report.assertions.push({ viewport: activeViewport, name, passed: Boolean(condition), detail });
@@ -389,6 +391,12 @@ async function observePage(observedPage) {
       } else {
         fatalErrors.push(entry.text);
       }
+      return;
+    }
+    const expected = expectedConsoleErrors.findIndex((pattern) => pattern.test(entry.text));
+    if (expected >= 0) {
+      expectedConsoleErrors.splice(expected, 1);
+      report.expectedDiagnostics.push({ ...entry, reason: 'An error the scenario provoked and expected' });
       return;
     }
     // A missing optional favicon is recorded, but does not describe a renderer failure.
@@ -1883,6 +1891,89 @@ async function runFormsScenario(viewport) {
   check('The focused field has a caret rectangle', caret !== null && caret.height > 0, caret);
 
   await runImeScenario(viewport);
+  await runPasteScenario();
+}
+
+/**
+ * Copy, cut and paste through the browser's clipboard. The engine's `clipboard_get` cannot read it (it starts an asynchronous
+ * `navigator.clipboard.readText()` and returns what the call before it read), and the shortcut never makes the browser fire
+ * `paste` (the engine prevents every `keydown`), so a paste used to insert the clipboard as of one paste earlier. The root asks
+ * the browser itself and pastes when it answers (`native/text_input_godot/web_clipboard.rs`). The page's own listeners record
+ * the order of the keydown, the `paste` event and the read.
+ */
+async function runPasteScenario() {
+  await demo('showLab', 'forms');
+  await click('form-name');
+  await page.evaluate(() => {
+    if (window.__pasteLog) return;
+    const log = (window.__pasteLog = []);
+    const note = (kind, extra = {}) => log.push({ t: Math.round(performance.now() * 10) / 10, kind, ...extra });
+    window.addEventListener('keydown', (event) => { if (event.key.toLowerCase() === 'v') note('keydown', { defaultPrevented: event.defaultPrevented }); }, false);
+    window.addEventListener('paste', (event) => note('paste', { text: event.clipboardData.getData('text') }), true);
+    const clipboard = navigator.clipboard;
+    const read = clipboard.readText.bind(clipboard);
+    clipboard.readText = () => { note('readText:call'); return read().then((text) => { note('readText:resolved', { text }); return text; }); };
+    window.__readText = read;
+  });
+  const takeLog = () => page.evaluate(() => window.__pasteLog.splice(0));
+  const setClipboard = (text) => page.evaluate((value) => navigator.clipboard.writeText(value), text);
+  const valueOf = async () => (await inputState('form-name')).value;
+  await pressAction('ui_text_select_all');
+  await page.keyboard.type('abc');
+  await expectInput('form-name', (state) => state.value === 'abc', 'Typing starts from a known text');
+
+  // Copy and cut write the browser's clipboard (`navigator.clipboard.writeText`, from the key's own task).
+  await setClipboard('before the copy');
+  await pressAction('ui_text_select_all');
+  await pressAction('ui_copy');
+  await waitUntil('Copy reaches the browser clipboard', async () => (await browserClipboard()) === 'abc');
+  await pressAction('ui_text_caret_line_end');
+  await page.keyboard.type(' def');
+  await pressAction('ui_text_caret_word_left', { shift: true });
+  await pressAction('ui_cut');
+  await waitUntil('Cut reaches the browser clipboard', async () => (await browserClipboard()) === 'def');
+  await expectInput('form-name', (state) => state.value === 'abc ' && state.selectionStart === 4, 'Cut removes the selection');
+
+  // The first paste after the clipboard changed inserts the new clipboard, and so does every one after it.
+  await takeLog();
+  await setClipboard('alpha');
+  await pressAction('ui_paste');
+  await expectInput('form-name', (state) => state.value === 'abc alpha', 'The first paste after the clipboard changed inserts the new text');
+  const order = await takeLog();
+  const kinds = order.map((entry) => entry.kind);
+  check('No paste event reaches the page: the engine prevented the keydown', !kinds.includes('paste')
+    && order.find((entry) => entry.kind === 'keydown')?.defaultPrevented === true, order);
+  check('The root asked the browser for the clipboard once for one paste', kinds.filter((kind) => kind === 'readText:call').length === 1, order);
+  await setClipboard('beta');
+  await pressAction('ui_paste');
+  await expectInput('form-name', (state) => state.value === 'abc alphabeta', 'A paste after another change inserts the changed text');
+  await pressAction('ui_paste');
+  await expectInput('form-name', (state) => state.value === 'abc alphabetabeta', 'A paste with the clipboard unchanged inserts it again');
+  const log = await text('form-log');
+  check('A paste reaches JS as an insertFromPaste input', log.includes('input:insertFromPaste'), log);
+  check('React holds the pasted text', (await formReadout()).name === 'abc alphabetabeta');
+  await pressAction('ui_undo');
+  await expectInput('form-name', (state) => state.value === 'abc alphabeta', 'Undo takes back one paste');
+
+  // A paste into a field that cannot take it never asks the browser; a refused read leaves the field as it is and says so.
+  await click('form-readonly');
+  await takeLog();
+  await pressAction('ui_text_select_all');
+  await pressAction('ui_paste');
+  await frames();
+  check('A read-only field does not read the clipboard', !(await takeLog()).some((entry) => entry.kind === 'readText:call'));
+  await click('form-name');
+  await page.evaluate(() => { navigator.clipboard.readText = () => Promise.reject(new DOMException('denied by the verifier', 'NotAllowedError')); });
+  // Godot prints an error as two console lines: the message and where it was raised.
+  expectedConsoleErrors.push(/the browser refused to read the clipboard/, /at: godot_react_ui::.*refuse_web_paste/);
+  await pressAction('ui_paste');
+  await waitUntil('The refusal is reported', () => expectedConsoleErrors.length === 0);
+  check('A refused read pastes nothing', (await valueOf()) === 'abc alphabeta');
+  await page.evaluate(() => { navigator.clipboard.readText = () => { window.__pasteLog.push({ kind: 'readText:call' }); return window.__readText(); }; });
+  await setClipboard('gamma');
+  await pressAction('ui_paste');
+  await expectInput('form-name', (state) => state.value === 'abc alphabetagamma', 'Pasting works again once the browser allows the read');
+  await capture('forms-04-paste');
 }
 
 /** An IME composition: the preedit shows in the field and commits as one edit, with composition events. */
@@ -1912,11 +2003,13 @@ async function runImeScenario(viewport) {
   check('One composition: start, updates, end, then one input for the commit', /compositionstart compositionupdate:ñ compositionupdate:ñe compositionupdate:ñ compositionend input:insertText$/.test(log), log);
   check('React holds the committed text', (await formReadout()).name.startsWith('ñ'));
   // Leaving the field turns the IME off. The engine does that by focusing the canvas, whose focus listener notifies every node
-  // at once, on the game's own thread; the root must be able to take that notification in the middle of its own call.
+  // at once, on the game's own thread; the root must be able to take that notification in the middle of its own call. A key does
+  // it with the IME element holding browser focus (a press on the canvas would have given the canvas the focus already, and the
+  // engine's call would have nothing to notify).
   await waitUntil('the IME element holds browser focus again', async () => page.evaluate(() => document.activeElement?.className === 'ime'));
-  await click('form-reset');
-  await expectFocused((await find('form-reset')).id, 'A press on the button takes focus from the name field');
-  await waitUntil('the IME element is hidden and the canvas has browser focus', async () => page.evaluate(() => document.activeElement?.tagName === 'CANVAS'));
+  await page.keyboard.press('Tab');
+  await expectFocused((await find('form-password')).id, 'Tab takes focus from the name field to the next');
+  await frames();
   check('Leaving a field with the IME focused raised no error', fatalErrors.length === 0, fatalErrors);
   await cdp.detach();
 }

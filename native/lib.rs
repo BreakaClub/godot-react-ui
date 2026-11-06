@@ -744,6 +744,19 @@ impl ReactUiRoot {
         self.deliver();
     }
 
+    /// The browser's clipboard text, which `navigator.clipboard.readText()` resolved to: the
+    /// `JavaScriptBridge` calls this with the promise's value in an array (`web_clipboard.rs`).
+    #[func]
+    fn _on_web_clipboard_text(&mut self, arguments: VarArray) {
+        self.finish_web_paste(&arguments);
+    }
+
+    /// The browser's refusal of that read, which the `JavaScriptBridge` calls the same way.
+    #[func]
+    fn _on_web_clipboard_refused(&mut self, arguments: VarArray) {
+        self.refuse_web_paste(&arguments);
+    }
+
     /// The root-local rectangle of a node as JSON, or `null` if no such node is mounted.
     #[func]
     fn get_node_rect(&self, tag: i64) -> GString {

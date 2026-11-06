@@ -14,6 +14,7 @@
 //! - `paint.rs`: the selection, text, preedit underline and caret in the node's scroll item, and the
 //!   caret's blink.
 //! - `platform.rs`: the IME window, the virtual keyboard and the clipboard.
+//! - `web_clipboard.rs`: a paste on the Web, which the browser answers later.
 //!
 //! # Rules
 //!
@@ -37,6 +38,7 @@ mod pipeline;
 mod platform;
 mod pointer;
 mod shaping;
+mod web_clipboard;
 
 use std::fmt;
 
@@ -51,6 +53,7 @@ pub(crate) use keys::TextActionTable;
 pub(crate) use pipeline::TextCommandOutcome;
 pub(crate) use pointer::TextDrag;
 pub(crate) use shaping::scroll_ranges;
+pub(crate) use web_clipboard::WebClipboard;
 
 /// What `set_text_and_selection` returns for a command it ignored because its `eventCount` was old
 /// (the user typed first). An applied command returns "" and an error returns its message.
@@ -261,6 +264,8 @@ pub(crate) struct TextInputRoot {
     /// False while the OS window is known to be unfocused: the caret is not drawn.
     pub(crate) window_unfocused: bool,
     pub(crate) actions: TextActionTable,
+    /// The clipboard reads the browser has yet to answer (the Web only).
+    pub(crate) web_clipboard: WebClipboard,
 }
 
 #[cfg(test)]

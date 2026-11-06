@@ -250,11 +250,6 @@ impl ReactUiRoot {
         });
     }
 
-    /// Read the clipboard as text (`ui_paste`).
-    pub(crate) fn clipboard_text(&self) -> String {
-        DisplayServer::singleton().clipboard_get().to_string()
-    }
-
     /// Run `command` the way a user's input does, but without `beforeinput`: the commands native
     /// itself issues (the pointer's, the focus's), whose events follow.
     pub(crate) fn run_internal_command(&mut self, tag: u32, command: EditCommand) {

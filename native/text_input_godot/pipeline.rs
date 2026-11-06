@@ -235,8 +235,7 @@ impl ReactUiRoot {
                 DisplayServer::singleton().clipboard_set(text.as_str());
             }
             Some(ClipboardEffect::Read) => {
-                let text = self.clipboard_text();
-                self.run_text_command(tag, EditCommand::PasteText(text));
+                self.paste_from_clipboard(tag);
                 return;
             }
             None => {}
