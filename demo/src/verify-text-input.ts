@@ -102,6 +102,21 @@ async function click(position: Vector2, count = 1, modifiers: { shift?: boolean 
   await settle();
 }
 
+/** One wheel tick at `position`. */
+async function wheel(position: Vector2, button: MouseButton): Promise<void> {
+  move(position);
+  await settle();
+  for (const pressed of [true, false]) {
+    const event = new InputEventMouseButton();
+    event.position = position;
+    event.globalPosition = position;
+    event.buttonIndex = button;
+    event.pressed = pressed;
+    parseVerifierEvent(event);
+  }
+  await settle();
+}
+
 /** Press at `from`, move to `to` in a few steps with the button down, release. */
 async function drag(from: Vector2, to: Vector2): Promise<void> {
   await new Promise(resolve => setTimeout(resolve, CLICK_SEQUENCE_PAUSE_MS));
@@ -320,6 +335,7 @@ export async function verifyTextInput(owner: Node, api: InteractionInspection, c
     await verifyEditing(owner, api, capture, { focusField, selection });
     await verifyModes(owner, api, capture, { focusField, selection });
     await verifyClipboard(owner, api, capture, { focusField, selection });
+    await verifyMultiline(owner, api, capture, { focusField, selection });
   } finally {
     DisplayServer.clipboardSet(clipboardBefore);
   }
@@ -620,6 +636,137 @@ async function verifyClipboard(owner: Node, api: InteractionInspection, capture:
   await pressAction('ui_paste');
   assert(valueOf('form-shout') === 'QUIET', `A pasted text is transformed like a typed one: ${valueOf('form-shout')}`);
   assert(readForm(api).shout === 'QUIET', 'React holds the capitals');
+}
+
+/** The root-local rectangle of a node's content box: where a text area's text is drawn. */
+function boxOf(api: InteractionInspection, testID: string): LayoutRect {
+  return node(api, testID).rect;
+}
+
+/** The scroll state of a node that scrolls (a text area scrolls its own text; the lab scrolls the page). */
+function scrollOf(api: InteractionInspection, testID: string): NonNullable<NativeSnapshotNode['scroll']> {
+  const state = node(api, testID).scroll;
+  assert(state, `${testID} has a scroll state`);
+  return state;
+}
+
+/** A text area: line breaks, wrapping, vertical movement that remembers its column, its own scrolling and its chain to the page. */
+async function verifyMultiline(owner: Node, api: InteractionInspection, capture: Capture, helpers: Helpers): Promise<void> {
+  const { focusField, selection } = helpers;
+  const notes = 'form-notes';
+  const valueOf = (): string => input(api, notes).value;
+  const caretOf = (): LayoutRect => {
+    const caret = input(api, notes).caret;
+    assert(caret, 'The focused text area has a caret rectangle');
+    return caret;
+  };
+  const submitted = readForm(api).submitted;
+  /** Type `lines` with Enter between them. */
+  const typeLines = async (lines: readonly string[]): Promise<void> => {
+    for (const [index, line] of lines.entries()) {
+      await typeText(line);
+      if (index < lines.length - 1) await pressAction('ui_text_newline');
+    }
+  };
+
+  // Enter is a line break here and submits nothing; every line break is one character.
+  await focusField(notes);
+  const lines = ['first', 'second', 'third', 'fourth', 'fifth'];
+  await typeLines(lines);
+  assert(valueOf() === lines.join('\n'), `Enter makes a line break in a text area: ${JSON.stringify(valueOf())}`);
+  assert(readForm(api).submitted === submitted, 'Enter in a text area submits nothing');
+  assert(readForm(api).notes === lines.join('\n'), 'React saw the line breaks');
+  const lineHeight = caretOf().height;
+
+  // Five lines do not fit three rows: the text scrolls, and it scrolled to the caret as the lines were typed.
+  const typed = scrollOf(api, notes);
+  assert(typed.scrollHeight > typed.clientHeight, `The text is taller than the box: ${JSON.stringify(typed)}`);
+  assert(typed.scrollTop > 0, `Typing scrolled the text to the caret: ${typed.scrollTop}`);
+  const inBox = (rect: LayoutRect): boolean => rect.y >= boxOf(api, notes).y && rect.y + rect.height <= boxOf(api, notes).y + boxOf(api, notes).height;
+  assert(inBox(caretOf()), `The caret is inside the box: ${JSON.stringify(caretOf())} in ${JSON.stringify(boxOf(api, notes))}`);
+  await capture('forms-12-text-area-scrolled');
+
+  // Wrapping: one long paragraph has no line breaks and fills several lines.
+  await pressAction('ui_text_select_all');
+  const sentence = 'The quick brown fox jumps over the lazy dog and then the quick brown fox does it again';
+  await typeText(sentence);
+  assert(valueOf() === sentence, 'Wrapping adds no characters');
+  await pressAction('ui_text_caret_document_start');
+  const firstLine = caretOf();
+  await pressAction('ui_text_caret_document_end');
+  const lastLine = caretOf();
+  const wrapped = Math.round((lastLine.y - firstLine.y) / lineHeight);
+  assert(wrapped >= 2, `The paragraph wraps onto at least three lines: ${wrapped + 1}`);
+  await pressAction('ui_text_caret_document_start');
+  await pressAction('ui_text_caret_line_end');
+  const [edge] = selection(notes);
+  assert(edge > 0 && edge < sentence.length, `End goes to the end of the wrapped line, not the paragraph: ${edge}`);
+
+  // Vertical movement keeps its column through a short line.
+  const wide = 'c'.repeat(14);
+  await pressAction('ui_text_select_all');
+  await typeLines(['aaaa aaaa', 'bb', wide]);
+  const end = `aaaa aaaa\nbb\n${wide}`.length;
+  assert(selection(notes).join() === `${end},${end}`, `The caret is at the end of the last line: ${selection(notes)}`);
+  await pressAction('ui_text_caret_up');
+  assert(selection(notes).join() === '12,12', `Up goes to the end of the short line above: ${selection(notes)}`);
+  await pressAction('ui_text_caret_up');
+  assert(selection(notes).join() === '9,9', `And up again returns to the column it began in, which the short line could not hold: ${selection(notes)}`);
+  await pressAction('ui_text_caret_down', false, 2);
+  assert(selection(notes).join() === `${end},${end}`, `Down twice stands at the same column again: ${selection(notes)}`);
+  await pressAction('ui_text_caret_up', true);
+  assert(selection(notes).join() === `12,${end}`, `Shift+Up selects back to the line above: ${selection(notes)}`);
+  await pressAction('ui_text_caret_document_start');
+  await pressAction('ui_text_caret_down');
+  await pressAction('ui_text_caret_line_end');
+  assert(selection(notes).join() === '12,12', `Down then End stands at the end of line two: ${selection(notes)}`);
+  await pressAction('ui_text_caret_line_start');
+  assert(selection(notes).join() === '10,10', `Home stands at its start: ${selection(notes)}`);
+  await pressAction('ui_text_caret_document_end');
+  await pressAction('ui_text_caret_page_up');
+  assert(selection(notes)[0] < 13, `Page up leaves the last line: ${selection(notes)}`);
+  await pressAction('ui_text_caret_page_down');
+  assert(selection(notes)[0] > 12, `Page down returns to it: ${selection(notes)}`);
+
+  // A press places the caret on the line it lands on, at the column it lands on; right of a short line is its end.
+  await pressAction('ui_text_caret_document_start');
+  await pressAction('ui_text_caret_down');
+  await pressAction('ui_text_caret_line_end');
+  const shortLine = caretOf();
+  await pressAction('ui_text_caret_document_end');
+  await click(new Vector2(shortLine.x + 40, shortLine.y + shortLine.height / 2));
+  assert(selection(notes).join() === '12,12', `A press right of a short line puts the caret at its end: ${selection(notes)}`);
+  await pressAction('ui_text_caret_document_start');
+  const from = caretOf();
+  const lastY = shortLine.y + shortLine.height * 1.5;
+  await drag(new Vector2(from.x + 2, from.y + from.height / 2), new Vector2(from.x + 40, lastY));
+  const [anchor, focus] = selection(notes);
+  assert(anchor === 0 && focus > 12, `A drag down selects across the lines: ${selection(notes)}`);
+
+  // The wheel scrolls the text first and the page after it.
+  await pressAction('ui_text_select_all');
+  await typeLines(lines);
+  await pressAction('ui_text_caret_document_start');
+  const lab = 'forms-lab';
+  assert(scrollOf(api, notes).scrollTop === 0 && scrollOf(api, lab).scrollTop === 0, 'Both are at the top');
+  const centre = centerOf(boxOf(api, notes));
+  await wheel(centre, MouseButton.MouseButtonWheelDown);
+  assert(scrollOf(api, notes).scrollTop > 0 && scrollOf(api, lab).scrollTop === 0, `The first tick scrolls the text, not the page: ${scrollOf(api, notes).scrollTop} and ${scrollOf(api, lab).scrollTop}`);
+  // The page does not move while the text can still scroll. (The tick that reaches the end of the text may spill what is left
+  // of it over to the page: chaining passes on the remainder, which is deliberate, plan 3.12.)
+  let atEnd = false;
+  for (let step = 0; step < MAX_STEPS && !atEnd; step++) {
+    await wheel(centre, MouseButton.MouseButtonWheelDown);
+    const state = scrollOf(api, notes);
+    atEnd = state.scrollTop >= state.scrollHeight - state.clientHeight - 1;
+    if (!atEnd) assert(scrollOf(api, lab).scrollTop === 0, `The page stays while the text can scroll: ${JSON.stringify(state)}`);
+  }
+  assert(atEnd, 'The wheel reached the end of the text');
+  await wheel(centre, MouseButton.MouseButtonWheelDown);
+  assert(scrollOf(api, lab).scrollTop > 0, `At the end of the text a tick scrolls the page: ${scrollOf(api, lab).scrollTop}`);
+  const text = scrollOf(api, notes);
+  assert(text.scrollTop >= text.scrollHeight - text.clientHeight - 1, 'And the text stays at its end');
+  await capture('forms-13-page-scrolled');
 }
 
 /** maxLength, a transforming controlled field, read-only, a password and blocked copy. */

@@ -8,15 +8,18 @@ interface FormState {
   code: string;
   shout: string;
   notes: string;
+  comments: string;
   submitted: number;
 }
 
-const INITIAL_STATE: FormState = { name: '', password: '', code: '', shout: '', notes: '', submitted: 0 };
+const INITIAL_STATE: FormState = { name: '', password: '', code: '', shout: '', notes: '', comments: '', submitted: 0 };
 
 /** The `maxLength` of the code field, in UTF-16 units. */
 const CODE_MAX_LENGTH = 6;
 /** The notes field is this many lines tall. */
 const NOTES_ROWS = 3;
+/** The comments field, below the readout, is this many. */
+const COMMENTS_ROWS = 4;
 /** Spaces in the JSON readout's indentation. */
 const JSON_INDENT = 2;
 /** How many of the name field's latest events the log keeps. */
@@ -30,7 +33,8 @@ const labButton = 'rounded-lg border border-slate-200 bg-white text-slate-700 px
  * Phase I7: the text fields, bound to one state object whose JSON is the readout the verifier parses. Name is
  * controlled and stores what is typed; password is secure; code stops at six characters; shout is controlled and stores
  * the text in capitals, so native has to be told; the read-only field can be focused and copied from; notes is a text
- * area; free is uncontrolled. Enter in a single-line field counts a submit.
+ * area; free is uncontrolled. Enter in a single-line field counts a submit. The page scrolls, and a comments area below
+ * the readout is reached by scrolling: a wheel over notes scrolls the text first and the page after it.
  */
 export function FormsLab() {
   const [state, setState] = useState<FormState>(INITIAL_STATE);
@@ -42,7 +46,7 @@ export function FormsLab() {
   const submit = () => setState(current => ({ ...current, submitted: current.submitted + 1 }));
 
   return (
-    <View testID="forms-lab" className="w-full h-full bg-slate-50 p-4 gap-2">
+    <View testID="forms-lab" className="w-full h-full bg-slate-50 p-4 gap-2 overflow-y-auto">
       <View className="gap-1">
         <Text className="text-2xl text-slate-900">Forms</Text>
         <Text className="text-sm text-slate-500">Single-line and multi-line text inputs bound to one state object.</Text>
@@ -118,6 +122,14 @@ export function FormsLab() {
 
       <View className="rounded-lg bg-slate-900 p-3">
         <Text testID="form-json" className="text-xs text-emerald-300">{JSON.stringify(state, null, JSON_INDENT)}</Text>
+      </View>
+
+      <View className="flex-row items-start gap-3">
+        <Text className={`w-24 ${labelClass}`}>Comments</Text>
+        <TextInput
+          testID="form-comments" className={`${field} h-auto`} multiline rows={COMMENTS_ROWS} placeholder="Comments"
+          value={state.comments} onChange={(event: UIInputEvent) => patch({ comments: event.value })}
+        />
       </View>
     </View>
   );

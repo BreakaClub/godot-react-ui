@@ -1892,6 +1892,50 @@ async function runFormsScenario(viewport) {
 
   await runImeScenario(viewport);
   await runPasteScenario();
+  await runMultilineScenario();
+}
+
+/** A text area in real Chrome: Enter, vertical movement, scrolling to the caret, and the wheel (the text first, then the page). */
+async function runMultilineScenario() {
+  await demo('showLab', 'forms');
+  await click('form-notes');
+  await expectFocused((await find('form-notes')).id, 'A press focuses the text area');
+  const lines = ['first', 'second', 'third', 'fourth', 'fifth'];
+  await page.keyboard.type(lines.join('\n'));
+  await expectInput('form-notes', (state) => state.value === lines.join('\n'), 'Enter makes a line break in a text area');
+  const readout = await formReadout();
+  check('Enter in a text area submits nothing, and React holds the line breaks', readout.submitted === 0 && readout.notes === lines.join('\n'), readout);
+  const scrollOf = async (testID) => (await find(testID)).scroll;
+  const typed = await scrollOf('form-notes');
+  check('The text area scrolled to the caret as the lines were typed', typed.scrollHeight > typed.clientHeight && typed.scrollTop > 0, typed);
+  await pressAction('ui_text_caret_up', { times: 2 });
+  // The column is a pixel position, not a character count ("fifth" is narrower than "fourth"), so the third line is a range.
+  const thirdStart = lines.slice(0, 2).join('\n').length + 1;
+  const thirdEnd = lines.slice(0, 3).join('\n').length;
+  await expectInput('form-notes', (state) => state.selectionStart >= thirdStart && state.selectionStart <= thirdEnd && state.selectionStart === state.selectionEnd,
+    'Up twice stands on the third line');
+  await pressAction('ui_text_caret_document_start');
+  await expectInput('form-notes', (state) => state.selectionStart === 0, 'The document start is the first line');
+  await waitUntil('the text scrolls back to the caret', async () => (await scrollOf('form-notes')).scrollTop === 0);
+
+  // The wheel scrolls the text before the page, and the page after the text.
+  const { rect } = await find('form-notes');
+  const over = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+  check('The page has not scrolled', (await scrollOf('forms-lab')).scrollTop === 0);
+  await wheelAt(over, 0, WHEEL_TICK_PIXELS);
+  await waitUntil('the first tick scrolls the text', async () => (await scrollOf('form-notes')).scrollTop > 0);
+  check('The page stays where it was', (await scrollOf('forms-lab')).scrollTop === 0, await scrollOf('forms-lab'));
+  let atEnd = false;
+  for (let step = 0; step < 20 && !atEnd; step += 1) {
+    await wheelAt(over, 0, WHEEL_TICK_PIXELS);
+    const state = await scrollOf('form-notes');
+    atEnd = state.scrollTop >= state.scrollHeight - state.clientHeight - 1;
+    if (!atEnd) check('The page stays while the text can scroll', (await scrollOf('forms-lab')).scrollTop === 0, state);
+  }
+  check('The wheel reaches the end of the text', atEnd);
+  await wheelAt(over, 0, WHEEL_TICK_PIXELS);
+  await waitUntil('a tick at the end of the text scrolls the page', async () => (await scrollOf('forms-lab')).scrollTop > 0);
+  await capture('forms-05-text-area');
 }
 
 /**
@@ -2057,6 +2101,14 @@ async function runTouchFormsScenario() {
   await page.keyboard.type('12');
   await expectInput('form-code', (state) => state.value === '12' && state.selectionStart === 2, 'The second field takes the typing');
   check('The first field kept its text', (await inputState('form-name')).value === 'aXb');
+  // A text area asks for a multi-line keyboard: the engine's hidden element is then a textarea, which takes Enter as a line break.
+  await tapField('form-notes');
+  await expectFocused((await find('form-notes')).id, 'A tap focuses the text area');
+  await waitUntil('the engine focuses its hidden textarea', async () => page.evaluate(() => document.activeElement?.tagName === 'TEXTAREA'));
+  await page.keyboard.type('a\nb');
+  await expectInput('form-notes', (state) => state.value === 'a\nb' && state.selectionStart === 3 && state.selectionEnd === 3,
+    'Typing into the hidden textarea gives the text area its lines with the caret after them');
+  check('React holds the lines', (await formReadout()).notes === 'a\nb');
 }
 
 async function runEventsScenario(viewport) {

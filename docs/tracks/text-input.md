@@ -70,6 +70,31 @@ This file is written as the phases land; a section that says "owed" has not been
 - **T11. The Web build needs a module for every demo `.ts`.** `verify-text-input.ts` is an entry point in
   `scripts/build.mjs`, like `verifier-input.ts`.
 
+## Multi-line (Phase I7D)
+
+The multi-line machinery (wrapping paragraphs, `rows` in the measured height, vertical movement with the desired
+column, page and document movement, the vertical scroll item, the wheel as a scroll container) was built with the
+single-line core, because both go through the same buffer, layout and paint path; I7D is its verification, with no native
+change. Native `forms` section (`verifyMultiline`, both viewports): Enter is a line break and submits nothing, five lines
+in a three-row box scroll to the caret, a paragraph wraps onto at least three lines, End stands at the end of the wrapped
+line, Up twice from a long line through a short one returns to the column it began in (the check that fails if the desired
+column is forgotten: it would land at offset 2, not 9), Shift+Up selects to the line above, Home, End and the document
+edges, Page up and down, a press right of a short line puts the caret at its end, a drag across lines selects across them,
+and the wheel scrolls the text first and the page after it. Captures: `forms-12-text-area-scrolled`,
+`forms-13-page-scrolled`. Web: the same keys in real Chrome with a real wheel (`forms-05-text-area`), and on the touch
+page a tap on the text area makes the engine's hidden element a `textarea` (`keyboardType` defaults to `multiline`) whose
+Enter is a line break.
+
+- **T12. Chaining spills the remainder, as the scroll core does.** The tick that reaches the end of the text scrolls
+  the rest of its distance on the page (`scroll_chain`, a deliberate difference from browsers, plan 3.12). The section
+  checks that the page stays put while the text can still scroll and moves once the text is at its end, not that the page
+  waits for the next tick.
+- **T13. A column is a pixel position.** Vertical movement keeps the x the caret began at, so one line's character
+  count does not carry to the next ("fifth" is narrower than "fourth"). The Web scenario asserts a range; the native one
+  uses `c` x 14 under `aaaa aaaa` and `bb`, where no glyph width can change the answer.
+- **T14. A triple click selects all of the text**, in a text area too (`LineEdit`'s rule). `HTMLTextAreaElement`
+  selects a line; not built, no consumer.
+
 ## Web paste: investigation and decision (Phase I7C)
 
 **Reproduced.** Chrome (headless, clipboard permissions granted), the engine's own `clipboard_get` path, 1120x800:
@@ -118,5 +143,4 @@ clipboard changed inserts the new text".
 
 ## Owed
 
-Everything below the heading "Web paste" above is recorded; what follows is not yet done: I7D multi-line verification
-and fixes, the kit `TextField`, accessibility, world-space typing, the gates, merge notes.
+The kit `TextField`, accessibility, world-space typing, the gates, merge notes.
