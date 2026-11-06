@@ -13,6 +13,7 @@ import { BenchmarkApp, type BenchmarkProps } from './benchmark';
 import { runProbe } from './probe';
 import { runInteractionVerification } from './verify-interaction';
 import { runMotionVerification } from './verify-motion';
+import { VerifierInputIsolation, injectsOwnInput } from './verifier-input';
 
 const bind = createClassBinder();
 const MICROSECONDS_PER_MILLISECOND = 1000;
@@ -48,8 +49,18 @@ export default class Main extends Node {
   private pointerCancels = 0;
   private rootKeys: string[] = [];
   private passthrough: PassthroughCounts = { backdropPresses: 0, unhandledPresses: 0, unhandledWheels: 0, unhandledPans: 0, unhandledKeys: {} };
+  /** Set only in a run that injects its own input (a verifier or the probe); a normal run takes real input. */
+  private isolation: VerifierInputIsolation | null = null;
 
   override _ready(): void {
+    const args = OS.getCmdlineUserArgs();
+    const userArgs = Array.from({length:args.size()}, (_, i) => args.get(i));
+    // First, before the window can become the key window: see VerifierInputIsolation.
+    if (injectsOwnInput(userArgs)) {
+      const window = this.getWindow();
+      if (!window) throw new Error('A verifier run requires its owning Window');
+      this.isolation = VerifierInputIsolation.begin(window);
+    }
     this.updateDisplayScale();
     this.createBackdrop();
     this.mount();
@@ -73,6 +84,13 @@ export default class Main extends Node {
       /** The `key` of every `keydown` addressed to the root itself (no element focused), in order. */
       rootKeys: () => [...this.rootKeys],
       resetRootKeys: () => { this.rootKeys = []; },
+      /** Deliver the notification the window system sends when the window loses OS focus (plan D6). */
+      simulateWindowFocusLoss: () => {
+        const window = this.getWindow();
+        if (!window) throw new Error('The demo requires its owning Window');
+        this.isolation?.expectSimulatedFocusLoss();
+        window.propagateNotification(Node.NOTIFICATION_WM_WINDOW_FOCUS_OUT);
+      },
       /** `pointercancel`s the root's own listener saw since the last reset. */
       pointerCancels: () => this.pointerCancels,
       resetPointerCancels: () => { this.pointerCancels = 0; },
@@ -108,11 +126,10 @@ export default class Main extends Node {
     // This demo-only inspection surface is also available in the Web JS realm.
     Object.assign(globalThis, { godotReactDemo: api });
     console.log('GODOT_REACT_DEMO_READY');
-    const args = OS.getCmdlineUserArgs();
-    const verify = Array.from({length:args.size()}, (_, i) => args.get(i)).includes('--verify');
-    const verifyMotion = Array.from({length:args.size()}, (_, i) => args.get(i)).includes('--verify-motion');
-    const verifyInteraction = Array.from({length:args.size()}, (_, i) => args.get(i)).includes('--verify-interaction');
-    if (Array.from({length:args.size()}, (_, i) => args.get(i)).includes('--probe')) {
+    const verify = userArgs.includes('--verify');
+    const verifyMotion = userArgs.includes('--verify-motion');
+    const verifyInteraction = userArgs.includes('--verify-interaction');
+    if (userArgs.includes('--probe')) {
       void runProbe().then(result => this.writeProbeResult(result)).then(() => this.getTree()?.quit()).catch(error => {
         console.error('GODOT_REACT_PROBE_FAILED', error instanceof Error ? error.stack : String(error));
         this.getTree()?.quit(1);
@@ -121,8 +138,9 @@ export default class Main extends Node {
     if (verify || verifyMotion || verifyInteraction) {
       const verification = verifyMotion ? runMotionVerification(this, api)
         : verifyInteraction ? runInteractionVerification(this, api) : runVerification(this, api);
-      void verification.then(() => this.getTree()?.quit()).catch(async error => {
+      void verification.then(() => { this.isolation?.report(); this.getTree()?.quit(); }).catch(async error => {
         console.error('GODOT_REACT_VERIFY_FAILED', error instanceof Error ? error.stack : String(error));
+        this.isolation?.report();
         if (verify && !verifyMotion && !verifyInteraction) {
           try {
             await observeInputFailure(this, api);
@@ -164,6 +182,16 @@ export default class Main extends Node {
     this.width = size.x;
     this.height = size.y;
     if (this.backdrop) this.backdrop.size = size;
+  }
+
+  override _input(event: InputEvent): void {
+    // A foreign event should not reach an isolated window; one that does is dropped and recorded (a
+    // mouse move has already moved the hover by then, so the run counts as disturbed).
+    if (this.isolation?.rejects(event)) this.getViewport()?.setInputAsHandled();
+  }
+
+  override _notification(what: number): void {
+    this.isolation?.notify(what);
   }
 
   override _unhandledInput(event: InputEvent): void {

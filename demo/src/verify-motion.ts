@@ -1,8 +1,9 @@
 import {
-  DirAccess, Engine, FileAccess, GError, Input, InputEventMouseButton, InputEventMouseMotion,
+  DirAccess, Engine, FileAccess, GError, InputEventMouseButton, InputEventMouseMotion,
   MouseButton, Node, OS, RenderingServer, Vector2,
 } from 'godot';
 import type { LayoutRect, NativeSnapshot, NativeSnapshotNode } from '../../src/native';
+import { parseVerifierEvent } from './verifier-input';
 import type { DemoInspection } from './verify';
 import { MOTION_BASE_FONT_SIZE, MOTION_DURATION_MS, MOTION_LARGE_FONT_SIZE } from './motion-lab';
 
@@ -136,14 +137,14 @@ function pointer(position: Vector2, pressed: boolean): void {
   event.globalPosition = position;
   event.buttonIndex = MouseButton.MouseButtonLeft;
   event.pressed = pressed;
-  Input.parseInputEvent(event);
+  parseVerifierEvent(event);
 }
 
 function move(position: Vector2): void {
   const event = new InputEventMouseMotion();
   event.position = position;
   event.globalPosition = position;
-  Input.parseInputEvent(event);
+  parseVerifierEvent(event);
 }
 
 function center(rect: LayoutRect): Vector2 {

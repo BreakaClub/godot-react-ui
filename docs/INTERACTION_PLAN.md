@@ -193,6 +193,39 @@ not a reason to wait.
   were gated with every verifier and keep the gate lines they were gated by; the gate lines of I3 to I11 are
   rewritten to point at the tiers. The `--only=<name>` section filter 0.4.1 allows does not exist yet; the first phase
   that needs to run one verifier section adds it to `scripts/verify.mjs` and `verify-interaction-web.mjs`.
+- **D21 (Task 0, before I4)**: a native verifier window is isolated from the real keyboard, mouse and window system, and
+  reports what still gets in. Evidence (progress log, "Task 0", with the traces): a real mouse sends the verifier's window
+  `InputEventMouseMotion`s with device 32 and positions far outside the window (another display) for as long as the window
+  is the key window, and none while another window holds that status; one quiet `verify:interaction` run saw 173 events
+  that were not the verifier's among 202, and failed `Entering a child hovers its parent`. A foreign motion moves the hover
+  before `_input` runs (`Viewport::push_input` calls `_update_mouse_over` at `scene/main/viewport.cpp:3554`, `_input` at
+  `:3568`), so the root gets `MOUSE_EXIT`; accumulated input merges a real motion into an injected one whatever their devices
+  (`core/input/input.cpp:1654`, `input_event.cpp:1036-1066`: no device check; one injected position was lost this way); and
+  the engine gives real events devices 16 (keyboard) and 32 (mouse) by default (`input_event.h:66-67`), the same as an
+  unmarked injected event. So (one helper, `demo/src/verifier-input.ts`, for every native verifier): the verifier injects with
+  its own device id (`VERIFIER_DEVICE_ID`), the owner drops every other device in `_input` (the engine's touch emulation, device
+  -1, is let through), `Input.useAccumulatedInput` is off, and the window is `unfocusable` (`canBecomeKeyWindow` is false,
+  `platform/macos/godot_window.mm:60`, so keys and off-window mouse moves never arrive) and `mousePassthrough`
+  (`setIgnoresMouseEvents`, so the cursor over it, and a drag of its title bar, reach the window beneath). Only runs started
+  with `--verify*` or `--probe` do this; product code (`native/`) has no test hook. `Input.parseInputEvent` needs none of what
+  it removes: `Window::_window_input` and `Viewport::push_input` never read window focus. D6 is tested by the verifier
+  delivering the focus-out notification itself (`propagateNotification`), not by the OS. Not chosen: hosting the UI in a
+  `SubViewport` driven by `push_input` (it skips `Input`'s touch-to-mouse emulation, which D16's test needs, and moves the
+  `_unhandled_input` counters), replacing the window's DisplayServer callbacks (immune by construction, more machinery than
+  the failure rate calls for), and a project-wide `no_focus` (static; it would reach normal runs). Launch-time focus is not
+  prevented: `show_window` always activates the application for the main window (`display_server_macos.mm:1797`,
+  `godot_application.mm:59`, whose first line is unconditional and which runs a three-step activation hack for an unbundled
+  process), and nothing in `main.cpp` or the project settings turns that off; `open -g` cannot either. A brief focus
+  interruption when a window launches is accepted.
+- **D22 (Task 0)**: a verifier run that sees interference is disturbed, and only such a run is run again. The isolation of D21
+  cannot make a run immune to a person working at the window, so `VerifierInputIsolation` logs a `GODOT_REACT_RUN_DISTURBED`
+  line, as it happens, for input from another device, a focus-out the verifier did not send, and a mouse crossing of the
+  window, after `STARTUP_SETTLE_MS` (the activation steps and a focus flicker 70 and 190 ms after `_ready` are in the engine's
+  startup). `scripts/native-run.mjs`, used by every native verify script, runs a launch to its end and then: a pass is a pass
+  (a disturbed pass is reported); a failure without a disturbance in its log is a real failure and is never run again; a
+  failure with one is run again, at most twice, then fails with every attempt's log kept (`run-attempt-N.log`) and the
+  disturbances named. This is the only retry any verify script makes; frequent disturbances would be the signal to add
+  resistance, not retries (`tests/native-run.test.ts` covers the policy with a stand-in for Godot).
 - **Native rule restored (F4)**: plan 3.3 says hover re-hit-tests "if geometry under the mouse changed";
   F3 re-hit-tested at every flush, which walks the siblings at every level (169 us at 2,000 cells).
   `flush_layout` now re-hit-tests only after something that decides the hit changed: a node's geometry,

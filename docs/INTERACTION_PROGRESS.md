@@ -1519,3 +1519,88 @@ agrees with both landscape captures. No pixel differs for any other reason.
 
 I1's and I2's claims that those phases changed no pixel of the existing demo stand: the pixels that changed are the
 focus ring, and they changed in I3.
+
+## Task 0 - native verifiers and the real keyboard, mouse and window system
+
+Date: 6 November 2026. Decisions D21 and D22 are in the plan's decision log. The I3 section above records the flake:
+`verify:interaction` passed 7 of 11 runs and `verify` 5 of 8, with hover, focus and stray-key failures that named nothing the
+verifiers did.
+
+### What reaches a verifier window (traces)
+
+A temporary trace (every input event the demo received, with its class, device and position; every root notification
+`MOUSE_ENTER/EXIT`, `WM_WINDOW_FOCUS_IN/OUT`, `WM_MOUSE_*`, `FOCUS_*`; a wall-clock stamp on each; later removed by editing)
+over the unchanged verifiers showed:
+
+- **Real mouse motion arrives with device 32 at positions far outside the window.** A quiet `verify:interaction` portrait run
+  (nothing of mine moving anything; the user was working) saw 202 `_input` events, 173 of them not the verifier's:
+  `InputEventMouseMotion device=32 pos=-10692,-907 ...` at about 50 a second, against a 600 x 900 window, from a cursor on
+  another display. That run failed `Entering a child hovers its parent`. Godot 4.8 gives every real mouse event device 32 and
+  every real key device 16 (`core/input/input_event.h:66-67`), and an unmarked injected event gets the same, so the two cannot
+  be told apart without marking one.
+- **They arrive only while the window is the key window.** Between a focus-out at 31.09 s and a focus-in at 32.79 s of one run
+  (another Godot window, the same size and position, had been ordered in front of it) the cursor kept moving and not one
+  real event reached `_input`; the first came 0.3 s after the focus-in. That is what AppKit's rule for the key window gives
+  (the window asks for every mouse move, `setAcceptsMouseMovedEvents:YES`, `platform/macos/display_server_macos.mm:156`,
+  and the key window gets the keys); the isolation below is built on it and the verifier now reports any event that
+  disproves it.
+- **Each real motion moves the hover before `_input` can drop it.** `Viewport::push_input` calls `_update_mouse_over(me)`
+  (`scene/main/viewport.cpp:3554`) and only then `_call_input_pause` (`:3568`), which runs `_input`. In the trace a real
+  motion that followed an injected one was followed by `MOUSE_EXIT` on the root (`hovered=Some(124)` cleared); the failed
+  assertions were the hover ones (`Entering a child hovers its parent`, `Moving between siblings keeps the parent
+  hovered`, `Hover reaches an auto element inside a none region`) and `Moving over a cursor-pointer button sets the window
+  cursor: 0` (the real position, over nothing, set the arrow).
+- **Accumulation loses an injected position.** `Input::parse_input_event` merges a motion into the previous buffered event
+  (`core/input/input.cpp:1654-1657`) and `InputEventMouseMotion::accumulate` checks the window, the button mask and the
+  modifiers, not the device (`input_event.cpp:1036-1066`). In one run an injected motion's position (`561.5,163.5`) never
+  reached `_input`: a real motion in the same frame had absorbed it.
+- **Focus.** Every run showed `WM_WINDOW_FOCUS_OUT` and `APPLICATION_FOCUS_OUT` about 70 ms after `_ready` and the matching
+  `IN` events about 190 ms after it: the engine's own activation of an unbundled application (below), not a user. A second
+  Godot window (another agent's verifier, the same size and default position) was on top of this one in two of the traces; it
+  and the resulting focus loss cancel a press in flight (D6). `windowFocused:false` in the I3 dumps is this.
+- **Engine startup activates the application.** `DisplayServerMacOS::show_window` calls `[GodotApp activateApplication]` for the
+  main window (`display_server_macos.mm:1797`); that calls `activateIgnoringOtherApps:YES` and, because the process is not a
+  bundle started by launchd (`isatty`, or a bundle id that differs from `__CFBundleIdentifier`), the three-step activation
+  hack (switch to SystemUIServer, `TransformProcessType`, activate again, each step 20 ms apart,
+  `platform/macos/godot_application.mm:59-80, 192-216`). Nothing in `main.cpp` reads a command-line flag or setting that
+  turns it off (`display/window/size/no_focus` only changes whether the window is made the key window, and is static), and
+  `open -g` would still reach the unconditional first line. A verifier window therefore interrupts the user's focus for an
+  instant when it opens; that is accepted. (A watcher that polled `NSWorkspace.frontmostApplication` from a plain tool
+  reported the same application throughout; a command-line tool with no run loop gets a stale answer, so that observation
+  is not evidence either way and is not used.)
+
+The trace and a partial matrix of runs were taken before the instruction not to generate real input or run repeated
+verifiers; they were made with the cursor moved by a helper written for the purpose, which was removed with the loop
+scripts. In that partial matrix the interaction verifier passed all 10 landscape and portrait runs with no cursor movement
+of mine (the user's own mouse was in use) and failed 8 of 10 with the cursor swept across the window (hover assertions,
+the middle-click log, the cursor shape). Nothing of that is kept in the repository; no such tool is used again, and the
+numbers are the reason for the design below, not an acceptance claim.
+
+### Decision
+
+D21 and D22. The mechanisms, against the evidence:
+
+| Mechanism | Verdict |
+| --- | --- |
+| Inject with a dedicated device id; the owner drops every other device in `_input` | kept, but alone insufficient: hover has moved before `_input` |
+| `Input.useAccumulatedInput = false` | kept: removes the merge |
+| `unfocusable` window | kept: the window never becomes the key window, so the real keyboard and the off-window mouse never arrive, and a focus theft has nothing to take |
+| `mousePassthrough` window | kept: the cursor over the window reaches what is beneath, and its title bar cannot drag or close it |
+| The verifier delivers the focus-out notification (D6) | kept: D6 is tested by injecting the condition, not by relying on the OS |
+| Host the UI in a `SubViewport` driven by `push_input` | not chosen: it skips `Input`'s touch/mouse emulation (D16's test) and moves the `_unhandled_input` counters |
+| Replace the window's DisplayServer input and event callbacks with a filter | not chosen: immune by construction, but more machinery than the rate calls for; revisit if disturbances are frequent |
+| `display/window/size/no_focus` project setting, or `override.cfg` | not chosen: static; reaches normal runs |
+| Launch with `open -g` | not chosen: the engine's activation call is unconditional |
+| Detect and re-run on interference | kept (D22) |
+
+### What changed, by file
+
+| File | Change |
+| --- | --- |
+| `demo/src/verifier-input.ts` (new) | `VERIFIER_DEVICE_ID` (`1 << 30`, the id `verify-world` uses), `parseVerifierEvent`, `injectsOwnInput(args)`, and `VerifierInputIsolation`: the flags, accumulation off, the foreign-device drop, and the `GODOT_REACT_RUN_DISTURBED` log |
+| `demo/src/main.ts` | begins the isolation first in `_ready` when the arguments after `--` ask for a verifier or the probe; `_input` and `_notification` feed it; `simulateWindowFocusLoss` for D6; a report of the totals at the end |
+| `demo/src/verify.ts`, `verify-motion.ts`, `verify-interaction.ts` | every injected event goes through `parseVerifierEvent` (14 sites, no assertion changed); the interaction verifier's body is split into sections for `--only` |
+| `demo/src/verify-interaction.ts` | one new assertion block in the pointers section: the window's focus-out cancels a press in flight (D6) |
+| `scripts/native-run.mjs` (new), `native-run.d.mts`, `scripts/verify.mjs`, `tests/native-run.test.ts` (new) | D22: one launch-and-judge function every native verify script uses, and its policy tested with a stand-in for Godot (6 tests, no window) |
+
+The existing assertions of the three verifiers are unchanged.

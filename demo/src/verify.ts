@@ -4,6 +4,7 @@ import {
 } from 'godot';
 import type { NativeSnapshot, NativeSnapshotNode } from '../../src/native';
 import { getDemoLifecycle } from './app';
+import { parseVerifierEvent } from './verifier-input';
 
 export interface DemoInspection {
   snapshot(): NativeSnapshot;
@@ -78,14 +79,14 @@ function pointer(position: Vector2, pressed: boolean): void {
   event.globalPosition = position;
   event.buttonIndex = MouseButton.MouseButtonLeft;
   event.pressed = pressed;
-  Input.parseInputEvent(event);
+  parseVerifierEvent(event);
 }
 
 function move(position: Vector2): void {
   const event = new InputEventMouseMotion();
   event.position = position;
   event.globalPosition = event.position;
-  Input.parseInputEvent(event);
+  parseVerifierEvent(event);
 }
 
 async function hover(api: DemoInspection, id: string): Promise<void> {
@@ -134,7 +135,7 @@ async function key(keycode: Key): Promise<void> {
     const event = new InputEventKey();
     event.keycode = keycode;
     event.pressed = pressed;
-    Input.parseInputEvent(event);
+    parseVerifierEvent(event);
     await settle();
   }
 }

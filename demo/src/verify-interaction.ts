@@ -1,5 +1,5 @@
 import {
-  Color, Control, DirAccess, DisplayServer, Engine, FileAccess, GError, Input, InputEventKey, InputEventMouseButton,
+  Color, Control, DirAccess, DisplayServer, Engine, FileAccess, GError, InputEventKey, InputEventMouseButton,
   InputEventMouseMotion, InputEventPanGesture, InputEventScreenDrag, InputEventScreenTouch, Key, MouseButton,
   MouseButtonMask, Node, OS, ProjectSettings, RenderingServer, Vector2,
 } from 'godot';
@@ -7,6 +7,7 @@ import type { RendererProfile } from '../../src';
 import type { NativeSnapshot, NativeSnapshotNode } from '../../src/native';
 import type { LabName } from './labs';
 import type { PassthroughCounts } from './main';
+import { parseVerifierEvent } from './verifier-input';
 import type { DemoInspection } from './verify';
 
 export interface InteractionInspection extends DemoInspection {
@@ -28,6 +29,8 @@ export interface InteractionInspection extends DemoInspection {
   grabSurfaceFocus(): void;
   bareSurfaceHasFocus(): boolean;
   offsetSurface(x: number, y: number): void;
+  /** Deliver the notification the window system sends when the window loses OS focus. */
+  simulateWindowFocusLoss(): void;
 }
 
 const SETTLE_MS = 100;
@@ -114,7 +117,7 @@ function pointer(position: Vector2, pressed: boolean): void {
   event.globalPosition = position;
   event.buttonIndex = MouseButton.MouseButtonLeft;
   event.pressed = pressed;
-  Input.parseInputEvent(event);
+  parseVerifierEvent(event);
 }
 
 const BUTTON_MASKS: Readonly<Partial<Record<MouseButton, number>>> = {
@@ -131,7 +134,7 @@ function mouseButton(position: Vector2, button: MouseButton, pressed: boolean): 
   event.buttonIndex = button;
   event.pressed = pressed;
   event.buttonMask = pressed ? BUTTON_MASKS[button] ?? 0 : 0;
-  Input.parseInputEvent(event);
+  parseVerifierEvent(event);
 }
 
 /** A real touch (device 0), which Godot also translates to an emulated mouse event. */
@@ -141,7 +144,7 @@ function touch(index: number, position: Vector2, pressed: boolean, canceled = fa
   event.position = position;
   event.pressed = pressed;
   event.canceled = canceled;
-  Input.parseInputEvent(event);
+  parseVerifierEvent(event);
 }
 
 function touchDrag(index: number, position: Vector2, relative: Vector2): void {
@@ -149,7 +152,7 @@ function touchDrag(index: number, position: Vector2, relative: Vector2): void {
   event.index = index;
   event.position = position;
   event.relative = relative;
-  Input.parseInputEvent(event);
+  parseVerifierEvent(event);
 }
 
 interface KeySpec {
@@ -171,7 +174,7 @@ function keyEvent(spec: KeySpec, pressed: boolean): void {
   event.echo = spec.echo === true;
   event.shiftPressed = spec.shift === true;
   event.ctrlPressed = spec.ctrl === true;
-  Input.parseInputEvent(event);
+  parseVerifierEvent(event);
 }
 
 /** Press and release a key (with the character it types, so DOM `key` has it). */
@@ -186,7 +189,7 @@ function move(position: Vector2): void {
   const event = new InputEventMouseMotion();
   event.position = position;
   event.globalPosition = event.position;
-  Input.parseInputEvent(event);
+  parseVerifierEvent(event);
 }
 
 async function wheel(position: Vector2, button: MouseButton): Promise<void> {
@@ -199,7 +202,7 @@ async function wheel(position: Vector2, button: MouseButton): Promise<void> {
     event.globalPosition = position;
     event.buttonIndex = button;
     event.pressed = pressed;
-    Input.parseInputEvent(event);
+    parseVerifierEvent(event);
   }
   await settle();
 }
@@ -210,7 +213,7 @@ async function pan(position: Vector2, delta: Vector2): Promise<void> {
   const event = new InputEventPanGesture();
   event.position = position;
   event.delta = delta;
-  Input.parseInputEvent(event);
+  parseVerifierEvent(event);
   await settle();
 }
 
@@ -220,7 +223,7 @@ async function keyPress(keycode: Key, shift = false): Promise<void> {
     event.keycode = keycode;
     event.pressed = pressed;
     event.shiftPressed = shift;
-    Input.parseInputEvent(event);
+    parseVerifierEvent(event);
     await settle();
   }
 }
@@ -748,6 +751,26 @@ async function verifyPointers(owner: Node, api: InteractionInspection, capture: 
   assert(!api.snapshot().pointers.some(entry => entry.down), 'No pointer is left down');
   assert(padTally(api).cancels >= 1, 'The pad saw the cancel too');
 
+  // Plan D6: the window losing OS focus cancels a press in flight. A verifier window is isolated from the
+  // window system (it cannot lose focus it never had), so the notification the engine would send is delivered
+  // directly: the press ends with a pointercancel, and the release that follows clicks nothing.
+  await reset();
+  api.resetPointerCancels();
+  const clicksBeforeFocusLoss = padTally(api).clicks.length;
+  move(pad);
+  await settle();
+  mouseButton(pad, MouseButton.MouseButtonLeft, true);
+  await settle();
+  assert(api.snapshot().pressed !== null && snapshotPointer(1)?.down === true, 'The pad is pressed before the window loses focus');
+  api.simulateWindowFocusLoss();
+  await settle();
+  assert(api.snapshot().pressed === null, `Focus loss clears the pressed element: ${api.snapshot().pressed}`);
+  assert(api.pointerCancels() === 1, `Focus loss cancels the pointer for JS: ${api.pointerCancels()}`);
+  assert(!api.snapshot().pointers.some(entry => entry.down), 'Focus loss leaves no pointer down');
+  mouseButton(pad, MouseButton.MouseButtonLeft, false);
+  await settle();
+  assert(padTally(api).clicks.length === clicksBeforeFocusLoss, `The release after a focus loss clicks nothing: ${text(api, 'pad-tally')}`);
+
   move(FAR_CORNER);
   await settle();
   api.restoreDemo();
@@ -932,25 +955,13 @@ async function verifyKeyboard(owner: Node, api: InteractionInspection, capture: 
   await settle();
 }
 
-export async function runInteractionVerification(owner: Node, api: InteractionInspection): Promise<void> {
-  const directory = OS.getEnvironment('GODOT_REACT_ARTIFACTS') || 'user://react-ui-verification';
-  assert(DirAccess.makeDirRecursiveAbsolute(directory) === GError.Ok, 'Cannot create evidence directory');
-  const captures: string[] = [];
-  async function capture(name: string): Promise<void> {
-    await settle();
-    const snapshot = api.snapshot();
-    geometry(snapshot);
-    RenderingServer.forceDraw();
-    const image = owner.getViewport()?.getTexture()?.getImage();
-    assert(image, 'Native verification requires a rendered viewport');
-    const path = `${directory}/${name}.png`;
-    assert(image.savePng(path) === GError.Ok, `Could not save ${path}`);
-    captures.push(path);
-    const file = FileAccess.open(`${directory}/${name}.json`, FileAccess.ModeFlags.Write);
-    assert(file, 'Cannot write geometry evidence');
-    file.storeString(JSON.stringify(snapshot));
-    file.close();
-  }
+/**
+ * Phase 1 to F4: capture and bubble, preventDefault, synchronous dispatch, enter and leave chains, and the
+ * re-entrancy rules (a handler removes its own target, detaches the root, unmounts it), then what dispatch costs.
+ */
+async function verifyEvents(
+  api: InteractionInspection, owner: Node, directory: string, capture: (name: string) => Promise<void>,
+): Promise<{ cheapHandler: TimingSummary; stateUpdatingHandler: TimingSummary }> {
   const focused = () => api.snapshot().focused;
 
   await settle();
@@ -1083,10 +1094,56 @@ export async function runInteractionVerification(owner: Node, api: InteractionIn
   console.log('GODOT_REACT_DISPATCH_TIMING', JSON.stringify(timing));
   move(FAR_CORNER);
   await settle();
+  return timing;
+}
 
-  await verifyGodotCooperation(owner, api, capture);
-  await verifyPointers(owner, api, capture);
-  await verifyKeyboard(owner, api, capture);
 
-  console.log('GODOT_REACT_INTERACTION_VERIFY_PASSED', JSON.stringify({captures, dispatchTiming: timing}));
+/** The sections of this verifier, in the order they run (plan 0.4.1: `--only=<name>[,<name>]` runs just those). */
+const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard'] as const;
+type Section = (typeof SECTIONS)[number];
+
+function isSection(value: string): value is Section {
+  return SECTIONS.some(section => section === value);
+}
+
+/** The sections `--only=` names, or all of them. An unknown name is an error: a typo must not skip a section. */
+function selectedSections(): Set<Section> {
+  const args = OS.getCmdlineUserArgs();
+  const only = Array.from({length: args.size()}, (_, i) => args.get(i)).filter(arg => arg.startsWith('--only='));
+  if (only.length === 0) return new Set(SECTIONS);
+  const chosen = new Set<Section>();
+  for (const name of only.flatMap(arg => arg.slice('--only='.length).split(','))) {
+    assert(isSection(name), `Unknown section "${name}"; the sections are ${SECTIONS.join(', ')}`);
+    chosen.add(name);
+  }
+  return chosen;
+}
+
+export async function runInteractionVerification(owner: Node, api: InteractionInspection): Promise<void> {
+  const directory = OS.getEnvironment('GODOT_REACT_ARTIFACTS') || 'user://react-ui-verification';
+  assert(DirAccess.makeDirRecursiveAbsolute(directory) === GError.Ok, 'Cannot create evidence directory');
+  const captures: string[] = [];
+  async function capture(name: string): Promise<void> {
+    await settle();
+    const snapshot = api.snapshot();
+    geometry(snapshot);
+    RenderingServer.forceDraw();
+    const image = owner.getViewport()?.getTexture()?.getImage();
+    assert(image, 'Native verification requires a rendered viewport');
+    const path = `${directory}/${name}.png`;
+    assert(image.savePng(path) === GError.Ok, `Could not save ${path}`);
+    captures.push(path);
+    const file = FileAccess.open(`${directory}/${name}.json`, FileAccess.ModeFlags.Write);
+    assert(file, 'Cannot write geometry evidence');
+    file.storeString(JSON.stringify(snapshot));
+    file.close();
+  }
+  const sections = selectedSections();
+  await settle();
+  const timing = sections.has('events') ? await verifyEvents(api, owner, directory, capture) : null;
+  if (sections.has('cooperation')) await verifyGodotCooperation(owner, api, capture);
+  if (sections.has('pointers')) await verifyPointers(owner, api, capture);
+  if (sections.has('keyboard')) await verifyKeyboard(owner, api, capture);
+
+  console.log('GODOT_REACT_INTERACTION_VERIFY_PASSED', JSON.stringify({sections: [...sections], captures, dispatchTiming: timing}));
 }
