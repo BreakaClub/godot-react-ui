@@ -1,11 +1,13 @@
 # Fabric renderer and interaction plan
 
-Status: plan v2.7, 6 November 2026. Done: Phase 0 (`9f4a02c`), Phase 1 (`0d11607`), Phase F0
+Status: plan v2.8, 6 November 2026. Done: Phase 0 (`9f4a02c`), Phase 1 (`0d11607`), Phase F0
 (`4f7dd0d`), Phase F1 (`ce99bea`), Phase F2 (`578b461`), Phase F3 (`07a8344`), Phase F4 (`e60f6e5`;
 its numbers and decisions D7 to D10 are in the progress log and the decision log below), Phase I1
 (`edf6081`; decisions D11 to D13), Phase I2 (`fd11f41`; decisions D14 to D16), Phase I3 (`dec1f5d`; decisions D17 to
 D19); decision D20 sets the verification tiers; decisions D21 and D22 isolate the native verifiers from real input
-(Task 0). Phase I4 is done (decisions D23 to D26). Next: Phase I5.
+(Task 0). Phase I4 (`5018fee`; decisions D23 to D26). Parallel tracks on main (D27): text engine, scroll and drag core,
+world-space part 1, kit part 1; kit approach D28; test-input rules D29. In progress in worktrees: text layout,
+accessibility (I10 minus scroll and TextInput). Next on the main line: Phase I5.
 
 v1 of this plan (`7f0a96c`) was rejected because it built every interaction feature on the
 prototype's commit path, which re-walks and re-sends the whole tree on every change. v2 replaces
@@ -269,6 +271,32 @@ not a reason to wait.
   F3 re-hit-tested at every flush, which walks the siblings at every level (169 us at 2,000 cells).
   `flush_layout` now re-hit-tests only after something that decides the hit changed: a node's geometry,
   a child list, or an element's overflow (`hit_stale`).
+- **D27 (coordinator, parallel tracks)**: independent systems are built in parallel git worktrees under
+  `/Users/ben/Development/breaka/godot-react-ui-worktrees/`, each on its own branch with its own notes file in
+  `docs/tracks/`; the coordinator rebases each onto main, checks it, fast-forwards main and deletes the worktree.
+  Godot-free modules land before the phase that integrates them, behind `#[cfg_attr(not(test), allow(dead_code))]`
+  that the integrating phase removes. Landed this way: the text engine (`docs/tracks/text-engine.md`: `text_offsets`,
+  `selection`, `text_input`), the scroll and drag core (`docs/tracks/scroll-drag-core.md`: `scroll`, `drag`,
+  `src/data-transfer.ts`), the world-space recipe (`docs/tracks/world-space.md`, I11 part 1), and kit part 1
+  (`docs/tracks/kit.md`: Checkbox, Switch, RadioGroup, Slider). Each notes file is part of this decision log; the
+  integrating phases must read the relevant one first. Highlights that change plan text: paste is a request
+  followed by `PasteText` so `beforeinput` sees the data; secure inputs treat the whole text as one word; End on a
+  soft-wrapped line goes before its last character (no caret affinity); keyboard scroll steps are page/8 for arrows
+  and a page for Page keys; leftover scroll chains to the next container within one gesture (no latching yet);
+  cancelled drags report `endedOutsideRoot: false`; non-main scenes start through the `SceneLauncher` autoload
+  (`?scene=` on Web); the kit Slider nests its thumb in the track and uses percentage `flexGrow`.
+- **D28 (coordinator, kit)**: the component kit is hand-built, not adopted from a headless library. Evidence
+  (`docs/tracks/headless-kit-evaluation.md`): gluestack UI v5's native components have no keyboard model
+  (Checkbox, Radio, Switch and Slider handle keys only in their DOM `.web` variants, confirmed by grep of
+  `@gluestack-ui/core@5.0.15`), its Switch and Select wrap platform widgets, and its styling is NativeWind; a
+  `react-native` shim or a fork would cost as much as I8 and still leave keyboard, slider drag, Select and styling
+  to write. Model: Radix's compound API and the WAI-ARIA APG keyboard tables; `react-stately` is reconsidered when
+  Select is built. `role`/`aria-*` are typed JS props from kit part 1 and reach native in I10.
+- **D29 (coordinator, at Ben's request)**: no test ever generates real OS input (no osascript, cliclick, CGEvent,
+  System Events, cursor warping), and no verifier runs in loops or repeated batches; each runs once when its tier
+  needs it, re-run only by D22's interference rule. Windowed runs are allowed; a brief focus change at launch is
+  acceptable, minutes of back-to-back windows are not. A deliberate-noise "proof" during Task 0 hijacked Ben's
+  machine; its tools were deleted and never entered the repository.
 
 The plan is written so an implementer can execute it phase by phase without re-deciding the
 architecture. Where it says **must**, it is a contract. Where it says *suggested*, use judgement and
