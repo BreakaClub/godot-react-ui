@@ -61,6 +61,11 @@ export const STACK_DECOR = [
   { left: 330, top: 70, size: 130, colour: '#f472b6' },
 ] as const;
 export const STACK_HEIGHT = 224;
+/** The same shapes in deeper shades, behind the dual card: white text on glass reads on them (the stack's are bright on purpose). */
+export const DUAL_DECOR = STACK_DECOR.map((shape, index) => ({
+  ...shape,
+  colour: (['#b45309', '#047857', '#0369a1', '#be185d'] as const)[index] ?? shape.colour,
+}));
 
 /** The classes every glass surface shares: what a browser developer writes. */
 export const GLASS = 'border border-white/30 bg-white/20 backdrop-blur-xl backdrop-saturate-150';

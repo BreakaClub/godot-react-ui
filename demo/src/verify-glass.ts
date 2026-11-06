@@ -674,4 +674,14 @@ export const GLASS_FAULT_CONTROLS: readonly FaultControl[] = [
     overflowing: GLASS_BLOB_IDS,
     fails: /border is broken along its corner/u,
   },
+  {
+    fault: 'backdrop-in-wrapper', guards: 'a glass card with backdrop-blur-xl and drop-shadow-lg draws its backdrop outside its own group',
+    run: async (owner, api, capture) => {
+      api.showLab('glass');
+      await settleFrames();
+      await checkDual(owner, api, capture, 'fault control');
+    },
+    overflowing: GLASS_BLOB_IDS,
+    fails: /draws both/u,
+  },
 ];

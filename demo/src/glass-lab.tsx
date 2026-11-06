@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Button, Portal, ScrollView, Text, TextInput, View, useRootSize } from 'godot-react-ui';
-import { BASE_COLOUR, BLOBS, CARDS, GLASS, ROWS, SEARCH_PLACEHOLDER, STACK_DECOR, STACK_HEIGHT, TILES, blobRect, glassLayout } from './glass-data';
+import { BASE_COLOUR, BLOBS, CARDS, DUAL_DECOR, GLASS, ROWS, SEARCH_PLACEHOLDER, STACK_DECOR, STACK_HEIGHT, TILES, blobRect, glassLayout } from './glass-data';
 
 /** The blobs' test ids: they bleed past the window by design, clipped by the background that holds them. */
 export const GLASS_BLOB_IDS = BLOBS.map((_, index) => `glass-blob-${index}`);
@@ -101,7 +101,7 @@ export const DUAL_ROW_PX = 145;
 function GlassDual() {
   return (
     <View testID="glass-dual" className="relative" style={{ height: STACK_HEIGHT }}>
-      {STACK_DECOR.map(shape => (
+      {DUAL_DECOR.map(shape => (
         <View key={shape.colour} className="absolute rounded-full" style={{ left: shape.left, top: shape.top, width: shape.size, height: shape.size, backgroundColor: shape.colour }} />
       ))}
       <View testID="glass-dual-card" className={`absolute left-0 top-6 h-44 w-3/4 gap-2 rounded-3xl p-5 drop-shadow-lg ${GLASS}`}>
