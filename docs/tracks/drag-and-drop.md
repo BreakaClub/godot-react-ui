@@ -125,7 +125,7 @@ Each was made from the evidence named; none contradicts plan section 3.
 | `cargo clippy --locked --all-targets` | 0 warnings |
 | `rustup run stable cargo fmt --check` | clean |
 | `pnpm test:types` | clean |
-| `pnpm test` | 310 passed (34 new: `tests/drag-events.test.ts`, `tests/props.test.ts`) |
+| `pnpm test` | 310 passed (11 new: `tests/drag-events.test.ts` has 10, `tests/props.test.ts` one; 5 new Rust tests in `events.rs` and `props.rs`) |
 | `pnpm verify:interaction` (all nine sections, both viewports) | passed; the drag section takes about 15.6 s. Landscape's first attempt was disturbed by another window (`window-focus-loss`) and D22 re-ran it |
 | `pnpm verify`, `pnpm verify:motion` (`motion.rs` and `render_tree.rs` changed) | passed, both viewports |
 | `pnpm build:web` and `pnpm verify:interaction:web` (port 8103, stopped afterwards) | passed: 906 assertions, 104 captures, four viewports and the touch page |
