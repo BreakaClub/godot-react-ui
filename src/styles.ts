@@ -1,5 +1,5 @@
 import type {
-  CompiledStyle, Cursor, Dimension, HexColor, Inset, LonghandStyle, PseudoState, Style, StyleLayer, StyleProp,
+  CompiledStyle, Cursor, Dimension, FilterParts, HexColor, Inset, LonghandStyle, PseudoState, Style, StyleLayer, StyleProp,
 } from './types';
 
 const SPACING_UNIT = 4;
@@ -119,6 +119,34 @@ export const colors: Readonly<Record<string, HexColor>> = Object.freeze({
   'rose-900': '#881337', 'rose-950': '#4c0519',
 });
 
+/** Tailwind v3's `blur-*` scale, in CSS pixels. `DEFAULT` is the bare `blur` utility. */
+const BLUR_SCALE: Readonly<Record<string, number>> = {
+  none: 0, sm: 4, DEFAULT: 8, md: 12, lg: 16, xl: 24, '2xl': 40, '3xl': 64,
+};
+/** The percentages Tailwind v3 names for each factor utility (`brightness-110` is 1.1). */
+const BRIGHTNESS_STEPS = [0, 50, 75, 90, 95, 100, 105, 110, 125, 150, 200];
+const CONTRAST_STEPS = [0, 50, 75, 100, 125, 150, 200];
+const SATURATE_STEPS = [0, 50, 100, 150, 200];
+const BACKDROP_OPACITY_STEPS = [0, 5, 10, 20, 25, 30, 40, 50, 60, 70, 75, 80, 90, 95, 100];
+const HUE_ROTATE_STEPS = [0, 15, 30, 60, 90, 180];
+const PERCENT = 100;
+const DEGREES_PER_TURN = 360;
+const DEGREES_PER_RADIAN = 180 / Math.PI;
+const DEGREES_PER_GRAD = 0.9;
+/**
+ * Tailwind v3's `drop-shadow-*` scale. Tailwind composes two shadows for most sizes; one is drawn, with the
+ * larger offset and blur and the two alphas added, which is close to the sum of the two.
+ */
+const DROP_SHADOWS: Readonly<Record<string, { x: number; y: number; blur: number; alpha: number } | 'none'>> = {
+  sm: { x: 0, y: 1, blur: 1, alpha: 0.05 },
+  DEFAULT: { x: 0, y: 1, blur: 2, alpha: 0.16 },
+  md: { x: 0, y: 4, blur: 3, alpha: 0.13 },
+  lg: { x: 0, y: 10, blur: 8, alpha: 0.14 },
+  xl: { x: 0, y: 20, blur: 13, alpha: 0.11 },
+  '2xl': { x: 0, y: 25, blur: 25, alpha: 0.15 },
+  none: 'none',
+};
+
 /** The `cursor-*` utilities: each Tailwind name is the CSS keyword it sets. */
 const CURSORS: readonly Cursor[] = [
   'default', 'pointer', 'text', 'move', 'grab', 'grabbing', 'not-allowed', 'crosshair', 'wait', 'progress',
@@ -172,7 +200,7 @@ const STATE_VARIANTS: Readonly<Record<string, PseudoState>> = {
 };
 
 interface CompiledToken {
-  style: Readonly<Style>;
+  style: Readonly<UtilityStyle>;
   minWidth: number;
   states: readonly PseudoState[];
 }
@@ -239,9 +267,158 @@ function parseColor(value: string): HexColor | undefined {
   return undefined;
 }
 
-function utilityStyle(utility: string): Style | undefined {
+/** What a class sets: a style, and for filter utilities the one function they set (see `FilterParts`). */
+type UtilityStyle = Style & Pick<LonghandStyle, 'filterParts' | 'backdropFilterParts'>;
+
+/** A number, or a percentage as a fraction, inside `[...]`. */
+function parseArbitraryAmount(value: string): number | undefined {
+  const match = /^\[(\d*\.?\d+)(%?)\]$/.exec(value);
+  if (match?.[1] === undefined) return undefined;
+  const amount = Number(match[1]);
+  return match[2] === '%' ? amount / PERCENT : amount;
+}
+
+/** `[6px]` or `[0]`, in CSS pixels. */
+function parseArbitraryLength(value: string): number | undefined {
+  const match = /^\[(\d*\.?\d+)(px)?\]$/.exec(value);
+  if (match?.[1] === undefined) return undefined;
+  const amount = Number(match[1]);
+  return match[2] === 'px' || amount === 0 ? amount : undefined;
+}
+
+/** `[3deg]`, `[0.25turn]`, `[1rad]`, `[100grad]` or `[0]`, in degrees. */
+function parseArbitraryAngle(value: string): number | undefined {
+  const match = /^\[(-?\d*\.?\d+)(deg|turn|rad|grad)?\]$/.exec(value);
+  if (match?.[1] === undefined) return undefined;
+  const amount = Number(match[1]);
+  switch (match[2]) {
+    case 'deg': return amount;
+    case 'turn': return amount * DEGREES_PER_TURN;
+    case 'rad': return amount * DEGREES_PER_RADIAN;
+    case 'grad': return amount * DEGREES_PER_GRAD;
+    default: return amount === 0 ? 0 : undefined;
+  }
+}
+
+/** `[0_4px_4px_rgba(0,0,0,0.25)]`: lengths and a colour, separated by underscores. */
+function parseArbitraryShadow(value: string): { x: number; y: number; blur: number; color: string } | undefined {
+  const inner = /^\[(.+)\]$/.exec(value)?.[1];
+  if (inner === undefined) return undefined;
+  const lengths: number[] = [];
+  let color: string | undefined;
+  let depth = 0;
+  let token = '';
+  const flush = (): boolean => {
+    if (token === '') return true;
+    const length = /^(-?\d*\.?\d+)(px)?$/.exec(token);
+    if (length?.[1] !== undefined && (length[2] === 'px' || Number(length[1]) === 0)) {
+      lengths.push(Number(length[1]));
+    } else if (color === undefined) {
+      color = token.replaceAll('_', ' ');
+    } else {
+      return false;
+    }
+    token = '';
+    return true;
+  };
+  for (const character of inner) {
+    if (character === '(') depth += 1;
+    if (character === ')') depth -= 1;
+    if (character === '_' && depth === 0) {
+      if (!flush()) return undefined;
+    } else {
+      token += character;
+    }
+  }
+  if (!flush() || color === undefined || (lengths.length !== 2 && lengths.length !== 3)) return undefined;
+  const [x, y, blur = 0] = lengths;
+  if (x === undefined || y === undefined) return undefined;
+  return { x, y, blur, color };
+}
+
+function percentStep(value: string, steps: readonly number[]): number | undefined {
+  if (/^\d+$/.test(value) && steps.includes(Number(value))) return Number(value) / PERCENT;
+  return parseArbitraryAmount(value);
+}
+
+/**
+ * One filter function of Tailwind v3's filter or backdrop-filter utilities (`blur-md`, `brightness-110`,
+ * `backdrop-saturate-150`, `-hue-rotate-15`, `drop-shadow-lg`, arbitrary `[...]` values). A utility sets one
+ * function, so utilities compose across variants: `blur-sm hover:brightness-110` keeps the blur on hover.
+ */
+function filterUtility(utility: string): UtilityStyle | undefined {
+  if (utility === 'filter' || utility === 'backdrop-filter') return {};
+  if (utility === 'filter-none') return { filter: 'none' };
+  if (utility === 'backdrop-filter-none') return { backdropFilter: 'none' };
+  const match = /^(-?)(backdrop-)?(blur|brightness|contrast|grayscale|hue-rotate|invert|opacity|saturate|sepia|drop-shadow)(?:-(.+))?$/.exec(utility);
+  if (match?.[3] === undefined) return undefined;
+  const negative = match[1] === '-';
+  const backdrop = match[2] !== undefined;
+  const name = match[3];
+  const value = match[4] ?? '';
+  if (negative && name !== 'hue-rotate') return undefined;
+  const parts: FilterParts = {};
+  const unit = (amount: number | undefined): number | undefined =>
+    amount !== undefined && amount >= 0 && amount <= 1 ? amount : undefined;
+  switch (name) {
+    case 'blur': {
+      const radius = value === '' ? BLUR_SCALE.DEFAULT : lookup(BLUR_SCALE, value) ?? parseArbitraryLength(value);
+      if (radius === undefined) return undefined;
+      parts.blur = radius;
+      break;
+    }
+    case 'brightness': case 'contrast': case 'saturate': {
+      const steps = name === 'brightness' ? BRIGHTNESS_STEPS : name === 'contrast' ? CONTRAST_STEPS : SATURATE_STEPS;
+      const amount = percentStep(value, steps);
+      if (amount === undefined) return undefined;
+      parts[name] = amount;
+      break;
+    }
+    case 'grayscale': case 'invert': case 'sepia': {
+      const amount = value === '' ? 1 : value === '0' ? 0 : unit(parseArbitraryAmount(value));
+      if (amount === undefined) return undefined;
+      parts[name] = amount;
+      break;
+    }
+    case 'opacity': {
+      if (!backdrop) return undefined;
+      const amount = unit(percentStep(value, BACKDROP_OPACITY_STEPS));
+      if (amount === undefined) return undefined;
+      parts.opacity = amount;
+      break;
+    }
+    case 'hue-rotate': {
+      const degrees = /^\d+$/.test(value) && HUE_ROTATE_STEPS.includes(Number(value)) ? Number(value) : parseArbitraryAngle(value);
+      if (degrees === undefined) return undefined;
+      parts.hueRotate = negative && degrees !== 0 ? -degrees : degrees;
+      break;
+    }
+    case 'drop-shadow': {
+      if (backdrop) return undefined;
+      const named = lookup(DROP_SHADOWS, value === '' ? 'DEFAULT' : value);
+      if (named === 'none') {
+        parts.dropShadow = 'none';
+      } else if (named !== undefined) {
+        parts.dropShadow = { x: named.x, y: named.y, blur: named.blur, color: `rgba(0, 0, 0, ${named.alpha})` };
+      } else {
+        const shadow = parseArbitraryShadow(value);
+        if (shadow === undefined) return undefined;
+        parts.dropShadow = shadow;
+      }
+      break;
+    }
+    default:
+      return undefined;
+  }
+  return backdrop ? { backdropFilterParts: parts } : { filterParts: parts };
+}
+
+function utilityStyle(utility: string): UtilityStyle | undefined {
   const staticStyle = lookup(STATIC_UTILITIES, utility);
   if (staticStyle !== undefined) return staticStyle;
+
+  const filtered = filterUtility(utility);
+  if (filtered !== undefined) return filtered;
 
   const spacing = /^(p|px|py|pt|pr|pb|pl|m|mx|my|mt|mr|mb|ml|gap-x|gap-y|gap)-(.+)$/.exec(utility);
   if (spacing?.[1] !== undefined && spacing[2] !== undefined) {
@@ -386,8 +563,10 @@ function isStyleArray(style: StyleProp): style is readonly StyleProp[] {
 }
 
 /** Expand shorthands into the longhands native understands, in the order they enter a layer. */
-function mergeLonghands(target: LonghandStyle, source: Readonly<Style>): void {
-  const { padding, margin, gap, overflow, inset, transition, ...properties } = source;
+function mergeLonghands(target: LonghandStyle, source: Readonly<UtilityStyle>): void {
+  const {
+    padding, margin, gap, overflow, inset, transition, filter, filterParts, backdropFilter, backdropFilterParts, ...properties
+  } = source;
   if (padding !== undefined) {
     target.paddingTop = padding;
     target.paddingRight = padding;
@@ -413,6 +592,24 @@ function mergeLonghands(target: LonghandStyle, source: Readonly<Style>): void {
     target.right = inset;
     target.bottom = inset;
     target.left = inset;
+  }
+  // An explicit list replaces what utilities set before it; a function set after it takes back the composed
+  // list, where only the functions set since count (native merges layers the same way).
+  if (filter !== undefined) {
+    target.filter = filter;
+    delete target.filterParts;
+  }
+  if (filterParts !== undefined) {
+    delete target.filter;
+    target.filterParts = { ...target.filterParts, ...filterParts };
+  }
+  if (backdropFilter !== undefined) {
+    target.backdropFilter = backdropFilter;
+    delete target.backdropFilterParts;
+  }
+  if (backdropFilterParts !== undefined) {
+    delete target.backdropFilter;
+    target.backdropFilterParts = { ...target.backdropFilterParts, ...backdropFilterParts };
   }
   // The compiled style is interned and frozen, so it must not share objects with the caller's style.
   if (transition !== undefined) target.transition = { ...transition, properties: [...transition.properties] };
@@ -484,7 +681,7 @@ export function compileStyle(className = '', inlineStyle?: StyleProp): CompiledS
     if (cached !== undefined) return cached;
   }
   const pending: PendingLayer[] = [];
-  function add(minWidth: number, states: readonly PseudoState[], style: Readonly<Style>): void {
+  function add(minWidth: number, states: readonly PseudoState[], style: Readonly<UtilityStyle>): void {
     let layer = pending.at(-1);
     if (layer === undefined || layer.minWidth !== minWidth || !sameStates(layer.states, states)) {
       layer = { minWidth, states, style: {} };

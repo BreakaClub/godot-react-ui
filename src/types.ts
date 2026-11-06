@@ -3,7 +3,7 @@ export type Dimension = number | 'auto' | `${number}%`;
 export type Alignment = 'start' | 'end' | 'center' | 'stretch' | 'baseline' | 'flex-start' | 'flex-end';
 export type Justification = 'start' | 'end' | 'center' | 'space-between' | 'space-around' | 'space-evenly' | 'flex-start' | 'flex-end';
 export type HexColor = `#${string}`;
-export type TransitionProperty = 'width' | 'height' | 'opacity' | 'backgroundColor';
+export type TransitionProperty = 'width' | 'height' | 'opacity' | 'backgroundColor' | 'filter' | 'backdropFilter';
 /**
  * `scroll` and `auto` make the axis scroll. They behave the same: the scrollbars overlay the content,
  * take no layout space, and a bar is drawn only while there is something to scroll to.
@@ -116,13 +116,49 @@ export interface Style {
    * block's children, not with its own siblings).
    */
   zIndex?: number;
+  /**
+   * CSS filter functions applied to the element and everything inside it: `blur(<px>)`, `brightness()`,
+   * `contrast()`, `grayscale()`, `hue-rotate()`, `invert()`, `opacity()`, `saturate()`, `sepia()` and one
+   * `drop-shadow()` (not before a `blur()`), or `none`. Lengths are px. It replaces whatever filter utility
+   * classes set, where `blur-sm hover:brightness-110` composes. A filter inside another filter, or a
+   * `backdropFilter` inside a filter, is an error (Godot's canvas groups do not nest).
+   */
+  filter?: string;
+  /**
+   * The same functions, applied to what is behind the element (the render target as drawn so far: React
+   * siblings, the main layer under a `Portal`, and Godot content behind the root) inside the element's
+   * rounded border box: frosted glass. There is no `drop-shadow()` here.
+   */
+  backdropFilter?: string;
+}
+
+/** The functions Tailwind's separate filter utilities set; each merges on its own across variants. */
+export interface FilterParts {
+  /** CSS pixels. */
+  blur?: number;
+  brightness?: number;
+  contrast?: number;
+  grayscale?: number;
+  /** Degrees. */
+  hueRotate?: number;
+  invert?: number;
+  /** `backdropFilter` only (Tailwind's `backdrop-opacity-*`; `opacity-*` is the element's own opacity). */
+  opacity?: number;
+  saturate?: number;
+  sepia?: number;
+  /** `filter` only. `'none'` removes a shadow a lower layer set. */
+  dropShadow?: { x: number; y: number; blur: number; color: string } | 'none';
 }
 
 /**
  * What native receives: every shorthand (`padding`, `margin`, `gap`, `overflow`) is expanded to its
  * longhands by the style compiler, so merging layers is a plain ordered overwrite.
  */
-export type LonghandStyle = Omit<Style, 'padding' | 'margin' | 'gap' | 'overflow' | 'inset'>;
+export type LonghandStyle = Omit<Style, 'padding' | 'margin' | 'gap' | 'overflow' | 'inset'> & {
+  /** What filter utilities (`blur-sm`, `hover:brightness-110`) set, per function (see `FilterParts`). */
+  filterParts?: FilterParts;
+  backdropFilterParts?: FilterParts;
+};
 
 export type StyleProp = Style | readonly StyleProp[] | false | null | undefined;
 

@@ -108,6 +108,39 @@ export interface NativeActivity {
   nodesRestyled: number;
   boxRecords: number;
   contentRecords: number;
+  /** What the filter and backdrop-filter effects hold and have done, cumulatively (plan Phase V1). */
+  effects: NativeEffectsActivity;
+}
+
+export interface NativeEffectsActivity {
+  /** Elements with live backdrop items / a live filter group. */
+  backdrops: number;
+  groups: number;
+  /** Backdrops whose copy rectangle is set (not culled or clipped away). */
+  copiesEnabled: number;
+  itemsCreated: number;
+  materialsCreated: number;
+  shadersCreated: number;
+  /** Times a material's parameters were written. */
+  materialUpdates: number;
+  copyRectUpdates: number;
+  /** Whether the Compatibility mipmap primer exists. */
+  primer: boolean;
+}
+
+/** How a blur was built: the back-buffer mip level read and the Gaussian reconstruction on it. */
+export interface NativeBlurPlan {
+  level: number;
+  kernelTexels: number;
+  pairs: number;
+  /** The standard deviation drawn, in render-target pixels; less than asked when the target has too few mip levels. */
+  achievedPx: number;
+  clamped: boolean;
+}
+
+export interface NativeEffects {
+  backdrop: { plan: NativeBlurPlan | null; region: [number, number, number, number] | null; kind: string | null } | null;
+  filter: { plan: NativeBlurPlan | null; kind: string | null } | null;
 }
 
 export interface NativeTransition {
@@ -406,6 +439,8 @@ export interface NativeSnapshotNode {
   scroll: NativeScrollState | null;
   /** Set for a text input: what native holds of it and draws. */
   textInput: NativeTextInputSnapshot | null;
+  /** Set while the element has a filter or backdrop-filter that is drawn. */
+  effects: NativeEffects | null;
 }
 
 /** A text input's state as JS reads it (`getTextInputState`). Offsets are UTF-16 units. */
@@ -858,7 +893,7 @@ function thumbRects(value: unknown, label: string): { x: LayoutRect | null; y: L
 }
 
 function transitionProperty(value: unknown): TransitionProperty {
-  if (value === 'width' || value === 'height' || value === 'opacity' || value === 'backgroundColor') return value;
+  if (value === 'width' || value === 'height' || value === 'opacity' || value === 'backgroundColor' || value === 'filter' || value === 'backdropFilter') return value;
   throw new Error(`Invalid native transition property: ${String(value)}`);
 }
 
@@ -889,7 +924,58 @@ function parseActivity(value: unknown): NativeActivity {
     nodesRestyled: number(activity.nodesRestyled, 'nodesRestyled'),
     boxRecords: number(activity.boxRecords, 'boxRecords'),
     contentRecords: number(activity.contentRecords, 'contentRecords'),
+    effects: effectsActivity(activity.effects),
   };
+}
+
+function effectsActivity(value: unknown): NativeEffectsActivity {
+  const effects = record(value, 'activity.effects');
+  return {
+    backdrops: number(effects.backdrops, 'effects.backdrops'),
+    groups: number(effects.groups, 'effects.groups'),
+    copiesEnabled: number(effects.copiesEnabled, 'effects.copiesEnabled'),
+    itemsCreated: number(effects.itemsCreated, 'effects.itemsCreated'),
+    materialsCreated: number(effects.materialsCreated, 'effects.materialsCreated'),
+    shadersCreated: number(effects.shadersCreated, 'effects.shadersCreated'),
+    materialUpdates: number(effects.materialUpdates, 'effects.materialUpdates'),
+    copyRectUpdates: number(effects.copyRectUpdates, 'effects.copyRectUpdates'),
+    primer: boolean(effects.primer, 'effects.primer'),
+  };
+}
+
+function blurPlan(value: unknown, label: string): NativeBlurPlan | null {
+  if (value === null) return null;
+  const plan = record(value, label);
+  return {
+    level: nonnegativeInteger(plan.level, `${label}.level`), kernelTexels: number(plan.kernelTexels, `${label}.kernelTexels`),
+    pairs: nonnegativeInteger(plan.pairs, `${label}.pairs`), achievedPx: number(plan.achievedPx, `${label}.achievedPx`),
+    clamped: boolean(plan.clamped, `${label}.clamped`),
+  };
+}
+
+function nodeEffects(value: unknown): NativeEffects | null {
+  if (value === null) return null;
+  const effects = record(value, 'node.effects');
+  const kind = (entry: unknown): string | null => (entry === null ? null : string(entry, 'effects kind'));
+  const backdrop = effects.backdrop === null ? null : record(effects.backdrop, 'effects.backdrop');
+  const filter = effects.filter === null ? null : record(effects.filter, 'effects.filter');
+  return {
+    backdrop: backdrop === null ? null : {
+      plan: blurPlan(backdrop.plan, 'effects.backdrop.plan'),
+      region: backdrop.region === null ? null : regionTuple(backdrop.region),
+      kind: kind(backdrop.kind),
+    },
+    filter: filter === null ? null : { plan: blurPlan(filter.plan, 'effects.filter.plan'), kind: kind(filter.kind) },
+  };
+}
+
+function regionTuple(value: unknown): [number, number, number, number] {
+  const items = array(value, 'effects region').map(entry => number(entry, 'effects region entry'));
+  const [x, y, width, height] = items;
+  if (items.length !== 4 || x === undefined || y === undefined || width === undefined || height === undefined) {
+    throw new Error('Native effects region must be four numbers');
+  }
+  return [x, y, width, height];
 }
 
 export function takeNativeProfile(host: NativeDiagnosticsHost): NativeProfile {
@@ -964,6 +1050,7 @@ export function readSnapshot(host: NativeHost): NativeSnapshot {
         props: record(node.props, 'node.props'),
         scroll: node.scroll === null ? null : scrollState(node.scroll, 'node.scroll'),
         textInput: node.textInput === null ? null : textInputSnapshot(node.textInput, 'node.textInput'),
+        effects: nodeEffects(node.effects),
       };
     }),
     stats: {
