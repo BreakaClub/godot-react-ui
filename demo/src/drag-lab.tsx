@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import {
-  ScrollView, Text, TextInput, View,
+  Button, ScrollView, Text, TextInput, View,
   type EffectAllowed, type UIDragEndEvent, type UIDragEvent, type UIPointerEvent,
 } from 'godot-react-ui';
 
@@ -73,6 +73,8 @@ export function DragLab() {
   const [trashed, setTrashed] = useState('none');
   const [listDrop, setListDrop] = useState('none');
   const [created, setCreated] = useState(0);
+  const [armed, setArmed] = useState(false);
+  const [vanished, setVanished] = useState(false);
 
   const record = (line: string) => setLog(current => [...current, line].slice(-LOG_LINES));
   const finish = (event: UIDragEndEvent) => {
@@ -209,6 +211,23 @@ export function DragLab() {
           >
             <Text className="pointer-events-none text-xs text-slate-700">refused</Text>
           </View>
+          {!vanished && (
+            <View
+              testID="vanishing" className={chip}
+              {...source('vanishing', 'move')}
+              onPointerDown={(_: UIPointerEvent) => setArmed(true)}
+              onPointerMove={(_: UIPointerEvent) => { if (armed) setVanished(true); }}
+            >
+              <Text className="pointer-events-none text-xs text-slate-700">vanishes when moved</Text>
+            </View>
+          )}
+          <Button
+            testID="vanishing-restore"
+            className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-100"
+            onClick={() => { setVanished(false); setArmed(false); }}
+          >
+            Restore the vanishing chip
+          </Button>
           <View testID="ghostless" className={chip} dragPreview="none" {...source('ghostless', 'move')}>
             <Text className="pointer-events-none text-xs text-slate-700">no ghost</Text>
           </View>

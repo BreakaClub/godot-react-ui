@@ -37,7 +37,8 @@
 //! never holds a borrow of the owner: keep it in an `Option` on the root, `take()` it, call `handle`
 //! with an environment that borrows the rest of the root, and put it back only if the root is still
 //! mounted. After `emit`, the source and target tags may no longer exist; the environment skips an
-//! event whose target is gone (a `dragend` for a removed source is simply not delivered).
+//! event whose target is gone (a `dragend` for a removed source is simply not delivered). A source that
+//! is gone before `dragstart` is refused: JS would have no data store for the rest of the drag.
 
 use crate::events::{DropEffect, EventOutcome};
 use crate::scroll::{TOUCH_SLOP_PX, Vec2, exceeds_slop};
@@ -226,6 +227,9 @@ pub(crate) trait DragEnvironment {
     /// Deliver `event` to JS and report its answer; [`DragReply::Default`] for events nobody can
     /// prevent.
     fn emit(&mut self, event: DragEvent) -> DragReply;
+    /// Whether element `tag` is still mounted. JS may have removed the source between the press and
+    /// the moment the gesture qualifies as a drag.
+    fn exists(&mut self, tag: u32) -> bool;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -637,6 +641,16 @@ impl DragMachine {
         env: &mut E,
         outcomes: &mut Vec<DragOutcome>,
     ) -> Phase {
+        // A source that was removed after the press cannot be dragged: JS would never hear `dragstart`,
+        // so it would have no data store for the drag's other events. It is refused as a prevented
+        // `dragstart` is, and the pointer carries on as plain pointer events.
+        if !env.exists(pending.source) {
+            outcomes.push(DragOutcome::Refused);
+            return Phase::Ended(Ended {
+                held: Some(pending.pointer.id),
+                swallow: false,
+            });
+        }
         let mut dragging = Dragging {
             pointer: pending.pointer,
             source: pending.source,
@@ -840,6 +854,8 @@ mod tests {
         /// Targets whose `dragover` is prevented, with the effect they settle on.
         accepting: Vec<(u32, DropEffect)>,
         drop_reply: DragReply,
+        /// Elements JS has removed since the press.
+        removed: Vec<u32>,
         events: Vec<DragEvent>,
     }
 
@@ -850,6 +866,7 @@ mod tests {
                 start_prevented: false,
                 accepting: vec![(ELEMENT_A, DropEffect::Move), (ELEMENT_B, DropEffect::Copy)],
                 drop_reply: DragReply::Prevented(DropEffect::Move),
+                removed: Vec::new(),
                 events: Vec::new(),
             }
         }
@@ -930,6 +947,10 @@ mod tests {
             };
             self.events.push(event);
             reply
+        }
+
+        fn exists(&mut self, tag: u32) -> bool {
+            !self.removed.contains(&tag)
         }
     }
 
@@ -1149,6 +1170,55 @@ mod tests {
         assert!(step.outcomes.is_empty());
         assert!(env.take().is_empty());
         assert_eq!(machine.state(), DragState::Idle);
+    }
+
+    #[test]
+    fn a_source_removed_before_the_threshold_is_refused_and_no_event_is_sent() {
+        let mut machine = machine();
+        let mut env = Script::new();
+        press(&mut machine, &mut env, MOUSE, 50.0);
+        env.removed.push(SOURCE);
+        let step = move_to(&mut machine, &mut env, MOUSE.id, 70.0);
+        assert_eq!(step.outcomes, vec![DragOutcome::Refused]);
+        assert!(!step.consumed, "the move still reaches JS as pointermove");
+        assert!(
+            env.take().is_empty(),
+            "JS never hears dragstart, so it is sent no drag event either, not even pointercancel"
+        );
+        assert_eq!(machine.state(), DragState::Ended);
+        assert_eq!(machine.allowed_effect(), None);
+        // The rest of the gesture is plain pointer events, and the release is a click's.
+        let step = move_to(&mut machine, &mut env, MOUSE.id, 150.0);
+        assert!(!step.consumed && step.outcomes.is_empty());
+        let step = release_at(&mut machine, &mut env, MOUSE.id, 150.0);
+        assert!(!step.consumed && step.outcomes.is_empty());
+        assert!(env.take().is_empty());
+        assert_eq!(machine.state(), DragState::Idle);
+    }
+
+    #[test]
+    fn a_source_removed_while_a_touch_waited_out_its_hold_is_refused() {
+        let mut machine = machine();
+        let mut env = Script::new();
+        press(&mut machine, &mut env, TOUCH, 50.0);
+        env.removed.push(SOURCE);
+        let step = machine.handle(T0 + TOUCH_DRAG_HOLD_MS, DragInput::HoldTick, &mut env);
+        assert_eq!(step.outcomes, vec![DragOutcome::Refused]);
+        assert!(env.take().is_empty());
+        assert_eq!(machine.state(), DragState::Ended);
+        assert_eq!(machine.next_deadline_ms(), None, "the hold timer is done");
+        let step = release_at(&mut machine, &mut env, TOUCH.id, 50.0);
+        assert!(!step.consumed, "the lift is a tap's, not a drop's");
+        assert_eq!(machine.state(), DragState::Idle);
+    }
+
+    #[test]
+    fn a_source_removed_after_dragstart_does_not_end_the_drag() {
+        let (mut machine, mut env) = dragging_over_a();
+        env.removed.push(SOURCE);
+        let step = move_to(&mut machine, &mut env, MOUSE.id, 150.0);
+        assert!(step.consumed);
+        assert_eq!(machine.state(), DragState::Dragging);
     }
 
     // --- dragging: events ---

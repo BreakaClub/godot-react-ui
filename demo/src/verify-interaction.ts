@@ -3193,6 +3193,24 @@ async function verifyDragging(owner: Node, api: InteractionInspection, capture: 
   assert(isOver() && drag().pointer === null, 'The press ends');
   assert(clicks() === clicksBefore + 3, `Those three presses ended in clicks, as plain pointer events: ${clicksBefore} -> ${clicks()}`);
 
+  // ---- A source removed between the press and the threshold is not dragged ------------------------------------------------
+  // The chip unmounts itself when the pressed mouse first moves. JS then has nothing to hear `dragstart` with, so the
+  // gesture is refused, as a prevented `dragstart` is; a drag that began would send events JS has no data store for.
+  const vanishing = point(api, 'vanishing');
+  const sessionBeforeVanishing = drag().session;
+  const logBeforeVanishing = log();
+  api.resetPointerCancels();
+  await dragVia(vanishing, offset(vanishing, 0, WITHIN_THRESHOLD_PX));
+  assert(!api.snapshot().nodes.some(node => node.props.testID === 'vanishing'), 'The chip removed itself when the pressed mouse moved');
+  move(offset(vanishing, 0, BEYOND_THRESHOLD_PX));
+  await settle();
+  assert(drag().state === 'ended' && drag().session === sessionBeforeVanishing && drag().ghost === null && log() === logBeforeVanishing,
+    `A source that is gone is refused: no drag, no drag event: ${JSON.stringify(drag())} ${log()}`);
+  assert(api.pointerCancels() === 0, 'The pointer events carry on');
+  await release(offset(vanishing, 0, BEYOND_THRESHOLD_PX));
+  assert(isOver() && drag().pointer === null, 'The press ends');
+  await click(api, 'vanishing-restore');
+
   // ---- Escape cancels and is accepted ---------------------------------------------------------------------------------
   const boardBefore = board();
   const upsBeforeEscape = ups();

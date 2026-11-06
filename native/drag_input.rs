@@ -95,6 +95,10 @@ impl DragEnvironment for RootEnvironment<'_> {
     fn emit(&mut self, event: DragEvent) -> DragReply {
         self.root.emit_drag_event(event)
     }
+
+    fn exists(&mut self, tag: u32) -> bool {
+        self.root.mounted.nodes.contains_key(&tag)
+    }
 }
 
 fn pointer_type_of(pointer: DragPointer) -> PointerType {
@@ -485,6 +489,8 @@ impl ReactUiRoot {
                 return DragReply::Default;
             }
             DragEventKind::DragStart => {
+                // The machine refuses a source that is gone (`DragEnvironment::exists`), and nothing
+                // runs between that check and this event, so the source is mounted here.
                 self.begin_drag_session(event.source);
                 (
                     event.source,
