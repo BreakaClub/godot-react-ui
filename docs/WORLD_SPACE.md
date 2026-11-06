@@ -271,7 +271,7 @@ failed within 5 s of a disturbance that could reach the root, at most twice (`--
 own `NOTIFICATION_WM_MOUSE_EXIT` (`simulateWindowMouseExit`), so it is not counted as a disturbance.
 
 Web: `pnpm build:web`, then `node scripts/verify-world-web.mjs` (it has no package script; like the other Web verifiers it serves the
-export itself on a free port, and `GODOT_REACT_WEB_URL` only names a server whose files it checks against the export's receipt). To look at the scene
+export itself on a free port, and `GODOT_REACT_WEB_URL` only names a server whose files it checks against the export's receipt). It leaves `report.json` and `browser.log` in `artifacts/web-world-verification/` and prints `GODOT_REACT_WEB_WORLD_VERIFY_PASSED` only for a run that passed. To look at the scene
 by hand, `pnpm demo:web` and open `http://127.0.0.1:8096/?scene=res://world.tscn` (or `PORT`). Breaka's Web engine is built without
 command-line path overrides (a scene path in its arguments aborts with "compiled without support for
 path overrides"), so the page cannot pass the scene to the engine. It passes `--scene res://world.tscn`

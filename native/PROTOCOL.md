@@ -329,8 +329,9 @@ commit path. The model works in code points; every offset that crosses to JS is 
   nodes' text, one per non-empty range, joined by `\n`, on the clipboard (`native/clipboard.rs`: `DisplayServer`'s, or
   process memory in a verifier run, "Platform and verifier hooks") and the
   `ui_text_select_all` action selects from the start of the first selectable text to the end of the last. Matching is
-  `event.is_action("ui_copy", true)` on the raw event, so it needs the device an `InputMap` event has (a real keyboard's);
-  a text input re-stamps the keyboard device before it matches (T3), a document selection does not.
+  `event.is_action("ui_copy", true)` on the key re-stamped as the keyboard's (`keyboard_input::as_keyboard_event`, T3), so a key from
+  another device (a `SubViewport`'s, a host's, a verifier's) copies and selects all as a real keyboard's does; a text input matches its
+  actions the same way.
 - **Lifecycle.** A commit that changes the text of, or removes, a `Text` element the selection covers (a covered element
   is a selectable one from the first end's to the last's), or a restyle that changes such an element's `userSelect` or
   `display`, clears the selection. A commit that changes a child list while a selection exists builds a document and
@@ -372,8 +373,8 @@ commit path. The model works in code points; every offset that crosses to JS is 
   `oversampling` is the font oversampling the root last drew at ("Mounted tree, geometry, paint"); `scroll`, `textInput` and
   `effects` are `null` unless the node is a scroll container, a text input or has a filter. Whole-tree by design:
   diagnostics only.
-- `get_node_rect(tag: int) -> String`: the root-local rectangle as JSON, or `null` when the node is not mounted (it is also
-  `null` for node 0, which the snapshot reports a rectangle for).
+- `get_node_rect(tag: int) -> String`: the root-local rectangle as JSON, or `null` when the node is not mounted. Node 0 is
+  the root, which has the rectangle the snapshot gives it (the viewport), so a root handle's `getRect()` answers.
 - `find_by_test_id(test_id: String) -> int`: the lowest (first created) tag carrying the `testID`, or -1.
 - `get_text_input_state(tag: int) -> String`: a text input's `{value, selectionStart, selectionEnd, selectionDirection,
   eventCount, composing, preedit, scrollLeft, scrollTop, caretVisible, inputDirection}` as JSON (offsets in UTF-16
@@ -435,8 +436,7 @@ browser model, not an IPC round trip.
   elements actually crossed, below the lowest common ancestor, without bubbling.
 - Enter/Space on a focused button makes one `click` with `pointerId: 0`, `pointerType: ""` and `detail: 0` when the
   key is released (not cancelable). No `pointerdown` or `pointerup` is made up for it. If JS prevents the `keyup` the
-  press ends and no `click` follows (`KeyRelease::EndsWithoutClick` in `keyboard_input.rs`, whose comments call that
-  "keeping" the click).
+  press ends and no `click` follows, as in browsers (`KeyRelease::EndsWithoutClick` in `keyboard_input.rs`).
 - A press in flight when the window loses OS focus is cancelled natively (Godot drops mouse focus and its
   synthetic release never reaches `gui_input`): JS gets `pointercancel`.
 

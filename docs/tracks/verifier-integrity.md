@@ -236,7 +236,7 @@ runs its handler once and a disabled one does not run it, so the counter is show
 - An exported `GDRUST_GODOT_API_JSON` or `GDRUST_GODOT_INTERFACE_JSON` beat `.cargo/config.toml` (cargo's `[env]` does not override a
   set variable) and would bind a default build to another engine under a valid stamp: `bindingEnvironment` now names the default
   profile's own files too, the same ones the stamp hashes.
-- Unknown arguments to `verify.mjs` and `verify-text-layout.mjs` are errors.
+- Unknown arguments to `verify.mjs` and `verify-text-layout.mjs` are errors (and, since `docs/tracks/final-cleanup.md`, to every script with options).
 
 ## The `main.ts` indentation nuisance
 
@@ -249,7 +249,7 @@ settings. This worktree's `project_metadata.cfg` also lists `res://src/main.ts` 
 
 **The fix** (`scripts/editor-session.mjs`): `scrubOpenScripts(project)` removes the `.ts` and `.tsx` entries from
 `[ScriptEditor] open_scripts` (strings or dictionaries, one line or several) and a TypeScript `selected_script`, and nothing else; it
-rewrites the file in one step and only when it removes something. It runs before `import-demo.mjs` (every native verify, `pnpm demo`; not `build:web`, whose headless export runs no scrub), `generate-types.mjs`, `typings.mjs` (on the staged project, which carries a copy of the layout) and `dev.mjs`
+rewrites the file in one step and only when it removes something. It runs before `import-demo.mjs` (every native verify, `pnpm demo`, and, since `docs/tracks/final-cleanup.md`, the export of `build:web`), `generate-types.mjs`, `typings.mjs` (on the staged project, which carries a copy of the layout) and `dev.mjs`
 (the interactive editor). With the same seeded layout and the guard on, `pnpm gen:types` left `main.ts` byte-identical (`cmp` against
 the copy made first). Left alone on purpose: `script_editor_cache.cfg` (view state of a script opened some other way; it opens
 nothing), the recent-files list (a menu), and the editor setting `restore_scripts_on_load` (the person's). A person can still open a TypeScript

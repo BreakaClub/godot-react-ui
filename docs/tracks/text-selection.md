@@ -21,7 +21,7 @@ S1 to S18 so as not to collide with the plan's) are for the coordinator to fold 
 | `native/selection.rs` | `Document::node` and `Document::selectable_nodes`; `selectable_start_after` and `selectable_end_before` removed (S4) |
 | `src/*` | `userSelect`/`selectionColor` types and the `select-none`, `select-text`, `selection-[#hex]` utilities; `selectionchange` event, `NativeHost.getSelection/clearSelection`, `readSelection`; `root.getSelection()`, `root.clearSelection()` and the `useTextSelection()` hook |
 | `demo/src/selection-lab.tsx`, `labs.tsx`, `main.ts` | The lab (`showLab('selection')`), the demo API the verifier uses |
-| `demo/src/verify-interaction.ts`, `verifier-input.ts` | The `selection` section; `bindVerifierKeys` (S11); `KeySpec.meta`, `mouseButton` takes Shift |
+| `demo/src/verify-interaction.ts`, `verifier-input.ts` | The `selection` section; `bindVerifierKeys` (S11; removed by `docs/tracks/final-cleanup.md`, the root now matches keys as the keyboard's); `KeySpec.meta`, `mouseButton` takes Shift |
 | `scripts/verify-interaction-web.mjs` | The `selection` scenario (the clipboard is the in-memory one of D46; no permission is granted) |
 | `tests/` | `selection.test.ts` (6), style tests and fixture, `RecordingHost` selection support |
 | `README.md`, `native/PROTOCOL.md` | Text selection, limits |
