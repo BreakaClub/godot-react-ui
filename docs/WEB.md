@@ -94,21 +94,23 @@ Godot 4.7.2 with upstream GodotJS instead of Breaka's engine. The default `break
 | API input | `native/api` | `native/api/stock-4.7.2` |
 | Output | `target/web`, `artifacts/web-<mode>` | `target/stock-web`, `artifacts/stock/web-<mode>` |
 
-**Use `--release` with the stock profile.** The stock tree's debug template aborts in every pthread worker before the engine
-starts (tracks/stock-engine.md, S10), so `engine.webMode()` refuses the debug mode and the stock gate is the release
-template. The Rust side module is the same in both modes. Serve and verify a stock export with the same selector, on a
-port of your own:
+Serve and verify a stock export with the same selector, on a port of your own (`--release` selects the release template, as for
+`breaka`):
 
 ```sh
-node scripts/build-web.mjs --engine=stock --release
-PORT=8100 pnpm demo:web --engine=stock --release &
-GODOT_REACT_WEB_URL=http://127.0.0.1:8100 pnpm verify:web --engine=stock --release
-GODOT_REACT_WEB_URL=http://127.0.0.1:8100 pnpm verify:interaction:web --engine=stock --release
+node scripts/build-web.mjs --engine=stock
+PORT=8100 pnpm demo:web --engine=stock &
+GODOT_REACT_WEB_URL=http://127.0.0.1:8100 pnpm verify:web --engine=stock
+GODOT_REACT_WEB_URL=http://127.0.0.1:8100 pnpm verify:interaction:web --engine=stock
 ```
+
+The stock debug template as first built aborted in every pthread worker (the closure compiler plus Emscripten assertions: a global
+collision in `godot.js`); `godot-stock/templates/.../web_dlink_debug.zip` was relinked without the closure compiler and works
+(tracks/stock-engine.md, S10). If you have the older zip (sha256 `aee48977...`), use `--release` or rebuild it that way.
 
 Stock Godot 4.7.2's Web input turns a browser `touchcancel` into a plain release, so the touch page of
 `verify:interaction:web` records that gap (`GODOT_REACT_WEB_GAP`) instead of asserting a `pointercancel` there
-(tracks/stock-engine.md, S11). The first stock run needs the stock Emscripten 4.0.11 at `godot-stock/emsdk`, and the same pinned
+(tracks/stock-engine.md, S11). The stock side module needs the stock Emscripten 4.0.11 at `godot-stock/emsdk`, and the same pinned
 nightly accepts it.
 
 The receipt (`build-receipt.json`) records the profile, the exporting binary and version, the template hash, the

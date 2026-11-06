@@ -58,11 +58,10 @@ test('a binary that is not the profile engine is refused before anything runs', 
   assert.throws(() => wrongEngine.verifiedVersion(), /expects Godot 4\.8\.x/u);
 });
 
-test('the stock profile refuses the debug Web template, which does not start in a browser, and takes release', () => {
-  const stock = selectEngine(['--engine=stock'], {});
-  assert.equal(stock.webMode(['--release']), 'release');
-  assert.throws(() => stock.webMode([]), /debug Web template does not start in a browser/u);
-  const breaka = selectEngine([], {});
-  assert.equal(breaka.webMode([]), 'debug');
-  assert.equal(breaka.webMode(['--release']), 'release');
+test('the Web export mode is release with --release and debug otherwise, for either profile', () => {
+  for (const argv of [['--engine=stock'], []]) {
+    const engine = selectEngine(argv, {});
+    assert.equal(engine.webMode(['--release']), 'release');
+    assert.equal(engine.webMode([]), 'debug');
+  }
 });
