@@ -72,3 +72,8 @@ export function describePass(log: string, successMarker: string): { partial: boo
 export function summarizeRun(result: Omit<NativeVerifierResult, 'summary'>): string;
 export function summarizeRuns(results: NativeVerifierResult[]): string;
 export function runNativeVerifier(run: NativeVerifierRun): Promise<NativeVerifierResult>;
+
+/** A verifier prints this and a text just before it makes the product report an error on purpose. */
+export const EXPECT_ERROR_MARKER: string;
+/** The log without the `ERROR:` lines the verifier announced, and the announced texts that never appeared. */
+export function withoutExpectedErrors(log: string): { log: string; unmet: string[] };

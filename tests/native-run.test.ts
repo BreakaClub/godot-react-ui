@@ -6,8 +6,8 @@ import { join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { pathToFileURL } from 'node:url';
 import {
-  DISTURBANCE_RELEVANCE_MS, MAX_DISTURBED_RERUNS, parseRunReport, relevantDisturbances, runNativeVerifier,
-  type NativeVerifierResult,
+  DISTURBANCE_RELEVANCE_MS, EXPECT_ERROR_MARKER, MAX_DISTURBED_RERUNS, parseRunReport, relevantDisturbances, runNativeVerifier,
+  type NativeVerifierResult, withoutExpectedErrors,
 } from '../scripts/native-run.mjs';
 
 // The retry policy of the native verify scripts (plan D22 and docs/tracks/verifier-integrity.md), exercised with a
@@ -266,4 +266,18 @@ await runNativeVerifier({ godot: ${JSON.stringify(godot)}, project: ${JSON.strin
   const exited = await new Promise<number | null>(resolvePromise => { runner.on('exit', code => resolvePromise(code)); });
   assert.notEqual(exited, 0, 'the script reports the interruption');
   assert.ok(await until(() => !alive(pid), 10_000), 'the child did not outlive it');
+});
+
+test('an error the verifier announced is expected once; an unannounced one, or a missing announced one, fails the run', async () => {
+  const error = 'ERROR: ReactUiRoot: node 7 has a filter inside node 3, which has a filter.';
+  const announced = `${EXPECT_ERROR_MARKER}node 7 has a filter\n${error}\n   at: (native/filter_render.rs:1)`;
+  const ok = await run([`${announced}\n${PASSED}`]);
+  assert.equal(ok.error, undefined, 'the announced error does not fail the run');
+  const twice = await run([`${announced}\n${error}\n${PASSED}`]);
+  assert.match(twice.error?.message ?? '', /emitted a runtime error/u, 'a second, unannounced one does');
+  const missing = await run([`${EXPECT_ERROR_MARKER}node 7 has a filter\n${PASSED}`]);
+  assert.match(missing.error?.message ?? '', /announced an error that never appeared/u);
+  const other = await run([`${EXPECT_ERROR_MARKER}node 7 has a filter\nERROR: something else\n${PASSED}`]);
+  assert.match(other.error?.message ?? '', /announced an error that never appeared/u, 'the announcement is for a text, not any error');
+  assert.deepEqual(withoutExpectedErrors(`${announced}\nok`).unmet, []);
 });

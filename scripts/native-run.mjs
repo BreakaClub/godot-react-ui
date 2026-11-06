@@ -201,13 +201,35 @@ function clearStaleEvidence(output) {
   }
 }
 
+/**
+ * A verifier that makes the product report an error on purpose prints `GODOT_REACT_EXPECT_ERROR <text>` just before; the
+ * next `ERROR:` line that contains the text is then expected, once per announcement. It is removed from what `errorPattern`
+ * judges, and an announced error that never appears is a failure of its own: the error is what the verifier checks for.
+ */
+export const EXPECT_ERROR_MARKER = 'GODOT_REACT_EXPECT_ERROR ';
+
+export function withoutExpectedErrors(log) {
+  const lines = log.split('\n');
+  const unmet = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const marker = lines[index].indexOf(EXPECT_ERROR_MARKER);
+    if (marker < 0) continue;
+    const text = lines[index].slice(marker + EXPECT_ERROR_MARKER.length).trim();
+    const found = lines.findIndex((line, at) => at > index && line.includes('ERROR:') && line.includes(text));
+    if (found < 0) unmet.push(text);
+    else lines.splice(found, 1);
+  }
+  return { log: lines.join('\n'), unmet };
+}
+
 function judge(log, successMarker, errorPattern, name, code, output, killedAtDeadlineMs) {
   if (!log.includes(successMarker) || log.includes(FAILED_MARKER)) {
     const reason = log.split('\n').find(line => line.includes(FAILED_MARKER));
     const how = killedAtDeadlineMs === undefined ? `exit ${code}` : `killed at its ${killedAtDeadlineMs} ms deadline`;
     return `${name} runtime verification failed (${how})${reason === undefined ? '' : `: ${reason.trim()}`}; see ${output}/run.log`;
   }
-  const duringWorkflow = log.split(successMarker)[0];
+  const { log: duringWorkflow, unmet } = withoutExpectedErrors(log.split(successMarker)[0]);
+  if (unmet.length > 0) return `${name} announced an error that never appeared (${unmet.join(' | ')}); see ${output}/run.log`;
   if (errorPattern.test(duringWorkflow)) return `${name} emitted a runtime error before completion; see ${output}/run.log`;
   return undefined;
 }
