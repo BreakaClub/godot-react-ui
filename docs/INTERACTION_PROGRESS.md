@@ -2047,3 +2047,10 @@ Built on the `scroll-bars` branch; the evidence and negative controls are in `do
 - **Agent's gates, rebased onto `67aeea9`:** `cargo test` 570 passed, Clippy clean, fmt clean, `test:types` clean on both profiles, `pnpm test` 407 passed, stock `verify:a11y` (real tree, geometry residual 0.000 pt, marked partial because platform focus is unchecked), and `verify:interaction --only=scroll` in both viewports (2305 checks each).
 - **Real tree against stock `ScrollContainer` and `TextEdit`:** same placement, with orientation and a reachable range where stock reports the content size. The Messages bar reads 0, 40, then 251 of 251. A text area's bar leaves the tree when its text shrinks to fit and returns when it grows.
 - **Not verified:** VoiceOver by hand; a reversed axis and `scrollbar-width: none` in the real tree.
+
+## `TextInput` fixes (`c3d6d58`, D48)
+
+Built on the `text-input-fixes` branch from an independent review of Phase I7; per-finding detail is in `docs/tracks/text-input-fixes.md`.
+
+- **Agent's gates, rebased onto `15bace3`:** `cargo test` 576 passed, Clippy clean, fmt clean, `test:types` clean on both profiles, `pnpm test` 407 passed, `verify:interaction --only=forms,inputs` in both viewports, stock `verify:a11y`, and `verify:interaction:web --only=forms,touch` (308 assertions, 25 captures).
+- **Not verified:** macOS IME, which cannot be injected; tested on the buffer and in Chrome only. No native or Web negative controls were run for the forms section; five unit mutants were killed.

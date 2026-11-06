@@ -494,6 +494,14 @@ not a reason to wait.
   reachable offsets, not Godot's content-size convention, and orientation is set while a name is not. `Increment` and `Decrement` use the arrow-key
   step through `scroll_by_checked`, by way of `_on_accessibility_scroll_bar_action`. Not verified: VoiceOver by hand, and in the real tree a
   reversed axis and `scrollbar-width: none`.
+- **D48 (`TextInput` fixes)**: from an independent review; decisions and evidence are in `docs/tracks/text-input-fixes.md`, part of this log. An empty paste is
+  no paste. An unfinished composition commits on blur through `beforeinput`, one frame later; a click inside a composing field still cancels it. The
+  Web soft keyboard's hidden element is written by the root through `JavaScriptBridge`, because the engine sets it once and every key sends its
+  whole value back as `_set_text`; its selection is not written while the engine's Right presses are pending (a real race: "312"). Line separators are
+  line breaks. Two caret limits are the engine's design and stay: summed Right presses from two keys in one frame, and the caret after JS puts an edit back
+  mid-text. **Engine bug, not fixed here**: after a Web composition ended by a focus move, `ime_started` stays set and raw keys are dropped until one more
+  composition commits; the fix belongs in the engine. `setTextAndSelection` clears undo and a length-changing transform moves the caret to the end, as
+  browsers with React do; the README says so.
 
 The plan is written so an implementer can execute it phase by phase without re-deciding the
 architecture. Where it says **must**, it is a contract. Where it says *suggested*, use judgement and
