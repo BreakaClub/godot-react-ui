@@ -45,7 +45,7 @@ const profiles = {
     apiDirectory: undefined,
     artifacts: resolve(root, 'artifacts'),
     targets: {
-      native: resolve(root, 'target'), nativeProbe: resolve(root, 'target/probe'),
+      native: resolve(root, 'target'), nativeProbe: resolve(root, 'target/probe'), nativeFaults: resolve(root, 'target/faults'),
       web: resolve(root, 'target/web'), webProbe: resolve(root, 'target/web-probe'),
     },
     web: {
@@ -67,7 +67,7 @@ const profiles = {
     apiDirectory: resolve(root, 'native/api/stock-4.7.2'),
     artifacts: resolve(root, 'artifacts/stock'),
     targets: {
-      native: resolve(root, 'target/stock'), nativeProbe: resolve(root, 'target/stock-probe'),
+      native: resolve(root, 'target/stock'), nativeProbe: resolve(root, 'target/stock-probe'), nativeFaults: resolve(root, 'target/stock-faults'),
       web: resolve(root, 'target/stock-web'), webProbe: resolve(root, 'target/stock-web-probe'),
     },
     web: {
@@ -95,12 +95,14 @@ function buildKinds(profile) {
   const flag = `${ENGINE_FLAG}${profile.name}`;
   return {
     native: {
-      features: probe => probe ? ['probe'] : [],
-      target: probe => probe ? profile.targets.nativeProbe : profile.targets.native,
+      // The negative-controls build (cargo feature `filter-faults`, native/filter_faults.rs) is a feature set of its own:
+      // it never ships, and a default run refuses it because the stamp's features differ.
+      features: (probe, faults) => [...probe ? ['probe'] : [], ...faults ? ['filter-faults'] : []],
+      target: (probe, faults) => probe ? profile.targets.nativeProbe : faults ? profile.targets.nativeFaults : profile.targets.native,
       built: target => resolve(target, 'release', libraryName),
       targetStamp: target => resolve(target, 'react_ui.build.json'),
       installed: resolve(installDirectory, libraryName), installedStamp: nativeStamp,
-      fix: probe => `pnpm build:native${probe ? ' --probe' : ''} ${flag}`,
+      fix: (probe, faults) => `pnpm build:native${probe ? ' --probe' : ''}${faults ? ' --faults' : ''} ${flag}`,
     },
     web: {
       features: probe => probe ? ['web', 'probe'] : ['web'],
@@ -143,10 +145,10 @@ export function selectEngine(argv = process.argv.slice(2), env = process.env) {
   env[ENGINE_VARIABLE] = profile.name;
   const godot = env.GODOT === undefined || env.GODOT === '' ? profile.godot : env.GODOT;
   const kinds = buildKinds(profile);
-  const sourceInputs = (kind, probe) => collectInputs({ root, apiFiles: apiFiles(profile), features: kinds[kind].features(probe) });
-  const requireInstalled = (kind, { probe }) => requireBuild({
+  const sourceInputs = (kind, probe, faults = false) => collectInputs({ root, apiFiles: apiFiles(profile), features: kinds[kind].features(probe, faults) });
+  const requireInstalled = (kind, { probe, faults = false }) => requireBuild({
     library: kinds[kind].installed, stamp: readStamp(kinds[kind].installedStamp), engine: profile.name, probe,
-    current: sourceInputs(kind, probe), subject: `installed ${basename(kinds[kind].installed)}`, fix: kinds[kind].fix(probe),
+    current: sourceInputs(kind, probe, faults), subject: `installed ${basename(kinds[kind].installed)}`, fix: kinds[kind].fix(probe, faults),
   });
   return {
     ...profile,
@@ -184,16 +186,17 @@ export function selectEngine(argv = process.argv.slice(2), env = process.env) {
     /**
      * Fail unless the installed native library is this profile's build of the current sources, so a run never
      * exercises a library bound to the other engine or older than the code. `probe` says whether the Phase
-     * F0/text-layout probe build is wanted (it never ships).
+     * F0/text-layout probe build is wanted (it never ships); `faults` says whether the filters negative-controls
+     * build is (it never ships either, and no other run accepts it).
      */
-    requireInstalledLibrary: ({ probe = false } = {}) => requireInstalled('native', { probe }),
+    requireInstalledLibrary: ({ probe = false, faults = false } = {}) => requireInstalled('native', { probe, faults }),
     /**
      * Everything a native run needs to be sure of before it starts: the binary is the profile's engine and the
      * installed library is the profile's build of the current sources. Logs which engine the evidence will come from.
      */
-    prepareNative({ probe = false } = {}) {
+    prepareNative({ probe = false, faults = false } = {}) {
       const version = this.verifiedVersion();
-      this.requireInstalledLibrary({ probe });
+      this.requireInstalledLibrary({ probe, faults });
       console.log(`Engine profile ${profile.name} (${profile.description}): ${godot}, Godot ${version}`);
       return version;
     },
@@ -230,21 +233,21 @@ export function selectEngine(argv = process.argv.slice(2), env = process.env) {
     /** The inputs of the pack, shell and engine template of the Web export in `mode` (scripts/web-content.mjs); the receipt records them. */
     webContentInputs: mode => webContentInputs({ root, presetName: profile.web.presetName, mode }),
     /** The cargo features a build of `kind` (`native` or `web`) enables; the build scripts pass exactly these. */
-    features: (kind, { probe = false } = {}) => kinds[kind].features(probe),
+    features: (kind, { probe = false, faults = false } = {}) => kinds[kind].features(probe, faults),
     /** The content hashes a build of `kind` is made from (scripts/freshness.mjs). */
-    sourceInputs: (kind, { probe = false } = {}) => sourceInputs(kind, probe),
+    sourceInputs: (kind, { probe = false, faults = false } = {}) => sourceInputs(kind, probe, faults),
     /**
      * Start a build of `kind` (`native` or `web`): hash its inputs and, if the artifact cargo left from the last build
      * is not provably a build of them, have `clean` remove this crate's artifacts so cargo cannot keep it. Returns the
      * steps that record the build: `compiled()` once cargo has succeeded (stamps cargo's output; throws if the sources
      * changed while it ran) and `installed()` once the artifact is in place.
      */
-    beginBuild(kind, { probe = false, clean }) {
+    beginBuild(kind, { probe = false, faults = false, clean }) {
       const spec = kinds[kind];
-      const target = spec.target(probe);
+      const target = spec.target(probe, faults);
       const built = spec.built(target);
       const subject = `${profile.name} ${kind === 'native' ? 'library' : 'side module'} built in ${relative(root, target)}`;
-      const inputs = sourceInputs(kind, probe);
+      const inputs = sourceInputs(kind, probe, faults);
       prepareTarget({
         stampPath: spec.targetStamp(target), library: built, engine: profile.name, probe, current: inputs, subject,
         clean: reason => {
@@ -254,8 +257,8 @@ export function selectEngine(argv = process.argv.slice(2), env = process.env) {
       });
       return {
         compiled() {
-          if (sourceInputs(kind, probe).digest !== inputs.digest) {
-            throw new Error(`The sources changed while ${kind === 'native' ? 'cargo' : 'the Web build'} was compiling them, so the result cannot be stamped. Run \`${spec.fix(probe)}\` again.`);
+          if (sourceInputs(kind, probe, faults).digest !== inputs.digest) {
+            throw new Error(`The sources changed while ${kind === 'native' ? 'cargo' : 'the Web build'} was compiling them, so the result cannot be stamped. Run \`${spec.fix(probe, faults)}\` again.`);
           }
           writeStamp(spec.targetStamp(target), stampFor({ library: built, engine: profile.name, probe, inputs }));
         },

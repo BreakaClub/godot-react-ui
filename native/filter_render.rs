@@ -23,6 +23,7 @@ use crate::blur::{
     BlurPlan, ChainMap, PixelRect, RendererKind, chain_map, copy_region, max_level, plan,
 };
 use crate::filter::{ColorMatrix, FilterEffect};
+use crate::filter_faults::{self as faults, Fault};
 use crate::geometry::BoxRect;
 use crate::motion::{resolved_backdrop_filter, resolved_filter};
 use crate::style_engine::current_color;
@@ -238,6 +239,15 @@ void fragment() {
                 );
             }
         }
+        if matches!(self, Self::GroupPlain | Self::GroupBlur)
+            && faults::active(Fault::DoubleModulate)
+        {
+            // The stock composite: the inherited opacity multiplies the buffer's alpha again.
+            code = code.replace(
+                "clamp(c.a, 0.0, 1.0));\n}",
+                "clamp(c.a, 0.0, 1.0) * COLOR.a);\n}",
+            );
+        }
         code
     }
 }
@@ -331,6 +341,18 @@ struct ChainUniforms {
 
 impl ChainUniforms {
     fn of(region: PixelRect, level: u32) -> ChainUniforms {
+        if faults::active(Fault::TextbookChain) {
+            // The map of a region whose size is a multiple of `2^level`: exact only then.
+            let texel = (1u32 << level) as f32;
+            let textbook = ChainMap {
+                scale: texel,
+                offset: (texel - 1.0) / 2.0,
+            };
+            return ChainUniforms {
+                scale: [textbook.scale; 2],
+                offset: [textbook.offset; 2],
+            };
+        }
         let x: ChainMap = chain_map(region.x, region.width, level);
         let y: ChainMap = chain_map(region.y, region.height, level);
         ChainUniforms {
@@ -400,6 +422,9 @@ pub(crate) struct EffectStats {
 #[derive(Default)]
 pub(crate) struct Effects {
     shaders: [Option<Rid>; 4],
+    /// The source each shader was compiled from: a fault changes a shader's source between runs.
+    #[cfg(feature = "filter-faults")]
+    shader_sources: [Option<String>; 4],
     primer: Option<Primer>,
     nodes: HashMap<u32, NodeEffect>,
     /// Elements with a live backdrop and with a live filter group.
@@ -450,6 +475,8 @@ impl Effects {
 
     /// The shader of a kind, compiled when first used.
     fn shader(&mut self, kind: ShaderKind) -> Rid {
+        #[cfg(feature = "filter-faults")]
+        self.recompile_for_faults(kind);
         if let Some(shader) = self.shaders[kind.index()] {
             return shader;
         }
@@ -459,6 +486,21 @@ impl Effects {
         self.shaders[kind.index()] = Some(shader);
         self.stats.shaders_created += 1;
         shader
+    }
+
+    /// A fault that changes a shader's source is switched on and off while the process runs: compile again when the
+    /// source is no longer the one the shader came from. Only called when a material is made, and the verifier
+    /// removes every effect (and so every material) between faults.
+    #[cfg(feature = "filter-faults")]
+    fn recompile_for_faults(&mut self, kind: ShaderKind) {
+        let source = kind.source();
+        if self.shader_sources[kind.index()].as_deref() == Some(source.as_str()) {
+            return;
+        }
+        if let Some(old) = self.shaders[kind.index()].take() {
+            server().free_rid(old);
+        }
+        self.shader_sources[kind.index()] = Some(source);
     }
 
     /// The slot's material for `kind`: the one it has, or a new one (the old one is freed) put on `item`.
@@ -493,7 +535,10 @@ impl Effects {
     /// panel ran before it). One pixel copied and one pixel drawn with a mipmap-reading material, before
     /// everything else, set that belief for the frame.
     fn ensure_primer(&mut self, layer_item: Rid) {
-        if self.primer.is_some() || self.renderer() != RendererKind::Compatibility {
+        if self.primer.is_some()
+            || self.renderer() != RendererKind::Compatibility
+            || faults::active(Fault::NoPrimer)
+        {
             return;
         }
         let mut rs = server();
@@ -686,7 +731,7 @@ impl ReactUiRoot {
     /// The nearest paint ancestor with a live filter group. Canvas groups do not nest and screen reads
     /// inside one are ignored (D40 e), so an effect below one cannot be drawn.
     fn group_ancestor(&self, tag: u32) -> Option<u32> {
-        if self.effects.groups.is_empty() {
+        if self.effects.groups.is_empty() || faults::active(Fault::NoNestingCheck) {
             return None;
         }
         let mut current = tag;
@@ -1039,6 +1084,9 @@ impl ReactUiRoot {
         let Some(state) = self.effects.nodes.get_mut(&tag) else {
             return;
         };
+        if state.region.is_some() && faults::active(Fault::StaleRects) {
+            return;
+        }
         let Some(items) = self
             .mounted
             .nodes
@@ -1059,6 +1107,14 @@ impl ReactUiRoot {
                         width: target.0,
                         height: target.1,
                     }),
+                    Some(plan) if faults::active(Fault::UnalignedRegion) => {
+                        area.grown(plan.reach_px() as i32).intersection(&PixelRect {
+                            x: 0,
+                            y: 0,
+                            width: target.0,
+                            height: target.1,
+                        })
+                    }
                     Some(plan) => copy_region(area, plan, target),
                 };
                 (!region.is_empty()).then_some(region)
@@ -1077,6 +1133,12 @@ impl ReactUiRoot {
             state.backdrop_chain = Some(chain);
         }
         if state.region != region {
+            // The copy is its own item, drawn before the one that reads it (D40 b).
+            let copy = if faults::active(Fault::MergedCopy) {
+                draw
+            } else {
+                copy
+            };
             match region {
                 Some(region) => rs.canvas_item_set_copy_to_backbuffer(
                     copy,
@@ -1111,13 +1173,19 @@ impl ReactUiRoot {
         let Some(state) = self.effects.nodes.get_mut(&tag) else {
             return;
         };
+        if state.bounds.is_some() && faults::active(Fault::StaleRects) {
+            return;
+        }
         let area = to_target(transform, bounds_local);
         // The content, and where its shadow falls: both are read from the mip levels and both are drawn.
-        let shifted = state.group_shadow.map(|(offset, _)| PixelRect {
-            x: area.x + offset.x.round() as i32,
-            y: area.y + offset.y.round() as i32,
-            ..area
-        });
+        let shifted = state
+            .group_shadow
+            .filter(|_| !faults::active(Fault::ShadowBoxOnly))
+            .map(|(offset, _)| PixelRect {
+                x: area.x + offset.x.round() as i32,
+                y: area.y + offset.y.round() as i32,
+                ..area
+            });
         let sources = [
             Some((area, state.group_plan)),
             shifted.map(|rect| (rect, state.group_shadow.and_then(|(_, plan)| plan))),

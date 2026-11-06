@@ -10,6 +10,7 @@ mod drag_ghost;
 mod drag_input;
 mod events;
 mod filter;
+mod filter_faults;
 mod filter_render;
 mod focus;
 mod geometry;

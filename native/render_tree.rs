@@ -29,6 +29,7 @@ use godot::prelude::*;
 
 use crate::ReactUiRoot;
 use crate::commit::LAYER_COUNT;
+use crate::filter_faults::{self as faults, Fault};
 use crate::geometry::BoxRect;
 use crate::paint::parse_color;
 use crate::profile::{Sample, micros};
@@ -510,7 +511,7 @@ impl RenderNode {
         server()
             .canvas_item_set_canvas_group_mode_ex(wrapper, CanvasGroupMode::TRANSPARENT)
             .clear_margin(0.0)
-            .fit_empty(false)
+            .fit_empty(faults::active(Fault::FitEmptyGroup))
             .fit_margin(0.0)
             .blur_mipmaps(blur_mipmaps)
             .done();
@@ -526,7 +527,10 @@ impl RenderNode {
         };
         let mut rs = server();
         rs.canvas_item_clear(group.wrapper);
-        rs.canvas_item_add_rect(group.wrapper, draw, Color::WHITE);
+        // A group with no command of its own is the engine's to fit and clear each frame (`GroupItems::wrapper`).
+        if !faults::active(Fault::FitEmptyGroup) {
+            rs.canvas_item_add_rect(group.wrapper, draw, Color::WHITE);
+        }
         rs.canvas_item_set_custom_rect_ex(group.wrapper, true)
             .rect(draw)
             .done();

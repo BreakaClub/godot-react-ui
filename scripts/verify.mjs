@@ -31,8 +31,14 @@ const only = process.argv.filter(argument => argument.startsWith('--only='));
 // `--no-retry` runs each window once, whatever disturbed it: for negative controls, where a re-run would hide the very failure being looked for.
 const retry = !process.argv.includes('--no-retry');
 if (only.length > 0 && !interaction) throw new Error('--only=<section> applies to the interaction workflow (--interaction).');
+// `--faults` runs against the filters negative-controls library (`pnpm build:native --faults`, the `filters-faults` section);
+// every other run refuses that library, and this one refuses a default build.
+const faults = process.argv.includes('--faults');
+if (faults && !only.some(argument => argument.slice('--only='.length).split(',').includes('filters-faults'))) {
+  throw new Error('--faults is for the filters-faults section: pass --only=filters-faults.');
+}
 // Fail first if the binary or the installed library belongs to the other engine profile.
-engine.prepareNative();
+engine.prepareNative({ faults });
 // Never launch runtime acceptance against missing or type-invalid JS artifacts.
 const build = spawnSync('pnpm', ['build'], {cwd:root, stdio:'inherit'});
 if (build.error) throw build.error;

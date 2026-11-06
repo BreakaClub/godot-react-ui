@@ -13,6 +13,8 @@ path = "native/lib.rs"
 web = ["godot/experimental-wasm"]
 # Phase F0 evidence probe (native/probe.rs). Never enabled in a default build.
 probe = []
+# Negative controls for the filters verifier (native/filter_faults.rs). Never enabled in a default build.
+filter-faults = []
 
 [dependencies]
 # Lean Web templates omit optional 3D physics classes. Resolve only methods this

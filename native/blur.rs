@@ -243,11 +243,13 @@ impl PixelRect {
 /// target of `target` pixels: `area` grown by the plan's reach, aligned outwards to the level's texel
 /// size, then cut to the target.
 ///
-/// The alignment is not optional. `gaussian_blur` halves the region's position and size with a
-/// truncating shift at every level (`copy_effects.cpp:276-279`), so a region whose position or size is
-/// not a multiple of the texel size skews that level's sampling grid by up to half a texel: a blur read
-/// at level 3 came out shifted by 3 px (`exp4.gd`, 0.198 error against 0.006 aligned).
-/// A region cut by the target's far edge is the engine's own full-extent case and stays consistent.
+/// The alignment is no longer what keeps the blur in place. `gaussian_blur` halves the region's position
+/// and size with a truncating shift at every level (`copy_effects.cpp:276-279`); a shader that assumed
+/// the textbook grid read a level shifted by up to half a texel when the region was off it (`exp4.gd`: 3 px
+/// at level 3, 0.198 error against 0.006 aligned). The shader now places texels with [`chain_map`], which
+/// replays those shifts from the region's own origin and size, so an unaligned region measures a residual
+/// of 0.125 px and 2.5 % of width at most (`filters-faults`, `unaligned-region`) against 0.8 % aligned.
+/// The alignment is kept for that last factor of three; it costs under a texel of region.
 pub fn copy_region(area: PixelRect, plan: &BlurPlan, target: (i32, i32)) -> PixelRect {
     let texel = plan.texel_px() as i32;
     let grown = area.grown(plan.reach_px() as i32);

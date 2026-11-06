@@ -1,4 +1,4 @@
-import { DisplayServer, Engine, Image, Rid, InputEventMouseButton, InputEventMouseMotion, MouseButton, Node, RenderingServer, Time, Vector2, Window } from 'godot';
+import { DisplayServer, Engine, Image, Rid, InputEventMouseButton, InputEventMouseMotion, MouseButton, Node, OS, RenderingServer, Time, Vector2, Window } from 'godot';
 import type { NativeActivity, NativeSnapshot, NativeSnapshotNode } from '../../src/native';
 import {
   COLOUR_CELL, MOVING_SIZE, MOVING_TOP, PANEL_HEIGHT, PANEL_INSET, PANEL_TOP, SCROLL_ROW, SHAPE_RADIUS, STRIPE_PX,
@@ -42,6 +42,17 @@ const WIDTH_TOLERANCE_PX = 0.6;
  * facets (the back buffer's mipmaps magnified) is 0.05 to 0.2; the kernel measures 0.006 (under two 8-bit steps).
  */
 const PROFILE_TOLERANCE = 0.02;
+/**
+ * Where the blurred edge crosses one half may differ from where the sharp edge is by this. A blur is symmetric, so the
+ * crossing does not move; what moves it is a copy region whose texel grid is off the target's (up to half a texel, 1 to 16 px
+ * at the radii here) or a level read at the wrong place (a fraction of a pixel to a texel). The model is within 0.1 px.
+ */
+const EDGE_POSITION_TOLERANCE_PX = 0.8;
+/** How far each side of an edge a profile is read, in blur radii, and the room the moving panel keeps at its own sides. */
+const PROFILE_REACH_RADII = 1.6;
+const MOVING_MARGIN = 10;
+/** A second radius for the moving panel: a texel of 16 px (level four) puts the region's edges off the grid at most positions. */
+const MOVING_LARGE_RADIUS = 16;
 /** A radius sweep step may differ from the ideal step by this (two and a half 8-bit steps). */
 const SWEEP_STEP_TOLERANCE = 0.012;
 const SWEEP_FROM = 3;
@@ -117,6 +128,8 @@ interface EdgeMeasurement {
   clamped: boolean;
   width: number;
   worst: number;
+  /** Where the profile crosses one half, minus where the sharp edge is, in physical pixels. */
+  shift: number;
 }
 
 /** Render the edge scene and measure the edge through the panel's middle against a Gaussian of the plan's radius. */
@@ -159,6 +172,7 @@ async function measureEdge(owner: Node, api: FiltersInspection, props: FiltersLa
   return {
     detail: JSON.stringify({ plan, region: effects.backdrop?.region, target: [image.getWidth(), image.getHeight()], ratio, worstAt, span, ends: [profile[0], profile[profile.length - 1]] }),
     achievedPx: plan.achievedPx, clamped: plan.clamped, width: width1090(profile), worst,
+    shift: halfCrossing(profile) - span,
   };
 }
 
@@ -169,6 +183,8 @@ function checkEdge(label: string, requestedPx: number, measured: EdgeMeasurement
     `${label}: 10 to 90 width ${measured.width.toFixed(2)} px, a Gaussian of ${measured.achievedPx.toFixed(2)} px has ${ideal.toFixed(2)} (requested ${requestedPx.toFixed(2)} px) ${measured.detail}`);
   assert(measured.worst <= PROFILE_TOLERANCE,
     `${label}: the edge departs from a Gaussian by ${measured.worst.toFixed(4)} (limit ${PROFILE_TOLERANCE}): facets, not a smooth blur ${measured.detail}`);
+  assert(Math.abs(measured.shift) <= EDGE_POSITION_TOLERANCE_PX,
+    `${label}: the blurred edge is ${measured.shift.toFixed(2)} px from where the sharp edge is (limit ${EDGE_POSITION_TOLERANCE_PX}) ${measured.detail}`);
 }
 
 /** Blur accuracy at the plan's radii, for the backdrop behind a panel and for a panel's own content. */
@@ -509,8 +525,18 @@ async function verifyLiveUpdates(owner: Node, api: FiltersInspection, capture: F
   }
   await capture('filters-scroll-inside');
 
-  // A panel whose `left` is stepped: the rectangle follows every position, and nothing outside the panel is blurred.
+  await verifyMovingPanel(owner, api, capture, radius);
+  await verifyMovingPanel(owner, api, capture, MOVING_LARGE_RADIUS);
+}
+
+/**
+ * A panel whose `left` is stepped: the rectangle follows every position, the blur is where it should be wherever the
+ * rectangle's edges fall on the level's texel grid, and nothing outside the panel is blurred.
+ */
+async function verifyMovingPanel(owner: Node, api: FiltersInspection, capture: FiltersCapture, radius: number): Promise<void> {
   const edge = api.snapshot().width / 2;
+  // The profile reaches 1.6 radii each side of the edge: a 10 to 90 width needs 1.3, and the panel must still cover it.
+  const reach = Math.min(Math.round(PROFILE_REACH_RADII * radius), MOVING_SIZE / 2 - MOVING_MARGIN);
   for (const delta of [-60, -20, 0, 25, 60]) {
     api.showFilters({ scene: 'scroll', variant: 'moving', radius, offset: edge - MOVING_SIZE / 2 + delta });
     await settleFrames();
@@ -518,12 +544,15 @@ async function verifyLiveUpdates(owner: Node, api: FiltersInspection, capture: F
     const ratio = pixelRatio(image, api);
     const centre = Math.round(edge * ratio);
     const mid = Math.round((MOVING_TOP + MOVING_SIZE / 2) * ratio);
-    const profile = rowProfile(image, mid, centre - 26 * ratio / 2, centre + 22 * ratio / 2);
+    const from = centre - Math.round(reach * ratio);
+    const profile = rowProfile(image, mid, from, centre + Math.round(reach * ratio));
     assert(widthOk(width1090(profile), radius * ratio), `The panel moved by ${delta} blurs the edge by ${radius}px: ${width1090(profile).toFixed(2)} wide`);
+    assert(near(from + halfCrossing(profile), centre, EDGE_POSITION_TOLERANCE_PX),
+      `The panel moved by ${delta} keeps the edge where it is: found ${(from + halfCrossing(profile) - centre).toFixed(2)} px away`);
     assert(near(channelAt(image, centre - 3, (MOVING_TOP - 5) * ratio), 0, 0.02) && near(channelAt(image, centre + 3, (MOVING_TOP - 5) * ratio), 1, 0.02),
       'Above the panel the edge is still sharp');
   }
-  await capture('filters-moving');
+  await capture(`filters-moving-${radius}`);
 }
 
 /** The root itself moving, scaling, and the window's own content scale (device pixel ratio two). */
@@ -831,11 +860,11 @@ async function verifyDropShadow(owner: Node, api: FiltersInspection, capture: Fi
 
 // ---- A filter inside a filter, and a backdrop inside one, cannot be drawn: one error each -------------------------------
 
-async function verifyNesting(api: FiltersInspection): Promise<void> {
+async function verifyNesting(api: FiltersInspection, announceError = true): Promise<void> {
   for (const variant of ['filter-in-filter', 'backdrop-in-filter'] as const) {
     api.showFilters({ scene: 'edge', radius: 0 });
     await settleFrames();
-    console.log('GODOT_REACT_EXPECT_ERROR which has a filter');
+    if (announceError) console.log('GODOT_REACT_EXPECT_ERROR which has a filter');
     api.showFilters({ scene: 'nested', variant });
     await frames(6);
     const inner = node(api, 'inner');
@@ -1002,4 +1031,178 @@ export async function measureFilterCost(owner: Node, api: FiltersInspection): Pr
   console.log('GODOT_REACT_FILTERS_COST', JSON.stringify({ renderer: RenderingServer.getCurrentRenderingMethod(), firstUseMs: first, results }));
   DisplayServer.windowSetVsyncMode(vsync);
   api.showFilters({ scene: 'edge', radius: 0 });
+}
+
+// ---- Negative controls (opt-in: `--only=filters-faults`, needs `pnpm build:native --faults`) ------------------------------
+
+/** The environment variable native/filter_faults.rs reads. */
+const FAULT_ENV = 'GODOT_REACT_FILTER_FAULT';
+/** The blur levels a Compatibility target of this size has (`native/blur.rs` `max_level`) bound the largest texel, 2^4. */
+const LARGEST_TEXEL_PX = 16;
+
+/**
+ * One regression guard: `run` is the check that guards a fix, `fault` names the fault that takes the fix out
+ * (native/filter_faults.rs) and `fails` matches the assertion that must then fail (not some other one).
+ */
+interface FaultControl {
+  fault: string;
+  guards: string;
+  /** `faultOn` is for a check that provokes an error on purpose: with the fault on, the error is not raised. */
+  run(owner: Node, api: FiltersInspection, capture: FiltersCapture, faultOn: boolean): Promise<void>;
+  fails: RegExp;
+  /** Why the fault cannot show on this window or renderer, when it cannot. */
+  notApplicable?(owner: Node, api: FiltersInspection): string | undefined;
+}
+
+const FAULT_CONTROLS: readonly FaultControl[] = [
+  {
+    fault: 'merged-copy', guards: 'a panel over another blurs the other\'s blur (D40 b: separate copy item)',
+    run: verifyStacking, fails: /Where B is over A it blurs A's blur/u,
+  },
+  {
+    fault: 'no-primer', guards: 'a filter group can read its mip levels on Compatibility (primer)',
+    run: verifyBlurAccuracy, fails: /filter blur \d+px/u,
+    notApplicable: () => RenderingServer.getCurrentRenderingMethod() === 'gl_compatibility' ? undefined : 'the primer is for the Compatibility renderer only',
+  },
+  {
+    fault: 'stale-rects', guards: 'copy and group rectangles follow a moving or scrolling element',
+    run: verifyLiveUpdates, fails: /shows the blurred rows|copy rectangle|The panel moved by/u,
+  },
+  {
+    fault: 'fit-empty-group', guards: 'an ancestor\'s clip still cuts a filter group\'s composite',
+    run: verifySubtree, fails: /the ancestor clips it/u,
+  },
+  {
+    fault: 'textbook-chain', guards: 'texels are placed by the engine\'s own region halving (targets that are not a power of two)',
+    run: verifyBlurAccuracy, fails: /backdrop blur \d+px/u,
+    notApplicable: (_owner, api) => {
+      const { width, height } = api.snapshot();
+      return width % LARGEST_TEXEL_PX === 0 && height % LARGEST_TEXEL_PX === 0
+        ? `a ${width} x ${height} target halves exactly at every level it keeps; run the section on a portrait window` : undefined;
+    },
+  },
+  {
+    fault: 'no-nesting-check', guards: 'a filter inside a filter is reported and not drawn',
+    run: (_owner, api, _capture, faultOn) => verifyNesting(api, !faultOn), fails: /is not drawn/u,
+  },
+  {
+    fault: 'double-modulate', guards: 'an ancestor\'s opacity applies once to a filtered element',
+    run: verifySubtree, fails: /the opacity applied once/u,
+  },
+  {
+    fault: 'shadow-box-only', guards: 'a drop-shadow is drawn beyond the element\'s box',
+    run: verifyDropShadow, fails: /A hard drop-shadow\(6px 6px\)/u,
+  },
+];
+
+/** Positions of the moving panel the alignment residual is read at: every 3 px, so every phase of a 16 px texel is met. */
+const RESIDUAL_FIRST_DELTA = -60;
+const RESIDUAL_DELTA_STEP = 3;
+const RESIDUAL_POSITIONS = 41;
+const RESIDUAL_RADII = [16, 24] as const;
+/** The residual shift an unaligned copy region may leave: the model's own accuracy is 0.1 px, the measured worst 0.125 px. */
+const ALIGNMENT_RESIDUAL_PX = 0.25;
+
+interface AlignmentResidual {
+  /** The largest distance of the blurred edge's half crossing from the sharp edge, in physical pixels. */
+  shift: number;
+  /** The largest relative error of the 10 to 90 width against a Gaussian of the radius. */
+  widthError: number;
+}
+
+async function measureAlignmentResidual(owner: Node, api: FiltersInspection): Promise<AlignmentResidual> {
+  const worst: AlignmentResidual = { shift: 0, widthError: 0 };
+  for (const radius of RESIDUAL_RADII) {
+    for (let index = 0; index < RESIDUAL_POSITIONS; index += 1) {
+      const delta = RESIDUAL_FIRST_DELTA + index * RESIDUAL_DELTA_STEP;
+      api.showFilters({ scene: 'scroll', variant: 'moving', radius, offset: api.snapshot().width / 2 - MOVING_SIZE / 2 + delta });
+      await settleFrames();
+      const image = grab(owner);
+      const ratio = pixelRatio(image, api);
+      const centre = Math.round(api.snapshot().width / 2 * ratio);
+      const reach = Math.round(Math.min(PROFILE_REACH_RADII * radius, MOVING_SIZE / 2 - MOVING_MARGIN) * ratio);
+      const profile = rowProfile(image, Math.round((MOVING_TOP + MOVING_SIZE / 2) * ratio), centre - reach, centre + reach);
+      worst.shift = Math.max(worst.shift, Math.abs(centre - reach + halfCrossing(profile) - centre));
+      worst.widthError = Math.max(worst.widthError, Math.abs(width1090(profile) / (WIDTH_10_90_SIGMAS * radius * ratio) - 1));
+    }
+  }
+  return worst;
+}
+
+/**
+ * Not a regression guard: since the shader places the level's texels by the region's own origin (`chain_map`), aligning
+ * the copy region to the texel grid is no longer what keeps the blur in place. The fault shows what is left without it: a
+ * residual inside the tolerances, and the aligned region's own residual for comparison.
+ */
+async function verifyUnalignedRegionIsTolerated(owner: Node, api: FiltersInspection): Promise<void> {
+  OS.unsetEnvironment(FAULT_ENV);
+  const aligned = await measureAlignmentResidual(owner, api);
+  OS.setEnvironment(FAULT_ENV, 'unaligned-region');
+  api.showFilters({ scene: 'edge', radius: 0 });
+  await settleFrames();
+  const unaligned = await measureAlignmentResidual(owner, api);
+  OS.unsetEnvironment(FAULT_ENV);
+  console.log('GODOT_REACT_FILTERS_ALIGNMENT', JSON.stringify({ aligned, unaligned }));
+  assert(unaligned.shift <= ALIGNMENT_RESIDUAL_PX && unaligned.widthError <= WIDTH_TOLERANCE,
+    `Without aligning the copy region the blur is still in place: shift ${unaligned.shift.toFixed(3)} px (limit ${ALIGNMENT_RESIDUAL_PX}), width error ${unaligned.widthError.toFixed(4)} (limit ${WIDTH_TOLERANCE})`);
+}
+
+/**
+ * Every control twice in one process: once with its fault off, which must pass (the check is sound here), then with it
+ * on, which must fail with the control's own message. The faults are switched with `OS.setEnvironment`; effects are
+ * cleared between runs (a radius of zero makes none) so each starts with fresh items, materials and shaders.
+ */
+export async function verifyFilterFaults(owner: Node, api: FiltersInspection, capture: FiltersCapture): Promise<void> {
+  const silent: FiltersCapture = async () => {};
+  const reset = async (): Promise<void> => {
+    api.showFilters({ scene: 'edge', radius: 0 });
+    await settleFrames();
+  };
+  // Every control is run and every one that does not behave is listed, so one window says which are missing.
+  const problems: string[] = [];
+  let controlled = 0;
+  try {
+    for (const control of FAULT_CONTROLS) {
+      const reason = control.notApplicable?.(owner, api);
+      if (reason !== undefined) {
+        console.log('GODOT_REACT_FILTERS_FAULT_SKIPPED', JSON.stringify({ fault: control.fault, reason }));
+        continue;
+      }
+      OS.unsetEnvironment(FAULT_ENV);
+      await reset();
+      try {
+        await control.run(owner, api, silent, false);
+      } catch (error) {
+        problems.push(`Without the fault, the check for "${control.guards}" fails: ${error instanceof Error ? error.message : String(error)}`);
+        continue;
+      }
+      OS.setEnvironment(FAULT_ENV, control.fault);
+      await reset();
+      let failure: unknown;
+      try {
+        await control.run(owner, api, silent, true);
+      } catch (error) {
+        failure = error;
+      }
+      await capture(`filters-fault-${control.fault}`);
+      OS.unsetEnvironment(FAULT_ENV);
+      if (failure === undefined) {
+        problems.push(`With the fault "${control.fault}" on, the check for "${control.guards}" still passes (is the installed library a --faults build?)`);
+        continue;
+      }
+      const message = failure instanceof Error ? failure.message : String(failure);
+      if (!control.fails.test(message)) {
+        problems.push(`With the fault "${control.fault}" on, the check for "${control.guards}" fails for another reason: ${message}`);
+        continue;
+      }
+      console.log('GODOT_REACT_FILTERS_FAULT', JSON.stringify({ fault: control.fault, guards: control.guards, failure: message.slice(0, 240) }));
+      controlled += 1;
+    }
+  } finally {
+    OS.unsetEnvironment(FAULT_ENV);
+  }
+  await verifyUnalignedRegionIsTolerated(owner, api);
+  await reset();
+  assert(problems.length === 0, `${problems.length} negative control(s) did not hold:\n${problems.join('\n')}`);
+  assert(controlled > 0, 'At least one fault was exercised');
 }
