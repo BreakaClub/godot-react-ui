@@ -151,7 +151,7 @@ async function render(outDirectory) {
       await shoot('sheet');
       await page.evaluate(() => { document.getElementById('overlay').style.display = 'none'; document.getElementById('overlay-nested').style.display = 'flex'; });
       await shoot('sheet-nested');
-      // The field on the glass card: its placeholder was in every shot above; now typed into, then selected (Chrome's own keys).
+      // The field on the glass card: its placeholder was in every shot above; now typed into, then selected.
       await page.evaluate(() => { document.getElementById('overlay-nested').style.display = 'none'; });
       await page.evaluate(() => {
         const field = document.getElementById('search').getBoundingClientRect();
@@ -162,9 +162,8 @@ async function render(outDirectory) {
       await page.click('#search');
       await page.keyboard.type('Night drive');
       await shoot('input');
-      await page.keyboard.down('Meta');
-      await page.keyboard.press('KeyA');
-      await page.keyboard.up('Meta');
+      // Select all by the field's own method: headless Chrome on macOS does not take Command+A from the keyboard here.
+      await page.evaluate(() => document.getElementById('search').select());
       await shoot('input-selected');
       await page.close();
     }

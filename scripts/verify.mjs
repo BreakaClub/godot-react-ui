@@ -16,7 +16,7 @@ const godot = engine.godot;
 const INTERACTION_DEADLINE_MS = 300_000;
 const DEFAULT_DEADLINE_MS = 120_000;
 for (const argument of argsWithoutEngine(process.argv.slice(2))) {
-  if (!['--motion', '--interaction', '--no-retry'].includes(argument) && !argument.startsWith('--only=')) throw new Error(`Unknown argument: ${argument}`);
+  if (!['--motion', '--interaction', '--no-retry', '--faults'].includes(argument) && !argument.startsWith('--only=')) throw new Error(`Unknown argument: ${argument}`);
 }
 const motion = process.argv.includes('--motion');
 const interaction = process.argv.includes('--interaction');
@@ -50,7 +50,7 @@ for (const [name, resolution] of [['landscape','1120x800'],['portrait','600x900'
     godot, project: resolve(root, 'demo'), output: resolve(artifactRoot, name), name, resolution,
     scriptArgs: [userFlag, ...only], successMarker, deadlineMs, retry,
     // The library is checked again before every window, not only before the first: another session may rebuild it in between.
-    beforeLaunch: () => engine.requireInstalledLibrary(),
+    beforeLaunch: () => engine.requireInstalledLibrary({ faults }),
     errorPattern: /ERROR:|Uncaught|\[panic /u,
   }));
 }

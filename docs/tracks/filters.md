@@ -144,7 +144,7 @@ feature `filter-faults`, its own `target/faults`), and `pnpm build:native` after
 the installed file tells which one is there). It is a feature set of its own to the freshness guard (`docs/tracks/freshness.md`): a
 default run refuses it ("cargo features differ: built with [filter-faults], wanted []") and a faults run refuses a default build. A fault is switched by the environment variable `GODOT_REACT_FILTER_FAULT`, read at
 the fault's site on every use, so the opt-in `filters-faults` section (`--only=filters-faults`, both viewports with
-`pnpm verify --interaction --only=filters-faults --faults`) switches them with `OS.setEnvironment` in one process. For each
+`pnpm verify --interaction --only=filters-faults --faults --no-retry`: a re-run would hide a control that did not hold) switches them with `OS.setEnvironment` in one process. For each
 control it runs the guarding check with the fault off (it must pass) and on (it must fail, with the message of that check), clears
 every effect between the two so items, materials and (for the one fault that changes a shader's source) shaders are made again,
 and saves the broken picture as `filters-fault-<name>.png`.
@@ -229,7 +229,6 @@ Checked by compiling the class (`compileStyle`) before writing the page: unsuppo
 | `shadow-*` (box shadow) | nothing: glass cards have no shadow. `drop-shadow-*` is a filter, and a filter group would hold the element's own backdrop (the nesting limit), so it is not a substitute |
 | `font-medium`, `font-semibold`, `font-bold`, `leading-*`, `tracking-*`, `uppercase`, `truncate` | the default face and size only |
 | `bg-gradient-*` | blurred circles for the colour behind the glass |
-| `bg-pink-500`, `bg-violet-500`, `sky`, `cyan`, `orange` ... (the palette is slate, indigo, emerald, amber, rose) | `bg-[#hex]` |
 | `border-b`, `border-t`, `ring-*`, `ml-auto`, `sticky`, `scale-*`, `translate-*`, `transition-*`, `duration-*` | a full border; `justify-between`; `fixed`; `transition` as the inline style |
 
 ### Design findings
@@ -290,51 +289,66 @@ See the README ("Filters and frosted glass") for the user-facing list. Beyond it
 
 ## Gates
 
-Run from the worktree with `GODOT=/Applications/Godot48.app/Contents/MacOS/Godot`, rustup's cargo first on `PATH` and
-`CARGO_BUILD_JOBS=3`, each once, on the final code (commit `7b5f095` plus this file and the README):
+Run from the worktree (`artifacts/logs/` holds each step's log), each once, on the final tree after the last rebase onto `main`
+(`67aeea9`: Phase I7, Phase I9, the stock profile, the freshness guard, HiDPI, verifier integrity D46, the full palette):
 
 | Gate | Result |
 | --- | --- |
-| `cargo test --locked` | 525 passed (also with `--features filter-faults`) |
-| `cargo clippy --locked --all-targets` | 0 warnings (also with `--features filter-faults`) |
+| `cargo test --locked` | 569 passed, also with `--features filter-faults` |
+| `cargo clippy --locked --all-targets` | 0 warnings, also with `--features filter-faults` |
 | `rustup run stable cargo fmt --check` | clean |
-| `pnpm test:types`, `pnpm test` | clean; 308 pass |
-| `pnpm verify:interaction` | landscape and portrait passed, every section including `filters` (about 14 s a window) |
-| `pnpm verify`, `pnpm verify:motion`, `pnpm verify:world` | each passed, landscape and portrait |
-| `--only=filters` with engine arguments `--rendering-method mobile --rendering-driver metal` (Metal 4.0, Forward Mobile) | passed, landscape (the one RenderingDevice run; Forward+ was not run) |
-| `filters-faults` (landscape 1120 x 800, portrait 600 x 900) | every applicable control held; see "Negative controls" |
-| `pnpm build:web`, then `GODOT_REACT_WEB_URL=http://127.0.0.1:8104 pnpm verify:interaction:web` | passed: 1363 assertions, 123 captures, headless Chrome at device scale 1 and 2, landscape and portrait |
+| `pnpm test:types`, default profile and `--engine=stock` | clean (the stock one needs `pnpm build:native --engine=stock` first, as the freshness guard says) |
+| `pnpm test` | 413 pass (the opacity modifier on all 22 colours, the freshness of a faults build, the expected-error marker) |
+| `pnpm verify:interaction --only=filters,glass` | landscape and portrait passed: `filters` 26,441 assertions (14.3 s), `glass` 1,835 (17.4 s) a window |
+| stock `pnpm verify:interaction --only=filters --engine=stock` | landscape and portrait passed (10,130 assertions a window) |
+| `pnpm verify --interaction --only=filters-faults --faults --no-retry` | landscape 8 controls held (`textbook-chain` skipped on 1120 x 800), portrait all 9, each with its own check's message; a default run refuses the faults library ("cargo features differ: built with [filter-faults], wanted []"), and the default library was restored (`strings` finds no fault name in it) |
+| `pnpm build:web`, then `pnpm verify:interaction:web --only=filters,glass` (the verifier serves the export itself) | passed: `filters` 592 assertions, `glass` 72, 676 in all, 56 captures, at device scale 1 and 2, landscape and portrait |
 
-The Mobile run was made with the repository's runner (`scripts/native-run.mjs` `runNativeVerifier`) and `--rendering-method mobile
---rendering-driver metal` as engine arguments; the Mobile cost table is in "Cost". The `no-primer` control is Compatibility-only
-(the primer is not made on Mobile) and the faults section was not run on Mobile.
+The full suites (`verify:interaction` with every section, `verify`, `verify:motion`, `verify:world`) were run once on the tree
+before the last two rebases and passed (the first full interaction run failed in portrait on a precondition of mine, below); they
+wait for the batch regression, as asked. One finding of the full runs is kept: after the `drag` and `forms` sections the portrait
+window left the pointer over the native-state card of the `filters` section, which then read as hovered at rest (green 0.561, which
+is 0.51 times the hover's 1.1). The failure was the same in every attempt, so it was a real one, not the focus loss in its log; the
+section now moves the pointer off its fixtures first.
 
-Inspected captures (all read, not only asserted): native landscape and portrait under `artifacts/native-interaction/<viewport>/`
-(`filters-edge-backdrop`, `filters-edge-filter`, `filters-shape`, `filters-stacked`, `filters-portal-scrim`, `filters-godot-2d`,
-`filters-godot-3d`, `filters-clip`, `filters-opacity`, `filters-drop-shadow`, `filters-colour-*`, `filters-scroll-*`,
-`filters-moving-8`, `filters-moving-16`, `filters-text-selection`, `filters-dpr2-edge-backdrop`, `filters-dpr2-edge-filter`,
-`filters-dpr2-shape`); Web under `artifacts/web-interaction-verification/{landscape,portrait,retina-landscape,retina-portrait}/`
-(`filters-*.png`; that directory's `failure.png` is from an earlier failed run, not this one); Mobile under
-`artifacts/filters-iter/rd-landscape/`; negative controls under `artifacts/filters-iter/faults-{landscape,portrait}/`.
-`artifacts/` is ignored by git.
+The Mobile (RenderingDevice, Metal) run of the `filters` section passed once before the rebases and was not run again. The `no-primer`
+control is Compatibility-only, and the faults section was not run on Mobile.
+
+Inspected captures (read, not only asserted): native `artifacts/native-interaction/<viewport>/` (the `filters-*` set and the `glass-*`
+set, at both pixel ratios), Web `artifacts/web-interaction-verification/{landscape,portrait,retina-landscape,retina-portrait}/`,
+Chrome `artifacts/glass-reference/`, side by side `artifacts/glass-compare/`, negative controls
+`artifacts/native-interaction/<viewport>/filters-fault-*.png`. `artifacts/` is ignored by git.
 
 ## Merge notes
 
-Conflict risk, by file (this branch touched them after Phase I6; main has moved since): `scripts/native-run.mjs` (the
-`GODOT_REACT_EXPECT_ERROR` marker, small and committed alone), `scripts/build.mjs` (one entry point, committed alone),
-`scripts/build-native.mjs` (`--faults`), `demo/src/verify-interaction.ts` (sections `filters`, `filters-cost`, `filters-faults`, the opt-in
-list), `demo/src/main.ts` (the `showFilters`, `godotContent`, `scaleSurface` and `scrollTo` entries of the debug api),
-`scripts/verify-interaction-web.mjs` (the `filters` section and `capture(name, {geometry})`), `native/render_tree.rs` (`RenderNode`
-gains `parent`, `draw_index`, `backdrop`, `group`; `attach`, `detach` and `set_draw_index` act on `outer_item()`),
-`native/props.rs`, `native/lib.rs`, `src/styles.ts`, `src/types.ts`, `Cargo.toml` and `Cargo.lock` (`stylo_static_prefs`, the same
-rev as the other Stylo crates, and the `filter-faults` feature). No `#[func]` was added, so no typings or `demo/gen` changed.
+`filters` is rebased onto `main` `67aeea9` (twice: after I7, and after the HiDPI hardening and the verifier integrity work); a merge
+should have nothing left to resolve. What the rebases settled, in case a later one meets the same places:
 
-**Drag ghost (I9).** `DragGhost::capture` builds a second render tree of `RenderNode::new()` copies that replay the source's
-recorded box and content commands (`recorded()`), at 0.6 opacity; it does not see effect items, because those are made only for
-mounted nodes by `sync_effects` and live in `RenderNode.backdrop` and `.group`, which `RenderNode::new()` leaves empty. What I
-expect after merging: the ghost of a filtered source is the source drawn *without* its filter or backdrop-filter, a sharp copy
-(a frosted panel's ghost shows its translucent fill and border over whatever is under it, unblurred; a `blur-sm` card's ghost is
-sharp); no error, no extra item, nothing leaks, and the source itself keeps its effect while it is dragged. The ghost does not
-nest into a group, so it cannot trip the nesting error. If a filtered ghost is wanted, the way is to give the ghost copy its own
-group or backdrop from the source's `FilterEffect` through the same `ensure_group` and `ensure_backdrop`, in the ghost's items,
-which is not done here.
+* **I7 (`TextInput`)**: `native/snapshot.rs` and `src/native.ts` carry `textInput` and `effects` side by side; the glass lab has a
+  `TextInput` on a glass card and the section reads its caret and selection. `demo/src/verify-text-input.ts` already exported
+  `typeText`, `pressAction` and `waitForCaretOn`; the only change is `waitForCaretOn` taking `Pick<InteractionInspection, 'find'>`.
+* **I9 (drag and drop)**: `scroll_input.rs` marks the effects stale and refreshes their rectangles, then looks under the pointer unless
+  a drag is in progress. A filtered source's **drag ghost is unfiltered**: `DragGhost::capture` replays the box and content commands a
+  `RenderNode` recorded, and the group, copy and backdrop items are not among them, so the ghost of a glass card is its translucent box
+  and text at 60 % with no blur (the tile row's edges stay crisp through it, widest step 36 levels). The glass section checks that it is
+  drawn, is the card's size, is unblurred and goes when the drag ends. A glass ghost would give the ghost's items their own group or
+  backdrop from the source's `FilterEffect`; not done.
+* **Stock profile and freshness**: `--faults` is a feature set of its own in `scripts/engine.mjs` (`faults` next to `probe`,
+  `targets.nativeFaults`, the rebuild command, `engine.d.mts`), so a default run refuses a faults library ("cargo features differ") and
+  `verify.mjs --faults` is accepted only with `--only=filters-faults` and refuses a default build. No new script calls `selectEngine(`, so
+  `tests/freshness.test.ts` `GUARDS` is unchanged.
+* **HiDPI (D45)**: a rounded backdrop shape is a `StyleBoxFlat` drawn outside `NOTIFICATION_DRAW`: its key now carries the
+  `Oversampling` (only when rounded) and `set_aa_size(feather())` precedes the draw; the level is read once from the root's cached
+  value. The translucent-border draw in `record_box` keeps the feather for both of its calls. Nothing the filters paint is text, so
+  nothing joins `paints_at_oversampling` (a rounded view already does, and a repaint of it runs the effect's sync).
+* **Verifier integrity (D46)**: `verify-filters.ts` and `verify-glass.ts` count their assertions in `assertionTally`; the Web scenarios
+  run through `section(...)`; the expected-error marker (`GODOT_REACT_EXPECT_ERROR`) was re-applied on main's rewritten
+  `scripts/native-run.mjs`, with its test; the faults section runs with `--no-retry`. The new sections are in `SECTIONS`, and
+  `filters-cost` and `filters-faults` are opt-in.
+* **Palette**: the opacity modifier works on all 22 colours (`parseColor` takes `name/NN` on any named colour); the README and the
+  missing-utilities table follow.
+* **Other files a merge touches** (unchanged by the rebases): `src/styles.ts`, `src/types.ts`, `native/props.rs`, `native/render_tree.rs`
+  (`RenderNode` gains `parent`, `draw_index`, `backdrop`, `group`; the box item's `record_box` draws a translucent border as a fill and a
+  ring), `native/lib.rs`, `Cargo.toml` and `Cargo.lock` (`stylo_static_prefs`, the `filter-faults` feature), `scripts/build.mjs` (three
+  entry points), `scripts/build-native.mjs`, `scripts/verify.mjs`, `package.json` (`glass:reference`). No `#[func]` was added, so no
+  typings or `demo/gen` changed.
