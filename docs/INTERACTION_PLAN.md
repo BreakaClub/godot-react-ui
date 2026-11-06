@@ -9,9 +9,9 @@ D19); decision D20 sets the verification tiers; decisions D21 and D22 isolate th
 world-space part 1, kit part 1; kit approach D28; test-input rules D29. Phase I5 (`5858a54`; scroll containers, decisions D30 to
 D37) with scroll accessibility (D38) and the scrolling Select list (D39). Phase I6 (`1071e8d`; D41). The stock engine profile (`64e674c`;
 D42). Phase I9 (`400bea3`; D43). The freshness guard (`941334b`). Phase I7 with the kit `TextField`, `TextInput` accessibility and
-world-space typing, which finishes I8, I10's `TextInput` part and I11 (`539e787`; D44). HiDPI (`6c6abd7`, hardened in `5b7faba`; D45). Still
-open from I10: scroll bar elements (D42). In parallel tracks now: Phase V1 (filters and frosted glass, D40), scroll bar elements, verifier
-integrity fixes, input fixes and `TextInput` fixes (the last three from an independent code review of the landed code).
+world-space typing, which finishes I8, I10's `TextInput` part and I11 (`539e787`; D44). HiDPI (`6c6abd7`, hardened in `5b7faba`; D45). Verifier
+integrity (D46). Scroll bar elements, which finish I10 (D47). In parallel tracks now: Phase V1 (filters and frosted glass, D40), input fixes and
+`TextInput` fixes (both from an independent code review of the landed code).
 
 v1 of this plan (`7f0a96c`) was rejected because it built every interaction feature on the
 prototype's commit path, which re-walks and re-sends the whole tree on every change. v2 replaces
@@ -488,6 +488,12 @@ not a reason to wait.
   marker and summary, and a section with no assertions fails. `scripts/editor-session.mjs` removes TypeScript from Godot's saved open
   scripts before every automated editor launch, because the script editor converts indentation when it saves a file it has open (reproduced).
   New sections go in `SECTIONS` and use `verifierClipboard`. Agents log inside their own worktree, not the shared scratch folder.
+- **D47 (I10, scroll bars)**: decisions SB1 to SB9 and the real tree against stock controls are in `docs/tracks/scroll-bars.md`, part of this log. Each
+  scrollable axis of an exposed scroll container, whatever its role and including a multi-line text input, has a scroll bar element in the
+  container's registry slot, keyed by (tag, axis), after the content with horizontal first, as in the stock readings. Value and range are
+  reachable offsets, not Godot's content-size convention, and orientation is set while a name is not. `Increment` and `Decrement` use the arrow-key
+  step through `scroll_by_checked`, by way of `_on_accessibility_scroll_bar_action`. Not verified: VoiceOver by hand, and in the real tree a
+  reversed axis and `scrollbar-width: none`.
 
 The plan is written so an implementer can execute it phase by phase without re-deciding the
 architecture. Where it says **must**, it is a contract. Where it says *suggested*, use judgement and
