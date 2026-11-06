@@ -3,7 +3,8 @@
 Status: plan v2.6, 6 November 2026. Done: Phase 0 (`9f4a02c`), Phase 1 (`0d11607`), Phase F0
 (`4f7dd0d`), Phase F1 (`ce99bea`), Phase F2 (`578b461`), Phase F3 (`07a8344`), Phase F4 (`e60f6e5`;
 its numbers and decisions D7 to D10 are in the progress log and the decision log below), Phase I1
-(decisions D11 to D13), Phase I2 (decisions D14 to D16), Phase I3 (decisions D17 to D19); decision D20 sets the verification tiers. Next: Phase I4.
+(`edf6081`; decisions D11 to D13), Phase I2 (`fd11f41`; decisions D14 to D16), Phase I3 (`dec1f5d`; decisions D17 to
+D19); decision D20 sets the verification tiers. Next: Phase I4.
 
 v1 of this plan (`7f0a96c`) was rejected because it built every interaction feature on the
 prototype's commit path, which re-walks and re-sends the whole tree on every change. v2 replaces
