@@ -11,7 +11,7 @@ import type { LabName } from './labs';
 import type { PassthroughCounts } from './main';
 import { verifyHidpi } from './verify-hidpi';
 import { assertionTally, bindVerifierKeys, parseVerifierEvent, verifierClipboard } from './verifier-input';
-import { verifyFilters } from './verify-filters';
+import { measureFilterCost, verifyFilters } from './verify-filters';
 import { verifyTextInput } from './verify-text-input';
 import type { DemoInspection } from './verify';
 
@@ -3542,7 +3542,9 @@ async function verifyDragging(owner: Node, api: InteractionInspection, capture: 
 }
 
 /** The sections of this verifier, in the order they run (plan 0.4.1: `--only=<name>[,<name>]` runs just those). */
-const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard', 'positioning', 'inputs', 'scroll', 'selection', 'drag', 'forms', 'hidpi', 'filters'] as const;
+const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard', 'positioning', 'inputs', 'scroll', 'selection', 'drag', 'forms', 'hidpi', 'filters', 'filters-cost'] as const;
+/** Sections that measure rather than verify: they run only when `--only=` names them. */
+const OPT_IN_SECTIONS: readonly Section[] = ['filters-cost'];
 type Section = (typeof SECTIONS)[number];
 
 function isSection(value: string): value is Section {
@@ -3553,7 +3555,7 @@ function isSection(value: string): value is Section {
 function selectedSections(): Set<Section> {
   const args = OS.getCmdlineUserArgs();
   const only = Array.from({length: args.size()}, (_, i) => args.get(i)).filter(arg => arg.startsWith('--only='));
-  if (only.length === 0) return new Set(SECTIONS);
+  if (only.length === 0) return new Set(SECTIONS.filter(section => !OPT_IN_SECTIONS.includes(section)));
   const chosen = new Set<Section>();
   for (const name of only.flatMap(arg => arg.slice('--only='.length).split(','))) {
     assert(isSection(name), `Unknown section "${name}"; the sections are ${SECTIONS.join(', ')}`);
@@ -3608,6 +3610,7 @@ export async function runInteractionVerification(owner: Node, api: InteractionIn
   if (sections.has('forms')) await timed('forms', () => verifyTextInput(owner, api, capture));
   if (sections.has('hidpi')) await timed('hidpi', () => verifyHidpi(owner, api, capture));
   if (sections.has('filters')) await timed('filters', () => verifyFilters(owner, api, capture));
+  if (sections.has('filters-cost')) await timed('filters-cost', () => measureFilterCost(owner, api));
 
   // A section that asserted nothing passed nothing; a run that left sections out says so (the verify script prints it).
   const empty = [...sections].filter(section => sectionChecks[section] === 0);

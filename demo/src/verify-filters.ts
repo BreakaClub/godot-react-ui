@@ -1,4 +1,4 @@
-import { Engine, Image, InputEventMouseButton, InputEventMouseMotion, MouseButton, Node, RenderingServer, Vector2, Window } from 'godot';
+import { DisplayServer, Engine, Image, Rid, InputEventMouseButton, InputEventMouseMotion, MouseButton, Node, RenderingServer, Time, Vector2, Window } from 'godot';
 import type { NativeActivity, NativeSnapshot, NativeSnapshotNode } from '../../src/native';
 import {
   COLOUR_CELL, MOVING_SIZE, MOVING_TOP, PANEL_HEIGHT, PANEL_INSET, PANEL_TOP, SCROLL_ROW, SHAPE_RADIUS, STRIPE_PX,
@@ -902,4 +902,104 @@ export async function verifyFilters(owner: Node, api: FiltersInspection, capture
   await verifyDropShadow(owner, api, capture);
   await verifyNesting(api);
   await verifyTextOverBlur(owner, api, capture);
+}
+
+// ---- Cost (opt-in: `--only=filters-cost`) -------------------------------------------------------------------------------
+
+/** Frames drawn per sample, and samples per cell (the median is reported: a frame's time wanders by about a millisecond). */
+const COST_FRAMES = 20;
+const COST_SAMPLES = 5;
+/** Panel sizes in CSS pixels, and radii. */
+const COST_SIZES: readonly (readonly [number, number])[] = [[200, 150], [400, 300], [800, 600], [1100, 780]];
+const COST_RADII = [4, 16, 64] as const;
+const MICROSECONDS_PER_MILLISECOND = 1000;
+
+/** Milliseconds per frame, the median of `COST_SAMPLES` runs of `COST_FRAMES` forced draws that each end in a read-back (which waits for the GPU). */
+function frameMilliseconds(owner: Node): number {
+  const samples: number[] = [];
+  for (let sample = 0; sample < COST_SAMPLES; sample += 1) {
+    const started = Time.getTicksUsec();
+    for (let index = 0; index < COST_FRAMES; index += 1) RenderingServer.forceDraw();
+    grab(owner).getWidth();
+    samples.push((Time.getTicksUsec() - started) / MICROSECONDS_PER_MILLISECOND / COST_FRAMES);
+  }
+  samples.sort((a, b) => a - b);
+  return samples[Math.floor(samples.length / 2)] ?? 0;
+}
+
+/** The viewport's own GPU time in milliseconds (zero where the renderer does not report it): the median of several frames. */
+function gpuMilliseconds(owner: Node, rid: Rid): number {
+  const samples: number[] = [];
+  for (let index = 0; index < COST_SAMPLES * 2; index += 1) {
+    RenderingServer.forceDraw();
+    samples.push(RenderingServer.viewportGetMeasuredRenderTimeGpu(rid));
+  }
+  void owner;
+  samples.sort((a, b) => a - b);
+  return samples[Math.floor(samples.length / 2)] ?? 0;
+}
+
+/**
+ * What a frosted panel and a blurred element cost per frame, by size and radius: the extra milliseconds per frame over the same
+ * scene without the effect, measured as wall time over forced draws that end in a read-back (so the GPU's time is in it), and, where
+ * the renderer reports it (RenderingDevice), the viewport's own GPU time. The first use of each shader is timed separately: it is the
+ * hitch a player sees when the first frosted panel opens.
+ */
+export async function measureFilterCost(owner: Node, api: FiltersInspection): Promise<void> {
+  const viewport = owner.getViewport();
+  assert(viewport, 'The demo has its viewport');
+  const rid = viewport.getViewportRid();
+  RenderingServer.viewportSetMeasureRenderTime(rid, true);
+  // With vsync a frame takes a display refresh whatever it costs (8.3 ms at 120 Hz), which hides everything cheaper.
+  const vsync = DisplayServer.windowGetVsyncMode();
+  DisplayServer.windowSetVsyncMode(DisplayServer.VSyncMode.VsyncDisabled);
+  const ratio = (): number => pixelRatio(grab(owner), api);
+  const results: unknown[] = [];
+  const first: Record<string, { warmUpMs: number; firstPanelAfterMs: number }> = {};
+  for (const target of ['backdrop', 'filter'] as const) {
+    // A 1 x 1 element of the kind compiles its shader and pipeline, as an app could while it loads; the first real panel after
+    // it shows what is left.
+    const warmStarted = Time.getTicksUsec();
+    api.showFilters({ scene: 'cost', panels: 1, width: 1, height: 1, radius: 8, target });
+    await frames(1);
+    RenderingServer.forceDraw();
+    grab(owner).getWidth();
+    const warmUpMs = (Time.getTicksUsec() - warmStarted) / MICROSECONDS_PER_MILLISECOND;
+    for (const [width, height] of COST_SIZES) {
+      for (const radius of COST_RADII) {
+        api.showFilters({ scene: 'cost', panels: 0, width, height, radius, target });
+        await frames(3);
+        const baseline = frameMilliseconds(owner);
+        const gpuBaseline = gpuMilliseconds(owner, rid);
+        const started = Time.getTicksUsec();
+        api.showFilters({ scene: 'cost', panels: 1, width, height, radius, target });
+        await frames(1);
+        RenderingServer.forceDraw();
+        grab(owner).getWidth();
+        const firstFrame = (Time.getTicksUsec() - started) / MICROSECONDS_PER_MILLISECOND;
+        if (first[target] === undefined) first[target] = { warmUpMs: Number(warmUpMs.toFixed(1)), firstPanelAfterMs: Number(firstFrame.toFixed(1)) };
+        await frames(3);
+        const withPanel = frameMilliseconds(owner);
+        const gpu = gpuMilliseconds(owner, rid);
+        const plan = (target === 'backdrop' ? node(api, 'cost-0').effects?.backdrop : node(api, 'cost-0').effects?.filter)?.plan;
+        results.push({
+          target, width, height, radius, pixelRatio: ratio(), extraMs: Number((withPanel - baseline).toFixed(3)),
+          baselineMs: Number(baseline.toFixed(3)), gpuMs: Number(gpu.toFixed(3)), gpuExtraMs: Number((gpu - gpuBaseline).toFixed(3)),
+          level: plan?.level, pairs: plan?.pairs,
+        });
+      }
+    }
+  }
+  // How panels add: four of the middle size at the middle radius.
+  for (const target of ['backdrop', 'filter'] as const) {
+    api.showFilters({ scene: 'cost', panels: 0, width: 400, height: 300, radius: 16, target });
+    await frames(3);
+    const baseline = frameMilliseconds(owner);
+    api.showFilters({ scene: 'cost', panels: 4, width: 400, height: 300, radius: 16, target });
+    await frames(4);
+    results.push({ target, panels: 4, width: 400, height: 300, radius: 16, extraMs: Number((frameMilliseconds(owner) - baseline).toFixed(3)) });
+  }
+  console.log('GODOT_REACT_FILTERS_COST', JSON.stringify({ renderer: RenderingServer.getCurrentRenderingMethod(), firstUseMs: first, results }));
+  DisplayServer.windowSetVsyncMode(vsync);
+  api.showFilters({ scene: 'edge', radius: 0 });
 }
