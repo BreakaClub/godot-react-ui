@@ -1,10 +1,23 @@
 # Native API v2: the Fabric-style commit protocol
 
-`ReactUiRoot` is a Godot `Control`; GodotJS imports it from `godot` and calls the camelCase methods
-`commit`, `takeCommitDeletions`, `getSnapshot`, `getNodeRect`, `findByTestId`, `drainEvents` and
-`resolveEvent`, and connects to its `eventsReady` signal. All methods run on the Godot main thread.
-Commits and queries never call back into JS; the only native-to-JS call is the `eventsReady`
-emission described under "Input events".
+`ReactUiRoot` is a Godot `Control`; GodotJS imports it from `godot` and calls its `#[func]`s under camelCase names
+(`take_commit_deletions` is `takeCommitDeletions`; gdext exposes the Rust names as written, and `#[func]`/`#[signal]` take no
+arguments here). The renderer (`src/renderer.ts`, typed in `src/native.ts`) calls:
+
+- `commit`, `takeCommitDeletions` ("Commit");
+- `drainEvents`, `resolveEvent` and the `eventsReady` signal ("Input events");
+- `getSnapshot`, `getNodeRect`, `findByTestId`, `getScrollState`, `getSelection`, `getTextInputState` ("Queries");
+- `setPointerCapture`, `releasePointerCapture`, `hasPointerCapture` ("Pointer model");
+- `focusNode`, `blurNode` ("Focus and keyboard");
+- `scrollTo`, `scrollBy`, `scrollIntoView` ("Scrolling");
+- `clearSelection` ("Text selection");
+- `setTextAndSelection`, `setTextSelection` ("Text input");
+- the `Control`'s own `size` property, which the owner sets and `useRootSize` reads.
+
+`getActivity`, `setProfiling` and `takeProfile` are diagnostics for verifiers and benchmarks ("Native CSS motion and clipping").
+The remaining `#[func]`s are hooks for the platform and the verifiers ("Platform and verifier hooks"). All methods run on the
+Godot main thread. Commits and queries never call back into JS; the only native-to-JS call is the `eventsReady` emission
+described under "Input events".
 
 The architecture is React Native Fabric's (`docs/INTERACTION_PLAN.md`, sections 3 and 4). React runs
 in persistent mode: the shadow tree is a tree of immutable JS instances that share unchanged
@@ -31,14 +44,15 @@ JS, unique for the root's lifetime and never reused.
 }
 ```
 
-- `created`: nodes new to this root with their full props. `kind` is `view`, `text` or `button`.
+- `created`: nodes new to this root with their full props. `kind` is `view`, `text`, `button` or `textinput`.
   `Text` carries its string in the `text` prop and has no children; a `Button` renders its label
-  through a child `Text`.
+  through a child `Text`; a `TextInput` has neither (its text is in a native edit buffer, "Text input").
 - `updated`: mounted nodes with a props diff. An absent key is unchanged and JSON `null` resets the
   key to its default.
 - `children`: every node whose child list changed, and every created node that has children; tag `0`
   is the layer's own list of top-level nodes.
-- Everything is parsed with `deny_unknown_fields`: an unknown key anywhere is an error.
+- Everything is parsed with `deny_unknown_fields`: an unknown key anywhere is an error. Every payload key may be absent
+  (an absent list is empty).
 
 Validation (`native/commit.rs`) happens before any change: created tags are nonzero, never used
 before and unique; updated tags are mounted in this layer (or created by this payload) and appear
@@ -49,6 +63,13 @@ props are valid for the node's kind. A style the motion engine cannot animate (b
 rejection. After validation the plan (`MountingTransaction`) applies in the order Remove, Delete,
 Create, Update, Insert; a removed node that is not inserted elsewhere in the payload is deleted
 together with its mounted descendants, and a node moved to another parent is not.
+
+The returned reason is the first violation, for example `Invalid commit JSON: …`, `layer N is negative`, `layer N does not
+exist; layers are 0..2`, `tag 0 is the layer root and cannot be created`, `tag N has already been used`, `node N is updated
+more than once`, `node N is not mounted in layer L`, `node N is listed under two parents`, `node N would become its own
+ancestor`, or a prop error (`tabIndex must be 0 or -1, not N`, `rows is only valid with multiline`, `multiline cannot change
+after a text input is created`, `ariaValueMin (…) must not be greater than ariaValueMax (…)`, `text is only valid on text
+nodes`).
 
 `take_commit_deletions() -> PackedInt64Array` returns the tags the last successful `commit` deleted,
 so JS drops its instances and public handles.
@@ -70,6 +91,16 @@ so JS drops its instances and public handles.
 | `multiline`, `readOnly`, `secure`, `selectOnFocus` | boolean (`textinput` only; `multiline` cannot change after creation) |
 | `rows`, `maxLength` | positive / nonnegative integer (`textinput` only; `rows` needs `multiline`; `maxLength` in UTF-16 units) |
 | `keyboardType` | `default|multiline|number|decimal|phone|email|url|password` (`textinput` only; one to one with `DisplayServer.VirtualKeyboardType`) |
+| `role` | `button checkbox switch radio radiogroup group slider progressbar textbox text link list listitem listbox option combobox menu menuitem menuitemcheckbox menuitemradio tablist tab tabpanel dialog img region tooltip none presentation` ("Accessibility") |
+| `ariaLabel`, `ariaDescription`, `ariaValueText`, `ariaPlaceholder` | string |
+| `ariaHidden`, `ariaDisabled`, `ariaReadOnly`, `ariaRequired`, `ariaModal` | boolean (JS sends them only when true) |
+| `ariaExpanded`, `ariaSelected` | boolean (`false` is sent) |
+| `ariaChecked` | `true`, `false` or `"mixed"` |
+| `ariaValueMin`, `ariaValueMax`, `ariaValueNow` | finite numbers; min may not exceed max |
+| `ariaLive` | `off|polite|assertive`; `ariaOrientation`: `horizontal|vertical` |
+
+The JSX names are `aria-label` and so on and `selectTextOnFocus`; the wire names above are camelCase and `selectOnFocus`
+(`src/props.ts`).
 
 JS compiles `className` and `style` once per distinct input into ordered **layers** (`src/styles.ts`;
 shorthands `padding`, `margin`, `gap`, `overflow` and `inset` are expanded to longhands there). Native resolves
@@ -95,7 +126,7 @@ pixels; opacity 0..1; textAlign `left|center|right`; overscrollBehavior `auto|co
 scrollbarColor (a hex colour, inherited) and touchAction `auto|none|pan-x|pan-y` (see "Scrolling" below); pointerEvents `auto|none` and cursor
 `default|pointer|text|move|grab|grabbing|not-allowed|crosshair|wait|progress|help|ew-resize|ns-resize|nesw-resize|nwse-resize`
 (both inherited; see "Godot co-operation" below); userSelect `none|text` and selectionColor (a hex colour), both inherited (see "Text selection" below); transition and interpolateSize as described below; overflowX/overflowY
-`visible|hidden|scroll|auto` ("Scrolling" below). `position` is `static|relative|absolute|fixed` (not inherited; `sticky` is
+`visible|hidden|scroll|auto` ("Scrolling" below); `filter` and `backdropFilter` ("Filters and frosted glass" below). `position` is `static|relative|absolute|fixed` (not inherited; `sticky` is
 rejected), `top`/`right`/`bottom`/`left` are finite numbers (negative allowed), percentage strings (negative
 allowed) or `"auto"`, and `zIndex` is a 32-bit integer; see "Positioning and stacking" below. Unsupported properties fail explicitly. Default is a flex column,
 transparent background, white 16px text, no spacing, normal flex shrinking. Text is shaped and wrapped
@@ -118,14 +149,23 @@ with a **content** item below it (clips to the padding box when `overflow` is no
 parents the child boxes). A scroll container has two more items: a **scroll** item under the content item
 (transform = minus the scroll offset; the child boxes parent to it instead) and an **overlay** item under the box
 item, drawn after the content, for the scrollbar thumbs. Sibling order is the child-list order. Layer 0 and layer 1 each have a root
-item; the focus ring is a top-most item above both. Only an element whose own visuals or size changed
-re-records; an idle frame records nothing.
+item; the focus ring is a top-most item above both, and the drag ghost one above that. A text input has two more items
+under its scroll item: **text** (selection, text, the preedit's underline) and **caret**. An element with a filter has more
+(see "Filters and frosted glass"). Only an element whose own visuals or size changed re-records; an idle frame records nothing.
+
+**Display scale.** Text, text inputs, rounded boxes and scroll containers record at the font oversampling of the viewport the
+root is in (`Viewport.get_oversampling()`, which is what Godot's own controls draw at; a window carries its content scale, a
+`SubViewport` has its own). It is read once per paint pass and on `NOTIFICATION_DRAW` (which the engine sends every canvas item
+when a viewport's oversampling changes) and on entering the tree, so a change of scale repaints those elements with no commit,
+and an idle frame still records nothing. Rounded `StyleBoxFlat` draws use a one-device-pixel feather. The snapshot's
+`oversampling` is the scale the root last drew at (`docs/tracks/hidpi.md`).
 
 Native hit testing descends the **paint tree** in reverse paint order, the overlay layer first, and hands a
 point to a clipping element's paint children only inside its padding box, plus the scroll offset for a scroll container
 (and a scrollbar thumb of a container is hit before the content it covers). An element whose computed `pointerEvents` is `none` is never
 the hit, but its children are still tested (CSS semantics). The root clips drawing and input to its own
-rectangle. Enabled buttons participate in Tab/Shift-Tab focus (document order) and Enter/Space activation.
+rectangle. Enabled buttons, text inputs and `tabIndex` elements participate in Tab/Shift-Tab focus (document order); Enter and
+Space activate enabled buttons only.
 
 ## Positioning and stacking
 
@@ -155,6 +195,41 @@ out-of-flow elements only (plan 3.2, invariant 6, named exception). A childless 
 leaf, which does not replace the list of out-of-flow boxes it was the containing block of; `layout::compute_tree` gives
 leaf output the positioning area of an empty container so that the list is replaced when its last child goes.
 
+## Filters and frosted glass
+
+`filter` (the element and everything painted inside it) and `backdropFilter` (what is already drawn behind the element, inside
+its rounded border box) are style longhands (`native/filter.rs`, `native/filter_render.rs`, `native/blur.rs`; plan Phase V1,
+`docs/tracks/filters.md`, `docs/tracks/filter-fixes.md`). Neither is inherited.
+
+- **Wire form.** Each has CSS text (`none`, or functions `blur(4px) brightness(1.1) …`: `blur`, `brightness`, `contrast`,
+  `grayscale`, `hue-rotate`, `invert`, `opacity`, `saturate`, `sepia`, and one `drop-shadow` on `filter`) and a per-function
+  *parts* object (`filterParts`, `backdropFilterParts`: `blur`, `brightness`, `contrast`, `grayscale`, `hueRotate`, `invert`,
+  `opacity` (backdrop only), `saturate`, `sepia`, `dropShadow: {x, y, blur, color} | "none"`) which Tailwind utilities set one
+  function at a time. Units are read case-insensitively. Merging layer B over A: an explicit list replaces the list and forgets
+  the parts; parts set after it take the property back to a list composed in a fixed order (blur, brightness, contrast, grayscale,
+  hue-rotate, invert, opacity, saturate, sepia, drop-shadow), merged per function. So `blur-sm hover:brightness-110` keeps the
+  blur on hover and an inline `filter` replaces both. A commit that carries an invalid list is rejected: `blur()` is 0 to 256 CSS
+  pixels, a list has at most one `drop-shadow()` and no `blur()` after it, and `backdropFilter` has no `drop-shadow()`.
+- **Drawing.** A backdrop is two items drawn before the box's own background: a copy of the render target (an explicit
+  `canvas_item_set_copy_to_backbuffer` with a rectangle in render-target pixels, large enough for the blur's reach) and a draw item
+  that reads the copy's mip chain through a material. A filter is a canvas group around the box item, under a bare **shell** item
+  that also holds the element's own backdrop items (so both can be on one element) and, on Compatibility, a one-pixel mip probe.
+  `blur(r)` is a Gaussian of standard deviation `r` logical pixels scaled to the render target, planned over the target's mip
+  chain (`blur::plan`: level, kernel texels, pairs); the colour functions compose into one matrix applied after the blur. Items,
+  materials and shaders exist only while the filter does; a changed value is `material_set_param`, with no commit, layout or
+  re-record. An element with no filter pays nothing, and a tree with none asks for no frames; while any effect exists the root asks
+  for `process()` frames so that its rectangles follow a changed canvas transform.
+- **Renderers.** Compatibility, Mobile and Forward+ each have their own measured model of the engine's mip chain; any other
+  rendering method draws nothing and logs one `ERROR`.
+- **Nesting.** A `filter` inside a `filter`, or a `backdropFilter` inside a `filter`, is reported once with an `ERROR` naming both
+  elements and the inner effect is not drawn (Godot's canvas groups do not nest). It is not a commit rejection.
+- **Transitions.** `filter` and `backdropFilter` are transition properties, sampled natively through Stylo (matching lists
+  interpolate function by function and a missing function from its identity). Transition records report them as CSS text.
+- **Reporting.** Each snapshot node has `effects`, `null` or `{backdrop: {plan, region, kind} | null, filter: {plan, kind, probe,
+  culled} | null, layout}`; `plan` is `{level, kernelTexels, pairs, achievedPx, clamped}` (`clamped` when the target has too few
+  mip levels for the radius) and `layout` is `plain`, `backdrop`, `group`, `both` or `both-in-wrapper`. `get_activity().effects`
+  counts what exists and what was made (below).
+
 ## Godot co-operation
 
 The root is one `Control` among the game's own (plan 3.11), so it passes on what React does not use.
@@ -169,12 +244,17 @@ The root is one `Control` among the game's own (plan 3.11), so it passes on what
   DRAG, `not-allowed` FORBIDDEN, `crosshair` CROSS, `wait` WAIT, `progress` BUSY, `help` HELP, `ew-resize` HSIZE,
   `ns-resize` VSIZE, `nesw-resize` BDIAGSIZE, `nwse-resize` FDIAGSIZE); over nothing it is ARROW. An element that set no
   `cursor` over selectable text (below) shows IBEAM.
-- **Key focus.** The root's focus mode is click-only and `ready()` does not grab focus. It holds Godot key focus
-  only when its owner calls `grab_focus()`, an element is focused or a text selection exists. Godot grants key focus to a focusable
-  Control on every left press that reaches it, before any handler runs, so a primary press that leaves no element
-  focused (a press on something that cannot take focus, or one whose `pointerdown` was prevented with nothing
-  focused) hands key focus back: keys then go to the game. A key press in flight (Enter or Space held) ends if the
-  root loses key focus; a mouse press does not, because Godot routes it by mouse focus, not key focus.
+- **Key focus.** The root's focus mode is click-only and `ready()` grabs focus only if an element is already focused (an
+  `autoFocus` from before it entered the tree). It holds Godot key focus when its owner calls `grab_focus()`, an element is
+  focused or a text selection exists. Godot grants key focus to a focusable Control on every left press that reaches it,
+  before any handler runs, so a primary press that leaves no element focused and no selection (a press on something that
+  cannot take focus, or one whose `pointerdown` was prevented with nothing focused) hands key focus back: keys then go to the
+  game. It is handed back by the same rule (`release_key_focus_without_element`: no focused element, no selection) when
+  `blur_node` leaves nothing focused, when Tab finds nothing to move to, when an element is disabled or leaves reach, when a
+  commit clears the selection, and, once the commit has settled, when a commit removed the focused element. A commit that
+  removed no focus leaves key focus alone, so an owner's `grab_focus()` lasts until one of these happens. A key press in flight
+  (Enter or Space held) ends if the root loses key focus; a mouse press does not, because Godot routes it by mouse focus,
+  not key focus.
 - **Keys.** Tab and Shift+Tab are consumed only if element focus moved. Enter and Space are consumed only when
   they press or release a focused enabled button. `ui_copy` is consumed only when it copied a selection and
   `ui_text_select_all` only when something is selectable. Every other key is left for `_unhandled_input`.
@@ -183,10 +263,8 @@ The root is one `Control` among the game's own (plan 3.11), so it passes on what
   at the pointer. The event is consumed only if JS calls `preventDefault()`, or its default action (scrolling, below)
   took it; otherwise it continues to `_unhandled_input`.
 
-A click targets the deepest element when press and release hit the same enabled element; when their
-deepest hits differ but share the same enabled button ancestor (for example button padding and its
-label), the click targets that button. Crossing to another button or releasing outside the pressed
-button does not activate it. Disabled buttons and descendants of disabled ancestors cannot activate.
+Which element a `click` goes to is under "Pointer model" (the nearest common inclusive ancestor of the press and release
+targets, D50). Disabled buttons and descendants of disabled ancestors cannot activate.
 
 ## Scrolling
 
@@ -204,23 +282,26 @@ transform and as the hit-test and geometry offset, and re-clamped after layout.
 - **Keys** scroll the focused element's nearest container that the key can move: arrows a page / 8, Page Up/Down a page, Home
   and End the ends, Space and Shift+Space a page (Space on a focused enabled button presses it). Not with Ctrl, Alt or Meta,
   and a key that moved nothing is not consumed. Keyboard focus (Tab, `focus()`, `autoFocus`) scrolls the element into view.
-- **Touch**: after an un-prevented primary `pointerdown`, a finger that moves beyond 8 px starts a pan if `touchAction`
+- **Touch**: after an un-prevented primary `pointerdown` whose pointer no element captured, a finger that moves beyond 8 px starts a pan if `touchAction`
   (intersected from the touched element outwards) allows the axis and a container can move that way; the pointer is cancelled
   (`pointercancel`, no `click`), the owner follows the finger (latched to it, from where the slop was crossed) and coasts when
   the finger lifts. A touch that cannot pan stays pointer events. A touch that lands on a coasting container stops it and
   does not click.
 - **Scrollbars**: thumbs are drawn in the overlay item (`scrollbarWidth: none` hides them, `scrollbarColor` colours them; default
-  `#64748b99`) and are the only part that takes a pointer; dragging one moves the content with the mouse (no click follows).
+  `#64748b99`) and are the only part that takes a pointer; dragging one (after an un-prevented `pointerdown` whose pointer no
+  element captured) moves the content with the mouse (no click follows).
 - **Events**: `scroll` (`scrollLeft`, `scrollTop`, `scrollWidth`, `scrollHeight`, `clientWidth`, `clientHeight`; target only,
   not cancelable) is queued whenever an offset changes (input, command, flick or layout re-clamp), one per container while it
   waits for JS. Scrolling never commits, lays out, restyles or re-records boxes or content: `get_snapshot().stats` shows
   `scrollUpdates` and `overlayRecords` and nothing else changing.
 - **Commands**: `scroll_to(tag, left, top)`, `scroll_by(tag, dx, dy)` and `scroll_into_view(tag)` return an error string (empty
-  for success; a node that is not a scroll container, or a non-finite number, is an error) and end any flick;
+  for success). `scroll_to` and `scroll_by` error for a node that is not a scroll container or a non-finite number;
+  `scroll_into_view` is fine on any mounted element and errors only for one that is not mounted. They end any flick;
   `get_scroll_state(tag)` returns the container's state as JSON (the event's fields, `minScrollLeft`, `maxScrollLeft`,
   `minScrollTop`, `maxScrollTop`, the drawn `thumbs` and the `tracks` of the axes that scroll, drawn or not) or `null`. `get_snapshot()` gives every node a `scroll` field with the same.
-- **Frames**: `process()` runs only while native motion is running, a flick is coasting or a finger is panning
-  (`update_process()` is the one decision).
+- **Frames**: `process()` runs only while it has work: native motion is running, a flick is coasting, a finger is panning,
+  a drag needs its timers or edge auto-scroll, a focused text input's caret is blinking or a blurred composition is pending,
+  or a filter effect exists (`update_process()`, `motion.rs`, is the one decision; `process_input` is on only during a drag).
 
 ## Text selection
 
@@ -244,10 +325,12 @@ commit path. The model works in code points; every offset that crosses to JS is 
 - **Focus.** Starting a selection takes Godot key focus for the root without focusing an element; the root keeps it while
   a selection exists, and a press that clears the selection and focuses nothing hands it back (see "Godot co-operation").
   Clearing it through `clear_selection` never releases focus: the owner may have asked for it.
-- **Keys.** With the root holding key focus and no `TextInput` focused (Phase I7), the `ui_copy` action puts the selected
-  nodes' text, one per non-empty range, joined by `\n`, on the clipboard (`DisplayServer.clipboard_set`) and the
+- **Keys.** With the root holding key focus and no `TextInput` focused, the `ui_copy` action puts the selected
+  nodes' text, one per non-empty range, joined by `\n`, on the clipboard (`native/clipboard.rs`: `DisplayServer`'s, or
+  process memory in a verifier run, "Platform and verifier hooks") and the
   `ui_text_select_all` action selects from the start of the first selectable text to the end of the last. Matching is
-  `event.is_action("ui_copy", true)`, so it needs the device an `InputMap` event has (a real keyboard's).
+  `event.is_action("ui_copy", true)` on the raw event, so it needs the device an `InputMap` event has (a real keyboard's);
+  a text input re-stamps the keyboard device before it matches (T3), a document selection does not.
 - **Lifecycle.** A commit that changes the text of, or removes, a `Text` element the selection covers (a covered element
   is a selectable one from the first end's to the last's), or a restyle that changes such an element's `userSelect` or
   `display`, clears the selection. A commit that changes a child list while a selection exists builds a document and
@@ -259,30 +342,38 @@ commit path. The model works in code points; every offset that crosses to JS is 
   `selectionColor` (default `#3b82f659`), and the range and colour are part of the content item's key, so changing the
   selection re-records exactly the elements whose range changed. The highlight is inside the content item, so it scrolls
   with a scroll container and is clipped by the containers around it.
-- **Events**: `selectionchange` is addressed to the root listeners (target 0, empty path), is not cancelable and has no
-  payload; a change queues one, and one still waiting for JS is updated in place. JS asks the root for the selection.
+- **Events**: `selectionchange` has one wire name with two shapes, told apart by `target` (D44, T1). The document's is
+  addressed to the root listeners (target 0, empty path), is not cancelable and has no payload; a change queues one, and one
+  still waiting for JS is updated in place. JS asks the root for the selection. A text input's (below) has a target and
+  carries the offsets.
 - **Queries and commands**: `get_selection() -> String` is `null`, or `{"anchor": {"tag", "offset"}, "focus": {"tag",
   "offset"}, "isCollapsed", "text"}` (`text` is what copying gives; the anchor may come after the focus);
   `clear_selection()` drops it and queues `selectionchange` if there was one. JS: `root.getSelection()` (element handles
   and offsets), `root.clearSelection()`, `root.addEventListener('selectionchange', ...)` and the `useTextSelection()` hook.
 - Not built: word-granularity drag after a double click, caret affinity at wraps and direction changes, highlighting a
-  selected line break, auto-scroll while dragging, touch selection handles, selection inside a `TextInput` (Phase I7).
+  selected line break, auto-scroll while dragging, touch selection handles. (Selection inside a `TextInput` is built; see
+  "Text input".) Text inside a `draggable` element starts no selection (D43).
 
 ## Queries
 
-- `get_snapshot() -> String`: `{nodes, stats, width, height, hovered, focused, pressed, focusVisible,
-  clockMs, transitions}`. Each node is `{id, kind, layer, text, parent, children, paintParent, paintIndex,
-  documentIndex, rect, clipRect, style, props, presentation}`: `id` is the tag, `parent` and `children` are the React
+- `get_snapshot() -> String`: `{nodes, stats, width, height, hovered, focused, pressed, focusVisible, modality,
+  pointers, drag, clockMs, oversampling, transitions}`. Each node is `{id, kind, layer, text, parent, children, paintParent,
+  paintIndex, documentIndex, rect, clipRect, style, props, presentation, scroll, textInput, effects}`: `id` is the tag, `parent` and `children` are the React
   tree's, `paintParent` is who paints the node (`parent`'s rule, `0` for the main layer's root, `null` in the overlay)
   and `paintIndex` its place, back to front, among what that paint parent paints, `documentIndex` its pre-order place
   (node 0 reports `-1`), `rect` is root-local logical pixels, `clipRect` the clip its paint ancestors impose (or `null`), `style` the node's **computed** style (unset properties omitted) and `props`
-  the native props it was last given. Node `0` stands for the main layer's root (`parent: null`); layer 0's
+  the native props it was last given (every key, `null` when unset). Node `0` stands for the main layer's root (`parent: null`); layer 0's
   top-level nodes report `parent: 0`, layer 1's report `null` and `layer: 1`. `stats` is
   `{layoutPasses, batches (= commits), commits, nodeCount, paintPasses, layoutMicros, nodesCreated,
-  nodesUpdated, nodesDeleted, mutations, boxRecords, contentRecords, animationFrames}`: `mutations` counts
+  nodesUpdated, nodesRestyled, nodesDeleted, mutations, boxRecords, contentRecords, animationFrames, scrollUpdates,
+  overlayRecords}`: `mutations` counts
   the removes, deletes, creates, updates and inserts applied, `boxRecords` and `contentRecords` the canvas
-  command lists re-recorded. `nodeCount` excludes node 0. Whole-tree by design: diagnostics only.
-- `get_node_rect(tag: int) -> String`: the root-local rectangle as JSON, or `null`.
+  command lists re-recorded, `scrollUpdates` and `overlayRecords` what scrolling changed. `nodeCount` excludes node 0.
+  `oversampling` is the font oversampling the root last drew at ("Mounted tree, geometry, paint"); `scroll`, `textInput` and
+  `effects` are `null` unless the node is a scroll container, a text input or has a filter. Whole-tree by design:
+  diagnostics only.
+- `get_node_rect(tag: int) -> String`: the root-local rectangle as JSON, or `null` when the node is not mounted (it is also
+  `null` for node 0, which the snapshot reports a rectangle for).
 - `find_by_test_id(test_id: String) -> int`: the lowest (first created) tag carrying the `testID`, or -1.
 - `get_text_input_state(tag: int) -> String`: a text input's `{value, selectionStart, selectionEnd, selectionDirection,
   eventCount, composing, preedit, scrollLeft, scrollTop, caretVisible, inputDirection}` as JSON (offsets in UTF-16
@@ -318,16 +409,23 @@ browser model, not an IPC round trip.
   middle, 2 right, 3 back, 4 forward; -1 when not a button change), `buttons`
   (DOM `buttons` bitmask mapped from Godot's mask), `detail` (the click count on `click`, `auxclick` and `dblclick`,
   otherwise 0), `relatedTarget` (enter and leave only, else `null`) and `shiftKey,ctrlKey,altKey,metaKey`.
-  Enter and leave events also carry `relatedPath`, the other side's path. `wheel` carries the same pointer fields
+  Enter and leave events also carry `relatedPath`, the other side's path (omitted when it is empty). `wheel` carries the same pointer fields
   (`button` -1, `pointerType` `"mouse"`) plus `deltaX,deltaY` in wheel ticks, positive down and right: one per notch
   of a discrete wheel, scaled by Godot's `factor` (or a pan gesture's `delta`) for smooth devices, which is what
   `ScrollContainer` scales by page / 8. It is cancelable. `keydown` and `keyup` carry `key`, `code`, `repeat`,
-  `isComposing` (true while a text input is composing) and the four modifiers; `keydown` is cancelable (see "Focus and
+  `isComposing` (true while a text input is composing) and the four modifiers; both are cancelable (see "Focus and
   keyboard"). `focus` and `blur` carry `relatedTarget` (the element on the other side of the change, or `null`)
   and `focusVisible` (the new focus, for `focus`; the old one, for `blur`).
-  Only a mouse `pointerdown` on an enabled element is cancelable; its default action is focusing the nearest
-  enabled button (and taking Godot key focus), which `preventDefault()` skips. `click` still follows a prevented
-  `pointerdown`, as in browsers.
+  `accessibilityaction` carries `action` (`increment`, `decrement` or `setValue`) and `value` (the number `setValue` asked
+  for, else `null`); it is not cancelable ("Accessibility").
+  Only a primary `pointerdown` on an enabled element, mouse or touch, is cancelable; its default action is to focus the
+  nearest focusable ancestor-or-self (button, text input or `tabIndex` element), else to clear focus (handing key focus back,
+  "Godot co-operation"), and to start or clear the text selection and the other gestures of "Pointer model", which
+  `preventDefault()` skips. `click` still follows a prevented `pointerdown`, as in browsers.
+- **Propagation.** JS runs the capture phase only for `pointerdown`, `pointermove`, `pointerup`, `pointercancel`, `click`,
+  `wheel`, `keydown` and `keyup`. Everything bubbles except `pointerenter`, `pointerleave`, `scroll` and `selectionchange`
+  (`focus` and `blur` bubble, unlike the DOM's). Root listeners see an event after its bubble phase, and see only events that
+  bubble or are addressed to the root (`src/events.ts`).
 - Drag events (`dragstart`, `drag`, `dragenter`, `dragleave`, `dragover`, `drop`, `dragend`) carry the pointer fields
   above (`button` -1, `buttons` 1 while the pointer is held and 0 for `drop` and `dragend`), `sessionId` (the drag's
   number; every event of one drag has the same) and, for `dragenter` and `dragleave`, `relatedTarget`. `dragend` also
@@ -336,7 +434,9 @@ browser model, not an IPC round trip.
   `pointerenter` (target the element entered, `relatedTarget` the element left). JS dispatches them to the
   elements actually crossed, below the lowest common ancestor, without bubbling.
 - Enter/Space on a focused button makes one `click` with `pointerId: 0`, `pointerType: ""` and `detail: 0` when the
-  key is released (not cancelable). No `pointerdown` or `pointerup` is made up for it.
+  key is released (not cancelable). No `pointerdown` or `pointerup` is made up for it. If JS prevents the `keyup` the
+  press ends and no `click` follows (`KeyRelease::EndsWithoutClick` in `keyboard_input.rs`, whose comments call that
+  "keeping" the click).
 - A press in flight when the window loses OS focus is cancelled natively (Godot drops mouse focus and its
   synthetic release never reaches `gui_input`): JS gets `pointercancel`.
 
@@ -345,8 +445,10 @@ browser model, not an IPC round trip.
 A `textinput` node (`<TextInput>`, `src/text-input.tsx`) owns an `EditBuffer` (`native/text_input.rs`: text, anchor and
 focus, undo and redo, the IME composition, `maxLength`, read-only and secure modes) in per-tag state
 (`native/text_input_godot/`). Offsets that cross to JS are UTF-16 units (`native/text_offsets.rs`). It measures
-`TEXT_INPUT_DEFAULT_COLUMNS` (20) advances of `0` wide and one line tall (or `rows` lines for a multi-line input) at its
-font size, whatever it holds, so typing never lays out; a long value scrolls.
+`TEXT_INPUT_DEFAULT_COLUMNS` (20) advances of `0` wide and one line tall (a multi-line input: `rows` lines, 2 without
+`rows`, `TEXT_AREA_DEFAULT_ROWS`) at its font size, whatever it holds, so typing never lays out; a long value scrolls. Values
+that cross into the buffer are normalised: a single-line input drops line breaks, a multi-line one turns `\r\n`, `\r`, NEL
+and the line and paragraph separators into `\n` (D48).
 
 - **Editing.** An un-prevented `keydown` aimed at a focused text input resolves to an edit command with the project's
   own `InputMap` actions in `LineEdit`'s order (`ui_copy`, `ui_text_select_all`, `ui_cut`, `ui_text_submit` or
@@ -373,10 +475,12 @@ font size, whatever it holds, so typing never lays out; a long value scrolls.
   offsets into the current text; undo history untouched). The `TextInput` component answers each `input` with the
   command when `value` differs from what native holds, so a transform or a rejection takes effect inside the same
   dispatch.
-- **Pointer.** An un-prevented primary press on a text input places the caret (Shift extends from the anchor), a
-  double click selects the word, a triple click everything, and dragging with the button held extends the selection (by
-  words after a double click); a press that focuses a `selectOnFocus` input selects everything instead. The pointer
-  over a text input is the text cursor unless its style says otherwise.
+- **Pointer.** An un-prevented primary press on a text input, when no scrollbar thumb was grabbed and no element captured the
+  pointer, places the caret (Shift extends from the anchor), a double click selects the word, a triple click everything (all of
+  a text area's text, not a line: `LineEdit`'s rule, T14), and dragging with the button held extends the selection (by words
+  after a double click); a press that focuses a `selectOnFocus` input selects everything instead. A text input keeps its press
+  inside any `draggable` ancestor (it is never a drag source, T23). The pointer over a text input is the text cursor unless
+  its style says otherwise.
 - **Painting.** The selection, the text (or the placeholder), the IME preedit's underline and the caret are drawn into two
   canvas items under the node's `scroll` item, so following the caret is a transform: a single-line input scrolls
   horizontally and a multi-line one vertically (and is a scroll container for wheel, touch pans and thumb dragging, with
@@ -386,11 +490,21 @@ font size, whatever it holds, so typing never lays out; a long value scrolls.
   and a fixed selection colour (`#3b82f659`).
 - **Platform.** Gaining focus starts the IME and shows the on-screen keyboard where the engine has them (`FEATURE_IME`,
   `FEATURE_VIRTUAL_KEYBOARD`); `NOTIFICATION_OS_IME_UPDATE` becomes the preedit, and `_set_text` (the Web virtual
-  keyboard's hook) an `insertReplacementText` edit with the caret at 0. Copy, cut and paste use `DisplayServer`'s clipboard,
-  except that on the Web a paste asks the browser (`navigator.clipboard.readText()` through `JavaScriptBridge`) and pastes
-  when it answers, because `clipboard_get` there returns the text the previous call read; a refused read is logged and
-  pastes nothing. IME and keyboard calls run with the root's base guard held, since the Web engine notifies every node
-  of a window focus change from inside them.
+  keyboard's hook) an `insertReplacementText` edit with the caret at 0. Copy, cut and paste use the clipboard of
+  `native/clipboard.rs` (`DisplayServer`'s, or process memory when a verifier isolated it, "Platform and verifier hooks"),
+  except that on the Web a paste asks the browser (`navigator.clipboard.readText()` through `JavaScriptBridge`, answered by
+  `_on_web_clipboard_text` or `_on_web_clipboard_refused`) and pastes when it answers, because `clipboard_get` there returns
+  the text the previous call read (the engine is unchanged, so any other caller of it on Web still gets the stale text); a
+  refused read is logged and pastes nothing, and an empty paste is no paste. On the Web the root also writes the engine's
+  hidden soft-keyboard element (value, and the selection unless the engine's Right presses from `_set_text` are still
+  pending) through `JavaScriptBridge`, because the engine sets it once and every key sends its whole value back. An unfinished
+  composition commits on blur through `beforeinput`, one frame later; a click inside the composing input still cancels it.
+  IME and keyboard calls run with the root's base guard held, since the Web engine notifies every node of a window focus
+  change from inside them. Engine behaviour that stays (D44 T7, D48): the engine's IME start drops the last queued raw key,
+  the Right presses of two keys in one frame add up, the caret after JS puts an edit back mid-text is off until the next key,
+  and after a Web composition ended by a focus move `ime_started` stays set and raw keys are dropped until one more
+  composition commits. The IME window and the on-screen keyboard are placed from the root's own screen transform
+  (`update_ime_position`), which is wrong for a root on a quad in a `SubViewport`.
 - **Accessibility.** A `TextInput` is a text field (`TEXT_FIELD`, or `MULTILINE_TEXT_FIELD` with `multiline`) whatever
   its `role`, which can only remove it (`none`, `presentation`). It is named by `aria-label`, else its `placeholder`; its
   text is not a value but one element per line of the shaped display text (`create_sub_text_edit_elements`, bullets for a
@@ -398,11 +512,11 @@ font size, whatever it holds, so typing never lays out; a long value scrolls.
   or the box it wraps to changes; its selection is `update_set_text_selection` against those elements. Actions: focus,
   `set text selection` (`{start_char, end_char}`, code points of the display text), and, unless `readOnly` or disabled,
   `replace selected text` (an `insertText` edit) and `set value` (an `insertReplacementText` edit with the caret after it),
-  both through `beforeinput`. Not read from a platform tree: the engine that runs this project has no accessibility driver.
+  both through `beforeinput`. The platform tree for text inputs was read on the stock profile only ("Accessibility").
 
 ## Focus and keyboard
 
-- **Focusable** (`native/focus.rs`, unit tested): a `Button`, or any element with a `tabIndex` (`0` or `-1`; any
+- **Focusable** (`native/focus.rs`, unit tested): a `Button`, a `TextInput`, or any element with a `tabIndex` (`0` or `-1`; any
   other value is a commit error), unless it or an ancestor is disabled. **Tabbable**: focusable, not `tabIndex`
   `-1`, and visible. Tab order is document order (pre-order of the mounted tree, the main layer first), never paint
   order; Tab and Shift+Tab wrap, and from an element that is not a stop (say `tabIndex` `-1`) they continue from its
@@ -471,10 +585,12 @@ One record per pointer id (`native/pointer_state.rs`, unit tested): the mouse is
 - `get_snapshot()` adds `pointers: [{id, type: 'mouse'|'touch', x, y, buttons, down, capture: {target, implicit}|null}]`:
   the mouse, and each touch while it is down.
 
-Rules native follows: only input callbacks emit (`gui_input`, and `input` while a drag runs); `commit`, lifecycle
-notifications and `process()` queue events for the next emission or the owner's per-frame `dispatchEvents()`. The
-one exception is a drag's own timers in `process()` (a touch held long enough, a scroll under a stationary pointer),
-whose cancelable `dragstart` and `dragover` must be answered synchronously like any other (see "Drag and drop"). Input that arrives while JS is
+Rules native follows: only input-origin entry points emit (`gui_input`, `input` while a drag runs, the IME update, `_set_text`,
+an accessibility action callback, the Web paste answer); `commit`, lifecycle notifications and `process()` queue events for the
+next emission or the owner's per-frame `dispatchEvents()`. The one exception is a drag's own timers in `process()` (a touch
+held long enough, a scroll under a stationary pointer), whose cancelable `dragstart` and `dragover` must be answered
+synchronously like any other (see "Drag and drop"). A text edit can also emit in the middle of its pipeline, so that JS has
+answered `input` before `selectionchange`. Input that arrives while JS is
 inside a dispatch is queued with `cancelable: false`. After the emission everything native knew before it is
 stale: it looks the target up again (lookups return `Option`), skips the default action if the target was
 removed, and does nothing further if the root left the scene tree. JS may call `commit`, `get_snapshot` and
@@ -486,17 +602,17 @@ Godot's `Input` dispatches every `InputEventGesture` twice (once explicitly and 
 `core/input/input.cpp:995-1003` and `:1046-1048`), so a pan gesture, real or parsed, reaches JS as two `wheel` events
 with the same deltas, exactly as it reaches Godot's own `ScrollContainer`. Native does not filter this.
 
-Limits: no touch text selection, accessibility tree, drag and drop with Godot `Control`s (the plan's
+Limits: no touch text selection, drag and drop with Godot `Control`s (the plan's
 3.19: `_can_drop_data` is synchronous on `&self`, where a JS answer cannot be had; `endedOutsideRoot` plus the release
 point is what a game uses) or with files or `setDragImage`, images, rich inline text, rounded clip
 masks, `position: sticky`, CSS stacking contexts (`zIndex` orders siblings of one paint parent), a public CSS stylesheet/selector API, arbitrary keyframe animations, or custom native
 materials. Both overflow axes clip together (`hidden`, `scroll` or `auto` on either clips the padding box). Not scrolling: scrollbar
 track clicks (paging), animated programmatic scrolling, overscroll bounce, `position: sticky`. Native drawing uses owned
-CanvasItem RIDs with cached resources and one Control for the whole React tree.
+CanvasItem RIDs with cached resources and one Control for the whole React tree. The README's "Current limits" is the full list.
 
 ## Drag and drop
 
-HTML drag and drop inside one root (`native/drag.rs` is the Godot-free state machine, 50 unit tests;
+HTML drag and drop inside one root (`native/drag.rs` is the Godot-free state machine, unit tested;
 `native/drag_input.rs` is the glue; `native/drag_ghost.rs` the ghost; `src/data-transfer.ts` and `src/drag.ts` the
 JS half). `draggable` and `dragPreview` are props (above).
 
@@ -507,7 +623,8 @@ JS half). `draggable` and `dragPreview` are props (above).
   when it has stayed within the 8 px slop for 500 ms (`TOUCH_DRAG_HOLD_MS`, `process()` ticks the timer, and
   the machine also advances it on the next input). A touch that moves beyond the slop first is declined and goes on to
   pan or stay pointer events (touch pans register after the drag offer, rule 4). A touch that stopped a coasting flick
-  starts nothing.
+  starts nothing. A press on a text input is never offered (it keeps its press, "Text input"), and text inside a `draggable`
+  element starts no selection; a press there that never becomes a drag clicks and clears the current selection (D43 I9-15).
 - **Start.** `dragstart` (cancelable, at the dragged element) is sent first; if JS prevents it nothing else happens
   and the pointer carries on as plain pointer events. Otherwise the pointer is cancelled (`pointercancel`; no `pointerup`
   or `click` follows) and the drag begins: `drag` at the source, `dragenter` and `dragover` at the element under the
@@ -532,7 +649,8 @@ JS half). `draggable` and `dragPreview` are props (above).
 - **Ghost.** `dragPreview: native` (the default): a copy of the source and everything it paints, as drawn when the
   drag was about to start (before `dragstart` handlers run, so a handler that restyles the source does not change it),
   drawn at 60 % in a top-most canvas item above both layers and the focus ring, at the pointer with the grab offset.
-  It is a snapshot (no scrollbars, no later changes), and the root's clip applies. `none` draws nothing.
+  It is a snapshot (no scrollbars, no later changes, no filter: the ghost of a filtered source shows it unfiltered), and the
+  root's clip applies. `none` draws nothing. A text input's ghost shows its text and no caret.
 - **Edge auto-scroll.** While a drag runs, each scroll container on the path from the element under the pointer scrolls
   towards an edge the pointer is within 32 px of (inside its padding box), at up to 600 px per second, on an axis that
   can still move that way. Frames come from the one `update_process()` decision, together with a pending touch hold and
@@ -548,9 +666,9 @@ JS half). `draggable` and `dragPreview` are props (above).
 
 ## Native CSS motion and clipping
 
-A node whose computed style has `transition: {properties: ('width'|'height'|'opacity'|'backgroundColor')[],
+A node whose computed style has `transition: {properties: ('width'|'height'|'opacity'|'backgroundColor'|'filter'|'backdropFilter')[],
 durationMs: number, delayMs?: number, easing?: 'linear'|'ease'|'ease-in'|'ease-out'|'ease-in-out'}` is a
-*motion node*. Duration and delay are finite nonnegative milliseconds. Easing defaults to CSS `ease`. A retained
+*motion node*. `properties` is non-empty and has no duplicates. Duration and delay are finite nonnegative milliseconds. Easing defaults to CSS `ease`. A retained
 Blitz/Stylo style tree owns numeric/color interpolation, delay and reversal shortening. Every mounted node has an
 element in it, kept in tree order (`insert`, `remove`, `set_children`), but a node's style is written to it only
 while the node is a motion node or has just stopped being one (which cancels what was running); a node that gains
@@ -581,13 +699,20 @@ scissor clipping: border radius affects paint, not the clip shape. Nested rounde
 
 Per-node `presentation: {width,height,widthIsAuto,heightIsAuto,opacity,backgroundColor}` and the snapshot's
 `transitions: [{id,property,current,target,startedAtMs,durationMs}]` report what is being presented; dimension and
-opacity diagnostics are numbers and colors are hexadecimal RGBA strings. The `widthIsAuto` and `heightIsAuto` flags
+opacity diagnostics are numbers, colors are hexadecimal RGBA strings and a filter transition's `current` and `target` are
+CSS filter text (a sampled filter is not in `presentation`: it goes straight to the effect's material).
+`filter` and `backdropFilter` transitions are interpolated by Stylo function by function (`backdrop-filter` is behind a Stylo
+preference that native turns on); the sampled list comes back as CSS text and updates material parameters only. The `widthIsAuto` and `heightIsAuto` flags
 read the actual Taffy presentation style. Transition records are native tracking diagnostics, not access to Stylo's
 private per-property animation table.
 
 `get_activity() -> String` provides compact JSON `{batches,layoutPasses,paintPasses,animationFrames,animating,
-trackedTransitions,clockMs,drawSerial,nodeCount}` (`batches` counts commits; `drawSerial` is the paint pass count,
-which advances only when native changed something visible). `animating` reflects actual global Stylo activity or
+trackedTransitions,clockMs,drawSerial,nodeCount,mutations,nodesUpdated,nodesRestyled,boxRecords,contentRecords,effects}`
+(`batches` counts commits; `drawSerial` is the paint pass count, which advances only when native changed something visible).
+`effects` is `{backdrops, groups, blocked, copiesEnabled, itemsCreated, materialsCreated, materialsFreed, shadersCreated,
+materialUpdates, copyRectUpdates, subtreeWalks, probes, refreshes, refreshMicros}`: how many backdrop and filter effects
+exist, how many are held back by an enclosing group, and what has been made, freed and updated since the root began, so a
+tree without filters shows all zeros (`materialsCreated - materialsFreed` is what live effects hold). `animating` reflects actual global Stylo activity or
 owned intrinsic transitions; use it for completion. `set_profiling(enabled: bool)` controls an off-by-default
 512-sample ring; `take_profile() -> String` drains `{samples,dropped,counters}`. Samples have
 `kind: 'batch'|'frame'|'draw'`: a `batch` record is one `commit` (parse, validate-and-plan-and-dry-run, mount,
@@ -595,3 +720,58 @@ layout, geometry and total microseconds), a `frame` record one animation tick (s
 animation microseconds), and a `draw` record the CPU microseconds of a paint pass that re-recorded canvas items.
 Nested layout/geometry timings are subtracted from their surrounding bookkeeping phases. Timings measure CPU work,
 not GPU completion. Profiling drops the oldest sample at capacity and reports how many were dropped.
+
+## Accessibility
+
+Native exposes the React tree through Godot's `AccessibilityServer` (`native/accessibility.rs` is the Godot glue,
+`native/accessibility_model.rs` the Godot-free model: which node is exposed, with which role, name, flags and actions; plan
+3.21, `docs/tracks/accessibility.md`). It follows `ItemList`: on `NOTIFICATION_ACCESSIBILITY_UPDATE` there is one element per exposed
+node under the nearest exposed ancestor's, and `queue_accessibility_update()` runs after commits, focus and geometry changes
+and scrolls (it does nothing while accessibility is off).
+
+- **What is exposed.** `Button`, `Text` with text and `TextInput` have implicit roles (`button`, static text, text field /
+  multiline text field); a scroll container with no `role` is `SCROLL_VIEW` and exposes its children; every other element only
+  with an explicit `role`. `ariaHidden`, `role: none` and `role: presentation` keep an element (and its subtree, for
+  `ariaHidden`) out. Props are in the table under "Props and styles"; `aria-labelledby` and `aria-describedby` do not exist
+  (native rejects unknown props, so the kit's `TextField` sets `aria-label` and `aria-description`). Bounds are root-local and
+  follow scrolling.
+- **Actions** (bound to callables that call `_on_accessibility_action(data, tag, action)`): click (queues a `click` with
+  pointer 0, unless disabled), focus and blur (acting like the keyboard), `set text selection`, `replace selected text` and
+  `set value` on a text input (edits through `beforeinput`), increment, decrement and set value on an element that advertises
+  adjusting (queues an `accessibilityaction` event for JS, which the kit `Slider` answers), and the scroll actions below.
+- **Scrolling.** A scroll container reports each axis that can move with its position and range (a reversed axis has a
+  negative minimum) and offers `SCROLL_UP`, `SCROLL_DOWN`, `SCROLL_LEFT`, `SCROLL_RIGHT` and `SET_SCROLL_OFFSET` for the axes
+  that can move, and `SCROLL_INTO_VIEW` on every exposed element with a scroll container in its paint chain (performed by
+  `scroll_by_checked`, `scroll_to_checked`, `scroll_into_view_checked`: an item or a page moves what the arrow and Page keys do).
+  Each scrollable axis of an exposed container (a multi-line text input included) also has a **scroll bar element** keyed by
+  (tag, axis), after the content, horizontal first, with value and range as reachable offsets and orientation; its
+  `Increment` and `Decrement` call `_on_accessibility_scroll_bar_action(data, tag, axis, action)` and step as the arrow keys
+  (D47). It exists because a stock macOS adapter reads a scroll position only from such an element.
+- **Not done.** A transform on the scrolled content's element as `ItemList` has: every exposed descendant is re-set on each
+  scroll while a screen reader is attached (D38).
+- **Verified where.** The Godot-side half (the tree native builds, the action entry points) runs under every profile. The macOS
+  platform tree was read only on the `stock` profile, which has AccessKit, where `pnpm verify:a11y --engine=stock` passes;
+  it records engine gaps it cannot convey (a group or radio-group element, a mixed checkbox, a text area's value, a read-only
+  field, a scroll view's position and actions). Breaka's engine has no accessibility driver, so there `verify:a11y` ends "not
+  verified" (exit 2). Windows and Linux trees, the Web (the Web engine has no accessibility code), and VoiceOver by hand were
+  not checked.
+
+## Platform and verifier hooks
+
+`#[func]`s that the engine, the platform adapter or a verifier call, not the renderer:
+
+- `isolate_clipboard(isolated: bool)`, `clipboard_text() -> String`, `set_clipboard_text(text: String)` (static, so
+  `ReactUiRoot.isolateClipboard(true)` and so on). Copy, cut and paste go through `native/clipboard.rs`, which is
+  `DisplayServer`'s clipboard unless isolated; an isolated clipboard is this process's memory, so a verifier run never reads or
+  writes the person's (D46). The verifiers call `isolateClipboard(true)` from `VerifierInputIsolation`; a normal run never does.
+- `_on_accessibility_action`, `_on_accessibility_scroll_bar_action` and the `get_focused_accessibility_element` virtual:
+  see "Accessibility". `get_text_line_elements(tag) -> Array<Rid>` returns the accessibility elements of a text input's rows so a
+  verifier can make the request an adapter makes.
+- `_set_text(text, emit_signal)`: the virtual keyboard's hook ("Text input"). `_on_web_clipboard_text(arguments)` and
+  `_on_web_clipboard_refused(arguments)`: the `JavaScriptBridge` callbacks of a Web paste.
+- Build-time classes: with cargo feature `probe` the extension also exports `ReactUiProbe` and `ReactUiProbeHandle`
+  (`native/probe.rs`: handle cost and the props string boundary, phase F0; `make_handle`, `live_handles`, `noop`, `string_length`,
+  `probe_parse`, `count_handles_typed`, `count_handles_untyped`) and `ReactUiTextLayoutProbe` (`native/text_layout_probe.rs`: the text
+  layout checks; `case_count`, `case_name`, `show_case`, `verify`, `check_ink`). A default build has none of them. Feature `filter-faults` adds
+  no class; it makes `native/filter_faults.rs` read an environment variable at each fault site, in its own library that a default
+  run refuses.

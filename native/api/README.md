@@ -56,10 +56,10 @@ The `stock` engine profile (`docs/tracks/stock-engine.md`) binds to these dumps 
 - `stock-4.7.2/extension_api.json` SHA-256: `9586558a2eeb7781f9aadc6b6085294b0f9b38728fcd4f207a7deabf95a11d50`
 - `stock-4.7.2/gdextension_interface.json` SHA-256: `7d8c0a039d9743eb8ebf88681ae0c641d8d3aa5ffca11081745a84da803e09a1`
 
-`.cargo/config.toml` keeps selecting the 4.8 dumps; `scripts/build-native.mjs --engine=stock` and
-`scripts/build-web.mjs --engine=stock` override `GDRUST_GODOT_API_JSON` and `GDRUST_GODOT_INTERFACE_JSON` for the cargo
-child process (cargo's `[env]` entries do not replace a variable already in the environment), and use their own target
-directories. The two dumps differ: the 4.8 dump has 35 classes the stock engine lacks (for example
+`.cargo/config.toml` keeps selecting the 4.8 dumps for a hand-run cargo; `scripts/build-native.mjs` and
+`scripts/build-web.mjs` set `GDRUST_GODOT_API_JSON` and `GDRUST_GODOT_INTERFACE_JSON` for the cargo child process under every profile
+(cargo's `[env]` entries do not replace a variable already in the environment, so a shell exporting the other profile's pair
+would otherwise bind a build to the wrong engine), and each profile uses its own target directories. The two dumps differ: the 4.8 dump has 35 classes the stock engine lacks (for example
 `GodotJSObjectDBSnapshot`, `Line3D`, `Trail3D`), which this library does not use; it compiles unchanged against both.
 The lean 3D Web templates, the lazy-table ABI and `lazy-function-tables` are 4.8-profile concerns: the feature stays
 enabled in both profiles (it is harmless against a full engine and keeps one dependency set; the library still checks each
@@ -69,8 +69,8 @@ Regenerate the stock dumps from the stock tree with the command above (replace t
 
 ## Dumps and the freshness guard
 
-The profile's dump pair is an input of every build of that profile: `build:native` and `build:web` hash it with `native/**`, `Cargo.toml` and
-`Cargo.lock`, and a run refuses an installed library, side module or Web export that was built from other bytes
+The profile's dump pair is an input of every build of that profile: `build:native` and `build:web` hash it with `native/` (except `native/api` itself, Markdown and `.DS_Store`), `Cargo.toml`, `Cargo.lock`,
+and `build.rs`, `rust-toolchain.toml` and `.cargo/config.toml` where present, plus the cargo features, and a run refuses an installed library, side module or Web export that was built from other bytes
 (`docs/tracks/freshness.md`). The other profile's dumps are not inputs, so replacing the stock dump marks only stock builds stale.
 After replacing a dump, rebuild with `pnpm build:native --engine=<name>` (and `build:web`), which cleans this crate; godot-rust's own
 bindings regenerate from the dump through cargo's usual dependency tracking.
