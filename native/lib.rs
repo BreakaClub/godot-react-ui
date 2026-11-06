@@ -1,6 +1,10 @@
 mod commit;
 mod computed_style;
 mod diff;
+// Godot-free drag-and-drop state machine. Nothing calls it until Phase I9 integrates it; remove the
+// `allow(dead_code)` then.
+#[cfg_attr(not(test), allow(dead_code))]
+mod drag;
 mod events;
 mod focus;
 mod geometry;
@@ -18,6 +22,10 @@ mod probe;
 mod profile;
 mod props;
 mod render_tree;
+// Godot-free scroll math. Nothing calls it until Phase I5 integrates it (and I9 for drag
+// auto-scroll); remove the `allow(dead_code)` then.
+#[cfg_attr(not(test), allow(dead_code))]
+mod scroll;
 // Integrated in Phase I6 (text selection); remove the attribute then.
 #[cfg_attr(not(test), allow(dead_code))]
 mod selection;
