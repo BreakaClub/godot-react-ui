@@ -2391,12 +2391,15 @@ const EDGE_PROFILE_REACH_PX = 4;
 const STEMS_CRISP_MIN = 0.8;
 const HIDPI_BOX_RGB = [0x4f, 0x46, 0xe5];
 const HIDPI_BOX_LUMA = (LUMA_RED * HIDPI_BOX_RGB[0] + LUMA_GREEN * HIDPI_BOX_RGB[1] + LUMA_BLUE * HIDPI_BOX_RGB[2]) / 255;
-const SELECTION_TINT_RGB = [0.65 + 0.35 * 0.231, 0.65 + 0.35 * 0.51, 0.65 + 0.35 * 0.965].map((channel) => Math.round(channel * 255));
+// The default selection, blue-500 at 35 % over white, is (186, 212, 239): 53 more blue than red.
+const SELECTION_BLUE_MIN_CHANNELS = 12;
 const HIDPI_COLOR_TOLERANCE_CHANNELS = 8;
 const SELECTED_STEMS = 5;
 const SELECTION_FIT_PX = 6;
 const CARET_EDGE_SLACK_PX = 1;
 const HIDPI_FOCUS_WAIT_MS = 30_000;
+// A text field's border and its `px-2` padding: where its text starts.
+const HIDPI_FIELD_CONTENT_INSET_PX = 9;
 
 const lumaOf = (pixel) => (LUMA_RED * pixel[0] + LUMA_GREEN * pixel[1] + LUMA_BLUE * pixel[2]) / 255;
 
@@ -2512,14 +2515,19 @@ async function runHidpiFieldScenario(dpr) {
   const inner = devicePixels({ x: field.rect.x + 4, y: field.rect.y + 3, width: field.rect.width - 8, height: field.rect.height - 6 }, raster.ratio);
   const inkRow = Math.round(inner.y + inner.height / 2);
   const stems = pixelRuns(raster, inkRow, inner.x, inner.x + inner.width, (pixel) => lumaOf(pixel) < INK_LUMA);
-  const tint = pixelRuns(raster, inkRow, inner.x, inner.x + inner.width, (pixel) => sameColor(pixel, SELECTION_TINT_RGB));
+  // The selection is blue-dominant wherever it shows (white and black have no blue over red), including the antialiased
+  // pixels beside a stem; at DPR 1 the gaps between stems are one pixel wide, so exact tint would find almost none.
+  const selected = pixelRuns(raster, inkRow, inner.x, inner.x + inner.width, (pixel) => pixel[2] - pixel[0] >= SELECTION_BLUE_MIN_CHANNELS);
   const selectionCaret = field.textInput.caret;
+  const span = selected.length === 0 ? null : { start: selected[0].start, end: selected.at(-1).end };
   check('The selection starts at the first selected glyph and ends with the fifth, before the sixth',
-    tint.length > 0 && stems.length > SELECTED_STEMS
-    && tint[0].start <= stems[0].start && stems[0].start - tint[0].start <= SELECTION_FIT_PX
-    && tint.at(-1).end >= stems[SELECTED_STEMS - 1].end && tint.at(-1).end < stems[SELECTED_STEMS].start
-    && tint.at(-1).end - stems[SELECTED_STEMS - 1].end <= SELECTION_FIT_PX, { tint, stems: stems.slice(0, SELECTED_STEMS + 1) });
-  check('The selection ends where native puts the caret', selectionCaret !== null && Math.abs(tint.at(-1).end + 1 - selectionCaret.x * raster.ratio) <= SELECTION_FIT_PX, { tint, selectionCaret });
+    span !== null && stems.length > SELECTED_STEMS
+    && span.start <= stems[0].start && stems[0].start - span.start <= SELECTION_FIT_PX
+    // Glyphs are placed on whole logical pixels at one device pixel per logical pixel, and the sixth glyph's first pixel can
+    // carry the selection's edge: one logical pixel of slack. A selection that took in the sixth glyph would be a whole advance over.
+    && span.end >= stems[SELECTED_STEMS - 1].start && span.end <= stems[SELECTED_STEMS].start + raster.ratio
+    && span.end - stems[SELECTED_STEMS - 1].end <= SELECTION_FIT_PX, { span, stems: stems.slice(0, SELECTED_STEMS + 1) });
+  check('The selection ends where native puts the caret', span !== null && selectionCaret !== null && Math.abs(span.end + 1 - selectionCaret.x * raster.ratio) <= SELECTION_FIT_PX, { span, selectionCaret });
 
   // An IME preedit at the start of the field: its underline is as thick as the caret and lies at the baseline.
   await page.keyboard.press('Home');
@@ -2531,21 +2539,26 @@ async function runHidpiFieldScenario(dpr) {
   await capture(`hidpi-field-preedit-${activeViewport}`);
   raster = await hidpiRaster();
   const preeditField = await find('hidpi-field');
-  const innerPreedit = devicePixels({ x: preeditField.rect.x + 4, y: preeditField.rect.y + 3, width: preeditField.rect.width - 8, height: preeditField.rect.height - 6 }, raster.ratio);
-  // The underline is the lowest rows in which a long run of ink starts at the field's left edge; the stems after it end at the baseline.
+  // The underline is the rows in which every pixel of the first few logical pixels of the text is ink (a glyph's strokes are
+  // narrower); the stems after the preedit end at the baseline, which is where the underline begins.
+  const contentLeft = preeditField.rect.x + HIDPI_FIELD_CONTENT_INSET_PX;
+  const underlineFrom = Math.round((contentLeft + 1) * raster.ratio);
+  const underlineTo = Math.round((contentLeft + 7) * raster.ratio);
+  const stemsFrom = Math.round((contentLeft + 14) * raster.ratio);
+  const stemsTo = Math.round((contentLeft + 40) * raster.ratio);
   const dark = (pixel) => lumaOf(pixel) < INK_LUMA;
-  const underlineRows = [];
+  const candidateRows = [];
   let stemBottom = -1;
-  for (let y = innerPreedit.y; y < innerPreedit.y + innerPreedit.height; y += 1) {
-    const ink = pixelRuns(raster, y, innerPreedit.x, innerPreedit.x + innerPreedit.width, dark);
-    if (ink.length === 0) continue;
-    stemBottom = y;
-    if (ink[0].start <= innerPreedit.x + raster.ratio && ink[0].end - ink[0].start + 1 >= SELECTION_FIT_PX * raster.ratio / 2) underlineRows.push(y);
+  for (let y = Math.floor(preeditField.rect.y * raster.ratio); y < Math.ceil((preeditField.rect.y + preeditField.rect.height) * raster.ratio); y += 1) {
+    if (pixelRuns(raster, y, underlineFrom, underlineTo, dark).some((run) => run.start === underlineFrom && run.end === underlineTo - 1)) candidateRows.push(y);
+    if (pixelRuns(raster, y, stemsFrom, stemsTo, dark).length > 0) stemBottom = y;
   }
-  const wide = underlineRows.filter((row) => underlineRows.length > 0 && row >= underlineRows[0]);
+  // The tilde of an ñ can be ink across the whole probe too, at one device pixel per logical pixel; it is above the baseline.
+  const underlineRows = candidateRows.filter((row) => row >= stemBottom);
   report.measures ??= [];
-  report.measures.push({ viewport: activeViewport, name: 'preedit-underline', underlineRows, stemBottom, dpr });
-  check(`The preedit's underline is ${dpr} device pixels thick and ends the ink`, wide.length === dpr && wide.at(-1) === stemBottom, { underlineRows, stemBottom });
+  report.measures.push({ viewport: activeViewport, name: 'preedit-underline', candidateRows, underlineRows, stemBottom, dpr });
+  check(`The preedit's underline is ${dpr} device pixels thick, in one piece, and starts where the stems after it end`,
+    underlineRows.length === dpr && underlineRows.at(-1) - underlineRows[0] + 1 === dpr && Math.abs(underlineRows[0] - (stemBottom + 1)) <= 1, { candidateRows, underlineRows, stemBottom });
   await cdp.send('Input.insertText', { text: 'ñ' });
   await cdp.detach();
   await expectInput('hidpi-field', (current) => !current.composing, 'The composition is committed');
@@ -2567,6 +2580,12 @@ async function runHidpiScenario(viewport) {
   await frames();
   await capture(`hidpi-lab-${viewport.name}`);
   const dpr = viewport.deviceScaleFactor;
+  // On the Web the window's viewport carries the content scale factor the owner sets from the device pixel ratio, so the
+  // window's factor adds nothing to the viewport's own oversampling (the question the native rule rests on).
+  const facts = await demo('scaleFacts');
+  report.measures ??= [];
+  report.measures.push({ viewport: activeViewport, name: 'scale-facts', ...facts });
+  check('The window\'s viewport oversampling equals its content scale factor and the device pixel ratio', facts.viewportOversampling === facts.contentScaleFactor && facts.contentScaleFactor === dpr && facts.screenScale === dpr, facts);
   await measureHidpiLab(viewport, dpr);
   await runHidpiFieldScenario(dpr);
   if (dpr === 1) {

@@ -112,6 +112,12 @@ export default class Main extends Node {
       wheelEvents: () => this.wheelEvents,
       passthrough: (): PassthroughCounts => ({ ...this.passthrough, unhandledKeys: { ...this.passthrough.unhandledKeys } }),
       resetPassthrough: () => { this.passthrough = { backdropPresses: 0, unhandledPresses: 0, unhandledWheels: 0, unhandledPans: 0, unhandledKeys: {} }; },
+      /** What the engine says about the scale this window draws at, for the HiDPI verifiers (docs/tracks/hidpi.md). */
+      scaleFacts: () => {
+        const window = this.getWindow();
+        if (!window) throw new Error('The demo requires its owning Window');
+        return { viewportOversampling: window.getOversampling(), contentScaleFactor: window.contentScaleFactor, screenScale: DisplayServer.screenGetScale() };
+      },
       /** The cursor Godot would show with the pointer at (x, y), through the root's `_get_cursor_shape`. */
       cursorShapeAt: (x: number, y: number) => this.requireSurface().getCursorShape(new Vector2(x, y)),
       /**
