@@ -42,7 +42,7 @@ export function FormsLab() {
   const submit = () => setState(current => ({ ...current, submitted: current.submitted + 1 }));
 
   return (
-    <View testID="forms-lab" className="w-full h-full bg-slate-50 p-6 gap-3">
+    <View testID="forms-lab" className="w-full h-full bg-slate-50 p-4 gap-2">
       <View className="gap-1">
         <Text className="text-2xl text-slate-900">Forms</Text>
         <Text className="text-sm text-slate-500">Single-line and multi-line text inputs bound to one state object.</Text>

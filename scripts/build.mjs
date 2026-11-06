@@ -25,9 +25,10 @@ await build({
 });
 // The world-space scene (docs/WORLD_SPACE.md) has its own owner; its bundles are separate entry points. The
 // Web export needs a compiled module for every demo `.ts` file, so `world-geometry.ts` is one too.
-// `verifier-input.ts` (Task 0) is bundled into the owners that import it, and is an entry point as well: the Web export fails
-// on a demo script that has no module of its own ("failed to include module: res://.godot/GodotJS/src/verifier-input.js").
-await build({...shared, entryPoints: ['demo/src/world-main.ts', 'demo/src/world-geometry.ts', 'demo/src/verify-world.ts', 'demo/src/scene-launcher.ts', 'demo/src/verifier-input.ts'], outdir: 'demo/.godot/GodotJS/src'});
+// `verifier-input.ts` (Task 0) and `verify-text-input.ts` (Phase I7) are bundled into the owners that import them, and are entry
+// points as well: the Web export fails on a demo script that has no module of its own ("failed to include module:
+// res://.godot/GodotJS/src/verifier-input.js").
+await build({...shared, entryPoints: ['demo/src/world-main.ts', 'demo/src/world-geometry.ts', 'demo/src/verify-world.ts', 'demo/src/scene-launcher.ts', 'demo/src/verifier-input.ts', 'demo/src/verify-text-input.ts'], outdir: 'demo/.godot/GodotJS/src'});
 // The text layout probe scene (docs/tracks/text-layout.md) has its own owner and verifier; the Web export
 // needs a compiled module for every demo `.ts` file.
 await build({...shared, entryPoints: ['demo/src/text-layout-probe.ts', 'demo/src/verify-text-layout.ts'], outdir: 'demo/.godot/GodotJS/src'});
