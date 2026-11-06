@@ -453,7 +453,8 @@ impl ReactUiRoot {
             .get(&tag)
             .map(|sampled| (sampled.opacity, sampled.background_color));
         let highlight = self.selecting.highlight_of(tag);
-        let font = self.font.clone();
+        // Only a node with a highlight builds a layout, which needs the font.
+        let font = highlight.and_then(|_| self.font.clone());
         let Some(node) = self.mounted.nodes.get_mut(&tag) else {
             return (false, false);
         };

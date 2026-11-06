@@ -4,7 +4,7 @@ Branch `text-selection`, based on `6cf7406` (Phase I5 on the `scroll` branch). P
 `userSelect` and `selectionColor`, mouse selection gestures, copy and select all, clearing, `selectionchange`,
 `get_selection`/`clear_selection` and `root.getSelection()`, highlight painting, the `select-text` lab and the verifier
 section. `docs/INTERACTION_PLAN.md` and `docs/INTERACTION_PROGRESS.md` were not touched: the decisions below (numbered
-S1 to S17 so as not to collide with the plan's) are for the coordinator to fold into the plan's decision log.
+S1 to S18 so as not to collide with the plan's) are for the coordinator to fold into the plan's decision log.
 
 ## What changed
 
@@ -102,6 +102,30 @@ Each was made from the evidence in this session and the plan's text.
   break has no block (text-layout track decision 10).
 - **S17. Auto-scroll and scroll-while-dragging.** Wheel scrolling during a drag does not extend the selection until the
   mouse moves again, and there is no edge auto-scroll (Phase I9 integrates `AUTOSCROLL_*`).
+- **S18. The window budget.** `scripts/verify.mjs` killed a window after 120 s. The pre-existing sections of the
+  interaction verifier reach the end of the scroll section after about 110 s on a busy machine (capture timestamps of a
+  window killed at the limit, `exit null`), and the selection section adds about 15 s, so the limit is raised to 300 s: it
+  stays a hang detector. The pass line of the verifier now reports `sectionMs` for each section (landscape, busy machine:
+  events 25.9 s, cooperation 7.5, pointers 5.7, keyboard 17.7, positioning 5.7, inputs 14.8, scroll 45.3, selection 14.9).
+
+## Plan problems found
+
+For the plan's Phase I6 entry ("done as built" text), the coordinator may use these.
+
+- The Files list omitted `native/selection_input.rs` (new), `native/pointer_input.rs`, `native/keyboard_input.rs`,
+  `native/mount.rs`, `native/motion.rs`, `native/events.rs`, `native/computed_style.rs`, `demo/src/verifier-input.ts` and
+  `scripts/verify-interaction-web.mjs`.
+- Plan 3.17 says nothing about what a press that starts no selection does to the current one, what a prevented
+  `pointerdown` does, where a drag goes when the pointer is not over selectable text, or whether an insertion between the
+  ends clears the selection (S2, S4, S6).
+- Plan 4.3 gives `selectionchange` `selectionStart` and `selectionEnd` "(inputs)": the document's event has no payload
+  (S8). Plan 4.5 lists `selection` among the per-node snapshot fields arriving in I6; it is not in the snapshot, because
+  `getSelection()` is the query (S9).
+- `InputMap` matches a key event to an action only on the same device, so no verifier key ever triggered a `ui_*`
+  action (S11); Phase I7's verifier has the same problem.
+- Plan 3.20 (selectable text shows the text cursor) was not in I6's task list but is one rule in `cursor_at` (S10).
+- `scripts/verify.mjs` gave each window 120 s; the interaction verifier needs more than that on a busy machine before the
+  selection section (S18).
 
 ## Verification
 

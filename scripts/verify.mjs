@@ -5,9 +5,10 @@ import { runNativeVerifier } from './native-run.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const godot = process.env.GODOT ?? '/Applications/Godot48.app/Contents/MacOS/Godot';
-// A hang guard, not a budget. The interaction run walks seven sections and took about 130 s in a quiet landscape window once
+// A hang guard, not a budget. The interaction run walks every section and took about 130 s in a quiet landscape window once
 // the scroll and inputs sections were both in it (it was killed at 120 s three times, each with an unrelated focus loss in its
-// log, which the runner then took for interference and ran again); the others finish well inside two minutes.
+// log, which the runner then took for interference and ran again); the others finish well inside two minutes. `sectionMs` in
+// the interaction pass line has the numbers.
 const INTERACTION_DEADLINE_MS = 300_000;
 const DEFAULT_DEADLINE_MS = 120_000;
 const motion = process.argv.includes('--motion');
