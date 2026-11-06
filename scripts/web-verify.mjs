@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { writeFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { startExportServer } from './web-server.mjs';
 
@@ -15,6 +16,8 @@ import { startExportServer } from './web-server.mjs';
  */
 export const WEB_URL_VARIABLE = 'GODOT_REACT_WEB_URL';
 const RECEIPT = 'build-receipt.json';
+/** How long one file of a named server may take to arrive, headers and body: a server that accepts the connection and never answers must not hang the verifier. */
+export const SERVED_ASSET_TIMEOUT_MS = 30_000;
 
 function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
@@ -22,26 +25,46 @@ function sha256(bytes) {
 
 /**
  * Fetch every file of `files` (the receipt's `{ name, bytes, sha256 }` list) from `base` and name each that is not served, is
- * served with another status, or differs. Empty when `base` serves exactly the export.
+ * served with another status, or differs. Empty when `base` serves exactly the export. Each file gets `timeoutMs` (its
+ * request and its body, through the signal `fetchAsset` is given); one that is not served in time is a problem like any other.
  */
-export async function servedAssetProblems(base, files, fetchAsset = fetch) {
+export async function servedAssetProblems(base, files, fetchAsset = fetch, timeoutMs = SERVED_ASSET_TIMEOUT_MS) {
   const problems = [];
   for (const { name, bytes, sha256: expected } of files) {
-    let response;
+    let served;
     try {
-      response = await fetchAsset(new URL(name, base));
+      const response = await fetchAsset(new URL(name, base), { signal: AbortSignal.timeout(timeoutMs) });
+      if (response.status !== 200) {
+        problems.push(`${name} is answered with status ${response.status}`);
+        continue;
+      }
+      served = Buffer.from(await response.arrayBuffer());
     } catch (error) {
       problems.push(`${name} could not be fetched (${error instanceof Error ? error.message : String(error)})`);
       continue;
     }
-    if (response.status !== 200) {
-      problems.push(`${name} is answered with status ${response.status}`);
-      continue;
-    }
-    const served = Buffer.from(await response.arrayBuffer());
     if (served.length !== bytes || sha256(served) !== expected) problems.push(`${name} differs from the export (${served.length} bytes served, ${bytes} exported)`);
   }
   return problems;
+}
+
+/**
+ * The evidence every Web verifier leaves in `output` when it is done, passed or not: `report.json` and `browser.log` (the
+ * page's console, one line per message). Stamps `report.finishedAt`.
+ */
+export async function writeEvidence(output, report, now = () => new Date()) {
+  report.finishedAt = now().toISOString();
+  await writeFile(join(output, 'report.json'), JSON.stringify(report, null, 2) + '\n');
+  await writeFile(join(output, 'browser.log'), report.console.map((entry) => `[${entry.type}] ${entry.text}`).join('\n') + '\n');
+}
+
+/**
+ * The line a Web verifier prints when it passed, `marker` and a JSON summary, or `undefined` if it did not pass (a failed run
+ * has printed its own failure line, and no line may say "passed" for it). `details` are added to the summary.
+ */
+export function passedLine(marker, report, output, details = {}) {
+  if (!report.passed) return undefined;
+  return `${marker} ${JSON.stringify({ assertions: report.assertions.length, captures: report.captures.length, ...details, report: join(output, 'report.json') })}`;
 }
 
 /**

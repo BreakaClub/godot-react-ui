@@ -210,7 +210,7 @@ function mouseButton(position: Vector2, button: MouseButton, pressed: boolean, m
   parseVerifierEvent(event);
 }
 
-/** A real touch (device 0), which Godot also translates to an emulated mouse event. */
+/** A touch, injected from the verifier's own device like every verifier event, which Godot also translates to an emulated mouse event. */
 function touch(index: number, position: Vector2, pressed: boolean, canceled = false): void {
   const event = new InputEventScreenTouch();
   event.index = index;

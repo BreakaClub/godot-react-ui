@@ -168,7 +168,7 @@ function move(position: Vector2, held = false): void {
   parseVerifierEvent(event);
 }
 
-/** A real touch (device 0): Godot also translates it to an emulated mouse event, which the owner must ignore. */
+/** A touch from the verifier's own device: Godot also translates it to an emulated mouse event, which the owner must ignore. */
 function touch(index: number, position: Vector2, pressed: boolean): void {
   const event = new InputEventScreenTouch();
   event.index = index;

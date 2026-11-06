@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -9,7 +11,7 @@ import vm from 'node:vm';
 import { isolateBrowserClipboard } from '../scripts/web-clipboard.mjs';
 import { presetTemplate, webContentInputs, webSourcePaths } from '../scripts/web-content.mjs';
 import { startExportServer } from '../scripts/web-server.mjs';
-import { servedAssetProblems, startVerificationServer } from '../scripts/web-verify.mjs';
+import { passedLine, servedAssetProblems, startVerificationServer, writeEvidence } from '../scripts/web-verify.mjs';
 
 // Which server a Web verifier talks to and what it is shown (docs/tracks/verifier-integrity.md, findings 2, 3 and 7).
 
@@ -169,4 +171,64 @@ test('the browser clipboard is swapped for one kept in the page, before the page
   await clipboard.writeText('copied by the verifier');
   assert.equal(await clipboard.readText(), 'copied by the verifier');
   assert.equal(vm.runInContext('navigator.clipboard', context), clipboard, 'one object: a scenario that wraps readText wraps the page\'s');
+});
+
+// A named server that never answers must not hang the verifier (it used to: the fetch had no deadline).
+
+async function listen(handler: Parameters<typeof createServer>[1]): Promise<{ url: string; stop: () => void }> {
+  const server = createServer(handler);
+  await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+  const { port } = server.address() as AddressInfo;
+  return { url: `http://127.0.0.1:${port}/`, stop: () => { server.closeAllConnections(); server.close(); } };
+}
+
+test('a named server that accepts the connection and never answers is a problem found within the deadline, not a hang', async () => {
+  const silent = await listen(() => {});
+  try {
+    const started = Date.now();
+    const problems = await servedAssetProblems(silent.url, [{ name: 'index.html', bytes: 5, sha256: sha('hello') }], fetch, 200);
+    assert.equal(problems.length, 1);
+    assert.match(problems[0] ?? '', /^index\.html could not be fetched \(/);
+    assert.ok(Date.now() - started < 10_000, 'the check ended at its deadline');
+  } finally {
+    silent.stop();
+  }
+});
+
+test('a named server that stalls in the middle of a file is a problem too, and the files after it are still checked', async () => {
+  const stalling = await listen((request, response) => {
+    if (request.url === '/stalls.js') {
+      response.writeHead(200, { 'content-length': '100' });
+      response.write('x');
+      return;
+    }
+    response.writeHead(200).end('fine');
+  });
+  try {
+    const problems = await servedAssetProblems(stalling.url, [
+      { name: 'stalls.js', bytes: 100, sha256: sha('x') }, { name: 'fine.js', bytes: 4, sha256: sha('fine') },
+    ], fetch, 200);
+    assert.equal(problems.length, 1);
+    assert.match(problems[0] ?? '', /^stalls\.js could not be fetched/);
+  } finally {
+    stalling.stop();
+  }
+});
+
+// The evidence and the pass line every Web verifier leaves (scripts/verify-world-web.mjs gained them).
+
+test('the evidence of a Web run is report.json with its finish time and browser.log with one line per console message', async () => {
+  const { root } = exportDirectory({ 'placeholder.txt': 'x' });
+  const report = { passed: true, assertions: [{}, {}], captures: ['a.png'], console: [{ type: 'log', text: 'ready' }, { type: 'warning', text: 'slow' }] };
+  await writeEvidence(root, report, () => new Date('2026-11-07T00:00:00Z'));
+  assert.equal(JSON.parse(readFileSync(join(root, 'report.json'), 'utf8')).finishedAt, '2026-11-07T00:00:00.000Z');
+  assert.equal(readFileSync(join(root, 'browser.log'), 'utf8'), '[log] ready\n[warning] slow\n');
+});
+
+test('only a run that passed prints a pass line, and it carries the counts and the report', () => {
+  const report = { passed: true, assertions: [{}, {}, {}], captures: ['a.png', 'b.png'] };
+  const line = passedLine('GODOT_REACT_WEB_WORLD_VERIFY_PASSED', report, '/evidence');
+  assert.ok(line?.startsWith('GODOT_REACT_WEB_WORLD_VERIFY_PASSED {'));
+  assert.deepEqual(JSON.parse((line ?? '').slice('GODOT_REACT_WEB_WORLD_VERIFY_PASSED '.length)), { assertions: 3, captures: 2, report: '/evidence/report.json' });
+  assert.equal(passedLine('GODOT_REACT_WEB_WORLD_VERIFY_PASSED', { ...report, passed: false }, '/evidence'), undefined);
 });

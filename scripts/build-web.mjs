@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { delimiter, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { scrubOpenScripts } from './editor-session.mjs';
 import { argsWithoutEngine, CARGO_PACKAGE, selectEngine } from './engine.mjs';
 import { presetTemplate } from './web-content.mjs';
 
@@ -140,6 +141,9 @@ if (!args.has('--wasm-only')) {
   modules.push({ name: 'godot_react_ui.web.wasm', sha256: hash(extensionBytes), ...(lazyTable ? { metadata: tableMetadata(extensionBytes, 'React UI extension') } : {}) });
   const output = engine.artifactPath(`web-${mode}`);
   mkdirSync(output, { recursive: true });
+  // The export launches Godot's editor on the project, which restores the scripts of the last session and rewrites a TypeScript file
+  // it has open: take TypeScript out of the saved layout first, as every other editor launch does (scripts/editor-session.mjs).
+  scrubOpenScripts(join(root, 'demo'));
   run(godot, ['--headless', '--audio-driver', 'Dummy', '--path', join(root, 'demo'), `--export-${mode}`, web.presetName, join(output, 'index.html')]);
   const content = engine.webContentInputs(mode);
   if (content.digest !== contentBefore.digest) {

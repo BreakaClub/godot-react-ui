@@ -3,6 +3,10 @@ import { resolve } from 'node:path';
 import { argsWithoutEngine, selectEngine } from './engine.mjs';
 import { importDemo } from './import-demo.mjs';
 
+// `pnpm demo` opens the interactive demo, so it needs the default build of the library: a probe or faults build is refused on
+// purpose (docs/tracks/freshness.md). The F0 probe is run with a probe build and Godot directly (`$GODOT --path demo -- --probe`).
+// Every argument but `--engine=` goes to Godot as it is written (Godot decides what it takes; user arguments follow `--`), so
+// this script is the one that does not reject arguments it does not know.
 const engine = selectEngine();
 const godot = engine.godot;
 engine.prepareNative();

@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
 import { rejectUnknownArguments } from './arguments.mjs';
 import { selectEngine } from './engine.mjs';
-import { startVerificationServer } from './web-verify.mjs';
+import { passedLine, startVerificationServer, writeEvidence } from './web-verify.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 rejectUnknownArguments(process.argv.slice(2), { flags: ['--release'] });
@@ -475,6 +475,9 @@ try {
     process.exitCode = 1;
   });
   await server.close();
-  await writeFile(resolve(output, 'report.json'), JSON.stringify(report, null, 2) + '\n');
-  console.log(`GODOT_REACT_WEB_VERIFY_REPORT ${resolve(output, 'report.json')} passed=${report.passed} assertions=${report.assertions.length}`);
+  await writeEvidence(output, report);
 }
+
+// Printed only for a run that passed, as in the other Web verifiers; a failed one has printed its failure line.
+const passed = process.exitCode ? undefined : passedLine('GODOT_REACT_WEB_WORLD_VERIFY_PASSED', report, output);
+if (passed !== undefined) console.log(passed);

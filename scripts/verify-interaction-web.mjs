@@ -2474,7 +2474,7 @@ async function selectionState() {
   });
 }
 
-/** The browser's clipboard, read back through Chrome (the verifier grants the page the permission). */
+/** The page's clipboard, read back: the in-memory `navigator.clipboard` this verifier installs (scripts/web-clipboard.mjs), which needs no permission. */
 async function browserClipboard() {
   return page.evaluate(() => navigator.clipboard.readText());
 }
@@ -2531,8 +2531,8 @@ async function scanCanvas(area, rgb) {
 
 /**
  * Plan I6: text selection in real Chrome, at both device pixel ratios. Mirrors the native `selection` section's mouse
- * gestures; what differs is what only the browser can answer: the clipboard (`navigator.clipboard`, with the page granted
- * `clipboard-read` and `clipboard-write`), real keyboard chords, and the highlight's pixels on the real canvas.
+ * gestures; what differs is what only the browser can answer: the clipboard (`navigator.clipboard`, the in-memory one of
+ * scripts/web-clipboard.mjs, so no permission is granted and the system's is never touched), real keyboard chords, and the highlight's pixels on the real canvas.
  */
 async function runSelectionScenario() {
   await demo('showLab', 'selection');
