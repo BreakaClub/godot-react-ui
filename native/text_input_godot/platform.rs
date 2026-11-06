@@ -362,6 +362,8 @@ impl ReactUiRoot {
             .text_state(tag)
             .is_some_and(|state| state.buffer.config().multiline);
         let text = super::sanitize_value(text, multiline);
+        // The engine presses Right once per character before the keyboard's caret after this returns, on the next frame.
+        self.text_inputs.keyboard_presses_pending = true;
         self.run_text_command(tag, EditCommand::ReplaceText(text));
         // The keyboard's element holds what it sent; if the input holds something else now (`maxLength` cut it,
         // JS answered with a different text), it must hold that, or its next key brings the old text back.

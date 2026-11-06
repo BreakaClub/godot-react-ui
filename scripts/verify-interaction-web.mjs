@@ -2241,7 +2241,8 @@ async function runTouchSoftKeyboardScenario() {
   await expectFocused((await find('extra-chat')).id, 'A tap focuses the chat field');
   await waitUntil('the engine focuses its hidden DOM input', async () => (await keyboardElement())?.tag === 'INPUT');
   await page.keyboard.type('hi');
-  await expectInput('extra-chat', (state) => state.value === 'hi', 'The chat field takes the typing');
+  // The engine presses Right once per character after each `_set_text`, a frame later: wait for the caret too.
+  await expectInput('extra-chat', (state) => state.value === 'hi' && state.selectionStart === 2, 'The chat field takes the typing');
   await page.keyboard.press('Enter');
   await waitUntil('the submit sent the message', async () => (await readout()).sent === 1);
   await expectInput('extra-chat', (state) => state.value === '', 'and cleared the field');
@@ -2255,12 +2256,12 @@ async function runTouchSoftKeyboardScenario() {
   await expectFocused((await find('extra-digits')).id, 'A tap focuses the digits field');
   await waitUntil('the engine focuses its hidden DOM input for it', async () => (await keyboardElement())?.tag === 'INPUT');
   await page.keyboard.type('12');
-  await expectInput('extra-digits', (state) => state.value === '12', 'Digits are taken');
+  await expectInput('extra-digits', (state) => state.value === '12' && state.selectionStart === 2, 'Digits are taken');
   await page.keyboard.type('a');
   await expectInput('extra-digits', (state) => state.value === '12' && state.selectionStart === 2, 'A letter is refused and the field is put back with its caret');
   await waitUntil('the keyboard element was put back too', async () => (await keyboardElement())?.value === '12');
   await page.keyboard.type('3');
-  await expectInput('extra-digits', (state) => state.value === '123', 'The next digit is taken: the letter did not come back with it');
+  await expectInput('extra-digits', (state) => state.value === '123' && state.selectionStart === 3, 'The next digit is taken, after the others: the letter did not come back with it');
   check('React holds the digits', (await readout()).digits === '123');
   await capture('forms-06-touch-soft-keyboard');
 }
@@ -2279,6 +2280,26 @@ async function runEventsScenario(viewport) {
   await click('event-clear');
   await click('stop-toggle');
   await expectText('stop-toggle', 'Stop in capture: on', 'Stop toggle reads on');
+
+  // A key, and a refused one after it, before the engine's Right presses for the first (they come a frame after `_set_text`)
+  // have been handled: both in one task, so no frame comes between them. The refusal is restored to the selection from before
+  // it, which is only the 0 that `_set_text` leaves until those presses come. The element's caret must not be put there, or the
+  // next key lands at the start of the text.
+  await page.evaluate(() => {
+    const element = document.activeElement;
+    for (const text of ['1234', '1234a']) {
+      element.value = text;
+      element.setSelectionRange(text.length, text.length);
+      element.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  });
+  await expectInput('extra-digits', (state) => state.value === '1234' && state.selectionStart === 4, 'A refusal in the frame of the key before it is put back');
+  await waitUntil('the keyboard element holds the text with its caret at the end', async () => {
+    const element = await keyboardElement();
+    return element?.value === '1234' && element.selectionStart === 4 && element.selectionEnd === 4;
+  });
+  await page.keyboard.type('5');
+  await expectInput('extra-digits', (state) => state.value === '12345' && state.selectionStart === 5, 'The next key lands after the text, not at its start');
   await click('event-inner');
   await expectText('event-log', 'outer:capture middle:capture', 'Stopping in capture prevents bubble');
   await capture('03-stop-in-capture');

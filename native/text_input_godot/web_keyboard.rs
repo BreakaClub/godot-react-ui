@@ -51,6 +51,12 @@ impl ReactUiRoot {
         }
         let value = state.buffer.value();
         let (start, end) = state.buffer.selection_utf16();
+        // Between a `_set_text` and the Right presses that follow it, the selection native holds is the 0 that
+        // `ReplaceText` leaves, not where the keyboard's caret is. An edit refused in that time (a second key within
+        // the frame) was restored to the selection from before it, which is that 0, and written to the element, whose
+        // caret then stood at the start of the text and put the next key there. The element's caret is left where
+        // setting its value put it, at the end, which is where the keys of a text typed in a hurry are.
+        let selection = selection && !self.text_inputs.keyboard_presses_pending;
         let wanted_selection = selection.then_some((start, end));
         if let Err(error) = write_keyboard_element(&value, wanted_selection) {
             godot_error!("ReactUiRoot: text input {tag}: cannot update the soft keyboard: {error}");

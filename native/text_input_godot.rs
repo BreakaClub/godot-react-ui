@@ -259,6 +259,10 @@ pub(crate) struct TextInputRoot {
     pub(crate) blurred_preedits: Vec<(u32, String)>,
     /// The focused inputs whose box or font changed, whose caret is to be brought into view when layout has settled.
     pub(crate) reveal_after_layout: BTreeSet<u32>,
+    /// The soft keyboard sent a text (`_set_text`) and the engine's Right presses, which put the caret where the
+    /// keyboard's is, have not been processed yet: until the next frame the input's caret is only 0, where `ReplaceText`
+    /// left it. Whatever is read of the selection in that time is not where the user is.
+    pub(crate) keyboard_presses_pending: bool,
 }
 
 #[cfg(test)]

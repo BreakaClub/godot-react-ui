@@ -315,6 +315,8 @@ impl ReactUiRoot {
     /// Advance the focused input's caret blink by `delta` seconds and redraw it when it flips. It is also the
     /// frame in which the preedit of an input that lost focus while composing is inserted.
     pub(crate) fn tick_text_input(&mut self, delta: f64) {
+        // The input of this frame came before it: the engine's Right presses after a soft keyboard's text are done.
+        self.text_inputs.keyboard_presses_pending = false;
         self.commit_blurred_preedits();
         let Some(tag) = self.focused_text_input() else {
             return;
