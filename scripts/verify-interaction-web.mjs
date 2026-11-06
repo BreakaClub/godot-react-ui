@@ -1275,7 +1275,7 @@ async function runKeyboardScenario() {
   check('focus({ focusVisible: true }) shows the ring', await ringOn('kb-card'));
   await click('kb-focus-bad');
   await expectTextWhere('kb-focus-status', 'focus() on an element that cannot take focus throws',
-    (value) => /focus failed: node \d+ cannot take focus: it is not a button and has no tabIndex/.test(value));
+    (value) => /focus failed: node \d+ cannot take focus: it is not a button or text input and has no tabIndex/.test(value));
 
   await page.mouse.move(1, 1);
   await frames();
