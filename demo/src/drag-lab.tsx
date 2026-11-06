@@ -211,23 +211,6 @@ export function DragLab() {
           >
             <Text className="pointer-events-none text-xs text-slate-700">refused</Text>
           </View>
-          {!vanished && (
-            <View
-              testID="vanishing" className={chip}
-              {...source('vanishing', 'move')}
-              onPointerDown={(_: UIPointerEvent) => setArmed(true)}
-              onPointerMove={(_: UIPointerEvent) => { if (armed) setVanished(true); }}
-            >
-              <Text className="pointer-events-none text-xs text-slate-700">vanishes when moved</Text>
-            </View>
-          )}
-          <Button
-            testID="vanishing-restore"
-            className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-100"
-            onClick={() => { setVanished(false); setArmed(false); }}
-          >
-            Restore the vanishing chip
-          </Button>
           <View testID="ghostless" className={chip} dragPreview="none" {...source('ghostless', 'move')}>
             <Text className="pointer-events-none text-xs text-slate-700">no ghost</Text>
           </View>
@@ -261,6 +244,23 @@ export function DragLab() {
               </View>
             ))}
           </ScrollView>
+          {!vanished && (
+            <View
+              testID="vanishing" className={chip}
+              {...source('vanishing', 'move')}
+              onPointerDown={(_: UIPointerEvent) => setArmed(true)}
+              onPointerMove={(_: UIPointerEvent) => { if (armed) setVanished(true); }}
+            >
+              <Text className="pointer-events-none text-xs text-slate-700">vanishes</Text>
+            </View>
+          )}
+          <Button
+            testID="vanishing-restore"
+            className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-100"
+            onClick={() => { setVanished(false); setArmed(false); }}
+          >
+            Restore the vanishing chip
+          </Button>
         </Section>
       </View>
       <View className="gap-1">
