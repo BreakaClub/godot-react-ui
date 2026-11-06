@@ -15,13 +15,14 @@ use taffy::prelude::Size;
 
 use crate::computed_style::{ComputedStyle, StyleChange, StyleTree};
 use crate::diff::Parent;
+use crate::filter::FilterList;
 use crate::layout::compute_tree;
 use crate::paint::parse_color;
 use crate::profile::{Sample, micros};
 use crate::props::{
     Dimension, DisplaySpec, FlexDirectionSpec, InterpolateSize, StyleSpec, TransitionProperty,
 };
-use crate::style_engine::{DimensionAxis, DimensionOverrides, blocked_properties};
+use crate::style_engine::{DimensionAxis, DimensionOverrides, blocked_properties, current_color};
 use crate::{MILLISECONDS_PER_SECOND, ReactUiRoot, TextContext};
 
 const HEX_COLOR_CHANNEL_MAX: f32 = 255.0;
@@ -40,6 +41,8 @@ pub(crate) struct IntrinsicTrack {
 pub(crate) enum MotionValue {
     Number(f32),
     Color(String),
+    /// A filter list as CSS text.
+    Filter(String),
 }
 
 #[derive(Serialize)]
@@ -76,7 +79,7 @@ impl ReactUiRoot {
             "drawSerial":self.stats.paint_passes,"nodeCount":self.stats.node_count,
             "mutations":self.stats.mutations,"nodesUpdated":self.stats.nodes_updated,
             "nodesRestyled":self.stats.nodes_restyled,"boxRecords":self.stats.box_records,
-            "contentRecords":self.stats.content_records})
+            "contentRecords":self.stats.content_records,"effects":self.effects_activity()})
     }
 
     /// The opacity, background colour and size a node is presenting right now.
@@ -503,6 +506,16 @@ impl ReactUiRoot {
                         )))
                     }),
             ),
+            TransitionProperty::Filter => MotionValue::Filter(
+                sample
+                    .map(|v| v.filter.to_css())
+                    .unwrap_or_else(|| resolved_filter(&node.computed).to_css()),
+            ),
+            TransitionProperty::BackdropFilter => MotionValue::Filter(
+                sample
+                    .map(|v| v.backdrop_filter.to_css())
+                    .unwrap_or_else(|| resolved_backdrop_filter(&node.computed).to_css()),
+            ),
         }
     }
 
@@ -536,6 +549,10 @@ impl ReactUiRoot {
             TransitionProperty::BackgroundColor => MotionValue::Color(color_hex(color_components(
                 parse_color(style.background_color.as_deref(), Color::TRANSPARENT_BLACK),
             ))),
+            TransitionProperty::Filter => MotionValue::Filter(resolved_filter(style).to_css()),
+            TransitionProperty::BackdropFilter => {
+                MotionValue::Filter(resolved_backdrop_filter(style).to_css())
+            }
         }
     }
 
@@ -764,7 +781,10 @@ fn property_axis(property: TransitionProperty) -> Option<DimensionAxis> {
     match property {
         TransitionProperty::Width => Some(DimensionAxis::Width),
         TransitionProperty::Height => Some(DimensionAxis::Height),
-        TransitionProperty::Opacity | TransitionProperty::BackgroundColor => None,
+        TransitionProperty::Opacity
+        | TransitionProperty::BackgroundColor
+        | TransitionProperty::Filter
+        | TransitionProperty::BackdropFilter => None,
     }
 }
 fn dimension_value(style: &StyleSpec, axis: DimensionAxis) -> Dimension {
@@ -797,7 +817,24 @@ fn property_changed(old: &StyleSpec, new: &StyleSpec, property: TransitionProper
         TransitionProperty::Height => old.height != new.height,
         TransitionProperty::Opacity => old.opacity != new.opacity,
         TransitionProperty::BackgroundColor => old.background_color != new.background_color,
+        TransitionProperty::Filter => resolved_filter(old) != resolved_filter(new),
+        TransitionProperty::BackdropFilter => {
+            resolved_backdrop_filter(old) != resolved_backdrop_filter(new)
+        }
     }
+}
+
+/// The `filter` list of a style with `currentcolor` shadows resolved to its text colour.
+pub(crate) fn resolved_filter(style: &StyleSpec) -> FilterList {
+    style
+        .filter_list()
+        .resolve_current_color(current_color(style))
+}
+
+pub(crate) fn resolved_backdrop_filter(style: &StyleSpec) -> FilterList {
+    style
+        .backdrop_filter_list()
+        .resolve_current_color(current_color(style))
 }
 fn set_override(
     overrides: &mut BTreeMap<u32, DimensionOverrides>,

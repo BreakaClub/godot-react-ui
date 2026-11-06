@@ -12,6 +12,8 @@ use style::values::computed::{LengthPercentage, Size};
 
 use crate::commit::LAYER_COUNT;
 use crate::diff::Parent;
+use crate::filter::{DropShadow, FilterFunction, FilterList, Rgba};
+use crate::paint::parse_color;
 use crate::props::{Dimension, DisplaySpec, Easing, StyleSpec, TransitionProperty, TransitionSpec};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -109,6 +111,10 @@ pub struct SampledStyle {
     pub opacity: f32,
     /// Non-premultiplied sRGB, matching Godot Color components.
     pub background_color: [f32; 4],
+    /// The sampled `filter` and `backdrop-filter`, per function (Stylo interpolates a list function by
+    /// function and a missing function from its identity), with every shadow colour concrete.
+    pub filter: FilterList,
+    pub backdrop_filter: FilterList,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -117,8 +123,19 @@ struct AppliedStyle {
     height: Dimension,
     opacity: f32,
     background_color: String,
+    /// The resolved lists as CSS text (`none` for no filter); `currentcolor` is already the element's
+    /// colour.
+    filter: String,
+    backdrop_filter: String,
     hidden: bool,
     transition: Option<TransitionSpec>,
+}
+
+/// The element's text colour, which a `drop-shadow()` without a colour uses (this library's default is
+/// white).
+pub(crate) fn current_color(style: &StyleSpec) -> Rgba {
+    let color = parse_color(style.color.as_deref(), godot::prelude::Color::WHITE);
+    [color.r, color.g, color.b, color.a]
 }
 
 impl AppliedStyle {
@@ -147,6 +164,14 @@ impl AppliedStyle {
                 .background_color
                 .clone()
                 .unwrap_or_else(|| "#00000000".into()),
+            filter: style
+                .filter_list()
+                .resolve_current_color(current_color(style))
+                .to_css(),
+            backdrop_filter: style
+                .backdrop_filter_list()
+                .resolve_current_color(current_color(style))
+                .to_css(),
             hidden: style.display == Some(DisplaySpec::None),
             transition: style.transition.clone(),
         }
@@ -179,6 +204,8 @@ impl Default for StyleEngine {
 
 impl StyleEngine {
     pub fn new() -> Self {
+        // `backdrop-filter` parses only with this preference on; it is off in Servo's defaults.
+        stylo_static_prefs::set_pref!("layout.css.backdrop-filter.enabled", true);
         let config = DocumentConfig {
             // Only explicitly supplied inline styles participate. No browser UA
             // dimensions or font styles are allowed to alter the native model.
@@ -388,6 +415,12 @@ impl StyleEngine {
         if previous.is_none_or(|previous| previous.background_color != next.background_color) {
             mutator.set_style_property(native_id, "background-color", &next.background_color);
         }
+        if previous.is_none_or(|previous| previous.filter != next.filter) {
+            mutator.set_style_property(native_id, "filter", &next.filter);
+        }
+        if previous.is_none_or(|previous| previous.backdrop_filter != next.backdrop_filter) {
+            mutator.set_style_property(native_id, "backdrop-filter", &next.backdrop_filter);
+        }
         if previous.is_none_or(|previous| previous.hidden != next.hidden) {
             mutator.set_style_property(
                 native_id,
@@ -451,13 +484,53 @@ impl StyleEngine {
             .background_color
             .resolve_to_absolute(&current_color)
             .into_srgb_legacy();
+        let effects = computed.get_effects();
         Ok(SampledStyle {
             width: sampled_dimension(&position.width)?,
             height: sampled_dimension(&position.height)?,
-            opacity: computed.get_effects().opacity,
+            opacity: effects.opacity,
             background_color: *background.raw_components(),
+            filter: sampled_filters(&effects.filter.0, &current_color)?,
+            backdrop_filter: sampled_filters(&effects.backdrop_filter.0, &current_color)?,
         })
     }
+}
+
+/// Stylo's computed filter functions as ours: lengths in CSS pixels, angles in degrees, shadow colours
+/// resolved against the element's text colour.
+fn sampled_filters(
+    filters: &[style::values::computed::Filter],
+    current_color: &style::color::AbsoluteColor,
+) -> Result<FilterList, String> {
+    use style::values::computed::Filter;
+    let mut out = Vec::with_capacity(filters.len());
+    for filter in filters {
+        out.push(match filter {
+            Filter::Blur(radius) => FilterFunction::Blur(radius.0.px()),
+            Filter::Brightness(amount) => FilterFunction::Brightness(amount.0),
+            Filter::Contrast(amount) => FilterFunction::Contrast(amount.0),
+            Filter::Grayscale(amount) => FilterFunction::Grayscale(amount.0),
+            Filter::HueRotate(angle) => FilterFunction::HueRotate(angle.degrees()),
+            Filter::Invert(amount) => FilterFunction::Invert(amount.0),
+            Filter::Opacity(amount) => FilterFunction::Opacity(amount.0),
+            Filter::Saturate(amount) => FilterFunction::Saturate(amount.0),
+            Filter::Sepia(amount) => FilterFunction::Sepia(amount.0),
+            Filter::DropShadow(shadow) => FilterFunction::DropShadow(DropShadow {
+                x: shadow.horizontal.px(),
+                y: shadow.vertical.px(),
+                blur: shadow.blur.0.px(),
+                color: Some(
+                    *shadow
+                        .color
+                        .resolve_to_absolute(current_color)
+                        .into_srgb_legacy()
+                        .raw_components(),
+                ),
+            }),
+            Filter::Url(_) => return Err("a url() filter reached the style engine".into()),
+        });
+    }
+    Ok(FilterList(out))
 }
 
 fn sampled_dimension(value: &Size) -> Result<SampledDimension, String> {
@@ -501,6 +574,8 @@ fn transition_properties(
             TransitionProperty::Height => "height",
             TransitionProperty::Opacity => "opacity",
             TransitionProperty::BackgroundColor => "background-color",
+            TransitionProperty::Filter => "filter",
+            TransitionProperty::BackdropFilter => "backdrop-filter",
         })
         .collect();
     if properties.is_empty() {
@@ -525,6 +600,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::*;
+    use crate::filter::FilterFunction;
 
     const TOLERANCE: f32 = 0.01;
 
@@ -892,5 +968,64 @@ mod tests {
             80.0,
         );
         assert!(scene.engine.is_animating());
+    }
+
+    /// Stylo interpolates `filter` and `backdrop-filter` per function and pads a missing function with its
+    /// identity (the CSS Filter Effects rules); `FilterList::interpolate` is the reference, and the end state
+    /// is exact. Transitions of filters run entirely in Stylo on the native clock.
+    #[test]
+    fn filter_lists_transition_per_function_and_end_exactly() {
+        let mut scene = Scene::new("10");
+        *scene.node(1) = style(
+            r##"{"filter":"blur(0px)","backdropFilter":"blur(2px) saturate(1)",
+                "transition":{"properties":["filter","backdropFilter"],"durationMs":1000,"easing":"linear"}}"##,
+        );
+        scene.sync(0.0);
+        scene.node(1).filter = Some(FilterList::parse("blur(8px) brightness(1.5)").unwrap());
+        scene.node(1).backdrop_filter = Some(FilterList::parse("blur(10px) saturate(2)").unwrap());
+        let from_filter = FilterList::parse("blur(0px)").unwrap();
+        let to_filter = FilterList::parse("blur(8px) brightness(1.5)").unwrap();
+        let from_backdrop = FilterList::parse("blur(2px) saturate(1)").unwrap();
+        let to_backdrop = FilterList::parse("blur(10px) saturate(2)").unwrap();
+        let started = scene.sync(0.0);
+        assert_eq!(
+            started.values[&1].filter,
+            from_filter.interpolate(&to_filter, 0.0).unwrap(),
+            "a transition starts from where it was, the new function at its identity"
+        );
+        for progress in [0.25f32, 0.5, 0.75] {
+            let frame = scene.sample(f64::from(progress));
+            let sampled = &frame.values[&1];
+            let expected = from_filter.interpolate(&to_filter, progress).unwrap();
+            assert_eq!(
+                sampled.filter.0.len(),
+                expected.0.len(),
+                "the missing brightness is padded from its identity"
+            );
+            for (got, want) in sampled.filter.0.iter().zip(&expected.0) {
+                match (got, want) {
+                    (FilterFunction::Blur(a), FilterFunction::Blur(b))
+                    | (FilterFunction::Brightness(a), FilterFunction::Brightness(b)) => {
+                        near(*a, *b)
+                    }
+                    other => panic!("unexpected pair {other:?}"),
+                }
+            }
+            let expected = from_backdrop.interpolate(&to_backdrop, progress).unwrap();
+            for (got, want) in sampled.backdrop_filter.0.iter().zip(&expected.0) {
+                match (got, want) {
+                    (FilterFunction::Blur(a), FilterFunction::Blur(b))
+                    | (FilterFunction::Saturate(a), FilterFunction::Saturate(b)) => near(*a, *b),
+                    other => panic!("unexpected pair {other:?}"),
+                }
+            }
+        }
+        let settled = scene.sample(1.0);
+        assert_eq!(
+            settled.values[&1].filter, to_filter,
+            "the end state is exact"
+        );
+        assert_eq!(settled.values[&1].backdrop_filter, to_backdrop);
+        assert!(!settled.active, "and nothing is left animating");
     }
 }

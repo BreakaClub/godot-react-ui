@@ -15,9 +15,15 @@
 //! A move changes one transform and an opacity change one modulate; only an element whose own
 //! visuals or size changed re-records its commands (`record_box` / `record_content` compare against
 //! what they recorded last and do nothing when it still holds).
+//!
+//! An element with a `backdrop-filter` has two more items, both children of the box item drawn before
+//! its background (`behind`): a copy of the render target, then the blurred backdrop. An element with a
+//! `filter` has a canvas group between its paint parent and its box item. Both exist only while the
+//! filter does (`filter_render.rs` decides).
 
 use std::time::Instant;
 
+use godot::classes::rendering_server::CanvasGroupMode;
 use godot::classes::{RenderingServer, StyleBoxFlat, TextParagraph};
 use godot::prelude::*;
 
@@ -178,10 +184,42 @@ pub(crate) struct Recorded {
     pub(crate) scroll_offset: Option<Vector2>,
 }
 
+/// The two items of a `backdrop-filter`, children of the box item that draw before its background.
+/// They are two items, not one, on purpose: the copy must be its own item for the renderer to
+/// regenerate the mipmaps for it (plan D40 b, `docs/tracks/filters.md`).
+pub(crate) struct BackdropItems {
+    /// Copies the render target's region into the back buffer.
+    pub(crate) copy: Rid,
+    /// Draws the element's shape with the material that reads the back buffer.
+    pub(crate) draw: Rid,
+}
+
+/// The canvas group of a `filter`, between the paint parent and the box item.
+pub(crate) struct GroupItems {
+    /// The group: draws its children into the back buffer, then composites with the material. It draws its
+    /// own rectangle, which is the area the composite covers: a group with no commands of its own
+    /// (`fit_empty`) is `clear()`ed by the culler every frame, and `clear()` drops the item's clip owner
+    /// (`renderer_canvas_render.h:459`), so its composite would ignore an ancestor's clip.
+    pub(crate) wrapper: Rid,
+    /// An invisible child whose rectangle, with the wrapper's own, sets the region the renderer generates
+    /// mipmaps for; the caller aligns it (see `blur::copy_region`).
+    pub(crate) bounds: Rid,
+}
+
+/// Draw index of the copy item and of the backdrop item among the box item's `behind` children.
+const COPY_DRAW_INDEX: i32 = 0;
+const BACKDROP_DRAW_INDEX: i32 = 1;
+
 /// The canvas items of one mounted element, plus what they currently show.
 pub(crate) struct RenderNode {
     pub(crate) box_item: Rid,
     pub(crate) content_item: Rid,
+    /// Where the element's outermost item is attached and its sibling index, remembered so the group
+    /// of a `filter` can take the box item's place in the tree and give it back.
+    parent: Rid,
+    draw_index: i32,
+    pub(crate) backdrop: Option<BackdropItems>,
+    pub(crate) group: Option<GroupItems>,
     /// Scroll containers only: the item child boxes attach to, translated by minus the scroll offset.
     scroll_item: Option<Rid>,
     /// Scroll containers only: draws the scrollbar thumbs over the content.
@@ -219,6 +257,10 @@ impl RenderNode {
         Self {
             box_item,
             content_item,
+            parent: Rid::Invalid,
+            draw_index: 0,
+            backdrop: None,
+            group: None,
             scroll_item: None,
             overlay_item: None,
             edit_items: None,
@@ -387,18 +429,123 @@ impl RenderNode {
         true
     }
 
+    /// The item that sits in the paint parent: the group of a `filter`, else the box item.
+    fn outer_item(&self) -> Rid {
+        self.group
+            .as_ref()
+            .map_or(self.box_item, |group| group.wrapper)
+    }
+
     /// Attach under `parent` (a parent element's content item or a layer item).
     pub(crate) fn attach(&mut self, parent: Rid) {
-        server().canvas_item_set_parent(self.box_item, parent);
+        self.parent = parent;
+        server().canvas_item_set_parent(self.outer_item(), parent);
     }
 
     pub(crate) fn detach(&mut self) {
-        server().canvas_item_set_parent(self.box_item, Rid::Invalid);
+        self.parent = Rid::Invalid;
+        server().canvas_item_set_parent(self.outer_item(), Rid::Invalid);
     }
 
     /// Sibling order: items under one parent draw in ascending index.
     pub(crate) fn set_draw_index(&mut self, index: i32) {
-        server().canvas_item_set_draw_index(self.box_item, index);
+        self.draw_index = index;
+        server().canvas_item_set_draw_index(self.outer_item(), index);
+    }
+
+    /// Give the element its `backdrop-filter` items. Returns them (they exist already if it had them).
+    pub(crate) fn ensure_backdrop(&mut self) -> &BackdropItems {
+        if self.backdrop.is_none() {
+            let mut rs = server();
+            let copy = rs.canvas_item_create();
+            let draw = rs.canvas_item_create();
+            for (item, index) in [(copy, COPY_DRAW_INDEX), (draw, BACKDROP_DRAW_INDEX)] {
+                rs.canvas_item_set_parent(item, self.box_item);
+                rs.canvas_item_set_draw_behind_parent(item, true);
+                rs.canvas_item_set_draw_index(item, index);
+            }
+            self.backdrop = Some(BackdropItems { copy, draw });
+        }
+        self.backdrop
+            .as_ref()
+            .expect("the backdrop items were just made")
+    }
+
+    /// Take the `backdrop-filter` items away. Returns whether there were any.
+    pub(crate) fn remove_backdrop(&mut self) -> bool {
+        let Some(items) = self.backdrop.take() else {
+            return false;
+        };
+        let mut rs = server();
+        rs.free_rid(items.copy);
+        rs.free_rid(items.draw);
+        true
+    }
+
+    /// Give the element the canvas group of its `filter`, in the box item's place under the paint
+    /// parent. The group adds no margin of its own (`clear_margin`/`fit_margin` 0); `set_group_rects`
+    /// says what it covers.
+    pub(crate) fn ensure_group(&mut self, blur_mipmaps: bool) -> &GroupItems {
+        if self.group.is_none() {
+            let mut rs = server();
+            let wrapper = rs.canvas_item_create();
+            let bounds = rs.canvas_item_create();
+            rs.canvas_item_set_parent(bounds, wrapper);
+            rs.canvas_item_add_rect(
+                bounds,
+                Rect2::new(Vector2::ZERO, Vector2::ONE),
+                Color::TRANSPARENT_BLACK,
+            );
+            rs.canvas_item_set_parent(wrapper, self.parent);
+            rs.canvas_item_set_draw_index(wrapper, self.draw_index);
+            rs.canvas_item_set_parent(self.box_item, wrapper);
+            self.group = Some(GroupItems { wrapper, bounds });
+        }
+        // The mode is asserted each time: `blur_mipmaps` follows the shader kind.
+        let wrapper = self
+            .group
+            .as_ref()
+            .expect("the group was just made")
+            .wrapper;
+        server()
+            .canvas_item_set_canvas_group_mode_ex(wrapper, CanvasGroupMode::TRANSPARENT)
+            .clear_margin(0.0)
+            .fit_empty(false)
+            .fit_margin(0.0)
+            .blur_mipmaps(blur_mipmaps)
+            .done();
+        self.group.as_ref().expect("the group was just made")
+    }
+
+    /// The rectangle the group's composite covers (`draw`, which also clips to the ancestors: see
+    /// [`GroupItems::wrapper`]) and the larger rectangle its mipmaps are generated for (`region`), both in
+    /// the group's frame. Does nothing without a group.
+    pub(crate) fn set_group_rects(&mut self, draw: Rect2, region: Rect2) {
+        let Some(group) = &self.group else {
+            return;
+        };
+        let mut rs = server();
+        rs.canvas_item_clear(group.wrapper);
+        rs.canvas_item_add_rect(group.wrapper, draw, Color::WHITE);
+        rs.canvas_item_set_custom_rect_ex(group.wrapper, true)
+            .rect(draw)
+            .done();
+        rs.canvas_item_set_custom_rect_ex(group.bounds, true)
+            .rect(region)
+            .done();
+    }
+
+    /// Take the group away, putting the box item back in its place. Returns whether there was one.
+    pub(crate) fn remove_group(&mut self) -> bool {
+        let Some(group) = self.group.take() else {
+            return false;
+        };
+        let mut rs = server();
+        rs.canvas_item_set_parent(self.box_item, self.parent);
+        rs.canvas_item_set_draw_index(self.box_item, self.draw_index);
+        rs.free_rid(group.bounds);
+        rs.free_rid(group.wrapper);
+        true
     }
 
     /// Returns true when the transform changed.
@@ -533,6 +680,8 @@ impl Drop for RenderNode {
     fn drop(&mut self) {
         // RenderingServer::free does not free child RIDs recursively. Every item created here is
         // released explicitly with its owning element.
+        self.remove_backdrop();
+        self.remove_group();
         let mut rs = server();
         if let Some(items) = self.edit_items.take() {
             rs.free_rid(items.text);
@@ -674,7 +823,13 @@ impl ReactUiRoot {
             self.stats.content_records += u64::from(self.paint_text_input(tag));
             // The scrollbars' look (`scrollbar-width`, `scrollbar-color`) is a paint input too.
             self.paint_scroll_overlay(tag);
+            self.sync_effects(tag);
         }
+        // An effect appearing or going makes the others check whether they sit inside a filter group.
+        for tag in self.take_effect_resyncs() {
+            self.sync_effects(tag);
+        }
+        self.refresh_effect_rects();
         changed |= self.update_focus_ring();
         if changed {
             self.stats.paint_passes += 1;

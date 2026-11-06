@@ -913,6 +913,7 @@ impl ReactUiRoot {
         self.paint_reeval.remove(&tag);
         self.mounted.out_of_flow.remove(&tag);
         self.forget_scroll(tag);
+        self.forget_effects(tag);
         self.selection_node_changed(tag);
         self.paint_dirty_parents.remove(&Parent::Node(tag));
         if let Some(painter) = node.paint_parent {
@@ -1163,6 +1164,7 @@ impl ReactUiRoot {
         }
         node.geometry = geometry;
         self.hit_stale = true;
+        self.effects.mark_stale();
         node.render.set_location(geometry.location);
         let shape_changed = !previous.laid_out
             || previous.size != geometry.size

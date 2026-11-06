@@ -16,6 +16,8 @@ use taffy::style::{
 };
 use taffy::style_helpers::{auto, fr, length, minmax};
 
+use crate::filter::{FilterKind, FilterList, FilterParts};
+
 /// The `tabIndex` values the plan allows (3.13): `0` in the tab order, `-1` focusable only.
 pub const TAB_INDICES: [i32; 2] = [0, -1];
 
@@ -113,6 +115,9 @@ pub enum TransitionProperty {
     Height,
     Opacity,
     BackgroundColor,
+    /// Interpolated per function, a missing function from its identity (CSS Filter Effects).
+    Filter,
+    BackdropFilter,
 }
 
 #[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq)]
@@ -505,6 +510,37 @@ pub struct StyleSpec {
     /// Orders an element among the siblings that share its paint parent (plan 3.8); React Native's
     /// `zIndex`, which applies to every element and creates no stacking context.
     pub z_index: Option<i32>,
+    /// An explicit `filter` list (CSS text on the wire). It replaces what the utilities composed, and
+    /// a utility set in a later layer replaces it, as in CSS where each sets the whole property.
+    pub filter: Option<FilterList>,
+    /// The functions Tailwind's separate utilities set (`blur-sm`, `hover:brightness-110`); each merges
+    /// on its own across layers. See [`merge_filter`].
+    pub filter_parts: Option<FilterParts>,
+    /// As `filter`, for what is behind the element. Drawn only for a visible element.
+    pub backdrop_filter: Option<FilterList>,
+    pub backdrop_filter_parts: Option<FilterParts>,
+}
+
+/// Merge one layer's `filter` and `filter_parts` over the values so far. An explicit list replaces the
+/// whole property and forgets the functions utilities set before it; a function set after it takes the
+/// property back to the composed list, where only the functions set since count. This is what the
+/// Tailwind classes do in CSS (each utility sets its own variable *and* `filter`), so
+/// `blur-sm hover:brightness-110` keeps the blur on hover and `style={{filter}}` replaces both.
+fn merge_filter(
+    list: &mut Option<FilterList>,
+    parts: &mut Option<FilterParts>,
+    other_list: &Option<FilterList>,
+    other_parts: &Option<FilterParts>,
+) {
+    if let Some(other_list) = other_list {
+        *list = Some(other_list.clone());
+        *parts = None;
+    } else if let Some(other_parts) = other_parts {
+        *list = None;
+        parts
+            .get_or_insert_with(FilterParts::default)
+            .merge(other_parts);
+    }
 }
 
 /// An inset (`top`, `right`, `bottom`, `left`): pixels or a percentage of the containing block, either
@@ -635,12 +671,25 @@ impl StyleSpec {
     pub fn merge(&mut self, other: &StyleSpec) {
         macro_rules! overwrite {
             ($($field:ident),+ $(,)?) => {{
-                let StyleSpec { $($field),+ } = other;
+                let StyleSpec {
+                    $($field,)+
+                    filter,
+                    filter_parts,
+                    backdrop_filter,
+                    backdrop_filter_parts,
+                } = other;
                 $(
                     if $field.is_some() {
                         self.$field = $field.clone();
                     }
                 )+
+                merge_filter(&mut self.filter, &mut self.filter_parts, filter, filter_parts);
+                merge_filter(
+                    &mut self.backdrop_filter,
+                    &mut self.backdrop_filter_parts,
+                    backdrop_filter,
+                    backdrop_filter_parts,
+                );
             }};
         }
         overwrite!(
@@ -759,6 +808,30 @@ impl StyleSpec {
             .is_some_and(|value| !value.is_finite() || !(0.0..=1.0).contains(&value))
         {
             return Err("opacity must be between 0 and 1".into());
+        }
+        for (name, list, parts, kind) in [
+            (
+                "filter",
+                &self.filter,
+                &self.filter_parts,
+                FilterKind::Filter,
+            ),
+            (
+                "backdropFilter",
+                &self.backdrop_filter,
+                &self.backdrop_filter_parts,
+                FilterKind::Backdrop,
+            ),
+        ] {
+            if let Some(list) = list {
+                list.validate(kind)
+                    .map_err(|error| format!("{name}: {error}"))?;
+            }
+            if let Some(parts) = parts {
+                parts
+                    .validate(kind)
+                    .map_err(|error| format!("{name}: {error}"))?;
+            }
         }
         if self.font_size.is_some_and(|value| value <= 0) {
             return Err("fontSize must be a positive integer".into());

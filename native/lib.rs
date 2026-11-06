@@ -1,5 +1,6 @@
 mod accessibility;
 mod accessibility_model;
+mod blur;
 mod clipboard;
 mod commit;
 mod computed_style;
@@ -8,6 +9,8 @@ mod drag;
 mod drag_ghost;
 mod drag_input;
 mod events;
+mod filter;
+mod filter_render;
 mod focus;
 mod geometry;
 mod keyboard_input;
@@ -69,6 +72,7 @@ use events::{
     DropEffect, EventOutcome, EventPayload, EventQueue, FocusData, Modifiers, PointerData,
     PointerType,
 };
+use filter_render::Effects;
 use focus::Modality;
 use motion::{IntrinsicTrack, TransitionRecord};
 use mount::Mounted;
@@ -151,6 +155,8 @@ pub struct ReactUiRoot {
     scrollbar_style: Option<Gd<StyleBoxFlat>>,
     /// Coasting flicks, panning fingers and the scrollbar thumb being dragged (`scroll_input.rs`).
     scrolling: ScrollInputState,
+    /// The canvas items, materials and rectangles of `filter` and `backdrop-filter` (`filter_render.rs`).
+    effects: Effects,
     /// The document's text selection, the gesture that is extending it and what each node paints of
     /// it (`selection_input.rs`).
     selecting: SelectionState,
@@ -245,6 +251,7 @@ impl IControl for ReactUiRoot {
             ring_drawn: None,
             scrollbar_style: None,
             scrolling: ScrollInputState::default(),
+            effects: Effects::default(),
             selecting: SelectionState::default(),
             drag: DragRuntime::default(),
             layout_dirty: BTreeSet::new(),
@@ -305,6 +312,8 @@ impl IControl for ReactUiRoot {
         // MOUSE_FILTER_STOP would otherwise mark every wheel event handled; whether one is consumed
         // is decided by JS and, from Phase I5, by scrolling (plan 3.11).
         self.base_mut().set_force_pass_scroll_events(true);
+        // A filter's rectangles are in render-target pixels, so they follow the root's own transform.
+        self.base_mut().set_notify_transform(true);
         self.font = self
             .base()
             .get_theme_default_font()
@@ -355,9 +364,14 @@ impl IControl for ReactUiRoot {
             ControlNotification::WM_WINDOW_FOCUS_IN => self.text_input_window_focus(true),
             // The engine freed the root's element, and ours with it.
             ControlNotification::ACCESSIBILITY_INVALIDATE => self.forget_accessibility_elements(),
+            ControlNotification::TRANSFORM_CHANGED => {
+                self.effects.mark_stale();
+                self.refresh_effect_rects();
+            }
             ControlNotification::PREDELETE => {
                 self.release_accessibility_elements();
                 self.mounted.nodes.clear();
+                self.effects.release();
                 self.layer_items.clear();
                 self.ring_item = None;
             }
