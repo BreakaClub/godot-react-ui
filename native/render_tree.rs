@@ -24,6 +24,7 @@ use crate::commit::LAYER_COUNT;
 use crate::geometry::BoxRect;
 use crate::paint::parse_color;
 use crate::profile::{Sample, micros};
+use crate::props::Kind;
 use crate::selection_input::{highlight_paint, highlight_rects};
 
 /// The overlay scrollbar thumb colour when no `scrollbar-color` is set: slate-500 at 60 % (plan
@@ -74,6 +75,7 @@ pub(crate) struct ContentKey {
     pub content_width: f32,
     pub origin: Vector2,
     pub selection: Option<SelectionPaint>,
+    pub oversampling: u32,
 }
 
 /// What a scroll container's overlay last drew: its scrollbar thumbs (horizontal, vertical) in the
@@ -335,6 +337,7 @@ impl RenderNode {
         &mut self,
         key: ContentKey,
         paragraph: Option<&mut Gd<TextParagraph>>,
+        oversampling: f32,
         highlight: impl FnOnce(&Gd<TextParagraph>, SelectionPaint) -> Vec<Rect2>,
     ) -> bool {
         if self.content_key == Some(key) {
@@ -353,6 +356,7 @@ impl RenderNode {
             paragraph
                 .draw_ex(self.content_item, key.origin)
                 .color(key.color)
+                .oversampling(oversampling)
                 .done();
         }
         self.assert_clip();
@@ -469,6 +473,15 @@ impl ReactUiRoot {
     /// an idle frame records nothing.
     pub(crate) fn paint_pass(&mut self) {
         let started = Instant::now();
+        let oversampling = self.oversampling();
+        if (oversampling - self.last_oversampling).abs() > 0.001 {
+            self.last_oversampling = oversampling;
+            for (tag, node) in &self.mounted.nodes {
+                if node.kind == Kind::Text {
+                    self.paint_dirty.insert(*tag);
+                }
+            }
+        }
         let dirty = std::mem::take(&mut self.paint_dirty);
         let mut changed = !dirty.is_empty();
         for tag in dirty {
@@ -490,6 +503,7 @@ impl ReactUiRoot {
     /// Bring one node's canvas items up to date. Returns whether its box and its content were
     /// re-recorded.
     fn paint_node(&mut self, tag: u32) -> (bool, bool) {
+        let oversampling = self.oversampling();
         let motion = self
             .sampled
             .get(&tag)
@@ -534,11 +548,12 @@ impl ReactUiRoot {
                     content_width: node.geometry.content_width(),
                     origin: node.geometry.content_origin(),
                     selection: highlight.map(|range| highlight_paint(style, range)),
+                    oversampling: (oversampling * 64.0).round() as u32,
                 };
                 let geometry = node.geometry;
                 let computed = &node.computed;
                 node.render
-                    .record_content(key, Some(paragraph), |paragraph, selection| {
+                    .record_content(key, Some(paragraph), oversampling, |paragraph, selection| {
                         let Some(font) = font.as_ref() else {
                             godot_error!(
                                 "ReactUiRoot: node {tag} has a selection but the root has no font"

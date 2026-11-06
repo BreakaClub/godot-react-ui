@@ -215,6 +215,7 @@ pub struct ReactUiRoot {
     last_layout_micros: u64,
     phase_layout_micros: u64,
     phase_geometry_micros: u64,
+    last_oversampling: f32,
 }
 
 #[godot_api]
@@ -280,6 +281,7 @@ impl IControl for ReactUiRoot {
             last_layout_micros: 0,
             phase_layout_micros: 0,
             phase_geometry_micros: 0,
+            last_oversampling: 1.0,
         }
     }
 
@@ -463,6 +465,18 @@ impl IControl for ReactUiRoot {
 
 #[godot_api]
 impl ReactUiRoot {
+    pub(crate) fn oversampling(&self) -> f32 {
+        let viewport_oversampling = self
+            .base()
+            .get_viewport()
+            .map_or(1.0, |viewport| viewport.get_oversampling());
+        let window_scale = self
+            .base()
+            .get_window()
+            .map_or(1.0, |window| window.get_content_scale_factor() as f32);
+        f32::max(1.0, f32::max(viewport_oversampling, window_scale))
+    }
+
     /// Emitted from input callbacks while events are queued. The JS owner connects a callable that
     /// drains them synchronously and answers `preventDefault()` through `resolve_event`.
     #[signal]
