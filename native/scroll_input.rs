@@ -356,20 +356,21 @@ impl ReactUiRoot {
 
     // ---- Touch pans -------------------------------------------------------------------------------
 
-    /// A finger went down on `target`: it may become a pan. A touch that stops a coasting flick is
-    /// remembered so it does not click.
+    /// A finger went down on `target`: it may become a pan if `may_pan` (its `pointerdown` was not
+    /// prevented and JS did not capture the pointer). A touch that stops a coasting flick is remembered
+    /// so it does not click.
     pub(crate) fn begin_touch_pan(
         &mut self,
         id: u32,
         target: u32,
         position: Vector2,
-        prevented: bool,
+        may_pan: bool,
     ) {
         if self.stop_all_momentum() {
             self.scrolling.stopped_flings.insert(id);
         }
-        // An un-prevented primary pointerdown starts gestures (plan 3.12).
-        if !prevented {
+        // Only an un-prevented, un-captured primary pointerdown starts gestures (plan 3.12).
+        if may_pan {
             self.scrolling.pans.insert(
                 id,
                 TouchPan {

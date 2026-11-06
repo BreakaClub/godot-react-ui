@@ -468,9 +468,7 @@ impl ReactUiRoot {
     /// Whether the mouse's pointer is captured by an element (`setPointerCapture`): the press belongs to
     /// that element, not to a text selection (plan 3.12 rule 1).
     pub(crate) fn mouse_is_captured(&self) -> bool {
-        self.pointers
-            .get(MOUSE_POINTER_ID)
-            .is_some_and(|record| record.capture.is_some())
+        self.pointers.captured_by_js(MOUSE_POINTER_ID)
     }
 
     /// The default action of an un-prevented primary mouse press on `hit` that is not a scrollbar thumb

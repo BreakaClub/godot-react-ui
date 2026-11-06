@@ -219,12 +219,7 @@ impl ReactUiRoot {
         position: Vector2,
         hit: Option<u32>,
     ) -> bool {
-        let captured_by_js = self
-            .pointers
-            .get(pointer.id)
-            .and_then(|record| record.capture)
-            .is_some_and(|capture| !capture.implicit);
-        if captured_by_js {
+        if self.pointers.captured_by_js(pointer.id) {
             return false;
         }
         // A text input keeps its own press: it places the caret and extends the selection as the pointer

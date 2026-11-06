@@ -13,6 +13,7 @@ const INNER_ROWS = 16;
 const FILLER_ROWS = 10;
 const TOUCH_ROWS = 30;
 const REVERSED_ROWS = 10;
+const CAPTURE_ROWS = 14;
 
 const row = 'h-9 shrink-0 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 hover:bg-indigo-50 active:bg-indigo-100 focus:border-indigo-500';
 const plainRow = 'h-9 shrink-0 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700';
@@ -152,6 +153,33 @@ function TouchSection() {
   );
 }
 
+/**
+ * A list whose `pointerdown` captures the pointer, on a row or on its scrollbar thumb. JS has taken that pointer, so
+ * native neither pans it with a finger nor drags the thumb with the mouse (plan 3.12 rule 1): the list gets the moves.
+ */
+function CaptureSection() {
+  const [seen, setSeen] = useState({ down: 0, moves: 0, cancels: 0 });
+  return (
+    <Section title="Captured pointer">
+      <View
+        testID="capture-list"
+        className="h-24 w-full flex-col gap-1 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2"
+        onPointerDown={(event: UIPointerEvent) => {
+          event.currentTarget.setPointerCapture(event.pointerId);
+          setSeen(current => ({ ...current, down: current.down + 1 }));
+        }}
+        onPointerMove={(_: UIPointerEvent) => setSeen(current => ({ ...current, moves: current.moves + 1 }))}
+        onPointerCancel={(_: UIPointerEvent) => setSeen(current => ({ ...current, cancels: current.cancels + 1 }))}
+      >
+        {indexes(CAPTURE_ROWS).map(index => (
+          <View key={index} className="h-6 shrink-0 justify-center rounded bg-sky-100 px-2"><Text className="text-xs text-sky-800">{`Captured ${index}`}</Text></View>
+        ))}
+      </View>
+      <Text testID="capture-status" className="text-xs text-slate-600">{`down ${seen.down}, moves ${seen.moves}, cancels ${seen.cancels}`}</Text>
+    </Section>
+  );
+}
+
 /** `column-reverse`: the content starts at the bottom, so the offsets run from minus the overflow to zero. */
 function ReversedSection() {
   return (
@@ -181,6 +209,7 @@ export function ScrollLab() {
         <NestedSection contain />
         <TouchSection />
         <ReversedSection />
+        <CaptureSection />
       </View>
     </View>
   );

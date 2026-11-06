@@ -255,6 +255,15 @@ impl PointerTable {
         }
     }
 
+    /// Whether an element asked for pointer `id` (`setPointerCapture`), as opposed to a touch's own
+    /// implicit capture to its `pointerdown` target. A pointer JS took starts no gesture of native's
+    /// (plan 3.12 rule 1: no pan, no scrollbar thumb drag, no drag and drop, no selection).
+    pub(crate) fn captured_by_js(&self, id: u32) -> bool {
+        self.get(id)
+            .and_then(|record| record.capture)
+            .is_some_and(|capture| !capture.implicit)
+    }
+
     pub(crate) fn has_capture(&self, id: u32, element: u32) -> bool {
         self.get(id)
             .and_then(|record| record.capture)
@@ -580,6 +589,44 @@ mod tests {
             Some(3),
             "other pointers are unaffected"
         );
+    }
+
+    #[test]
+    fn only_a_capture_an_element_asked_for_counts_as_js_taking_the_pointer() {
+        let mut table = PointerTable::default();
+        let touch = touch_pointer_id(0).unwrap();
+        assert!(!table.captured_by_js(MOUSE), "an unknown pointer is nobody's");
+        table.press(
+            MOUSE,
+            PointerKind::Mouse,
+            PRIMARY,
+            ORIGIN,
+            BUTTONS_PRIMARY,
+            press(7),
+        );
+        assert!(!table.captured_by_js(MOUSE), "a pressed mouse is not captured");
+        table.press(
+            touch,
+            PointerKind::Touch,
+            PRIMARY,
+            ORIGIN,
+            BUTTONS_PRIMARY,
+            press(9),
+        );
+        assert!(
+            table.has_capture(touch, 9) && !table.captured_by_js(touch),
+            "a touch's implicit capture to its pointerdown target is not JS's: that touch may still pan"
+        );
+        table.set_capture(touch, 9, true).unwrap();
+        table.set_capture(MOUSE, 7, true).unwrap();
+        assert!(
+            table.captured_by_js(touch) && table.captured_by_js(MOUSE),
+            "setPointerCapture is, even on the element the touch is implicitly captured to"
+        );
+        table.release_capture(touch, 9);
+        assert!(!table.captured_by_js(touch), "and releasing it gives the pointer back");
+        table.release(MOUSE, PRIMARY, ORIGIN, 0);
+        assert!(!table.captured_by_js(MOUSE), "the capture ends with the press");
     }
 
     #[test]

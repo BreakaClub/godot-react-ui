@@ -2414,6 +2414,43 @@ async function verifyScrolling(owner: Node, api: InteractionInspection, capture:
   assert(top('touch-list') === scrolledBefore && api.pointerCancels() === 0, 'touch-action: none keeps a touch from panning');
   assert(/moves [1-9]\d*, cancels 0/.test(touchStatus()) && /down 1/.test(touchStatus()), `The pad gets pointermove instead: ${touchStatus()}`);
 
+  // A pointer JS captured is its element's: no pan for a finger, no thumb drag for the mouse (plan 3.12 rule 1, D33).
+  const captureStatus = () => text(api, 'capture-status');
+  const captureMoves = () => Number(/moves (\d+)/.exec(captureStatus())?.[1]);
+  assert(scrollOf('capture-list').maxScrollTop > 0 && top('capture-list') === 0, 'The captured list has something to scroll');
+  const captureRect = rectOf('capture-list');
+  const captured = centerOf(captureRect);
+  api.resetPointerCancels();
+  touch(FIRST_TOUCH, captured, true);
+  await settle();
+  for (let step = 1; step <= 4; step++) {
+    touchDrag(FIRST_TOUCH, new Vector2(captured.x, captured.y - 4 * step), new Vector2(0, -4));
+    await settle();
+  }
+  touch(FIRST_TOUCH, new Vector2(captured.x, captured.y - 16), false);
+  await settle();
+  assert(top('capture-list') === 0 && api.pointerCancels() === 0,
+    `A finger whose pointerdown captured it is not panned, though it moved beyond the slop: top ${top('capture-list')}, cancels ${api.pointerCancels()}`);
+  assert(/down 1, moves [1-9]\d*, cancels 0/.test(captureStatus()), `The captured list gets the finger's moves instead: ${captureStatus()}`);
+  const captureGrip = scrollOf('capture-list').thumbs?.y;
+  assert(captureGrip, 'The captured list has a thumb');
+  const captureGrab = centerOf(captureGrip);
+  move(captureGrab);
+  await settle();
+  const movesBeforeThumb = captureMoves();
+  pointer(captureGrab, true);
+  await settle();
+  move(new Vector2(captureGrab.x, captureGrab.y + THUMB_DRAG_PX / 2));
+  await settle();
+  move(new Vector2(captureGrab.x, captureGrab.y + THUMB_DRAG_PX));
+  await settle();
+  assert(top('capture-list') === 0, `A press on a thumb whose pointerdown captured the mouse drags nothing: ${top('capture-list')}`);
+  assert(captureMoves() >= movesBeforeThumb + 2, `The list that captured the mouse hears its moves: ${movesBeforeThumb} -> ${captureMoves()}`);
+  pointer(new Vector2(captureGrab.x, captureGrab.y + THUMB_DRAG_PX), false);
+  await settle();
+  move(FAR_CORNER);
+  await settle();
+
   // A flick: the finger is moving at the end, so the content coasts and stops by itself.
   const flickFrom = rowAt(touchList().y + touchList().height - 20);
   const flick = async (): Promise<Vector2> => {

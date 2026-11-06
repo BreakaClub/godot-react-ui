@@ -208,7 +208,9 @@ impl ReactUiRoot {
             // press inside a draggable element may become a drag once it moves (rule 3, which also keeps
             // the text inside it from starting a selection, as in browsers); selectable text starts a
             // selection (rule 5).
-            let grabbed_thumb = !prevented && self.begin_thumb_drag(hit, self.pointer);
+            let grabbed_thumb = !prevented
+                && !self.mouse_is_captured()
+                && self.begin_thumb_drag(hit, self.pointer);
             let draggable = !prevented
                 && !grabbed_thumb
                 && self.begin_drag_gesture(MOUSE_DRAG_POINTER, self.pointer, hit);
@@ -355,7 +357,10 @@ impl ReactUiRoot {
             if !prevented && self.scrolling.coasting.is_empty() {
                 self.begin_drag_gesture(touch_drag_pointer(id), position, hit);
             }
-            self.begin_touch_pan(id, target, position, prevented);
+            // A finger JS took (`setPointerCapture` in a `pointerdown` handler) is its element's, not a
+            // pan's, as a prevented press is (plan 3.12 rule 1, D33).
+            let may_pan = !prevented && !self.pointers.captured_by_js(id);
+            self.begin_touch_pan(id, target, position, may_pan);
         }
         // A touch starts no text selection (touch selection handles are a non-goal, plan 2.3).
         self.run_pointerdown_default(hit, prevented, false);
