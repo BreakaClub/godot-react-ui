@@ -42,3 +42,27 @@ used methods, still validating their exact class, method, and hash through
 extension calls are main-thread-only; `experimental-threads` is not enabled.
 Godot-rust 0.5.5's crate documentation recommends these tables for Web exports.
 The supported UI API surface is exercised by the native and browser verifiers.
+
+## Stock Godot 4.7.2 (`stock-4.7.2/`)
+
+The `stock` engine profile (`docs/tracks/stock-engine.md`) binds to these dumps instead of the custom 4.8 ones above:
+
+- Binary: `/Users/ben/Development/godot-stock/bin/godot.macos.editor.arm64`, run through its wrapper
+  `bin/godot-stock`. An unmodified Godot 4.7.2-stable (commit `ed1daf0bf001b61586d9930840f2f1394092c079`) with upstream
+  GodotJS and AccessKit 0.22.3; `godot --version` prints `4.7.2.stable.custom_build.ed1daf0bf`.
+- Dumped on 6 November 2026 with `--headless --audio-driver Dummy --dump-extension-api --dump-gdextension-interface-json`,
+  copied unmodified from `/Users/ben/Development/godot-stock/api/` (which also holds `gdextension_interface.h`, not used here).
+- API precision: single. `header.version_full_name`: `Godot Engine v4.7.2.stable.custom_build`.
+- `stock-4.7.2/extension_api.json` SHA-256: `9586558a2eeb7781f9aadc6b6085294b0f9b38728fcd4f207a7deabf95a11d50`
+- `stock-4.7.2/gdextension_interface.json` SHA-256: `7d8c0a039d9743eb8ebf88681ae0c641d8d3aa5ffca11081745a84da803e09a1`
+
+`.cargo/config.toml` keeps selecting the 4.8 dumps; `scripts/build-native.mjs --engine=stock` and
+`scripts/build-web.mjs --engine=stock` override `GDRUST_GODOT_API_JSON` and `GDRUST_GODOT_INTERFACE_JSON` for the cargo
+child process (cargo's `[env]` entries do not replace a variable already in the environment), and use their own target
+directories. The two dumps differ: the 4.8 dump has 35 classes the stock engine lacks (for example
+`GodotJSObjectDBSnapshot`, `Line3D`, `Trail3D`), which this library does not use; it compiles unchanged against both.
+The lean 3D Web templates, the lazy-table ABI and `lazy-function-tables` are 4.8-profile concerns: the feature stays
+enabled in both profiles (it is harmless against a full engine and keeps one dependency set; the library still checks each
+method on first use).
+
+Regenerate the stock dumps from the stock tree with the command above (replace the binary), then update the hashes.

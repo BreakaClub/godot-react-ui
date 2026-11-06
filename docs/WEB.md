@@ -78,5 +78,43 @@ the template paths in `demo/export_presets.cfg`. The selected engine and extensi
 must share the same Emscripten and lazy-table ABI. No toolchain is activated
 globally. No build or server command deploys anything.
 
+## The `stock` engine profile
+
+`node scripts/build-web.mjs --engine=stock` (or `GODOT_REACT_ENGINE=stock`) builds the same extension for an unmodified
+Godot 4.7.2 with upstream GodotJS instead of Breaka's engine. The default `breaka` profile is unchanged. What differs
+(the decisions and evidence are in [tracks/stock-engine.md](tracks/stock-engine.md)):
+
+| | `breaka` (default) | `stock` |
+| --- | --- | --- |
+| Engine and exporter | Godot 4.8, `/Applications/Godot48.app` | Godot 4.7.2, `/Users/ben/Development/godot-stock/bin/godot-stock` |
+| Templates | the `lean3d_closure_sdk6` dlink zips named by the `Web` preset | `godot-stock/templates/4.7.2.stable.custom_build/web_dlink_{debug,release}.zip`, named by the `Web (stock)` preset |
+| Emscripten | 6.0.12 plus Binaryen 133 | 4.0.11 (`godot-stock/emsdk`), with its own Binaryen |
+| Lazy function-table pass | `-sLAZY_FUNCTION_TABLE=side`, validated by the engine's helper; the `breaka.lazy-table` custom section is checked on all three modules | none: no Binaryen override, no helper, no metadata check |
+| godot-rust flags | pthread, atomics, `SIDE_MODULE=2`, hidden visibility, `-Zbuild-std` | the same |
+| API input | `native/api` | `native/api/stock-4.7.2` |
+| Output | `target/web`, `artifacts/web-<mode>` | `target/stock-web`, `artifacts/stock/web-<mode>` |
+
+**Use `--release` with the stock profile.** The stock tree's debug template aborts in every pthread worker before the engine
+starts (tracks/stock-engine.md, S10), so `engine.webMode()` refuses the debug mode and the stock gate is the release
+template. The Rust side module is the same in both modes. Serve and verify a stock export with the same selector, on a
+port of your own:
+
+```sh
+node scripts/build-web.mjs --engine=stock --release
+PORT=8100 pnpm demo:web --engine=stock --release &
+GODOT_REACT_WEB_URL=http://127.0.0.1:8100 pnpm verify:web --engine=stock --release
+GODOT_REACT_WEB_URL=http://127.0.0.1:8100 pnpm verify:interaction:web --engine=stock --release
+```
+
+Stock Godot 4.7.2's Web input turns a browser `touchcancel` into a plain release, so the touch page of
+`verify:interaction:web` records that gap (`GODOT_REACT_WEB_GAP`) instead of asserting a `pointercancel` there
+(tracks/stock-engine.md, S11). The first stock run needs the stock Emscripten 4.0.11 at `godot-stock/emsdk`, and the same pinned
+nightly accepts it.
+
+The receipt (`build-receipt.json`) records the profile, the exporting binary and version, the template hash, the
+Emscripten version and the API dump hashes; it has no lazy-table fields for `stock`. The side module must be linked by
+the same Emscripten as the template, whatever the profile, so the two profiles use different SDKs and never share a
+target directory. `build:web` refuses to export when the installed side module was built for the other profile.
+
 Primary contracts: [godot-rust Web exports](https://godot-rust.github.io/book/toolchain/export-web.html),
 [Godot Web export requirements](https://docs.godotengine.org/en/stable/tutorials/export/exporting_for_web.html).
