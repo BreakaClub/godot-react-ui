@@ -45,7 +45,7 @@ const near = (a, b, tolerance) => Math.abs(a - b) <= tolerance;
 const widthOk = (measured, sigma) => Math.abs(measured - WIDTH_10_90_SIGMAS * sigma) <= Math.max(WIDTH_TOLERANCE * WIDTH_10_90_SIGMAS * sigma, WIDTH_TOLERANCE_PX);
 
 export async function runFiltersScenario(context) {
-  const { demo, page, frames, snapshot, find, check, decodePng, moveTo, centerOf, actionTimeoutMs } = context;
+  const { demo, page, frames, snapshot, find, check, decodePng, moveTo, centerOf, waitUntil, expectedConsoleErrors, actionTimeoutMs } = context;
   const capture = (name) => context.capture(name, { geometry: false });
 
   const settle = async () => { for (let index = 0; index < SETTLE_FRAMES; index += 1) await frames(); };
@@ -256,11 +256,15 @@ export async function runFiltersScenario(context) {
   }
 
   // ---- A panel held back by a filter above it is drawn when the filter goes -------------------------------------------------
+  // The nesting is an error the engine reports on purpose, once, as two console lines (the message and where it was raised).
+  expectedConsoleErrors.push(/which has a filter/, /at: godot_react_ui::.*report_nesting/);
   for (const [step, filterOn] of [[0, true], [1, false], [2, true], [3, false]]) {
     await show({ scene: 'blocked', radius: 8, filterOn });
     const panel = await find('panel');
     check(`a panel inside a filtered element is ${filterOn ? 'held back' : 'drawn once the filter is gone'} (step ${step})`, filterOn ? !panel.effects : Boolean(panel.effects?.backdrop), { effects: panel.effects });
   }
+
+  await waitUntil('The nesting is reported', () => expectedConsoleErrors.length === 0);
 
   // ---- A group after a backdrop that reads no mipmap still reads them (the Compatibility probe) ----------------------------------
   for (const radius of [8, 24]) {

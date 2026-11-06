@@ -3,6 +3,11 @@
 Branch `filters`, based on main `d417bb5` and rebased once onto `710adc3` (Phase I6) at the coordinator's request. Notes and
 report for the coordinator; `docs/INTERACTION_PLAN.md` and `docs/INTERACTION_PROGRESS.md` are not edited here.
 
+> **Corrected by `docs/tracks/filter-fixes.md`** (an independent review of this work): the single Compatibility primer is now a probe per
+> group, an element can have both properties (its backdrop hangs beside its group), Forward+ has its own measured chain, Mobile and Forward+
+> place texels by the whole target, a changed viewport transform is read every frame while an effect exists, and a group's alpha on
+> Compatibility is two bits. The sections below describe `abdc077`; where they differ, the fixes' notes win.
+
 `filter` and `backdrop-filter` (blur, brightness, contrast, grayscale, hue-rotate, invert, opacity, saturate, sepia, one
 drop-shadow) with Tailwind utilities, native hover and breakpoint state, transitions, and the cost and limits recorded below.
 Nothing in the engine changed: everything is `RenderingServer` calls from the GDExtension and one shader per kind.

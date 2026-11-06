@@ -2859,7 +2859,7 @@ async function runWorkflow(viewport) {
   if (wanted('forms')) await section('forms', () => runFormsScenario(viewport));
   if (wanted('hidpi')) await section('hidpi', () => runHidpiScenario(viewport));
   if (wanted('filters')) {
-    await section('filters', () => runFiltersScenario({ demo, page, frames, snapshot, find, check, capture, decodePng, moveTo, centerOf, actionTimeoutMs: ACTION_TIMEOUT_MS }));
+    await section('filters', () => runFiltersScenario({ demo, page, frames, snapshot, find, check, capture, decodePng, moveTo, centerOf, waitUntil, expectedConsoleErrors, actionTimeoutMs: ACTION_TIMEOUT_MS }));
   }
   if (wanted('glass')) {
     await section('glass', () => runGlassScenario({ demo, page, frames, snapshot, find, check, capture, decodePng, moveTo, centerOf, click, pressAction, inputState, waitUntil, actionTimeoutMs: ACTION_TIMEOUT_MS }));
