@@ -226,8 +226,9 @@ are unchanged.
 - Back faces take no input; the quad is not double-sided.
 - Pan and magnify gestures, joypad and `ui_*` focus navigation are not forwarded; the cursor shape the
   root asks for is not applied to the OS cursor.
-- The panel has no scroll container (Phase I5) and no `TextInput` (I7), so wheel ticks reach only the
-  root's listeners and nothing can be typed.
+- The panel has no scroll container, so wheel ticks reach only the root's listeners (it does have a `TextInput`,
+  "Typing" below). The IME window and the on-screen keyboard are placed from the main window's transform, which is wrong for a
+  root on a quad; selecting text by dragging across the quad and IME or an on-screen keyboard through a `SubViewport` were not exercised.
 - The anchored label is not clamped to the window, does not avoid the 3D objects in front of its node (it is a 2D
   overlay), and a label for several nodes would be one `absolute` element each in the same root.
 - Hover and pointer events come from the camera ray only; moving the quad or camera without moving the
@@ -265,12 +266,13 @@ and the window is unfocusable and mouse-passthrough. A real mouse over the windo
 (device 32 was seen, at positions on another display), Godot would merge a stray motion into an injected one, and
 the window losing OS focus would cancel a press in flight (plan D6). What still gets in is logged as
 `GODOT_REACT_RUN_DISTURBED`, and `scripts/verify-world.mjs` (through `scripts/native-run.mjs`) runs again a run that
-failed with one, at most twice; a failure without one is real and is not run again. The window-exit test sends its
+failed within 5 s of a disturbance that could reach the root, at most twice (`--no-retry` runs each window once); a failure without one is real and is not run again
+(D22, narrowed by D46). The window-exit test sends its
 own `NOTIFICATION_WM_MOUSE_EXIT` (`simulateWindowMouseExit`), so it is not counted as a disturbance.
 
-Web: `pnpm build:web`, serve on a port you have checked is free (`PORT=8098 pnpm demo:web`), then
-`GODOT_REACT_WEB_URL=http://127.0.0.1:8098 node scripts/verify-world-web.mjs`, or open
-`http://127.0.0.1:8098/?scene=res://world.tscn`. Breaka's Web engine is built without
+Web: `pnpm build:web`, then `node scripts/verify-world-web.mjs` (it has no package script; like the other Web verifiers it serves the
+export itself on a free port, and `GODOT_REACT_WEB_URL` only names a server whose files it checks against the export's receipt). To look at the scene
+by hand, `pnpm demo:web` and open `http://127.0.0.1:8096/?scene=res://world.tscn` (or `PORT`). Breaka's Web engine is built without
 command-line path overrides (a scene path in its arguments aborts with "compiled without support for
 path overrides"), so the page cannot pass the scene to the engine. It passes `--scene res://world.tscn`
 after `--` instead, and the `SceneLauncher` autoload (`demo/src/scene-launcher.ts`, registered in

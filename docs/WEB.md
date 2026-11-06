@@ -11,6 +11,8 @@ node scripts/build-web.mjs
 # The verifiers serve the export themselves, on a free port:
 pnpm verify:web
 pnpm verify:motion:web
+pnpm verify:interaction:web
+node scripts/verify-world-web.mjs
 # To look at it by hand: node scripts/serve-web.mjs
 ```
 
@@ -18,7 +20,10 @@ The build runs the TypeScript check and bundle before exporting with the V8 Godo
 4.8 editor. `serve-web` listens on `http://127.0.0.1:8096` (or `PORT`). `--release` selects the
 release engine template; the Rust extension is optimized in both modes.
 `--wasm-only` builds just the side module, and `--export-only` rechecks and rebundles
-TypeScript before exporting an existing side module. The server includes the
+TypeScript before exporting an existing side module. `--probe` (on `build-web.mjs` and `serve-web.mjs`)
+builds and serves the F0 probe build for `scripts/probe-web.mjs`. Every verifier runs Chrome headless through
+puppeteer-core (`CHROME` names the binary), serves the export itself on a free port (`GODOT_REACT_WEB_URL` instead names a server whose
+files it checks against the receipt, byte for byte), and takes `--release` for the release export. The server includes the
 COOP/COEP headers required for `SharedArrayBuffer` and pthreads. Remote hosting
 requires HTTPS and the same headers.
 
@@ -73,11 +78,12 @@ switching to abort-on-panic. `godot-rust`'s Web support remains
 explicitly experimental upstream. Native success alone is insufficient evidence
 for this target.
 
-The default paths are this workstation's qualified tools, visible at the top of
+The default paths are this workstation's qualified tools: the Godot binaries, the Emscripten SDK and the Rust nightly are in
+`scripts/engine.mjs` (per profile), and the cargo, Binaryen, Emscripten-helper, manifest hash and Python defaults are at the top of
 `scripts/build-web.mjs`. Other workstations can set `GODOT`, `CARGO`,
 `WEB_RUST_TOOLCHAIN`, `EMSDK_ROOT`, `BINARYEN_ROOT`,
-`BINARYEN_MANIFEST_SHA256`, `GODOT_EMSCRIPTEN_HELPER` and `SCONS_PYTHON`, and update
-the template paths in `demo/export_presets.cfg`. The selected engine and extension
+`BINARYEN_MANIFEST_SHA256`, `GODOT_EMSCRIPTEN_HELPER` and `SCONS_PYTHON` (the last four only matter to the `breaka` profile's
+lazy-table pass), and update the template paths in `demo/export_presets.cfg`. The selected engine and extension
 must share the same Emscripten and lazy-table ABI. No toolchain is activated
 globally. No build or server command deploys anything.
 
@@ -119,14 +125,24 @@ Stock Godot 4.7.2's Web input turns a browser `touchcancel` into a plain release
 (tracks/stock-engine.md, S11). The stock side module needs the stock Emscripten 4.0.11 at `godot-stock/emsdk`, and the same pinned
 nightly accepts it.
 
-The receipt (`build-receipt.json`) records the profile, the exporting binary and version, the template hash, the
-Emscripten version and the API dump hashes; it has no lazy-table fields for `stock`. The side module must be linked by
+The receipt (`build-receipt.json`) records the profile, the exporting binary and version, the template and its hash, the mode,
+the Rust toolchain and the SDK, the Emscripten version, the API dump hashes, a digest of the pack, shell and template inputs
+(`content`), the side module's stamp (`extension`), the modules' metadata, and each exported file's size and hash (`files`); it has no lazy-table
+fields for `stock`. The side module must be linked by
 the same Emscripten as the template, whatever the profile, so the two profiles use different SDKs and never share a
 target directory. `build:web` refuses to export when the installed side module was built for the other profile, or from other
 sources than the working tree. The receipt records the side module's stamp (`extension`: profile, probe flag, hash, cargo features, a
 digest of the sources and each source file's hash), and `serve-web`, `probe-web` and every Web verifier refuse an export whose stamp no
-longer matches the working tree, naming the files that differ and `pnpm build:web` as the fix (`docs/tracks/freshness.md`). An export made
+longer matches the working tree, naming the files that differ and the fix (`pnpm build:web`, or `pnpm build:web --export-only` when the pack, shell, template or an exported file is what moved; `docs/tracks/freshness.md`). An export made
 before the guard has no stamp and is refused once.
+
+## Web-specific limits
+
+Verified in headless Chrome only (debug template of the `breaka` profile; the `stock` profile also ran its release template): Safari, mobile devices and the `breaka`
+release preset are not qualified. The Web engine has no accessibility code, so the accessibility tree is native only. A paste asks the browser through
+`JavaScriptBridge` because the engine's `clipboard_get` is stale, and the root writes the engine's hidden soft-keyboard element itself; after a Web IME composition
+ended by a focus move the engine keeps `ime_started` set (an engine bug, not worked around). Horizontal wheel ticks have the opposite sign on Web, a touch's
+`pointerId` is the browser's contact identifier, and the stock 4.7.2 engine turns `touchcancel` into a plain release. The full list is the README's "Current limits".
 
 Primary contracts: [godot-rust Web exports](https://godot-rust.github.io/book/toolchain/export-web.html),
 [Godot Web export requirements](https://docs.godotengine.org/en/stable/tutorials/export/exporting_for_web.html).
