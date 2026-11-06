@@ -4,11 +4,13 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
+import { rejectUnknownArguments } from './arguments.mjs';
 import { selectEngine } from './engine.mjs';
 import { startVerificationServer } from './web-verify.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // The engine profile (`--engine=stock`; scripts/engine.mjs) decides which export is judged and where evidence goes.
+rejectUnknownArguments(process.argv.slice(2), { flags: ['--release'] });
 const engine = selectEngine();
 // Refuse an export whose side module was built from other sources than the working tree (docs/tracks/freshness.md).
 engine.requireFreshWebExport();

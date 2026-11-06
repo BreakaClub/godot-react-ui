@@ -13,6 +13,7 @@
 import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import puppeteer from 'puppeteer-core';
+import { rejectUnknownArguments } from './arguments.mjs';
 // tsx loads the TypeScript data module as CommonJS, whose named exports an ES module reads through the default.
 import glassData from '../demo/src/glass-data.ts';
 
@@ -20,6 +21,8 @@ const {
   BASE_COLOUR, BLOBS, CARDS, GLASS_BAR_HEIGHT, GLASS_BAR_INSET, PAGE_PADDING, ROWS, SEARCH_PLACEHOLDER, STACK_DECOR, STACK_HEIGHT, TILES, blobRect, glassLayout,
 } = glassData;
 
+// Options start with `-`; the `<label>=<image>` pairs after `--compare=` do not.
+rejectUnknownArguments(process.argv.slice(2).filter(value => value.startsWith('-')), { prefixes: ['--out=', '--compare='] });
 const root = resolve(import.meta.dirname, '..');
 const executablePath = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const argument = name => process.argv.find(value => value.startsWith(`--${name}=`))?.slice(name.length + 3);

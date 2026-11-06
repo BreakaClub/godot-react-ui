@@ -4,13 +4,15 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
-import { argsWithoutEngine, selectEngine } from './engine.mjs';
+import { rejectUnknownArguments } from './arguments.mjs';
+import { selectEngine } from './engine.mjs';
 import { startVerificationServer } from './web-verify.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // `--baseline` records the pre-Fabric benchmark scenarios (Phase F0) and never touches the motion evidence.
 // `--acceptance` reruns the same scenarios on the Fabric renderer and checks Phase F4's criteria
 // (docs/INTERACTION_PLAN.md); it writes to its own directory so the F0 evidence stays intact.
+rejectUnknownArguments(process.argv.slice(2), { flags: ['--quick', '--baseline', '--acceptance', '--release'] });
 const engine = selectEngine();
 // Refuse an export whose side module was built from other sources than the working tree (docs/tracks/freshness.md).
 engine.requireFreshWebExport();
@@ -56,7 +58,6 @@ const BASELINE_RESIZE_PAIRS = 10;
 const BASELINE_NARROW_VIEWPORT = { width: 700, height: 800 };
 const BASELINE_DRAIN_EVERY = 25;
 const quick = process.argv.includes('--quick');
-for (const argument of argsWithoutEngine(process.argv.slice(2))) assert.ok(['--quick', '--baseline', '--acceptance', '--release'].includes(argument), `Unknown argument ${argument}`);
 const repetitions = Number(process.env.MOTION_BENCH_REPETITIONS ?? (quick ? 3 : 30));
 assert.ok(Number.isSafeInteger(repetitions) && repetitions > 0, 'MOTION_BENCH_REPETITIONS must be a positive integer');
 const counts = process.env.MOTION_BENCH_COUNTS

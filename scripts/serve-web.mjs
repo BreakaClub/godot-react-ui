@@ -1,9 +1,11 @@
 import { statSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { rejectUnknownArguments } from './arguments.mjs';
 import { selectEngine } from './engine.mjs';
 import { startExportServer } from './web-server.mjs';
 
 // Serves the selected engine profile's export (`--engine=stock` / `GODOT_REACT_ENGINE=stock`), in `--release` mode or debug.
+rejectUnknownArguments(process.argv.slice(2), { flags: ['--release', '--probe'] });
 const engine = selectEngine();
 const mode = engine.webMode();
 const root = engine.artifactPath(`web-${mode}`);

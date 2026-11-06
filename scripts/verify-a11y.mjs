@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { rejectUnknownArguments } from './arguments.mjs';
 import { importDemo } from './import-demo.mjs';
 import { selectEngine } from './engine.mjs';
 import { runNativeVerifier, summarizeRuns } from './native-run.mjs';
@@ -15,6 +16,7 @@ import { runNativeVerifier, summarizeRuns } from './native-run.mjs';
 //
 // Reading a process's tree needs macOS Accessibility permission for the process that runs this script.
 // Nothing here performs an accessibility action, types, clicks or changes a system setting.
+rejectUnknownArguments(process.argv.slice(2), { flags: ['--no-retry'] });
 const root = resolve(import.meta.dirname, '..');
 const engine = selectEngine();
 const godot = engine.godot;

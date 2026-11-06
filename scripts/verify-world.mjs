@@ -1,11 +1,13 @@
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
+import { rejectUnknownArguments } from './arguments.mjs';
 import { importDemo } from './import-demo.mjs';
 import { selectEngine } from './engine.mjs';
 import { runNativeVerifier, summarizeRuns } from './native-run.mjs';
 
 // Phase I11: the world-space panel (docs/WORLD_SPACE.md). Godot runs a scene other than the project's main
 // scene when its path follows the project options; arguments for the scripts follow `--`.
+rejectUnknownArguments(process.argv.slice(2), { flags: ['--no-retry'] });
 const root = resolve(import.meta.dirname, '..');
 const engine = selectEngine();
 const godot = engine.godot;

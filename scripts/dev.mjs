@@ -1,9 +1,12 @@
 import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 import { context } from 'esbuild';
+import { rejectUnknownArguments } from './arguments.mjs';
+import { DEMO_ENTRY_POINTS } from './demo-entry-points.mjs';
 import { scrubOpenScripts } from './editor-session.mjs';
 import { selectEngine } from './engine.mjs';
 
+rejectUnknownArguments(process.argv.slice(2));
 const root = resolve(import.meta.dirname, '..');
 const engine = selectEngine();
 const godot = engine.godot;
@@ -16,7 +19,7 @@ engine.prepareNative();
 scrubOpenScripts(resolve(root, 'demo'));
 const builder = await context({
   absWorkingDir: root, bundle: true, platform: 'neutral', target: 'es2022', format: 'cjs', sourcemap:true,
-  entryPoints: ['demo/src/main.ts', 'demo/src/verify.ts', 'demo/src/verify-motion.ts', 'demo/src/app.tsx'], outdir: 'demo/.godot/GodotJS/src',
+  entryPoints: [...DEMO_ENTRY_POINTS], outdir: 'demo/.godot/GodotJS/src',
   external: ['godot', 'godot.lib.api', 'godot.annotations', 'godot-jsb'],
   define: {'process.env.NODE_ENV':'"development"'},
 });

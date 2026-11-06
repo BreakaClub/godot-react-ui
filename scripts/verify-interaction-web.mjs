@@ -10,6 +10,7 @@ import { inflateSync } from 'node:zlib';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
+import { rejectUnknownArguments } from './arguments.mjs';
 import { selectEngine } from './engine.mjs';
 import { WEB_INTERACTION_SECTIONS, describeSections, requestedSections } from './verifier-sections.mjs';
 import { isolateBrowserClipboard } from './web-clipboard.mjs';
@@ -18,6 +19,7 @@ import { runFiltersScenario } from './verify-filters-web.mjs';
 import { runGlassScenario } from './verify-glass-web.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+rejectUnknownArguments(process.argv.slice(2), { flags: ['--release'], prefixes: ['--only='] });
 const engine = selectEngine();
 // Refuse an export whose side module was built from other sources than the working tree (docs/tracks/freshness.md).
 engine.requireFreshWebExport();

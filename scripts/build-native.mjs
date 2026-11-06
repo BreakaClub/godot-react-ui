@@ -19,6 +19,9 @@ for (const arg of argsWithoutEngine(process.argv.slice(2))) if (!supportedArgs.h
 // `--faults` does the same for the filters negative controls (cargo feature `filter-faults`, native/filter_faults.rs).
 const probe = process.argv.includes('--probe');
 const faults = process.argv.includes('--faults');
+// Each is a feature set of its own with its own target directory and its own stamp: a build with both would land in the probe's
+// directory with both features, and every run would then refuse that library (the freshness guard knows one set at a time).
+if (probe && faults) throw new Error('--probe and --faults are separate builds: run one, then the other (and a default build afterwards).');
 const targetDirectory = probe ? engine.targets.nativeProbe : faults ? engine.targets.nativeFaults : engine.targets.native;
 const features = engine.features('native', { probe, faults });
 console.log(`Engine profile ${engine.name}: ${engine.description}; target ${targetDirectory}`);
