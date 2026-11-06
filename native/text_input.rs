@@ -59,9 +59,14 @@
 //!   commit is a normal `InsertText`, which ends the composition first. While composing, only the
 //!   IME commands, `InsertText`, and the pointer commands (`SetSelection`, `SelectWordAt`, which
 //!   cancel the composition) run; keyboard commands are blocked.
-//! - Pasted, inserted and replacement text has its line breaks normalised: a single-line input drops
-//!   them, a multi-line one turns `\r\n` and `\r` into `\n`. `set_text_and_selection` text is applied
-//!   exactly as given, so that a controlled value round trips.
+//! - Pasted, inserted and replacement text has its line breaks normalised ([`normalise_line_breaks`]): a
+//!   single-line input drops them, a multi-line one turns every one (`\r\n`, `\r`, and the Unicode line and
+//!   paragraph separators the text server breaks a line at) into `\n`. A paste that is empty once normalised
+//!   (an empty clipboard, an image on it, line breaks only in a single-line input) pastes nothing, and in
+//!   particular does not delete the selection. A replacement that changes nothing is not an edit: it raises no
+//!   event and leaves no undo entry, though the caret still goes to 0.
+//! - `set_text_and_selection` text is applied as given (the host removes line breaks first, with the same
+//!   function), so that a controlled value round trips.
 
 use std::collections::VecDeque;
 use std::ops::Range;
@@ -70,6 +75,35 @@ use crate::text_offsets::utf16_length;
 
 /// Entries kept in one input's undo stack (plan Appendix A).
 pub(crate) const UNDO_LIMIT: usize = 100;
+
+/// Whether `character` ends a line for the text server (`is_linebreak`, `core/string/char_utils.h`): LF, VT, FF, CR,
+/// NEL, the line separator and the paragraph separator. The server flags each as a mandatory break wherever it is
+/// shaped, whatever the paragraph's break flags say, so a text can only hold one if the input is ready for a line to
+/// end there.
+pub(crate) fn is_line_break(character: char) -> bool {
+    matches!(
+        character,
+        '\u{000A}'..='\u{000D}' | '\u{0085}' | '\u{2028}' | '\u{2029}'
+    )
+}
+
+/// `text` with its line breaks as an input stores them: none in a single-line input, and only `\n` in a multi-line
+/// one. `\r\n` is one break.
+pub(crate) fn normalise_line_breaks(text: &str, multiline: bool) -> Vec<char> {
+    let mut normalised = Vec::with_capacity(text.len());
+    let mut characters = text.chars().peekable();
+    while let Some(character) = characters.next() {
+        if character == '\r' && characters.peek() == Some(&'\n') {
+            characters.next();
+        }
+        if !is_line_break(character) {
+            normalised.push(character);
+        } else if multiline {
+            normalised.push('\n');
+        }
+    }
+    normalised
+}
 
 /// Which way a command goes. For horizontal commands backward is left (or toward the start), for
 /// vertical ones it is up, and for an edge it is the start.
@@ -742,8 +776,16 @@ impl EditBuffer {
         self.config
     }
 
-    pub(crate) fn set_read_only(&mut self, read_only: bool) {
+    /// Turn `readOnly` on or off. A read-only input cannot compose (its composition commands are blocked, including
+    /// the empty one that ends it), so turning it on ends a composition in progress, dropping the preedit: the
+    /// returned event says whether one ended.
+    pub(crate) fn set_read_only(&mut self, read_only: bool) -> CompositionEvent {
         self.config.read_only = read_only;
+        if read_only && self.composition.take().is_some() {
+            CompositionEvent::End
+        } else {
+            CompositionEvent::None
+        }
     }
 
     pub(crate) fn set_secure(&mut self, secure: bool) {
@@ -814,6 +856,20 @@ impl EditBuffer {
         shown.extend_from_slice(&composition.text);
         shown.extend_from_slice(&self.text[self.focus..]);
         shown
+    }
+
+    /// The text a [`EditCommand::ReplaceText`] of `text` leaves: `text` with its line breaks normalised and cut to
+    /// what `maxLength` allows.
+    pub(crate) fn replacement_for(&self, text: &str) -> Vec<char> {
+        self.fit(&(0..self.text.len()), self.normalise_line_breaks(text))
+    }
+
+    /// The last character of [`Self::display_text`], without building it.
+    pub(crate) fn display_last_char(&self) -> Option<char> {
+        match &self.composition {
+            Some(composition) if self.focus == self.text.len() => composition.text.last().copied(),
+            _ => self.text.last().copied(),
+        }
     }
 
     /// Where the preedit sits in [`Self::display_text`].
@@ -903,6 +959,15 @@ impl EditBuffer {
             EditCommand::ReplaceText(text) => {
                 let insertion = self.normalise_line_breaks(&text);
                 let everything = 0..self.text.len();
+                if self.fit(&everything, insertion.clone()) == self.text {
+                    // Nothing changes (a keyboard that sends back the text it was given, or one cut to what
+                    // `maxLength` already holds): no event and no undo entry. `LineEdit::_set_text` also puts
+                    // the caret at 0 whether or not the text differs, and the engine's Right presses count
+                    // from there.
+                    self.anchor = 0;
+                    self.focus = 0;
+                    return Ok(());
+                }
                 self.insert_over(
                     everything,
                     insertion,
@@ -914,7 +979,15 @@ impl EditBuffer {
             }
             EditCommand::PasteText(text) => {
                 let insertion = self.normalise_line_breaks(&text);
-                self.insert_over_selection(insertion, InputType::InsertFromPaste, false, result);
+                // Nothing to paste is not a paste of nothing over the selection (`LineEdit::paste_text`).
+                if !insertion.is_empty() {
+                    self.insert_over_selection(
+                        insertion,
+                        InputType::InsertFromPaste,
+                        false,
+                        result,
+                    );
+                }
             }
             EditCommand::Paste => result.clipboard = Some(ClipboardEffect::Read),
             EditCommand::Copy => {
@@ -1080,30 +1153,9 @@ impl EditBuffer {
         }
     }
 
-    /// Line breaks as this input stores them: none in a single-line input, `\n` only in a
-    /// multi-line one.
+    /// Line breaks as this input stores them (see [`normalise_line_breaks`]).
     fn normalise_line_breaks(&self, text: &str) -> Vec<char> {
-        let mut normalised = Vec::with_capacity(text.len());
-        let mut characters = text.chars().peekable();
-        while let Some(character) = characters.next() {
-            match character {
-                '\r' => {
-                    if characters.peek() == Some(&'\n') {
-                        characters.next();
-                    }
-                    if self.config.multiline {
-                        normalised.push('\n');
-                    }
-                }
-                '\n' => {
-                    if self.config.multiline {
-                        normalised.push('\n');
-                    }
-                }
-                other => normalised.push(other),
-            }
-        }
-        normalised
+        normalise_line_breaks(text, self.config.multiline)
     }
 
     /// The longest prefix of `insertion` that fits under `maxLength` when it replaces `replaced`.

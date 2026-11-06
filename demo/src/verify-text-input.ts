@@ -617,6 +617,18 @@ async function verifyClipboard(owner: Node, api: InteractionInspection, capture:
   assert(input(api, 'form-name').eventCount === pasted && valueOf('form-name') === 'onetwothree', 'An empty clipboard pastes nothing');
   await capture('forms-11-paste');
 
+  // Nothing on the clipboard is not a paste of nothing over the selection, which would delete it: a clipboard that holds
+  // an image reads as empty, and so does one of line breaks only, which a single-line input drops.
+  await pressAction('ui_text_select_all');
+  const selectedAll = `0,${valueOf('form-name').length}`;
+  for (const clipboard of ['', '\n', '\r\n']) {
+    DisplayServer.clipboardSet(clipboard);
+    await pressAction('ui_paste');
+    assert(
+      valueOf('form-name') === 'onetwothree' && input(api, 'form-name').eventCount === pasted && selection('form-name').join() === selectedAll,
+      `Pasting ${JSON.stringify(clipboard)} over a selection leaves the text, the selection and the count alone: ${valueOf('form-name')}, ${selection('form-name')}`,
+    );
+  }
   // maxLength cuts what does not fit; a paste that fits nothing is refused.
   await focusField('form-code');
   await pressAction('ui_text_select_all');

@@ -19,7 +19,7 @@ use godot::classes::{Engine, Os};
 use godot::prelude::*;
 
 use crate::ReactUiRoot;
-use crate::text_input::EditCommand;
+use crate::text_input::{EditCommand, normalise_line_breaks};
 
 /// The engine singleton that reaches the browser (`javascript_bridge_singleton.cpp`).
 const JAVASCRIPT_BRIDGE: &str = "JavaScriptBridge";
@@ -47,7 +47,7 @@ impl ReactUiRoot {
     pub(super) fn paste_from_clipboard(&mut self, tag: u32) {
         if !Os::singleton().has_feature(WEB_FEATURE) {
             let text = crate::clipboard::read();
-            self.run_text_command(tag, EditCommand::PasteText(text));
+            self.paste_text(tag, text);
             return;
         }
         match self.read_web_clipboard() {
@@ -56,6 +56,20 @@ impl ReactUiRoot {
                 godot_error!("ReactUiRoot: cannot paste: {error}");
             }
         }
+    }
+
+    /// Paste `text` into the input `tag`, unless there is nothing to paste: an empty clipboard, one that holds an
+    /// image or anything else `readText()` reads as `""`, or line breaks only for a single-line input. That is no
+    /// paste at all (no `beforeinput`, no edit), and in particular it leaves the selection alone, where an empty
+    /// insertion over it would delete it.
+    fn paste_text(&mut self, tag: u32, text: String) {
+        let multiline = self
+            .text_state(tag)
+            .is_some_and(|state| state.buffer.config().multiline);
+        if normalise_line_breaks(&text, multiline).is_empty() {
+            return;
+        }
+        self.run_text_command(tag, EditCommand::PasteText(text));
     }
 
     /// Start `navigator.clipboard.readText()` and give its promise the callbacks.
@@ -106,7 +120,7 @@ impl ReactUiRoot {
         if self.focused != Some(tag) || self.text_state(tag).is_none() {
             return;
         }
-        self.run_text_command(tag, EditCommand::PasteText(text.to_string()));
+        self.paste_text(tag, text.to_string());
         // The browser's answer is input, like the key that asked: JS hears of it now.
         self.deliver();
     }

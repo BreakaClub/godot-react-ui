@@ -47,7 +47,7 @@ use std::fmt;
 use godot::classes::TextParagraph;
 use godot::prelude::*;
 
-use crate::text_input::{EditBuffer, EditConfig, EditError};
+use crate::text_input::{EditBuffer, EditConfig, EditError, normalise_line_breaks};
 use crate::text_layout::{TextDirection, TextLayoutError};
 use crate::text_offsets::OffsetError;
 
@@ -237,27 +237,9 @@ impl TextInputState {
 /// A value as a text input stores it when it is given rather than typed: a single-line input has no
 /// line breaks, a multi-line one only `\n` (`\r\n` and `\r` become one).
 pub(crate) fn sanitize_value(value: &str, multiline: bool) -> String {
-    let mut sanitized = String::with_capacity(value.len());
-    let mut characters = value.chars().peekable();
-    while let Some(character) = characters.next() {
-        match character {
-            '\r' => {
-                if characters.peek() == Some(&'\n') {
-                    characters.next();
-                }
-                if multiline {
-                    sanitized.push('\n');
-                }
-            }
-            '\n' => {
-                if multiline {
-                    sanitized.push('\n');
-                }
-            }
-            other => sanitized.push(other),
-        }
-    }
-    sanitized
+    normalise_line_breaks(value, multiline)
+        .into_iter()
+        .collect()
 }
 
 /// Root-wide text input state: what is not per tag.

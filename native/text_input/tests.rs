@@ -459,6 +459,127 @@ fn replace_text_is_cut_to_max_length() {
     assert_eq!(result.data.as_deref(), Some("abc"));
 }
 
+#[test]
+fn a_replacement_that_changes_nothing_is_not_an_edit() {
+    let mut buffer = single("hello");
+    caret(&mut buffer, 3);
+    // A keyboard that sends back the text it was given: no event, no undo entry, and the caret still goes to 0
+    // (the engine's Right presses count from there).
+    let result = run(&mut buffer, EditCommand::ReplaceText("hello".to_string()));
+    assert!(!result.text_changed && result.input_type.is_none() && result.data.is_none());
+    assert!(result.selection_changed, "the caret moved to 0");
+    assert_eq!((buffer.anchor(), buffer.focus()), (0, 0));
+    assert_eq!(buffer.event_count(), 0);
+    assert_eq!(
+        run(&mut buffer, EditCommand::Undo),
+        nothing(0),
+        "no undo entry was left"
+    );
+    // The same for a text that `maxLength` cuts back to what is already there.
+    let mut limited = with_config(
+        "abc",
+        EditConfig {
+            max_length: Some(3),
+            ..EditConfig::default()
+        },
+    );
+    let result = run(&mut limited, EditCommand::ReplaceText("abcd".to_string()));
+    assert!(!result.text_changed && result.blocked.is_none());
+    assert_eq!(
+        (limited.value().as_str(), limited.event_count()),
+        ("abc", 0)
+    );
+    assert_eq!(run(&mut limited, EditCommand::Undo), nothing(0));
+}
+
+// ---- line breaks ----
+
+#[test]
+fn every_line_separator_is_a_line_break() {
+    for separator in [
+        '\n', '\r', '\u{000B}', '\u{000C}', '\u{0085}', '\u{2028}', '\u{2029}',
+    ] {
+        assert!(is_line_break(separator), "{separator:?}");
+    }
+    for other in ['a', ' ', '\t', '\u{200D}', '\u{00A0}', '\u{001C}'] {
+        assert!(!is_line_break(other), "{other:?}");
+    }
+}
+
+#[test]
+fn a_single_line_input_drops_every_line_separator_and_a_multi_line_one_turns_them_into_lf() {
+    let text = "a\r\nb\rc\u{000B}d\u{000C}e\u{0085}f\u{2028}g\u{2029}h\ni";
+    assert_eq!(
+        normalise_line_breaks(text, false)
+            .into_iter()
+            .collect::<String>(),
+        "abcdefghi"
+    );
+    assert_eq!(
+        normalise_line_breaks(text, true)
+            .into_iter()
+            .collect::<String>(),
+        "a\nb\nc\nd\ne\nf\ng\nh\ni"
+    );
+    // A separator at the end of a single-line text must not survive: the text server would treat it as a
+    // final hard break and the input would grow a line the caret lives on.
+    let mut buffer = single("ab");
+    insert(&mut buffer, "c\u{2028}");
+    assert_eq!(buffer.value(), "abc");
+    let result = run(&mut buffer, EditCommand::PasteText("\u{0085}".to_string()));
+    assert_eq!(buffer.value(), "abc");
+    assert!(!result.text_changed);
+}
+
+// ---- an empty paste ----
+
+#[test]
+fn an_empty_paste_over_a_selection_pastes_nothing_and_keeps_the_selection() {
+    // An empty clipboard, an image on it (`readText()` resolves to ""), or only line breaks in a single-line input.
+    for clipboard in ["", "\n", "\r\n\u{2028}"] {
+        let mut buffer = single("hello");
+        select(&mut buffer, 1, 4);
+        let result = run(&mut buffer, EditCommand::PasteText(clipboard.to_string()));
+        assert_eq!(result, nothing(0), "{clipboard:?}");
+        assert_eq!(buffer.value(), "hello", "{clipboard:?}");
+        assert_eq!(buffer.selection_range(), 1..4, "{clipboard:?}");
+        assert_eq!(
+            run(&mut buffer, EditCommand::Undo),
+            nothing(0),
+            "no undo entry for {clipboard:?}"
+        );
+    }
+    // A line break is something to paste into a text area, and replaces the selection.
+    let mut area = multi("hello");
+    select(&mut area, 1, 4);
+    let result = run(&mut area, EditCommand::PasteText("\n".to_string()));
+    assert!(result.text_changed);
+    assert_eq!(area.value(), "h\no");
+}
+
+// ---- the last character shown ----
+
+#[test]
+fn the_last_displayed_character_is_the_texts_or_the_preedits() {
+    let mut buffer = multi("a\n");
+    assert_eq!(buffer.display_last_char(), Some('\n'));
+    caret(&mut buffer, 1);
+    run(&mut buffer, preedit("x", 0..1));
+    assert_eq!(
+        buffer.display_last_char(),
+        Some('\n'),
+        "the preedit is before the break"
+    );
+    let mut ending = multi("ab");
+    run(&mut ending, preedit("x", 0..1));
+    assert_eq!(
+        ending.display_last_char(),
+        Some('x'),
+        "at the end of the text the preedit ends the display"
+    );
+    assert_eq!(single("").display_last_char(), None);
+}
+
 // ---- maxLength ----
 
 fn limited(text: &str, max_length: usize) -> EditBuffer {
@@ -2239,4 +2360,22 @@ fn errors_say_what_was_wrong() {
     assert!(messages[4].contains("increasing"));
     assert!(messages[5].contains("NextWord"));
     assert!(messages[6].contains("Empty"));
+}
+
+#[test]
+fn turning_read_only_on_ends_a_composition_that_could_never_end_itself() {
+    let mut buffer = single("ab");
+    caret(&mut buffer, 1);
+    run(&mut buffer, preedit("x", 0..1));
+    // A read-only input blocks every composition command, even the empty one that ends it, so without this the
+    // preedit would stay and every keyboard command would be refused as composing.
+    assert_eq!(buffer.set_read_only(true), CompositionEvent::End);
+    assert!(buffer.composition().is_none());
+    assert_eq!(buffer.display_text(), buffer.text());
+    let moved = run(&mut buffer, move_grapheme(Direction::Backward, false));
+    assert_eq!(moved.blocked, None, "the caret moves");
+    assert_eq!(buffer.focus(), 0);
+    // Nothing composing: turning it on, or off, says nothing.
+    assert_eq!(buffer.set_read_only(true), CompositionEvent::None);
+    assert_eq!(buffer.set_read_only(false), CompositionEvent::None);
 }

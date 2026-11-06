@@ -2036,6 +2036,26 @@ async function runPasteScenario() {
   await pressAction('ui_paste');
   await expectInput('form-name', (state) => state.value === 'abc alphabetagamma', 'Pasting works again once the browser allows the read');
   await capture('forms-04-paste');
+
+  // A clipboard that holds an image has no text: `readText()` resolves to "". That is no paste. It must leave a selection
+  // alone, where an empty insertion over it would have deleted it.
+  await pressAction('ui_text_select_all');
+  const beforeImage = await inputState('form-name');
+  await page.evaluate(async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 2;
+    const png = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
+  });
+  check('An image on the clipboard reads as empty text', (await page.evaluate(() => window.__readText())) === '');
+  await takeLog();
+  await pressAction('ui_paste');
+  await waitUntil('the paste asks the browser', async () => (await page.evaluate(() => window.__pasteLog.some((entry) => entry.kind === 'readText:call'))));
+  for (let step = 0; step < 6; step += 1) await frames();
+  const afterImage = await inputState('form-name');
+  check('Pasting an image over a selection changes neither the text, the selection nor the count',
+    afterImage.value === beforeImage.value && afterImage.selectionStart === 0 && afterImage.selectionEnd === beforeImage.value.length
+    && afterImage.eventCount === beforeImage.eventCount, { beforeImage, afterImage });
 }
 
 /** An IME composition: the preedit shows in the field and commits as one edit, with composition events. */
