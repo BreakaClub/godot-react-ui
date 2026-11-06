@@ -7,8 +7,9 @@ its numbers and decisions D7 to D10 are in the progress log and the decision log
 D19); decision D20 sets the verification tiers; decisions D21 and D22 isolate the native verifiers from real input
 (Task 0). Phase I4 (`5018fee`; decisions D23 to D26). Parallel tracks on main (D27): text engine, scroll and drag core,
 world-space part 1, kit part 1; kit approach D28; test-input rules D29. Phase I5 (`5858a54`; scroll containers, decisions D30 to
-D37) with scroll accessibility (D38) and the scrolling Select list (D39). Still open from I10: `TextInput` (I7). In parallel tracks
-now: Phase I6, Phase I7 with the kit `TextField`, Phase I9, the stock engine profile, and Phase V1 (filters and frosted glass, D40).
+D37) with scroll accessibility (D38) and the scrolling Select list (D39). Phase I6 (`1071e8d`; D41). Still open from I10: `TextInput`
+(I7). In parallel tracks now: Phase I7 with the kit `TextField`, Phase I9, the stock engine profile, and Phase V1 (filters and frosted
+glass, D40).
 
 v1 of this plan (`7f0a96c`) was rejected because it built every interaction feature on the
 prototype's commit path, which re-walks and re-sends the whole tree on every change. v2 replaces
@@ -432,6 +433,13 @@ not a reason to wait.
   (f) An item in canvas group mode draws its children first and then composites (`renderer_canvas_cull.cpp:480-487`), and a box item
   draws its own commands before its children unless they are `behind`, so the backdrop must be behind the box's background and the
   group must be a wrapper around the box. The agent's decisions and measurements are in `docs/tracks/filters.md`.
+- **D41 (I6)**: text selection. Decisions S1 to S18 are in `docs/tracks/text-selection.md`, which is part of this log. Those that bind later
+  phases: arbitration is thumb, then (I9) a draggable, then selection, and a press that is not prevented and starts no selection clears
+  the current one (S2); the root keeps key focus while a selection exists, even a collapsed one, and JS `clearSelection()` does not
+  release it (S3); `InputMap` matches a key to an action only on the same device, so a verifier testing a `ui_*` action needs
+  `bindVerifierKeys` from `demo/src/verifier-input.ts` (S11); the root event is `DocumentSelectionChange`, wire name `selectionchange`
+  with target 0, so `SelectionChange` stays free for I7's element event (S8). Coordinator check after rebasing onto I5: unit, lint and
+  type gates, plus the `selection` and `inputs` verifier sections.
 
 The plan is written so an implementer can execute it phase by phase without re-deciding the
 architecture. Where it says **must**, it is a contract. Where it says *suggested*, use judgement and
@@ -1694,7 +1702,7 @@ both axes, so `overflow-x-auto` alone clips vertically too; Tab stops and "does 
 ignores scrolling (D31); the plan did not say whether a contained scroll is consumed (D32) or whether a touch pan chains
 mid-gesture (D33); the verifiers' geometry checks treated what a scroll container holds as escaping its parent and the window.
 
-### Phase I6 — Text layout and selection
+### Phase I6 — Text layout and selection — done (`1071e8d`, decision D41)
 
 **Files**: `native/text_offsets.rs`, `native/text_layout.rs`, `native/selection.rs`, `native/lib.rs`,
 `native/render_tree.rs`, `native/props.rs`, `src/*`, tests, demo, verifiers.

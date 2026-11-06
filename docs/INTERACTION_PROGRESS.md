@@ -1970,3 +1970,13 @@ off, which is how the verifier runs). That needs the stock engine with AccessKit
   VoiceOver's scroll gestures reach the actions. The table in `scripts/a11y-expectations.mjs` for it was written, not read from an adapter.
 - A transform on a content element, as `ItemList` does, if a long scroll view under a screen reader shows churn (D38).
 - `focus({ preventScroll })`, so that moving the pointer over an item cut by the list's edge does not scroll it into view (D39).
+
+## Phase I6: text selection (`1071e8d`, D41)
+
+Built on the `text-selection` branch; the full report, decisions S1 to S18 and negative controls are in `docs/tracks/text-selection.md`.
+
+- **Agent's gates, on the branch before rebasing:** `cargo test` 498 passed, Clippy clean, fmt clean, `pnpm test` 293 passed, `verify:interaction` (all 8 sections, both viewports), `verify`, `verify:motion`, and `verify:interaction:web` (771 assertions, 91 captures). The landscape interaction window passed on its third attempt and `verify` portrait on its second; each re-run followed a logged real-mouse disturbance (D22).
+- **Coordinator's check after rebasing onto `d417bb5` (I5 and D40):** `cargo test` 505 passed, Clippy clean, fmt clean, `pnpm test:types` clean, `pnpm test` 0 failed, and `verify:interaction --only=selection,inputs` passed in both viewports with no re-runs. The one conflict was the 300 s window deadline, which I5 and I6 had each added; main's interaction-only deadline was kept.
+- **Inspected:** `selection-04-highlight.png` (landscape): the rose highlight sits under its text and the readout matches.
+
+**Not run after the rebase:** the other interaction sections, `verify`, `verify:motion` and the Web verifier. They wait for the batch regression.
