@@ -41,9 +41,7 @@ pnpm verify:world                     # native; artifacts/native-world/{landscap
 $GODOT --audio-driver Dummy --path demo --resolution 1120x800 res://world.tscn -- --verify-world
 # Web
 pnpm build:web                        # wasm + export; the pack contains world.tscn (world.tscn.remap in index.pck)
-lsof -nP -iTCP:8098 -sTCP:LISTEN      # must print nothing
-PORT=8098 pnpm demo:web &             # then:
-GODOT_REACT_WEB_URL=http://127.0.0.1:8098 node scripts/verify-world-web.mjs
+node scripts/verify-world-web.mjs     # serves the export itself on a free port (the original recipe started a server by hand: D46)
 ```
 
 ## Results

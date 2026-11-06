@@ -342,11 +342,11 @@ runs above and 496 Rust tests exercise); anything on Safari or a device; VoiceOv
 - Breaka's engine: map a group role and a radio-group role to AccessKit `Group` and `RadioGroup`; a scroll area role for `SCROLL_VIEW` (and the
   adapter's scroll properties, if its macOS side can be given them); take `update_set_checked` to a tri-state; a decision on whether to carry
   the Web touch-cancel patch into any stock-based build.
-- macOS scroll state (S14): a scroll bar element (`SCROLL_BAR` role, value and range, `Increment` and `Decrement` mapped to `scroll_by`) for each
+- ~~macOS scroll state (S14): a scroll bar element (`SCROLL_BAR` role, value and range, `Increment` and `Decrement` mapped to `scroll_by`) for each
   scrollable axis, so VoiceOver reads where in a scroll view it is, as it does for a stock Godot `ScrollContainer`. A registry change
-  (an element keyed by tag and axis), with verifier changes; the first real reading of it is the lab's `Messages` view.
-- A freshness guard for the installed native library and Web side module: compare a digest of `native/`, `Cargo.toml`, `Cargo.lock` and the API
-  dump with the one recorded when it was built (S13 describes the failure this would have caught).
-- The Web side module installed in `demo/addons/godot-react-ui/bin/` is the stock profile's. A Breaka Web export needs
+  (an element keyed by tag and axis), with verifier changes; the first real reading of it is the lab's `Messages` view.~~ Done: `docs/tracks/scroll-bars.md` (D47).
+- ~~A freshness guard for the installed native library and Web side module: compare a digest of `native/`, `Cargo.toml`, `Cargo.lock` and the API
+  dump with the one recorded when it was built (S13 describes the failure this would have caught).~~ Done: `docs/tracks/freshness.md`.
+- At the time of writing, the Web side module installed in `demo/addons/godot-react-ui/bin/` was the stock profile's (a checkout state, not a standing fact). A Breaka Web export needs
   `pnpm build:web --wasm-only` first; `build:web` says so instead of packing the wrong one. The native library installed is
   the default's.

@@ -22,7 +22,7 @@ S1 to S18 so as not to collide with the plan's) are for the coordinator to fold 
 | `src/*` | `userSelect`/`selectionColor` types and the `select-none`, `select-text`, `selection-[#hex]` utilities; `selectionchange` event, `NativeHost.getSelection/clearSelection`, `readSelection`; `root.getSelection()`, `root.clearSelection()` and the `useTextSelection()` hook |
 | `demo/src/selection-lab.tsx`, `labs.tsx`, `main.ts` | The lab (`showLab('selection')`), the demo API the verifier uses |
 | `demo/src/verify-interaction.ts`, `verifier-input.ts` | The `selection` section; `bindVerifierKeys` (S11); `KeySpec.meta`, `mouseButton` takes Shift |
-| `scripts/verify-interaction-web.mjs` | The `selection` scenario, with clipboard permissions |
+| `scripts/verify-interaction-web.mjs` | The `selection` scenario (the clipboard is the in-memory one of D46; no permission is granted) |
 | `tests/` | `selection.test.ts` (6), style tests and fixture, `RecordingHost` selection support |
 | `README.md`, `native/PROTOCOL.md` | Text selection, limits |
 
@@ -140,7 +140,7 @@ For the plan's Phase I6 entry ("done as built" text), the coordinator may use th
 | `pnpm verify:interaction` (all eight sections, both viewports) | passed. Landscape passed on its third attempt: the first two failed while the window was disturbed by a real mouse (86 and 167 foreign `InputEventMouseMotion`s, the assertion `Entering a child hovers its parent`; D22). Portrait passed on its first attempt, which saw 464 foreign inputs and one focus loss. An earlier invocation failed in three disturbed attempts, two of them killed by the old 120 s limit (S18) |
 | `pnpm verify` | passed (portrait on its second attempt; the first failed while disturbed) |
 | `pnpm verify:motion` | passed, both viewports (the phase touched `motion.rs`, `computed_style.rs` and `render_tree.rs`) |
-| `pnpm build:web` and `pnpm verify:interaction:web` (port 8101, my own `node scripts/serve-web.mjs --debug`, stopped afterwards) | passed: **771 assertions** (691 at I5, +20 per viewport), 91 captures, at both device pixel ratios and orientations. The first run failed on the verifier's own assertion (it counted the Command key press, which nothing handles, as a leak of the copy key); fixed and run again |
+| `pnpm build:web` and `pnpm verify:interaction:web` (port 8101, my own `node scripts/serve-web.mjs`, stopped afterwards) | passed: **771 assertions** (691 at I5, +20 per viewport), 91 captures, at both device pixel ratios and orientations. The first run failed on the verifier's own assertion (it counted the Command key press, which nothing handles, as a leak of the copy key); fixed and run again |
 | Installed library | a default build (`strings` finds no `SEL_NC`), `pnpm build:native` after the last negative control |
 
 The Web wasm was compiled while the one-line font-clone change in `paint_node` was being made, so it may hold the

@@ -245,7 +245,7 @@ export PATH="$HOME/.cargo/bin:$PATH" CARGO_BUILD_JOBS=3
 pnpm build:native
 pnpm verify:interaction --only=hidpi    # native, landscape and portrait
 pnpm verify:world                        # native, includes the 2x panel
-pnpm build:web && PORT=8105 pnpm demo:web &   # then, once the port is checked free:
-GODOT_REACT_WEB_URL=http://127.0.0.1:8105 node scripts/verify-interaction-web.mjs --only=hidpi
-GODOT_REACT_WEB_URL=http://127.0.0.1:8105 node scripts/verify-world-web.mjs
+pnpm build:web                                  # the Web verifiers serve the export themselves (D46)
+node scripts/verify-interaction-web.mjs --only=hidpi
+node scripts/verify-world-web.mjs
 ```

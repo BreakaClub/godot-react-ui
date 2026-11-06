@@ -349,7 +349,7 @@ should have nothing left to resolve. What the rebases settled, in case a later o
 * **Verifier integrity (D46)**: `verify-filters.ts` and `verify-glass.ts` count their assertions in `assertionTally`; the Web scenarios
   run through `section(...)`; the expected-error marker (`GODOT_REACT_EXPECT_ERROR`) was re-applied on main's rewritten
   `scripts/native-run.mjs`, with its test; the faults section runs with `--no-retry`. The new sections are in `SECTIONS`, and
-  `filters-cost` and `filters-faults` are opt-in.
+  `filters-cost` and `filters-faults` are opt-in (and `filters-sizes`, added by `docs/tracks/filter-fixes.md`).
 * **Palette**: the opacity modifier works on all 22 colours (`parseColor` takes `name/NN` on any named colour); the README and the
   missing-utilities table follow.
 * **Other files a merge touches** (unchanged by the rebases): `src/styles.ts`, `src/types.ts`, `native/props.rs`, `native/render_tree.rs`

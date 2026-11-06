@@ -58,8 +58,8 @@ The lines of cases that did not happen in a real run (a scripted Godot, `scripts
 
 ```
 portrait: PASSED after 1 disturbed failure(s). First failure: portrait runtime verification failed (exit 0): ERROR: [JS] GODOT_REACT_VERIFY_FAILED Error: Entering a child hovers its parent; see <dir>/run.log. Disturbance: foreign-input (InputEventMouseMotion device=32) 300 ms before the end. Its log and captures: <dir>/run-attempt-1.log, <dir>-failed-attempt-1
-landscape: FAILED: … GODOT_REACT_VERIFY_FAILED Error: Entering a child hovers its parent … (1 disturbance(s) were logged but none reached the system under test within 5000 ms before the failure (window-focus-loss with nothing to act on), so this is a real failure and is not re-run)
-landscape: FAILED: … (a disturbance reached the system under test before it: foreign-input (InputEventMouseMotion device=32) 300 ms before the end; not re-run because retries are off)
+Error: landscape runtime verification failed (exit 0): … GODOT_REACT_VERIFY_FAILED Error: Entering a child hovers its parent … (1 disturbance(s) were logged but none reached the system under test within 5000 ms before the failure (window-focus-loss with nothing to act on), so this is a real failure and is not re-run)
+Error: landscape runtime verification failed …: … (a disturbance reached the system under test before it: foreign-input (InputEventMouseMotion device=32) 300 ms before the end; not re-run because retries are off)
 a11y: PASSED (PARTIAL: not run: platform focus (the window is not the key window)) (5 recorded engine gap(s), not failures: a11y-size; a11y-select-all; a11y-scroller; a11y-notes; a11y-readonly)
 text-layout (headless): PASSED (PARTIAL: not run: pixel checks, captures)
 ```
@@ -132,7 +132,7 @@ re-run until it passes proves nothing (the progress log records one such control
 
 ## 2. Which Web server the browser talks to
 
-A Web verifier now serves the checked export itself, from `artifacts/<profile>/web-<mode>`, on port 0 (the system picks a free one),
+A Web verifier now serves the checked export itself, from `artifacts/web-<mode>` (`artifacts/stock/web-<mode>` for stock), on port 0 (the system picks a free one),
 bound to 127.0.0.1, and closes the server when it finishes. Agents running in parallel need no port arithmetic, and nothing else
 can answer. `GODOT_REACT_WEB_URL` still works for a server somebody started: the verifier fetches every file in the export's
 receipt (`files`: name, size, sha256) from it and refuses to open a browser unless each is identical, so another checkout's export, the
@@ -209,9 +209,9 @@ file under `demo/src` calls `DisplayServer.clipboard*` again. No real round trip
 unverified is the engine's own leaf (`DisplayServer::clipboard_set` onto `NSPasteboard`), which is the engine's.
 
 **Web.** `scripts/web-clipboard.mjs` replaces `navigator.clipboard` with an object in the page's memory (`writeText`, `readText`) before
-any page script runs. The engine's glue (`godot_js_display_clipboard_set/get`), the product's copy, cut and paste, the paste that asks the
+any page script runs; `verify-interaction-web.mjs` is the only Web verifier that installs it (the others never use the clipboard). The engine's glue (`godot_js_display_clipboard_set/get`), the product's copy, cut and paste, the paste that asks the
 browser (`web_clipboard.rs`) and the refused-read path (a scenario replaces `readText` with a rejection) all still run. What is lost is
-the real browser's permission behaviour for the clipboard, which no scenario tested (the verifier granted it). Whether headless Chrome
+the real browser's permission behaviour for the clipboard, which no scenario tested (no scenario granted or refused a permission: the page's own memory object has none). Whether headless Chrome
 reaches the OS pasteboard was not measured: a measurement writes to the person's pasteboard, which is the harm, so the clipboard is
 swapped on the assumption that it does.
 
@@ -249,8 +249,7 @@ settings. This worktree's `project_metadata.cfg` also lists `res://src/main.ts` 
 
 **The fix** (`scripts/editor-session.mjs`): `scrubOpenScripts(project)` removes the `.ts` and `.tsx` entries from
 `[ScriptEditor] open_scripts` (strings or dictionaries, one line or several) and a TypeScript `selected_script`, and nothing else; it
-rewrites the file in one step and only when it removes something. It runs before `import-demo.mjs` (every native verify and
-`build:web`'s callers), `generate-types.mjs`, `typings.mjs` (on the staged project, which carries a copy of the layout) and `dev.mjs`
+rewrites the file in one step and only when it removes something. It runs before `import-demo.mjs` (every native verify, `pnpm demo`; not `build:web`, whose headless export runs no scrub), `generate-types.mjs`, `typings.mjs` (on the staged project, which carries a copy of the layout) and `dev.mjs`
 (the interactive editor). With the same seeded layout and the guard on, `pnpm gen:types` left `main.ts` byte-identical (`cmp` against
 the copy made first). Left alone on purpose: `script_editor_cache.cfg` (view state of a script opened some other way; it opens
 nothing), the recent-files list (a menu), and the editor setting `restore_scripts_on_load` (the person's). A person can still open a TypeScript

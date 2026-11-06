@@ -23,7 +23,7 @@ window or browser opens, naming the files that differ and the command that fixes
 | --- | --- | --- |
 | `prepareNative` (`verify`, `verify:interaction`, `verify:motion`, `verify:a11y`, `verify:world`, `verify:text-layout`, `demo`, `dev`) | installed library's stamp: profile, probe flag, library hash, digest | `pnpm build:native [--probe] [--faults] --engine=<name>` |
 | `build:web` (export step, `--export-only`) | installed Web side module's stamp | `pnpm build:web --wasm-only [--probe] --engine=<name>` |
-| `verify:web`, `verify:motion:web`, `verify:interaction:web`, `scripts/verify-world-web.mjs`, `demo:web`, `scripts/probe-web.mjs` | the export's `build-receipt.json` (`extension` is the side module's stamp) and the exported `.wasm` beside it | `pnpm build:web [--release] [--probe] --engine=<name>` |
+| `verify:web`, `verify:motion:web`, `verify:interaction:web`, `scripts/verify-world-web.mjs`, `demo:web`, `scripts/probe-web.mjs` | the export's `build-receipt.json` (`extension` is the side module's stamp; `content` the digest of the pack, shell and template inputs; `files` each exported file's size and hash) and the exported `.wasm` beside it | `pnpm build:web [--release] [--probe] --engine=<name>`, or `pnpm build:web --export-only` when the pack, shell, template or an exported file is what moved |
 | `test:types --engine=stock`, `gen:types --engine=stock` | the stock library cargo left in `target/stock` (what the typings are generated from) | `pnpm build:native --engine=stock` |
 | `gen:types` (default profile) | the installed library (the editor writes the tracked typings from it) | `pnpm build:native` |
 | `build:native`, `build:web` | cargo's target stamp: whether cargo's artifact is a build of these sources (F3) | cleans this crate itself |
@@ -69,7 +69,7 @@ verified (`prepareNative`) rather than in each script, so the native verifiers, 
 `requireFreshWebExport`. `serve-web` takes `--probe` to serve a probe export, as `build:web --probe` makes it, because a probe export is
 correctly refused as a default one.
 
-F5. **A Web run is judged by its export, not by whatever side module is installed.** The browser runs `artifacts/<profile>/web-<mode>/`
+F5. **A Web run is judged by its export, not by whatever side module is installed.** The browser runs `artifacts/web-<mode>/` (`artifacts/stock/web-<mode>/` for the stock profile)
 (`godot_react_ui.web.wasm` is copied there), and the installed side module may legitimately belong to the other profile at that moment. So
 `build:web` stamps the receipt with the side module's stamp, and the verifiers and the server compare the receipt's stamp with the working
 tree *and* the exported `.wasm`'s hash with the stamp. The export step itself still refuses a stale installed side module
