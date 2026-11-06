@@ -8,6 +8,7 @@ import { createRoot, readActivity, takeNativeProfile, type ReactRoot } from '../
 import { App } from './app';
 import { setLabOwner } from './interaction-lab';
 import { labElement, type LabName } from './labs';
+import { selectionLabControls } from './selection-lab';
 import { observeInputFailure, runVerification } from './verify';
 import { BenchmarkApp, type BenchmarkProps } from './benchmark';
 import { runProbe } from './probe';
@@ -50,6 +51,8 @@ export default class Main extends Node {
   /** `wheel` events that reached the root's own listener (every wheel tick or pan JS was shown). */
   private wheelEvents = 0;
   private rootKeys: string[] = [];
+  /** `selectionchange` events the root's own listener saw. */
+  private selectionChanges = 0;
   private passthrough: PassthroughCounts = { backdropPresses: 0, unhandledPresses: 0, unhandledWheels: 0, unhandledPans: 0, unhandledKeys: {} };
   /** Set only in a run that injects its own input (a verifier or the probe); a normal run takes real input. */
   private isolation: VerifierInputIsolation | null = null;
@@ -93,6 +96,14 @@ export default class Main extends Node {
         this.isolation?.expectSimulated(Node.NOTIFICATION_WM_WINDOW_FOCUS_OUT);
         window.propagateNotification(Node.NOTIFICATION_WM_WINDOW_FOCUS_OUT);
       },
+      /** The document's text selection, as `root.getSelection()` answers it. */
+      selection: () => this.requireRenderer().getSelection(),
+      /** The selection lab's commits (React state changes made outside any event, as an app's timer would). */
+      changeSelectionLiveText: () => selectionLabControls().changeLiveText(),
+      removeSelectionTail: () => selectionLabControls().removeTail(),
+      /** `selectionchange` events the root's own listener saw since the last reset. */
+      selectionChanges: () => this.selectionChanges,
+      resetSelectionChanges: () => { this.selectionChanges = 0; },
       /** `pointercancel`s the root's own listener saw since the last reset. */
       pointerCancels: () => this.pointerCancels,
       resetPointerCancels: () => { this.pointerCancels = 0; },
@@ -272,6 +283,7 @@ export default class Main extends Node {
     this.renderer = renderer;
     renderer.addEventListener('pointercancel', () => { this.pointerCancels += 1; });
     renderer.addEventListener('wheel', () => { this.wheelEvents += 1; });
+    renderer.addEventListener('selectionchange', () => { this.selectionChanges += 1; });
     renderer.addEventListener('keydown', event => {
       if (event.target.id === 0) this.rootKeys.push(event.key);
     });

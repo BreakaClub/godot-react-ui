@@ -1,13 +1,13 @@
 import {
-  Color, Control, DirAccess, DisplayServer, Engine, FileAccess, GError, Image, InputEventKey, InputEventMouseButton,
-  InputEventMouseMotion, InputEventPanGesture, InputEventScreenDrag, InputEventScreenTouch, Key, MouseButton,
-  MouseButtonMask, Node, OS, ProjectSettings, RenderingServer, Vector2,
+  Color, Control, DirAccess, DisplayServer, Engine, FileAccess, GError, HorizontalAlignment, Image, InputEventKey,
+  InputEventMouseButton, InputEventMouseMotion, InputEventPanGesture, InputEventScreenDrag, InputEventScreenTouch, Key,
+  MouseButton, MouseButtonMask, Node, OS, ProjectSettings, RenderingServer, ThemeDB, Time, Vector2,
 } from 'godot';
-import type { NativeActivity, RendererProfile } from '../../src';
+import type { NativeActivity, RendererProfile, UISelection } from '../../src';
 import type { LayoutRect, NativeScrollState, NativeSnapshot, NativeSnapshotNode } from '../../src/native';
 import type { LabName } from './labs';
 import type { PassthroughCounts } from './main';
-import { parseVerifierEvent } from './verifier-input';
+import { bindVerifierKeys, parseVerifierEvent } from './verifier-input';
 import type { DemoInspection } from './verify';
 
 export interface InteractionInspection extends DemoInspection {
@@ -36,6 +36,14 @@ export interface InteractionInspection extends DemoInspection {
   activity(): NativeActivity;
   /** Deliver the notification the window system sends when the window loses OS focus. */
   simulateWindowFocusLoss(): void;
+  /** The document's text selection, as `root.getSelection()` answers it. */
+  selection(): UISelection | undefined;
+  /** `selectionchange` events the root's own listener saw since the last reset. */
+  selectionChanges(): number;
+  resetSelectionChanges(): void;
+  /** The selection lab's commits: change the text of its live line, and remove its tail paragraph. */
+  changeSelectionLiveText(): void;
+  removeSelectionTail(): void;
 }
 
 const SETTLE_MS = 100;
@@ -158,12 +166,13 @@ const BUTTON_MASKS: Readonly<Partial<Record<MouseButton, number>>> = {
 };
 
 /** A press or release of any button, with the button mask a real device reports. */
-function mouseButton(position: Vector2, button: MouseButton, pressed: boolean): void {
+function mouseButton(position: Vector2, button: MouseButton, pressed: boolean, modifiers: { shift?: boolean } = {}): void {
   const event = new InputEventMouseButton();
   event.position = position;
   event.globalPosition = position;
   event.buttonIndex = button;
   event.pressed = pressed;
+  event.shiftPressed = modifiers.shift === true;
   event.buttonMask = pressed ? BUTTON_MASKS[button] ?? 0 : 0;
   parseVerifierEvent(event);
 }
@@ -192,6 +201,8 @@ interface KeySpec {
   unicode?: number;
   shift?: boolean;
   ctrl?: boolean;
+  /** The Command key on macOS. */
+  meta?: boolean;
   echo?: boolean;
 }
 
@@ -205,6 +216,7 @@ function keyEvent(spec: KeySpec, pressed: boolean): void {
   event.echo = spec.echo === true;
   event.shiftPressed = spec.shift === true;
   event.ctrlPressed = spec.ctrl === true;
+  event.metaPressed = spec.meta === true;
   parseVerifierEvent(event);
 }
 
@@ -2429,8 +2441,367 @@ async function verifyScrolling(owner: Node, api: InteractionInspection, capture:
   await settle();
 }
 
+/** The selection highlight (`DEFAULT_SELECTION_COLOR`, blue-500 at 35 %) and the lab's `selection-[#f43f5e80]` (rose-500 at 50 %), over white. */
+const DEFAULT_HIGHLIGHT_ON_WHITE = blend('#3b82f6', '#ffffff', 0x59 / 255);
+const ROSE_HIGHLIGHT_ON_WHITE = blend('#f43f5e', '#ffffff', 0x80 / 255);
+/** The lab's text colour (`text-slate-900`) and how far ink may stray from it: the text is drawn over the highlight, not under it. */
+const SELECTION_TEXT_COLOR = Color.fromString('#0f172a', new Color(0, 0, 0, 1));
+const INK_TOLERANCE = 0.06;
+const HIGHLIGHT_TOLERANCE = 0.03;
+/** A point this far below a paragraph's top is on its first line (the lab's 14 px text lines are taller than this). */
+const FIRST_LINE_PROBE_Y = 6;
+/** A point this far in from a paragraph's left edge is on its first glyph's left half. */
+const FIRST_GLYPH_PROBE_X = 1;
+/** The font size of the lab's `text-sm` text, which the verifier measures words with. */
+const LAB_FONT_SIZE = 14;
+/** At least this share of the pixels inside a highlighted run's box must be highlight (the rest is ink and its edges). */
+const MIN_HIGHLIGHT_SHARE = 0.5;
+/** The grid step of the pixel scans, and how far in from a short text's padding they start. */
+const SCAN_STEP_PX = 2;
+const SHORT_TEXT_PADDING_PX = 4;
+/** A second press this close to the last one, within the click interval, would count as a double click. */
+const SAME_SPOT_PX = 6;
+/** A row has to be scrolled this far past the list's top edge to show it is clipped there, and this much of it has to remain in view. */
+const MIN_CLIPPED_PX = 3;
+const MIN_VISIBLE_ROW_PX = 3;
+/** More wheel ticks than it takes to scroll a row of the lab's list past its top edge: a loop that reaches it is a bug. */
+const MAX_SELECTION_SCROLL_TICKS = 12;
+/** The rows of the lab's list. */
+const SELECTION_LAB_ROWS = 14;
+
+/** The lab's selectable texts in document order: what select all copies. */
+const SELECTABLE_LAB_TEXTS = [
+  'sel-p1', 'sel-p2', 'sel-live', 'sel-tail', 'sel-captured', 'sel-prevented', 'sel-short', 'sel-rose',
+  ...Array.from({length: SELECTION_LAB_ROWS}, (_, index) => `sel-row-${index}`),
+];
+
+/** The share of the pixels of `area`, every `SCAN_STEP_PX`, that are `expected`; and the darkest pixel. */
+function scanArea(image: Image, area: LayoutRect, expected: Color): { share: number; darkest: Color } {
+  let matching = 0;
+  let total = 0;
+  let darkest = new Color(1, 1, 1, 1);
+  for (let y = Math.ceil(area.y); y < area.y + area.height; y += SCAN_STEP_PX) {
+    for (let x = Math.ceil(area.x); x < area.x + area.width; x += SCAN_STEP_PX) {
+      const color = image.getPixel(x, y);
+      total += 1;
+      if (paintNear(image, new Vector2(x, y), expected, HIGHLIGHT_TOLERANCE)) matching += 1;
+      if (color.r + color.g + color.b < darkest.r + darkest.g + darkest.b) darkest = color;
+    }
+  }
+  return {share: total === 0 ? 0 : matching / total, darkest};
+}
+
+/** A short text's box without its padding: where its glyph run is, which a highlight covers. */
+function glyphArea(rect: LayoutRect): LayoutRect {
+  return {x: rect.x + SHORT_TEXT_PADDING_PX, y: rect.y, width: rect.width - 2 * SHORT_TEXT_PADDING_PX, height: rect.height};
+}
+
+/**
+ * Plan I6: text selection. `select-text` opts text in and `select-none` opts a part of it out; a click collapses,
+ * a double click selects a word, a triple click the node's text, a drag extends (across paragraphs, skipping
+ * `select-none` text, and past the ends), Shift+click extends; a Button, an element that captured the pointer or
+ * prevented `pointerdown`, and text with no `select-text` start nothing and clear what was selected. The root
+ * takes key focus with a selection and gives it back when the selection goes; Cmd/Ctrl+C copies and Cmd/Ctrl+A
+ * selects all; a change of the text, or removal, of what is selected clears it; the highlight is drawn under the
+ * text and scrolls and clips with its list.
+ */
+async function verifySelection(owner: Node, api: InteractionInspection, capture: (name: string) => Promise<void>): Promise<void> {
+  const clipboardBefore = DisplayServer.clipboardGet();
+  // The keys that copy and select all are `InputMap` actions, which match only a real keyboard's events.
+  const unbindKeys = bindVerifierKeys(['ui_copy', 'ui_text_select_all']);
+  try {
+    await verifySelectionGestures(owner, api, capture);
+  } finally {
+    unbindKeys();
+    // The run wrote to the machine's clipboard; leave it as it was found.
+    DisplayServer.clipboardSet(clipboardBefore);
+  }
+}
+
+async function verifySelectionGestures(owner: Node, api: InteractionInspection, capture: (name: string) => Promise<void>): Promise<void> {
+  const left = MouseButton.MouseButtonLeft;
+  const commandIsMeta = OS.hasFeature('macos');
+  api.showLab('hud');
+  await settle();
+  api.showLab('selection');
+  await settle();
+  move(FAR_CORNER);
+  await settle();
+  api.resetSelectionChanges();
+
+  const rectOf = (testID: string): LayoutRect => get(api, testID).rect;
+  const textOf = (testID: string): string => get(api, testID).text;
+  const firstLine = (testID: string, x = FIRST_GLYPH_PROBE_X) => new Vector2(rectOf(testID).x + x, rectOf(testID).y + FIRST_LINE_PROBE_Y);
+  const selected = () => api.selection();
+  const ends = (): string => text(api, 'sel-ends');
+
+  // A press near the last one, soon after it, would be part of its click sequence; every gesture starts a new one.
+  let lastPress: { at: Vector2; ms: number } | undefined;
+  const newSequence = async (at: Vector2): Promise<void> => {
+    if (lastPress !== undefined && lastPress.at.distanceTo(at) <= SAME_SPOT_PX) {
+      const wait = CLICK_SEQUENCE_PAUSE_MS - (Time.getTicksMsec() - lastPress.ms);
+      if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait));
+    }
+    lastPress = {at, ms: Time.getTicksMsec()};
+  };
+  /** The mouse over `at`, then `times` presses and releases, which a quick run counts as a double or triple click. */
+  const clickAt = async (at: Vector2, times = 1, shift = false): Promise<void> => {
+    await newSequence(at);
+    move(at);
+    await settle();
+    for (let press = 0; press < times; press++) {
+      mouseButton(at, left, true, {shift});
+      mouseButton(at, left, false, {shift});
+    }
+    await settle();
+  };
+  const pressAt = async (at: Vector2): Promise<void> => {
+    await newSequence(at);
+    move(at);
+    await settle();
+    mouseButton(at, left, true);
+    await settle();
+  };
+  const releaseAt = async (at: Vector2): Promise<void> => {
+    mouseButton(at, left, false);
+    await settle();
+  };
+  /** Press at `from`, move through `through` and to `to`, release there. */
+  const dragSelect = async (from: Vector2, to: Vector2, through: readonly Vector2[] = []): Promise<void> => {
+    await pressAt(from);
+    for (const step of [...through, to]) {
+      move(step);
+      await settle();
+    }
+    await releaseAt(to);
+  };
+  const chord = async (keycode: Key): Promise<void> => tap({keycode, ctrl: !commandIsMeta, meta: commandIsMeta});
+  const unhandled = (keycode: Key): number => counts(api).unhandledKeys[keycode] ?? 0;
+  const same = (selection: ReturnType<typeof selected>, anchor: string, anchorOffset: number, focus: string, focusOffset: number): boolean =>
+    selection !== undefined && selection.anchor.node.testID === anchor && selection.anchor.offset === anchorOffset
+    && selection.focus.node.testID === focus && selection.focus.offset === focusOffset;
+  const font = ThemeDB.fallbackFont;
+  assert(font, 'The engine has a fallback font');
+  /** The middle of `word` in `testID`'s first line, measured with the font the lab's text uses. */
+  const middleOf = (testID: string, word: string): Vector2 => {
+    const paragraph = textOf(testID);
+    const start = paragraph.indexOf(word);
+    assert(start >= 0, `${testID} contains ${word}`);
+    const before = font.getStringSize(paragraph.slice(0, start), HorizontalAlignment.HorizontalAlignmentLeft, -1, LAB_FONT_SIZE).x;
+    const inside = font.getStringSize(word, HorizontalAlignment.HorizontalAlignmentLeft, -1, LAB_FONT_SIZE).x;
+    return firstLine(testID, before + inside / 2);
+  };
+  const p1 = textOf('sel-p1');
+  const p2 = textOf('sel-p2');
+  const none = textOf('sel-none');
+  const p1Start = firstLine('sel-p1');
+  const p1Middle = firstLine('sel-p1', rectOf('sel-p1').width / 2);
+  const intoSecond = firstLine('sel-p2', rectOf('sel-p2').width / 3);
+  const nonePoint = centerOf(rectOf('sel-none'));
+  const plainPoint = centerOf(rectOf('sel-plain'));
+  const buttonPoint = point(api, 'sel-button');
+
+  // ---- Nothing is selectable until text opts in, and the cursor says so --------------------------------------------
+  assert(selected() === undefined, 'Nothing is selected at first');
+  assert(api.cursorShapeAt(p1Start.x, p1Start.y) === Control.CursorShape.CursorIbeam, 'Selectable text shows the text cursor');
+  assert(api.cursorShapeAt(plainPoint.x, plainPoint.y) === Control.CursorShape.CursorArrow, 'Text with no select-text keeps the arrow');
+  assert(api.cursorShapeAt(nonePoint.x, nonePoint.y) === Control.CursorShape.CursorArrow, 'select-none text inside a select-text card keeps the arrow');
+  assert(api.cursorShapeAt(buttonPoint.x, buttonPoint.y) !== Control.CursorShape.CursorIbeam, 'A Button label inherits select-text but is not selectable: no text cursor');
+  await clickAt(plainPoint);
+  assert(selected() === undefined && api.selectionChanges() === 0, 'A click on text that is not select-text selects nothing');
+  assert(!api.surfaceHasFocus() && api.snapshot().focused === null, 'A press that selects nothing and focuses nothing leaves the keys to the game');
+
+  // ---- A click collapses ---------------------------------------------------------------------------------------------
+  await clickAt(p1Start);
+  assert(same(selected(), 'sel-p1', 0, 'sel-p1', 0) && selected()?.isCollapsed === true, `A click collapses at the glyph under it: ${JSON.stringify(selected())}`);
+  assert(api.selectionChanges() === 1, `And is one selectionchange for the root: ${api.selectionChanges()}`);
+  assert(api.surfaceHasFocus() && api.snapshot().focused === null, 'Starting a selection takes Godot key focus for the root without focusing an element');
+  assert(ends().includes('anchor sel-p1:0, focus sel-p1:0, collapsed'), `useTextSelection follows it: ${ends()}`);
+  await clickAt(p1Start);
+  assert(api.selectionChanges() === 1, 'Clicking the same place again changes nothing, so it is not another selectionchange');
+
+  // ---- A double click selects the word, a triple click the node's text ------------------------------------------------
+  await clickAt(p1Start, 2);
+  assert(same(selected(), 'sel-p1', 0, 'sel-p1', 'The'.length) && selected()?.text === 'The', `A double click selects the word: ${JSON.stringify(selected())}`);
+  await clickAt(middleOf('sel-p1', 'brown'), 2);
+  const brown = p1.indexOf('brown');
+  assert(same(selected(), 'sel-p1', brown, 'sel-p1', brown + 'brown'.length), `A double click in the middle of a word selects that word: ${JSON.stringify(selected())}`);
+  assert(text(api, 'sel-readout') === 'selected: "brown"', `The readout shows it: ${text(api, 'sel-readout')}`);
+  await clickAt(p1Start, 3);
+  assert(same(selected(), 'sel-p1', 0, 'sel-p1', p1.length) && selected()?.text === p1, `A triple click selects the node's whole text: ${JSON.stringify(selected())}`);
+  await capture('selection-01-paragraph');
+
+  // ---- A drag across paragraphs skips the select-none sentence between them -------------------------------------------
+  await dragSelect(p1Start, intoSecond, [nonePoint]);
+  const across = selected();
+  assert(across !== undefined && across.anchor.node.testID === 'sel-p1' && across.anchor.offset === 0 && across.focus.node.testID === 'sel-p2',
+    `A drag from the first paragraph to the second selects from one into the other: ${JSON.stringify(across)}`);
+  assert(across.focus.offset > 0 && across.focus.offset < p2.length, `It ends inside the second paragraph: ${across.focus.offset}`);
+  assert(across.text === `${p1}\n${p2.slice(0, across.focus.offset)}`, `Its text is the first paragraph, a newline and the start of the second: ${JSON.stringify(across.text)}`);
+  assert(!across.text.includes(none) && !across.text.includes('select-none'), 'The select-none sentence between them is skipped');
+  assert(text(api, 'sel-readout') === `selected: ${JSON.stringify(across.text)}`, 'The readout follows the drag');
+  await capture('selection-02-across');
+
+  // While the button is down, a pointer over the select-none sentence puts the focus at the start of the next selectable text.
+  await pressAt(p1Start);
+  move(nonePoint);
+  await settle();
+  assert(same(selected(), 'sel-p1', 0, 'sel-p2', 0) && selected()?.text === p1,
+    `Over a select-none sentence the drag reaches the start of the text after it: ${JSON.stringify(selected())}`);
+  move(p1Middle);
+  await settle();
+  assert(selected()?.focus.node.testID === 'sel-p1' && (selected()?.focus.offset ?? 0) > 0, 'And back over the first paragraph the focus follows');
+  await releaseAt(p1Middle);
+
+  // A backwards drag keeps the anchor where the press was.
+  await dragSelect(intoSecond, p1Middle);
+  const backwards = selected();
+  assert(backwards !== undefined && backwards.anchor.node.testID === 'sel-p2' && backwards.focus.node.testID === 'sel-p1',
+    `Dragging up keeps the anchor where it began and puts the focus before it: ${JSON.stringify(backwards)}`);
+  assert(backwards.text === `${p1.slice(backwards.focus.offset)}\n${p2.slice(0, backwards.anchor.offset)}`, `Its text is in document order: ${JSON.stringify(backwards.text)}`);
+
+  // A drag that ends past everything selects to the end of the last selectable text.
+  await dragSelect(p1Start, new Vector2(p1Start.x, api.snapshot().height - 1));
+  assert(same(selected(), 'sel-p1', 0, 'sel-row-13', textOf('sel-row-13').length),
+    `A pointer below all the text reaches the end of the last selectable text: ${JSON.stringify(selected())}`);
+
+  // ---- Shift+click extends ---------------------------------------------------------------------------------------------
+  await clickAt(p1Start);
+  await clickAt(intoSecond, 1, true);
+  const shifted = selected();
+  assert(shifted !== undefined && shifted.anchor.node.testID === 'sel-p1' && shifted.anchor.offset === 0 && shifted.focus.node.testID === 'sel-p2' && shifted.focus.offset > 0,
+    `Shift+click extends from the click that began the selection: ${JSON.stringify(shifted)}`);
+  assert(shifted.text === `${p1}\n${p2.slice(0, shifted.focus.offset)}`, 'And selects the same text a drag would');
+
+  // ---- A press that cannot select clears what was selected, and the root gives its key focus back -------------------------
+  await clickAt(nonePoint);
+  assert(selected() === undefined && !api.surfaceHasFocus(), 'A press on select-none text selects nothing, clears the selection and releases key focus');
+  assert(ends() === 'no ends' && text(api, 'sel-readout') === 'selected: nothing', 'The readout follows it');
+  await clickAt(p1Start, 3);
+  assert(selected()?.text === p1, 'Selected again');
+  await clickAt(buttonPoint);
+  assert(selected() === undefined, 'A press on a Button clears the selection and starts none, though its label inherits select-text');
+  assert(api.snapshot().focused === get(api, 'sel-button').id && api.surfaceHasFocus(), 'The Button took focus, and with it the root holds key focus');
+  await dragSelect(buttonPoint, intoSecond);
+  assert(selected() === undefined, 'A drag that begins on a Button selects nothing');
+  // JS wins the press: capture and preventDefault leave nothing for native to select.
+  await clickAt(p1Start, 3);
+  assert(selected()?.text === p1, 'Selected again');
+  const captured = rectOf('sel-captured');
+  await dragSelect(new Vector2(captured.x + captured.width / 4, captured.y + FIRST_LINE_PROBE_Y), new Vector2(captured.x + captured.width * 3 / 4, captured.y + FIRST_LINE_PROBE_Y));
+  assert(selected() === undefined, 'A pointer an element captured is its element\'s: no selection starts (and the old one is cleared)');
+  await clickAt(p1Start, 3);
+  const vetoed = rectOf('sel-prevented');
+  await dragSelect(new Vector2(vetoed.x + vetoed.width / 4, vetoed.y + FIRST_LINE_PROBE_Y), new Vector2(vetoed.x + vetoed.width * 3 / 4, vetoed.y + FIRST_LINE_PROBE_Y));
+  assert(selected()?.text === p1, 'A prevented pointerdown leaves the selection alone, and starts none');
+
+  // ---- Copy and select all -----------------------------------------------------------------------------------------------
+  await clickAt(p1Start, 3);
+  DisplayServer.clipboardSet('before the copy');
+  const copiedKeys = unhandled(Key.KeyC);
+  await chord(Key.KeyC);
+  assert(DisplayServer.clipboardGet() === p1, `Cmd/Ctrl+C puts the selected text on the clipboard: ${JSON.stringify(DisplayServer.clipboardGet())}`);
+  assert(unhandled(Key.KeyC) === copiedKeys, 'The key that copied is consumed: the game does not see it');
+  await dragSelect(p1Start, intoSecond, [nonePoint]);
+  const dragged = selected();
+  assert(dragged !== undefined, 'A drag selected something');
+  await chord(Key.KeyC);
+  assert(DisplayServer.clipboardGet() === dragged.text && DisplayServer.clipboardGet().includes('\n') && !DisplayServer.clipboardGet().includes('select-none'),
+    `A selection across paragraphs copies their text joined by a newline, without the select-none sentence: ${JSON.stringify(DisplayServer.clipboardGet())}`);
+  await clickAt(p1Start);
+  DisplayServer.clipboardSet('untouched');
+  const uncopiedKeys = unhandled(Key.KeyC);
+  await chord(Key.KeyC);
+  assert(DisplayServer.clipboardGet() === 'untouched' && unhandled(Key.KeyC) === uncopiedKeys + 1,
+    'A collapsed selection has nothing to copy: the clipboard is left alone and the key goes to the game');
+  const selectAllKeys = unhandled(Key.KeyA);
+  await chord(Key.KeyA);
+  const everything = SELECTABLE_LAB_TEXTS.map(testID => textOf(testID)).join('\n');
+  assert(selected()?.text === everything, `Cmd/Ctrl+A selects all the selectable text, in order, and none of the rest: ${JSON.stringify(selected()?.text)}`);
+  assert(!(selected()?.text ?? '').includes('Buttons are never') && !(selected()?.text ?? '').includes('Outside the card'), 'Not the Button\'s label, nor text that did not opt in');
+  assert(unhandled(Key.KeyA) === selectAllKeys, 'Select all is consumed');
+  await capture('selection-03-all');
+  await clickAt(plainPoint);
+  assert(selected() === undefined, 'And a press elsewhere clears it');
+
+  // ---- The selection is cleared when the text it covers changes or goes -------------------------------------------------------
+  await clickAt(p1Start, 3);
+  api.changeSelectionLiveText();
+  await settle();
+  assert(textOf('sel-live') === 'Live line 1', `The live line changed: ${textOf('sel-live')}`);
+  assert(selected()?.text === p1, 'Changing a text outside the selection leaves it alone');
+  await clickAt(firstLine('sel-live'), 3);
+  assert(selected()?.text === 'Live line 1', 'The live line is selected');
+  const beforeChange = api.selectionChanges();
+  api.changeSelectionLiveText();
+  await settle();
+  assert(selected() === undefined && api.selectionChanges() === beforeChange + 1,
+    `Changing the text of what is selected clears it, with a selectionchange: ${JSON.stringify(selected())}`);
+  assert(text(api, 'sel-readout') === 'selected: nothing', 'The readout follows it');
+  await clickAt(firstLine('sel-tail'), 3);
+  assert(selected()?.text === textOf('sel-tail'), 'The tail paragraph is selected');
+  api.removeSelectionTail();
+  await settle();
+  assert(api.find('sel-tail') === undefined && selected() === undefined, 'Removing what is selected clears it');
+
+  // ---- Painting: the highlight is in the content item, under the text ---------------------------------------------------------
+  await clickAt(plainPoint);
+  const short = glyphArea(rectOf('sel-short'));
+  let image = frameImage(owner);
+  assert(scanArea(image, short, DEFAULT_HIGHLIGHT_ON_WHITE).share === 0, 'Nothing is highlighted before the selection');
+  const recordsBefore = api.snapshot().stats.contentRecords;
+  await clickAt(centerOf(rectOf('sel-short')), 3);
+  assert(selected()?.text === 'Highlight', `The short text is selected: ${JSON.stringify(selected())}`);
+  image = frameImage(owner);
+  const highlighted = scanArea(image, short, DEFAULT_HIGHLIGHT_ON_WHITE);
+  assert(highlighted.share >= MIN_HIGHLIGHT_SHARE, `The selected text is highlighted in the default colour: ${highlighted.share} of its box`);
+  assert(api.snapshot().stats.contentRecords > recordsBefore, 'Selecting re-recorded the text\'s content item');
+  await clickAt(centerOf(rectOf('sel-rose')), 3);
+  assert(selected()?.text === textOf('sel-rose'), 'The rose text is selected');
+  image = frameImage(owner);
+  const rose = scanArea(image, glyphArea(rectOf('sel-rose')), ROSE_HIGHLIGHT_ON_WHITE);
+  assert(rose.share >= MIN_HIGHLIGHT_SHARE, `selection-[#f43f5e80] colours the highlight: ${rose.share} of its box`);
+  assert(Math.abs(rose.darkest.r - SELECTION_TEXT_COLOR.r) <= INK_TOLERANCE && Math.abs(rose.darkest.g - SELECTION_TEXT_COLOR.g) <= INK_TOLERANCE
+    && Math.abs(rose.darkest.b - SELECTION_TEXT_COLOR.b) <= INK_TOLERANCE, `The text is drawn over its highlight, in its own colour: darkest pixel #${rose.darkest.toHtml(false)}`);
+  assert(scanArea(image, short, DEFAULT_HIGHLIGHT_ON_WHITE).share === 0, 'And the first text is no longer highlighted: the highlight is redrawn when the selection moves');
+  await capture('selection-04-highlight');
+  await clickAt(plainPoint);
+  image = frameImage(owner);
+  assert(scanArea(image, glyphArea(rectOf('sel-rose')), ROSE_HIGHLIGHT_ON_WHITE).share === 0, 'Clearing the selection removes the highlight');
+
+  // ---- The highlight scrolls with its list and is clipped by it ------------------------------------------------------------------
+  const list = () => rectOf('sel-scroll');
+  const row = () => rectOf('sel-row-1');
+  const visibleRow = (): LayoutRect => {
+    const top = Math.max(row().y, list().y + 1);
+    return {x: row().x, y: top, width: row().width, height: Math.min(row().y + row().height, list().y + list().height - 1) - top};
+  };
+  await clickAt(centerOf(row()), 3);
+  assert(selected()?.text === 'Scrolling row 1', `A row of the list is selected: ${JSON.stringify(selected())}`);
+  assert(scanArea(frameImage(owner), visibleRow(), DEFAULT_HIGHLIGHT_ON_WHITE).share >= MIN_HIGHLIGHT_SHARE, 'The row is highlighted where it is in the list');
+  const beforeScroll = api.snapshot().stats;
+  for (let tick = 0; tick < MAX_SELECTION_SCROLL_TICKS && row().y > list().y - MIN_CLIPPED_PX; tick++) {
+    await wheel(centerOf(list()), MouseButton.MouseButtonWheelDown);
+  }
+  assert(row().y <= list().y - MIN_CLIPPED_PX && row().y + row().height >= list().y + MIN_VISIBLE_ROW_PX,
+    `The row is scrolled partly past the top edge of the list: row ${JSON.stringify(row())}, list ${JSON.stringify(list())}`);
+  assert(api.snapshot().stats.contentRecords === beforeScroll.contentRecords, 'Scrolling does not re-record the content: the highlight moves with it');
+  image = frameImage(owner);
+  assert(scanArea(image, visibleRow(), DEFAULT_HIGHLIGHT_ON_WHITE).share >= MIN_HIGHLIGHT_SHARE, 'The highlight moved with its row');
+  const above: LayoutRect = {x: row().x, y: row().y, width: row().width, height: list().y - row().y};
+  assert(scanArea(image, above, DEFAULT_HIGHLIGHT_ON_WHITE).share === 0, `And the part of the row past the top edge is clipped: nothing is highlighted above the list ${JSON.stringify(above)}`);
+  await capture('selection-05-scrolled');
+
+  move(FAR_CORNER);
+  await settle();
+  api.restoreDemo();
+  await settle();
+  api.grabSurfaceFocus();
+  await settle();
+}
+
 /** The sections of this verifier, in the order they run (plan 0.4.1: `--only=<name>[,<name>]` runs just those). */
-const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard', 'positioning', 'inputs', 'scroll'] as const;
+const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard', 'positioning', 'inputs', 'scroll', 'selection'] as const;
 type Section = (typeof SECTIONS)[number];
 
 function isSection(value: string): value is Section {
@@ -2478,6 +2849,7 @@ export async function runInteractionVerification(owner: Node, api: InteractionIn
   if (sections.has('positioning')) await verifyPositioning(owner, api, capture);
   if (sections.has('inputs')) await verifyInputs(owner, api, capture);
   if (sections.has('scroll')) await verifyScrolling(owner, api, capture);
+  if (sections.has('selection')) await verifySelection(owner, api, capture);
 
   console.log('GODOT_REACT_INTERACTION_VERIFY_PASSED', JSON.stringify({sections: [...sections], captures, dispatchTiming: timing}));
 }

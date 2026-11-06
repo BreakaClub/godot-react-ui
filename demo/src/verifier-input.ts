@@ -1,4 +1,4 @@
-import { Engine, Input, InputEvent, Node, Time, Window } from 'godot';
+import { Engine, Input, InputEvent, InputEventKey, InputMap, Node, Time, Window } from 'godot';
 
 /**
  * The device id of every input event a verifier or probe injects. Godot 4.8 gives the events of a real
@@ -24,6 +24,40 @@ const DEVICE_ID_EMULATION = -1;
 export function parseVerifierEvent(event: InputEvent): void {
   event.device = VERIFIER_DEVICE_ID;
   Input.parseInputEvent(event);
+}
+
+/**
+ * Let a key a verifier injects trigger the `InputMap` actions a real key would. `InputMap` matches an event against an action's
+ * events only if the two share a device (`InputMap::_find_event`, core/input/input_map.cpp), and the key events of an action belong
+ * to the real keyboard (`action_add_event` gives them `DEVICE_ID_KEYBOARD`), so `ui_copy` and the other `ui_*` actions never see an
+ * event marked `VERIFIER_DEVICE_ID`. This adds, for each key event of `actions`, a copy for the verifier's device, and returns the
+ * function that takes them away again. The code under test still matches the action itself, as it does for a real key.
+ */
+export function bindVerifierKeys(actions: readonly string[]): () => void {
+  const added: Array<{ action: string; event: InputEventKey }> = [];
+  for (const action of actions) {
+    const events = InputMap.actionGetEvents(action);
+    for (let index = 0; index < events.size(); index++) {
+      const source = events.get(index);
+      if (!(source instanceof InputEventKey)) continue;
+      const copy = new InputEventKey();
+      copy.device = VERIFIER_DEVICE_ID;
+      copy.keycode = source.keycode;
+      copy.physicalKeycode = source.physicalKeycode;
+      copy.keyLabel = source.keyLabel;
+      copy.unicode = source.unicode;
+      copy.location = source.location;
+      copy.shiftPressed = source.shiftPressed;
+      copy.altPressed = source.altPressed;
+      copy.ctrlPressed = source.ctrlPressed;
+      copy.metaPressed = source.metaPressed;
+      InputMap.actionAddEvent(action, copy);
+      added.push({ action, event: copy });
+    }
+  }
+  return () => {
+    for (const { action, event } of added) InputMap.actionEraseEvent(action, event);
+  };
 }
 
 /** Whether the arguments after `--` ask for a verifier or the probe: runs that inject their own input. */
