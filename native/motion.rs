@@ -306,6 +306,7 @@ impl ReactUiRoot {
         if change.previous.as_ref().is_none_or(|previous| {
             previous.overflow_x != node.computed.overflow_x
                 || previous.overflow_y != node.computed.overflow_y
+                || previous.pointer_events != node.computed.pointer_events
         }) {
             self.hit_stale = true;
         }

@@ -1,9 +1,9 @@
 # Fabric renderer and interaction plan
 
-Status: plan v2.3, 6 November 2026. Done: Phase 0 (`9f4a02c`), Phase 1 (`0d11607`), Phase F0
+Status: plan v2.4, 6 November 2026. Done: Phase 0 (`9f4a02c`), Phase 1 (`0d11607`), Phase F0
 (`4f7dd0d`), Phase F1 (`ce99bea`), Phase F2 (`578b461`), Phase F3 (`07a8344`), Phase F4 (`e60f6e5`;
-its numbers and decisions D7 to D10 are in the progress log and the decision log below). Next:
-Phase I1.
+its numbers and decisions D7 to D10 are in the progress log and the decision log below), Phase I1
+(decisions D11 to D13). Next: Phase I2.
 
 v1 of this plan (`7f0a96c`) was rejected because it built every interaction feature on the
 prototype's commit path, which re-walks and re-sends the whole tree on every change. v2 replaces
@@ -100,6 +100,33 @@ not a reason to wait.
   Compared with the reconcile window alone it is 51.7 against 41.30, which is not a like-for-like
   comparison. The per-node work did not shrink: parse (3.9 ms), validation (3.3 ms), restyle and paint
   (14.8 ms) are all inside the one window.
+- **D11 (I1)**: the root's Godot focus mode is `FOCUS_CLICK`, and a primary press that reaches the root
+  leaves it holding key focus only if an element is focused. Evidence: Godot gives key focus to a focusable
+  Control on every left press that reaches it, before `_gui_call_input` runs any handler
+  (`scene/main/viewport.cpp:1976-1992`: `control->grab_focus(true)` when `_is_focusable()`, which is
+  `FOCUS_ALL` or `FOCUS_CLICK`), and `grab_focus()` refuses `FOCUS_NONE` (`scene/gui/control.cpp:3017`). The
+  plan's "no focus stealing" therefore cannot be had by never grabbing; and `FOCUS_ALL` would also let Godot's own
+  Tab navigation (`ui_focus_next`) hand the root key focus. So: `CLICK` (click and `grab_focus()` only), and the
+  press's default action ends by releasing key focus when no element is focused, prevented or not. A press that
+  lands on a non-focusable element used to need no care; now it releases focus mid-press, which sends
+  `FOCUS_EXIT`; that handler cleared `pressed` and with it the click, so it now clears only a keyboard press
+  (a key release can no longer arrive) and leaves a mouse press alone (Godot routes it by mouse focus). The
+  negative control for each (`ready()` grabbing, `FOCUS_EXIT` clearing every press, never releasing) fails the
+  I1 verifier with the named assertion.
+- **D12 (I1)**: the pass-through demo is a separate HUD tree (`demo/src/passthrough-hud.tsx`, rendered by
+  `godotReactDemo.showHud()`), not a region of the interaction lab. A pointer reaches the Godot Controls under the
+  root only where the whole ancestor chain is `pointer-events: none`: an ancestor that takes pointers is the
+  target at that point (the lab's `bg-slate-50` app root covers the window). The HUD has four `pointer-events-auto`
+  controls in the top row (three buttons, so that Tab can move, and a non-button View that cannot take focus),
+  a panel whose labels are `none`, and two wheel panels (one prevents, one only counts).
+- **D13 (I1)**: `wheel` deltas are in wheel ticks, positive down and right, with no `deltaMode`: one per notch of a
+  discrete wheel scaled by Godot's `factor`, or a pan gesture's `delta` as given. Both are what `ScrollContainer`
+  scales by page / 8 (`scene/gui/scroll_container.cpp:190-226, 311-318`), so I5 reuses the numbers unchanged.
+  Two engine behaviours found while verifying, neither worked around: `Input` dispatches every
+  `InputEventGesture` twice (`core/input/input.cpp:995-1003` and `:1046-1048`), so one trackpad pan reaches JS as
+  two `wheel` events and reaches Godot's own `ScrollContainer` twice as well; and Godot's Web display server maps a
+  DOM `deltaX > 0` (scroll right) to `WHEEL_LEFT` (`platform/web/display_server_web.cpp:704-710`), so horizontal
+  ticks have the opposite sign on Web. They are recorded in the progress log for the engine owner.
 - **Native rule restored (F4)**: plan 3.3 says hover re-hit-tests "if geometry under the mouse changed";
   F3 re-hit-tested at every flush, which walks the siblings at every level (169 us at 2,000 cells).
   `flush_layout` now re-hit-tests only after something that decides the hit changed: a node's geometry,
@@ -644,9 +671,14 @@ Rules (all **must**):
 | Keys | the root has Godot key focus (`viewport.cpp:2313`). The root takes key focus only when a React element is focused, a text selection starts, or the owner calls `grabFocus()`. | Only if JS prevented `keydown`/`keyup`, or a native default action ran (focus moved, button pressed or activated, text edited, scrolled, copied, drag cancelled). |
 
 - **No focus stealing**: `ready()` does not call `grab_focus()`; owners that want keyboard-first
-  behaviour (the demo) call `surface.grabFocus()` after mounting.
-- Pressing a non-focusable element (and not starting a selection) clears element focus and releases
-  Godot focus if the root had it.
+  behaviour (the demo) call `surface.grabFocus()` after mounting. The root's focus mode is `FOCUS_CLICK`
+  (D11), so Godot's own Tab navigation never gives it focus.
+- Godot grants key focus to the root on every left press that reaches it, before JS runs (D11). After a
+  primary press, whatever JS decided, the root holds key focus only if an element is focused: pressing a
+  non-focusable element (and not starting a selection) clears element focus and releases Godot focus.
+- Tab and Shift+Tab are consumed only if focus moved; Enter and Space only if they pressed or released a
+  focused enabled button; a wheel tick or pan only if JS prevented it.
+- `viewportX`/`viewportY` are `get_global_transform_with_canvas()` applied to the root-local position.
 - Transparent elements still catch pointers, as in HTML. Full-screen HUD containers use
   `pointer-events-none`; interactive children use `pointer-events-auto`.
 
@@ -1200,13 +1232,18 @@ fix is not local.
    `InputEventPanGesture`; accept only when prevented (I5 adds scrolling).
 5. `get_cursor_shape(at)` (Appendix A map); `viewportX/viewportY` via
    `get_global_transform_with_canvas()`.
-6. **Demo**: a full-window `ColorRect` before the surface counting `_gui_input` presses, counters in
-   `Main._unhandledInput` for presses and keys, exposed as `passthrough()` on the demo API; a
-   `pointer-events-none` region with one `pointer-events-auto` button.
+6. **Demo**: a full-window `ColorRect` before the surface (an internal child, so the verifiers' child counts
+   hold) counting `_gui_input` presses, counters in `Main._unhandledInput` for presses, wheel ticks, pans and
+   keys, exposed as `passthrough()` on the demo API; a HUD (D12) whose ancestors are `pointer-events-none`,
+   with `pointer-events-auto` buttons and a panel, rendered by `showHud()`.
 7. **Verify** (native and Web): presses in the pass-through region reach the counters and no React
    handler; the button press does not; with no React focus `W` reaches `_unhandled_input`; after
    focusing a React button `W` still does but Tab does not; wheel over the region reaches
-   `_unhandled_input`; `cursor-pointer` reports `CURSOR_POINTING_HAND` via `surface.getCursorShape`.
+   `_unhandled_input`; `cursor-pointer` reports `CURSOR_POINTING_HAND` via `surface.getCursorShape` (native
+   also reads `DisplayServer.cursor_get_shape()` after a real move, Web the canvas's CSS cursor); a root
+   that has just entered the tree does not hold key focus; a press on a non-focusable element still clicks and
+   releases key focus; Tab with nothing tabbable is not consumed; a wheel tick is consumed only when prevented;
+   `viewportX` is `x` plus the root's offset.
 
 **Gate**: native gate and Web gate.
 

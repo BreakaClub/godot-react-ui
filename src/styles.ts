@@ -1,5 +1,5 @@
 import type {
-  CompiledStyle, Dimension, HexColor, LonghandStyle, PseudoState, Style, StyleLayer, StyleProp,
+  CompiledStyle, Cursor, Dimension, HexColor, LonghandStyle, PseudoState, Style, StyleLayer, StyleProp,
 } from './types';
 
 const SPACING_UNIT = 4;
@@ -51,7 +51,15 @@ export const colors: Readonly<Record<string, HexColor>> = Object.freeze({
   'rose-900': '#881337', 'rose-950': '#4c0519',
 });
 
+/** The `cursor-*` utilities: each Tailwind name is the CSS keyword it sets. */
+const CURSORS: readonly Cursor[] = [
+  'default', 'pointer', 'text', 'move', 'grab', 'grabbing', 'not-allowed', 'crosshair', 'wait', 'progress',
+  'help', 'ew-resize', 'ns-resize', 'nesw-resize', 'nwse-resize',
+];
+
 const STATIC_UTILITIES: Readonly<Record<string, Style>> = {
+  ...Object.fromEntries(CURSORS.map((cursor): [string, Style] => [`cursor-${cursor}`, { cursor }])),
+  'pointer-events-auto': { pointerEvents: 'auto' }, 'pointer-events-none': { pointerEvents: 'none' },
   'overflow-hidden': { overflow: 'hidden' }, 'overflow-visible': { overflow: 'visible' },
   'overflow-x-hidden': { overflowX: 'hidden' }, 'overflow-x-visible': { overflowX: 'visible' },
   'overflow-y-hidden': { overflowY: 'hidden' }, 'overflow-y-visible': { overflowY: 'visible' },

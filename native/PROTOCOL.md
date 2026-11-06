@@ -66,7 +66,7 @@ so JS drops its instances and public handles.
 JS compiles `className` and `style` once per distinct input into ordered **layers** (`src/styles.ts`;
 shorthands `padding`, `margin`, `gap` and `overflow` are expanded to longhands there). Native resolves
 a node's **computed style**: its parent's inherited properties (`color`, `fontSize`, `textAlign`,
-`interpolateSize`), then every layer whose conditions hold, in order. A layer applies when the root's
+`interpolateSize`, `pointerEvents`, `cursor`), then every layer whose conditions hold, in order. A layer applies when the root's
 logical width is at least its `minWidth` and every listed state holds: `hover` and `active` apply to the
 target and its ancestors; `focus` and `focusVisible` to the focused element only; `focusWithin` to it
 and its ancestors; `disabled` to a node whose own `disabled` prop is true. Hover, press, focus and
@@ -83,7 +83,9 @@ marginTop/Right/Bottom/Left (finite) numeric pixels; alignItems/alignSelf
 `start|end|center|space-between|space-around|space-evenly|flex-start|flex-end`; gridTemplateColumns a
 positive integer (equal fractional columns); backgroundColor/color/borderColor
 `#RGB|#RGBA|#RRGGBB|#RRGGBBAA`; fontSize a positive integer; borderRadius/borderWidth nonnegative
-pixels; opacity 0..1; textAlign `left|center|right`; transition, interpolateSize and overflowX/overflowY
+pixels; opacity 0..1; textAlign `left|center|right`; pointerEvents `auto|none` and cursor
+`default|pointer|text|move|grab|grabbing|not-allowed|crosshair|wait|progress|help|ew-resize|ns-resize|nesw-resize|nwse-resize`
+(both inherited; see "Godot co-operation" below); transition, interpolateSize and overflowX/overflowY
 `visible|hidden` as described below. Unsupported properties fail explicitly. Default is a flex column,
 transparent background, white 16px text, no spacing, normal flex shrinking. Text is shaped and wrapped
 with Godot `TextParagraph`; there is no JS text measurement callback.
@@ -103,8 +105,35 @@ item; the focus ring is a top-most item above both. Only an element whose own vi
 re-records; an idle frame records nothing.
 
 Native hit testing descends the hierarchy in reverse paint order and hands a point to a clipping
-element's children only inside its padding box. The root clips drawing and input to its own rectangle.
-Enabled buttons participate in Tab/Shift-Tab focus (document order) and Enter/Space activation.
+element's children only inside its padding box. An element whose computed `pointerEvents` is `none` is never
+the hit, but its children are still tested (CSS semantics). The root clips drawing and input to its own
+rectangle. Enabled buttons participate in Tab/Shift-Tab focus (document order) and Enter/Space activation.
+
+## Godot co-operation
+
+The root is one `Control` among the game's own (plan 3.11), so it passes on what React does not use.
+
+- **Pointers.** `has_point(p)` is true only where the hit test above finds an element, so empty space and
+  `pointer-events: none` regions reach whatever Control lies underneath, and then `_unhandled_input`. It reads the
+  mounted tree and changes nothing. A press that Godot has pinned to the root (`gui.mouse_focus`) keeps reaching it
+  wherever the pointer goes. For a pass-through region every ancestor must also be `none`: an ancestor that takes
+  pointers is the target there.
+- **Cursor.** `get_cursor_shape(at)` maps the computed `cursor` of the element the hit test finds at `at` to a
+  Godot `CursorShape` (`default` ARROW, `pointer` POINTING_HAND, `text` IBEAM, `move` MOVE, `grab` and `grabbing`
+  DRAG, `not-allowed` FORBIDDEN, `crosshair` CROSS, `wait` WAIT, `progress` BUSY, `help` HELP, `ew-resize` HSIZE,
+  `ns-resize` VSIZE, `nesw-resize` BDIAGSIZE, `nwse-resize` FDIAGSIZE); over nothing it is ARROW.
+- **Key focus.** The root's focus mode is click-only and `ready()` does not grab focus. It holds Godot key focus
+  only when its owner calls `grab_focus()` or an element is focused. Godot grants key focus to a focusable
+  Control on every left press that reaches it, before any handler runs, so a primary press that leaves no element
+  focused (a press on something that cannot take focus, or one whose `pointerdown` was prevented with nothing
+  focused) hands key focus back: keys then go to the game. A key press in flight (Enter or Space held) ends if the
+  root loses key focus; a mouse press does not, because Godot routes it by mouse focus, not key focus.
+- **Keys.** Tab and Shift+Tab are consumed only if element focus moved. Enter and Space are consumed only when
+  they press or release a focused enabled button. Every other key is left for `_unhandled_input`.
+- **Wheel.** `force_pass_scroll_events` is set. A wheel tick (`WHEEL_UP|DOWN|LEFT|RIGHT` press; the release Godot
+  sends with it is not a tick) and a trackpad pan gesture each queue a cancelable `wheel` at the pointer. The event
+  is consumed only if JS calls `preventDefault()` (scrolling is added by Phase I5); otherwise it continues to
+  `_unhandled_input`.
 
 A click targets the deepest element when press and release hit the same enabled element; when their
 deepest hits differ but share the same enabled button ancestor (for example button padding and its
@@ -146,11 +175,15 @@ browser model, not an IPC round trip.
   awaited `seq` can be resolved, once; anything else returns an error string. `drop_effect` is `""`, `none`,
   `copy`, `move` or `link` (drag and drop is not implemented yet).
 - Event types: `pointerdown|pointermove|pointerup|pointerenter|pointerleave|click` carry `x,y` (root-local
-  logical pixels), `viewportX,viewportY` (currently the same values), `pointerId` (1 mouse, 0 synthetic keyboard
+  logical pixels), `viewportX,viewportY` (canvas coordinates: the root's global transform with canvas applied to the
+  root-local position, which is what `_unhandled_input` receives), `pointerId` (1 mouse, 0 synthetic keyboard
   activation), `pointerType` (`"mouse"` or `""`), `button` (DOM button, -1 when not a button change), `buttons`
   (DOM `buttons` bitmask mapped from Godot's mask), `detail` (1 on a mouse `click`, otherwise 0; click counting is
   not implemented yet), `relatedTarget` (enter and leave only, else `null`) and `shiftKey,ctrlKey,altKey,metaKey`.
-  Enter and leave events also carry `relatedPath`, the other side's path. `focus` and `blur` carry no extra fields.
+  Enter and leave events also carry `relatedPath`, the other side's path. `wheel` carries the same pointer fields
+  (`button` -1, `pointerType` `"mouse"`) plus `deltaX,deltaY` in wheel ticks, positive down and right: one per notch
+  of a discrete wheel, scaled by Godot's `factor` (or a pan gesture's `delta`) for smooth devices, which is what
+  `ScrollContainer` scales by page / 8. It is cancelable. `focus` and `blur` carry no extra fields.
   Only a mouse `pointerdown` on an enabled element is cancelable; its default action is focusing the nearest
   enabled button (and taking Godot key focus), which `preventDefault()` skips. `click` still follows a prevented
   `pointerdown`, as in browsers.
@@ -170,6 +203,10 @@ removed, and does nothing further if the root left the scene tree. JS may call `
 `resolve_event` on the same root while native is inside the emission (godot-rust re-borrows through
 `base_mut()`). A handler that throws does not stop the JS drain loop; the first error is rethrown after it
 finishes. The JS drain loop is bounded at 64 rounds.
+
+Godot's `Input` dispatches every `InputEventGesture` twice (once explicitly and once with every event,
+`core/input/input.cpp:995-1003` and `:1046-1048`), so a pan gesture, real or parsed, reaches JS as two `wheel` events
+with the same deltas, exactly as it reaches Godot's own `ScrollContainer`. Native does not filter this.
 
 Limits: no scrolling, text input/IME, text selection, accessibility tree, images, rich inline text, rounded clip
 masks, `position`/`z-index`, a public CSS stylesheet/selector API, arbitrary keyframe animations, or custom native

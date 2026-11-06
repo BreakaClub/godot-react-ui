@@ -134,6 +134,36 @@ pub enum OverflowSpec {
     Hidden,
 }
 
+/// CSS `pointer-events`: `none` makes an element itself never the target of a pointer; its
+/// children can still be (plan 3.7, hit testing).
+#[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PointerEventsSpec {
+    Auto,
+    None,
+}
+
+/// CSS `cursor`, the subset plan 4.2 lists; `pointer.rs` maps each to a Godot `CursorShape`.
+#[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum CursorSpec {
+    Default,
+    Pointer,
+    Text,
+    Move,
+    Grab,
+    Grabbing,
+    NotAllowed,
+    Crosshair,
+    Wait,
+    Progress,
+    Help,
+    EwResize,
+    NsResize,
+    NeswResize,
+    NwseResize,
+}
+
 #[derive(Clone, Debug, DeriveDeserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TransitionSpec {
@@ -264,6 +294,8 @@ pub struct StyleSpec {
     pub interpolate_size: Option<InterpolateSize>,
     pub overflow_x: Option<OverflowSpec>,
     pub overflow_y: Option<OverflowSpec>,
+    pub pointer_events: Option<PointerEventsSpec>,
+    pub cursor: Option<CursorSpec>,
 }
 
 pub(crate) enum ParsedDimension {
@@ -400,6 +432,8 @@ impl StyleSpec {
             interpolate_size,
             overflow_x,
             overflow_y,
+            pointer_events,
+            cursor,
         );
     }
 
@@ -669,7 +703,7 @@ mod tests {
         "gridTemplateColumns":3,"backgroundColor":"#fff","color":"#000","fontSize":12,
         "borderRadius":4,"borderWidth":1,"borderColor":"#123","opacity":0.5,"textAlign":"right",
         "transition":{"properties":["width"],"durationMs":10},"interpolateSize":"allow-keywords",
-        "overflowX":"hidden","overflowY":"hidden"
+        "overflowX":"hidden","overflowY":"hidden","pointerEvents":"none","cursor":"ew-resize"
     }"##;
 
     fn style(json: &str) -> StyleSpec {
@@ -768,6 +802,51 @@ mod tests {
             transition.duration_ms = 100.0;
             transition.delay_ms = Some(invalid);
             assert!(transition.validate().is_err());
+        }
+    }
+
+    #[test]
+    fn pointer_events_and_cursor_parse_every_documented_value_and_reject_others() {
+        for (json, expected) in [
+            ("auto", PointerEventsSpec::Auto),
+            ("none", PointerEventsSpec::None),
+        ] {
+            let parsed = style(&format!(r#"{{"pointerEvents":"{json}"}}"#));
+            assert_eq!(parsed.pointer_events, Some(expected));
+        }
+        let cursors = [
+            ("default", CursorSpec::Default),
+            ("pointer", CursorSpec::Pointer),
+            ("text", CursorSpec::Text),
+            ("move", CursorSpec::Move),
+            ("grab", CursorSpec::Grab),
+            ("grabbing", CursorSpec::Grabbing),
+            ("not-allowed", CursorSpec::NotAllowed),
+            ("crosshair", CursorSpec::Crosshair),
+            ("wait", CursorSpec::Wait),
+            ("progress", CursorSpec::Progress),
+            ("help", CursorSpec::Help),
+            ("ew-resize", CursorSpec::EwResize),
+            ("ns-resize", CursorSpec::NsResize),
+            ("nesw-resize", CursorSpec::NeswResize),
+            ("nwse-resize", CursorSpec::NwseResize),
+        ];
+        for (json, expected) in cursors {
+            let parsed = style(&format!(r#"{{"cursor":"{json}"}}"#));
+            assert_eq!(parsed.cursor, Some(expected), "{json}");
+            let round_trip = serde_json::to_string(&parsed).unwrap();
+            assert!(
+                round_trip.contains(&format!(r#""cursor":"{json}""#)),
+                "{round_trip}"
+            );
+        }
+        for json in [
+            r#"{"pointerEvents":"visiblePainted"}"#,
+            r#"{"pointerEvents":"None"}"#,
+            r#"{"cursor":"zoom-in"}"#,
+            r#"{"cursor":"Pointer"}"#,
+        ] {
+            assert!(serde_json::from_str::<StyleSpec>(json).is_err(), "{json}");
         }
     }
 

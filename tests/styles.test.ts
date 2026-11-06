@@ -81,10 +81,29 @@ test('compileStyle covers every utility family with typed native values', () => 
     border: { borderWidth: 1 }, 'border-2': { borderWidth: 2 }, 'border-slate-200': { borderColor: '#e2e8f0' },
     'opacity-45': { opacity: 0.45 }, 'bg-indigo-600': { backgroundColor: '#4f46e5' }, 'bg-[#1234]': { backgroundColor: '#1234' },
     'text-white': { color: '#ffffff' }, 'text-lg': { fontSize: 18 }, 'text-[23px]': { fontSize: 23 },
+    'pointer-events-none': { pointerEvents: 'none' }, 'pointer-events-auto': { pointerEvents: 'auto' },
+    'cursor-pointer': { cursor: 'pointer' }, 'cursor-not-allowed': { cursor: 'not-allowed' },
+    'cursor-ew-resize': { cursor: 'ew-resize' }, 'cursor-nwse-resize': { cursor: 'nwse-resize' },
   };
   for (const [className, style] of Object.entries(expectations)) {
     assert.deepEqual(layersOf(className), [{ style }], className);
   }
+});
+
+test('every cursor keyword has a utility, and only those', () => {
+  for (const cursor of [
+    'default', 'pointer', 'text', 'move', 'grab', 'grabbing', 'not-allowed', 'crosshair', 'wait', 'progress',
+    'help', 'ew-resize', 'ns-resize', 'nesw-resize', 'nwse-resize',
+  ]) {
+    assert.deepEqual(layersOf(`cursor-${cursor}`), [{ style: { cursor } }], cursor);
+  }
+  for (const utility of ['cursor-zoom-in', 'cursor-auto', 'pointer-events-all', 'pointer-events']) {
+    assert.throws(() => compileStyle(utility), /Unsupported/, utility);
+  }
+  assert.deepEqual(layersOf('hover:cursor-pointer pointer-events-none'), [
+    { states: ['hover'], style: { cursor: 'pointer' } },
+    { style: { pointerEvents: 'none' } },
+  ]);
 });
 
 test('compileStyle interns equal inputs and freezes the result', () => {
@@ -139,6 +158,7 @@ test('compiled styles match the native contract fixture, which the Rust tests pa
     { className: 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 w-full min-h-0' },
     { className: 'hover:bg-indigo-700 active:bg-indigo-800 focus:border-indigo-500 focus-visible:border-indigo-600 focus-within:bg-slate-50 disabled:opacity-50' },
     { className: 'md:hover:bg-indigo-100 w-[50%] h-[123px] max-w-xl text-[23px] text-center bg-[#1234] rounded-[9px] w-1/2' },
+    { className: 'pointer-events-none hover:cursor-pointer cursor-ew-resize pointer-events-auto' },
     {
       className: 'overflow-hidden shrink-0',
       style: [{ height: 'auto', padding: 4, interpolateSize: 'allow-keywords', transition: {

@@ -23,9 +23,11 @@ use godot::classes::control::{FocusMode, MouseFilter};
 use godot::classes::notify::ControlNotification;
 use godot::classes::{
     Control, Font, IControl, InputEvent, InputEventKey, InputEventMouseButton,
-    InputEventMouseMotion, InputEventWithModifiers, StyleBoxFlat, TextParagraph, ThemeDb, Time,
+    InputEventMouseMotion, InputEventPanGesture, InputEventWithModifiers, StyleBoxFlat,
+    TextParagraph, ThemeDb, Time,
 };
 use godot::global::{Key, MouseButton, MouseButtonMask};
+use godot::obj::EngineEnum;
 use godot::prelude::*;
 use serde::Serialize;
 use serde_json::json;
@@ -35,12 +37,14 @@ use commit::{CommitPayload, LAYER_COUNT};
 use computed_style::{InteractionState, PseudoStates, restyle};
 use events::{
     DropEffect, EventOutcome, EventPayload, EventQueue, Modifiers, PointerData, PointerType,
+    WheelData,
 };
 use motion::{IntrinsicTrack, TransitionRecord};
 use mount::Mounted;
 use pointer::{
     DOM_BUTTON_NONE, DOM_BUTTON_PRIMARY, DOM_BUTTONS_PRIMARY, KEYBOARD_POINTER_ID,
-    MOUSE_POINTER_ID, dom_buttons, enabled_button_ancestor, shared_button_target,
+    MOUSE_POINTER_ID, cursor_shape, dom_buttons, enabled_button_ancestor, shared_button_target,
+    wheel_ticks,
 };
 use profile::{Profiler, micros};
 use props::{PseudoState, TransitionProperty};
@@ -52,6 +56,8 @@ const MILLISECONDS_PER_SECOND: f64 = 1000.0;
 const MICROSECONDS_PER_MILLISECOND: f64 = 1000.0;
 /// Click counting arrives with the full pointer model; until then every mouse `click` is the first.
 const SINGLE_CLICK_DETAIL: u32 = 1;
+/// The event target that addresses root listeners only (events with an empty path).
+const ROOT_TARGET: u32 = 0;
 const CORNER_DETAIL: i32 = 12;
 const FOCUS_RING_WIDTH: i32 = 2;
 const FOCUS_RING_COLOR: Color = Color::from_rgba(0.49, 0.66, 1.0, 1.0);
@@ -107,7 +113,7 @@ pub struct ReactUiRoot {
     paint_dirty: BTreeSet<u32>,
     /// Something that decides which element is under the pointer changed since the last hit test:
     /// a node moved or resized, the tree's structure changed, or an element started or stopped
-    /// clipping its children.
+    /// clipping its children or being a pointer target (`pointer-events`).
     hit_stale: bool,
     /// Nodes whose text paragraph must be rebuilt.
     pending_text: BTreeSet<u32>,
@@ -206,8 +212,13 @@ impl IControl for ReactUiRoot {
     fn ready(&mut self) {
         self.base_mut().set_process(false);
         self.base_mut().set_mouse_filter(MouseFilter::STOP);
-        self.base_mut().set_focus_mode(FocusMode::ALL);
+        // Click focus only: Godot's own Tab navigation must never hand the root key focus (plan
+        // 3.11). `grab_focus` still works, which is how the owner and a focused element take it.
+        self.base_mut().set_focus_mode(FocusMode::CLICK);
         self.base_mut().set_clip_contents(true);
+        // MOUSE_FILTER_STOP would otherwise mark every wheel event handled; whether one is consumed
+        // is decided by JS and, from Phase I5, by scrolling (plan 3.11).
+        self.base_mut().set_force_pass_scroll_events(true);
         self.font = self
             .base()
             .get_theme_default_font()
@@ -235,7 +246,8 @@ impl IControl for ReactUiRoot {
         }
         self.apply_presentation();
         self.flush_layout();
-        self.base_mut().grab_focus();
+        // No `grab_focus()` here: the root takes key focus only when an element is focused, or
+        // when its owner calls `grabFocus()` (plan 3.11).
     }
 
     fn on_notification(&mut self, what: ControlNotification) {
@@ -256,7 +268,14 @@ impl IControl for ReactUiRoot {
             }
             ControlNotification::FOCUS_EXIT => {
                 self.set_focus(None, false);
-                self.pressed = None;
+                // A key press can only end with its key release, which no longer reaches the root.
+                // A mouse press is routed by the viewport's mouse focus and ends with the button
+                // release whatever holds key focus; native itself releases key focus when a press
+                // lands on something that cannot take it, and that press must still click.
+                if self.pressed_by_keyboard {
+                    self.pressed = None;
+                    self.pressed_by_keyboard = false;
+                }
                 self.refresh_interaction();
             }
             ControlNotification::WM_WINDOW_FOCUS_OUT => {
@@ -299,6 +318,17 @@ impl IControl for ReactUiRoot {
 
     fn process(&mut self, delta: f64) {
         self.tick_motion(delta);
+    }
+
+    /// Godot routes a pointer to this Control only where an element would receive it, so empty
+    /// space and `pointer-events: none` regions reach whatever lies underneath (plan 3.11). Called
+    /// during routing; it reads the mounted tree and changes nothing.
+    fn has_point(&self, point: Vector2) -> bool {
+        self.mounted.hit_test(point).is_some()
+    }
+
+    fn get_cursor_shape(&self, at_position: Vector2) -> i32 {
+        cursor_shape(self.mounted.cursor_at(at_position)).ord()
     }
 }
 
@@ -542,12 +572,14 @@ impl ReactUiRoot {
         detail: u32,
         related_target: Option<u32>,
     ) -> PointerData {
+        // Canvas coordinates are what game code receives in `_unhandled_input`: this Control's
+        // place in its viewport applied to the root-local position.
+        let in_viewport = self.base().get_global_transform_with_canvas() * self.pointer;
         PointerData {
             x: self.pointer.x,
             y: self.pointer.y,
-            // Canvas coordinates replace these root-local copies with the engine's own transform.
-            viewport_x: self.pointer.x,
-            viewport_y: self.pointer.y,
+            viewport_x: in_viewport.x,
+            viewport_y: in_viewport.y,
             pointer_id,
             pointer_type,
             button,
@@ -587,9 +619,14 @@ impl ReactUiRoot {
     }
 
     fn track_mouse(&mut self, position: Vector2, mask: MouseButtonMask, modifiers: Modifiers) {
+        self.track_position(position, modifiers);
+        self.pointer_buttons = dom_buttons(mask);
+    }
+
+    /// Remember where the pointer is and which modifiers are down.
+    fn track_position(&mut self, position: Vector2, modifiers: Modifiers) {
         self.pointer = position;
         self.pointer_known = true;
-        self.pointer_buttons = dom_buttons(mask);
         self.pointer_modifiers = modifiers;
     }
 
@@ -637,6 +674,20 @@ impl ReactUiRoot {
                 self.queue(id, EventPayload::PointerMove(data));
             }
         } else if let Ok(button) = event.clone().try_cast::<InputEventMouseButton>() {
+            if let Some((delta_x, delta_y)) =
+                wheel_ticks(button.get_button_index(), button.get_factor())
+            {
+                // Godot sends a press and a release for every wheel tick; the tick is the press.
+                if button.is_pressed() {
+                    self.track_mouse(
+                        button.get_position(),
+                        button.get_button_mask(),
+                        modifiers_of(&button),
+                    );
+                    self.dispatch_wheel(delta_x, delta_y);
+                }
+                return;
+            }
             if button.get_button_index() != MouseButton::LEFT {
                 return;
             }
@@ -655,6 +706,12 @@ impl ReactUiRoot {
                 self.release_primary(hit);
             }
             self.base_mut().accept_event();
+        } else if let Ok(pan) = event.clone().try_cast::<InputEventPanGesture>() {
+            // A trackpad scroll arrives as a pan gesture rather than wheel buttons; JS sees both as
+            // `wheel`. The delta is in the same ticks `ScrollContainer` scales by page / 8.
+            self.track_position(pan.get_position(), modifiers_of(&pan));
+            let delta = pan.get_delta();
+            self.dispatch_wheel(delta.x, delta.y);
         } else if let Ok(key) = event.try_cast::<InputEventKey>() {
             if key.is_echo() {
                 return;
@@ -662,31 +719,59 @@ impl ReactUiRoot {
             self.pointer_modifiers = modifiers_of(&key);
             let code = key.get_keycode();
             if code == Key::TAB && key.is_pressed() {
-                self.advance_focus(key.is_shift_pressed());
-                self.base_mut().accept_event();
-            } else if (code == Key::ENTER || code == Key::KP_ENTER || code == Key::SPACE)
-                && let Some(id) = self.focused.filter(|id| {
-                    self.mounted.nodes.contains_key(id) && !self.mounted.is_disabled(*id)
-                })
-            {
+                // Consume Tab only when it moved focus; otherwise it belongs to the game and to
+                // Godot's own focus navigation (plan 3.11).
+                if self.advance_focus(key.is_shift_pressed()) {
+                    self.base_mut().accept_event();
+                }
+            } else if code == Key::ENTER || code == Key::KP_ENTER || code == Key::SPACE {
                 if key.is_pressed() {
-                    self.pressed = Some(id);
-                    self.pressed_by_keyboard = true;
-                    self.refresh_interaction();
-                    let data = self.synthetic_pointer_data(DOM_BUTTONS_PRIMARY, 0);
-                    self.queue(id, EventPayload::PointerDown(data));
-                } else {
-                    let data = self.synthetic_pointer_data(0, 0);
-                    self.queue(id, EventPayload::PointerUp(data));
-                    if self.pressed == Some(id) {
+                    if let Some(id) = self.focused.filter(|id| {
+                        self.mounted.nodes.contains_key(id) && !self.mounted.is_disabled(*id)
+                    }) {
+                        self.pressed = Some(id);
+                        self.pressed_by_keyboard = true;
+                        self.refresh_interaction();
+                        let data = self.synthetic_pointer_data(DOM_BUTTONS_PRIMARY, 0);
+                        self.queue(id, EventPayload::PointerDown(data));
+                        self.base_mut().accept_event();
+                    }
+                } else if self.pressed_by_keyboard {
+                    // The release ends the keyboard press that is in flight, and is consumed with
+                    // it. A release with no press behind it belongs to the game.
+                    let pressed = self.pressed.take();
+                    self.pressed_by_keyboard = false;
+                    if let Some(id) = pressed.filter(|id| self.focused == Some(*id)) {
+                        let data = self.synthetic_pointer_data(0, 0);
+                        self.queue(id, EventPayload::PointerUp(data));
                         self.queue(id, EventPayload::Click(data));
                     }
-                    self.pressed = None;
-                    self.pressed_by_keyboard = false;
                     self.refresh_interaction();
+                    if pressed.is_some() {
+                        self.base_mut().accept_event();
+                    }
                 }
-                self.base_mut().accept_event();
             }
+        }
+    }
+
+    /// Hand a wheel tick or pan at the tracked pointer position to JS as a cancelable `wheel`.
+    /// Nothing scrolls natively before Phase I5, so the event is consumed only when JS prevents it;
+    /// otherwise it goes on to the game's `_unhandled_input` (plan 3.11).
+    fn dispatch_wheel(&mut self, delta_x: f32, delta_y: f32) {
+        let hit = self.mounted.hit_test(self.pointer);
+        self.update_hover(hit);
+        let pointer = self.mouse_pointer_data(DOM_BUTTON_NONE, 0, None);
+        let wheel = WheelData {
+            pointer,
+            delta_x,
+            delta_y,
+        };
+        let prevented = self
+            .dispatch_cancelable(hit.unwrap_or(ROOT_TARGET), EventPayload::Wheel(wheel))
+            .default_prevented;
+        if prevented && self.base().is_inside_tree() {
+            self.base_mut().accept_event();
         }
     }
 
@@ -711,12 +796,26 @@ impl ReactUiRoot {
         // skipped then (plan 3.3 rule 3). Everything else looks the target up again.
         let target_removed = hit.is_some_and(|id| !self.mounted.nodes.contains_key(&id));
         if !prevented && !target_removed {
-            // Default action: the nearest enabled button takes focus.
-            self.base_mut().grab_focus();
+            // Default action: the nearest enabled button takes focus, and pressing anything else
+            // clears element focus.
             let focus = hit.and_then(|id| enabled_button_ancestor(&self.mounted, id));
+            if focus.is_some() {
+                self.base_mut().grab_focus();
+            }
             self.set_focus(focus, false);
         }
+        self.release_key_focus_without_element();
         true
+    }
+
+    /// The root holds Godot key focus only for a focused element (or an owner that asked for it
+    /// with `grabFocus()`, until the next press). Godot grants focus to a focusable Control for
+    /// every left press that reaches it, before any handler runs (`viewport.cpp:1976-1990`), so a
+    /// press that leaves no element focused hands it back: keys then go to the game (plan 3.11).
+    fn release_key_focus_without_element(&mut self) {
+        if self.focused.is_none() && self.base().has_focus() {
+            self.base_mut().release_focus();
+        }
     }
 
     fn release_primary(&mut self, hit: Option<u32>) {
@@ -792,11 +891,14 @@ impl ReactUiRoot {
         self.paint_pass();
     }
 
-    fn advance_focus(&mut self, backwards: bool) {
+    /// Move focus to the next (or previous) tabbable element, wrapping. Returns whether focus
+    /// moved, which is what decides if the key press is consumed.
+    fn advance_focus(&mut self, backwards: bool) -> bool {
+        let before = self.focused;
         let buttons = self.visible_enabled_buttons();
         if buttons.is_empty() {
             self.set_focus(None, false);
-            return;
+            return self.focused != before;
         }
         let current = self
             .focused
@@ -808,6 +910,7 @@ impl ReactUiRoot {
             (None, true) => buttons.len() - 1,
         };
         self.set_focus(Some(buttons[index]), true);
+        self.focused != before
     }
 }
 

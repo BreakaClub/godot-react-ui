@@ -1037,3 +1037,160 @@ All commands on the final tree, in this order, exit 0 (log files in `/tmp/final-
   edits, the tree rebuilt, and the whole gate run again on the re-applied sources; the figures in this
   section are from that second pass (the first post-fix pass gave the same p50s).
 - The baseline git worktree used for the F3 raster comparison is removed.
+
+## Phase I1 - Godot co-operation
+
+Date: 6 November 2026. macOS (Apple M1 Max), release dylib for native, debug Web template with Chrome 156 for
+Web. Host while gating: 40 % free, swap 17.5 GB of 18.4 GB used (the same heavily swapped host as F3 and F4).
+Decisions D11 to D13 are in the plan's decision log with their evidence; the engine findings and the plan
+problems found are at the end of this section.
+
+### What changed, by file
+
+| File | Change |
+| --- | --- |
+| `native/props.rs` | `PointerEventsSpec` (`auto`, `none`) and `CursorSpec` (the 15 CSS cursors of plan 4.2) as `StyleSpec` fields `pointer_events` and `cursor`, in `merge`; one test for every value, the kebab-case names and the rejections |
+| `native/computed_style.rs` | both properties are inherited (`InheritedStyle`, `resolve`); `is_pointer_target()` and `cursor_or_default()`; the inheritance test covers a child taking `pointer-events` back with `auto` |
+| `native/mount.rs` | `hit_node` skips an element whose computed `pointer-events` is `none` but still descends into its children; `cursor_at(point)` |
+| `native/motion.rs` | a `pointer-events` change sets `hit_stale` (it decides the hit), like an overflow change |
+| `native/events.rs` | `EventPayload::Wheel(WheelData)`: the pointer fields plus `deltaX`, `deltaY`; wire-shape test |
+| `native/pointer.rs` | `wheel_ticks` (Godot wheel button and factor to DOM-signed deltas) and `cursor_shape` (Appendix A), both unit tested |
+| `native/lib.rs` | `has_point` and `get_cursor_shape` (`IControl`); focus mode `CLICK`; no `grab_focus()` in `ready()`; `set_force_pass_scroll_events(true)`; `viewportX/viewportY` from `get_global_transform_with_canvas()`; `wheel` for wheel buttons (press only) and `InputEventPanGesture`, consumed only when prevented; Tab consumed only if focus moved; Enter and Space consumed only when they press or release a focused button; a primary press ends by releasing key focus when no element is focused; `FOCUS_EXIT` clears only a keyboard press |
+| `src/types.ts`, `src/styles.ts` | `pointerEvents` and `cursor` styles; `pointer-events-auto\|none` and `cursor-*` utilities; fixture case in `tests/fixtures/compiled-styles.json` (the Rust test parses it) |
+| `src/native.ts`, `src/events.ts`, `src/components.tsx`, `src/index.ts` | `wheel` events (`UIWheelEvent`, `onWheel`, `onWheelCapture`), the shared mouse fields, native parser; `src/renderer.ts` gives wheel React's continuous priority |
+| `tests/events.test.ts`, `tests/recording-host.ts`, `tests/styles.test.ts` | wheel capture/bubble, deltas and resolution, root listeners, a malformed wheel, the cursor and pointer-events utilities |
+| `demo/src/main.ts` | an internal full-window `ColorRect` behind the root (so `getChildCount()` still counts only the surface) that counts `_gui_input` presses; `_unhandledInput` counters (presses, wheel ticks, pans, keys); `grabFocus()` after mounting; demo API `showHud`, `passthrough`, `resetPassthrough`, `cursorShapeAt`, `surfaceHasFocus`, `grabSurfaceFocus`, `bareSurfaceHasFocus`, `offsetSurface` |
+| `demo/src/passthrough-hud.tsx` (new) | the HUD of D12 |
+| `demo/src/verify-interaction.ts`, `scripts/verify-interaction-web.mjs` | the Godot co-operation scenario, native and Web |
+| `native/PROTOCOL.md`, `README.md`, `docs/INTERACTION_PLAN.md` | the I1 behaviour, D11 to D13, plan 3.11 and the I1 task text |
+
+### Gate
+
+All commands on the final tree, in this order, exit 0 (logs in `/tmp/i1-gate/`):
+
+| Command | Result |
+| --- | --- |
+| `pnpm test:types` / `pnpm test` | clean / **64 passed** (60 before: 3 wheel tests, 1 cursor utility test) |
+| `cargo test --locked` | **82 passed** (79 before: pointer-events and cursor parsing, the wheel wire shape, `wheel_ticks`, `cursor_shape`) |
+| `cargo clippy --locked --all-targets -- -D warnings`, also `--features probe` | 0 warnings |
+| `rustup run stable rustfmt --edition 2024 --check native/lib.rs` (reaches every module) | clean |
+| `pnpm build:native` | ok (dylib 10,463,008 bytes, default build: no probe feature) |
+| `pnpm gen:types` | exit 0; `git status` of `demo/typings` and `demo/gen` identical before and after: no `#[func]`, `#[signal]` or class changed (`has_point` and `get_cursor_shape` are engine virtuals). The four `Codegen failed to load module script` warnings are the F3 ones |
+| `pnpm build` | ok |
+| `pnpm verify` | exit 0, both viewports, assertions unchanged |
+| `pnpm verify:motion` | exit 0, both viewports, assertions unchanged |
+| `pnpm verify:interaction` | exit 0, both viewports; the existing assertions unchanged, plus the I1 scenario (59 assertions) |
+| `pnpm build:web` | ok; Wasm 6,662,691 bytes (F4: 6,648,667) |
+| `pnpm verify:web` (port 8097) | passed: **253 assertions**, 53 captures (unchanged) |
+| `pnpm verify:motion:web` | passed: **433 assertions**, 26 captures, 30 benchmark cells (unchanged) |
+| `pnpm verify:interaction:web` | passed: **358 assertions** (158 before), 41 captures (33 before), four viewports and the touch page |
+
+The server on 8097 was `node scripts/serve-web.mjs` with `PORT=8097` (what `pnpm demo:web` runs) and was stopped
+afterwards.
+
+### Rasters compared with the pre-I1 build
+
+A worktree at `1b7a14b` (the commit before I1) was built and run the same way (`verify`, `verify:motion`,
+`verify:interaction`), and every settled native capture compared pixel by pixel with the final tree
+(`png-diff`, a small PNG decoder in the session scratchpad):
+
+| Set | Pairs | Identical | Differing, and why |
+| --- | --- | --- | --- |
+| `native` (landscape and portrait) | 26 | 26 | none |
+| `native-motion` | 52 | 28 | the 24 that differ are the mid-transition captures (`02-opening` portrait, `04-closing`, `05a/c/d/f/g/i/j/l`, `06-retargeting`, `08-reversed`, `12-paint-intermediate`), sampled at wall-clock offsets; all settled captures are identical |
+| `native-interaction` (the 16 that exist in both) | 16 | 10 | `05-enter-leave`, `06-self-removed`, `07-reattached` in both viewports: 96 and 204 pixels in the box that reads `down frame=N`, the engine frame number the lab prints. Nothing else differs |
+
+So I1 changes no pixel of the existing demo. The new captures were inspected: `09-passthrough-hud` shows the
+Godot `ColorRect`'s green through the transparent HUD root (landscape, portrait and, on Web, every viewport),
+and `10-hud-focus` the focus ring on the Shift+Tab target. The ring there is the one the keyboard moved; I3
+turns the ring off for mouse focus.
+
+### Negative controls
+
+Each new regression assertion was checked to fail without its fix (the fix reverted alone, `pnpm build:native`,
+`pnpm verify:interaction`, the failing message copied here; the tree was restored from a copy afterwards):
+
+| Reverted | Failing assertion |
+| --- | --- |
+| `ready()` calls `grab_focus()` again | `A root that has just entered the tree must not steal key focus` |
+| `FOCUS_EXIT` clears every press | `The panel, not its none label, is the target: inventory 1, map 0, help 0, panel 0, label 0, locked false` (the release of key focus inside the press cancelled its click) |
+| Tab always consumed | `A Tab that moved nothing is not consumed` |
+| `viewport_x` equals `x` | `Pointer events carry root-local and canvas coordinates: ... viewport 216,377.5 != ... viewport 266,407.5` |
+| `has_point` always true | `The Control behind the root saw the press: {"backdropPresses":0,"unhandledPresses":0,...}` |
+| `release_focus()` never called | `A press that leaves no element focused releases the root's key focus` |
+| a wheel is always consumed | `A wheel tick over an element with no onWheel reaches the game` |
+| `get_cursor_shape` always arrow | `cursor-pointer shows the pointing hand` |
+| hit test ignores `pointer-events` | `Nothing is hovered over a pass-through region: 126` |
+
+### Verification added
+
+`verify-interaction.ts` and `verify-interaction-web.mjs` run the HUD (`api.showHud()`) after the existing
+scenarios. Everything below is asserted natively and on Web (Web: real Chrome mouse, keyboard and wheel input at
+both device pixel ratios, both orientations):
+
+- a root that has just entered the tree holds no key focus;
+- a press in a region of `pointer-events: none` ancestors reaches the `ColorRect` behind the root and
+  `_unhandled_input` once, and no React handler; hover is `null` there;
+- a press on a `pointer-events-auto` button reaches neither; hover reaches an auto element inside a none region;
+- a press on a panel whose labels are `none` targets the panel (the label's own `onClick` never runs), still clicks
+  although it releases key focus mid-press, and leaves no element focused and the root without key focus;
+- with the root unfocused, `W` and Tab reach `_unhandled_input`; after the owner grabs focus with no element
+  focused, `W` still does and Tab (which moves focus) does not; after a button took focus `W` still does, Tab and
+  Shift+Tab do not, Enter activates the button and is consumed;
+- with every button disabled Tab changes nothing and is not consumed;
+- wheel ticks over empty space, over an element with no `onWheel` and over one whose handler only counts reach
+  `_unhandled_input`; one whose handler calls `preventDefault()` does not; the four directions carry DOM-signed
+  deltas natively; a trackpad pan reaches JS as `wheel` with its own deltas and is consumed only if prevented;
+- cursors: `getCursorShape` for `cursor-pointer` (button, its padding and its inherited label), `cursor-help`,
+  `cursor-move`, the default and a `pointer-events-none` label (the panel's cursor); natively
+  `DisplayServer.cursor_get_shape()` after a real move to the button, to the help button and off the HUD, on Web the
+  canvas's CSS cursor (`pointer`, `help`, `default`/`auto`);
+- with the root moved 50 and 30 pixels inside the window, `viewportX - x` is 50 and `viewportY - y` is 30.
+
+### Choices the plan left open
+
+- **`wheel` units.** Ticks, positive down and right, no `deltaMode` (D13). A wheel at the pointer's position when
+  Godot has pinned routing to the root during a press and the pointer is over nothing is addressed to the root
+  (target 0), so root listeners see it.
+- **`wheel` event priority.** React's continuous priority, with no `flushSyncWork()` after it, as `pointermove`.
+- **Tab and a single tabbable element.** Tab with one enabled button already focused does not move focus, so it is
+  not consumed and Godot's own navigation runs. The plan's open question (leave or wrap) keeps its default for two
+  or more.
+- **HUD buttons.** Three, so that Tab can move (the plan said one); the lock is a non-button View so locking
+  leaves nothing tabbable.
+- **Demo `ColorRect`.** An internal front child (`add_child(..., INTERNAL_MODE_FRONT)`): sorted before the
+  surface, and invisible to `get_child_count()`, which several existing verifier assertions use.
+- **Enter and Space release.** A release with no keyboard press in flight is not consumed; a release that ends a
+  press is, whichever button holds focus then (it cancels the click if focus moved).
+
+### Engine findings (reported, not worked around)
+
+- Godot's `Input` dispatches every `InputEventGesture` twice (`core/input/input.cpp:995-1003`, then
+  `:1046-1048`). Evidence: instrumented native build, one parsed `InputEventPanGesture` reached `gui_input` twice
+  in the same frame with two distinct event objects; a plain `ColorRect`'s `gui_input` signal and the demo's
+  `_unhandled_input` saw it twice too, so it is not ours. Real trackpads use the same path, so Godot's own
+  `ScrollContainer` scrolls a pan twice. Native does not filter it; the verifier asserts that JS and the game see
+  the same number of pans.
+- Godot's Web display server maps a DOM `deltaX > 0` to `WHEEL_LEFT`
+  (`platform/web/display_server_web.cpp:704-710`), the macOS convention, so a horizontal wheel has the opposite
+  sign on Web to the DOM. The Web verifier asserts a horizontal tick arrives as `deltaX` only and that the
+  opposite wheel reverses the sign; the sign natively is asserted by the native verifier. Vertical ticks follow
+  the DOM on both.
+- The Web display server writes the canvas CSS cursor only when the shape changes, so a canvas that never left the
+  arrow reads `auto`, not `default`.
+
+### Plan problems found
+
+- Plan 3.11 assumed the root could refrain from taking key focus; Godot grants it on every press (D11).
+- Plan I1 task 6 put the pass-through region in the interaction lab; it needs a tree whose ancestors are all
+  `none` (D12).
+- Plan I1 task 7's "one `pointer-events-auto` button" cannot show that Tab does not reach the game while a button
+  has focus: one button gives Tab nothing to move to.
+- Plan 4.4 gives `get_cursor_shape(at)` as taking effect through the root; the verification that a shape reaches
+  the window needed `DisplayServer.cursor_get_shape()` (native) and the canvas style (Web), neither of which the plan
+  names.
+
+### Process notes
+
+- A worktree at `1b7a14b` in the session scratchpad (`pre-i1`) holds the baseline build; it shares this
+  checkout's `target/` through `CARGO_TARGET_DIR`, which cost one full rebuild of the `godot` crates afterwards.

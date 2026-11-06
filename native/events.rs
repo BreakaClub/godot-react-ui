@@ -53,6 +53,19 @@ pub struct PointerData {
     pub modifiers: Modifiers,
 }
 
+/// A wheel tick or trackpad pan: the pointer's state plus how far it scrolled. Deltas are in wheel
+/// ticks, one per notch of a discrete wheel and scaled by Godot's `factor` or pan `delta` for smooth
+/// devices; positive is down and right, as in the DOM. Scroll containers turn ticks into pixels
+/// the way Godot's `ScrollContainer` does (plan 3.16).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WheelData {
+    #[serde(flatten)]
+    pub pointer: PointerData,
+    pub delta_x: f32,
+    pub delta_y: f32,
+}
+
 /// One variant per wire `type`. Focus fields (`relatedTarget`, `focusVisible`) arrive with the
 /// keyboard model.
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -64,6 +77,7 @@ pub enum EventPayload {
     PointerEnter(PointerData),
     PointerLeave(PointerData),
     Click(PointerData),
+    Wheel(WheelData),
     Focus,
     Blur,
 }
@@ -421,6 +435,8 @@ mod tests {
             ..moved
         };
         queue.push_awaited(5, vec![5], EventPayload::PointerDown(data), STAMP);
+        let mut events: Vec<Value> = queue.drain().iter().map(wire).collect();
+        queue.take_outcome(1);
         queue.push(5, vec![5], EventPayload::PointerMove(moved), STAMP);
         queue.push(5, vec![5], EventPayload::PointerUp(data), STAMP);
         queue.push_crossing(
@@ -432,11 +448,25 @@ mod tests {
         );
         queue.push(5, vec![5], EventPayload::PointerLeave(moved), STAMP);
         queue.push(5, vec![5], EventPayload::Click(data), STAMP);
+        queue.push_awaited(
+            5,
+            vec![5],
+            EventPayload::Wheel(WheelData {
+                pointer: moved,
+                delta_x: -1.5,
+                delta_y: 2.0,
+            }),
+            STAMP,
+        );
         queue.push(6, vec![6], EventPayload::Focus, STAMP);
         queue.push(6, vec![6], EventPayload::Blur, STAMP);
-        let events: Vec<Value> = queue.drain().iter().map(wire).collect();
+        events.extend(queue.drain().iter().map(wire));
         let mut entered_wire = pointer_wire("pointerenter", false, 4, 5, &entered);
         entered_wire["relatedPath"] = json!([7, 1]);
+        // A wheel event is awaited (cancelable) and carries its deltas beside the pointer fields.
+        let mut wheel_wire = pointer_wire("wheel", true, 7, 5, &moved);
+        wheel_wire["deltaX"] = json!(-1.5);
+        wheel_wire["deltaY"] = json!(2.0);
         let expected = [
             pointer_wire("pointerdown", true, 1, 5, &data),
             pointer_wire("pointermove", false, 2, 5, &moved),
@@ -444,8 +474,9 @@ mod tests {
             entered_wire,
             pointer_wire("pointerleave", false, 5, 5, &moved),
             pointer_wire("click", false, 6, 5, &data),
-            json!({"seq": 7, "target": 6, "path": [6], "cancelable": false, "timeStamp": STAMP, "type": "focus"}),
-            json!({"seq": 8, "target": 6, "path": [6], "cancelable": false, "timeStamp": STAMP, "type": "blur"}),
+            wheel_wire,
+            json!({"seq": 8, "target": 6, "path": [6], "cancelable": false, "timeStamp": STAMP, "type": "focus"}),
+            json!({"seq": 9, "target": 6, "path": [6], "cancelable": false, "timeStamp": STAMP, "type": "blur"}),
         ];
         assert_eq!(events, expected);
         assert_eq!(events[3]["relatedTarget"], json!(7));

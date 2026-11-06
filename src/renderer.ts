@@ -320,6 +320,11 @@ function dispatchEnterLeave(root: RootState, native: NativePointerEvent): Dispat
   return result;
 }
 
+/** React's own split: moves and wheel ticks arrive in streams and their updates may be batched. */
+function isContinuous(native: NativeEvent): boolean {
+  return native.type === 'pointermove' || native.type === 'wheel';
+}
+
 function dispatch(root: RootState, native: NativeEvent): DispatchResult {
   const addressesRoot = native.target === LAYER_ROOT_TAG;
   // Native queues events ahead of JS: an earlier event in this batch, or a handler that just
@@ -372,7 +377,7 @@ export function createRoot(host: NativeHost, options: RootOptions): UIRoot {
 
   function processEvent(native: NativeEvent): void {
     const previousPriority = updatePriority;
-    updatePriority = native.type === 'pointermove' ? ContinuousEventPriority : DiscreteEventPriority;
+    updatePriority = isContinuous(native) ? ContinuousEventPriority : DiscreteEventPriority;
     let result: DispatchResult;
     try {
       result = dispatch(state, native);
@@ -388,7 +393,7 @@ export function createRoot(host: NativeHost, options: RootOptions): UIRoot {
         recordFailure(state, error instanceof Error ? error : new Error(String(error)));
       }
     }
-    if (native.type !== 'pointermove') {
+    if (!isContinuous(native)) {
       try {
         reconciler.flushSyncWork();
       } catch (error) {

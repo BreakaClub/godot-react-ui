@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createElement as h } from 'react';
-import { View, type UIFocusEvent, type UIPointerEvent } from '../src';
+import { View, type UIFocusEvent, type UIPointerEvent, type UIWheelEvent } from '../src';
 import { EventPhase, exclusiveAncestry } from '../src/events';
 import { createTestRoot, RecordingHost } from './recording-host';
 
@@ -325,6 +325,71 @@ test('the drain loop throws after MAX_EVENT_DRAIN_ROUNDS instead of spinning', (
   host.event(target, 'click');
   root.dispatchEvents();
   assert.equal(handled, MAX_EVENT_DRAIN_ROUNDS + 1, 'the guard resets after throwing');
+  root.unmount();
+});
+
+test('wheel events run capture then bubble, carry their deltas and report preventDefault', () => {
+  const host = new RecordingHost();
+  const { root } = createTestRoot(host);
+  const log: string[] = [];
+  const seen: UIWheelEvent[] = [];
+  root.render(h(View, {
+    testID: 'outer', onWheelCapture: () => log.push('outer:capture'),
+    onWheel: () => log.push('outer:bubble'),
+  }, h(View, {
+    testID: 'inner',
+    onWheel(event) {
+      log.push('inner:bubble');
+      seen.push(event);
+      if (event.deltaY < 0) event.preventDefault();
+    },
+  })));
+  const inner = requireNode(root, 'inner');
+  const down = host.wheelEvent(inner, { deltaX: -0.5, deltaY: 2, shiftKey: true, viewportX: 110, viewportY: 220 });
+  const up = host.wheelEvent(inner, { deltaY: -1 });
+  host.events.push(down, up);
+  root.dispatchEvents();
+  assert.deepEqual(log, [
+    'outer:capture', 'inner:bubble', 'outer:bubble', 'outer:capture', 'inner:bubble', 'outer:bubble',
+  ]);
+  const [first, second] = seen;
+  assert.ok(first && second);
+  assert.equal(first.type, 'wheel');
+  assert.equal(first.bubbles, true);
+  assert.equal(first.cancelable, true, 'native awaits the answer to a wheel event');
+  assert.deepEqual([first.deltaX, first.deltaY, first.shiftKey, first.viewportX, first.viewportY], [-0.5, 2, true, 110, 220]);
+  assert.deepEqual(host.resolutions, [
+    { seq: down.seq, defaultPrevented: false, dropEffect: '' },
+    { seq: up.seq, defaultPrevented: true, dropEffect: '' },
+  ], 'native keeps an unprevented wheel for the game and consumes a prevented one');
+  root.unmount();
+});
+
+test('wheel events over empty space reach root listeners', () => {
+  const host = new RecordingHost();
+  const { root } = createTestRoot(host);
+  root.render(h(View, { testID: 'element', onWheel: () => { throw new Error('the element must not see it'); } }));
+  const seen: number[] = [];
+  root.addEventListener('wheel', (event) => {
+    seen.push(event.deltaY);
+    event.preventDefault();
+  });
+  const wheel = host.wheelEvent(0, { deltaY: 3 });
+  host.events.push(wheel);
+  root.dispatchEvents();
+  assert.deepEqual(seen, [3]);
+  assert.deepEqual(host.resolutions, [{ seq: wheel.seq, defaultPrevented: true, dropEffect: '' }]);
+  root.unmount();
+});
+
+test('a wheel event without its deltas is rejected at the boundary', () => {
+  const host = new RecordingHost();
+  const { root } = createTestRoot(host);
+  root.render(h(View, { testID: 'target' }));
+  const target = requireNode(root, 'target');
+  const { deltaY: _removed, ...incomplete } = host.wheelEvent(target);
+  host.drainEvents = () => JSON.stringify([incomplete]);
+  assert.throws(() => root.dispatchEvents(), /Invalid native event\.deltaY/);
   root.unmount();
 });
 

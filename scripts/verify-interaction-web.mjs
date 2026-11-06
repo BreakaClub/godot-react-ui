@@ -29,6 +29,26 @@ const DISPATCH_SAMPLES = 40;
 const CHAIN_PARENT_REST = '#f1f5f9';
 const CHAIN_PARENT_HOVER = '#e2e8f0';
 const CAPTURE_THEN_BUBBLE = 'outer:capture middle:capture inner:capture inner:bubble middle:bubble outer:bubble';
+// Godot's Key enum (core/os/keyboard.h): letters are their ASCII codes, special keys are KEY_SPECIAL | n.
+const KEY_SPECIAL = 1 << 22;
+const KEY_W = 'W'.charCodeAt(0);
+const KEY_TAB = KEY_SPECIAL | 0x02;
+const KEY_ENTER = KEY_SPECIAL | 0x05;
+// Godot's Control.CursorShape values.
+const CURSOR_ARROW = 0;
+const CURSOR_POINTING_HAND = 2;
+const CURSOR_MOVE = 13;
+const CURSOR_HELP = 16;
+// What Godot's Web display server writes to the canvas style for those shapes (godot2dom_cursor). It
+// writes the arrow only when the shape changes, so a canvas that never left the arrow still reads `auto`.
+const CSS_CURSORS_ARROW = ['default', 'auto'];
+const CSS_CURSOR_POINTER = 'pointer';
+const CSS_CURSOR_HELP = 'help';
+const HUD_TARGETS = ['hud-inventory', 'hud-map', 'hud-help', 'hud-lock', 'hud-panel', 'hud-wheel-consume', 'hud-wheel-pass'];
+const EMPTY_POINT_SEARCH_STEP = 24;
+// Where the root is moved inside the window to tell root-local from viewport coordinates.
+const SURFACE_OFFSET = { x: 50, y: 30 };
+const WHEEL_TICK_PIXELS = 100;
 const EMSCRIPTEN_STARTUP_DIAGNOSTIC = 'Blocking on the main thread is very dangerous, see https://emscripten.org/docs/porting/pthreads.html#blocking-on-the-main-browser-thread';
 const viewports = [
   { name: 'landscape', width: 1120, height: 800, deviceScaleFactor: 1 },
@@ -513,6 +533,280 @@ async function measureSynchronousDispatch(testID) {
   return summarize(durations);
 }
 
+/** The page position of a logical (root-local) point. */
+async function pagePoint(x, y) {
+  const [data, canvas] = await Promise.all([
+    snapshot(),
+    page.evaluate(() => {
+      const element = document.querySelector('canvas');
+      if (!element) throw new Error('Godot canvas is absent');
+      const rect = element.getBoundingClientRect();
+      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+    }),
+  ]);
+  return { x: canvas.x + x * canvas.width / data.width, y: canvas.y + y * canvas.height / data.height };
+}
+
+async function moveTo(logical) {
+  const point = await pagePoint(logical.x, logical.y);
+  await page.mouse.move(point.x, point.y);
+  await frames();
+  return point;
+}
+
+async function centerOf(testID) {
+  const { rect } = await find(testID);
+  return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+}
+
+/** A logical point inside the window that none of the HUD's pointer targets covers. */
+async function emptyPoint() {
+  const [data, ...targets] = await Promise.all([snapshot(), ...HUD_TARGETS.map((id) => find(id))]);
+  for (let y = EMPTY_POINT_SEARCH_STEP; y < data.height; y += EMPTY_POINT_SEARCH_STEP) {
+    for (let x = EMPTY_POINT_SEARCH_STEP; x < data.width; x += EMPTY_POINT_SEARCH_STEP) {
+      if (!targets.some(({ rect }) => x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height)) return { x, y };
+    }
+  }
+  throw new Error('The HUD covers the whole window; there is no pass-through point to test');
+}
+
+async function counts() {
+  return demo('passthrough');
+}
+
+async function expectCounts(name, predicate) {
+  await waitUntil(name, async () => predicate(await counts()));
+  check(name, true, await counts());
+}
+
+async function expectTextWhere(testID, name, predicate) {
+  await waitUntil(name, async () => predicate(await text(testID)));
+  check(name, true, { text: await text(testID) });
+}
+
+async function canvasCursor() {
+  return page.evaluate(() => getComputedStyle(document.querySelector('canvas')).cursor);
+}
+
+async function expectCanvasCursor(expected, name) {
+  const accepted = Array.isArray(expected) ? expected : [expected];
+  await waitUntil(name, async () => accepted.includes(await canvasCursor()));
+  check(name, true, { cursor: await canvasCursor(), accepted });
+}
+
+async function pressKey(key, modifiers = []) {
+  for (const modifier of modifiers) await page.keyboard.down(modifier);
+  await page.keyboard.press(key);
+  for (const modifier of modifiers.reverse()) await page.keyboard.up(modifier);
+  await frames();
+}
+
+async function wheelAt(logical, deltaX, deltaY) {
+  await moveTo(logical);
+  await page.mouse.wheel({ deltaX, deltaY });
+  await frames();
+}
+
+async function focusCanvas() {
+  await page.evaluate(() => document.querySelector('canvas').focus());
+}
+
+/**
+ * Plan I1: the root cooperates with Godot. Empty space and `pointer-events: none` regions belong to
+ * the Controls underneath; keys, Tab and wheel ticks belong to the game unless React used them.
+ * Mirrors demo/src/verify-interaction.ts, with real Chrome input and the canvas's own CSS cursor.
+ */
+async function runCooperationScenario() {
+  check('A root that has just entered the tree does not steal key focus', (await demo('bareSurfaceHasFocus')) === false);
+  await demo('showHud');
+  await waitUntil('the HUD mounts', () => nodeExists('hud'));
+  await demo('resetPassthrough');
+  await demo('grabSurfaceFocus');
+  await focusCanvas();
+  await waitUntil('the owner gives the root key focus', () => demo('surfaceHasFocus'));
+  await capture('09-passthrough-hud');
+  const status = () => text('hud-status');
+  const baseline = await status();
+  const empty = await emptyPoint();
+
+  // A press where only pointer-events none elements lie goes to the Control behind the root and on
+  // to the game; React sees nothing.
+  await moveTo(empty);
+  await waitUntil('nothing is hovered over a pass-through region', async () => (await snapshot()).hovered === null);
+  check('Nothing is hovered over a pass-through region', true);
+  await page.mouse.down();
+  await frames();
+  await page.mouse.up();
+  await frames();
+  await expectCounts('The Control behind the root and the game both saw the press once',
+    (seen) => seen.backdropPresses === 1 && seen.unhandledPresses === 1);
+  check('No React handler ran for a pass-through press', (await status()) === baseline, { status: await status() });
+  check('Over nothing the cursor is the arrow', (await demo('cursorShapeAt', empty.x, empty.y)) === CURSOR_ARROW);
+  await expectCanvasCursor(CSS_CURSORS_ARROW, 'Over a pass-through region the canvas shows the default cursor');
+
+  // The button inside the pass-through region takes pointers and keeps them from the game.
+  await hover('hud-map');
+  const map = await find('hud-map');
+  await waitUntil('hover reaches an auto element inside a none region', async () => {
+    const { hovered } = await snapshot();
+    return hovered !== null && (hovered === map.id || map.children.includes(hovered));
+  });
+  check('Hover reaches an auto element inside a none region', true);
+  await expectCanvasCursor(CSS_CURSOR_POINTER, 'Moving over a cursor-pointer button sets the canvas cursor');
+  await click('hud-inventory');
+  await expectTextWhere('hud-status', 'The button handled its click', (value) => value.startsWith('inventory 1,'));
+  const afterButton = await counts();
+  check('A button press stays in React', afterButton.backdropPresses === 1 && afterButton.unhandledPresses === 1, afterButton);
+
+  // An element with pointer-events none inside an auto one is never the target; the auto one is.
+  await click('hud-panel-label');
+  await expectTextWhere('hud-status', 'The panel, not its none label, is the target', (value) => value.includes('panel 1, label 0'));
+  check('A press on a non-focusable element clears element focus', (await snapshot()).focused === null);
+  await waitUntil('a press that leaves no element focused releases the root key focus', async () => !(await demo('surfaceHasFocus')));
+  check('A press that leaves no element focused releases the root key focus', true);
+
+  // With no element focused and the root unfocused, every key belongs to the game.
+  await focusCanvas();
+  await pressKey('w');
+  await pressKey('Tab');
+  await expectCounts('W and Tab belong to the game while the root has no key focus',
+    (seen) => seen.unhandledKeys[KEY_W] === 1 && seen.unhandledKeys[KEY_TAB] === 1);
+  check('Tab moved no element focus', (await snapshot()).focused === null);
+
+  // The owner gives the root key focus with no element focused: W still reaches the game, Tab does
+  // not because it moved focus.
+  await demo('grabSurfaceFocus');
+  await pressKey('w');
+  await expectCounts('W reaches the game while the root has focus and no element is focused', (seen) => seen.unhandledKeys[KEY_W] === 2);
+  await pressKey('Tab');
+  await expectFocused((await find('hud-inventory')).id, 'Tab focuses the first button');
+  check('A Tab that moved focus is consumed', (await counts()).unhandledKeys[KEY_TAB] === 1);
+  await pressKey('w');
+  await expectCounts('W still reaches the game after a React button took focus', (seen) => seen.unhandledKeys[KEY_W] === 3);
+  await pressKey('Tab');
+  await expectFocused((await find('hud-map')).id, 'Tab moves to the next button');
+  check('Tab with an element focused is consumed too', (await counts()).unhandledKeys[KEY_TAB] === 1);
+  await pressKey('Enter');
+  await expectTextWhere('hud-status', 'Enter activates the focused button', (value) => value.includes('map 1,'));
+  check('An activating Enter is consumed', (await counts()).unhandledKeys[KEY_ENTER] === undefined);
+  await pressKey('Tab', ['Shift']);
+  await expectFocused((await find('hud-inventory')).id, 'Shift+Tab moves back');
+  await capture('10-hud-focus');
+
+  // Nothing tabbable: Tab changes nothing, so it goes to the game.
+  await click('hud-lock');
+  await expectTextWhere('hud-status', 'The lock handled its click', (value) => value.endsWith('locked true'));
+  await waitUntil('disabling the focused button removes focus', async () => (await focusedId()) === null);
+  check('Disabling the focused button removes focus', true);
+  await demo('grabSurfaceFocus');
+  await focusCanvas();
+  await pressKey('Tab');
+  await expectCounts('A Tab that moved nothing is not consumed', (seen) => seen.unhandledKeys[KEY_TAB] === 2);
+  check('A disabled button is not tabbable', (await focusedId()) === null);
+  await click('hud-lock');
+  await expectTextWhere('hud-status', 'The buttons unlock', (value) => value.endsWith('locked false'));
+
+  // Wheel: over empty space and over an element nobody handles it reaches the game; JS decides.
+  const unhandledWheels = async () => (await counts()).unhandledWheels;
+  const readout = () => text('hud-wheel-status');
+  const readoutValues = async () => {
+    const match = /^consumed ticks (\d+), passed ticks (\d+), last delta (?:none|(-?[\d.]+),(-?[\d.]+))$/.exec(await readout());
+    assert.ok(match, `Malformed wheel readout: ${await readout()}`);
+    return { consumed: Number(match[1]), passed: Number(match[2]), delta: match[3] === undefined ? undefined : [Number(match[3]), Number(match[4])] };
+  };
+  await wheelAt(empty, 0, WHEEL_TICK_PIXELS);
+  await expectCounts('A wheel tick over empty space reaches the game', (seen) => seen.unhandledWheels >= 1);
+  const afterEmpty = await unhandledWheels();
+  const initial = await readoutValues();
+  check('No React handler saw it', initial.consumed === 0 && initial.passed === 0 && initial.delta === undefined, initial);
+  await wheelAt(await centerOf('hud-panel'), 0, -WHEEL_TICK_PIXELS);
+  await expectCounts('A wheel tick over an element with no onWheel reaches the game', (seen) => seen.unhandledWheels > afterEmpty);
+  const beforePass = await unhandledWheels();
+  await wheelAt(await centerOf('hud-wheel-pass'), WHEEL_TICK_PIXELS, 0);
+  // Godot's Web display server maps a DOM deltaX > 0 (scroll right) to WHEEL_LEFT, the macOS
+  // convention (`DisplayServerWeb::_mouse_wheel_callback`), so the sign of a horizontal tick is the
+  // engine's, not the DOM's. The tick must still arrive as a purely horizontal one.
+  await waitUntil('the passing handler saw a horizontal tick', async () => {
+    const { passed, delta } = await readoutValues();
+    return passed >= 1 && delta !== undefined && delta[0] !== 0 && delta[1] === 0;
+  });
+  const horizontal = await readoutValues();
+  report.horizontalWheel = { domDeltaX: WHEEL_TICK_PIXELS, deltaX: horizontal.delta?.[0] };
+  check('A horizontal wheel tick arrives as deltaX only', true, { ...horizontal, ...report.horizontalWheel });
+  check('A wheel tick a handler did not prevent reaches the game', (await unhandledWheels()) > beforePass, { before: beforePass, after: await unhandledWheels() });
+  const beforeConsume = await unhandledWheels();
+  await wheelAt(await centerOf('hud-wheel-consume'), -WHEEL_TICK_PIXELS, 0);
+  await waitUntil('the consuming handler saw the opposite horizontal tick', async () => {
+    const { consumed, delta } = await readoutValues();
+    return consumed >= 1 && delta !== undefined && delta[0] !== 0 && Math.sign(delta[0]) === -Math.sign(horizontal.delta?.[0] ?? 0) && delta[1] === 0;
+  });
+  check('The opposite horizontal wheel direction reverses the sign', true, await readoutValues());
+  check('A wheel tick whose handler called preventDefault is consumed', (await unhandledWheels()) === beforeConsume, { before: beforeConsume, after: await unhandledWheels() });
+  await wheelAt(await centerOf('hud-wheel-consume'), 0, -WHEEL_TICK_PIXELS);
+  await waitUntil('wheel up is -y', async () => {
+    const { delta } = await readoutValues();
+    return delta !== undefined && delta[0] === 0 && delta[1] < 0;
+  });
+  await wheelAt(await centerOf('hud-wheel-consume'), 0, WHEEL_TICK_PIXELS);
+  await waitUntil('wheel down is +y', async () => {
+    const { delta } = await readoutValues();
+    return delta !== undefined && delta[0] === 0 && delta[1] > 0;
+  });
+  check('Wheel directions follow the DOM signs', true, await readoutValues());
+  check('A prevented wheel never reaches the game', (await unhandledWheels()) === beforeConsume, { before: beforeConsume, after: await unhandledWheels() });
+
+  // The cursor follows the element under the pointer and inherits from its parent: the canvas shows it.
+  const cursorOver = async (testID) => {
+    const logical = await centerOf(testID);
+    return demo('cursorShapeAt', logical.x, logical.y);
+  };
+  check('cursor-pointer shows the pointing hand', (await cursorOver('hud-map')) === CURSOR_POINTING_HAND);
+  const label = (await snapshot()).nodes.find((node) => node.id === map.children[0]);
+  check("The button's label inherits the cursor",
+    (await demo('cursorShapeAt', label.rect.x + label.rect.width / 2, label.rect.y + label.rect.height / 2)) === CURSOR_POINTING_HAND);
+  check('cursor-help shows the help cursor', (await cursorOver('hud-help')) === CURSOR_HELP);
+  check('cursor-move shows the move cursor', (await cursorOver('hud-panel')) === CURSOR_MOVE);
+  check('A button with no cursor shows the arrow', (await cursorOver('hud-inventory')) === CURSOR_ARROW);
+  const panelLabel = await centerOf('hud-panel-label');
+  check("Over a pointer-events-none label the cursor is the panel's",
+    (await demo('cursorShapeAt', panelLabel.x, panelLabel.y)) === CURSOR_MOVE);
+  await hover('hud-help');
+  await expectCanvasCursor(CSS_CURSOR_HELP, 'Moving to cursor-help changes the canvas cursor');
+  await moveTo(empty);
+  await expectCanvasCursor(CSS_CURSORS_ARROW, 'Leaving the HUD for the game restores the default cursor');
+
+  // viewportX/viewportY are canvas coordinates; x/y stay root-local.
+  await demo('offsetSurface', SURFACE_OFFSET.x, SURFACE_OFFSET.y);
+  await frames();
+  const panelPoint = await centerOf('hud-panel');
+  const inViewport = { x: panelPoint.x + SURFACE_OFFSET.x, y: panelPoint.y + SURFACE_OFFSET.y };
+  const target = await moveTo(inViewport);
+  await page.mouse.down();
+  await frames();
+  await page.mouse.up();
+  await frames();
+  // Real Chrome input lands on whole device pixels, so x and y are checked to a pixel; what must hold
+  // exactly is that the canvas coordinates are the root-local ones plus the root's offset.
+  const pressed = async () => {
+    const match = /^last panel press (-?[\d.]+),(-?[\d.]+) viewport (-?[\d.]+),(-?[\d.]+)$/.exec(await text('hud-pointer'));
+    return match === null ? undefined : match.slice(1).map(Number);
+  };
+  await waitUntil('the panel saw the offset press', async () => (await pressed()) !== undefined);
+  const [localX, localY, canvasX, canvasY] = await pressed();
+  check('Pointer events carry the press position root-local', Math.abs(localX - panelPoint.x) <= 1 && Math.abs(localY - panelPoint.y) <= 1,
+    { localX, localY, expected: panelPoint, target });
+  check('Pointer events carry canvas coordinates: root-local plus the root offset',
+    canvasX - localX === SURFACE_OFFSET.x && canvasY - localY === SURFACE_OFFSET.y, { localX, localY, canvasX, canvasY, offset: SURFACE_OFFSET });
+  await demo('offsetSurface', 0, 0);
+  await frames();
+
+  await page.mouse.move(1, 1);
+  await frames();
+  await demo('restoreDemo');
+  await waitUntil('the demo returns', () => nodeExists('app'));
+  await demo('grabSurfaceFocus');
+}
+
 async function runWorkflow(viewport) {
   activeViewport = viewport.name;
   await page.setViewport({ width: viewport.width, height: viewport.height, deviceScaleFactor: viewport.deviceScaleFactor });
@@ -627,6 +921,8 @@ async function runWorkflow(viewport) {
   report.timing[viewport.name] = { cheapHandler: cheap, stateUpdatingHandler: stateful };
   check('Dispatch timing recorded', cheap.samples === DISPATCH_SAMPLES && stateful.samples === DISPATCH_SAMPLES);
   console.log(`GODOT_REACT_WEB_DISPATCH_TIMING ${viewport.name} ${JSON.stringify(report.timing[viewport.name])}`);
+
+  await runCooperationScenario();
 
   // This page keeps running across viewports (the native verifier gets a fresh process for each),
   // so leave a fresh root: the lab's log and click counters must not leak into the next viewport.

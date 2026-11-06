@@ -1,7 +1,7 @@
 import type { UIHandle, UIProps } from './components';
 import type {
-  NativeEvent, NativeEventType, NativeFocusEvent, NativeFocusEventType, NativePointerEvent,
-  NativePointerEventType, NativePointerType,
+  NativeEvent, NativeEventType, NativeFocusEvent, NativeFocusEventType, NativeMouseFields,
+  NativePointerEvent, NativePointerEventType, NativePointerType, NativeWheelEvent,
 } from './native';
 
 /** DOM `Event.eventPhase`. */
@@ -27,7 +27,8 @@ export interface UISyntheticEvent<Type extends NativeEventType = NativeEventType
   isDefaultPrevented(): boolean;
 }
 
-export interface UIPointerEvent extends UISyntheticEvent<NativePointerEventType> {
+/** What every event with a pointer position carries. */
+export interface UIMouseFields {
   /** Root-local logical pixels, independent of device pixel ratio. */
   readonly x: number;
   readonly y: number;
@@ -42,19 +43,32 @@ export interface UIPointerEvent extends UISyntheticEvent<NativePointerEventType>
   /** DOM `buttons` bitmask: 1 primary, 2 secondary, 4 auxiliary, 8 back, 16 forward. */
   readonly buttons: number;
   readonly detail: number;
-  /** Enter and leave events: the element left towards or entered from, if it still exists. */
-  readonly relatedTarget: UIHandle | null;
   readonly shiftKey: boolean;
   readonly ctrlKey: boolean;
   readonly altKey: boolean;
   readonly metaKey: boolean;
 }
 
+export interface UIPointerEvent extends UISyntheticEvent<NativePointerEventType>, UIMouseFields {
+  /** Enter and leave events: the element left towards or entered from, if it still exists. */
+  readonly relatedTarget: UIHandle | null;
+}
+
+/**
+ * A wheel tick or trackpad pan, cancelable: preventing it keeps it from the game and from native
+ * scrolling. Deltas are in wheel ticks (one per notch of a discrete wheel, scaled for smooth
+ * devices), positive down and right, so DOM sign conventions carry over.
+ */
+export interface UIWheelEvent extends UISyntheticEvent<'wheel'>, UIMouseFields {
+  readonly deltaX: number;
+  readonly deltaY: number;
+}
+
 export interface UIFocusEvent extends UISyntheticEvent<NativeFocusEventType> {}
 
 /** Kept so handler types written against the first event model still compile. */
 export type UIEvent = UIPointerEvent;
-export type UIAnyEvent = UIPointerEvent | UIFocusEvent;
+export type UIAnyEvent = UIPointerEvent | UIWheelEvent | UIFocusEvent;
 
 export interface UIEventMap {
   pointerdown: UIPointerEvent;
@@ -63,6 +77,7 @@ export interface UIEventMap {
   pointerenter: UIPointerEvent;
   pointerleave: UIPointerEvent;
   click: UIPointerEvent;
+  wheel: UIWheelEvent;
   focus: UIFocusEvent;
   blur: UIFocusEvent;
 }
@@ -102,7 +117,7 @@ class SyntheticEvent<Type extends NativeEventType> implements UISyntheticEvent<T
   }
 }
 
-class PointerEventImpl extends SyntheticEvent<NativePointerEventType> implements UIPointerEvent {
+abstract class MouseEventImpl<Type extends NativeEventType> extends SyntheticEvent<Type> implements UIMouseFields {
   readonly x: number;
   readonly y: number;
   readonly viewportX: number;
@@ -112,14 +127,13 @@ class PointerEventImpl extends SyntheticEvent<NativePointerEventType> implements
   readonly button: number;
   readonly buttons: number;
   readonly detail: number;
-  readonly relatedTarget: UIHandle | null;
   readonly shiftKey: boolean;
   readonly ctrlKey: boolean;
   readonly altKey: boolean;
   readonly metaKey: boolean;
 
-  constructor(native: NativePointerEvent, target: UIHandle, related: UIHandle | null, bubbles: boolean) {
-    super(native.type, target, bubbles, native.cancelable, native.timeStamp);
+  constructor(type: Type, native: NativeMouseFields, target: UIHandle, bubbles: boolean) {
+    super(type, target, bubbles, native.cancelable, native.timeStamp);
     this.x = native.x;
     this.y = native.y;
     this.viewportX = native.viewportX;
@@ -129,11 +143,30 @@ class PointerEventImpl extends SyntheticEvent<NativePointerEventType> implements
     this.button = native.button;
     this.buttons = native.buttons;
     this.detail = native.detail;
-    this.relatedTarget = related;
     this.shiftKey = native.shiftKey;
     this.ctrlKey = native.ctrlKey;
     this.altKey = native.altKey;
     this.metaKey = native.metaKey;
+  }
+}
+
+class PointerEventImpl extends MouseEventImpl<NativePointerEventType> implements UIPointerEvent {
+  readonly relatedTarget: UIHandle | null;
+
+  constructor(native: NativePointerEvent, target: UIHandle, related: UIHandle | null, bubbles: boolean) {
+    super(native.type, native, target, bubbles);
+    this.relatedTarget = related;
+  }
+}
+
+class WheelEventImpl extends MouseEventImpl<'wheel'> implements UIWheelEvent {
+  readonly deltaX: number;
+  readonly deltaY: number;
+
+  constructor(native: NativeWheelEvent, target: UIHandle, bubbles: boolean) {
+    super(native.type, native, target, bubbles);
+    this.deltaX = native.deltaX;
+    this.deltaY = native.deltaY;
   }
 }
 
@@ -148,6 +181,10 @@ type Handler<E> = ((event: E) => void) | undefined;
 /** `focus` and `blur` are the only events without pointer data. */
 function isFocusEvent(event: UIAnyEvent): event is UIFocusEvent {
   return event.type === 'focus' || event.type === 'blur';
+}
+
+function isWheelEvent(event: UIAnyEvent): event is UIWheelEvent {
+  return event.type === 'wheel';
 }
 
 /** One entry per native event type: whether it bubbles and which prop receives each phase. */
@@ -167,8 +204,25 @@ function pointerSpec(
     invoke(props, isCapture, event) {
       const handler = isCapture ? capture?.(props) : bubble(props);
       if (handler === undefined) return;
-      if (isFocusEvent(event)) {
+      if (isFocusEvent(event) || isWheelEvent(event)) {
         throw new Error(`UI internal error: ${event.type} reached a pointer event handler`);
+      }
+      handler(event);
+    },
+  };
+}
+
+function wheelSpec(
+  bubble: (props: UIProps) => Handler<UIWheelEvent>,
+  capture: (props: UIProps) => Handler<UIWheelEvent>,
+): EventSpec {
+  return {
+    bubbles: true,
+    invoke(props, isCapture, event) {
+      const handler = isCapture ? capture(props) : bubble(props);
+      if (handler === undefined) return;
+      if (!isWheelEvent(event)) {
+        throw new Error(`UI internal error: ${event.type} reached a wheel event handler`);
       }
       handler(event);
     },
@@ -198,6 +252,7 @@ const EVENT_TABLE: Record<NativeEventType, EventSpec> = {
   pointerenter: pointerSpec(false, (p) => p.onPointerEnter),
   pointerleave: pointerSpec(false, (p) => p.onPointerLeave),
   click: pointerSpec(true, (p) => p.onClick, (p) => p.onClickCapture),
+  wheel: wheelSpec((p) => p.onWheel, (p) => p.onWheelCapture),
   focus: focusSpec((p) => p.onFocus),
   blur: focusSpec((p) => p.onBlur),
 };
@@ -246,11 +301,15 @@ export interface DispatchResult {
 
 export const NOT_DISPATCHED: DispatchResult = Object.freeze({ defaultPrevented: false, failure: undefined });
 
-function createEvent(native: NativeEvent, target: UIHandle, related: UIHandle | null, bubbles: boolean): PointerEventImpl | FocusEventImpl {
+function createEvent(
+  native: NativeEvent, target: UIHandle, related: UIHandle | null, bubbles: boolean,
+): PointerEventImpl | WheelEventImpl | FocusEventImpl {
   switch (native.type) {
     case 'pointerdown': case 'pointermove': case 'pointerup':
     case 'pointerenter': case 'pointerleave': case 'click':
       return new PointerEventImpl(native, target, related, bubbles);
+    case 'wheel':
+      return new WheelEventImpl(native, target, bubbles);
     case 'focus': case 'blur':
       return new FocusEventImpl(native, target, bubbles);
   }

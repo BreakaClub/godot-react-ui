@@ -1,8 +1,10 @@
-//! Pointer-to-button activation rules and the Godot-to-DOM pointer button mappings.
-use godot::global::MouseButtonMask;
+//! Pointer-to-button activation rules and the Godot-to-DOM pointer mappings (buttons, wheel,
+//! cursor shapes).
+use godot::classes::control::CursorShape;
+use godot::global::{MouseButton, MouseButtonMask};
 use godot::obj::EngineBitfield;
 
-use crate::props::Kind;
+use crate::props::{CursorSpec, Kind};
 
 /// Chrome reports the mouse as pointer 1. Pointer 0 is reserved for synthetic keyboard activation,
 /// as in browsers.
@@ -34,6 +36,45 @@ pub(crate) fn dom_buttons(mask: MouseButtonMask) -> u16 {
     .into_iter()
     .filter(|(godot, _)| bits & godot.ord() != 0)
     .fold(0, |buttons, (_, dom)| buttons | dom)
+}
+
+/// The scroll a Godot wheel button reports as `(delta_x, delta_y)` in wheel ticks, with the DOM's
+/// signs: down and right are positive (`ScrollContainer` scrolls by `+page / 8 * factor` for
+/// `WHEEL_DOWN` and `WHEEL_RIGHT`, `scene/gui/scroll_container.cpp:190-226`). `None` for any other
+/// button. `factor` is `InputEventMouseButton.factor`, 1 for a discrete wheel.
+pub(crate) fn wheel_ticks(button: MouseButton, factor: f32) -> Option<(f32, f32)> {
+    if button == MouseButton::WHEEL_UP {
+        Some((0.0, -factor))
+    } else if button == MouseButton::WHEEL_DOWN {
+        Some((0.0, factor))
+    } else if button == MouseButton::WHEEL_LEFT {
+        Some((-factor, 0.0))
+    } else if button == MouseButton::WHEEL_RIGHT {
+        Some((factor, 0.0))
+    } else {
+        None
+    }
+}
+
+/// Appendix A: the Godot cursor each CSS cursor maps to.
+pub(crate) fn cursor_shape(cursor: CursorSpec) -> CursorShape {
+    match cursor {
+        CursorSpec::Default => CursorShape::ARROW,
+        CursorSpec::Pointer => CursorShape::POINTING_HAND,
+        CursorSpec::Text => CursorShape::IBEAM,
+        CursorSpec::Move => CursorShape::MOVE,
+        // Godot has one grabbing-hand cursor for both.
+        CursorSpec::Grab | CursorSpec::Grabbing => CursorShape::DRAG,
+        CursorSpec::NotAllowed => CursorShape::FORBIDDEN,
+        CursorSpec::Crosshair => CursorShape::CROSS,
+        CursorSpec::Wait => CursorShape::WAIT,
+        CursorSpec::Progress => CursorShape::BUSY,
+        CursorSpec::Help => CursorShape::HELP,
+        CursorSpec::EwResize => CursorShape::HSIZE,
+        CursorSpec::NsResize => CursorShape::VSIZE,
+        CursorSpec::NeswResize => CursorShape::BDIAGSIZE,
+        CursorSpec::NwseResize => CursorShape::FDIAGSIZE,
+    }
 }
 
 /// What the pointer-to-button activation rules need to know about the mounted tree.
@@ -75,6 +116,7 @@ pub(crate) fn shared_button_target<T: ButtonTree>(
 #[cfg(test)]
 mod input_tests {
     use super::*;
+    use godot::obj::EngineEnum;
     use std::collections::BTreeMap;
 
     struct TestNode {
@@ -125,6 +167,43 @@ mod input_tests {
         assert_eq!(dom_buttons(MouseButtonMask::MB_XBUTTON2), 16);
         let chord = MouseButtonMask::LEFT | MouseButtonMask::MIDDLE | MouseButtonMask::MB_XBUTTON2;
         assert_eq!(dom_buttons(chord), 1 | 4 | 16);
+    }
+
+    #[test]
+    fn wheel_buttons_scroll_with_dom_signs_and_scale_by_factor() {
+        assert_eq!(wheel_ticks(MouseButton::WHEEL_UP, 1.0), Some((0.0, -1.0)));
+        assert_eq!(wheel_ticks(MouseButton::WHEEL_DOWN, 1.0), Some((0.0, 1.0)));
+        assert_eq!(wheel_ticks(MouseButton::WHEEL_LEFT, 0.5), Some((-0.5, 0.0)));
+        assert_eq!(wheel_ticks(MouseButton::WHEEL_RIGHT, 2.5), Some((2.5, 0.0)));
+        assert_eq!(wheel_ticks(MouseButton::LEFT, 1.0), None);
+        assert_eq!(wheel_ticks(MouseButton::RIGHT, 1.0), None);
+    }
+
+    #[test]
+    fn every_css_cursor_maps_to_its_godot_cursor() {
+        let expected = [
+            (CursorSpec::Default, CursorShape::ARROW, 0),
+            (CursorSpec::Pointer, CursorShape::POINTING_HAND, 2),
+            (CursorSpec::Text, CursorShape::IBEAM, 1),
+            (CursorSpec::Move, CursorShape::MOVE, 13),
+            (CursorSpec::Grab, CursorShape::DRAG, 6),
+            (CursorSpec::Grabbing, CursorShape::DRAG, 6),
+            (CursorSpec::NotAllowed, CursorShape::FORBIDDEN, 8),
+            (CursorSpec::Crosshair, CursorShape::CROSS, 3),
+            (CursorSpec::Wait, CursorShape::WAIT, 4),
+            (CursorSpec::Progress, CursorShape::BUSY, 5),
+            (CursorSpec::Help, CursorShape::HELP, 16),
+            (CursorSpec::EwResize, CursorShape::HSIZE, 10),
+            (CursorSpec::NsResize, CursorShape::VSIZE, 9),
+            (CursorSpec::NeswResize, CursorShape::BDIAGSIZE, 11),
+            (CursorSpec::NwseResize, CursorShape::FDIAGSIZE, 12),
+        ];
+        for (css, godot, ordinal) in expected {
+            // The ordinals are `Control.CursorShape` in the Godot docs; they pin the enum names to
+            // the values GDExtension passes across the boundary.
+            assert_eq!(cursor_shape(css), godot);
+            assert_eq!(godot.ord(), ordinal, "{css:?}");
+        }
     }
 
     #[test]

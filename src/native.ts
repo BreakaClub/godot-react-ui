@@ -78,8 +78,9 @@ export interface NativeProfile {
 
 export type NativePointerEventType =
   | 'pointerdown' | 'pointerup' | 'pointermove' | 'pointerenter' | 'pointerleave' | 'click';
+export type NativeWheelEventType = 'wheel';
 export type NativeFocusEventType = 'focus' | 'blur';
-export type NativeEventType = NativePointerEventType | NativeFocusEventType;
+export type NativeEventType = NativePointerEventType | NativeWheelEventType | NativeFocusEventType;
 
 /** '' is synthetic keyboard activation, as in browsers. */
 export type NativePointerType = 'mouse' | 'touch' | '';
@@ -97,8 +98,8 @@ interface NativeEventBase {
   timeStamp: number;
 }
 
-export interface NativePointerEvent extends NativeEventBase {
-  type: NativePointerEventType;
+/** What every event with a pointer position carries. */
+export interface NativeMouseFields extends NativeEventBase {
   /** Root-local logical pixels. */
   x: number;
   y: number;
@@ -113,21 +114,32 @@ export interface NativePointerEvent extends NativeEventBase {
   buttons: number;
   /** Click count. */
   detail: number;
-  /** Enter and leave events: the element left towards or entered from. */
-  relatedTarget: number | null;
-  /** Enter and leave events: `relatedTarget`'s path (empty if none). */
-  relatedPath: number[];
   shiftKey: boolean;
   ctrlKey: boolean;
   altKey: boolean;
   metaKey: boolean;
 }
 
+export interface NativePointerEvent extends NativeMouseFields {
+  type: NativePointerEventType;
+  /** Enter and leave events: the element left towards or entered from. */
+  relatedTarget: number | null;
+  /** Enter and leave events: `relatedTarget`'s path (empty if none). */
+  relatedPath: number[];
+}
+
+/** A wheel tick or trackpad pan; cancelable. Deltas are in wheel ticks, positive down and right. */
+export interface NativeWheelEvent extends NativeMouseFields {
+  type: NativeWheelEventType;
+  deltaX: number;
+  deltaY: number;
+}
+
 export interface NativeFocusEvent extends NativeEventBase {
   type: NativeFocusEventType;
 }
 
-export type NativeEvent = NativePointerEvent | NativeFocusEvent;
+export type NativeEvent = NativePointerEvent | NativeWheelEvent | NativeFocusEvent;
 
 export interface LayoutRect {
   x: number;
@@ -237,7 +249,7 @@ function kind(value: unknown): NativeKind {
 function eventType(value: unknown): NativeEventType {
   switch (value) {
     case 'pointerdown': case 'pointerup': case 'pointermove': case 'pointerenter':
-    case 'pointerleave': case 'click': case 'focus': case 'blur':
+    case 'pointerleave': case 'click': case 'wheel': case 'focus': case 'blur':
       return value;
     default:
       throw new Error(`Invalid native event type: ${String(value)}`);
@@ -261,9 +273,9 @@ function idList(value: unknown, label: string): number[] {
   return array(value, label).map((entry) => id(entry, label));
 }
 
-function pointerEvent(type: NativePointerEventType, base: NativeEventBase, event: Record<string, unknown>): NativePointerEvent {
+function mouseFields(base: NativeEventBase, event: Record<string, unknown>): NativeMouseFields {
   return {
-    ...base, type,
+    ...base,
     x: number(event.x, 'event.x'), y: number(event.y, 'event.y'),
     viewportX: number(event.viewportX, 'event.viewportX'), viewportY: number(event.viewportY, 'event.viewportY'),
     pointerId: nonnegativeInteger(event.pointerId, 'event.pointerId'),
@@ -271,10 +283,23 @@ function pointerEvent(type: NativePointerEventType, base: NativeEventBase, event
     button: number(event.button, 'event.button'),
     buttons: nonnegativeInteger(event.buttons, 'event.buttons'),
     detail: nonnegativeInteger(event.detail, 'event.detail'),
-    relatedTarget: optionalId(event.relatedTarget, 'event.relatedTarget'),
-    relatedPath: event.relatedPath === undefined ? [] : idList(event.relatedPath, 'event.relatedPath'),
     shiftKey: boolean(event.shiftKey, 'event.shiftKey'), ctrlKey: boolean(event.ctrlKey, 'event.ctrlKey'),
     altKey: boolean(event.altKey, 'event.altKey'), metaKey: boolean(event.metaKey, 'event.metaKey'),
+  };
+}
+
+function pointerEvent(type: NativePointerEventType, base: NativeEventBase, event: Record<string, unknown>): NativePointerEvent {
+  return {
+    ...mouseFields(base, event), type,
+    relatedTarget: optionalId(event.relatedTarget, 'event.relatedTarget'),
+    relatedPath: event.relatedPath === undefined ? [] : idList(event.relatedPath, 'event.relatedPath'),
+  };
+}
+
+function wheelEvent(base: NativeEventBase, event: Record<string, unknown>): NativeWheelEvent {
+  return {
+    ...mouseFields(base, event), type: 'wheel',
+    deltaX: number(event.deltaX, 'event.deltaX'), deltaY: number(event.deltaY, 'event.deltaY'),
   };
 }
 
@@ -292,6 +317,8 @@ function nativeEvent(entry: unknown): NativeEvent {
     case 'pointerdown': case 'pointerup': case 'pointermove': case 'pointerenter':
     case 'pointerleave': case 'click':
       return pointerEvent(type, base, event);
+    case 'wheel':
+      return wheelEvent(base, event);
     case 'focus': case 'blur':
       return { ...base, type };
   }

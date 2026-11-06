@@ -1,5 +1,5 @@
 import { Children, createElement, forwardRef, useContext, type ReactNode } from 'react';
-import type { UIFocusEvent, UIPointerEvent } from './events';
+import type { UIFocusEvent, UIPointerEvent, UIWheelEvent } from './events';
 import type { LayoutRect } from './native';
 import { createOverlayPortal, OverlayContext } from './renderer';
 import type { StyleProp } from './types';
@@ -25,6 +25,12 @@ export interface UIProps {
   onPointerUpCapture?: (event: UIPointerEvent) => void;
   onPointerMove?: (event: UIPointerEvent) => void;
   onPointerMoveCapture?: (event: UIPointerEvent) => void;
+  /**
+   * A wheel tick or trackpad pan. Cancelable: `preventDefault()` keeps it from the game and, from
+   * Phase I5, from native scrolling.
+   */
+  onWheel?: (event: UIWheelEvent) => void;
+  onWheelCapture?: (event: UIWheelEvent) => void;
   /** Does not bubble: runs for each element the pointer enters, outermost first. */
   onPointerEnter?: (event: UIPointerEvent) => void;
   /** Does not bubble: runs for each element the pointer leaves, deepest first. */

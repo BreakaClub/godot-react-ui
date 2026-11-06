@@ -139,6 +139,32 @@
     }
   },
   {
+    "className": "pointer-events-none hover:cursor-pointer cursor-ew-resize pointer-events-auto",
+    "compiled": {
+      "layers": [
+        {
+          "style": {
+            "pointerEvents": "none"
+          }
+        },
+        {
+          "states": [
+            "hover"
+          ],
+          "style": {
+            "cursor": "pointer"
+          }
+        },
+        {
+          "style": {
+            "cursor": "ew-resize",
+            "pointerEvents": "auto"
+          }
+        }
+      ]
+    }
+  },
+  {
     "className": "overflow-hidden shrink-0",
     "style": [
       {

@@ -3,7 +3,7 @@ import { createRoot, type RootOptions, type UIRoot } from '../src';
 import type { CommitPayload } from '../src/commit';
 import type {
   NativeEvent, NativeEventType, NativeFocusEventType, NativeHost, NativePointerEvent,
-  NativePointerEventType, NativeSnapshot, NativeSnapshotNode, PackedTags,
+  NativePointerEventType, NativeSnapshot, NativeSnapshotNode, NativeWheelEvent, PackedTags,
 } from '../src/native';
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -223,9 +223,22 @@ export class RecordingHost implements NativeHost {
 
   /** Queue a pointer or focus event with the next sequence number. */
   event(target: number, type: NativeEventType, overrides: Partial<NativePointerEvent> = {}): NativeEvent {
-    const event = isFocusType(type) ? this.focusEvent(target, type) : this.pointerEvent(target, type, overrides);
+    const event = isFocusType(type)
+      ? this.focusEvent(target, type)
+      : type === 'wheel' ? this.wheelEvent(target) : this.pointerEvent(target, type, overrides);
     this.events.push(event);
     return event;
+  }
+
+  /** A wheel tick or pan; cancelable like the native one (native awaits JS's answer). */
+  wheelEvent(target: number, overrides: Partial<NativeWheelEvent> = {}): NativeWheelEvent {
+    return {
+      seq: this.nextSeq++, target, path: this.pathOf(target), cancelable: true, timeStamp: 1.5, type: 'wheel',
+      x: 10, y: 20, viewportX: 10, viewportY: 20, pointerId: 1, pointerType: 'mouse',
+      button: -1, buttons: 0, detail: 0, deltaX: 0, deltaY: 1,
+      shiftKey: false, ctrlKey: false, altKey: false, metaKey: false,
+      ...overrides,
+    };
   }
 
   pointerEvent(target: number, type: NativePointerEventType, overrides: Partial<NativePointerEvent> = {}): NativePointerEvent {

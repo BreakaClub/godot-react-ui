@@ -1,9 +1,10 @@
 import {
-  DirAccess, Engine, FileAccess, GError, Input, InputEventMouseButton, InputEventMouseMotion,
-  MouseButton, Node, OS, RenderingServer, Vector2,
+  Control, DirAccess, DisplayServer, Engine, FileAccess, GError, Input, InputEventKey, InputEventMouseButton,
+  InputEventMouseMotion, InputEventPanGesture, Key, MouseButton, Node, OS, RenderingServer, Vector2,
 } from 'godot';
 import type { RendererProfile } from '../../src';
 import type { NativeSnapshot, NativeSnapshotNode } from '../../src/native';
+import type { PassthroughCounts } from './main';
 import type { DemoInspection } from './verify';
 
 export interface InteractionInspection extends DemoInspection {
@@ -11,6 +12,16 @@ export interface InteractionInspection extends DemoInspection {
   surfaceAttached(attached: boolean): void;
   profile(enabled: boolean): void;
   takeProfile(): { js: RendererProfile };
+  /** Render the HUD whose ancestors are all `pointer-events-none`, over the backdrop Control. */
+  showHud(): void;
+  restoreDemo(): void;
+  passthrough(): PassthroughCounts;
+  resetPassthrough(): void;
+  cursorShapeAt(x: number, y: number): Control.CursorShape;
+  surfaceHasFocus(): boolean;
+  grabSurfaceFocus(): void;
+  bareSurfaceHasFocus(): boolean;
+  offsetSurface(x: number, y: number): void;
 }
 
 const SETTLE_MS = 100;
@@ -22,6 +33,14 @@ const DISPATCH_SAMPLES = 40;
 const CHAIN_PARENT_REST = '#f1f5f9';
 const CHAIN_PARENT_HOVER = '#e2e8f0';
 const FAR_CORNER = new Vector2(1, 1);
+/** Inside a button's border box but outside its label. */
+const POINTER_PADDING_INSET = 4;
+/** The grid step when looking for a point no HUD control covers. */
+const EMPTY_POINT_SEARCH_STEP = 24;
+/** Where the root is moved inside the window to tell root-local from viewport coordinates. */
+const SURFACE_OFFSET = new Vector2(50, 30);
+/** A trackpad pan in wheel ticks, to check a gesture reaches JS with its own deltas. */
+const PAN_DELTA = new Vector2(0.5, -2);
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -71,6 +90,42 @@ function move(position: Vector2): void {
   event.position = position;
   event.globalPosition = event.position;
   Input.parseInputEvent(event);
+}
+
+async function wheel(position: Vector2, button: MouseButton): Promise<void> {
+  move(position);
+  await settle();
+  // A real wheel tick is a press followed at once by a release.
+  for (const pressed of [true, false]) {
+    const event = new InputEventMouseButton();
+    event.position = position;
+    event.globalPosition = position;
+    event.buttonIndex = button;
+    event.pressed = pressed;
+    Input.parseInputEvent(event);
+  }
+  await settle();
+}
+
+async function pan(position: Vector2, delta: Vector2): Promise<void> {
+  move(position);
+  await settle();
+  const event = new InputEventPanGesture();
+  event.position = position;
+  event.delta = delta;
+  Input.parseInputEvent(event);
+  await settle();
+}
+
+async function keyPress(keycode: Key, shift = false): Promise<void> {
+  for (const pressed of [true, false]) {
+    const event = new InputEventKey();
+    event.keycode = keycode;
+    event.pressed = pressed;
+    event.shiftPressed = shift;
+    Input.parseInputEvent(event);
+    await settle();
+  }
 }
 
 async function hover(api: DemoInspection, id: string): Promise<void> {
@@ -165,6 +220,218 @@ async function measureSynchronousDispatch(api: InteractionInspection, id: string
     api.takeProfile();
   }
   return summarize(durations);
+}
+
+const HUD_TARGETS = [
+  'hud-inventory', 'hud-map', 'hud-help', 'hud-lock', 'hud-panel', 'hud-wheel-consume', 'hud-wheel-pass',
+] as const;
+
+/** A point inside the window that none of the HUD's pointer targets covers. */
+function emptyPoint(api: DemoInspection): Vector2 {
+  const snapshot = api.snapshot();
+  const rects = HUD_TARGETS.map(id => get(api, id).rect);
+  for (let y = EMPTY_POINT_SEARCH_STEP; y < snapshot.height; y += EMPTY_POINT_SEARCH_STEP) {
+    for (let x = EMPTY_POINT_SEARCH_STEP; x < snapshot.width; x += EMPTY_POINT_SEARCH_STEP) {
+      if (!rects.some(r => x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height)) return new Vector2(x, y);
+    }
+  }
+  throw new Error('The HUD covers the whole window; there is no pass-through point to test');
+}
+
+function counts(api: InteractionInspection): PassthroughCounts {
+  return api.passthrough();
+}
+
+/**
+ * Plan I1: the root cooperates with Godot. Empty space and `pointer-events: none` regions belong to
+ * the Controls underneath; keys, Tab and wheel ticks belong to the game unless React used them.
+ */
+async function verifyGodotCooperation(owner: Node, api: InteractionInspection, capture: (name: string) => Promise<void>): Promise<void> {
+  // The root takes no key focus when it enters the tree: only its owner or a focused element does.
+  assert(!api.bareSurfaceHasFocus(), 'A root that has just entered the tree must not steal key focus');
+
+  api.showHud();
+  await settle();
+  api.resetPassthrough();
+  api.grabSurfaceFocus();
+  await settle();
+  assert(api.surfaceHasFocus(), 'The owner can give the root key focus');
+  await capture('09-passthrough-hud');
+  const status = () => text(api, 'hud-status');
+  const baseline = status();
+  const empty = emptyPoint(api);
+
+  // A press where only `pointer-events: none` elements lie goes to the Control behind the root, and
+  // on to the game; React sees nothing.
+  move(empty);
+  await settle();
+  assert(api.snapshot().hovered === null, `Nothing is hovered over a pass-through region: ${api.snapshot().hovered}`);
+  pointer(empty, true);
+  await settle();
+  pointer(empty, false);
+  await settle();
+  let seen = counts(api);
+  assert(seen.backdropPresses === 1, `The Control behind the root saw the press: ${JSON.stringify(seen)}`);
+  assert(seen.unhandledPresses === 1, `The game's _unhandled_input saw the press: ${JSON.stringify(seen)}`);
+  assert(status() === baseline, `No React handler ran for a pass-through press: ${status()}`);
+  assert(api.cursorShapeAt(empty.x, empty.y) === Control.CursorShape.CursorArrow, 'Over nothing the cursor is the arrow');
+
+  // The button inside the pass-through region takes pointers, and keeps them from the game.
+  await hover(api, 'hud-map');
+  const hoveredId = api.snapshot().hovered;
+  assert(hoveredId !== null && (hoveredId === get(api, 'hud-map').id || get(api, 'hud-map').children.includes(hoveredId)),
+    `Hover reaches an auto element inside a none region: ${hoveredId}`);
+  await click(api, 'hud-inventory');
+  seen = counts(api);
+  assert(seen.backdropPresses === 1 && seen.unhandledPresses === 1, `A button press stays in React: ${JSON.stringify(seen)}`);
+  assert(status().startsWith('inventory 1,'), `The button handled its click: ${status()}`);
+
+  // An element with pointer-events none inside an auto one is never the target; the auto one is.
+  await click(api, 'hud-panel-label');
+  assert(status().includes('panel 1, label 0'), `The panel, not its none label, is the target: ${status()}`);
+  assert(text(api, 'hud-pointer').startsWith('last panel press '), 'The panel saw the press');
+  // Pressing something that cannot take focus clears element focus and hands key focus back: the
+  // press itself still clicked, so the release did not cancel it.
+  assert(api.snapshot().focused === null, 'A press on a non-focusable element clears element focus');
+  assert(!api.surfaceHasFocus(), 'A press that leaves no element focused releases the root\'s key focus');
+
+  // With no element focused and the root unfocused, every key belongs to the game.
+  await keyPress(Key.KeyW);
+  await keyPress(Key.KeyTab);
+  seen = counts(api);
+  assert(seen.unhandledKeys[Key.KeyW] === 1, `W reaches _unhandled_input: ${JSON.stringify(seen.unhandledKeys)}`);
+  assert(seen.unhandledKeys[Key.KeyTab] === 1 && api.snapshot().focused === null,
+    `Tab belongs to the game while the root has no key focus: ${JSON.stringify(seen.unhandledKeys)}`);
+
+  // The owner gives the root key focus with no element focused: W still reaches the game, Tab does
+  // not because it moved focus.
+  api.grabSurfaceFocus();
+  await settle();
+  await keyPress(Key.KeyW);
+  assert(counts(api).unhandledKeys[Key.KeyW] === 2, 'W reaches the game while the root has focus and no element is focused');
+  await keyPress(Key.KeyTab);
+  assert(api.snapshot().focused === get(api, 'hud-inventory').id, `Tab focuses the first button: ${api.snapshot().focused}`);
+  assert(counts(api).unhandledKeys[Key.KeyTab] === 1, 'A Tab that moved focus is consumed');
+  await keyPress(Key.KeyW);
+  assert(counts(api).unhandledKeys[Key.KeyW] === 3, 'W still reaches the game after a React button took focus');
+  await keyPress(Key.KeyTab);
+  assert(api.snapshot().focused === get(api, 'hud-map').id, 'Tab moves to the next button');
+  assert(counts(api).unhandledKeys[Key.KeyTab] === 1, 'Tab with an element focused is consumed too');
+  await keyPress(Key.KeyEnter);
+  assert(status().includes('map 1,'), `Enter activates the focused button: ${status()}`);
+  assert(counts(api).unhandledKeys[Key.KeyEnter] === undefined, 'An activating Enter is consumed');
+  await keyPress(Key.KeyTab, true);
+  assert(api.snapshot().focused === get(api, 'hud-inventory').id, 'Shift+Tab moves back');
+  await capture('10-hud-focus');
+
+  // Nothing tabbable: Tab changes nothing, so it goes to the game.
+  await click(api, 'hud-lock');
+  assert(status().endsWith('locked true'), `The lock handled its click: ${status()}`);
+  assert(api.snapshot().focused === null, 'Disabling the focused button removes focus');
+  api.grabSurfaceFocus();
+  await settle();
+  await keyPress(Key.KeyTab);
+  assert(api.snapshot().focused === null, 'A disabled button is not tabbable');
+  assert(counts(api).unhandledKeys[Key.KeyTab] === 2, 'A Tab that moved nothing is not consumed');
+  await click(api, 'hud-lock');
+  assert(status().endsWith('locked false'), 'The buttons unlock');
+
+  // Wheel: over empty space and over an element nobody handles it reaches the game; JS decides.
+  const unhandledWheels = () => counts(api).unhandledWheels;
+  const readout = () => text(api, 'hud-wheel-status');
+  await wheel(empty, MouseButton.MouseButtonWheelDown);
+  assert(unhandledWheels() === 1, 'A wheel tick over empty space reaches the game, once (the release is not a tick)');
+  assert(readout().startsWith('consumed ticks 0, passed ticks 0'), `No React handler saw it: ${readout()}`);
+  await wheel(point(api, 'hud-panel'), MouseButton.MouseButtonWheelUp);
+  assert(unhandledWheels() === 2, 'A wheel tick over an element with no onWheel reaches the game');
+  await wheel(point(api, 'hud-wheel-pass'), MouseButton.MouseButtonWheelRight);
+  assert(unhandledWheels() === 3, 'A wheel tick a handler did not prevent reaches the game');
+  assert(readout() === 'consumed ticks 0, passed ticks 1, last delta 1,0', `Wheel right is +x: ${readout()}`);
+  await wheel(point(api, 'hud-wheel-consume'), MouseButton.MouseButtonWheelLeft);
+  assert(unhandledWheels() === 3, 'A wheel tick whose handler called preventDefault is consumed');
+  assert(readout() === 'consumed ticks 1, passed ticks 1, last delta -1,0', `Wheel left is -x: ${readout()}`);
+  await wheel(point(api, 'hud-wheel-consume'), MouseButton.MouseButtonWheelUp);
+  assert(readout().endsWith('last delta 0,-1'), `Wheel up is -y: ${readout()}`);
+  await wheel(point(api, 'hud-wheel-consume'), MouseButton.MouseButtonWheelDown);
+  assert(readout().endsWith('last delta 0,1'), `Wheel down is +y: ${readout()}`);
+  // A trackpad pan reaches JS as a wheel with its own deltas. Godot's Input dispatches each gesture
+  // twice (`Input::_parse_input_event_impl` sends gestures once explicitly and again with every
+  // event), so a parsed pan is seen more than once by everything; what must hold is that JS and the
+  // game see the same number of them, and that a prevented pan never reaches the game.
+  const ticks = () => {
+    const match = /consumed ticks (\d+), passed ticks (\d+)/.exec(readout());
+    assert(match, `Malformed wheel readout: ${readout()}`);
+    return { consumed: Number(match[1]), passed: Number(match[2]) };
+  };
+  const pansBefore = counts(api).unhandledPans;
+  await pan(empty, PAN_DELTA);
+  assert(counts(api).unhandledPans > pansBefore, 'A pan over empty space reaches the game');
+  let before = { ...ticks(), pans: counts(api).unhandledPans };
+  await pan(point(api, 'hud-wheel-consume'), PAN_DELTA);
+  assert(readout().endsWith(`last delta ${PAN_DELTA.x},${PAN_DELTA.y}`), `A trackpad pan reaches JS as a wheel: ${readout()}`);
+  assert(ticks().consumed > before.consumed, 'The consuming element saw the pan');
+  assert(counts(api).unhandledPans === before.pans, 'A prevented pan is consumed');
+  before = { ...ticks(), pans: counts(api).unhandledPans };
+  await pan(point(api, 'hud-wheel-pass'), PAN_DELTA);
+  const seenByJs = ticks().passed - before.passed;
+  assert(seenByJs > 0, `An unprevented pan reaches the element's handler: ${readout()}`);
+  assert(counts(api).unhandledPans - before.pans === seenByJs, 'Every pan JS declined reaches the game');
+
+  // The cursor follows the element under the pointer, and inherits from its parent.
+  const shapeAt = (id: string) => {
+    const at = point(api, id);
+    return api.cursorShapeAt(at.x, at.y);
+  };
+  assert(shapeAt('hud-map') === Control.CursorShape.CursorPointingHand, 'cursor-pointer shows the pointing hand');
+  const mapRect = get(api, 'hud-map').rect;
+  const padding = api.cursorShapeAt(mapRect.x + POINTER_PADDING_INSET, mapRect.y + POINTER_PADDING_INSET);
+  assert(padding === Control.CursorShape.CursorPointingHand, 'The padding of a cursor-pointer button shows it too');
+  const labelId = get(api, 'hud-map').children[0];
+  assert(labelId !== undefined, 'The button has a label child');
+  const label = api.snapshot().nodes.find(candidate => candidate.id === labelId);
+  assert(label, `Missing the button's label node ${labelId}`);
+  const labelCenter = new Vector2(label.rect.x + label.rect.width / 2, label.rect.y + label.rect.height / 2);
+  assert(api.cursorShapeAt(labelCenter.x, labelCenter.y) === Control.CursorShape.CursorPointingHand,
+    'The button\'s label inherits the cursor');
+  assert(shapeAt('hud-help') === Control.CursorShape.CursorHelp, 'cursor-help shows the help cursor');
+  assert(shapeAt('hud-panel') === Control.CursorShape.CursorMove, 'cursor-move shows the move cursor');
+  assert(shapeAt('hud-inventory') === Control.CursorShape.CursorArrow, 'A button with no cursor shows the arrow');
+  const panelLabel = point(api, 'hud-panel-label');
+  assert(api.cursorShapeAt(panelLabel.x, panelLabel.y) === Control.CursorShape.CursorMove,
+    'Over a pointer-events-none label the cursor is the panel\'s');
+
+  // End to end: Godot asks the root for its cursor as the pointer moves and applies it to the window.
+  await hover(api, 'hud-map');
+  assert(DisplayServer.cursorGetShape() === DisplayServer.CursorShape.CursorPointingHand,
+    `Moving over a cursor-pointer button sets the window cursor: ${DisplayServer.cursorGetShape()}`);
+  await hover(api, 'hud-help');
+  assert(DisplayServer.cursorGetShape() === DisplayServer.CursorShape.CursorHelp, 'Moving to cursor-help changes it');
+  move(empty);
+  await settle();
+  assert(DisplayServer.cursorGetShape() === DisplayServer.CursorShape.CursorArrow, 'Leaving the HUD for the game restores the arrow');
+
+  // viewportX/viewportY are canvas coordinates; x/y stay root-local.
+  api.offsetSurface(SURFACE_OFFSET.x, SURFACE_OFFSET.y);
+  await settle();
+  const panelPoint = point(api, 'hud-panel');
+  const inViewport = new Vector2(panelPoint.x + SURFACE_OFFSET.x, panelPoint.y + SURFACE_OFFSET.y);
+  move(inViewport);
+  await settle();
+  pointer(inViewport, true);
+  await settle();
+  pointer(inViewport, false);
+  await settle();
+  const expected = `last panel press ${panelPoint.x},${panelPoint.y} viewport ${inViewport.x},${inViewport.y}`;
+  assert(text(api, 'hud-pointer') === expected, `Pointer events carry root-local and canvas coordinates: ${text(api, 'hud-pointer')} != ${expected}`);
+  api.offsetSurface(0, 0);
+  await settle();
+
+  move(FAR_CORNER);
+  await settle();
+  api.restoreDemo();
+  await settle();
+  api.grabSurfaceFocus();
+  await settle();
 }
 
 export async function runInteractionVerification(owner: Node, api: InteractionInspection): Promise<void> {
@@ -318,6 +585,8 @@ export async function runInteractionVerification(owner: Node, api: InteractionIn
   console.log('GODOT_REACT_DISPATCH_TIMING', JSON.stringify(timing));
   move(FAR_CORNER);
   await settle();
+
+  await verifyGodotCooperation(owner, api, capture);
 
   console.log('GODOT_REACT_INTERACTION_VERIFY_PASSED', JSON.stringify({captures, dispatchTiming: timing}));
 }

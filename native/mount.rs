@@ -22,7 +22,7 @@ use crate::diff::{Insertion, MountingTransaction, Parent, Removal};
 use crate::geometry::{BoxRect, intersect_clip, intersects};
 use crate::pointer::ButtonTree;
 use crate::profile::{Sample, micros};
-use crate::props::{Kind, PropsSpec};
+use crate::props::{CursorSpec, Kind, PropsSpec};
 use crate::render_tree::RenderNode;
 use crate::{CORNER_DETAIL, ReactUiRoot};
 
@@ -279,7 +279,9 @@ impl Mounted {
     }
 
     /// The topmost element at `point` (root-local), descending the hierarchy in reverse paint
-    /// order. A clipping element only hands the point to its children inside its padding box.
+    /// order. A clipping element only hands the point to its children inside its padding box. An
+    /// element with `pointer-events: none` is never the answer, but its children still can be
+    /// (CSS semantics, plan 3.7).
     pub(crate) fn hit_test(&self, point: Vector2) -> Option<u32> {
         for layer in (0..LAYER_COUNT).rev() {
             for tag in self.roots[layer].iter().rev() {
@@ -308,7 +310,17 @@ impl Mounted {
             width: node.geometry.size.x,
             height: node.geometry.size.y,
         };
-        border_box.contains(local).then_some(tag)
+        (node.computed.is_pointer_target() && border_box.contains(local)).then_some(tag)
+    }
+
+    /// The cursor to show at `point`: the computed `cursor` of the element a pointer there would
+    /// reach, or `default` over nothing.
+    pub(crate) fn cursor_at(&self, point: Vector2) -> CursorSpec {
+        self.hit_test(point)
+            .and_then(|tag| self.nodes.get(&tag))
+            .map_or(CursorSpec::Default, |node| {
+                node.computed.cursor_or_default()
+            })
     }
 
     /// Every element in document order (pre-order, main layer first). Whole-tree by design: Tab

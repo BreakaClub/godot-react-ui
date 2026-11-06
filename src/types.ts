@@ -5,6 +5,11 @@ export type Justification = 'start' | 'end' | 'center' | 'space-between' | 'spac
 export type HexColor = `#${string}`;
 export type TransitionProperty = 'width' | 'height' | 'opacity' | 'backgroundColor';
 export type Overflow = 'visible' | 'hidden';
+/** `none` stops an element itself being the target of a pointer; its children still can be. */
+export type PointerEvents = 'auto' | 'none';
+export type Cursor =
+  | 'default' | 'pointer' | 'text' | 'move' | 'grab' | 'grabbing' | 'not-allowed' | 'crosshair'
+  | 'wait' | 'progress' | 'help' | 'ew-resize' | 'ns-resize' | 'nesw-resize' | 'nwse-resize';
 export interface Transition {
   properties: readonly TransitionProperty[];
   durationMs: number;
@@ -57,6 +62,10 @@ export interface Style {
   overflow?: Overflow;
   overflowX?: Overflow;
   overflowY?: Overflow;
+  /** Inherited. */
+  pointerEvents?: PointerEvents;
+  /** Inherited. */
+  cursor?: Cursor;
 }
 
 /**

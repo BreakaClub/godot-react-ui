@@ -11,7 +11,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ops::{Bound, Deref};
 
 use crate::props::{
-    DisplaySpec, InterpolateSize, PseudoState, StyleLayer, StyleLayers, StyleSpec, TextAlignSpec,
+    CursorSpec, DisplaySpec, InterpolateSize, PointerEventsSpec, PseudoState, StyleLayer,
+    StyleLayers, StyleSpec, TextAlignSpec,
 };
 
 /// The pseudo-states that hold for one node, as a small bit set.
@@ -77,14 +78,17 @@ impl Deref for ComputedStyle {
     }
 }
 
-/// The properties a node passes on to its children: `color`, `fontSize`, `textAlign` and
-/// `interpolateSize`.
+/// The properties a node passes on to its children: `color`, `fontSize`, `textAlign`,
+/// `interpolateSize`, `pointerEvents` and `cursor` (plan 3.6). Later phases add the text,
+/// selection and scrollbar properties.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct InheritedStyle {
     pub color: Option<String>,
     pub font_size: Option<i32>,
     pub text_align: Option<TextAlignSpec>,
     pub interpolate_size: Option<InterpolateSize>,
+    pub pointer_events: Option<PointerEventsSpec>,
+    pub cursor: Option<CursorSpec>,
 }
 
 impl ComputedStyle {
@@ -94,7 +98,20 @@ impl ComputedStyle {
             font_size: self.0.font_size,
             text_align: self.0.text_align,
             interpolate_size: self.0.interpolate_size,
+            pointer_events: self.0.pointer_events,
+            cursor: self.0.cursor,
         }
+    }
+
+    /// Whether this element can itself be the target of a pointer. `pointer-events: none` only
+    /// removes the element: its children are tested on their own computed value.
+    pub fn is_pointer_target(&self) -> bool {
+        self.0.pointer_events != Some(PointerEventsSpec::None)
+    }
+
+    /// The cursor shown over this element; `default` when nothing set one.
+    pub fn cursor_or_default(&self) -> CursorSpec {
+        self.0.cursor.unwrap_or(CursorSpec::Default)
     }
 }
 
@@ -120,6 +137,8 @@ pub fn resolve(
         font_size: inherited.font_size,
         text_align: inherited.text_align,
         interpolate_size: inherited.interpolate_size,
+        pointer_events: inherited.pointer_events,
+        cursor: inherited.cursor,
         ..StyleSpec::default()
     };
     if let Some(layers) = layers {
@@ -486,6 +505,8 @@ mod tests {
             font_size: Some(18),
             text_align: Some(TextAlignSpec::Center),
             interpolate_size: Some(InterpolateSize::AllowKeywords),
+            pointer_events: Some(PointerEventsSpec::None),
+            cursor: Some(CursorSpec::Pointer),
         };
         let none = StyleLayers::default();
         let child = resolve(Some(&none), false, &inherited, &conditions(WIDE, &[]));
@@ -493,11 +514,32 @@ mod tests {
         assert_eq!(child.font_size, Some(18));
         assert_eq!(child.text_align, Some(TextAlignSpec::Center));
         assert_eq!(child.interpolate_size, Some(InterpolateSize::AllowKeywords));
+        assert_eq!(child.pointer_events, Some(PointerEventsSpec::None));
+        assert_eq!(child.cursor, Some(CursorSpec::Pointer));
         let own = layers(r##"{"layers":[{"style":{"color":"#000","fontSize":12}}]}"##);
         let overridden = resolve(Some(&own), false, &inherited, &conditions(WIDE, &[]));
         assert_eq!(overridden.color.as_deref(), Some("#000"));
         assert_eq!(overridden.font_size, Some(12));
         assert_eq!(overridden.text_align, Some(TextAlignSpec::Center));
+        // A child may take pointer events back inside an element that has none.
+        let auto = layers(r#"{"layers":[{"style":{"pointerEvents":"auto","cursor":"text"}}]}"#);
+        let reclaimed = resolve(Some(&auto), false, &inherited, &conditions(WIDE, &[]));
+        assert!(reclaimed.is_pointer_target());
+        assert_eq!(reclaimed.cursor_or_default(), CursorSpec::Text);
+        assert!(
+            !child.is_pointer_target(),
+            "the inherited value applies unless overridden"
+        );
+        assert_eq!(
+            resolve(
+                None,
+                false,
+                &InheritedStyle::default(),
+                &conditions(WIDE, &[])
+            )
+            .cursor_or_default(),
+            CursorSpec::Default
+        );
         // Layout and paint properties are not inherited.
         let parent =
             layers(r##"{"layers":[{"style":{"backgroundColor":"#123","paddingTop":9}}]}"##);
