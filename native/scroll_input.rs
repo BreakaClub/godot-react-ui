@@ -97,7 +97,7 @@ impl ReactUiRoot {
     /// ancestors (the containing-block chain, which is what scrolls an element), innermost first. A
     /// container with nothing to scroll on either axis is left out: it neither moves nor, whatever
     /// its `overscroll-behavior`, keeps the scroll from reaching the container behind it.
-    fn scroll_path(&self, start: u32) -> Vec<u32> {
+    pub(crate) fn scroll_path(&self, start: u32) -> Vec<u32> {
         let mut path = Vec::new();
         let mut current = Some(start);
         while let Some(tag) = current {
@@ -196,11 +196,14 @@ impl ReactUiRoot {
         for tag in tags {
             self.scroll_changed(*tag);
         }
-        if self.pointer_known {
+        // A held pointer that is dragging something froze the hover; the drag looks under it again
+        // (`DragInput::Refresh`) when the next frame comes.
+        if self.pointer_known && !self.drag_in_progress() {
             let hit = self.mounted.hit_test(self.pointer);
             self.update_hover(hit);
         }
         self.update_focus_ring();
+        self.drag_scrolled();
     }
 
     /// The part of a scroll that belongs to the container alone (`scrolled` does the rest once per
@@ -624,7 +627,7 @@ impl ReactUiRoot {
 
     /// Move a scroll container by `apply` (a clamped `scroll_to` or `scroll_by`, which returns how far
     /// it moved), ending any flick it was coasting through.
-    fn move_container(
+    pub(crate) fn move_container(
         &mut self,
         tag: u32,
         apply: impl FnOnce(&mut ScrollState, &ScrollRanges) -> Vec2,

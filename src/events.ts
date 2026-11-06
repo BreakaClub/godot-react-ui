@@ -1,8 +1,9 @@
 import type { UIHandle, UIProps } from './components';
+import type { DataTransfer, DropEffect } from './data-transfer';
 import type {
-  NativeAccessibilityAction, NativeAccessibilityActionEvent, NativeEvent, NativeEventType, NativeFocusEvent,
-  NativeFocusEventType, NativeKeyEvent, NativeKeyEventType, NativeMouseFields, NativePointerEvent,
-  NativePointerEventType, NativePointerType, NativeScrollEvent, NativeWheelEvent,
+  NativeAccessibilityAction, NativeAccessibilityActionEvent, NativeDragEndEvent, NativeDragEvent, NativeDragEventType,
+  NativeEvent, NativeEventType, NativeFocusEvent, NativeFocusEventType, NativeKeyEvent, NativeKeyEventType,
+  NativeMouseFields, NativePointerEvent, NativePointerEventType, NativePointerType, NativeScrollEvent, NativeWheelEvent,
 } from './native';
 
 /** DOM `Event.eventPhase`. */
@@ -126,11 +127,40 @@ export interface UIAccessibilityActionEvent extends UISyntheticEvent<'accessibil
  */
 export type UISelectionChangeEvent = UISyntheticEvent<'selectionchange'>;
 
+/**
+ * A drag-and-drop event (plan 3.19), with the HTML semantics: they all bubble; `dragstart`, `dragover` and
+ * `drop` are cancelable. `dragstart` and `drag` target the dragged element, `dragend` too (or the root, if the
+ * element was removed during the drag); `dragenter`, `dragover`, `dragleave` and `drop` target the element under
+ * the pointer. Preventing `dragstart` stops the drag; preventing `dragover` (with a `dropEffect` the source's
+ * `effectAllowed` permits) accepts a drop there; preventing `drop` reports that it was handled.
+ * `dataTransfer` is a new object for each event, in the mode the event calls for (see `DataTransfer`).
+ */
+export interface UIDragEvent<Type extends NativeDragEventType = NativeDragEventType>
+  extends UISyntheticEvent<Type>, UIMouseFields {
+  readonly dataTransfer: DataTransfer;
+  /** `dragenter`: the element the pointer came from; `dragleave`: the element it goes to, if there is one and it still exists. */
+  readonly relatedTarget: UIHandle | null;
+  /** The drag this event belongs to: the same for every event from `dragstart` to `dragend`. */
+  readonly sessionId: number;
+}
+
+/**
+ * The last event of a drag, at the dragged element. `x`, `y`, `viewportX` and `viewportY` are where the pointer
+ * was released (or last was, for a cancelled drag), so a game can place what was dropped outside the UI.
+ */
+export interface UIDragEndEvent extends UIDragEvent<'dragend'> {
+  /** What the drop did: `none` if it was not dropped on a target that accepted it, or was cancelled. */
+  readonly dropEffect: DropEffect;
+  /** The pointer was released beyond the root. False for a drag that was cancelled (Escape, the OS, the root leaving). */
+  readonly endedOutsideRoot: boolean;
+}
+
 /** Kept so handler types written against the first event model still compile. */
 export type UIEvent = UIPointerEvent;
 export type UIAnyEvent =
   | UIPointerEvent | UIWheelEvent | UIScrollEvent | UIKeyboardEvent | UIFocusEvent | UIAccessibilityActionEvent
-  | UISelectionChangeEvent;
+  | UISelectionChangeEvent
+  | UIDragEvent | UIDragEndEvent;
 
 export interface UIEventMap {
   pointerdown: UIPointerEvent;
@@ -151,6 +181,13 @@ export interface UIEventMap {
   blur: UIFocusEvent;
   accessibilityaction: UIAccessibilityActionEvent;
   selectionchange: UISelectionChangeEvent;
+  dragstart: UIDragEvent<'dragstart'>;
+  drag: UIDragEvent<'drag'>;
+  dragenter: UIDragEvent<'dragenter'>;
+  dragleave: UIDragEvent<'dragleave'>;
+  dragover: UIDragEvent<'dragover'>;
+  drop: UIDragEvent<'drop'>;
+  dragend: UIDragEndEvent;
 }
 
 class SyntheticEvent<Type extends NativeEventType> implements UISyntheticEvent<Type> {
@@ -238,6 +275,30 @@ class WheelEventImpl extends MouseEventImpl<'wheel'> implements UIWheelEvent {
     super(native.type, native, target, bubbles);
     this.deltaX = native.deltaX;
     this.deltaY = native.deltaY;
+  }
+}
+
+class DragEventImpl<Type extends NativeDragEventType> extends MouseEventImpl<Type> implements UIDragEvent<Type> {
+  readonly dataTransfer: DataTransfer;
+  readonly relatedTarget: UIHandle | null;
+  readonly sessionId: number;
+
+  constructor(native: NativeDragEvent | NativeDragEndEvent, type: Type, target: UIHandle, related: UIHandle | null, bubbles: boolean, transfer: DataTransfer) {
+    super(type, native, target, bubbles);
+    this.dataTransfer = transfer;
+    this.relatedTarget = related;
+    this.sessionId = native.sessionId;
+  }
+}
+
+class DragEndEventImpl extends DragEventImpl<'dragend'> implements UIDragEndEvent {
+  readonly dropEffect: DropEffect;
+  readonly endedOutsideRoot: boolean;
+
+  constructor(native: NativeDragEndEvent, target: UIHandle, related: UIHandle | null, bubbles: boolean, transfer: DataTransfer) {
+    super(native, native.type, target, related, bubbles, transfer);
+    this.dropEffect = native.dropEffect;
+    this.endedOutsideRoot = native.endedOutsideRoot;
   }
 }
 
@@ -332,6 +393,17 @@ function isSelectionChangeEvent(event: UIAnyEvent): event is UISelectionChangeEv
   return event.type === 'selectionchange';
 }
 
+const DRAG_EVENT_TYPES: readonly NativeEventType[] = ['dragstart', 'drag', 'dragenter', 'dragleave', 'dragover', 'drop', 'dragend'];
+
+function isDragEvent(event: UIAnyEvent): event is UIDragEvent | UIDragEndEvent {
+  return DRAG_EVENT_TYPES.includes(event.type);
+}
+
+/** Whether a native event is one of the drag-and-drop family. */
+export function isNativeDragEvent(native: NativeEvent): native is NativeDragEvent | NativeDragEndEvent {
+  return DRAG_EVENT_TYPES.includes(native.type);
+}
+
 /** One entry per native event type: whether it bubbles and which prop receives each phase. */
 interface EventSpec {
   readonly bubbles: boolean;
@@ -351,7 +423,7 @@ function pointerSpec(
       if (handler === undefined) return;
       if (
         isFocusEvent(event) || isWheelEvent(event) || isKeyboardEvent(event) || isScrollEvent(event)
-        || isAccessibilityActionEvent(event) || isSelectionChangeEvent(event)
+        || isAccessibilityActionEvent(event) || isSelectionChangeEvent(event) || isDragEvent(event)
       ) {
         throw new Error(`UI internal error: ${event.type} reached a pointer event handler`);
       }
@@ -446,6 +518,22 @@ function accessibilityActionSpec(bubble: (props: UIProps) => Handler<UIAccessibi
  */
 const SELECTION_CHANGE_SPEC: EventSpec = { bubbles: false, invoke() {} };
 
+/** Drag events bubble and have no capture handlers. */
+function dragSpec<K extends NativeDragEventType>(type: K, bubble: (props: UIProps) => Handler<UIEventMap[K]>): EventSpec {
+  return {
+    bubbles: true,
+    invoke(props, isCapture, event) {
+      if (isCapture) return;
+      const handler = bubble(props);
+      if (handler === undefined) return;
+      if (!isEventType(event, type)) {
+        throw new Error(`UI internal error: ${event.type} reached a ${type} handler`);
+      }
+      handler(event);
+    },
+  };
+}
+
 /** The only place that knows which prop names which event. Completeness is checked by `Record`. */
 const EVENT_TABLE: Record<NativeEventType, EventSpec> = {
   pointerdown: pointerSpec(true, (p) => p.onPointerDown, (p) => p.onPointerDownCapture),
@@ -466,6 +554,13 @@ const EVENT_TABLE: Record<NativeEventType, EventSpec> = {
   blur: focusSpec((p) => p.onBlur),
   accessibilityaction: accessibilityActionSpec((p) => p.onAccessibilityAction),
   selectionchange: SELECTION_CHANGE_SPEC,
+  dragstart: dragSpec('dragstart', (p) => p.onDragStart),
+  drag: dragSpec('drag', (p) => p.onDrag),
+  dragenter: dragSpec('dragenter', (p) => p.onDragEnter),
+  dragleave: dragSpec('dragleave', (p) => p.onDragLeave),
+  dragover: dragSpec('dragover', (p) => p.onDragOver),
+  drop: dragSpec('drop', (p) => p.onDrop),
+  dragend: dragSpec('dragend', (p) => p.onDragEnd),
 };
 
 /** `event` is a `type` event: this is the runtime check behind the typed listener registration. */
@@ -513,9 +608,9 @@ export interface DispatchResult {
 export const NOT_DISPATCHED: DispatchResult = Object.freeze({ defaultPrevented: false, failure: undefined });
 
 function createEvent(
-  native: NativeEvent, target: UIHandle, related: UIHandle | null, bubbles: boolean,
+  native: NativeEvent, target: UIHandle, related: UIHandle | null, bubbles: boolean, transfer: DataTransfer | undefined,
 ): PointerEventImpl | WheelEventImpl | ScrollEventImpl | KeyboardEventImpl | FocusEventImpl | AccessibilityActionEventImpl
-  | SyntheticEvent<'selectionchange'> {
+  | DragEventImpl<NativeDragEventType> | SyntheticEvent<'selectionchange'> {
   switch (native.type) {
     case 'pointerdown': case 'pointermove': case 'pointerup':
     case 'pointerenter': case 'pointerleave': case 'pointercancel': case 'click': case 'dblclick':
@@ -533,6 +628,12 @@ function createEvent(
       return new AccessibilityActionEventImpl(native, target, bubbles);
     case 'selectionchange':
       return new SyntheticEvent(native.type, target, bubbles, native.cancelable, native.timeStamp);
+    case 'dragstart': case 'drag': case 'dragenter': case 'dragleave': case 'dragover': case 'drop':
+      if (transfer === undefined) throw new Error(`UI internal error: a ${native.type} event needs a DataTransfer`);
+      return new DragEventImpl(native, native.type, target, related, bubbles, transfer);
+    case 'dragend':
+      if (transfer === undefined) throw new Error('UI internal error: a dragend event needs a DataTransfer');
+      return new DragEndEventImpl(native, target, related, bubbles, transfer);
   }
 }
 
@@ -540,12 +641,15 @@ function createEvent(
  * Capture handlers from the outermost ancestor down to the target, then bubble handlers from the
  * target up (non-bubbling types: the target only), then root listeners. `path` lists the target
  * first and its ancestors after it; an empty path addresses the root. A handler that throws ends
- * this event's dispatch and is returned as `failure`, with `defaultPrevented` as it stood.
+ * this event's dispatch and is returned as `failure`, with `defaultPrevented` as it stood. A drag event
+ * needs the `DataTransfer` of its handlers (`DragSessions` makes it).
  */
-export function dispatchEvent(native: NativeEvent, path: readonly PathNode[], related: UIHandle | null, root: RootTarget): DispatchResult {
+export function dispatchEvent(
+  native: NativeEvent, path: readonly PathNode[], related: UIHandle | null, root: RootTarget, transfer?: DataTransfer,
+): DispatchResult {
   const spec = EVENT_TABLE[native.type];
   const targetNode = path[0];
-  const event = createEvent(native, targetNode?.handle ?? root.handle, related, spec.bubbles);
+  const event = createEvent(native, targetNode?.handle ?? root.handle, related, spec.bubbles, transfer);
   try {
     for (const node of [...path].reverse()) {
       if (event.isPropagationStopped()) break;

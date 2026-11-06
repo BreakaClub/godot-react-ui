@@ -24,6 +24,10 @@ export interface NativeProps {
   readonly tabIndex?: 0 | -1;
   /** Focus the element when it is first mounted. */
   readonly autoFocus?: true;
+  /** A press that moves on (or a touch that is held) drags the element (plan 3.19). */
+  readonly draggable?: true;
+  /** What follows the pointer while the element is dragged; `native` when absent. */
+  readonly dragPreview?: 'native' | 'none';
   /** Explicit accessibility role (plan Appendix D). `Button`, `Text` and `TextInput` have implicit ones. */
   readonly role?: UIRole;
   readonly ariaLabel?: string;
@@ -64,7 +68,7 @@ export type NativePropsDiff = { [K in keyof NativeProps]?: NativeProps[K] | null
  * not here is JavaScript-only. Native rejects any other key (`deny_unknown_fields`).
  */
 export const NATIVE_PROP_KEYS = [
-  'style', 'text', 'disabled', 'hidden', 'testID', 'tabIndex', 'autoFocus', ...ACCESSIBILITY_KEYS,
+  'style', 'text', 'disabled', 'hidden', 'testID', 'tabIndex', 'autoFocus', 'draggable', 'dragPreview', ...ACCESSIBILITY_KEYS,
 ] as const satisfies readonly (keyof NativeProps)[];
 
 /** The text a `text` element shows, or `undefined` if its children are not plain strings or numbers. */
@@ -116,6 +120,13 @@ export function nativeProps(kind: NativeKind, props: UIProps, hidden: boolean, p
     native.tabIndex = props.tabIndex;
   }
   if (props.autoFocus === true) native.autoFocus = true;
+  if (props.draggable === true) native.draggable = true;
+  if (props.dragPreview !== undefined) {
+    if (props.dragPreview !== 'native' && props.dragPreview !== 'none') {
+      throw new Error(`dragPreview must be 'native' or 'none', not ${String(props.dragPreview)}`);
+    }
+    native.dragPreview = props.dragPreview;
+  }
   accessibilityProps(props, native);
   return native;
 }
@@ -194,6 +205,14 @@ export function diffNativeProps(previous: NativeProps, next: NativeProps): Nativ
   }
   if (previous.autoFocus !== next.autoFocus) {
     diff.autoFocus = next.autoFocus ?? null;
+    changed = true;
+  }
+  if (previous.draggable !== next.draggable) {
+    diff.draggable = next.draggable ?? null;
+    changed = true;
+  }
+  if (previous.dragPreview !== next.dragPreview) {
+    diff.dragPreview = next.dragPreview ?? null;
     changed = true;
   }
   for (const key of ACCESSIBILITY_KEYS) {

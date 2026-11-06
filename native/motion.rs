@@ -719,14 +719,19 @@ impl ReactUiRoot {
         self.update_process();
     }
 
-    /// The one decision of whether the root needs `process()` frames: native motion is running, or a
-    /// flick is coasting or a finger is panning (`ScrollInputState::wants_frames`), and the root is in
-    /// the scene tree. Everything that starts or ends such work calls this; nothing else turns
-    /// processing on or off except [`Self::pause_process`].
+    /// The one decision of whether the root needs `process()` frames: native motion is running, a flick
+    /// is coasting or a finger is panning (`ScrollInputState::wants_frames`), or a drag needs a timer
+    /// or edge auto-scroll (`drag_wants_frames`), and the root is in the scene tree. A running drag also
+    /// turns on `input`, which is how Escape reaches it. Everything that starts or ends such work calls
+    /// this; nothing else turns processing on or off except [`Self::pause_process`].
     pub(crate) fn update_process(&mut self) {
+        let inside = self.base().is_inside_tree();
         let active =
-            (self.motion_active() || self.scrolling.wants_frames()) && self.base().is_inside_tree();
+            (self.motion_active() || self.scrolling.wants_frames() || self.drag_wants_frames())
+                && inside;
+        let listening = self.drag_in_progress() && inside;
         self.base_mut().set_process(active);
+        self.base_mut().set_process_input(listening);
     }
 
     /// Stop `process()` frames while the root leaves the scene tree. (`is_inside_tree()` is still
@@ -734,6 +739,7 @@ impl ReactUiRoot {
     /// calls `update_process`, which resumes whatever is still running.
     pub(crate) fn pause_process(&mut self) {
         self.base_mut().set_process(false);
+        self.base_mut().set_process_input(false);
     }
 }
 

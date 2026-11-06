@@ -106,6 +106,30 @@ pub struct FocusData {
     pub focus_visible: bool,
 }
 
+/// A drag-and-drop event (plan 3.19, 4.3): the pointer's state with `button` -1 and `buttons` 1 while it
+/// is held, and the drag it belongs to. `related_target` (in `pointer`) is the other side of a
+/// `dragenter` or `dragleave`.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DragData {
+    #[serde(flatten)]
+    pub pointer: PointerData,
+    /// Counts the drags a root has started; JS keeps one `DataTransfer` store for each. Every event
+    /// of one drag carries the same id.
+    pub session_id: u32,
+}
+
+/// `dragend`: how the drag ended. A drag that ended without a drop, or was cancelled, has the effect
+/// `none`; `ended_outside_root` is true only for a release beyond the root (plan 3.19).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DragEndData {
+    #[serde(flatten)]
+    pub drag: DragData,
+    pub drop_effect: DropEffect,
+    pub ended_outside_root: bool,
+}
+
 /// What an assistive technology can ask of a slider that has no pointer or key gesture (plan 3.21).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -158,6 +182,52 @@ pub enum EventPayload {
     /// (Phase I7) go to their input and carry the input's offsets.
     #[serde(rename = "selectionchange")]
     DocumentSelectionChange,
+    /// Cancelable, at the dragged element: preventing it keeps the drag from starting.
+    DragStart(DragData),
+    /// At the dragged element, on every move and scroll under a held pointer.
+    Drag(DragData),
+    DragEnter(DragData),
+    DragLeave(DragData),
+    /// Cancelable: preventing it, with a `dropEffect` other than `none`, accepts a drop here.
+    DragOver(DragData),
+    /// Cancelable: preventing it reports the effect the drop had.
+    Drop(DragData),
+    /// At the dragged element, last.
+    DragEnd(DragEndData),
+}
+
+impl EventPayload {
+    /// The wire `type` of an event that a prevented answer must come with a `dropEffect` for, or
+    /// `None` for every other event.
+    fn needs_drop_effect_when_prevented(&self) -> Option<&'static str> {
+        match self {
+            EventPayload::DragOver(_) => Some("dragover"),
+            EventPayload::Drop(_) => Some("drop"),
+            EventPayload::PointerDown(_)
+            | EventPayload::PointerMove(_)
+            | EventPayload::PointerUp(_)
+            | EventPayload::PointerEnter(_)
+            | EventPayload::PointerLeave(_)
+            | EventPayload::PointerCancel(_)
+            | EventPayload::Click(_)
+            | EventPayload::DoubleClick(_)
+            | EventPayload::AuxClick(_)
+            | EventPayload::ContextMenu(_)
+            | EventPayload::Wheel(_)
+            | EventPayload::Scroll(_)
+            | EventPayload::KeyDown(_)
+            | EventPayload::KeyUp(_)
+            | EventPayload::Focus(_)
+            | EventPayload::Blur(_)
+            | EventPayload::AccessibilityAction(_)
+            | EventPayload::DocumentSelectionChange
+            | EventPayload::DragStart(_)
+            | EventPayload::Drag(_)
+            | EventPayload::DragEnter(_)
+            | EventPayload::DragLeave(_)
+            | EventPayload::DragEnd(_) => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -181,7 +251,8 @@ pub struct UiEvent {
 }
 
 /// HTML `DataTransfer.dropEffect`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum DropEffect {
     None,
     Copy,
@@ -207,7 +278,8 @@ impl DropEffect {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct EventOutcome {
     pub default_prevented: bool,
-    /// Set by `DataTransfer.dropEffect` once drag and drop lands; nothing acts on it before then.
+    /// What `DataTransfer` settled on for a `dragover` or `drop` (plan 3.19): the effect an accepted
+    /// drop would have, or `none`.
     pub drop_effect: Option<DropEffect>,
 }
 
@@ -216,6 +288,8 @@ pub struct EventQueue {
     next_seq: EventSeq,
     queued: Vec<UiEvent>,
     awaited: Option<EventSeq>,
+    /// The awaited event's `type`, when its answer must carry a `dropEffect` if it prevents the event.
+    awaited_needs_effect: Option<&'static str>,
     outcome: Option<EventOutcome>,
 }
 
@@ -225,6 +299,7 @@ impl EventQueue {
             next_seq: 1,
             queued: Vec::new(),
             awaited: None,
+            awaited_needs_effect: None,
             outcome: None,
         }
     }
@@ -313,8 +388,10 @@ impl EventQueue {
             self.awaited.is_none(),
             "an awaited event is already pending; nested dispatch is queued as non-cancelable"
         );
+        let needs_effect = payload.needs_drop_effect_when_prevented();
         let seq = self.enqueue(target, path, Vec::new(), payload, time_stamp, true);
         self.awaited = Some(seq);
+        self.awaited_needs_effect = needs_effect;
         self.outcome = None;
         seq
     }
@@ -354,6 +431,16 @@ impl EventQueue {
         if self.outcome.is_some() {
             return Err(format!("event {seq} was already resolved"));
         }
+        // A `dragover` or `drop` that JS prevented without saying which effect it accepted would leave
+        // native guessing; it is JS's bug, so it is reported and the event counts as not prevented.
+        if outcome.default_prevented
+            && outcome.drop_effect.is_none()
+            && let Some(kind) = self.awaited_needs_effect
+        {
+            return Err(format!(
+                "event {seq} is a {kind}, which was prevented without a dropEffect"
+            ));
+        }
         self.outcome = Some(outcome);
         Ok(())
     }
@@ -365,6 +452,7 @@ impl EventQueue {
             return EventOutcome::default();
         }
         self.awaited = None;
+        self.awaited_needs_effect = None;
         for event in &mut self.queued {
             if event.seq == seq {
                 event.cancelable = false;
@@ -765,6 +853,171 @@ mod tests {
                 expected(3, "setValue", json!(42.5)),
             ]
         );
+    }
+
+    fn drag_data(session_id: u32) -> DragData {
+        DragData {
+            pointer: PointerData {
+                button: -1,
+                buttons: 1,
+                detail: 0,
+                related_target: Some(9),
+                ..pointer()
+            },
+            session_id,
+        }
+    }
+
+    #[test]
+    fn drag_events_have_the_documented_wire_shape() {
+        let mut queue = EventQueue::new();
+        let data = drag_data(4);
+        let mut events: Vec<Value> = Vec::new();
+        // The events native waits for are cancelable while it waits; each answer ends the wait.
+        for payload in [
+            EventPayload::DragStart(data),
+            EventPayload::DragOver(data),
+            EventPayload::Drop(data),
+        ] {
+            let seq = queue.push_awaited(6, vec![6, 1], payload, STAMP);
+            events.extend(queue.drain().iter().map(wire));
+            queue.take_outcome(seq);
+        }
+        queue.push(5, vec![5, 1], EventPayload::Drag(data), STAMP);
+        queue.push(6, vec![6, 1], EventPayload::DragEnter(data), STAMP);
+        queue.push(6, vec![6, 1], EventPayload::DragLeave(data), STAMP);
+        queue.push(
+            5,
+            vec![5, 1],
+            EventPayload::DragEnd(DragEndData {
+                drag: data,
+                drop_effect: DropEffect::Move,
+                ended_outside_root: true,
+            }),
+            STAMP,
+        );
+        events.extend(queue.drain().iter().map(wire));
+        let types: Vec<_> = events
+            .iter()
+            .map(|event| event["type"].as_str().expect("type"))
+            .collect();
+        assert_eq!(
+            types,
+            [
+                "dragstart",
+                "dragover",
+                "drop",
+                "drag",
+                "dragenter",
+                "dragleave",
+                "dragend"
+            ]
+        );
+        let cancelable: Vec<_> = events
+            .iter()
+            .map(|event| event["cancelable"].as_bool().expect("cancelable"))
+            .collect();
+        assert_eq!(cancelable, [true, true, true, false, false, false, false]);
+        for event in &events {
+            assert_eq!(event["sessionId"], json!(4), "{event}");
+            assert_eq!(event["button"], json!(-1));
+            assert_eq!(event["buttons"], json!(1));
+            assert_eq!(event["relatedTarget"], json!(9));
+            assert_eq!(event["viewportX"], json!(10.5));
+            assert_eq!(event["shiftKey"], json!(true));
+        }
+        assert_eq!(events[0]["path"], json!([6, 1]));
+        assert_eq!(events[6]["dropEffect"], json!("move"));
+        assert_eq!(events[6]["endedOutsideRoot"], json!(true));
+        for event in &events[..6] {
+            assert!(event.get("dropEffect").is_none() && event.get("endedOutsideRoot").is_none());
+        }
+    }
+
+    fn effect_outcome(effect: Option<DropEffect>) -> EventOutcome {
+        EventOutcome {
+            default_prevented: true,
+            drop_effect: effect,
+        }
+    }
+
+    #[test]
+    fn a_prevented_dragover_or_drop_must_name_its_effect() {
+        for payload in [
+            EventPayload::DragOver(drag_data(1)),
+            EventPayload::Drop(drag_data(1)),
+        ] {
+            let kind = if matches!(payload, EventPayload::DragOver(_)) {
+                "dragover"
+            } else {
+                "drop"
+            };
+            let mut queue = EventQueue::new();
+            let seq = queue.push_awaited(6, vec![6], payload, STAMP);
+            assert_eq!(
+                queue.resolve(seq, effect_outcome(None)),
+                Err(format!(
+                    "event {seq} is a {kind}, which was prevented without a dropEffect"
+                ))
+            );
+            // The rejected answer left nothing behind: JS can still answer properly.
+            assert!(
+                queue
+                    .resolve(seq, effect_outcome(Some(DropEffect::Copy)))
+                    .is_ok()
+            );
+            assert_eq!(
+                queue.take_outcome(seq),
+                effect_outcome(Some(DropEffect::Copy))
+            );
+            // Not prevented needs no effect, and an effect of `none` is an answer (refused).
+            let seq = queue.push_awaited(6, vec![6], payload_like(kind), STAMP);
+            assert!(queue.resolve(seq, EventOutcome::default()).is_ok());
+            queue.take_outcome(seq);
+            let seq = queue.push_awaited(6, vec![6], payload_like(kind), STAMP);
+            assert!(
+                queue
+                    .resolve(seq, effect_outcome(Some(DropEffect::None)))
+                    .is_ok()
+            );
+        }
+    }
+
+    fn payload_like(kind: &str) -> EventPayload {
+        match kind {
+            "dragover" => EventPayload::DragOver(drag_data(1)),
+            _ => EventPayload::Drop(drag_data(1)),
+        }
+    }
+
+    #[test]
+    fn other_prevented_events_need_no_effect() {
+        let mut queue = EventQueue::new();
+        for payload in [
+            EventPayload::DragStart(drag_data(1)),
+            EventPayload::PointerDown(pointer()),
+            EventPayload::KeyDown(key(false)),
+        ] {
+            let seq = queue.push_awaited(6, vec![6], payload, STAMP);
+            assert!(queue.resolve(seq, effect_outcome(None)).is_ok());
+            queue.take_outcome(seq);
+        }
+    }
+
+    #[test]
+    fn drop_effects_serialize_as_their_wire_names() {
+        for (effect, name) in [
+            (DropEffect::None, "none"),
+            (DropEffect::Copy, "copy"),
+            (DropEffect::Move, "move"),
+            (DropEffect::Link, "link"),
+        ] {
+            assert_eq!(
+                serde_json::to_value(effect).expect("serializes"),
+                json!(name)
+            );
+            assert_eq!(DropEffect::parse(name), Ok(Some(effect)));
+        }
     }
 
     #[test]

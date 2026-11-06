@@ -42,6 +42,9 @@ const OVERLAY_DRAW_INDEX: i32 = 1;
 /// index. The overlay layer draws after the main layer; the focus ring above both.
 pub(crate) const LAYER_DRAW_INDEX_BASE: i32 = 0;
 pub(crate) const TOP_ITEM_DRAW_INDEX: i32 = 2;
+/// The drag ghost draws above the focus ring (plan 3.8: both use a top-most item); equal indices have
+/// no defined order.
+pub(crate) const GHOST_DRAW_INDEX: i32 = TOP_ITEM_DRAW_INDEX + 1;
 
 /// What a box item last drew; equal keys mean the recorded commands are still right.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -85,6 +88,18 @@ fn server() -> Gd<RenderingServer> {
     RenderingServer::singleton()
 }
 
+/// What an element's items currently show: enough for the drag ghost to draw a copy.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Recorded {
+    pub(crate) location: Vector2,
+    pub(crate) opacity: f32,
+    pub(crate) clip: Option<Rect2>,
+    pub(crate) box_key: Option<BoxKey>,
+    pub(crate) content_key: Option<ContentKey>,
+    /// A scroll container's offset; `None` for an element that does not scroll.
+    pub(crate) scroll_offset: Option<Vector2>,
+}
+
 /// The canvas items of one mounted element, plus what they currently show.
 pub(crate) struct RenderNode {
     pub(crate) box_item: Rid,
@@ -121,6 +136,18 @@ impl RenderNode {
             box_key: None,
             content_key: None,
             overlay_key: None,
+        }
+    }
+
+    /// What the element's items show now.
+    pub(crate) fn recorded(&self) -> Recorded {
+        Recorded {
+            location: self.location,
+            opacity: self.opacity,
+            clip: self.clip,
+            box_key: self.box_key,
+            content_key: self.content_key,
+            scroll_offset: self.scroll_item.map(|_| self.scroll_offset),
         }
     }
 
@@ -392,6 +419,21 @@ impl RootItem {
 
     pub(crate) fn clear(&self) {
         server().canvas_item_clear(self.item);
+    }
+
+    /// Move the item (and everything attached to it).
+    pub(crate) fn set_position(&self, position: Vector2) {
+        server()
+            .canvas_item_set_transform(self.item, Transform2D::from_angle_origin(0.0, position));
+    }
+
+    /// Multiply the alpha of everything below the item.
+    pub(crate) fn set_opacity(&self, opacity: f32) {
+        server().canvas_item_set_modulate(self.item, Color::from_rgba(1.0, 1.0, 1.0, opacity));
+    }
+
+    pub(crate) fn set_visible(&self, visible: bool) {
+        server().canvas_item_set_visible(self.item, visible);
     }
 }
 

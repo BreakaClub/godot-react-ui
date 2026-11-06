@@ -130,6 +130,7 @@ impl ReactUiRoot {
                 Modality::Pointer => "pointer",
             },
             "pointers": pointers,
+            "drag": self.drag_snapshot_json(),
             "clockMs": self.clock_ms,
             "transitions": self.transitions.values().collect::<Vec<_>>(),
         })

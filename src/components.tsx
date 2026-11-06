@@ -1,5 +1,7 @@
 import { Children, createElement, forwardRef, useCallback, useContext, useSyncExternalStore, type ReactNode } from 'react';
-import type { UIAccessibilityActionEvent, UIFocusEvent, UIKeyboardEvent, UIPointerEvent, UIScrollEvent, UIWheelEvent } from './events';
+import type {
+  UIAccessibilityActionEvent, UIDragEndEvent, UIDragEvent, UIFocusEvent, UIKeyboardEvent, UIPointerEvent, UIScrollEvent, UIWheelEvent,
+} from './events';
 import type { LayoutRect, NativeScrollState } from './native';
 import {
   createOverlayPortal, OverlayContext, readRootSize, readTextSelection, watchRootSize, watchTextSelection, type RootSize,
@@ -86,6 +88,35 @@ export interface UIProps extends UIAriaProps {
   tabIndex?: 0 | -1;
   /** Focus the element when it is first mounted (the first such element of a commit, in document order). */
   autoFocus?: boolean;
+  /**
+   * The element can be dragged (HTML drag and drop inside this root, plan 3.19): a primary press or a touch
+   * on it, or on something inside it that is not `draggable` itself, starts a drag once a mouse moves past the
+   * viewport's drag threshold, or a touch is held for half a second without moving. Starting a drag cancels the
+   * pointer (`pointercancel`, no `click`); a `pointerdown` that was prevented or captured starts none.
+   */
+  draggable?: boolean;
+  /** What follows the pointer while the element is dragged: a translucent copy of it (`native`, the default), or nothing. */
+  dragPreview?: 'native' | 'none';
+  /**
+   * The drag is about to start; the handler fills `event.dataTransfer` (`setData`, `effectAllowed`).
+   * Cancelable: `preventDefault()` stops the drag.
+   */
+  onDragStart?: (event: UIDragEvent<'dragstart'>) => void;
+  /** The dragged element, on every pointer move and scroll while it is dragged. */
+  onDrag?: (event: UIDragEvent<'drag'>) => void;
+  /** The last event of a drag, at the dragged element, whatever happened to the drop. */
+  onDragEnd?: (event: UIDragEndEvent) => void;
+  /** A dragged pointer entered this element (bubbles, as in the DOM: `relatedTarget` is where it came from). */
+  onDragEnter?: (event: UIDragEvent<'dragenter'>) => void;
+  onDragLeave?: (event: UIDragEvent<'dragleave'>) => void;
+  /**
+   * A dragged pointer is over this element, on every move and scroll. Cancelable: `preventDefault()` makes this
+   * a drop target; the drop then has the `dropEffect` the handler left on `event.dataTransfer` if the drag's
+   * `effectAllowed` permits it (a drop with the effect `none` is refused). The cursor shows it.
+   */
+  onDragOver?: (event: UIDragEvent<'dragover'>) => void;
+  /** The pointer was released over a target that accepted. Cancelable: `preventDefault()` reports it was handled. */
+  onDrop?: (event: UIDragEvent<'drop'>) => void;
   /** A key press or repeat. Cancelable: `preventDefault()` keeps Tab, Enter and Space from acting. */
   onKeyDown?: (event: UIKeyboardEvent) => void;
   onKeyDownCapture?: (event: UIKeyboardEvent) => void;

@@ -9,6 +9,7 @@ use godot::classes::{
 };
 use godot::prelude::*;
 
+use crate::drag_input::{MOUSE_DRAG_POINTER, touch_drag_pointer};
 use crate::events::{EventPayload, PointerData, PointerType, WheelData};
 use crate::focus::{Modality, nearest_focusable};
 use crate::pointer::{
@@ -40,6 +41,11 @@ impl ReactUiRoot {
         // A scrollbar thumb being dragged owns the mouse: the content follows, and neither the hover
         // nor JS hears of the movement.
         if self.thumb_drag_moved() {
+            return;
+        }
+        // A pointer that is dragging something owns the mouse as well: the drag hears the movement,
+        // and neither the hover nor the pointer events do.
+        if self.drag_pointer_moved(MOUSE_POINTER_ID, self.pointer) {
             return;
         }
         let hit = self.mounted.hit_test(self.pointer);
@@ -84,6 +90,17 @@ impl ReactUiRoot {
             button.get_button_mask(),
             modifiers_of(button),
         );
+        // While a drag runs the primary button's release ends it (a drop, or the end of a cancelled
+        // drag: no `pointerup`, no `click`) and no other button does anything.
+        if dom_button == DOM_BUTTON_PRIMARY {
+            if !button.is_pressed() && self.drag_pointer_released(MOUSE_POINTER_ID, self.pointer) {
+                self.base_mut().accept_event();
+                return;
+            }
+        } else if self.drag_running() {
+            self.base_mut().accept_event();
+            return;
+        }
         let hit = self.mounted.hit_test(self.pointer);
         self.update_hover(hit);
         if button.is_pressed() {
@@ -185,15 +202,19 @@ impl ReactUiRoot {
         }
         if primary {
             // Gesture arbitration after an un-prevented `pointerdown` (plan 3.12): a pointer JS captured
-            // is its element's (rule 1), then a press on a scrollbar thumb drags the thumb (rule 2),
-            // then, once drag and drop exists (Phase I9, rule 3), a draggable element; selectable text
-            // starts a selection (rule 5).
+            // is its element's (rule 1), then a press on a scrollbar thumb drags the thumb (rule 2), then a
+            // press inside a draggable element may become a drag once it moves (rule 3, which also keeps
+            // the text inside it from starting a selection, as in browsers); selectable text starts a
+            // selection (rule 5).
             let grabbed_thumb = !prevented && self.begin_thumb_drag(hit, self.pointer);
+            let draggable = !prevented
+                && !grabbed_thumb
+                && self.begin_drag_gesture(MOUSE_DRAG_POINTER, self.pointer, hit);
             let selecting = !prevented
                 && self.begin_selection_press(
                     hit,
                     detail,
-                    !grabbed_thumb && !self.mouse_is_captured(),
+                    !grabbed_thumb && !draggable && !self.mouse_is_captured(),
                 );
             self.run_pointerdown_default(hit, prevented, selecting);
         }
@@ -311,6 +332,12 @@ impl ReactUiRoot {
             if !self.base().is_inside_tree() {
                 return false;
             }
+            // Inside a draggable element a touch held still becomes a drag; one that moves first is
+            // declined and goes on to pan or stay pointer events (plan 3.12 rules 3 and 4). A touch that
+            // only stopped a coasting flick starts nothing.
+            if !prevented && self.scrolling.coasting.is_empty() {
+                self.begin_drag_gesture(touch_drag_pointer(id), position, hit);
+            }
             self.begin_touch_pan(id, target, position, prevented);
         }
         // A touch starts no text selection (touch selection handles are a non-goal, plan 2.3).
@@ -378,9 +405,10 @@ impl ReactUiRoot {
         } else if touch.is_canceled() {
             self.touch_pan_cancelled(id);
             self.cancel_pointer(id);
-        } else if !self.touch_pan_ended(id) {
-            // A finger that was panning has no pointer left to release (it was cancelled when the
-            // pan began), and its flick, if any, is under way.
+        } else if !self.drag_pointer_released(id, position) && !self.touch_pan_ended(id) {
+            // A finger that was dragging ended with its drop. A finger that was panning has no
+            // pointer left to release (it was cancelled when the pan began), and its flick, if any,
+            // is under way.
             self.release_touch(id, position);
         }
         self.base_mut().accept_event();
@@ -392,6 +420,12 @@ impl ReactUiRoot {
         let Some(id) = touch_pointer_id(drag.get_index()) else {
             return;
         };
+        // A finger that is dragging something is the drag's. One that moved too far before the hold
+        // elapsed is declined by the drag, and the pan below decides what it is.
+        if self.drag_pointer_moved(id, drag.get_position()) {
+            self.base_mut().accept_event();
+            return;
+        }
         // A touch that has become a pan scrolls its container and sends the element no more events.
         if self.touch_pan_moved(id, drag.get_position()) {
             self.base_mut().accept_event();
@@ -417,6 +451,9 @@ impl ReactUiRoot {
     /// `pointerleave`) to the element that was receiving its events; no `pointerup` or `click`
     /// follows. Does nothing for a pointer that is not down.
     pub(crate) fn cancel_pointer(&mut self, id: u32) {
+        // A gesture or a drag this pointer was making ends with it (a no-op while the drag machine is
+        // itself cancelling the pointer for a drag that began).
+        self.drag_input(crate::drag::DragInput::PointerCancel { pointer_id: id });
         let Some((kind, position)) = self
             .pointers
             .get(id)
@@ -461,6 +498,8 @@ impl ReactUiRoot {
         for id in self.pointers.active_ids() {
             self.cancel_pointer(id);
         }
+        // The pointer of a running drag is no longer in the table; it ends the drag all the same.
+        self.cancel_dragging_pointer();
         self.end_all_touch_pans();
         self.end_thumb_drag();
         self.end_selection_drag();

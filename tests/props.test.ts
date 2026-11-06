@@ -151,3 +151,19 @@ test('a diff names each accessibility field that changed, with null when it went
     for (const key of Object.keys(diff ?? {})) assert.ok((NATIVE_PROP_KEYS as readonly string[]).includes(key), key);
   }
 });
+
+test('draggable and dragPreview are native props: absent by default, sent when set, null when they go', () => {
+  assert.deepEqual(nativeProps('view', { draggable: false }, false), {}, 'draggable false is the default');
+  assert.deepEqual(nativeProps('view', { draggable: true }, false), { draggable: true });
+  assert.deepEqual(nativeProps('view', { draggable: true, dragPreview: 'none' }, false), { draggable: true, dragPreview: 'none' });
+  assert.deepEqual(nativeProps('button', { dragPreview: 'native' }, false), { dragPreview: 'native' });
+  assert.throws(
+    () => nativeProps('view', { dragPreview: 'sheet' as unknown as 'none' }, false), /dragPreview must be 'native' or 'none', not sheet/,
+  );
+  for (const key of ['draggable', 'dragPreview']) assert.ok((NATIVE_PROP_KEYS as readonly string[]).includes(key), key);
+  const base: NativeProps = { draggable: true, dragPreview: 'none' };
+  assert.equal(diffNativeProps(base, { ...base }), null);
+  assert.deepEqual(diffNativeProps(base, { dragPreview: 'none' }), { draggable: null });
+  assert.deepEqual(diffNativeProps(base, { draggable: true }), { dragPreview: null });
+  assert.deepEqual(diffNativeProps({}, base), { draggable: true, dragPreview: 'none' });
+});

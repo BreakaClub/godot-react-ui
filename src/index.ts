@@ -9,9 +9,11 @@ export type {
 } from './kit';
 export { EventPhase } from './events';
 export type {
-  EventPhaseValue, UIAccessibilityActionEvent, UIAnyEvent, UIEvent, UIEventMap, UIFocusEvent, UIKeyboardEvent, UIMouseFields,
-  UIPointerEvent, UIScrollEvent, UISelectionChangeEvent, UISyntheticEvent, UIWheelEvent,
+  EventPhaseValue, UIAccessibilityActionEvent, UIAnyEvent, UIDragEndEvent, UIDragEvent, UIEvent, UIEventMap, UIFocusEvent,
+  UIKeyboardEvent, UIMouseFields, UIPointerEvent, UIScrollEvent, UISelectionChangeEvent, UISyntheticEvent, UIWheelEvent,
 } from './events';
+export { DataTransfer } from './data-transfer';
+export type { DataStoreMode, DropEffect, EffectAllowed } from './data-transfer';
 export { createRoot } from './renderer';
 export type { RootOptions, RootSize, UIRoot } from './renderer';
 export type { UIRoot as ReactRoot } from './renderer';
@@ -23,5 +25,7 @@ export type {
 export type { RendererProfile, ProfileSample } from './profile';
 export { readActivity, takeNativeProfile } from './native';
 export type { NativeActivity, NativeDiagnosticsHost, NativeProfile, NativeTransition } from './native';
-export type { NativeHost, NativeScrollState, NativeSelection, NativeSnapshot, NativeSnapshotNode, LayoutRect } from './native';
+export type {
+  NativeDragState, NativeHost, NativeScrollState, NativeSelection, NativeSnapshot, NativeSnapshotNode, LayoutRect,
+} from './native';
 export type { NativeEvent, NativeEventType, NativePointerType } from './native';

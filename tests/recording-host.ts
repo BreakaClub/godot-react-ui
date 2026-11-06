@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import { createRoot, type RootOptions, type UIRoot } from '../src';
 import type { CommitPayload } from '../src/commit';
 import type {
-  NativeAccessibilityAction, NativeAccessibilityActionEvent, NativeEvent, NativeEventType, NativeFocusEventType,
-  NativeHost, NativeKeyEvent, NativePointerEvent, NativePointerEventType, NativeScrollEvent, NativeScrollState,
-  NativeSelection, NativeSelectionChangeEvent, NativeSnapshot, NativeSnapshotNode, NativeWheelEvent, PackedTags,
+  NativeAccessibilityAction, NativeAccessibilityActionEvent, NativeDragEndEvent, NativeDragEvent, NativeDragEventType,
+  NativeDragState, NativeEvent, NativeEventType, NativeFocusEventType, NativeHost, NativeKeyEvent, NativePointerEvent,
+  NativePointerEventType, NativeScrollEvent, NativeScrollState, NativeSelection, NativeSelectionChangeEvent, NativeSnapshot,
+  NativeSnapshotNode, NativeWheelEvent, PackedTags,
 } from '../src/native';
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -105,6 +106,11 @@ export class RecordingHost implements NativeHost {
   readonly scrollRequests: Array<{ method: 'scrollTo' | 'scrollBy' | 'scrollIntoView'; tag: number; x?: number; y?: number }> = [];
   /** The text selection `getSelection` reports (native decides what is selected; the test says what it is). */
   selection: NativeSelection | undefined;
+  /** What the snapshot reports as the drag-and-drop state. */
+  dragState: NativeDragState = {
+    state: 'idle', session: 0, source: null, target: null, pointer: null, origin: null, position: null,
+    allowedEffect: null, ghost: null, lastEnd: null,
+  };
   /** Extra events appended to every drain, for storm tests. */
   produceEvents: (() => NativeEvent[]) | undefined;
   private nextSeq = 1;
@@ -298,6 +304,7 @@ export class RecordingHost implements NativeHost {
       clockMs: 0, transitions: [],
       nodes: [...this.nodes.values()],
       width: this.currentSize.x, height: this.currentSize.y, hovered: null, focused: this.focused, pressed: null, focusVisible: false, modality: 'keyboard', pointers: [],
+      drag: this.dragState,
       stats: {
         batches: this.commits.length, nodeCount: this.nodes.size - 1, layoutPasses: 0, paintPasses: 0, layoutMicros: 0,
         nodesCreated: 0, nodesUpdated: 0, nodesDeleted: 0, nodesRestyled: 0, mutations: 0, boxRecords: 0, contentRecords: 0,
@@ -332,9 +339,25 @@ export class RecordingHost implements NativeHost {
           : type === 'keydown' || type === 'keyup' ? this.keyEvent(target, type)
             : type === 'accessibilityaction' ? this.accessibilityActionEvent(target, 'increment')
               : type === 'selectionchange' ? this.selectionChangeEvent()
+              : isDragType(type) ? this.dragEvent(target, type, 1)
                 : this.pointerEvent(target, type, overrides);
     this.events.push(event);
     return event;
+  }
+
+  /**
+   * A drag event of drag `sessionId` addressed to `target`. `dragstart`, `dragover` and `drop` are cancelable,
+   * as native awaits JS's answer to them; `dragend` has the effect `none` and did not end outside the root.
+   */
+  dragEvent(target: number, type: NativeDragEventType, sessionId: number, overrides: Partial<Omit<NativeDragEndEvent, 'type'>> = {}): NativeDragEvent | NativeDragEndEvent {
+    const base = {
+      seq: this.nextSeq++, target, path: this.pathOf(target), cancelable: type === 'dragstart' || type === 'dragover' || type === 'drop',
+      timeStamp: 1.5, x: 10, y: 20, viewportX: 10, viewportY: 20, pointerId: 1, pointerType: 'mouse' as const,
+      button: -1, buttons: 1, detail: 0, shiftKey: false, ctrlKey: false, altKey: false, metaKey: false,
+      relatedTarget: null, sessionId,
+    };
+    if (type === 'dragend') return { ...base, type, dropEffect: 'none', endedOutsideRoot: false, ...overrides };
+    return { ...base, type, ...overrides };
   }
 
   /** A `scroll` event: never cancelable, as native does not wait for JS's answer. */
@@ -405,6 +428,11 @@ export class RecordingHost implements NativeHost {
 
 function isFocusType(type: NativeEventType): type is NativeFocusEventType {
   return type === 'focus' || type === 'blur';
+}
+
+function isDragType(type: NativeEventType): type is NativeDragEventType {
+  return type === 'dragstart' || type === 'drag' || type === 'dragenter' || type === 'dragleave' || type === 'dragover'
+    || type === 'drop' || type === 'dragend';
 }
 
 /** Stands in for the Godot owner's `eventsReady` connection. */

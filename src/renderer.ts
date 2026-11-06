@@ -6,15 +6,16 @@ import {
 } from 'react-reconciler/constants';
 import { buildCommit, type CommitNode } from './commit';
 import type { UIHandle, UIProps, UISelection } from './components';
+import { DragSessions, type DragDispatch } from './drag';
 import {
-  dispatchEvent, exclusiveAncestry, NOT_DISPATCHED, RootListeners,
+  dispatchEvent, exclusiveAncestry, isNativeDragEvent, NOT_DISPATCHED, RootListeners,
   type DispatchResult, type PathNode, type UIEventMap,
 } from './events';
 import {
   checkCapture, checkFocus, checkScroll, commitPayload, findTag, readDeletions, readEvents, readNodeRect, readScrollState,
   readSelection, readSnapshot, resolveEvent,
-  type NativeEvent, type NativeEventType, type NativeHost, type NativePointerEvent,
-  type NativeSnapshot, type NativeSnapshotNode,
+  type NativeDragEndEvent, type NativeDragEvent, type NativeEvent, type NativeEventType, type NativeHost,
+  type NativePointerEvent, type NativeSnapshot, type NativeSnapshotNode,
 } from './native';
 import { nativeProps, scalarText, type NativeKind } from './props';
 import { RendererProfiler, type RendererProfile } from './profile';
@@ -84,6 +85,8 @@ interface RootState {
   selectionCache: { readonly value: UISelection | undefined } | undefined;
   readonly sizeListeners: Set<() => void>;
   readonly listeners: RootListeners;
+  /** The `DataTransfer` stores of the drags underway (plan 3.19). */
+  readonly drags: DragSessions;
   /** Handle for the layer root, the target of events addressed to root listeners only. */
   readonly handle: UIHandle;
   unsubscribe: (() => void) | undefined;
@@ -502,9 +505,34 @@ function isClickFamily(type: NativeEventType): boolean {
   return type === 'click' || type === 'dblclick' || type === 'auxclick' || type === 'contextmenu';
 }
 
-/** React's own split: moves and wheel ticks arrive in streams and their updates may be batched. */
+/**
+ * React's own split: moves and wheel ticks arrive in streams and their updates may be batched, and so do the
+ * drag events that repeat while the pointer moves (`drag`, `dragenter`, `dragleave`, `dragover`).
+ */
 function isContinuous(native: NativeEvent): boolean {
-  return native.type === 'pointermove' || native.type === 'wheel';
+  switch (native.type) {
+    case 'pointermove': case 'wheel': case 'drag': case 'dragenter': case 'dragleave': case 'dragover':
+      return true;
+    case 'pointerdown': case 'pointerup': case 'pointerenter': case 'pointerleave': case 'pointercancel':
+    case 'click': case 'dblclick': case 'auxclick': case 'contextmenu': case 'scroll': case 'keydown': case 'keyup':
+    case 'focus': case 'blur': case 'accessibilityaction': case 'selectionchange': case 'dragstart': case 'drop':
+    case 'dragend':
+      return false;
+  }
+}
+
+/**
+ * A drag event goes to the elements on its path with a `DataTransfer` from its drag's store. An event whose
+ * element is gone is dropped, except `dragend`, which must reach the store even then (native addresses it to the
+ * root when the dragged element was removed).
+ */
+function dispatchDrag(root: RootState, native: NativeDragEvent | NativeDragEndEvent): DragDispatch {
+  const addressesRoot = native.target === LAYER_ROOT_TAG;
+  if (!addressesRoot && !root.committed.has(native.target) && native.type !== 'dragend') {
+    return { ...NOT_DISPATCHED, dropEffect: '' };
+  }
+  const related = liveInstance(root, native.relatedTarget);
+  return root.drags.dispatch(native, pathNodes(root, native.path), related === undefined ? null : handleFor(root, related.tag), root);
 }
 
 function dispatch(root: RootState, native: NativeEvent): DispatchResult {
@@ -535,7 +563,7 @@ export function createRoot(host: NativeHost, options: RootOptions): UIRoot {
     nextTag: 1, committed: new Map(), handles: new Map(),
     main: { get root() { return state; }, layer: MAIN_LAYER, rootTags: [] },
     overlay: undefined, unmounted: false, failure: undefined,
-    dispatching: false, listeners: new RootListeners(), unsubscribe: undefined,
+    dispatching: false, listeners: new RootListeners(), drags: new DragSessions(), unsubscribe: undefined,
     documentOrder: undefined, size: undefined, sizeListeners: new Set(), selectionCache: undefined,
     handle: {
       id: LAYER_ROOT_TAG,
@@ -573,8 +601,16 @@ export function createRoot(host: NativeHost, options: RootOptions): UIRoot {
     const previousPriority = updatePriority;
     updatePriority = isContinuous(native) ? ContinuousEventPriority : DiscreteEventPriority;
     let result: DispatchResult;
+    // What a drag's `dragover` or `drop` settled on, for native to act on; every other answer is just prevented or not.
+    let dropEffect = '';
     try {
-      result = dispatch(state, native);
+      if (isNativeDragEvent(native)) {
+        const dragged = dispatchDrag(state, native);
+        result = dragged;
+        dropEffect = dragged.dropEffect;
+      } else {
+        result = dispatch(state, native);
+      }
     } finally {
       updatePriority = previousPriority;
     }
@@ -582,7 +618,7 @@ export function createRoot(host: NativeHost, options: RootOptions): UIRoot {
     if (native.cancelable) {
       // Native is blocked until this answer arrives, so it is sent even if a handler threw.
       try {
-        resolveEvent(host, native.seq, result.defaultPrevented);
+        resolveEvent(host, native.seq, result.defaultPrevented, dropEffect);
       } catch (error) {
         recordFailure(state, error instanceof Error ? error : new Error(String(error)));
       }
@@ -615,6 +651,7 @@ export function createRoot(host: NativeHost, options: RootOptions): UIRoot {
       reconciler.flushSyncWork();
       reconciler.flushPassiveEffects();
       state.unmounted = true;
+      state.drags.clear();
       checkFailure();
     },
     dispatchEvents() {

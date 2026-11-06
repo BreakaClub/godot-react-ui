@@ -1,4 +1,5 @@
 import type { CommitPayload } from './commit';
+import { isDropEffect, type DropEffect } from './data-transfer';
 import type { NativeKind } from './props';
 import type { TransitionProperty } from './types';
 
@@ -127,9 +128,10 @@ export type NativeFocusEventType = 'focus' | 'blur';
 export type NativeKeyEventType = 'keydown' | 'keyup';
 export type NativeAccessibilityEventType = 'accessibilityaction';
 export type NativeSelectionEventType = 'selectionchange';
+export type NativeDragEventType = 'dragstart' | 'drag' | 'dragenter' | 'dragleave' | 'dragover' | 'drop' | 'dragend';
 export type NativeEventType =
   | NativePointerEventType | NativeWheelEventType | NativeScrollEventType | NativeKeyEventType | NativeFocusEventType
-  | NativeAccessibilityEventType | NativeSelectionEventType;
+  | NativeAccessibilityEventType | NativeSelectionEventType | NativeDragEventType;
 
 /** '' is synthetic keyboard activation, as in browsers. */
 export type NativePointerType = 'mouse' | 'touch' | '';
@@ -244,9 +246,32 @@ export interface NativeSelectionChangeEvent extends NativeEventBase {
   type: NativeSelectionEventType;
 }
 
+/**
+ * A drag-and-drop event (plan 3.19). `dragstart`, `dragover` and `drop` are cancelable. Every event of one
+ * drag carries the same `sessionId`, which is how JS finds the drag's `DataTransfer` store.
+ */
+export interface NativeDragEvent extends NativeMouseFields {
+  type: Exclude<NativeDragEventType, 'dragend'>;
+  /** `dragenter`: the element the pointer came from; `dragleave`: the element it goes to. */
+  relatedTarget: number | null;
+  sessionId: number;
+}
+
+/** The last event of a drag: how it ended. */
+export interface NativeDragEndEvent extends NativeMouseFields {
+  type: 'dragend';
+  relatedTarget: number | null;
+  sessionId: number;
+  /** `none` for a drag that was not dropped or was cancelled. */
+  dropEffect: DropEffect;
+  /** The pointer was released beyond the root. False for a cancelled drag, which was not released anywhere. */
+  endedOutsideRoot: boolean;
+}
+
 export type NativeEvent =
   | NativePointerEvent | NativeWheelEvent | NativeScrollEvent | NativeKeyEvent | NativeFocusEvent | NativeAccessibilityActionEvent
-  | NativeSelectionChangeEvent;
+  | NativeSelectionChangeEvent
+  | NativeDragEvent | NativeDragEndEvent;
 
 /** One end of the selection: a `Text` element and a UTF-16 offset into its text. */
 export interface NativeSelectionPoint {
@@ -354,7 +379,33 @@ export interface NativeSnapshot {
   modality: 'keyboard' | 'pointer';
   /** Every pointer native knows: the mouse, and each touch while it is down. */
   pointers: NativePointerState[];
+  /** The drag-and-drop state machine (plan 3.19). */
+  drag: NativeDragState;
 }
+
+/**
+ * The root's one drag. `busy` is only seen by a handler of a drag event, while native is in the middle of an
+ * input; `ended` is a gesture that finished but whose pointer is still down.
+ */
+export interface NativeDragState {
+  state: 'idle' | 'pending' | 'dragging' | 'ended' | 'busy';
+  /** The number of the latest drag (0 before the first). */
+  session: number;
+  source: number | null;
+  /** The element under the dragged pointer. */
+  target: number | null;
+  pointer: number | null;
+  /** Root-local: where the pointer went down, and where it is. */
+  origin: { x: number; y: number } | null;
+  position: { x: number; y: number } | null;
+  /** The effect the current target accepted with its latest `dragover`; `null` shows the forbidden cursor. */
+  allowedEffect: DropEffect | null;
+  /** The drag ghost as drawn, root-local, with the number of elements it copies; `null` if there is none. */
+  ghost: (LayoutRect & { elements: number }) | null;
+  lastEnd: { reason: NativeDragEndReason; dropEffect: DropEffect; endedOutsideRoot: boolean } | null;
+}
+
+export type NativeDragEndReason = 'dropped' | 'released' | 'escape' | 'pointercancel' | 'rootexit';
 
 export interface NativePointerState {
   id: number;
@@ -427,7 +478,8 @@ function eventType(value: unknown): NativeEventType {
     case 'pointerdown': case 'pointerup': case 'pointermove': case 'pointerenter':
     case 'pointerleave': case 'pointercancel': case 'click': case 'dblclick': case 'auxclick':
     case 'contextmenu': case 'wheel': case 'scroll': case 'keydown': case 'keyup': case 'focus': case 'blur':
-    case 'accessibilityaction': case 'selectionchange':
+    case 'accessibilityaction': case 'selectionchange': case 'dragstart': case 'drag': case 'dragenter': case 'dragleave':
+    case 'dragover': case 'drop': case 'dragend':
       return value;
     default:
       throw new Error(`Invalid native event type: ${String(value)}`);
@@ -490,6 +542,29 @@ function pointerEvent(type: NativePointerEventType, base: NativeEventBase, event
   };
 }
 
+function dropEffect(value: unknown, label: string): DropEffect {
+  if (!isDropEffect(value)) throw new Error(`Invalid native ${label}: ${String(value)}`);
+  return value;
+}
+
+function dragEvent(type: NativeDragEvent['type'], base: NativeEventBase, event: Record<string, unknown>): NativeDragEvent {
+  return {
+    ...mouseFields(base, event), type,
+    relatedTarget: optionalId(event.relatedTarget, 'event.relatedTarget'),
+    sessionId: nonnegativeInteger(event.sessionId, 'event.sessionId'),
+  };
+}
+
+function dragEndEvent(base: NativeEventBase, event: Record<string, unknown>): NativeDragEndEvent {
+  return {
+    ...mouseFields(base, event), type: 'dragend',
+    relatedTarget: optionalId(event.relatedTarget, 'event.relatedTarget'),
+    sessionId: nonnegativeInteger(event.sessionId, 'event.sessionId'),
+    dropEffect: dropEffect(event.dropEffect, 'event.dropEffect'),
+    endedOutsideRoot: boolean(event.endedOutsideRoot, 'event.endedOutsideRoot'),
+  };
+}
+
 function wheelEvent(base: NativeEventBase, event: Record<string, unknown>): NativeWheelEvent {
   return {
     ...mouseFields(base, event), type: 'wheel',
@@ -544,6 +619,10 @@ function nativeEvent(entry: unknown): NativeEvent {
       };
     case 'selectionchange':
       return { ...base, type };
+    case 'dragstart': case 'drag': case 'dragenter': case 'dragleave': case 'dragover': case 'drop':
+      return dragEvent(type, base, event);
+    case 'dragend':
+      return dragEndEvent(base, event);
   }
 }
 
@@ -565,6 +644,41 @@ function scrollState(value: unknown, label: string): NativeScrollState {
     minScrollTop: number(state.minScrollTop, `${label}.minScrollTop`), maxScrollTop: number(state.maxScrollTop, `${label}.maxScrollTop`),
     thumbs: state.thumbs === null ? null : thumbRects(state.thumbs, `${label}.thumbs`),
   };
+}
+
+function point(value: unknown, label: string): { x: number; y: number } {
+  const object = record(value, label);
+  return { x: number(object.x, `${label}.x`), y: number(object.y, `${label}.y`) };
+}
+
+function dragState(value: unknown): NativeDragState {
+  const drag = record(value, 'snapshot.drag');
+  const state = drag.state;
+  if (state !== 'idle' && state !== 'pending' && state !== 'dragging' && state !== 'ended' && state !== 'busy') {
+    throw new Error(`Invalid native drag state: ${String(state)}`);
+  }
+  const ghost = drag.ghost === null ? null : record(drag.ghost, 'drag.ghost');
+  const lastEnd = drag.lastEnd === null ? null : record(drag.lastEnd, 'drag.lastEnd');
+  return {
+    state, session: nonnegativeInteger(drag.session, 'drag.session'),
+    source: optionalId(drag.source, 'drag.source'), target: optionalId(drag.target, 'drag.target'),
+    pointer: optionalId(drag.pointer, 'drag.pointer'),
+    origin: drag.origin === null ? null : point(drag.origin, 'drag.origin'),
+    position: drag.position === null ? null : point(drag.position, 'drag.position'),
+    allowedEffect: drag.allowedEffect === null ? null : dropEffect(drag.allowedEffect, 'drag.allowedEffect'),
+    ghost: ghost === null ? null : { ...rect(ghost, 'drag.ghost'), elements: nonnegativeInteger(ghost.elements, 'drag.ghost.elements') },
+    lastEnd: lastEnd === null ? null : {
+      reason: dragEndReason(lastEnd.reason), dropEffect: dropEffect(lastEnd.dropEffect, 'drag.lastEnd.dropEffect'),
+      endedOutsideRoot: boolean(lastEnd.endedOutsideRoot, 'drag.lastEnd.endedOutsideRoot'),
+    },
+  };
+}
+
+function dragEndReason(value: unknown): NativeDragEndReason {
+  if (value === 'dropped' || value === 'released' || value === 'escape' || value === 'pointercancel' || value === 'rootexit') {
+    return value;
+  }
+  throw new Error(`Invalid native drag end reason: ${String(value)}`);
 }
 
 function thumbRects(value: unknown, label: string): { x: LayoutRect | null; y: LayoutRect | null } {
@@ -705,6 +819,7 @@ export function readSnapshot(host: NativeHost): NativeSnapshot {
     pressed: optionalId(snapshot.pressed, 'snapshot.pressed'),
     focusVisible: boolean(snapshot.focusVisible, 'snapshot.focusVisible'),
     modality: modality(snapshot.modality),
+    drag: dragState(snapshot.drag),
     pointers: array(snapshot.pointers, 'snapshot.pointers').map((entry) => {
       const pointer = record(entry, 'pointer');
       const type = pointer.type;

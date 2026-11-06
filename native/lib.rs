@@ -3,10 +3,9 @@ mod accessibility_model;
 mod commit;
 mod computed_style;
 mod diff;
-// Godot-free drag-and-drop state machine. Nothing calls it until Phase I9 integrates it; remove the
-// `allow(dead_code)` then.
-#[cfg_attr(not(test), allow(dead_code))]
 mod drag;
+mod drag_ghost;
+mod drag_input;
 mod events;
 mod focus;
 mod geometry;
@@ -69,6 +68,7 @@ use accessibility::Accessibility;
 use commit::{CommitPayload, LAYER_COUNT};
 use computed_style::{InteractionState, PseudoStates, restyle};
 use diff::Parent;
+use drag_input::DragRuntime;
 use events::{
     DropEffect, EventOutcome, EventPayload, EventQueue, FocusData, Modifiers, PointerData,
     PointerType,
@@ -153,6 +153,8 @@ pub struct ReactUiRoot {
     /// The document's text selection, the gesture that is extending it and what each node paints of
     /// it (`selection_input.rs`).
     selecting: SelectionState,
+    /// The drag-and-drop machine, its session and its ghost (`drag_input.rs`).
+    drag: DragRuntime,
     /// Nodes whose layout inputs changed since the last geometry pass.
     layout_dirty: BTreeSet<u32>,
     /// Nodes whose canvas items may need re-recording.
@@ -235,6 +237,7 @@ impl IControl for ReactUiRoot {
             scrollbar_style: None,
             scrolling: ScrollInputState::default(),
             selecting: SelectionState::default(),
+            drag: DragRuntime::default(),
             layout_dirty: BTreeSet::new(),
             paint_dirty: BTreeSet::new(),
             paint_reeval: BTreeSet::new(),
@@ -388,6 +391,9 @@ impl IControl for ReactUiRoot {
                             | EventPayload::PointerCancel(_)
                     )
                 });
+                // A running drag is cancelled with the root; its `dragleave` and `dragend` are queued
+                // after the filter above so JS can end the drag's data.
+                self.cancel_drag_for_exit();
                 self.update_hover(None);
                 self.set_focus(None, false);
                 self.cancel_all_pointers();
@@ -408,7 +414,8 @@ impl IControl for ReactUiRoot {
     }
 
     fn process(&mut self, delta: f64) {
-        // Frames come for motion, for a flick that is coasting or for a finger that is panning, any
+        // Frames come for motion, for a flick that is coasting, for a finger that is panning, or for a
+        // drag (a touch waiting out its hold, edge auto-scroll, a scroll to look at again), any
         // combination of them (`update_process`); each advances only if it has work, so a flick does
         // not tick the animation clock.
         if self.motion_active() {
@@ -417,7 +424,16 @@ impl IControl for ReactUiRoot {
         if self.scrolling.wants_frames() {
             self.tick_scroll(delta);
         }
+        if self.drag_wants_frames() {
+            self.tick_drag(delta);
+        }
         self.update_process();
+    }
+
+    /// While a drag runs the root hears every input event first, so Escape cancels it whether or not
+    /// the root holds key focus (plan 3.19). `update_process` turns this on only for a running drag.
+    fn input(&mut self, event: Gd<InputEvent>) {
+        self.drag_escape(&event);
     }
 
     /// Godot routes a pointer to this Control only where an element would receive it, so empty
@@ -428,11 +444,15 @@ impl IControl for ReactUiRoot {
     }
 
     fn get_cursor_shape(&self, at_position: Vector2) -> i32 {
-        cursor_shape(
-            self.mounted
-                .cursor_at(at_position, |tag| self.unset_cursor_of(tag)),
-        )
-        .ord()
+        // A drag overrides the element's cursor with can-drop or forbidden (Appendix A).
+        self.drag_cursor()
+            .unwrap_or_else(|| {
+                cursor_shape(
+                    self.mounted
+                        .cursor_at(at_position, |tag| self.unset_cursor_of(tag)),
+                )
+            })
+            .ord()
     }
 
     /// Which accessibility element holds assistive focus while the root has key focus.

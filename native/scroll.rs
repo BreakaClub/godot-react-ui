@@ -61,11 +61,9 @@ pub(crate) const SCROLLBAR_MARGIN_PX: f32 = 2.0;
 pub(crate) const SCROLLBAR_MIN_THUMB_PX: f32 = 24.0;
 
 /// Drag auto-scroll (plan Appendix A; tune with evidence): within this many pixels of a container's
-/// edge the container scrolls, ramping linearly up to the full speed at the edge itself. Phase I9
-/// (drag and drop) integrates it; remove the `allow` then.
-#[cfg_attr(not(test), allow(dead_code))]
+/// edge the container scrolls, ramping linearly up to the full speed at the edge itself
+/// (`drag_input.rs`).
 pub(crate) const AUTOSCROLL_EDGE_PX: f32 = 32.0;
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) const AUTOSCROLL_SPEED_PX_PER_SECOND: f32 = 600.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -953,8 +951,6 @@ impl ThumbDrag {
 /// edge the speed ramps linearly from zero at that distance to [`AUTOSCROLL_SPEED_PX_PER_SECOND`] at
 /// the edge, towards that edge. An axis that cannot move that way stays zero. (`ScrollContainer`
 /// scrolls in proportion to the depth into its border as well, `scroll_container.cpp:544-566`.)
-/// Phase I9 integrates it; remove the `allow` then.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn autoscroll_velocity(
     pointer: Vec2,
     viewport: Rect,

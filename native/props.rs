@@ -328,6 +328,16 @@ pub enum LiveSpec {
     Assertive,
 }
 
+/// `dragPreview` (plan 3.19, 4.2): what follows the pointer while a `draggable` element is dragged.
+#[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum DragPreviewSpec {
+    /// A translucent copy of the element, drawn in the top-most item.
+    Native,
+    /// Nothing: the handlers draw their own feedback.
+    None,
+}
+
 /// `aria-orientation`.
 #[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -874,6 +884,11 @@ pub struct PropsSpec {
     /// Focus this element when it is first mounted (the first such element of a commit, in document
     /// order).
     pub auto_focus: Option<bool>,
+    /// A press on this element (or inside it, unless a nearer element is `draggable` too) that moves
+    /// beyond the drag threshold, or a touch held in place, starts a drag (plan 3.12 rule 3, 3.19).
+    pub draggable: Option<bool>,
+    /// What follows the pointer while this element is dragged; `native` when absent.
+    pub drag_preview: Option<DragPreviewSpec>,
     /// Accessibility (plan 3.21, 4.2, Appendix D). `Button`, `Text` and `TextInput` have implicit
     /// roles; every other element is exposed only if it has an explicit one.
     pub role: Option<RoleSpec>,
@@ -945,6 +960,10 @@ pub struct PropsDiff {
     #[serde(default)]
     pub auto_focus: Patch<bool>,
     #[serde(default)]
+    pub draggable: Patch<bool>,
+    #[serde(default)]
+    pub drag_preview: Patch<DragPreviewSpec>,
+    #[serde(default)]
     pub role: Patch<RoleSpec>,
     #[serde(default)]
     pub aria_label: Patch<String>,
@@ -993,6 +1012,8 @@ impl PropsSpec {
             test_id: diff.test_id.apply(&self.test_id),
             tab_index: diff.tab_index.apply(&self.tab_index),
             auto_focus: diff.auto_focus.apply(&self.auto_focus),
+            draggable: diff.draggable.apply(&self.draggable),
+            drag_preview: diff.drag_preview.apply(&self.drag_preview),
             role: diff.role.apply(&self.role),
             aria_label: diff.aria_label.apply(&self.aria_label),
             aria_description: diff.aria_description.apply(&self.aria_description),
@@ -1057,6 +1078,17 @@ impl PropsSpec {
 
     pub fn is_disabled(&self) -> bool {
         self.disabled == Some(true)
+    }
+
+    /// The element can be dragged (`draggable`).
+    pub fn is_draggable(&self) -> bool {
+        self.draggable == Some(true)
+    }
+
+    /// What follows the pointer while the element is dragged: the native ghost unless `dragPreview`
+    /// says `none`.
+    pub fn drag_preview_or_default(&self) -> DragPreviewSpec {
+        self.drag_preview.unwrap_or(DragPreviewSpec::Native)
     }
 
     pub fn is_hidden(&self) -> bool {
@@ -1834,6 +1866,48 @@ mod tests {
         // Any kind may take a tabIndex or ask for focus.
         for kind in [Kind::View, Kind::Text, Kind::Button] {
             assert!(merge_diff(&previous, kind, r#"{"tabIndex":0,"autoFocus":true}"#).is_ok());
+        }
+    }
+
+    #[test]
+    fn draggable_and_drag_preview_merge_reset_and_validate() {
+        let previous = PropsSpec::default();
+        assert!(!previous.is_draggable());
+        assert_eq!(previous.drag_preview_or_default(), DragPreviewSpec::Native);
+        let merged = merge_diff(
+            &previous,
+            Kind::View,
+            r#"{"draggable":true,"dragPreview":"none"}"#,
+        )
+        .unwrap();
+        assert!(merged.is_draggable());
+        assert_eq!(merged.drag_preview_or_default(), DragPreviewSpec::None);
+        // Keys that are absent from a diff keep their value; null resets them.
+        let kept = merge_diff(&merged, Kind::View, r#"{"testID":"x"}"#).unwrap();
+        assert!(kept.is_draggable() && kept.drag_preview == Some(DragPreviewSpec::None));
+        let reset = merge_diff(
+            &merged,
+            Kind::View,
+            r#"{"draggable":null,"dragPreview":null}"#,
+        )
+        .unwrap();
+        assert!(!reset.is_draggable());
+        assert_eq!(reset.drag_preview_or_default(), DragPreviewSpec::Native);
+        // `draggable: false` is a valid value that is not draggable.
+        let explicit = merge_diff(&merged, Kind::View, r#"{"draggable":false}"#).unwrap();
+        assert!(!explicit.is_draggable());
+        for json in [
+            r#"{"dragPreview":"sheet"}"#,
+            r#"{"dragPreview":"Native"}"#,
+            r#"{"dragPreview":1}"#,
+            r#"{"draggable":"true"}"#,
+            r#"{"draggable":1}"#,
+        ] {
+            assert!(merge_diff(&previous, Kind::View, json).is_err(), "{json}");
+        }
+        // Any kind may be dragged.
+        for kind in [Kind::View, Kind::Text, Kind::Button] {
+            assert!(merge_diff(&previous, kind, r#"{"draggable":true}"#).is_ok());
         }
     }
 
