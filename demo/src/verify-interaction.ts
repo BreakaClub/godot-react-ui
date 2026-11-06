@@ -3101,6 +3101,20 @@ async function verifyDragging(owner: Node, api: InteractionInspection, capture: 
   assert(board() === boardBefore && isOver() && drag().pointer === null && log() === afterEscape, `Releasing it drops nothing: ${board()}`);
   assert(clicks() === clicksBefore + 3 && ups() === upsBeforeEscape, `And neither clicks nor sends a pointerup: ${dropStatus()}`);
 
+  // ---- Text inside a draggable element starts no selection (plan 3.12: a draggable comes before selection) ---------------
+  await click(api, 'selectable-plain');
+  assert(api.selection() !== undefined, 'A click on select-text that is not in a draggable element selects (the control)');
+  const selectableText = point(api, 'selectable-text');
+  const sessionBeforeText = drag().session;
+  await click(api, 'selectable-text');
+  assert(api.selection() === undefined && drag().session === sessionBeforeText,
+    `A press on select-text inside a draggable element starts no selection and, as any press that starts none, clears the one there was: ${JSON.stringify(api.selection())}`);
+  await dragVia(selectableText, offset(selectableText, 0, BEYOND_THRESHOLD_PX));
+  assert(drag().state === 'dragging' && drag().source === idOf('selectable') && api.selection() === undefined,
+    `Moving on drags the element, with no selection under way: ${JSON.stringify(drag())}`);
+  await release(offset(selectableText, 0, BEYOND_THRESHOLD_PX));
+  assert(api.selection() === undefined && isOver(), 'And the drag ends with nothing selected');
+
   // ---- A release beyond the root ---------------------------------------------------------------------------------------
   api.offsetSurface(SURFACE_OFFSET.x, SURFACE_OFFSET.y);
   await settle();

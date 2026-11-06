@@ -137,7 +137,7 @@ export function DragLab() {
     <View testID="drag-lab" className="w-full min-h-full bg-slate-50 p-4 gap-3" onPointerUp={(_: UIPointerEvent) => setUps(current => current + 1)}>
       <View className="gap-1">
         <Text testID="drag-title" className="text-2xl text-slate-900">Drag and drop</Text>
-        <Text className="text-sm text-slate-500">Drag cards between the columns and onto the trash (move only). The palette item copies, so the trash refuses it. Drag to a list's edge to scroll it. Escape cancels. The gesture chips cannot start a drag: locked (its pointerdown is prevented), captured (it captured the pointer), refused (its dragstart is prevented); the last one drags with no ghost.</Text>
+        <Text className="text-sm text-slate-500">Drag cards between the columns and onto the trash (move only). The palette item copies, so the trash refuses it. Drag to a list's edge to scroll it. Escape cancels. The gesture chips cannot start a drag: locked (its pointerdown is prevented), captured (it captured the pointer), refused (its dragstart is prevented). The no-ghost chip drags with no ghost, and the select-text chip is a drag source whose text starts no selection.</Text>
       </View>
       <View testID="drag-sections" className="flex-row flex-wrap gap-3">
         <Section title="Board">
@@ -210,6 +210,10 @@ export function DragLab() {
           <View testID="ghostless" className={chip} dragPreview="none" {...source('ghostless', 'move')}>
             <Text className="pointer-events-none text-xs text-slate-700">no ghost</Text>
           </View>
+          <View testID="selectable" className={`${chip} select-text`} {...source('selectable', 'move')}>
+            <Text testID="selectable-text" className="text-xs text-slate-700">select me</Text>
+          </View>
+          <Text testID="selectable-plain" className="select-text text-xs text-slate-700">plain text, selectable</Text>
         </Section>
         <Section title="List (drag to its edge)">
           <ScrollView testID="drag-list" className="h-44 w-44 rounded-xl border border-slate-200 bg-white" focusable={false} contentClassName="gap-1 p-2">

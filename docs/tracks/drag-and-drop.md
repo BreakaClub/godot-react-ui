@@ -92,6 +92,19 @@ Each was made from the evidence named; none contradicts plan section 3.
   press, so a verifier asks "over?" and not "idle?"), `session`, `source`, `target`, `pointer`, `origin`, `position`,
   `allowedEffect`, the shown ghost's rectangle and element count, and how the last drag ended (`lastEnd`).
 
+- **I9-15. Drag and selection (after Phase I6 landed).** The press arbitration in `press_mouse` is thumb, then drag, then
+  selection (plan 3.12 rules 2, 3, 5): `begin_drag_gesture` returns whether the press is inside a draggable element, and
+  that makes `begin_selection_press`'s `allowed` false. So text inside a draggable element starts no selection, and a
+  press there that never becomes a drag is a click that, like any un-prevented press that starts no selection, clears the
+  current selection (`run_pointerdown_default`'s `keeps_selection` is false). That is the browser rule for text in a
+  draggable. It holds with a prevented `pointerdown` or a captured pointer (those never reach the offer, so selection
+  decides as before). Verified in the drag section with a `select-text` chip that is a drag source: a click clears a
+  selection made on plain `select-text` and selects nothing, and a press that moves on drags with no selection under
+  way. The ghost copies the recorded content key without the selection highlight (it has no font to place one with, and
+  the press that starts a drag has cleared the selection).
+- **I9-16. Keys.** Escape is matched as a plain key (`InputEventKey.keycode == Key::ESCAPE`) in `input()`, not through an
+  InputMap action, so the verifier's device ids (S11) do not affect it.
+
 ## Plan problems found
 
 - The Files list omitted `native/pointer_input.rs`, `native/scroll_input.rs`, `native/motion.rs` (`update_process`),
