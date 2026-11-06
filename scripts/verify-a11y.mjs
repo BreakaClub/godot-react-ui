@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { importDemo } from './import-demo.mjs';
+import { selectEngine } from './engine.mjs';
 import { runNativeVerifier } from './native-run.mjs';
 
 // Phase I10: the accessibility tree the platform sees (docs/tracks/accessibility.md). Godot runs the lab scene
@@ -14,9 +15,10 @@ import { runNativeVerifier } from './native-run.mjs';
 // Reading a process's tree needs macOS Accessibility permission for the process that runs this script.
 // Nothing here performs an accessibility action, types, clicks or changes a system setting.
 const root = resolve(import.meta.dirname, '..');
-const godot = process.env.GODOT ?? '/Applications/Godot48.app/Contents/MacOS/Godot';
+const engine = selectEngine();
+const godot = engine.godot;
 const scene = 'res://a11y.tscn';
-const artifactRoot = resolve(root, 'artifacts/native-a11y');
+const artifactRoot = engine.artifactPath('native-a11y');
 const swiftSource = resolve(import.meta.dirname, 'ax-dump.swift');
 const axDump = resolve(artifactRoot, 'bin/ax-dump');
 const resolution = '900x700';
@@ -45,6 +47,8 @@ function buildDumpTool() {
 
 if (process.platform !== 'darwin') throw new Error('verify:a11y reads the macOS accessibility tree; run it on macOS');
 assertDumpToolIsReadOnly();
+// Fail first if the binary or the installed library belongs to the other engine profile.
+engine.prepareNative();
 const build = spawnSync('pnpm', ['build'], { cwd: root, stdio: 'inherit' });
 if (build.error) throw build.error;
 if (build.status !== 0) process.exit(build.status ?? 1);
