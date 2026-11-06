@@ -216,4 +216,12 @@ export interface UIAriaProps {
   'aria-valuenow'?: number;
   'aria-live'?: 'off' | 'polite' | 'assertive';
   'aria-orientation'?: 'horizontal' | 'vertical';
+  /**
+   * The option a text input with `role="combobox"` is on while focus stays in the input: the `id` of its
+   * `UIHandle`. Native has no DOM ids, so elements are named by the tag the handle holds. The element must
+   * be exposed (it is an `option` in a `listbox`, say) when the accessibility tree is built.
+   */
+  'aria-activedescendant'?: number;
+  /** The element this one controls, such as a combobox's list: the `id` of its `UIHandle`. */
+  'aria-controls'?: number;
 }

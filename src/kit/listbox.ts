@@ -21,6 +21,23 @@ export function stepEnabled(
   return undefined;
 }
 
+/**
+ * Like {@link stepEnabled}, but past an end it goes on from the other end: a list the keys can loop through, for a
+ * combobox whose Home and End belong to the text caret. `undefined` only when no item is enabled. Stepping off the
+ * only enabled item gives that item.
+ */
+export function stepEnabledLooping(
+  items: readonly { readonly disabled: boolean }[], from: number, direction: 1 | -1,
+): number | undefined {
+  const count = items.length;
+  const start = from === -1 && direction === -1 ? count : from;
+  for (let offset = 1; offset <= count; offset += 1) {
+    const index = (((start + direction * offset) % count) + count) % count;
+    if (items[index]?.disabled === false) return index;
+  }
+  return undefined;
+}
+
 /** The first enabled item, or the last. */
 export function edgeEnabled(items: readonly { readonly disabled: boolean }[], edge: 'first' | 'last'): number | undefined {
   return edge === 'first' ? stepEnabled(items, -1, 1) : stepEnabled(items, items.length, -1);
@@ -49,4 +66,12 @@ export function typeAheadMatch(
     if (item !== undefined && !item.disabled && item.label.toLowerCase().startsWith(needle)) return index;
   }
   return undefined;
+}
+
+/**
+ * A combobox's default filter: whether `query` is a substring of `textValue`, ignoring case. An empty query matches
+ * everything. (`toLowerCase`, not a locale compare: the native runtime has no `Intl`.)
+ */
+export function containsFilter(textValue: string, query: string): boolean {
+  return query === '' || textValue.toLowerCase().includes(query.toLowerCase());
 }

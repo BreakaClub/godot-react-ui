@@ -314,6 +314,16 @@ export function watchTextSelection(container: Container, listener: () => void): 
   return container.root.listeners.add('selectionchange', listener);
 }
 
+/**
+ * Call `listener` for each `type` event that reaches the root: the events no element stopped, whatever they were
+ * aimed at (the root's own listeners run after the elements' bubble phase). Returns the remover.
+ */
+export function watchRootEvent<K extends NativeEventType>(
+  container: Container, type: K, listener: (event: UIEventMap[K]) => void,
+): () => void {
+  return container.root.listeners.add(type, listener);
+}
+
 function finiteSize(value: number, axis: string): number {
   if (!Number.isFinite(value) || value < 0) throw new Error(`Native root ${axis} is not a finite, non-negative size: ${value}`);
   return value;

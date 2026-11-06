@@ -10,6 +10,8 @@ const CODE_OF_KEY: Readonly<Record<string, string>> = { ' ': 'Space' };
 
 export interface KeyInit {
   readonly repeat?: boolean;
+  /** The key belongs to an IME composition, as native reports it. */
+  readonly isComposing?: boolean;
   readonly shiftKey?: boolean;
   readonly ctrlKey?: boolean;
   readonly altKey?: boolean;

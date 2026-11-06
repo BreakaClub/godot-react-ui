@@ -1,13 +1,16 @@
-export { View, Text, Button, Portal, useRootSize, useTextSelection } from './components';
+export { View, Text, Button, Portal, useRootEvent, useRootSize, useTextSelection } from './components';
 export type {
   HostProps, TextInputHandle, TextInputHostProps, UIProps, UIHandle, UISelection, UISelectionPoint,
 } from './components';
 export { TextInput, isTextInputHandle } from './text-input';
 export type { TextInputProps } from './text-input';
 export type { KeyboardType } from './props';
-export { Checkbox, RadioGroup, ScrollView, Select, Slider, Switch, TextField } from './kit';
+export { Checkbox, Combobox, RadioGroup, ScrollView, Select, Slider, Switch, TextField, defaultComboboxFilter } from './kit';
 export type {
-  CheckboxProps, CheckedState, PartProps, RadioGroupItemProps, RadioGroupRootProps, RadioOrientation, ScrollViewProps,
+  CheckboxProps, CheckedState, ComboboxButtonProps, ComboboxChipProps, ComboboxChipRemoveProps, ComboboxChipsProps,
+  ComboboxContentProps, ComboboxControlProps, ComboboxEmptyProps, ComboboxFilter, ComboboxInputProps, ComboboxItemIndicatorProps,
+  ComboboxItemProps, ComboboxItemTextProps, ComboboxMultipleRootProps, ComboboxRootProps, ComboboxSingleRootProps,
+  PartProps, RadioGroupItemProps, RadioGroupRootProps, RadioOrientation, ScrollViewProps,
   SelectContentProps, SelectIconProps, SelectItemIndicatorProps, SelectItemProps, SelectItemTextProps, SelectRootProps,
   SelectTriggerProps, SelectValueProps, SliderOrientation, SliderRangeProps, SliderRootProps, SliderThumbProps,
   SliderTrackProps, SwitchProps, TextFieldProps,

@@ -349,7 +349,7 @@ const OpenContent = forwardRef<UIHandle, SelectContentProps>(function OpenConten
   // Placed from what layout made of it, after every render: its size depends on its items, and the
   // trigger can move.
   const { style: own, viewport } = usePopupPlacement({
-    anchor: select.trigger, popup: listbox, sideOffset, collisionPadding,
+    anchor: () => select.trigger.current, popup: listbox, sideOffset, collisionPadding,
     missing: '<Select.Content> needs a mounted <Select.Trigger> and a mounted list to place the list',
   });
 

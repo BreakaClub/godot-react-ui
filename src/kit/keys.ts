@@ -14,6 +14,8 @@ export const Key = {
   PageDown: 'PageDown',
   Home: 'Home',
   End: 'End',
+  Backspace: 'Backspace',
+  Delete: 'Delete',
 } as const;
 
 /**

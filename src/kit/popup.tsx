@@ -77,8 +77,8 @@ function samePlacement(left: ListPlacement | undefined, right: ListPlacement): b
 }
 
 export interface PopupPlacementOptions {
-  /** The element the list opens from: a select's trigger, a combobox's control. */
-  readonly anchor: MutableRefObject<UIHandle | null>;
+  /** The element the list opens from: a select's trigger, a combobox's control. Read at each placement. */
+  readonly anchor: () => UIHandle | null;
   /** The list itself, a scroll container whose own height is what placement fits. */
   readonly popup: MutableRefObject<UIHandle | null>;
   /** The space between the anchor and the list. */
@@ -108,7 +108,7 @@ export function usePopupPlacement(options: PopupPlacementOptions): PopupPlacemen
   const viewport = useRootSize();
   const [placement, setPlacement] = useState<ListPlacement | undefined>(undefined);
   useLayoutEffect(() => {
-    const anchorRect = anchor.current?.getRect();
+    const anchorRect = anchor()?.getRect();
     const box = popup.current?.getRect();
     if (anchorRect === undefined || box === undefined) throw new Error(missing);
     // A list that is not a scroll container (the caller turned `overflow` off) is as tall as its items.

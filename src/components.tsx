@@ -1,11 +1,14 @@
-import { Children, createElement, forwardRef, useCallback, useContext, useSyncExternalStore, type ReactNode } from 'react';
-import type {
-  UIAccessibilityActionEvent, UIBeforeInputEvent, UICompositionEvent, UIDragEndEvent, UIDragEvent, UIFocusEvent, UIInputEvent,
-  UIKeyboardEvent, UIPointerEvent, UIScrollEvent, UITextSelectionChangeEvent, UIWheelEvent,
-} from './events';
-import type { LayoutRect, NativeScrollState } from './native';
 import {
-  createOverlayPortal, OverlayContext, readRootSize, readTextSelection, watchRootSize, watchTextSelection, type RootSize,
+  Children, createElement, forwardRef, useCallback, useContext, useLayoutEffect, useRef, useSyncExternalStore, type ReactNode,
+} from 'react';
+import type {
+  UIAccessibilityActionEvent, UIBeforeInputEvent, UICompositionEvent, UIDragEndEvent, UIDragEvent, UIEventMap, UIFocusEvent,
+  UIInputEvent, UIKeyboardEvent, UIPointerEvent, UIScrollEvent, UITextSelectionChangeEvent, UIWheelEvent,
+} from './events';
+import type { LayoutRect, NativeEventType, NativeScrollState } from './native';
+import {
+  createOverlayPortal, OverlayContext, readRootSize, readTextSelection, watchRootEvent, watchRootSize, watchTextSelection,
+  type RootSize,
 } from './renderer';
 import type { KeyboardType } from './props';
 import type { StyleProp, UIAriaProps } from './types';
@@ -309,4 +312,18 @@ export function useTextSelection(): UISelection | undefined {
   const subscribe = useCallback((listener: () => void) => watchTextSelection(overlay, listener), [overlay]);
   const read = useCallback(() => readTextSelection(overlay), [overlay]);
   return useSyncExternalStore(subscribe, read);
+}
+
+/**
+ * Run `listener` for every `type` event that reaches the root while this component is mounted: any event of
+ * that type no element stopped (`stopPropagation`), whichever element it was aimed at. A document-level listener,
+ * for a popup that closes when something outside it happens. The latest `listener` runs; changing it does not
+ * subscribe again.
+ */
+export function useRootEvent<K extends NativeEventType>(type: K, listener: (event: UIEventMap[K]) => void): void {
+  const overlay = useContext(OverlayContext);
+  if (overlay === null) throw new Error('useRootEvent() must be used inside a root created by createRoot');
+  const latest = useRef(listener);
+  useLayoutEffect(() => { latest.current = listener; });
+  useLayoutEffect(() => watchRootEvent(overlay, type, (event) => { latest.current(event); }), [overlay, type]);
 }

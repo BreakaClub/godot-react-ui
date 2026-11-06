@@ -1,5 +1,12 @@
 export { Checkbox } from './checkbox';
 export type { CheckboxProps, CheckedState } from './checkbox';
+export { Combobox, defaultComboboxFilter } from './combobox';
+export type {
+  ComboboxButtonProps, ComboboxContentProps, ComboboxControlProps, ComboboxEmptyProps, ComboboxFilter, ComboboxInputProps,
+  ComboboxItemIndicatorProps, ComboboxItemProps, ComboboxItemTextProps, ComboboxMultipleRootProps, ComboboxRootProps,
+  ComboboxSingleRootProps,
+} from './combobox';
+export type { ComboboxChipProps, ComboboxChipRemoveProps, ComboboxChipsProps } from './combobox-chips';
 export { RadioGroup } from './radio-group';
 export type { RadioGroupItemProps, RadioGroupRootProps, RadioOrientation } from './radio-group';
 export { ScrollView } from './scroll-view';

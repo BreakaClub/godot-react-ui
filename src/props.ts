@@ -51,6 +51,10 @@ export interface NativeProps {
   readonly ariaValueNow?: number;
   readonly ariaLive?: 'off' | 'polite' | 'assertive';
   readonly ariaOrientation?: 'horizontal' | 'vertical';
+  /** The tag of the element a combobox is on; see `aria-activedescendant` in `UIAriaProps`. */
+  readonly ariaActiveDescendant?: number;
+  /** The tag of the element this one controls. */
+  readonly ariaControls?: number;
   /** `TextInput` only. The text it starts with; later changes are not sent (the buffer owns the text). */
   readonly defaultValue?: string;
   readonly placeholder?: string;
@@ -70,7 +74,7 @@ export type KeyboardType = 'default' | 'multiline' | 'number' | 'decimal' | 'pho
 const ACCESSIBILITY_KEYS = [
   'role', 'ariaLabel', 'ariaDescription', 'ariaValueText', 'ariaPlaceholder', 'ariaHidden', 'ariaDisabled',
   'ariaExpanded', 'ariaSelected', 'ariaReadOnly', 'ariaRequired', 'ariaModal', 'ariaChecked', 'ariaValueMin',
-  'ariaValueMax', 'ariaValueNow', 'ariaLive', 'ariaOrientation',
+  'ariaValueMax', 'ariaValueNow', 'ariaLive', 'ariaOrientation', 'ariaActiveDescendant', 'ariaControls',
 ] as const satisfies readonly (keyof NativeProps)[];
 
 /** The `TextInput` fields of {@link NativeProps} that are compared with `!==` (`defaultValue` is creation-only). */
@@ -189,6 +193,14 @@ function finiteNumber(value: number | undefined, prop: string): number | undefin
   return value;
 }
 
+/** `value` if it is the tag of an element (a positive integer: tag 0 is the layer), else a thrown error that names the JSX prop. */
+function elementTag(value: number | undefined, prop: string): number | undefined {
+  if (value !== undefined && !(Number.isSafeInteger(value) && value > 0)) {
+    throw new Error(`${prop} must be the id of an element handle (a positive integer), not ${String(value)}`);
+  }
+  return value;
+}
+
 /**
  * The accessibility props (plan 4.2, Phase I10): `role` and the JSX `aria-*` names mapped to the
  * camelCase native fields. A boolean whose default is false is sent only when true; `aria-expanded`,
@@ -216,6 +228,10 @@ function accessibilityProps(props: HostProps, native: { -readonly [K in keyof Na
   if (now !== undefined) native.ariaValueNow = now;
   if (props['aria-live'] !== undefined) native.ariaLive = props['aria-live'];
   if (props['aria-orientation'] !== undefined) native.ariaOrientation = props['aria-orientation'];
+  const activeDescendant = elementTag(props['aria-activedescendant'], 'aria-activedescendant');
+  const controls = elementTag(props['aria-controls'], 'aria-controls');
+  if (activeDescendant !== undefined) native.ariaActiveDescendant = activeDescendant;
+  if (controls !== undefined) native.ariaControls = controls;
 }
 
 function sameStyle(left: CompiledStyle | undefined, right: CompiledStyle | undefined): boolean {
