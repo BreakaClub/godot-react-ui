@@ -1,6 +1,8 @@
 export const ENGINE_VARIABLE: string;
 export const ENGINE_FLAG: string;
 export const DEFAULT_ENGINE: string;
+/** The Cargo package both builds compile, and the one a stale target has cleaned. */
+export const CARGO_PACKAGE: string;
 
 export interface WebProfile {
   /** The export preset in `demo/export_presets.cfg` that carries this profile's engine templates. */
@@ -12,6 +14,24 @@ export interface WebProfile {
   nightly: string;
   /** Whether the engine's Web input turns a browser `touchcancel` into a cancelled touch (stock 4.7.2 does not). */
   reportsCancelledTouch: boolean;
+}
+
+/** Which artifact a build makes: the native library, or the Web side module. */
+export type BuildKind = 'native' | 'web';
+
+/** What a build is made from (scripts/freshness.mjs): cargo features and a content hash of every input file. */
+export interface BuildInputs {
+  features: string[];
+  digest: string;
+  inputs: Record<string, string>;
+}
+
+/** The steps that record a build, returned by `Engine.beginBuild`. */
+export interface BuildRecord {
+  /** Cargo has succeeded: stamp its output. Throws if the sources changed while it ran. */
+  compiled(): void;
+  /** The artifact is in place: stamp the installed copy. */
+  installed(): void;
 }
 
 export interface Engine {
@@ -34,11 +54,21 @@ export interface Engine {
   artifactPath(...names: string[]): string;
   bindingEnvironment(): Record<string, string>;
   verifiedVersion(): string;
-  recordInstalledLibrary(probe: boolean): void;
+  /** Throws unless the installed native library is this profile's build of the current sources. */
   requireInstalledLibrary(options?: { probe?: boolean }): void;
-  recordInstalledWasm(probe: boolean): void;
+  /** Throws unless the installed Web side module is this profile's build of the current sources. */
   requireInstalledWasm(options?: { probe?: boolean }): void;
+  installedWasmStamp(): Record<string, unknown> | undefined;
+  /** Throws unless the library in the profile's native target directory is its build of the current sources. */
+  requireBuiltLibrary(): void;
+  /** Throws unless the Web export (`--release` or debug) carries this profile's side module built from the current sources. */
+  requireFreshWebExport(options?: { probe?: boolean }): void;
   prepareNative(options?: { probe?: boolean }): string;
+  /** The cargo features a build of `kind` enables. */
+  features(kind: BuildKind, options?: { probe?: boolean }): string[];
+  sourceInputs(kind: BuildKind, options?: { probe?: boolean }): BuildInputs;
+  /** Hash the inputs, have `clean` run if cargo's last output is not provably a build of them, and return the recording steps. */
+  beginBuild(kind: BuildKind, options: { probe?: boolean; clean: () => void }): BuildRecord;
 }
 
 export function argsWithoutEngine(argv: readonly string[]): string[];

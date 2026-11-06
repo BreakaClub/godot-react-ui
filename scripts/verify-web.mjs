@@ -9,6 +9,8 @@ import { selectEngine } from './engine.mjs';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // The engine profile (`--engine=stock`; scripts/engine.mjs) decides which export is judged and where evidence goes.
 const engine = selectEngine();
+// Refuse an export whose side module was built from other sources than the working tree (docs/tracks/freshness.md).
+engine.requireFreshWebExport();
 // `--release` verifies the release export (the stock profile's only Web mode that starts: docs/tracks/stock-engine.md, S10).
 const packBuffer = await readFile(engine.artifactPath(`web-${engine.webMode()}`, 'index.pck'));
 const expectedPack = {

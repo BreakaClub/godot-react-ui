@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { delimiter, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { argsWithoutEngine, selectEngine } from './engine.mjs';
+import { argsWithoutEngine, CARGO_PACKAGE, selectEngine } from './engine.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // The engine profile (`--engine=stock` / `GODOT_REACT_ENGINE=stock`; scripts/engine.mjs) decides the Emscripten SDK, the
@@ -116,13 +116,20 @@ print(json.dumps({'binaryen':env['ENV']['EM_BINARYEN_ROOT'],'linkFlags':env['LIN
   env.CARGO_ENCODED_RUSTFLAGS = flags.join('\x1f');
   delete env.RUSTFLAGS;
   console.log(`Engine profile ${engine.name}: ${engine.description}; Emscripten ${sdk}, ${toolchain}, target ${targetDirectory}`);
-  run(cargo, [`+${toolchain}`, 'build', '--locked', '--release', '--lib', '--features', probe ? 'web,probe' : 'web', '-Zbuild-std', '--target', 'wasm32-unknown-emscripten']);
+  // Cargo rebuilds from file modification times, so a source restored to old content with its old mtime keeps the
+  // artifact built from the other content (docs/tracks/freshness.md). `beginBuild` hashes the inputs and, unless the
+  // target's own stamp says its artifact is a build of exactly these, cleans this crate (not its dependencies) first.
+  const build = engine.beginBuild('web', {
+    probe, clean: () => run(cargo, [`+${toolchain}`, 'clean', '--locked', '-p', CARGO_PACKAGE, '--release', '--target', 'wasm32-unknown-emscripten']),
+  });
+  run(cargo, [`+${toolchain}`, 'build', '--locked', '--release', '--lib', '--features', engine.features('web', { probe }).join(','), '-Zbuild-std', '--target', 'wasm32-unknown-emscripten']);
+  build.compiled();
   const compiled = join(targetDirectory, 'wasm32-unknown-emscripten', 'release', 'godot_react_ui.wasm');
   const wasm = readFileSync(compiled);
   if (lazyTable) tableMetadata(wasm, 'React UI extension');
   mkdirSync(dirname(wasmPath), { recursive: true });
   copyFileSync(compiled, wasmPath);
-  engine.recordInstalledWasm(probe);
+  build.installed();
   console.log(`Web extension (${engine.name} profile${probe ? ', PROBE BUILD, replace with a default build' : ''}): ${wasm.length} bytes, SHA-256 ${hash(wasm)}`);
 }
 
@@ -151,6 +158,8 @@ if (!args.has('--wasm-only')) {
   writeFileSync(join(output, 'build-receipt.json'), JSON.stringify({
     engine: engine.name, exporter: { godot, version: exporterVersion },
     template, templateSha256: hash(readFileSync(template)), mode, toolchain, sdk,
+    // The side module's stamp (what it was built from): the Web verifiers and the server refuse an export whose sources have moved on.
+    extension: engine.installedWasmStamp(),
     emscripten: readFileSync(join(sdk, 'upstream', 'emscripten', 'emscripten-version.txt'), 'utf8').trim().replaceAll('"', ''),
     ...(lazyTable ? { binaryenManifestSha256: manifestHash } : {}), modules,
     api: ['extension_api.json', 'gdextension_interface.json'].map(name => {

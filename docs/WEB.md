@@ -116,7 +116,11 @@ nightly accepts it.
 The receipt (`build-receipt.json`) records the profile, the exporting binary and version, the template hash, the
 Emscripten version and the API dump hashes; it has no lazy-table fields for `stock`. The side module must be linked by
 the same Emscripten as the template, whatever the profile, so the two profiles use different SDKs and never share a
-target directory. `build:web` refuses to export when the installed side module was built for the other profile.
+target directory. `build:web` refuses to export when the installed side module was built for the other profile, or from other
+sources than the working tree. The receipt records the side module's stamp (`extension`: profile, probe flag, hash, cargo features, a
+digest of the sources and each source file's hash), and `serve-web`, `probe-web` and every Web verifier refuse an export whose stamp no
+longer matches the working tree, naming the files that differ and `pnpm build:web` as the fix (`docs/tracks/freshness.md`). An export made
+before the guard has no stamp and is refused once.
 
 Primary contracts: [godot-rust Web exports](https://godot-rust.github.io/book/toolchain/export-web.html),
 [Godot Web export requirements](https://docs.godotengine.org/en/stable/tutorials/export/exporting_for_web.html).

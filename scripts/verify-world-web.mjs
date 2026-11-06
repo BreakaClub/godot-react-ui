@@ -11,6 +11,8 @@ import { selectEngine } from './engine.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const engine = selectEngine();
+// Refuse an export whose side module was built from other sources than the working tree (docs/tracks/freshness.md).
+engine.requireFreshWebExport();
 const base = process.env.GODOT_REACT_WEB_URL ?? 'http://127.0.0.1:8096';
 const url = new URL('/?scene=res://world.tscn', base).href;
 const executablePath = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';

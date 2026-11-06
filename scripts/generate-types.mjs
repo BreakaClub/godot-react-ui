@@ -10,6 +10,9 @@ const engine = selectEngine();
 const godot = engine.godot;
 const unknown = argsWithoutEngine(process.argv.slice(2));
 if (unknown.length > 0) throw new Error(`Unknown argument: ${unknown.join(' ')}`);
+// The default profile's editor writes the tracked typings from the installed library, so refuse a stale one before any
+// work; the stock profile generates from its target directory's library, which `generateStockTypings` checks.
+if (engine.name !== 'stock') engine.prepareNative();
 const build = spawnSync('pnpm', ['build'], {cwd:root, stdio:'inherit', timeout:120_000});
 if (build.error) throw build.error;
 if (build.status !== 0) process.exit(build.status ?? 1);

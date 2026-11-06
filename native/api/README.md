@@ -66,3 +66,11 @@ enabled in both profiles (it is harmless against a full engine and keeps one dep
 method on first use).
 
 Regenerate the stock dumps from the stock tree with the command above (replace the binary), then update the hashes.
+
+## Dumps and the freshness guard
+
+The profile's dump pair is an input of every build of that profile: `build:native` and `build:web` hash it with `native/**`, `Cargo.toml` and
+`Cargo.lock`, and a run refuses an installed library, side module or Web export that was built from other bytes
+(`docs/tracks/freshness.md`). The other profile's dumps are not inputs, so replacing the stock dump marks only stock builds stale.
+After replacing a dump, rebuild with `pnpm build:native --engine=<name>` (and `build:web`), which cleans this crate; godot-rust's own
+bindings regenerate from the dump through cargo's usual dependency tracking.

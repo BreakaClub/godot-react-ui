@@ -11,6 +11,8 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // `--acceptance` reruns the same scenarios on the Fabric renderer and checks Phase F4's criteria
 // (docs/INTERACTION_PLAN.md); it writes to its own directory so the F0 evidence stays intact.
 const engine = selectEngine();
+// Refuse an export whose side module was built from other sources than the working tree (docs/tracks/freshness.md).
+engine.requireFreshWebExport();
 const baseline = process.argv.includes('--baseline');
 const acceptance = process.argv.includes('--acceptance');
 if (baseline && acceptance) throw new Error('Choose one scenario mode: --baseline or --acceptance.');

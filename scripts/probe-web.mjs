@@ -9,7 +9,10 @@ import puppeteer from 'puppeteer-core';
 import { selectEngine } from './engine.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const output = selectEngine().artifactPath('fabric-probe');
+const engine = selectEngine();
+// The probe export (`pnpm build:web --probe`) must be a probe build of the current sources (docs/tracks/freshness.md).
+engine.requireFreshWebExport({ probe: true });
+const output = engine.artifactPath('fabric-probe');
 const url = process.env.GODOT_REACT_WEB_URL ?? 'http://127.0.0.1:8096';
 const executablePath = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const STARTUP_TIMEOUT_MS = 180_000;

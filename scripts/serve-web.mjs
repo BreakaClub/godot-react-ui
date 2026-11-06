@@ -7,6 +7,9 @@ import { selectEngine } from './engine.mjs';
 const engine = selectEngine();
 const mode = engine.webMode();
 const root = engine.artifactPath(`web-${mode}`);
+// Serving an export is how a Web run starts: refuse one whose side module was built from other sources than the working
+// tree (docs/tracks/freshness.md). `--probe` serves the Phase F0 probe export that `build:web --probe` makes.
+engine.requireFreshWebExport({ probe: process.argv.includes('--probe') });
 if (!statSync(resolve(root, 'index.html')).isFile()) throw new Error('Build the Web demo before serving it.');
 const port = Number(process.env.PORT ?? '8096');
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be 1..65535.');

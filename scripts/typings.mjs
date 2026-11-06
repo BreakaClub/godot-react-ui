@@ -10,6 +10,10 @@ import { fileURLToPath } from 'node:url';
 // stock editor writes different declarations (a different GodotJS, a different Godot), so they are generated in a
 // staged copy of the project, with the library built for the stock engine, and kept untracked in the stock
 // profile's target directory, which `tsconfig.stock.json` includes.
+//
+// The declarations list the library's classes, so they are only as current as the library. They are never generated
+// from, or checked against, a library built from older sources (docs/tracks/freshness.md): that would report the
+// newest `#[func]`s as missing types. A typecheck never builds the library; it says which build to run.
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const GENERATE_TIMEOUT_MS = 120_000;
 
@@ -27,10 +31,16 @@ function sha256(path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex');
 }
 
-/** What the declarations depend on: the editor that wrote them and the library whose classes they list. */
+/**
+ * What the declarations depend on: the editor that wrote them, the library whose classes they list and the sources
+ * (the same digest the library's stamp records) that library was built from.
+ */
 function stockTypingsSource(engine, version) {
   const paths = stockTypingsPaths(engine);
-  return { godotVersion: version, librarySha256: sha256(paths.library), apiSha256: sha256(resolve(engine.apiDirectory, 'extension_api.json')) };
+  return {
+    godotVersion: version, librarySha256: sha256(paths.library), apiSha256: sha256(resolve(engine.apiDirectory, 'extension_api.json')),
+    sourceDigest: engine.sourceInputs('native').digest,
+  };
 }
 
 /**
@@ -43,11 +53,11 @@ export function withoutInvalidExportDeclaration(source) {
   return source.replace(/ {4}\/\*\* @deprecated Use createClassBinder\(\) instead\. \*\/\r?\n {4}export function export\(type: Godot\.Variant\.Type, details\?: \{.*?\}\): \(target: any, name: string\) => void;\r?\n/su, '');
 }
 
-/** Generate the stock declarations in a staged copy of the project. Needs the stock library built. */
+/** Generate the stock declarations in a staged copy of the project. Needs the stock library built from the current sources. */
 export function generateStockTypings(engine) {
   const version = engine.verifiedVersion();
   const paths = stockTypingsPaths(engine);
-  if (!existsSync(paths.library)) throw new Error(`Build the stock library first: pnpm build:native --engine=stock (${paths.library} is missing)`);
+  engine.requireBuiltLibrary();
   mkdirSync(paths.stage, {recursive: true});
   // The project as the stock editor sees it: the demo, its compiled scripts, and the stock library at the path the
   // `.gdextension` names. Breaka's typings and scene wrappers, and whichever library is installed, are left out.
@@ -74,10 +84,14 @@ export function generateStockTypings(engine) {
   console.log(`Stock typings (${readdirSync(paths.directory).length} files) written to ${paths.directory}`);
 }
 
-/** Generate the stock declarations unless the ones on disk came from this editor and this library. */
+/**
+ * Generate the stock declarations unless the ones on disk came from this editor and this library. Refuses, naming
+ * the build to run, if the library is not a build of the current sources; it never builds one.
+ */
 export function ensureStockTypings(engine) {
   const paths = stockTypingsPaths(engine);
-  if (existsSync(paths.library) && existsSync(paths.record) && existsSync(paths.directory)) {
+  engine.requireBuiltLibrary();
+  if (existsSync(paths.record) && existsSync(paths.directory)) {
     const recorded = JSON.parse(readFileSync(paths.record, 'utf8'));
     const current = stockTypingsSource(engine, engine.verifiedVersion());
     if (Object.keys(current).every(key => recorded[key] === current[key])) return;

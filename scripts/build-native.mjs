@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, renameSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
-import { argsWithoutEngine, selectEngine } from './engine.mjs';
+import { argsWithoutEngine, CARGO_PACKAGE, selectEngine } from './engine.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const cargo = process.env.CARGO ?? resolve(homedir(), '.cargo/bin/cargo');
@@ -18,13 +18,22 @@ for (const arg of argsWithoutEngine(process.argv.slice(2))) if (!supportedArgs.h
 // `pnpm build:native` afterwards: the probe must never ship.
 const probe = process.argv.includes('--probe');
 const targetDirectory = probe ? engine.targets.nativeProbe : engine.targets.native;
+const features = engine.features('native', { probe });
 console.log(`Engine profile ${engine.name}: ${engine.description}; target ${targetDirectory}`);
-const result = spawnSync(cargo, ['build', '--locked', '--release', ...(probe ? ['--features', 'probe'] : [])], {
-  cwd: root, stdio: 'inherit',
-  env: { ...process.env, ...engine.bindingEnvironment(), CARGO_TARGET_DIR: targetDirectory, PATH: `${resolve(homedir(), '.cargo/bin')}:${process.env.PATH}` },
-});
-if (result.error) throw result.error;
-if (result.status !== 0) process.exit(result.status ?? 1);
+const env = { ...process.env, ...engine.bindingEnvironment(), CARGO_TARGET_DIR: targetDirectory, PATH: `${resolve(homedir(), '.cargo/bin')}:${process.env.PATH}` };
+
+function runCargo(cargoArgs) {
+  const result = spawnSync(cargo, cargoArgs, { cwd: root, stdio: 'inherit', env });
+  if (result.error) throw result.error;
+  if (result.status !== 0) process.exit(result.status ?? 1);
+}
+
+// Cargo rebuilds from file modification times, so a source restored to old content with its old mtime keeps the
+// artifact built from the other content (docs/tracks/freshness.md). `beginBuild` hashes the inputs and, unless the
+// target's own stamp says its artifact is a build of exactly these, cleans this crate (not its dependencies) first.
+const build = engine.beginBuild('native', { probe, clean: () => runCargo(['clean', '--locked', '-p', CARGO_PACKAGE, '--release']) });
+runCargo(['build', '--locked', '--release', ...(features.length > 0 ? ['--features', features.join(',')] : [])]);
+build.compiled();
 const library = engine.libraryName;
 const destination = engine.installDirectory;
 mkdirSync(destination, {recursive: true});
@@ -34,5 +43,5 @@ mkdirSync(destination, {recursive: true});
 const staged = resolve(destination, `${library}.${process.pid}.tmp`);
 copyFileSync(resolve(targetDirectory, 'release', library), staged);
 renameSync(staged, resolve(destination, library));
-engine.recordInstalledLibrary(probe);
+build.installed();
 console.log(`Installed native extension (${engine.name} profile${probe ? ', PROBE BUILD, replace with a default build' : ''}): ${destination}/${library}`);
