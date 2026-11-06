@@ -81,12 +81,11 @@ impl DragGhost {
             {
                 // No selection highlight: the press that starts a drag clears the document's selection, and
                 // the ghost has no font to place one with.
-                let oversampling = f32::max(1.0, key.oversampling as f32 / 64.0);
                 let key = ContentKey {
                     selection: None,
                     ..key
                 };
-                copy.record_content(key, Some(paragraph), oversampling, |_, _| Vec::new());
+                copy.record_content(key, Some(paragraph), |_, _| Vec::new());
             }
             if let Some(offset) = recorded.scroll_offset {
                 copy.make_scroller();

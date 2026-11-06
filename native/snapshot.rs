@@ -134,6 +134,7 @@ impl ReactUiRoot {
             "pointers": pointers,
             "drag": self.drag_snapshot_json(),
             "clockMs": self.clock_ms,
+            "oversampling": self.oversampling.factor(),
             "transitions": self.transitions.values().collect::<Vec<_>>(),
         })
     }

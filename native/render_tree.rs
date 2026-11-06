@@ -49,6 +49,48 @@ pub(crate) const TOP_ITEM_DRAW_INDEX: i32 = 2;
 /// no defined order.
 pub(crate) const GHOST_DRAW_INDEX: i32 = TOP_ITEM_DRAW_INDEX + 1;
 
+/// TextServer keys its glyph caches by oversampling in 26.6 fixed point: `CLAMP(level, 0.1, 100.0) * 64`, truncated
+/// (`modules/text_server_adv/text_server_adv.cpp`, `_reference_oversampling_level`, and `_font_draw_glyph`, which
+/// draws at `level / 64.0`). A level kept in these units is exactly the one TextServer rasterises at, and two of them
+/// are equal exactly when they share a glyph cache.
+const OVERSAMPLING_UNITS_PER_FACTOR: f32 = 64.0;
+/// The range TextServer clamps a requested oversampling to.
+const OVERSAMPLING_MIN_FACTOR: f32 = 0.1;
+const OVERSAMPLING_MAX_FACTOR: f32 = 100.0;
+
+/// How many device pixels one logical pixel covers where this root draws: the font oversampling of the viewport it is
+/// in (the same value Godot's own controls draw their text at, `Viewport::get_oversampling`; see
+/// `docs/tracks/hidpi.md`). Everything this root records through the `RenderingServer` outside `NOTIFICATION_DRAW`
+/// has to be given it, because TextServer and `StyleBoxFlat` read it from a global that only `CanvasItem::_draw` sets.
+///
+/// It is part of every key whose commands depend on it, so a change of scale re-records exactly those items.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Oversampling(u32);
+
+impl Oversampling {
+    /// One device pixel per logical pixel.
+    pub(crate) const NONE: Self = Self(OVERSAMPLING_UNITS_PER_FACTOR as u32);
+
+    /// The level TextServer rasterises at for the viewport's `factor`.
+    pub(crate) fn from_factor(factor: f32) -> Self {
+        let clamped = factor.clamp(OVERSAMPLING_MIN_FACTOR, OVERSAMPLING_MAX_FACTOR);
+        Self((clamped * OVERSAMPLING_UNITS_PER_FACTOR) as u32)
+    }
+
+    /// Device pixels per logical pixel, exactly: dividing by a power of two loses nothing, so TextServer reads
+    /// the same level back.
+    pub(crate) fn factor(self) -> f32 {
+        self.0 as f32 / OVERSAMPLING_UNITS_PER_FACTOR
+    }
+
+    /// The `StyleBoxFlat` antialiasing feather that is one device pixel wide. `StyleBoxFlat::draw` divides
+    /// `anti_aliasing_size` by the oversampling of the item being drawn, and outside `NOTIFICATION_DRAW` that
+    /// is 1, so a feather of one logical pixel would be `factor()` device pixels and blur every rounded edge.
+    pub(crate) fn feather(self) -> f32 {
+        1.0 / self.factor()
+    }
+}
+
 /// What a box item last drew; equal keys mean the recorded commands are still right.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct BoxKey {
@@ -57,6 +99,9 @@ pub(crate) struct BoxKey {
     pub border_color: Color,
     pub border_width: i32,
     pub radius: i32,
+    /// Only rounded corners are antialiased (`StyleBoxFlat`), so only they depend on the scale; a square box
+    /// keeps `Oversampling::NONE` and is not re-recorded when the scale changes.
+    pub oversampling: Oversampling,
 }
 
 /// The highlight a content item draws under its text: code points `start..end` (never empty) in `color`
@@ -77,7 +122,7 @@ pub(crate) struct ContentKey {
     pub content_width: f32,
     pub origin: Vector2,
     pub selection: Option<SelectionPaint>,
-    pub oversampling: u32,
+    pub oversampling: Oversampling,
 }
 
 /// What a text input's text item last drew. Equal keys mean the recorded commands are still right.
@@ -97,7 +142,7 @@ pub(crate) struct EditTextKey {
     pub selection: Option<(usize, usize)>,
     /// The IME preedit's display offsets and the part of it being converted.
     pub preedit: Option<((usize, usize), (usize, usize))>,
-    pub oversampling: u32,
+    pub oversampling: Oversampling,
 }
 
 /// What a text input's caret item last drew: the rectangles, in the scroll item's coordinates.
@@ -113,6 +158,8 @@ pub(crate) struct CaretKey {
 pub(crate) struct OverlayKey {
     pub thumbs: [Option<Rect2>; 2],
     pub color: Color,
+    /// The thumbs have round ends, so their antialiasing depends on the scale.
+    pub oversampling: Oversampling,
 }
 
 fn server() -> Gd<RenderingServer> {
@@ -331,6 +378,7 @@ impl RenderNode {
         rs.canvas_item_clear(overlay_item);
         if let Some(key) = key {
             style.set_bg_color(key.color);
+            style.set_aa_size(key.oversampling.feather());
             for thumb in key.thumbs.into_iter().flatten() {
                 style.draw(overlay_item, thumb);
             }
@@ -390,6 +438,7 @@ impl RenderNode {
         background.set_border_color(key.border_color);
         background.set_border_width_all(key.border_width);
         background.set_corner_radius_all(key.radius);
+        background.set_aa_size(key.oversampling.feather());
         background.draw(self.box_item, bounds);
         self.box_key = Some(key);
         true
@@ -442,7 +491,6 @@ impl RenderNode {
         &mut self,
         key: ContentKey,
         paragraph: Option<&mut Gd<TextParagraph>>,
-        oversampling: f32,
         highlight: impl FnOnce(&Gd<TextParagraph>, SelectionPaint) -> Vec<Rect2>,
     ) -> bool {
         if self.content_key == Some(key) {
@@ -461,7 +509,7 @@ impl RenderNode {
             paragraph
                 .draw_ex(self.content_item, key.origin)
                 .color(key.color)
-                .oversampling(oversampling)
+                .oversampling(key.oversampling.factor())
                 .done();
         }
         self.assert_clip();
@@ -577,20 +625,46 @@ impl ReactUiRoot {
         self.layer_items[layer].item
     }
 
+    /// The oversampling this root draws at: the level of the last `sync_oversampling`. Every paint path reads it from
+    /// here, so a pass draws everything at one level and costs no engine call per node.
+    pub(crate) fn oversampling(&self) -> Oversampling {
+        self.oversampling
+    }
+
+    /// Read the level the root's viewport asks for now. If it is not the level the items were drawn at, mark
+    /// every node that draws differently at another level as needing a paint, and return true.
+    pub(crate) fn sync_oversampling(&mut self) -> bool {
+        let level = self.viewport_oversampling();
+        if level == self.oversampling {
+            return false;
+        }
+        self.oversampling = level;
+        for (tag, node) in &self.mounted.nodes {
+            if node.paints_at_oversampling() {
+                self.paint_dirty.insert(*tag);
+            }
+        }
+        true
+    }
+
+    /// The viewport's scale changed with no commit, layout or restyle to carry it to the screen (a window moved to
+    /// another display, the owner changed `content_scale_factor` or the window's pixel size together, a
+    /// `SubViewport` was resized behind a fixed 2D override): paint what depends on it. The engine asks
+    /// every `CanvasItem` of the viewport to redraw when the viewport's size or oversampling changes
+    /// (`Viewport::_set_size` calls `update_canvas_items`), so this runs on the `DRAW` notification and does nothing when
+    /// the level is the one already drawn.
+    pub(crate) fn repaint_for_oversampling(&mut self) {
+        if self.font.is_some() && self.sync_oversampling() {
+            self.paint_pass();
+        }
+    }
+
     /// Re-record the canvas items of every node whose paint inputs may have changed, and redraw
     /// the focus ring if its rectangle did. Items whose recorded key still holds are left alone, so
     /// an idle frame records nothing.
     pub(crate) fn paint_pass(&mut self) {
         let started = Instant::now();
-        let oversampling = self.oversampling();
-        if (oversampling - self.last_oversampling).abs() > 0.001 {
-            self.last_oversampling = oversampling;
-            for (tag, node) in &self.mounted.nodes {
-                if node.kind == Kind::Text || node.kind == Kind::TextInput {
-                    self.paint_dirty.insert(*tag);
-                }
-            }
-        }
+        self.sync_oversampling();
         let dirty = std::mem::take(&mut self.paint_dirty);
         let mut changed = !dirty.is_empty();
         for tag in dirty {
@@ -642,33 +716,38 @@ impl ReactUiRoot {
             Some((_, [r, g, b, a])) => Color::from_rgba(r, g, b, a),
             None => parse_color(style.background_color.as_deref(), Color::TRANSPARENT_BLACK),
         };
+        let radius = style.border_radius.unwrap_or(0.0).round() as i32;
         let box_key = BoxKey {
             size,
             background,
             border_color: parse_color(style.border_color.as_deref(), Color::TRANSPARENT_BLACK),
             border_width: style.border_width.unwrap_or(0.0).round() as i32,
-            radius: style.border_radius.unwrap_or(0.0).round() as i32,
+            radius,
+            oversampling: if radius > 0 {
+                oversampling
+            } else {
+                Oversampling::NONE
+            },
         };
         let boxed = node.render.record_box(box_key, &mut node.visual.background);
         // A text input draws its own text in the items under its scroll item (`paint_text_input`).
         if node.kind == Kind::TextInput {
             return (boxed, false);
         }
-        let contented =
-            match node.visual.paragraph.as_mut() {
-                Some(paragraph) => {
-                    let key = ContentKey {
-                        generation: node.visual.generation,
-                        color: parse_color(style.color.as_deref(), Color::WHITE),
-                        content_width: node.geometry.content_width(),
-                        origin: node.geometry.content_origin(),
-                        selection: highlight.map(|range| highlight_paint(style, range)),
-                        oversampling: (oversampling * 64.0).round() as u32,
-                    };
-                    let geometry = node.geometry;
-                    let computed = &node.computed;
-                    node.render
-                    .record_content(key, Some(paragraph), oversampling, |paragraph, selection| {
+        let contented = match node.visual.paragraph.as_mut() {
+            Some(paragraph) => {
+                let key = ContentKey {
+                    generation: node.visual.generation,
+                    color: parse_color(style.color.as_deref(), Color::WHITE),
+                    content_width: node.geometry.content_width(),
+                    origin: node.geometry.content_origin(),
+                    selection: highlight.map(|range| highlight_paint(style, range)),
+                    oversampling,
+                };
+                let geometry = node.geometry;
+                let computed = &node.computed;
+                node.render
+                    .record_content(key, Some(paragraph), |paragraph, selection| {
                         let Some(font) = font.as_ref() else {
                             godot_error!(
                                 "ReactUiRoot: node {tag} has a selection but the root has no font"
@@ -690,9 +769,9 @@ impl ReactUiRoot {
                             Vec::new()
                         })
                     })
-                }
-                None => node.render.clear_content(),
-            };
+            }
+            None => node.render.clear_content(),
+        };
         (boxed, contented)
     }
 
@@ -710,6 +789,11 @@ impl ReactUiRoot {
                 rect: rect.godot_rect(),
                 clip: clip.map(BoxRect::godot_rect),
                 radius,
+                oversampling: if radius > 0 {
+                    self.oversampling
+                } else {
+                    Oversampling::NONE
+                },
             })
         });
         if target == self.ring_drawn {
@@ -722,6 +806,7 @@ impl ReactUiRoot {
         match target {
             Some(key) => {
                 ring.set_corner_radius_all(key.radius);
+                ring.set_aa_size(key.oversampling.feather());
                 item.draw_clipped(ring, key.rect, key.clip);
             }
             None => item.clear(),
@@ -736,4 +821,50 @@ pub(crate) struct RingKey {
     rect: Rect2,
     clip: Option<Rect2>,
     radius: i32,
+    /// Only a rounded ring is antialiased, as for `BoxKey`.
+    oversampling: Oversampling,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn one_device_pixel_per_logical_pixel_is_level_sixty_four() {
+        assert_eq!(Oversampling::NONE, Oversampling::from_factor(1.0));
+        assert_eq!(Oversampling::NONE.factor(), 1.0);
+        assert_eq!(Oversampling::NONE.feather(), 1.0);
+    }
+
+    #[test]
+    fn a_level_is_what_text_server_keys_its_glyph_cache_by() {
+        // `CLAMP(level, 0.1, 100.0) * 64`, truncated (`_reference_oversampling_level`).
+        assert_eq!(Oversampling::from_factor(2.0).0, 128);
+        assert_eq!(Oversampling::from_factor(1.5).0, 96);
+        assert_eq!(Oversampling::from_factor(1.333).0, 85);
+        assert_eq!(Oversampling::from_factor(0.0).0, 6);
+        assert_eq!(Oversampling::from_factor(1000.0).0, 6400);
+    }
+
+    #[test]
+    fn text_server_reads_back_the_level_it_was_given() {
+        // `_font_draw_glyph` turns the factor it is passed into a level again; a level that did not survive
+        // the trip would draw at a different one than the key says.
+        for units in 6..=6400_u32 {
+            let level = Oversampling(units);
+            assert_eq!(Oversampling::from_factor(level.factor()), level, "{units}");
+        }
+    }
+
+    #[test]
+    fn the_feather_is_one_device_pixel_whatever_the_scale() {
+        for factor in [1.0_f32, 1.25, 1.5, 2.0, 3.0, 4.0] {
+            let level = Oversampling::from_factor(factor);
+            assert!(
+                (level.feather() * level.factor() - 1.0).abs() < 1e-6,
+                "{factor}"
+            );
+        }
+        assert_eq!(Oversampling::from_factor(2.0).feather(), 0.5);
+    }
 }

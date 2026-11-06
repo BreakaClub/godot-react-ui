@@ -378,7 +378,7 @@ export class RecordingHost implements NativeHost {
   getSnapshot(): string {
     this.calls.push('getSnapshot');
     const snapshot: NativeSnapshot = {
-      clockMs: 0, transitions: [],
+      clockMs: 0, oversampling: 1, transitions: [],
       nodes: [...this.nodes.values()],
       width: this.currentSize.x, height: this.currentSize.y, hovered: null, focused: this.focused, pressed: null, focusVisible: false, modality: 'keyboard', pointers: [],
       drag: this.dragState,

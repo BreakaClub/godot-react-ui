@@ -1,4 +1,4 @@
-import { Text, View } from 'godot-react-ui';
+import { Button, Text, TextInput, View } from 'godot-react-ui';
 
 /**
  * Phase H1 (docs/tracks/hidpi.md): what the verifier looks at in the raster when the window runs at a device pixel ratio
@@ -11,9 +11,15 @@ import { Text, View } from 'godot-react-ui';
  * - `hidpi-box`: a rounded box on an integer position, antialiased by `StyleBoxFlat`.
  * - `hidpi-square-border` and `hidpi-round-border`: a one logical pixel border without and with rounded corners.
  *
+ * - `hidpi-field`: a text input whose text is a line of stems longer than the field, so it scrolls to follow the caret; the
+ *   verifier looks at the caret, a selection and the scrolled text in it.
+ * - `hidpi-button`: a rounded button after the field, which Tab focuses, for the focus ring.
+ *
  * The page must fit a portrait window (300 logical pixels wide at a content scale of two).
  */
 export const HIDPI_STEM_TEXT = 'lllllllllllll';
+/** Longer than the field is wide, whatever the font: forty stems. */
+export const HIDPI_FIELD_TEXT = 'l'.repeat(40);
 
 export function HidpiLab() {
   return (
@@ -25,6 +31,11 @@ export function HidpiLab() {
         <View testID="hidpi-square-border" className="h-10 w-20 border border-slate-900 bg-white" />
         <View testID="hidpi-round-border" className="h-10 w-20 rounded-lg border border-slate-900 bg-white" />
       </View>
+      <TextInput
+        testID="hidpi-field" defaultValue={HIDPI_FIELD_TEXT}
+        className="w-40 rounded-md border border-slate-300 bg-white px-2 py-1 text-base text-black caret-indigo-600"
+      />
+      <Button testID="hidpi-button" className="w-24 rounded-lg border border-slate-300 bg-white px-3 py-1 text-black">Press</Button>
       <Text testID="hidpi-body" className="text-base text-black">Hamburgefonstiv 0123</Text>
     </View>
   );

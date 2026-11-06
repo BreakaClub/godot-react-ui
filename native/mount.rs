@@ -405,6 +405,19 @@ impl MountedNode {
             || self.computed.overflow_y.is_some_and(OverflowSpec::clips)
     }
 
+    /// Whether what this element's items draw depends on the oversampling of the viewport (`render_tree::Oversampling`):
+    /// text, whose glyphs are rasterised at it; rounded corners, whose antialiasing feather is one device pixel; and a
+    /// scroll container's bars, which have round ends. A change of scale paints exactly these again.
+    pub(crate) fn paints_at_oversampling(&self) -> bool {
+        match self.kind {
+            Kind::Text | Kind::TextInput => true,
+            Kind::View | Kind::Button => {
+                self.computed.border_radius.unwrap_or(0.0).round() > 0.0
+                    || self.render.has_scroller()
+            }
+        }
+    }
+
     /// Whether this element is a scroll container: `overflow` is `scroll` or `auto` on an axis, or it
     /// is a multi-line text input, whose text scrolls vertically like any container's content (wheel,
     /// touch pans and thumb dragging reach it; chaining hands what it cannot take to the container

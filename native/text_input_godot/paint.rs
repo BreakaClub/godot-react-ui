@@ -90,7 +90,6 @@ struct TextDrawing {
     placeholder: Option<Gd<godot::classes::TextParagraph>>,
     display: Gd<godot::classes::TextParagraph>,
     selection_color: Color,
-    oversampling: f32,
 }
 
 /// What the drag ghost draws of one text input: its text or placeholder, nothing else.
@@ -245,7 +244,6 @@ impl ReactUiRoot {
             None => (Vec::new(), Vec::new()),
         };
         let frame = self.input_frame(tag).ok_or(TextInputError::NotShaped)?;
-        let oversampling = self.oversampling();
         let key = EditTextKey {
             generation: state.generation,
             origin: frame.origin,
@@ -256,7 +254,7 @@ impl ReactUiRoot {
             selection_color,
             selection,
             preedit,
-            oversampling: (oversampling * 64.0).round() as u32,
+            oversampling: self.oversampling(),
         };
         let drawing = TextDrawing {
             key,
@@ -278,7 +276,6 @@ impl ReactUiRoot {
                 }),
             display: shaped.display.clone(),
             selection_color,
-            oversampling,
         };
         let caret = if focused && state.blink.visible && !converting_text(state) {
             let carets = layout.carets(state.caret_display_offset())?;
@@ -442,7 +439,7 @@ fn draw_text(item: Rid, drawing: &TextDrawing) {
     paragraph
         .draw_ex(item, drawing.origin)
         .color(drawing.color)
-        .oversampling(drawing.oversampling)
+        .oversampling(drawing.key.oversampling.factor())
         .done();
     for rect in &drawing.underline {
         server.canvas_item_add_rect(item, *rect, drawing.color);

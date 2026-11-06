@@ -430,6 +430,11 @@ export interface NativeTextInputSnapshot extends NativeTextInputState {
 
 export interface NativeSnapshot {
   clockMs: number;
+  /**
+   * Device pixels per logical pixel the root's text and rounded edges were last drawn at: the font oversampling of the
+   * viewport it is in (2 on a window at a content scale of 2, 1 in a `SubViewport` that is not stretched).
+   */
+  oversampling: number;
   transitions: NativeTransition[];
   nodes: NativeSnapshotNode[];
   stats: {
@@ -915,6 +920,7 @@ export function readSnapshot(host: NativeHost): NativeSnapshot {
   const stats = record(snapshot.stats, 'snapshot.stats');
   return {
     clockMs: number(snapshot.clockMs, 'snapshot.clockMs'),
+    oversampling: number(snapshot.oversampling, 'snapshot.oversampling'),
     transitions: array(snapshot.transitions, 'snapshot.transitions').map(value => {
       const transition = record(value, 'transition');
       return {

@@ -283,6 +283,10 @@ async function runWorkflow(viewport) {
   });
   check('Logical viewport, CSS size and device-pixel canvas agree', pixelDimensions.devicePixelRatio === viewport.deviceScaleFactor
     && pixelDimensions.cssWidth === viewport.width && pixelDimensions.physicalWidth === viewport.width * viewport.deviceScaleFactor, pixelDimensions);
+  // The panel's texture has as many texels per panel pixel as the page has device pixels per CSS pixel, and the root in it
+  // draws its text and edges at that scale (docs/WORLD_SPACE.md, "Resolution and oversampling").
+  await waitUntil('the panel renders at the device pixel ratio', async () => (await world('panelPixelScale')) === viewport.deviceScaleFactor);
+  check('The panel root draws at the panel texture scale', (await snapshot()).oversampling === viewport.deviceScaleFactor, { oversampling: (await snapshot()).oversampling });
   await expectText('world-count', '0', 'Initial React state in the world panel');
   // The orbiting node and its anchored label (plan I11) are verified by the native verifier. Here the node waits off to
   // one side of the window, so that neither it nor its label is drawn over the quad whose pixels are read below.

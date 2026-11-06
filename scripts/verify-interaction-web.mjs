@@ -33,7 +33,7 @@ const TOTAL_TIMEOUT_MS = 1_200_000;
 const POLL_MS = 50;
 // `--only=<section>[,<section>]` runs just those sections (plan 0.4.1); the names are the native verifier's, and `touch`
 // is this verifier's touch page. An unknown name is an error: a typo must not skip a section.
-const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard', 'scroll', 'selection', 'drag', 'forms', 'touch'];
+const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard', 'scroll', 'selection', 'drag', 'forms', 'hidpi', 'touch'];
 const requestedSections = process.argv.filter((argument) => argument.startsWith('--only='))
   .flatMap((argument) => argument.slice('--only='.length).split(','));
 for (const name of requestedSections) {
@@ -2378,6 +2378,216 @@ async function runSelectionScenario() {
   await focusCanvas();
 }
 
+
+// ---- HiDPI (docs/tracks/hidpi.md; the measurements are those of demo/src/verify-hidpi.ts, on a real canvas screenshot) ----
+const LUMA_RED = 0.2126;
+const LUMA_GREEN = 0.7152;
+const LUMA_BLUE = 0.0722;
+const INK_LUMA = 0.5;
+const PARTIAL_COVERAGE_MIN = 0.1;
+const PARTIAL_COVERAGE_MAX = 0.9;
+const EDGE_PROFILE_REACH_PX = 4;
+// A line of 24 px stems drawn at the scale reads 0.94 in the native verifier; one drawn at one texel per logical pixel and upscaled, 0.47.
+const STEMS_CRISP_MIN = 0.8;
+const HIDPI_BOX_RGB = [0x4f, 0x46, 0xe5];
+const HIDPI_BOX_LUMA = (LUMA_RED * HIDPI_BOX_RGB[0] + LUMA_GREEN * HIDPI_BOX_RGB[1] + LUMA_BLUE * HIDPI_BOX_RGB[2]) / 255;
+const SELECTION_TINT_RGB = [0.65 + 0.35 * 0.231, 0.65 + 0.35 * 0.51, 0.65 + 0.35 * 0.965].map((channel) => Math.round(channel * 255));
+const HIDPI_COLOR_TOLERANCE_CHANNELS = 8;
+const SELECTED_STEMS = 5;
+const SELECTION_FIT_PX = 6;
+const CARET_EDGE_SLACK_PX = 1;
+const HIDPI_FOCUS_WAIT_MS = 30_000;
+
+const lumaOf = (pixel) => (LUMA_RED * pixel[0] + LUMA_GREEN * pixel[1] + LUMA_BLUE * pixel[2]) / 255;
+
+/** A screenshot of the canvas in device pixels: `ratio` device pixels per logical pixel. */
+async function hidpiRaster() {
+  const data = await snapshot();
+  const canvas = await page.$('canvas');
+  assert.ok(canvas, 'Godot canvas vanished');
+  const image = decodePng(Buffer.from(await canvas.screenshot({ type: 'png', timeout: ACTION_TIMEOUT_MS })));
+  await canvas.dispose();
+  return { image, ratio: image.width / data.width, data };
+}
+
+const pixelOf = (raster, x, y) => {
+  const offset = (y * raster.image.width + x) * raster.image.channels;
+  return [raster.image.pixels[offset], raster.image.pixels[offset + 1], raster.image.pixels[offset + 2]];
+};
+const devicePixels = (rect, ratio) => ({ x: Math.floor(rect.x * ratio), y: Math.floor(rect.y * ratio), width: Math.ceil(rect.width * ratio), height: Math.ceil(rect.height * ratio) });
+
+/** How crisply a line of vertical stems is drawn: the steepest step along the middle row of its ink, and the partly covered pixels per edge. */
+function measureStems(raster, region) {
+  const inkRows = [];
+  for (let y = region.y; y < region.y + region.height; y += 1) {
+    for (let x = region.x; x < region.x + region.width; x += 1) {
+      if (lumaOf(pixelOf(raster, x, y)) < INK_LUMA) { inkRows.push(y); break; }
+    }
+  }
+  assert.ok(inkRows.length > 0, `No ink in ${JSON.stringify(region)}`);
+  const middle = inkRows[Math.floor(inkRows.length / 2)];
+  const profile = [];
+  for (let x = region.x; x < region.x + region.width; x += 1) {
+    let darkness = 0;
+    for (let y = middle - 1; y <= middle + 1; y += 1) darkness += 1 - lumaOf(pixelOf(raster, x, y));
+    profile.push(darkness / 3);
+  }
+  const top = Math.max(...profile);
+  let peak = 0;
+  let partial = 0;
+  let edges = 0;
+  for (let index = 0; index < profile.length; index += 1) {
+    const coverage = profile[index] / top;
+    if (coverage > PARTIAL_COVERAGE_MIN && coverage < PARTIAL_COVERAGE_MAX) partial += 1;
+    if (index + 1 < profile.length) {
+      peak = Math.max(peak, Math.abs(profile[index + 1] - profile[index]) / top);
+      if ((coverage < 0.5) !== (profile[index + 1] / top < 0.5)) edges += 1;
+    }
+  }
+  return { peakStep: peak, partialPerEdge: edges === 0 ? Infinity : partial / edges, edges };
+}
+
+/** The pixels of a vertical box edge that are neither outside nor inside, around device column `edge` along `row`. */
+function partialAcrossEdge(raster, edge, row) {
+  const coverage = [];
+  for (let x = edge - EDGE_PROFILE_REACH_PX; x <= edge + EDGE_PROFILE_REACH_PX; x += 1) coverage.push((1 - lumaOf(pixelOf(raster, x, row))) / (1 - HIDPI_BOX_LUMA));
+  return { coverage, partial: coverage.filter((value) => value > PARTIAL_COVERAGE_MIN && value < PARTIAL_COVERAGE_MAX).length };
+}
+
+function pixelRuns(raster, row, from, to, test) {
+  const found = [];
+  let start = -1;
+  for (let x = from; x <= to; x += 1) {
+    const hit = x < to && test(pixelOf(raster, x, row));
+    if (hit && start < 0) start = x;
+    if (!hit && start >= 0) { found.push({ start, end: x - 1 }); start = -1; }
+  }
+  return found;
+}
+
+const sameColor = (pixel, expected) => pixel.every((channel, index) => Math.abs(channel - expected[index]) <= HIDPI_COLOR_TOLERANCE_CHANNELS);
+
+/** The stems, the rounded box and the focused text field of the HiDPI lab, read in the canvas's own pixels. */
+async function measureHidpiLab(viewport, dpr) {
+  const stems = await find('hidpi-stems');
+  const box = await find('hidpi-box');
+  const raster = await hidpiRaster();
+  check(`The canvas has ${dpr} device pixels per logical pixel`, raster.ratio === dpr, { ratio: raster.ratio });
+  check(`The root draws its text and edges at ${dpr}`, raster.data.oversampling === dpr, { oversampling: raster.data.oversampling });
+  const stemMeasure = measureStems(raster, devicePixels(stems.rect, raster.ratio));
+  check('A line of stems is drawn crisp at this scale', stemMeasure.peakStep >= STEMS_CRISP_MIN, stemMeasure);
+  const row = Math.round((box.rect.y + box.rect.height / 2) * raster.ratio);
+  const edge = partialAcrossEdge(raster, Math.round(box.rect.x * raster.ratio), row);
+  check('A rounded box has a hard edge: at most one partly covered pixel', edge.partial <= 1, edge);
+  return { stems: stemMeasure, edge };
+}
+
+/** The text input at this scale: its caret, a selection against the glyphs, and an IME preedit's underline. */
+async function runHidpiFieldScenario(dpr) {
+  await click('hidpi-field');
+  await page.keyboard.press('End');
+  await waitUntil('the caret of the field is on', async () => (await inputState('hidpi-field')).caretVisible, HIDPI_FOCUS_WAIT_MS);
+  await capture(`hidpi-field-scrolled-${activeViewport}`);
+  let raster = await hidpiRaster();
+  let state = await inputState('hidpi-field');
+  const caret = (await find('hidpi-field')).textInput.caret;
+  check('The caret at the end scrolls the field', state.scrollLeft > 0, { scrollLeft: state.scrollLeft });
+  const caretRow = Math.round((caret.y + caret.height / 2) * raster.ratio);
+  const caretRuns = pixelRuns(raster, caretRow, Math.floor((caret.x - 3) * raster.ratio), Math.ceil((caret.x + 4) * raster.ratio), (pixel) => sameColor(pixel, HIDPI_BOX_RGB));
+  check(`The caret is ${dpr} device pixels wide in one run, where native puts it`,
+    caretRuns.length === 1 && caretRuns[0].end - caretRuns[0].start + 1 === dpr && Math.abs(caretRuns[0].start - caret.x * raster.ratio) <= CARET_EDGE_SLACK_PX, { caretRuns, caret });
+
+  // Selection of the first stems.
+  await page.keyboard.press('Home');
+  await page.keyboard.down('Shift');
+  for (let count = 0; count < SELECTED_STEMS; count += 1) await page.keyboard.press('ArrowRight');
+  await page.keyboard.up('Shift');
+  await waitUntil('five stems are selected', async () => {
+    const current = await inputState('hidpi-field');
+    return current.selectionEnd - current.selectionStart === SELECTED_STEMS;
+  });
+  await capture(`hidpi-field-selection-${activeViewport}`);
+  raster = await hidpiRaster();
+  const field = await find('hidpi-field');
+  const inner = devicePixels({ x: field.rect.x + 4, y: field.rect.y + 3, width: field.rect.width - 8, height: field.rect.height - 6 }, raster.ratio);
+  const inkRow = Math.round(inner.y + inner.height / 2);
+  const stems = pixelRuns(raster, inkRow, inner.x, inner.x + inner.width, (pixel) => lumaOf(pixel) < INK_LUMA);
+  const tint = pixelRuns(raster, inkRow, inner.x, inner.x + inner.width, (pixel) => sameColor(pixel, SELECTION_TINT_RGB));
+  const selectionCaret = field.textInput.caret;
+  check('The selection starts at the first selected glyph and ends with the fifth, before the sixth',
+    tint.length > 0 && stems.length > SELECTED_STEMS
+    && tint[0].start <= stems[0].start && stems[0].start - tint[0].start <= SELECTION_FIT_PX
+    && tint.at(-1).end >= stems[SELECTED_STEMS - 1].end && tint.at(-1).end < stems[SELECTED_STEMS].start
+    && tint.at(-1).end - stems[SELECTED_STEMS - 1].end <= SELECTION_FIT_PX, { tint, stems: stems.slice(0, SELECTED_STEMS + 1) });
+  check('The selection ends where native puts the caret', selectionCaret !== null && Math.abs(tint.at(-1).end + 1 - selectionCaret.x * raster.ratio) <= SELECTION_FIT_PX, { tint, selectionCaret });
+
+  // An IME preedit at the start of the field: its underline is as thick as the caret and lies at the baseline.
+  await page.keyboard.press('Home');
+  await expectInput('hidpi-field', (current) => current.selectionStart === 0 && current.selectionEnd === 0, 'Home puts the caret at the start of the field');
+  await waitUntil('the IME element holds browser focus', async () => page.evaluate(() => document.activeElement?.className === 'ime'));
+  const cdp = await page.createCDPSession();
+  await cdp.send('Input.imeSetComposition', { text: 'ñ', selectionStart: 1, selectionEnd: 1 });
+  await expectInput('hidpi-field', (current) => current.composing && current.preedit?.text === 'ñ', 'imeSetComposition shows the preedit in the field');
+  await capture(`hidpi-field-preedit-${activeViewport}`);
+  raster = await hidpiRaster();
+  const preeditField = await find('hidpi-field');
+  const innerPreedit = devicePixels({ x: preeditField.rect.x + 4, y: preeditField.rect.y + 3, width: preeditField.rect.width - 8, height: preeditField.rect.height - 6 }, raster.ratio);
+  // The underline is the lowest rows in which a long run of ink starts at the field's left edge; the stems after it end at the baseline.
+  const dark = (pixel) => lumaOf(pixel) < INK_LUMA;
+  const underlineRows = [];
+  let stemBottom = -1;
+  for (let y = innerPreedit.y; y < innerPreedit.y + innerPreedit.height; y += 1) {
+    const ink = pixelRuns(raster, y, innerPreedit.x, innerPreedit.x + innerPreedit.width, dark);
+    if (ink.length === 0) continue;
+    stemBottom = y;
+    if (ink[0].start <= innerPreedit.x + raster.ratio && ink[0].end - ink[0].start + 1 >= SELECTION_FIT_PX * raster.ratio / 2) underlineRows.push(y);
+  }
+  const wide = underlineRows.filter((row) => underlineRows.length > 0 && row >= underlineRows[0]);
+  report.measures ??= [];
+  report.measures.push({ viewport: activeViewport, name: 'preedit-underline', underlineRows, stemBottom, dpr });
+  check(`The preedit's underline is ${dpr} device pixels thick and ends the ink`, wide.length === dpr && wide.at(-1) === stemBottom, { underlineRows, stemBottom });
+  await cdp.send('Input.insertText', { text: 'ñ' });
+  await cdp.detach();
+  await expectInput('hidpi-field', (current) => !current.composing, 'The composition is committed');
+  await page.mouse.move(1, 1);
+  await frames();
+}
+
+/**
+ * HiDPI (docs/tracks/hidpi.md): text and rounded edges drawn at the page's device pixel ratio, read from real screenshots
+ * of the canvas, and the text input's caret, selection and preedit at that ratio. On the DPR 1 landscape page the ratio
+ * is also changed in place, with the CSS size unchanged (the browser moved to another display, or zoomed): the root is not
+ * told and must draw again at the new scale.
+ */
+async function runHidpiScenario(viewport) {
+  await demo('showLab', 'hud');
+  await demo('showLab', 'hidpi');
+  await waitUntil('the HiDPI lab mounts', () => nodeExists('hidpi-page'));
+  await page.mouse.move(1, 1);
+  await frames();
+  await capture(`hidpi-lab-${viewport.name}`);
+  const dpr = viewport.deviceScaleFactor;
+  await measureHidpiLab(viewport, dpr);
+  await runHidpiFieldScenario(dpr);
+  if (dpr === 1) {
+    const stale = await snapshot();
+    const contentBefore = stale.stats.contentRecords;
+    await page.setViewport({ width: viewport.width, height: viewport.height, deviceScaleFactor: 2 });
+    await waitUntil('the root draws at the new ratio with the logical size unchanged', async () => {
+      const data = await snapshot();
+      return data.oversampling === 2 && data.width === viewport.width && data.height === viewport.height;
+    }, HIDPI_FOCUS_WAIT_MS);
+    await frames();
+    const after = await snapshot();
+    check('A change of device pixel ratio with no commit draws the text again', after.stats.contentRecords > contentBefore, { before: contentBefore, after: after.stats.contentRecords });
+    await capture(`hidpi-ratio-changed-in-place-${viewport.name}`);
+    await measureHidpiLab(viewport, 2);
+    await page.setViewport({ width: viewport.width, height: viewport.height, deviceScaleFactor: 1 });
+    await waitUntil('the root draws at the original ratio again', async () => (await snapshot()).oversampling === 1, HIDPI_FOCUS_WAIT_MS);
+    await frames();
+  }
+}
+
 async function runWorkflow(viewport) {
   activeViewport = viewport.name;
   await page.setViewport({ width: viewport.width, height: viewport.height, deviceScaleFactor: viewport.deviceScaleFactor });
@@ -2397,6 +2607,7 @@ async function runWorkflow(viewport) {
   if (wanted('selection')) await runSelectionScenario();
   if (wanted('drag')) await runDragScenario();
   if (wanted('forms')) await runFormsScenario(viewport);
+  if (wanted('hidpi')) await runHidpiScenario(viewport);
 
   // This page keeps running across viewports (the native verifier gets a fresh process for each),
   // so leave a fresh root: the lab's log and click counters must not leak into the next viewport.

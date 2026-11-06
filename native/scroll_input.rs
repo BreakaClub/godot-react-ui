@@ -301,6 +301,7 @@ impl ReactUiRoot {
 
     /// Draw the scrollbar thumbs of one container when they changed. Returns whether it recorded.
     pub(crate) fn paint_scroll_overlay(&mut self, tag: u32) -> bool {
+        let oversampling = self.oversampling();
         let Some(node) = self.mounted.nodes.get_mut(&tag) else {
             return false;
         };
@@ -325,6 +326,7 @@ impl ReactUiRoot {
                 node.computed.scrollbar_color.as_deref(),
                 parse_color(Some(DEFAULT_SCROLLBAR_COLOR), Color::TRANSPARENT_BLACK),
             ),
+            oversampling,
         });
         let style = self.scrollbar_style.get_or_insert_with(|| {
             let mut style = StyleBoxFlat::new_gd();

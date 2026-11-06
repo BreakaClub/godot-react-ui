@@ -5,6 +5,7 @@ import {
 } from 'godot';
 import type { NativeSnapshot, NativeSnapshotNode } from '../../src';
 import { parseVerifierEvent } from './verifier-input';
+import { measureStems } from './verify-hidpi';
 import { LABEL_COLOR, LABEL_GAP, LABEL_HEIGHT, LABEL_WIDTH } from './world-label';
 import type { OrbiterReading, Point2, Point3, WorldCounts } from './world-main';
 
@@ -21,6 +22,9 @@ export interface WorldInspection {
   panelPixelAt(x: number, y: number): (Point2 & { inside: boolean }) | undefined;
   screenPointOf(x: number, y: number): Point2;
   panelSize(): Point2;
+  /** Texture pixels the panel renders at per panel pixel now, and a way to choose it (`null`: follow the window). */
+  panelPixelScale(): number;
+  setPanelPixelScale(scale: number | null): void;
   viewportSize(): Point2;
   surfaceHasFocus(): boolean;
   grabSurfaceFocus(): void;
@@ -373,6 +377,108 @@ async function verifyAnchoredLabel(owner: Node, api: WorldInspection, capture: (
  * enters through `Input.parseInputEvent` in the main viewport, at the screen point where the element is
  * drawn, so what is exercised is the whole route: ray, plane, pixel, copy, `pushInput`.
  */
+/** How much a panel pixel may differ, in luma, between two renders that should be the same. */
+const SAME_RASTER_TOLERANCE = 1e-6;
+/** The two-texel panel renders at twice the panel's pixels. */
+const PANEL_SCALE_TWO = 2;
+/** The upscaled one-texel raster must be this much softer than a raster made at the scale; the crisp one must be this close to one-texel crispness. */
+const UPSCALE_SOFTER_THAN = 0.7;
+const CRISP_AT_LEAST = 0.8;
+const CARET_COLOR = style('#4f46e5');
+const PANEL_CARET_WAIT_FRAMES = 400;
+
+function lumaOf(color: Color): number {
+  return 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b;
+}
+
+/** The mean absolute luma difference between two images over the same region (texels). */
+function meanLumaDifference(a: Image, b: Image, region: { x: number; y: number; width: number; height: number }): number {
+  let total = 0;
+  for (let y = region.y; y < region.y + region.height; y += 1) {
+    for (let x = region.x; x < region.x + region.width; x += 1) total += Math.abs(lumaOf(a.getPixel(x, y)) - lumaOf(b.getPixel(x, y)));
+  }
+  return total / (region.width * region.height);
+}
+
+/**
+ * The panel's texture at twice the panel's pixels (docs/tracks/hidpi.md, W9): the `SubViewport` is stretched to its 2D
+ * override, its oversampling is 2, and native draws the root's text at it; a root in an unstretched `SubViewport` does
+ * not follow the content scale of the window around it; and the input still maps through the quad.
+ */
+async function verifyPanelResolution(owner: Node, api: WorldInspection, capture: (name: string) => Promise<void>, directory: string): Promise<void> {
+  const window = owner.getWindow();
+  assert(window, 'The HiDPI checks require the owning Window');
+  const panel = api.panelSize();
+  const count = get(api, 'world-count').rect;
+  const region = { x: Math.floor(count.x), y: Math.floor(count.y), width: Math.ceil(count.width), height: Math.ceil(count.height) };
+  const scaled = (factor: number) => ({ x: region.x * factor, y: region.y * factor, width: region.width * factor, height: region.height * factor });
+
+  // At one texel per panel pixel, the window at content scale 1 and then 2: the panel does not know about the window.
+  api.setPanelPixelScale(1);
+  await settle();
+  const atOne = api.panelImage();
+  assert(atOne.getWidth() === panel.x && atOne.getHeight() === panel.y, `The panel renders ${panel.x}x${panel.y} texels at scale 1: ${atOne.getWidth()}x${atOne.getHeight()}`);
+  assert(api.snapshot().oversampling === 1, `A root in a SubViewport at scale 1 draws at 1: ${api.snapshot().oversampling}`);
+  window.contentScaleFactor = PANEL_SCALE_TWO;
+  await settle();
+  assert(api.snapshot().oversampling === 1,
+    `A root in a SubViewport that is not stretched does not follow the window's content scale: it draws at ${api.snapshot().oversampling}`);
+  const underScaledWindow = api.panelImage();
+  const difference = meanLumaDifference(atOne, underScaledWindow, region);
+  assert(difference <= SAME_RASTER_TOLERANCE, `The panel's raster is the same under a window at content scale 2 (mean luma difference ${difference})`);
+  window.contentScaleFactor = 1;
+  await settle();
+
+  // Twice the texels: the viewport changes scale with no commit, and the text is redrawn at it.
+  api.setPanelPixelScale(PANEL_SCALE_TWO);
+  await settle();
+  const atTwo = api.panelImage();
+  assert(atTwo.getWidth() === panel.x * PANEL_SCALE_TWO && atTwo.getHeight() === panel.y * PANEL_SCALE_TWO,
+    `The panel renders at twice the texels: ${atTwo.getWidth()}x${atTwo.getHeight()}`);
+  assert(api.snapshot().oversampling === PANEL_SCALE_TWO, `A root in a SubViewport at twice its 2D override draws at 2: ${api.snapshot().oversampling}`);
+  const crisp = measureStems(atTwo, scaled(PANEL_SCALE_TWO));
+  const reference = measureStems(atOne, region);
+  const soft = new Image();
+  soft.copyFrom(atOne);
+  soft.resize(atTwo.getWidth(), atTwo.getHeight(), Image.Interpolation.InterpolateBilinear);
+  const upscaled = measureStems(soft, scaled(PANEL_SCALE_TWO));
+  console.log('GODOT_REACT_HIDPI_MEASURE', JSON.stringify({ name: 'panel-count-digit', value: { oneTexel: reference, twoTexels: crisp, oneTexelUpscaled: upscaled } }));
+  assert(crisp.peakStep >= reference.peakStep * CRISP_AT_LEAST,
+    `The panel's text at twice the texels is as crisp per texel as at one: peak step ${crisp.peakStep.toFixed(3)} against ${reference.peakStep.toFixed(3)}`);
+  assert(upscaled.peakStep <= reference.peakStep * UPSCALE_SOFTER_THAN,
+    `...and a raster made at one texel and upscaled is not (peak step ${upscaled.peakStep.toFixed(3)}), so the check can tell`);
+  assert(atTwo.savePng(`${directory}/12-panel-texture-2x.png`) === GError.Ok, 'Could not save the 2x panel texture');
+  await capture('12-panel-2x');
+
+  // Input maps as before: the quad's pixels are still panel pixels.
+  const incrementTarget = screenCenter(api, 'world-increment');
+  const before = text(api, 'world-count');
+  await click(incrementTarget);
+  assert(text(api, 'world-count') === String(Number(before) + 1), `A click on the projected Add button works at twice the texels: ${before} -> ${text(api, 'world-count')}`);
+
+  // The world's text input at twice the texels: a caret one panel pixel wide, which is two texels.
+  await click(screenCenter(api, 'world-input'));
+  assert(api.surfaceHasFocus(), 'A press on the projected field focuses it at twice the texels');
+  for (let frame = 0; frame < PANEL_CARET_WAIT_FRAMES && get(api, 'world-input').textInput?.caretVisible !== true; frame += 1) await settle();
+  const field = get(api, 'world-input').textInput;
+  assert(field !== null && field.caretVisible && field.caret !== null, 'The focused field shows its caret');
+  const image = api.panelImage();
+  const row = Math.round((field.caret.y + field.caret.height / 2) * PANEL_SCALE_TWO);
+  let start = -1;
+  let end = -1;
+  for (let x = Math.floor((field.caret.x - 2) * PANEL_SCALE_TWO); x <= Math.ceil((field.caret.x + 3) * PANEL_SCALE_TWO); x += 1) {
+    if (near(image.getPixel(x, row), CARET_COLOR)) {
+      if (start < 0) start = x;
+      end = x;
+    }
+  }
+  assert(start >= 0 && end - start + 1 === PANEL_SCALE_TWO, `The caret is two texels wide at twice the texels: columns ${start} to ${end}`);
+  assert(Math.abs(start - field.caret.x * PANEL_SCALE_TWO) <= 1, `...and where native puts it: column ${start} for ${field.caret.x * PANEL_SCALE_TWO}`);
+  await click(screenCenter(api, 'world-title'));
+  api.setPanelPixelScale(null);
+  await settle();
+}
+
 export async function runWorldVerification(owner: Node, api: WorldInspection): Promise<void> {
   const directory = OS.getEnvironment('GODOT_REACT_ARTIFACTS') || 'user://react-ui-verification';
   assert(DirAccess.makeDirRecursiveAbsolute(directory) === GError.Ok, 'Cannot create evidence directory');
@@ -652,6 +758,9 @@ export async function runWorldVerification(owner: Node, api: WorldInspection): P
 
   // ---- A label in the main viewport that follows a moving 3D node ------------------------------------------------
   await verifyAnchoredLabel(owner, api, capture);
+
+  // ---- The panel's resolution: texels per panel pixel, and what draws at them ------------------------------------
+  await verifyPanelResolution(owner, api, capture, directory);
 
   // ---- Unmount before free, and mount again --------------------------------------------------------
   const viewport = owner.getNodeOrNull('PanelViewport');

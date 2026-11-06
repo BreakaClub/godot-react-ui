@@ -78,7 +78,7 @@ use pointer::{
 use pointer_state::{ClickCounter, PointerTable};
 use profile::{Profiler, micros};
 use props::{PseudoState, TransitionProperty};
-use render_tree::{RingKey, RootItem};
+use render_tree::{Oversampling, RingKey, RootItem};
 use scroll_input::ScrollInputState;
 use selection_input::SelectionState;
 use style_engine::{DimensionAxis, DimensionOverrides, SampledStyle, StyleEngine};
@@ -218,7 +218,8 @@ pub struct ReactUiRoot {
     last_layout_micros: u64,
     phase_layout_micros: u64,
     phase_geometry_micros: u64,
-    last_oversampling: f32,
+    /// The oversampling every item was last drawn at (`render_tree::Oversampling`).
+    oversampling: Oversampling,
 }
 
 #[godot_api]
@@ -285,7 +286,7 @@ impl IControl for ReactUiRoot {
             last_layout_micros: 0,
             phase_layout_micros: 0,
             phase_geometry_micros: 0,
-            last_oversampling: 1.0,
+            oversampling: Oversampling::NONE,
         }
     }
 
@@ -341,6 +342,8 @@ impl IControl for ReactUiRoot {
                 self.flush_layout();
                 self.refresh_intrinsic_targets();
             }
+            // The viewport asks every canvas item to redraw when its oversampling changes.
+            ControlNotification::DRAW => self.repaint_for_oversampling(),
             ControlNotification::ACCESSIBILITY_UPDATE => self.update_accessibility(),
             // The IME reports a change of its composition to every node (`scene_tree.cpp:922-932`).
             ControlNotification::OS_IME_UPDATE => self.text_input_ime_update(),
@@ -386,6 +389,8 @@ impl IControl for ReactUiRoot {
                 self.apply_presentation();
                 self.flush_layout();
                 self.refresh_intrinsic_targets();
+                // The root may have come from another viewport, at another scale.
+                self.repaint_for_oversampling();
                 self.update_process();
             }
             ControlNotification::EXIT_TREE => {
@@ -476,16 +481,15 @@ impl IControl for ReactUiRoot {
 
 #[godot_api]
 impl ReactUiRoot {
-    pub(crate) fn oversampling(&self) -> f32 {
-        let viewport_oversampling = self
-            .base()
+    /// The font oversampling of the viewport the root is in, which is what Godot's own controls draw their text at
+    /// (`CanvasItem::_redraw_callback`). A `Window` carries its content scale factor, a stretch mode's scale and an
+    /// oversampling override in it; a `SubViewport` has its own, so a root inside one is not scaled by the window around it.
+    pub(crate) fn viewport_oversampling(&self) -> Oversampling {
+        self.base()
             .get_viewport()
-            .map_or(1.0, |viewport| viewport.get_oversampling());
-        let window_scale = self
-            .base()
-            .get_window()
-            .map_or(1.0, |window| window.get_content_scale_factor());
-        f32::max(1.0, f32::max(viewport_oversampling, window_scale))
+            .map_or(Oversampling::NONE, |viewport| {
+                Oversampling::from_factor(viewport.get_oversampling())
+            })
     }
 
     /// Emitted from input callbacks while events are queued. The JS owner connects a callable that

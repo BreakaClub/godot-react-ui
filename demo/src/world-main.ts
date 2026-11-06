@@ -15,7 +15,10 @@ import { VerifierInputIsolation, injectsOwnInput } from './verifier-input';
 const bind = createClassBinder();
 const MICROSECONDS_PER_MILLISECOND = 1000;
 
-/** The panel's pixels: the `SubViewport` size and the coordinate space of the input forwarded to it. */
+/**
+ * The panel's pixels: the coordinate space the React root lays out in and the input forwarded to it is given in. The
+ * `SubViewport` renders them at `panelPixelScale` texture pixels each (`applyPanelResolution`).
+ */
 const PANEL_WIDTH = 480;
 const PANEL_HEIGHT = 320;
 /** The quad's width in world units; the camera below is placed so that a panel pixel lands on about one screen pixel. */
@@ -121,6 +124,9 @@ export default class WorldMain extends Node {
   private readonly panel: QuadSurface = {
     width: QUAD_WIDTH, height: QUAD_HEIGHT, pixelWidth: PANEL_WIDTH, pixelHeight: PANEL_HEIGHT,
   };
+  /** Texture pixels per panel pixel the `SubViewport` renders at now, and the scale a caller asked for in place of the window's. */
+  private panelPixelScale = 1;
+  private panelScaleOverride: number | null = null;
   /** Whether the pointer is inside the quad as the panel's viewport has been told (enter/exit pair up). */
   private pointerInside = false;
   /** Mouse buttons pressed on the panel and not yet released: their motion and release are routed wherever they go. */
@@ -174,6 +180,13 @@ export default class WorldMain extends Node {
       /** The main-viewport point at which a panel pixel is drawn: the inverse of `panelPixelAt`. */
       screenPointOf: (x: number, y: number): Point2 => this.screenPointOf(x, y),
       panelSize: (): Point2 => ({ x: PANEL_WIDTH, y: PANEL_HEIGHT }),
+      /** Texture pixels the panel renders at per panel pixel now. */
+      panelPixelScale: (): number => this.panelPixelScale,
+      /** Render the panel at `scale` texture pixels per panel pixel; `null` follows the window's content scale again. */
+      setPanelPixelScale: (scale: number | null) => {
+        this.panelScaleOverride = scale;
+        this.updatePanelResolution();
+      },
       /** The main viewport's logical size: the coordinate space of `screenPointOf`. */
       viewportSize: (): Point2 => {
         const viewport = this.getViewport();
@@ -237,6 +250,24 @@ export default class WorldMain extends Node {
     if (window.contentScaleFactor !== scale) window.contentScaleFactor = scale;
   }
 
+  /**
+   * The panel's texture is as many pixels per panel pixel as the window has device pixels per logical pixel, which is
+   * about right for a quad about as large on screen as its panel (the camera below puts a panel pixel on 0.95 to 1.07
+   * screen pixels). The `SubViewport`'s stretched 2D override makes the root's text and edges draw at that scale
+   * (`Viewport::get_oversampling`, which native reads), so a panel on a high-DPI screen is as sharp as the screen is.
+   */
+  private updatePanelResolution(): void {
+    const scale = this.panelScaleOverride ?? this.getWindow()?.contentScaleFactor ?? 1;
+    if (this.panelViewport === null || scale === this.panelPixelScale) return;
+    this.applyPanelResolution(this.panelViewport, scale);
+  }
+
+  private applyPanelResolution(viewport: SubViewport, scale: number): void {
+    if (!Number.isFinite(scale) || scale <= 0) throw new Error(`Invalid panel pixel scale ${scale}`);
+    this.panelPixelScale = scale;
+    viewport.size = new Vector2I(Math.round(PANEL_WIDTH * scale), Math.round(PANEL_HEIGHT * scale));
+  }
+
   private buildScene(): void {
     const camera = new Camera3D();
     camera.setName('Camera');
@@ -251,6 +282,10 @@ export default class WorldMain extends Node {
     // The panel renders into its own SubViewport; the quad shows that viewport's texture.
     const viewport = new SubViewport();
     viewport.setName('PanelViewport');
+    // The 2D override is the panel's own size and stretch is on, so the viewport can be rendered at more texture pixels
+    // than that (`applyPanelResolution`) while the root, the input and every position stay in panel pixels.
+    viewport.size2DOverride = new Vector2I(PANEL_WIDTH, PANEL_HEIGHT);
+    viewport.size2DOverrideStretch = true;
     viewport.size = new Vector2I(PANEL_WIDTH, PANEL_HEIGHT);
     viewport.transparentBg = true;
     viewport.renderTargetUpdateMode = SubViewport.UpdateMode.UpdateAlways;
@@ -346,6 +381,7 @@ export default class WorldMain extends Node {
 
   override _process(delta: number): void {
     this.updateDisplayScale();
+    this.updatePanelResolution();
     this.renderer?.dispatchEvents();
     this.labelRenderer?.dispatchEvents();
     if (this.orbiting) {

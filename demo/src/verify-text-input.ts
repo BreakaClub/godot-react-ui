@@ -69,7 +69,7 @@ function centerOf(rect: LayoutRect): Vector2 {
   return new Vector2(rect.x + rect.width / 2, rect.y + rect.height / 2);
 }
 
-function move(position: Vector2, held = false): void {
+export function move(position: Vector2, held = false): void {
   const event = new InputEventMouseMotion();
   event.position = position;
   event.globalPosition = position;
@@ -92,7 +92,7 @@ function button(position: Vector2, pressed: boolean, modifiers: { shift?: boolea
 const CLICK_SEQUENCE_PAUSE_MS = 650;
 
 /** `count` quick clicks at one place: a double click selects a word, a triple click everything. */
-async function click(position: Vector2, count = 1, modifiers: { shift?: boolean } = {}): Promise<void> {
+export async function click(position: Vector2, count = 1, modifiers: { shift?: boolean } = {}): Promise<void> {
   await new Promise(resolve => setTimeout(resolve, CLICK_SEQUENCE_PAUSE_MS));
   move(position);
   await frames(CLICK_PAUSE_FRAMES);
@@ -121,7 +121,7 @@ async function wheel(position: Vector2, button: MouseButton): Promise<void> {
 }
 
 /** Press at `from`, move to `to` in a few steps with the button down, release. */
-async function drag(from: Vector2, to: Vector2): Promise<void> {
+export async function drag(from: Vector2, to: Vector2): Promise<void> {
   await new Promise(resolve => setTimeout(resolve, CLICK_SEQUENCE_PAUSE_MS));
   move(from);
   await frames(CLICK_PAUSE_FRAMES);
@@ -189,7 +189,7 @@ function actionKey(action: string): InputEventKey {
 }
 
 /** Press and release the key bound to `action`; `shift` adds Shift, which selects while moving. */
-async function pressAction(action: string, shift = false, times = 1): Promise<void> {
+export async function pressAction(action: string, shift = false, times = 1): Promise<void> {
   for (let count = 0; count < times; count++) {
     for (const pressed of [true, false]) {
       const event = actionKey(action);
@@ -206,7 +206,7 @@ async function pressAction(action: string, shift = false, times = 1): Promise<vo
  * good part of a period, so a capture is taken right after the caret turned on, with most of its period left. Waiting only
  * reads the snapshot; it makes the input do nothing.
  */
-async function waitForCaretOn(api: InteractionInspection, testID: string): Promise<void> {
+export async function waitForCaretOn(api: InteractionInspection, testID: string): Promise<void> {
   const MAX_FRAMES = 400;
   // The caret is drawn only while the OS window has focus, and a window the OS takes focus from while the run is
   // under way (a disturbance, which the run reports) hears of its loss and never of its return, as the verifier's
