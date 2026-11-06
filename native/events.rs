@@ -10,11 +10,13 @@ use serde::Serialize;
 /// Monotonically increasing per root, starting at 1.
 pub type EventSeq = u64;
 
-/// DOM `PointerEvent.pointerType`. Touch is added with the touch pointer model.
+/// DOM `PointerEvent.pointerType`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub enum PointerType {
     #[serde(rename = "mouse")]
     Mouse,
+    #[serde(rename = "touch")]
+    Touch,
     /// Synthetic keyboard activation: browsers report an empty pointer type for a `click` that
     /// Enter or Space produced.
     #[serde(rename = "")]
@@ -76,7 +78,16 @@ pub enum EventPayload {
     PointerUp(PointerData),
     PointerEnter(PointerData),
     PointerLeave(PointerData),
+    /// The OS or the root ended the pointer's contact: no `pointerup` and no `click` follow.
+    PointerCancel(PointerData),
     Click(PointerData),
+    /// The second `click` of a sequence.
+    #[serde(rename = "dblclick")]
+    DoubleClick(PointerData),
+    /// A `click` of a button other than the primary one.
+    AuxClick(PointerData),
+    /// The secondary button was pressed.
+    ContextMenu(PointerData),
     Wheel(WheelData),
     Focus,
     Blur,
@@ -448,6 +459,10 @@ mod tests {
         );
         queue.push(5, vec![5], EventPayload::PointerLeave(moved), STAMP);
         queue.push(5, vec![5], EventPayload::Click(data), STAMP);
+        queue.push(5, vec![5], EventPayload::DoubleClick(data), STAMP);
+        queue.push(5, vec![5], EventPayload::AuxClick(data), STAMP);
+        queue.push(5, vec![5], EventPayload::ContextMenu(data), STAMP);
+        queue.push(5, vec![5], EventPayload::PointerCancel(moved), STAMP);
         queue.push_awaited(
             5,
             vec![5],
@@ -464,7 +479,7 @@ mod tests {
         let mut entered_wire = pointer_wire("pointerenter", false, 4, 5, &entered);
         entered_wire["relatedPath"] = json!([7, 1]);
         // A wheel event is awaited (cancelable) and carries its deltas beside the pointer fields.
-        let mut wheel_wire = pointer_wire("wheel", true, 7, 5, &moved);
+        let mut wheel_wire = pointer_wire("wheel", true, 11, 5, &moved);
         wheel_wire["deltaX"] = json!(-1.5);
         wheel_wire["deltaY"] = json!(2.0);
         let expected = [
@@ -474,9 +489,13 @@ mod tests {
             entered_wire,
             pointer_wire("pointerleave", false, 5, 5, &moved),
             pointer_wire("click", false, 6, 5, &data),
+            pointer_wire("dblclick", false, 7, 5, &data),
+            pointer_wire("auxclick", false, 8, 5, &data),
+            pointer_wire("contextmenu", false, 9, 5, &data),
+            pointer_wire("pointercancel", false, 10, 5, &moved),
             wheel_wire,
-            json!({"seq": 8, "target": 6, "path": [6], "cancelable": false, "timeStamp": STAMP, "type": "focus"}),
-            json!({"seq": 9, "target": 6, "path": [6], "cancelable": false, "timeStamp": STAMP, "type": "blur"}),
+            json!({"seq": 12, "target": 6, "path": [6], "cancelable": false, "timeStamp": STAMP, "type": "focus"}),
+            json!({"seq": 13, "target": 6, "path": [6], "cancelable": false, "timeStamp": STAMP, "type": "blur"}),
         ];
         assert_eq!(events, expected);
         assert_eq!(events[3]["relatedTarget"], json!(7));
@@ -486,6 +505,20 @@ mod tests {
             events[4].get("relatedPath").is_none(),
             "only crossing events name the other side's path"
         );
+    }
+
+    #[test]
+    fn touch_pointers_report_the_touch_pointer_type() {
+        let data = PointerData {
+            pointer_id: 2,
+            pointer_type: PointerType::Touch,
+            ..pointer()
+        };
+        let mut queue = EventQueue::new();
+        queue.push(3, vec![3, 1], EventPayload::PointerDown(data), STAMP);
+        let event = wire(&queue.drain()[0]);
+        assert_eq!(event["pointerType"], json!("touch"));
+        assert_eq!(event["pointerId"], json!(2));
     }
 
     #[test]

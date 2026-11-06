@@ -1198,6 +1198,9 @@ declare module "godot" {
         get_activity: "getActivity";
         take_profile: "takeProfile";
         get_snapshot: "getSnapshot";
+        set_pointer_capture: "setPointerCapture";
+        release_pointer_capture: "releasePointerCapture";
+        has_pointer_capture: "hasPointerCapture";
         get_node_rect: "getNodeRect";
         find_by_test_id: "findByTestId";
         drain_events: "drainEvents";
@@ -1213,6 +1216,9 @@ declare module "godot" {
         getActivity(): string
         takeProfile(): string
         getSnapshot(): string
+        setPointerCapture(tag: int64, pointerId: int64): string
+        releasePointerCapture(tag: int64, pointerId: int64): string
+        hasPointerCapture(tag: int64, pointerId: int64): boolean
         getNodeRect(tag: int64): string
         findByTestId(testId: string): int64
         drainEvents(): string

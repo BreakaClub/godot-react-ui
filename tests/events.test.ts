@@ -393,6 +393,91 @@ test('a wheel event without its deltas is rejected at the boundary', () => {
   root.unmount();
 });
 
+test('the click family and pointercancel reach their handlers, bubble, and skip disabled elements', () => {
+  const host = new RecordingHost();
+  const { root } = createTestRoot(host);
+  const log: string[] = [];
+  const seen: UIPointerEvent[] = [];
+  const note = (name: string) => (event: UIPointerEvent) => {
+    log.push(`${name}:${event.currentTarget.testID}`);
+    seen.push(event);
+  };
+  root.render(h(View, {
+    testID: 'outer', onDoubleClick: note('dblclick'), onAuxClick: note('auxclick'), onContextMenu: note('contextmenu'),
+    onPointerCancelCapture: note('cancel-capture'), onPointerCancel: note('cancel'),
+  }, h(View, { testID: 'inner' }), h(View, { testID: 'off', disabled: true })));
+  const inner = requireNode(root, 'inner');
+  const off = requireNode(root, 'off');
+  host.events.push(
+    host.pointerEvent(inner, 'dblclick', { button: 0, detail: 2 }),
+    host.pointerEvent(inner, 'auxclick', { button: 2, detail: 1 }),
+    host.pointerEvent(inner, 'contextmenu', { button: 2, buttons: 2, detail: 0 }),
+    host.pointerEvent(inner, 'pointercancel', { pointerType: 'touch', pointerId: 3, buttons: 0 }),
+    // A disabled element and the elements inside it receive no click events.
+    host.pointerEvent(off, 'dblclick'), host.pointerEvent(off, 'auxclick'), host.pointerEvent(off, 'contextmenu'),
+    // A cancel is not a click: it still reaches a disabled element, so a press that began there can end.
+    host.pointerEvent(off, 'pointercancel'),
+  );
+  root.dispatchEvents();
+  assert.deepEqual(log, [
+    'dblclick:outer', 'auxclick:outer', 'contextmenu:outer', 'cancel-capture:outer', 'cancel:outer', 'cancel-capture:outer', 'cancel:outer',
+  ]);
+  const [dblclick, auxclick, contextmenu, cancel] = seen;
+  assert.ok(dblclick && auxclick && contextmenu && cancel);
+  assert.equal(dblclick.type, 'dblclick');
+  assert.equal(dblclick.detail, 2);
+  assert.equal(dblclick.target.testID, 'inner', 'the handler on an ancestor sees the element the event began on');
+  assert.equal(auxclick.button, 2);
+  assert.equal(contextmenu.type, 'contextmenu');
+  assert.equal(contextmenu.buttons, 2);
+  assert.deepEqual([cancel.type, cancel.pointerType, cancel.pointerId, cancel.cancelable], ['pointercancel', 'touch', 3, false]);
+  root.unmount();
+});
+
+test('handles capture pointers through native, which validates, and report the failures', () => {
+  const host = new RecordingHost();
+  const { root } = createTestRoot(host);
+  const handles: Array<{ capture(pointerId: number): void; release(pointerId: number): void; has(pointerId: number): boolean }> = [];
+  root.render(h(View, null,
+    h(View, {
+      testID: 'knob',
+      onPointerDown(event) {
+        const { currentTarget } = event;
+        handles.push({
+          capture: (id) => currentTarget.setPointerCapture(id),
+          release: (id) => currentTarget.releasePointerCapture(id),
+          has: (id) => currentTarget.hasPointerCapture(id),
+        });
+      },
+    }),
+    h(View, { testID: 'other' })));
+  const knob = requireNode(root, 'knob');
+  const other = requireNode(root, 'other');
+  host.pointersDown.add(1);
+  host.event(knob, 'pointerdown');
+  root.dispatchEvents();
+  const [handle] = handles;
+  assert.ok(handle);
+  assert.equal(handle.has(1), false);
+  handle.capture(1);
+  assert.equal(handle.has(1), true);
+  assert.deepEqual(host.calls.filter((call) => call.endsWith('PointerCapture')), [
+    'hasPointerCapture', 'setPointerCapture', 'hasPointerCapture',
+  ]);
+  assert.equal(host.captures.get(1), knob);
+  // Another element's handle sees no capture and cannot release this one.
+  const otherHandle = root.findByTestID('other');
+  assert.ok(otherHandle);
+  host.releasePointerCapture(other, 1);
+  assert.equal(host.captures.get(1), knob);
+  handle.release(1);
+  assert.equal(handle.has(1), false);
+  // Native's refusal is an error, and nothing changed.
+  assert.throws(() => handle.capture(9), /setPointerCapture failed: pointer 9 is not active/);
+  assert.equal(host.captures.has(9), false);
+  root.unmount();
+});
+
 test('events addressed to the root reach root listeners only', () => {
   const host = new RecordingHost();
   const { root } = createTestRoot(host);

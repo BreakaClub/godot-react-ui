@@ -59,7 +59,9 @@ export function node(id: number, kind: 'view' | 'text' | 'button'): NativeSnapsh
 }
 
 /** One call across the native boundary, for tests that assert what did and did not cross. */
-export type NativeCall = 'commit' | 'takeCommitDeletions' | 'drainEvents' | 'getSnapshot' | 'getNodeRect' | 'findByTestId' | 'resolveEvent';
+export type NativeCall =
+  | 'commit' | 'takeCommitDeletions' | 'drainEvents' | 'getSnapshot' | 'getNodeRect' | 'findByTestId' | 'resolveEvent'
+  | 'setPointerCapture' | 'releasePointerCapture' | 'hasPointerCapture';
 
 /**
  * A fake native host that implements the commit API in JavaScript: it applies each payload to a
@@ -83,6 +85,10 @@ export class RecordingHost implements NativeHost {
   readonly resolutions: Array<{ seq: number; defaultPrevented: boolean; dropEffect: string }> = [];
   /** What `resolveEvent` returns; a nonempty string simulates native rejecting the answer. */
   resolveError = '';
+  /** The pointers that are down, which native lets elements capture (pointer id to nothing else). */
+  readonly pointersDown = new Set<number>();
+  /** Capture by pointer id: the element receiving that pointer's events. */
+  readonly captures = new Map<number, number>();
   /** Extra events appended to every drain, for storm tests. */
   produceEvents: (() => NativeEvent[]) | undefined;
   private nextSeq = 1;
@@ -180,6 +186,25 @@ export class RecordingHost implements NativeHost {
     return this.resolveError;
   }
 
+  setPointerCapture(tag: number, pointerId: number): string {
+    this.calls.push('setPointerCapture');
+    if (!this.nodes.has(tag) || tag === 0) return `node ${tag} is not mounted`;
+    if (!this.pointersDown.has(pointerId)) return `pointer ${pointerId} is not active`;
+    this.captures.set(pointerId, tag);
+    return '';
+  }
+
+  releasePointerCapture(tag: number, pointerId: number): string {
+    this.calls.push('releasePointerCapture');
+    if (this.captures.get(pointerId) === tag) this.captures.delete(pointerId);
+    return '';
+  }
+
+  hasPointerCapture(tag: number, pointerId: number): boolean {
+    this.calls.push('hasPointerCapture');
+    return this.captures.get(pointerId) === tag;
+  }
+
   getNodeRect(tag: number): string {
     this.calls.push('getNodeRect');
     return JSON.stringify(this.nodes.get(tag)?.rect ?? null);
@@ -196,7 +221,7 @@ export class RecordingHost implements NativeHost {
     const snapshot: NativeSnapshot = {
       clockMs: 0, transitions: [],
       nodes: [...this.nodes.values()],
-      width: 1024, height: 768, hovered: null, focused: null, pressed: null,
+      width: 1024, height: 768, hovered: null, focused: null, pressed: null, pointers: [],
       stats: {
         batches: this.commits.length, nodeCount: this.nodes.size - 1, layoutPasses: 0, paintPasses: 0, layoutMicros: 0,
         nodesCreated: 0, nodesUpdated: 0, nodesDeleted: 0, nodesRestyled: 0, mutations: 0, boxRecords: 0, contentRecords: 0,

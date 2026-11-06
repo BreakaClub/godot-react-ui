@@ -8,6 +8,8 @@ mod motion;
 mod mount;
 mod paint;
 mod pointer;
+mod pointer_input;
+mod pointer_state;
 #[cfg(feature = "probe")]
 mod probe;
 mod profile;
@@ -23,10 +25,10 @@ use godot::classes::control::{FocusMode, MouseFilter};
 use godot::classes::notify::ControlNotification;
 use godot::classes::{
     Control, Font, IControl, InputEvent, InputEventKey, InputEventMouseButton,
-    InputEventMouseMotion, InputEventPanGesture, InputEventWithModifiers, StyleBoxFlat,
-    TextParagraph, ThemeDb, Time,
+    InputEventMouseMotion, InputEventPanGesture, InputEventScreenDrag, InputEventScreenTouch,
+    InputEventWithModifiers, StyleBoxFlat, TextParagraph, ThemeDb, Time,
 };
-use godot::global::{Key, MouseButton, MouseButtonMask};
+use godot::global::{Key, MouseButtonMask};
 use godot::obj::EngineEnum;
 use godot::prelude::*;
 use serde::Serialize;
@@ -37,15 +39,14 @@ use commit::{CommitPayload, LAYER_COUNT};
 use computed_style::{InteractionState, PseudoStates, restyle};
 use events::{
     DropEffect, EventOutcome, EventPayload, EventQueue, Modifiers, PointerData, PointerType,
-    WheelData,
 };
 use motion::{IntrinsicTrack, TransitionRecord};
 use mount::Mounted;
 use pointer::{
     DOM_BUTTON_NONE, DOM_BUTTON_PRIMARY, DOM_BUTTONS_PRIMARY, KEYBOARD_POINTER_ID,
-    MOUSE_POINTER_ID, cursor_shape, dom_buttons, enabled_button_ancestor, shared_button_target,
-    wheel_ticks,
+    MOUSE_POINTER_ID, cursor_shape, dom_buttons,
 };
+use pointer_state::{ClickCounter, PointerTable};
 use profile::{Profiler, micros};
 use props::{PseudoState, TransitionProperty};
 use render_tree::{RingKey, RootItem};
@@ -54,8 +55,6 @@ use style_engine::{DimensionAxis, DimensionOverrides, SampledStyle, StyleEngine}
 const DEFAULT_FONT_SIZE: i32 = 16;
 const MILLISECONDS_PER_SECOND: f64 = 1000.0;
 const MICROSECONDS_PER_MILLISECOND: f64 = 1000.0;
-/// Click counting arrives with the full pointer model; until then every mouse `click` is the first.
-const SINGLE_CLICK_DETAIL: u32 = 1;
 /// The event target that addresses root listeners only (events with an empty path).
 const ROOT_TARGET: u32 = 0;
 const CORNER_DETAIL: i32 = 12;
@@ -133,10 +132,14 @@ pub struct ReactUiRoot {
     pressed: Option<u32>,
     pressed_by_keyboard: bool,
     focus_visible: bool,
+    /// Where the mouse is, which of its buttons are down and which modifiers are held.
     pointer: Vector2,
     pointer_known: bool,
     pointer_buttons: u16,
     pointer_modifiers: Modifiers,
+    /// Every pointer that is down, with its capture (plan 3.12), and the click counts.
+    pointers: PointerTable,
+    clicks: ClickCounter,
     stats: Stats,
     clock_ms: f64,
     profiler: Profiler,
@@ -192,6 +195,8 @@ impl IControl for ReactUiRoot {
             pointer_known: false,
             pointer_buttons: 0,
             pointer_modifiers: Modifiers::default(),
+            pointers: PointerTable::default(),
+            clicks: ClickCounter::default(),
             stats: Stats::default(),
             clock_ms: 0.0,
             profiler: Profiler::default(),
@@ -281,7 +286,9 @@ impl IControl for ReactUiRoot {
             ControlNotification::WM_WINDOW_FOCUS_OUT => {
                 // The engine drops mouse focus when the window loses OS focus and sends the Control
                 // a synthetic release that never reaches `gui_input` (internal-device events skip
-                // `_gui_input`), so a press that was in flight would stay pressed forever.
+                // `_gui_input`), so a press that was in flight would stay pressed forever. JS is
+                // told with `pointercancel`, which also ends any capture.
+                self.cancel_all_pointers();
                 self.pressed = None;
                 self.pressed_by_keyboard = false;
                 self.refresh_interaction();
@@ -296,10 +303,16 @@ impl IControl for ReactUiRoot {
                 // Leaving the tree is a pause, not destruction. Keep the native
                 // clock, Stylo transitions and presentation overrides for reentry.
                 self.events.retain(|payload| {
-                    matches!(payload, EventPayload::Blur | EventPayload::PointerLeave(_))
+                    matches!(
+                        payload,
+                        EventPayload::Blur
+                            | EventPayload::PointerLeave(_)
+                            | EventPayload::PointerCancel(_)
+                    )
                 });
                 self.update_hover(None);
                 self.set_focus(None, false);
+                self.cancel_all_pointers();
                 self.pressed = None;
                 self.refresh_interaction();
                 self.pointer_known = false;
@@ -390,6 +403,39 @@ impl ReactUiRoot {
     #[func]
     fn get_snapshot(&self) -> GString {
         self.snapshot_json().to_string().as_str().into()
+    }
+
+    /// `element.setPointerCapture(pointer_id)`: the element receives the pointer's events (wherever
+    /// the pointer is) until `release_pointer_capture`, the pointer goes up or is cancelled, or the
+    /// element is removed. An empty return is success; otherwise nothing changed (plan 4.4).
+    #[func]
+    fn set_pointer_capture(&mut self, tag: i64, pointer_id: i64) -> GString {
+        let result = ids(tag, pointer_id)
+            .and_then(|(tag, pointer_id)| self.set_pointer_capture_checked(tag, pointer_id));
+        match result {
+            Ok(()) => GString::new(),
+            Err(error) => GString::from(&error),
+        }
+    }
+
+    /// `element.releasePointerCapture(pointer_id)`: only the capturing element can release; any other
+    /// call does nothing, as in DOM.
+    #[func]
+    fn release_pointer_capture(&mut self, tag: i64, pointer_id: i64) -> GString {
+        match ids(tag, pointer_id) {
+            Ok((tag, pointer_id)) => {
+                self.pointers.release_capture(pointer_id, tag);
+                GString::new()
+            }
+            Err(error) => GString::from(&error),
+        }
+    }
+
+    /// Whether `tag` is capturing pointer `pointer_id`.
+    #[func]
+    fn has_pointer_capture(&self, tag: i64, pointer_id: i64) -> bool {
+        ids(tag, pointer_id)
+            .is_ok_and(|(tag, pointer_id)| self.pointers.has_capture(pointer_id, tag))
     }
 
     /// The root-local rectangle of a node as JSON, or `null` if no such node is mounted.
@@ -484,8 +530,8 @@ impl ReactUiRoot {
             .map(|tag| self.mounted.path_of(tag))
             .unwrap_or_default();
         // A mouse press stays active only while the pointer is inside it; a key press stays active
-        // until the key is released.
-        let active = if self.pressed_by_keyboard {
+        // until the key is released; a touch stays active while it is down (it never hovers).
+        let mut active: Vec<u32> = if self.pressed_by_keyboard {
             pressed_chain
         } else {
             pressed_chain
@@ -493,6 +539,13 @@ impl ReactUiRoot {
                 .filter(|tag| hover.contains(tag))
                 .collect()
         };
+        for target in self.pointers.touch_targets() {
+            for tag in self.mounted.path_of(target) {
+                if !active.contains(&tag) {
+                    active.push(tag);
+                }
+            }
+        }
         let focus_within = self
             .focused
             .map(|tag| self.mounted.path_of(tag))
@@ -561,7 +614,34 @@ impl ReactUiRoot {
         self.events.push(target, path, payload, event_time_ms());
     }
 
-    /// Everything that still describes the pointer when an event is not itself input: the last
+    /// The pointer state an event carries, for a pointer at `position` (root-local), with no click
+    /// count and no related element. Canvas coordinates are what game code receives in
+    /// `_unhandled_input`: this Control's place in its viewport applied to the root-local position.
+    fn pointer_data_at(
+        &self,
+        position: Vector2,
+        pointer_id: u32,
+        pointer_type: PointerType,
+        button: i8,
+        buttons: u16,
+    ) -> PointerData {
+        let in_viewport = self.base().get_global_transform_with_canvas() * position;
+        PointerData {
+            x: position.x,
+            y: position.y,
+            viewport_x: in_viewport.x,
+            viewport_y: in_viewport.y,
+            pointer_id,
+            pointer_type,
+            button,
+            buttons,
+            detail: 0,
+            related_target: None,
+            modifiers: self.pointer_modifiers,
+        }
+    }
+
+    /// Everything that still describes the mouse when an event is not itself input: the last
     /// position, buttons and modifiers native saw.
     fn pointer_data(
         &self,
@@ -572,21 +652,10 @@ impl ReactUiRoot {
         detail: u32,
         related_target: Option<u32>,
     ) -> PointerData {
-        // Canvas coordinates are what game code receives in `_unhandled_input`: this Control's
-        // place in its viewport applied to the root-local position.
-        let in_viewport = self.base().get_global_transform_with_canvas() * self.pointer;
         PointerData {
-            x: self.pointer.x,
-            y: self.pointer.y,
-            viewport_x: in_viewport.x,
-            viewport_y: in_viewport.y,
-            pointer_id,
-            pointer_type,
-            button,
-            buttons,
             detail,
             related_target,
-            modifiers: self.pointer_modifiers,
+            ..self.pointer_data_at(self.pointer, pointer_id, pointer_type, button, buttons)
         }
     }
 
@@ -623,7 +692,7 @@ impl ReactUiRoot {
         self.pointer_buttons = dom_buttons(mask);
     }
 
-    /// Remember where the pointer is and which modifiers are down.
+    /// Remember where the mouse is and which modifiers are down.
     fn track_position(&mut self, position: Vector2, modifiers: Modifiers) {
         self.pointer = position;
         self.pointer_known = true;
@@ -659,59 +728,24 @@ impl ReactUiRoot {
         self.dispatch_depth -= 1;
     }
 
-    /// Mouse, button and key handling. Events are queued here and delivered by the caller.
+    /// Mouse, touch and key handling. Events are queued here and delivered by the caller.
     fn handle_input(&mut self, event: Gd<InputEvent>) {
+        // Godot translates touches to mouse events and mouse events to touches, marking the copies
+        // with this device id (`core/input/input.cpp:926`, `core/input/input_event.h`). The real
+        // events are handled, so a touch is one touch pointer and never also a mouse press.
+        if event.get_device() == InputEvent::DEVICE_ID_EMULATION {
+            return;
+        }
         if let Ok(motion) = event.clone().try_cast::<InputEventMouseMotion>() {
-            self.track_mouse(
-                motion.get_position(),
-                motion.get_button_mask(),
-                modifiers_of(&motion),
-            );
-            let hit = self.mounted.hit_test(self.pointer);
-            self.update_hover(hit);
-            if let Some(id) = hit {
-                let data = self.mouse_pointer_data(DOM_BUTTON_NONE, 0, None);
-                self.queue(id, EventPayload::PointerMove(data));
-            }
+            self.handle_mouse_motion(&motion);
         } else if let Ok(button) = event.clone().try_cast::<InputEventMouseButton>() {
-            if let Some((delta_x, delta_y)) =
-                wheel_ticks(button.get_button_index(), button.get_factor())
-            {
-                // Godot sends a press and a release for every wheel tick; the tick is the press.
-                if button.is_pressed() {
-                    self.track_mouse(
-                        button.get_position(),
-                        button.get_button_mask(),
-                        modifiers_of(&button),
-                    );
-                    self.dispatch_wheel(delta_x, delta_y);
-                }
-                return;
-            }
-            if button.get_button_index() != MouseButton::LEFT {
-                return;
-            }
-            self.track_mouse(
-                button.get_position(),
-                button.get_button_mask(),
-                modifiers_of(&button),
-            );
-            let hit = self.mounted.hit_test(self.pointer);
-            self.update_hover(hit);
-            if button.is_pressed() {
-                if !self.press_primary(hit) {
-                    return;
-                }
-            } else {
-                self.release_primary(hit);
-            }
-            self.base_mut().accept_event();
+            self.handle_mouse_button(&button);
         } else if let Ok(pan) = event.clone().try_cast::<InputEventPanGesture>() {
-            // A trackpad scroll arrives as a pan gesture rather than wheel buttons; JS sees both as
-            // `wheel`. The delta is in the same ticks `ScrollContainer` scales by page / 8.
-            self.track_position(pan.get_position(), modifiers_of(&pan));
-            let delta = pan.get_delta();
-            self.dispatch_wheel(delta.x, delta.y);
+            self.handle_pan(&pan);
+        } else if let Ok(touch) = event.clone().try_cast::<InputEventScreenTouch>() {
+            self.handle_touch(&touch);
+        } else if let Ok(drag) = event.clone().try_cast::<InputEventScreenDrag>() {
+            self.handle_touch_drag(&drag);
         } else if let Ok(key) = event.try_cast::<InputEventKey>() {
             if key.is_echo() {
                 return;
@@ -753,91 +787,6 @@ impl ReactUiRoot {
                 }
             }
         }
-    }
-
-    /// Hand a wheel tick or pan at the tracked pointer position to JS as a cancelable `wheel`.
-    /// Nothing scrolls natively before Phase I5, so the event is consumed only when JS prevents it;
-    /// otherwise it goes on to the game's `_unhandled_input` (plan 3.11).
-    fn dispatch_wheel(&mut self, delta_x: f32, delta_y: f32) {
-        let hit = self.mounted.hit_test(self.pointer);
-        self.update_hover(hit);
-        let pointer = self.mouse_pointer_data(DOM_BUTTON_NONE, 0, None);
-        let wheel = WheelData {
-            pointer,
-            delta_x,
-            delta_y,
-        };
-        let prevented = self
-            .dispatch_cancelable(hit.unwrap_or(ROOT_TARGET), EventPayload::Wheel(wheel))
-            .default_prevented;
-        if prevented && self.base().is_inside_tree() {
-            self.base_mut().accept_event();
-        }
-    }
-
-    /// Primary button press. Returns false when JS left the root outside the scene tree while
-    /// handling `pointerdown`: nothing native may run afterwards (plan 3.3 rule 4).
-    fn press_primary(&mut self, hit: Option<u32>) -> bool {
-        self.pressed = hit.filter(|id| !self.mounted.is_disabled(*id));
-        self.pressed_by_keyboard = false;
-        let mut prevented = false;
-        if let Some(id) = self.pressed {
-            // The `active` style applies from the moment of the press, before handlers run.
-            self.refresh_interaction();
-            let data = self.mouse_pointer_data(DOM_BUTTON_PRIMARY, 0, None);
-            prevented = self
-                .dispatch_cancelable(id, EventPayload::PointerDown(data))
-                .default_prevented;
-            if !self.base().is_inside_tree() {
-                return false;
-            }
-        }
-        // JS may have removed the element it just handled the press on; the default action is
-        // skipped then (plan 3.3 rule 3). Everything else looks the target up again.
-        let target_removed = hit.is_some_and(|id| !self.mounted.nodes.contains_key(&id));
-        if !prevented && !target_removed {
-            // Default action: the nearest enabled button takes focus, and pressing anything else
-            // clears element focus.
-            let focus = hit.and_then(|id| enabled_button_ancestor(&self.mounted, id));
-            if focus.is_some() {
-                self.base_mut().grab_focus();
-            }
-            self.set_focus(focus, false);
-        }
-        self.release_key_focus_without_element();
-        true
-    }
-
-    /// The root holds Godot key focus only for a focused element (or an owner that asked for it
-    /// with `grabFocus()`, until the next press). Godot grants focus to a focusable Control for
-    /// every left press that reaches it, before any handler runs (`viewport.cpp:1976-1990`), so a
-    /// press that leaves no element focused hands it back: keys then go to the game (plan 3.11).
-    fn release_key_focus_without_element(&mut self) {
-        if self.focused.is_none() && self.base().has_focus() {
-            self.base_mut().release_focus();
-        }
-    }
-
-    fn release_primary(&mut self, hit: Option<u32>) {
-        if let Some(id) = hit.filter(|id| !self.mounted.is_disabled(*id)) {
-            let up = self.mouse_pointer_data(DOM_BUTTON_PRIMARY, 0, None);
-            self.queue(id, EventPayload::PointerUp(up));
-            let click = self.pressed.and_then(|pressed| {
-                if pressed == id {
-                    Some(id)
-                } else {
-                    // Padding and label are different pointer targets, but they
-                    // activate the same button. Keep pointer event IDs unchanged.
-                    shared_button_target(&self.mounted, pressed, id)
-                }
-            });
-            if let Some(target) = click {
-                let data = self.mouse_pointer_data(DOM_BUTTON_PRIMARY, SINGLE_CLICK_DETAIL, None);
-                self.queue(target, EventPayload::Click(data));
-            }
-        }
-        self.pressed = None;
-        self.refresh_interaction();
     }
 
     /// One `pointerleave` for the element left and one `pointerenter` for the element entered, each
@@ -914,7 +863,15 @@ impl ReactUiRoot {
     }
 }
 
-fn modifiers_of(event: &InputEventWithModifiers) -> Modifiers {
+/// An element tag and a pointer id from JS, which sends both as `i64`.
+fn ids(tag: i64, pointer_id: i64) -> Result<(u32, u32), String> {
+    let tag = u32::try_from(tag).map_err(|_| format!("tag {tag} is not a u32"))?;
+    let pointer_id =
+        u32::try_from(pointer_id).map_err(|_| format!("pointer id {pointer_id} is not a u32"))?;
+    Ok((tag, pointer_id))
+}
+
+pub(crate) fn modifiers_of(event: &InputEventWithModifiers) -> Modifiers {
     Modifiers {
         shift_key: event.is_shift_pressed(),
         ctrl_key: event.is_ctrl_pressed(),
@@ -924,6 +881,6 @@ fn modifiers_of(event: &InputEventWithModifiers) -> Modifiers {
 }
 
 /// Milliseconds on the engine tick clock, the time base of every event's `timeStamp`.
-fn event_time_ms() -> f64 {
+pub(crate) fn event_time_ms() -> f64 {
     Time::singleton().get_ticks_usec() as f64 / MICROSECONDS_PER_MILLISECOND
 }

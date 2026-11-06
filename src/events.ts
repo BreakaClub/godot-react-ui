@@ -76,7 +76,11 @@ export interface UIEventMap {
   pointerup: UIPointerEvent;
   pointerenter: UIPointerEvent;
   pointerleave: UIPointerEvent;
+  pointercancel: UIPointerEvent;
   click: UIPointerEvent;
+  dblclick: UIPointerEvent;
+  auxclick: UIPointerEvent;
+  contextmenu: UIPointerEvent;
   wheel: UIWheelEvent;
   focus: UIFocusEvent;
   blur: UIFocusEvent;
@@ -251,7 +255,11 @@ const EVENT_TABLE: Record<NativeEventType, EventSpec> = {
   pointerup: pointerSpec(true, (p) => p.onPointerUp, (p) => p.onPointerUpCapture),
   pointerenter: pointerSpec(false, (p) => p.onPointerEnter),
   pointerleave: pointerSpec(false, (p) => p.onPointerLeave),
+  pointercancel: pointerSpec(true, (p) => p.onPointerCancel, (p) => p.onPointerCancelCapture),
   click: pointerSpec(true, (p) => p.onClick, (p) => p.onClickCapture),
+  dblclick: pointerSpec(true, (p) => p.onDoubleClick),
+  auxclick: pointerSpec(true, (p) => p.onAuxClick),
+  contextmenu: pointerSpec(true, (p) => p.onContextMenu),
   wheel: wheelSpec((p) => p.onWheel, (p) => p.onWheelCapture),
   focus: focusSpec((p) => p.onFocus),
   blur: focusSpec((p) => p.onBlur),
@@ -306,7 +314,8 @@ function createEvent(
 ): PointerEventImpl | WheelEventImpl | FocusEventImpl {
   switch (native.type) {
     case 'pointerdown': case 'pointermove': case 'pointerup':
-    case 'pointerenter': case 'pointerleave': case 'click':
+    case 'pointerenter': case 'pointerleave': case 'pointercancel': case 'click': case 'dblclick':
+    case 'auxclick': case 'contextmenu':
       return new PointerEventImpl(native, target, related, bubbles);
     case 'wheel':
       return new WheelEventImpl(native, target, bubbles);

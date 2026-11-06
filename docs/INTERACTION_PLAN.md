@@ -1,9 +1,9 @@
 # Fabric renderer and interaction plan
 
-Status: plan v2.4, 6 November 2026. Done: Phase 0 (`9f4a02c`), Phase 1 (`0d11607`), Phase F0
+Status: plan v2.5, 6 November 2026. Done: Phase 0 (`9f4a02c`), Phase 1 (`0d11607`), Phase F0
 (`4f7dd0d`), Phase F1 (`ce99bea`), Phase F2 (`578b461`), Phase F3 (`07a8344`), Phase F4 (`e60f6e5`;
 its numbers and decisions D7 to D10 are in the progress log and the decision log below), Phase I1
-(decisions D11 to D13). Next: Phase I2.
+(decisions D11 to D13), Phase I2 (decisions D14 to D16). Next: Phase I3.
 
 v1 of this plan (`7f0a96c`) was rejected because it built every interaction feature on the
 prototype's commit path, which re-walks and re-sends the whole tree on every change. v2 replaces
@@ -127,6 +127,32 @@ not a reason to wait.
   two `wheel` events and reaches Godot's own `ScrollContainer` twice as well; and Godot's Web display server maps a
   DOM `deltaX > 0` (scroll right) to `WHEEL_LEFT` (`platform/web/display_server_web.cpp:704-710`), so horizontal
   ticks have the opposite sign on Web. They are recorded in the progress log for the engine owner.
+- **D14 (I2)**: the pointer pad and the capture knob live on a separate demo page (`demo/src/pointer-lab.tsx`,
+  rendered by `godotReactDemo.showLab('pointers')` through a page registry, `demo/src/labs.tsx`, which also holds
+  the I1 HUD), not in the interaction lab. The lab's body is a fixed 520 px with no scrolling until I5, and the
+  verifiers' geometry check rejects a node that escapes the window, so another section there would push the
+  others out of reach; a page also leaves every existing capture untouched (the 94 pre-I1 pairs compare
+  unchanged, progress log). I3 to I4 use the same registry.
+- **D15 (I2)**: choices the plan did not make, each DOM's. (a) Only the primary `pointerdown` is cancelable:
+  nothing native follows another button, so there is nothing to prevent. (b) Click target: a pointer an element
+  captured clicks that element if the press began inside it (the usual `setPointerCapture(currentTarget)` pattern,
+  whose press target is a child, would otherwise never click); otherwise press and release must reach the same
+  element or two parts of one enabled button, as before. (c) A touch's events are `pointerup`, `pointerleave`,
+  then `click` (browsers fire the compatibility click after the boundary events); `pointerenter` has no related
+  element, so JS enters the whole path. (d) `detail` is the click count of the press on `click`, `auxclick`
+  and `dblclick`, and 0 on `pointerdown`/`up`/`move` and `contextmenu`; `dblclick` follows the second `click`
+  of a sequence only. (e) The count is measured against where the sequence began and against 500 ms from the
+  previous press (Appendix A), per button and kind of pointer.
+- **D16 (I2)**: every input event with `device == DEVICE_ID_EMULATION` is ignored, not only touch-to-mouse.
+  Evidence: `core/input/input.cpp:858, 888, 926, 960, 1464` set the device on every translated event, and the
+  translated mouse press is dispatched before the touch that caused it
+  (`_parse_input_event_impl(button_event, true)` runs inside the touch's own handling), so an un-ignored
+  emulation shows up as a mouse press ahead of every touch; with the check removed the verifier reads `down
+  mouse 1 touch 1, ids 1,2` for one tap. Godot also gives the root key focus on the emulated press
+  (`viewport.cpp:1976`); the touch's own default action hands it back as D11 says. A touch's pointer id is
+  `2 + Godot touch index` natively; Godot's Web build numbers touches by the browser's contact identifier,
+  which keeps counting across taps (id 7 for the fifth tap in a session), so only distinctness and the range
+  are asserted there.
 - **Native rule restored (F4)**: plan 3.3 says hover re-hit-tests "if geometry under the mouse changed";
   F3 re-hit-tested at every flush, which walks the siblings at every level (169 us at 2,000 cells).
   `flush_layout` now re-hit-tests only after something that decides the hit changed: a node's geometry,
@@ -1006,7 +1032,7 @@ Event methods (Phase 1): `#[signal] events_ready()`, `drain_events() -> GString`
 | `get_node_rect(tag) -> GString` (JSON rect or `null`) | F3 |
 | `find_by_test_id(test_id) -> i64` (tag or −1) | F3 |
 | `get_snapshot() -> GString` (diagnostics; whole-tree by design) | F3 |
-| `set_pointer_capture(tag, pointer_id)`, `release_pointer_capture(tag, pointer_id)` | I2 |
+| `set_pointer_capture(tag, pointer_id)`, `release_pointer_capture(tag, pointer_id)`, `has_pointer_capture(tag, pointer_id)` | I2 |
 | `focus_node(tag, focus_visible: i32 /* -1 modality, 0, 1 */)`, `blur_node(tag)` | I3 |
 | `scroll_to(tag, left, top)`, `scroll_by(tag, dx, dy)`, `scroll_into_view(tag)`, `get_scroll_state(tag)` | I5 |
 | `get_selection()`, `clear_selection()` | I6 |
@@ -1258,9 +1284,10 @@ fix is not local.
    pointers with implicit capture, enter/leave on down/up, shared-button click rule, multi-touch.
 4. All mouse buttons, `contextmenu`, `auxclick`, `dblclick`, `detail`.
 5. `set_pointer_capture`/`release_pointer_capture` with validation; handle methods
-   `setPointerCapture`, `releasePointerCapture`, `hasPointerCapture`; auto-release on up/cancel.
+   `setPointerCapture`, `releasePointerCapture`, `hasPointerCapture` (a native query,
+   `has_pointer_capture`, which the 4.4 table did not list); auto-release on up/cancel.
 6. `EXIT_TREE` queues `pointercancel` for active pointers.
-7. **Demo**: pointer pad showing the last 6 events; a capture-driven knob.
+7. **Demo**: pointer pad showing the last 6 events; a capture-driven knob (D14: on the pointer lab page).
 8. **Verify**: right click ⇒ `contextmenu`, no `click`; triple click ⇒ `detail` 1, 2, 3 and one
    `dblclick`; the knob keeps moving outside itself and the root; synthetic `ScreenTouch` (device 0) ⇒
    exactly one `pointerdown` of type touch with emulation on; Web touch tap ⇒ exactly one down/up/click

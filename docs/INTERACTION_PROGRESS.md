@@ -1194,3 +1194,124 @@ both device pixel ratios, both orientations):
 
 - A worktree at `1b7a14b` in the session scratchpad (`pre-i1`) holds the baseline build; it shares this
   checkout's `target/` through `CARGO_TARGET_DIR`, which cost one full rebuild of the `godot` crates afterwards.
+
+## Phase I2 - Pointer model, touch, capture
+
+Date: 6 November 2026. Same host and builds as I1; while gating 55 % free, swap 8.3 GB of 9.2 GB used (less
+starved than at I1). Decisions D14 to D16 are in the plan's decision log with their evidence.
+
+### What changed, by file
+
+| File | Change |
+| --- | --- |
+| `native/pointer_state.rs` (new, Godot-free) | `PointerTable` (one record per pointer id: position, DOM `buttons`, each down button's press with its target and click count, capture), capture rules (`set_capture` refuses an unmounted element and a pointer that is not down; only the capturing element releases; a capture ends with the last release, with `cancel`, or when its element is deleted; a touch is captured to its `pointerdown` target implicitly), `ClickCounter` (500 ms, 4 px, per button and kind of pointer), `touch_pointer_id`. 11 unit tests |
+| `native/pointer_input.rs` (new) | the Godot glue that moved out of `lib.rs` and grew: mouse motion and every mouse button (`pointerdown`, `contextmenu`, `pointerup`, `click`/`auxclick`/`dblclick` with their counts), wheel and pan (I1), touch press/drag/release/cancel with `pointerenter`/`pointerleave`, captured moves, `pointercancel`, the primary press's default action (shared by mouse and touch) |
+| `native/pointer.rs`, `native/events.rs` | `dom_button_of` (all five buttons); payloads `PointerCancel`, `DoubleClick` (wire `dblclick`), `AuxClick`, `ContextMenu`; `PointerType::Touch` |
+| `native/lib.rs` | `pointers` and `clicks` on the root; every input event with `device == DEVICE_ID_EMULATION` is ignored; `set_pointer_capture`, `release_pointer_capture`, `has_pointer_capture` (`#[func]`); `EXIT_TREE` and window focus loss cancel every pointer that is down; a touch is `active` while down |
+| `native/mount.rs`, `native/snapshot.rs` | deleting an element ends the captures and presses on it; the snapshot lists `pointers` |
+| `src/native.ts`, `src/events.ts`, `src/components.tsx`, `src/renderer.ts` | `pointercancel`, `dblclick`, `auxclick`, `contextmenu` and their handler props; the handle's `setPointerCapture`, `releasePointerCapture`, `hasPointerCapture` (native validates, JS throws its error); the click family skips disabled elements |
+| `tests/recording-host.ts`, `tests/events.test.ts`, `tests/renderer.test.ts` | the fake host's capture API; the click family and `pointercancel`; handle capture and its failures |
+| `demo/src/pointer-lab.tsx`, `demo/src/labs.tsx` (new), `demo/src/main.ts` | the pointer pad and the capture knob on a page registry (`showLab`), a root `pointercancel` counter |
+| `demo/src/verify-interaction.ts`, `scripts/verify-interaction-web.mjs` | the pointer scenarios, native (37 assertions) and Web (mouse half in every viewport, touch half on the touch page) |
+| `demo/typings/godot7.gen.d.ts` | the three new methods |
+| `native/PROTOCOL.md`, `README.md`, `docs/INTERACTION_PLAN.md` | the pointer model, D14 to D16, the I2 task text |
+
+### Gate
+
+All commands on the final tree, in this order, exit 0 (logs in `/tmp/i2-gate/`):
+
+| Command | Result |
+| --- | --- |
+| `pnpm test:types` / `pnpm test` | clean / **66 passed** (64 before) |
+| `cargo test --locked` | **95 passed** (82 before: 11 `pointer_state`, `dom_button_of`, the click-family wire shapes, the touch pointer type) |
+| `cargo clippy --locked --all-targets -- -D warnings`, also `--features probe` | 0 warnings |
+| `rustup run stable rustfmt --edition 2024 --check native/lib.rs` | clean |
+| `pnpm build:native` | ok (dylib 10,525,280 bytes, default build) |
+| `pnpm gen:types` | exit 0; only `demo/typings/godot7.gen.d.ts` changed (the three `#[func]`s), and a second run left it identical. It could not pass first: `src/native.ts` and the demo already used the new host methods, so the typings were generated with `$GODOT --headless --audio-driver Dummy --editor --generate-types --path demo` after `pnpm build:native`, as plan 0.3 says |
+| `pnpm build` | ok |
+| `pnpm verify` / `verify:motion` / `verify:interaction` | exit 0, both viewports each; existing assertions unchanged; the interaction run adds `verifyPointers` (37 assertions) |
+| `pnpm build:web` | ok; Wasm 6,712,485 bytes (I1: 6,662,691) |
+| `pnpm verify:web` (port 8097) | passed: **253 assertions**, 53 captures (unchanged) |
+| `pnpm verify:motion:web` | passed: **433 assertions**, 26 captures, 30 benchmark cells (unchanged) |
+| `pnpm verify:interaction:web` | passed: **422 assertions** (358 before), 54 captures (41 before) |
+
+The server on 8097 was `node scripts/serve-web.mjs` with `PORT=8097` and was stopped afterwards.
+
+### Rasters compared with the pre-I1 build
+
+The same worktree at `1b7a14b` as for I1, every settled native capture against the final tree: **94 pairs, 66
+identical**. The 28 that differ are the 22 mid-transition motion captures (sampled at wall-clock offsets) and
+the six interaction captures that print the engine frame number (`05-enter-leave`, `06-self-removed`,
+`07-reattached`, both viewports: 112 and 216 pixels in the 9 x 34 and 15 x 34 boxes that read `down frame=N`).
+Nothing else differs, so I2 changed no pixel of the existing demo. The new captures were inspected
+(`11-pointers` to `14-pointer-touch-tap`, native and Web): the pad's last six log lines, the knob at 77 while
+the pointer is captured and outside its track, and the touch tap's `enter, down, up, leave, click` with no hover
+paint on the pad.
+
+### Negative controls
+
+Each new regression assertion was checked to fail without its fix (the fix reverted alone, `pnpm build:native`,
+`pnpm verify:interaction`; the sources were restored from copies and compared afterwards):
+
+| Reverted | Failing assertion |
+| --- | --- |
+| emulated (device -1) events are handled | `A touch is one touch pointerdown and no mouse press: down mouse 1 touch 1, ids 1,2, clicks 1,1, ...` |
+| a captured pointer's events go to what is under it | `Outside the root, to the right, the knob is at its end: value 50, captured true, moves 1` |
+| every click counts 1 | `A triple click counts 1, 2, 3 with one dblclick: ... clicks 1,1,1, dbl 0 ...` |
+| `EXIT_TREE` does not cancel pointers | `Leaving the tree while a button is down cancels the pointer: 0` |
+| the capture is not released with the last button | `The capture ended with the press` |
+| every release is a `click` (no `auxclick`) | `A right click is pointerdown, contextmenu, pointerup, auxclick: ... pointerup mouse#1 b2 bs0 d0|click mouse#1 b2 bs0 d1` |
+
+### Verification added
+
+Natively and on Web (Web: the mouse half at both device pixel ratios and orientations, the touch half on the
+touch page with real touch events and CDP):
+
+- a right click is `pointerdown`, `contextmenu`, `pointerup`, `auxclick` and no `click`; a middle click is an
+  `auxclick` of button 1; `buttons` carries 2 and 4 while they are down;
+- three quick presses count 1, 2, 3 with one `dblclick` (detail 2); a press after 650 ms, and one 10 px away,
+  count 1;
+- the knob: pressing it captures the pointer (native records it, explicit); dragging far outside the root and
+  the window, on both sides, moves it to its ends and back; its `pointerup` arrives outside; the capture ends
+  with the press; without a press it ignores the pointer; capturing an idle pointer throws
+  `setPointerCapture failed: pointer 1 is not active ...`;
+- touch with `emulate_mouse_from_touch` on (asserted from the project setting): a tap is `pointerenter`,
+  `pointerdown`, `pointerup`, `pointerleave`, `click` of one touch pointer and no mouse press; the pad is not
+  hovered and shows no hover paint afterwards; no pointer record is left;
+- two fingers are two touch pointers, each captured to where it went down (the knob's own capture replaces its
+  finger's implicit one), and a finger dragged far outside the root keeps moving the knob;
+- a cancelled touch is `pointercancel` and `pointerleave` with no `pointerup` or `click`;
+- the root leaving the scene tree mid-press cancels the pointer (a root listener counts one `pointercancel`).
+
+### Choices the plan left open
+
+- D15 lists the click and capture choices; D16 the emulation rule.
+- **Mouse position when a captured pointer is over nothing.** Moves and the `pointerup` still go to the capture
+  target; `pointerdown` and `click` need an element under the pointer or a capture, so a pointer released over
+  nothing and not captured sends no `pointerup` (there is nothing to address; root listeners only see events with
+  an element target).
+- **Window focus loss.** D6 already cancelled the press silently; JS now also gets `pointercancel`, which ends its
+  capture.
+- **Touch on a disabled element or on nothing.** Native takes no pointer for it and sends nothing, as for the mouse.
+- **`pointerenter` for a touch** carries `buttons` 0 and `button` -1; `pointerdown` carries `buttons` 1.
+- **New modules.** `pointer_state.rs` and `pointer_input.rs` (plan 3.24 lists neither): the model is Godot-free and
+  tested, the glue grew past what `lib.rs` should hold.
+
+### Engine findings
+
+- `Input.parseInputEvent` leaves an `InputEventMouseButton`'s `button_mask` as the script set it, so the
+  existing verifiers' presses carry `buttons` 0. The new helper sets the mask a real device reports (1, 2, 4 while
+  down). No existing assertion read `buttons`.
+- Godot's Web build numbers a touch by the browser's contact identifier, which keeps counting across taps: the
+  fifth tap of a session was pointer 7. DOM `pointerId`s for touches behave the same way; the Web verifier checks
+  one id runs through a tap and two fingers have two distinct ids from the touch range.
+- Godot's `Viewport` grants the root key focus on the emulated mouse press that precedes a touch, too
+  (`viewport.cpp:1976`); the touch's own `pointerdown` default action hands it back (D11).
+
+### Plan problems found
+
+- Plan 4.4 lists `set_pointer_capture` and `release_pointer_capture` but the handle's `hasPointerCapture` needs a
+  native answer (the capture ends natively on up and cancel): `has_pointer_capture` was added.
+- Plan I2's demo (pad and knob in the Interaction tab) cannot fit its fixed, non-scrolling body (D14).
+- Plan 3.24 and the I2 Files list omit `native/snapshot.rs` (4.5 says `pointers` arrives with I2), the two new
+  modules, `demo/src/labs.tsx` and `tests/recording-host.ts`.

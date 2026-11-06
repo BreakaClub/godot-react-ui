@@ -11,7 +11,7 @@ import {
   type DispatchResult, type PathNode, type UIEventMap,
 } from './events';
 import {
-  commitPayload, findTag, readDeletions, readEvents, readNodeRect, readSnapshot, resolveEvent,
+  checkCapture, commitPayload, findTag, readDeletions, readEvents, readNodeRect, readSnapshot, resolveEvent,
   type NativeEvent, type NativeEventType, type NativeHost, type NativePointerEvent,
   type NativeSnapshot, type NativeSnapshotNode,
 } from './native';
@@ -124,6 +124,15 @@ function cloneInstance(
   };
 }
 
+/** The pointer-capture methods of the handle of `tag`, which native validates. */
+function captureMethods(host: NativeHost, tag: number): Pick<UIHandle, 'setPointerCapture' | 'releasePointerCapture' | 'hasPointerCapture'> {
+  return {
+    setPointerCapture(pointerId) { checkCapture(host.setPointerCapture(tag, pointerId), 'setPointerCapture'); },
+    releasePointerCapture(pointerId) { checkCapture(host.releasePointerCapture(tag, pointerId), 'releasePointerCapture'); },
+    hasPointerCapture(pointerId) { return host.hasPointerCapture(tag, pointerId); },
+  };
+}
+
 /** The public handle of a tag; created on first use and stable across clones. */
 function handleFor(root: RootState, tag: number): UIHandle {
   let handle = root.handles.get(tag);
@@ -132,6 +141,7 @@ function handleFor(root: RootState, tag: number): UIHandle {
       id: tag,
       get testID() { return root.committed.get(tag)?.props.testID; },
       getRect() { return readNodeRect(root.host, tag); },
+      ...captureMethods(root.host, tag),
     };
     root.handles.set(tag, handle);
   }
@@ -320,6 +330,11 @@ function dispatchEnterLeave(root: RootState, native: NativePointerEvent): Dispat
   return result;
 }
 
+/** A disabled element, or one inside a disabled one, receives none of these. */
+function isClickFamily(type: NativeEventType): boolean {
+  return type === 'click' || type === 'dblclick' || type === 'auxclick' || type === 'contextmenu';
+}
+
 /** React's own split: moves and wheel ticks arrive in streams and their updates may be batched. */
 function isContinuous(native: NativeEvent): boolean {
   return native.type === 'pointermove' || native.type === 'wheel';
@@ -332,7 +347,7 @@ function dispatch(root: RootState, native: NativeEvent): DispatchResult {
   if (!addressesRoot && !root.committed.has(native.target)) return NOT_DISPATCHED;
   if (native.type === 'pointerenter' || native.type === 'pointerleave') return dispatchEnterLeave(root, native);
   const path = pathNodes(root, native.path);
-  if (native.type === 'click' && path.some((node) => node.props.disabled)) return NOT_DISPATCHED;
+  if (isClickFamily(native.type) && path.some((node) => node.props.disabled)) return NOT_DISPATCHED;
   return dispatchEvent(native, path, null, root);
 }
 
@@ -353,6 +368,7 @@ export function createRoot(host: NativeHost, options: RootOptions): UIRoot {
       id: LAYER_ROOT_TAG,
       testID: undefined,
       getRect() { return readNodeRect(host, LAYER_ROOT_TAG); },
+      ...captureMethods(host, LAYER_ROOT_TAG),
     },
   };
   const onUncaughtError = (error: Error) => {

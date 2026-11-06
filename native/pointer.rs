@@ -13,6 +13,10 @@ pub(crate) const KEYBOARD_POINTER_ID: u32 = 0;
 /// DOM `PointerEvent.button`: the primary button, or -1 for events that are not a button change.
 pub(crate) const DOM_BUTTON_PRIMARY: i8 = 0;
 pub(crate) const DOM_BUTTON_NONE: i8 = -1;
+pub(crate) const DOM_BUTTON_AUXILIARY: i8 = 1;
+pub(crate) const DOM_BUTTON_SECONDARY: i8 = 2;
+const DOM_BUTTON_BACK: i8 = 3;
+const DOM_BUTTON_FORWARD: i8 = 4;
 
 /// DOM `PointerEvent.buttons` bits (UI Events spec): 1 primary, 2 secondary, 4 auxiliary,
 /// 8 back, 16 forward.
@@ -36,6 +40,24 @@ pub(crate) fn dom_buttons(mask: MouseButtonMask) -> u16 {
     .into_iter()
     .filter(|(godot, _)| bits & godot.ord() != 0)
     .fold(0, |buttons, (_, dom)| buttons | dom)
+}
+
+/// The DOM `button` of a Godot mouse button, or `None` for one that is not a pointer button (the
+/// wheel, which is `wheel_ticks`' business).
+pub(crate) fn dom_button_of(button: MouseButton) -> Option<i8> {
+    if button == MouseButton::LEFT {
+        Some(DOM_BUTTON_PRIMARY)
+    } else if button == MouseButton::MIDDLE {
+        Some(DOM_BUTTON_AUXILIARY)
+    } else if button == MouseButton::RIGHT {
+        Some(DOM_BUTTON_SECONDARY)
+    } else if button == MouseButton::XBUTTON1 {
+        Some(DOM_BUTTON_BACK)
+    } else if button == MouseButton::XBUTTON2 {
+        Some(DOM_BUTTON_FORWARD)
+    } else {
+        None
+    }
 }
 
 /// The scroll a Godot wheel button reports as `(delta_x, delta_y)` in wheel ticks, with the DOM's
@@ -167,6 +189,17 @@ mod input_tests {
         assert_eq!(dom_buttons(MouseButtonMask::MB_XBUTTON2), 16);
         let chord = MouseButtonMask::LEFT | MouseButtonMask::MIDDLE | MouseButtonMask::MB_XBUTTON2;
         assert_eq!(dom_buttons(chord), 1 | 4 | 16);
+    }
+
+    #[test]
+    fn godot_mouse_buttons_map_to_dom_buttons() {
+        assert_eq!(dom_button_of(MouseButton::LEFT), Some(0));
+        assert_eq!(dom_button_of(MouseButton::MIDDLE), Some(1));
+        assert_eq!(dom_button_of(MouseButton::RIGHT), Some(2));
+        assert_eq!(dom_button_of(MouseButton::XBUTTON1), Some(3));
+        assert_eq!(dom_button_of(MouseButton::XBUTTON2), Some(4));
+        assert_eq!(dom_button_of(MouseButton::WHEEL_UP), None);
+        assert_eq!(dom_button_of(MouseButton::NONE), None);
     }
 
     #[test]

@@ -26,6 +26,15 @@ export interface NativeHost {
   /** The tag of the first node created with `testId`, or -1. */
   findByTestId(testId: string): number;
   /**
+   * `element.setPointerCapture(pointerId)`: the element receives the pointer's events until it is
+   * released, the pointer goes up or is cancelled, or the element is removed. An empty string means
+   * success; anything else says why nothing changed.
+   */
+  setPointerCapture(tag: number, pointerId: number): string;
+  /** Only the capturing element can release; any other call does nothing. An empty string means success. */
+  releasePointerCapture(tag: number, pointerId: number): string;
+  hasPointerCapture(tag: number, pointerId: number): boolean;
+  /**
    * Answer the one event native is awaiting (`cancelable: true`). An empty string means success.
    * `dropEffect` is '' (not set), 'none', 'copy', 'move' or 'link'.
    */
@@ -77,7 +86,8 @@ export interface NativeProfile {
 }
 
 export type NativePointerEventType =
-  | 'pointerdown' | 'pointerup' | 'pointermove' | 'pointerenter' | 'pointerleave' | 'click';
+  | 'pointerdown' | 'pointerup' | 'pointermove' | 'pointerenter' | 'pointerleave' | 'pointercancel'
+  | 'click' | 'dblclick' | 'auxclick' | 'contextmenu';
 export type NativeWheelEventType = 'wheel';
 export type NativeFocusEventType = 'focus' | 'blur';
 export type NativeEventType = NativePointerEventType | NativeWheelEventType | NativeFocusEventType;
@@ -192,6 +202,22 @@ export interface NativeSnapshot {
   hovered: number | null;
   focused: number | null;
   pressed: number | null;
+  /** Every pointer native knows: the mouse, and each touch while it is down. */
+  pointers: NativePointerState[];
+}
+
+export interface NativePointerState {
+  id: number;
+  type: 'mouse' | 'touch';
+  /** Root-local logical pixels. */
+  x: number;
+  y: number;
+  /** DOM `buttons`. */
+  buttons: number;
+  /** A button (or the touch contact) is down. */
+  down: boolean;
+  /** The element receiving the pointer's events regardless of what is under it. */
+  capture: { target: number; implicit: boolean } | null;
 }
 
 const MAX_NODE_ID = 0xffff_ffff;
@@ -249,7 +275,8 @@ function kind(value: unknown): NativeKind {
 function eventType(value: unknown): NativeEventType {
   switch (value) {
     case 'pointerdown': case 'pointerup': case 'pointermove': case 'pointerenter':
-    case 'pointerleave': case 'click': case 'wheel': case 'focus': case 'blur':
+    case 'pointerleave': case 'pointercancel': case 'click': case 'dblclick': case 'auxclick':
+    case 'contextmenu': case 'wheel': case 'focus': case 'blur':
       return value;
     default:
       throw new Error(`Invalid native event type: ${String(value)}`);
@@ -315,7 +342,8 @@ function nativeEvent(entry: unknown): NativeEvent {
   const type = eventType(event.type);
   switch (type) {
     case 'pointerdown': case 'pointerup': case 'pointermove': case 'pointerenter':
-    case 'pointerleave': case 'click':
+    case 'pointerleave': case 'pointercancel': case 'click': case 'dblclick': case 'auxclick':
+    case 'contextmenu':
       return pointerEvent(type, base, event);
     case 'wheel':
       return wheelEvent(base, event);
@@ -454,6 +482,19 @@ export function readSnapshot(host: NativeHost): NativeSnapshot {
     hovered: optionalId(snapshot.hovered, 'snapshot.hovered'),
     focused: optionalId(snapshot.focused, 'snapshot.focused'),
     pressed: optionalId(snapshot.pressed, 'snapshot.pressed'),
+    pointers: array(snapshot.pointers, 'snapshot.pointers').map((entry) => {
+      const pointer = record(entry, 'pointer');
+      const type = pointer.type;
+      if (type !== 'mouse' && type !== 'touch') throw new Error(`Invalid native pointer kind: ${String(type)}`);
+      const capture = pointer.capture === null ? null : record(pointer.capture, 'pointer.capture');
+      return {
+        id: nonnegativeInteger(pointer.id, 'pointer.id'), type,
+        x: number(pointer.x, 'pointer.x'), y: number(pointer.y, 'pointer.y'),
+        buttons: nonnegativeInteger(pointer.buttons, 'pointer.buttons'),
+        down: boolean(pointer.down, 'pointer.down'),
+        capture: capture === null ? null : { target: id(capture.target, 'capture.target'), implicit: boolean(capture.implicit, 'capture.implicit') },
+      };
+    }),
   };
 }
 
@@ -473,6 +514,11 @@ export function commitPayload(host: NativeHost, layer: number, payload: CommitPa
   if (error !== '') throw new Error(`Native UI commit rejected: ${error}`);
   if (encodeStart === undefined || callStart === undefined || callEnd === undefined) return;
   return {jsonEncodeMs: callStart - encodeStart, nativeCallMs: callEnd - callStart, jsonChars: json.length};
+}
+
+/** Throw if native refused a pointer-capture request (DOM throws `NotFoundError` or `InvalidStateError`). */
+export function checkCapture(error: string, method: string): void {
+  if (error !== '') throw new Error(`${method} failed: ${error}`);
 }
 
 /** The tags the commit that just succeeded deleted. */

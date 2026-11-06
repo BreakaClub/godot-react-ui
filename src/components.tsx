@@ -9,6 +9,16 @@ export interface UIHandle {
   readonly testID: string | undefined;
   /** The element's root-local rectangle, from a native query, or `undefined` once it is gone. */
   getRect(): LayoutRect | undefined;
+  /**
+   * Route `pointerId`'s `pointermove`, `pointerup` and `pointercancel` (and its `click`) to this element
+   * wherever the pointer is, until the pointer goes up or is cancelled, or the element is removed. Only a
+   * pointer that is down can be captured; a touch is captured to its `pointerdown` target from the start.
+   * Throws for a pointer that is not down or an element that is gone.
+   */
+  setPointerCapture(pointerId: number): void;
+  /** Ends this element's capture of `pointerId`. Does nothing if it is not capturing it. */
+  releasePointerCapture(pointerId: number): void;
+  hasPointerCapture(pointerId: number): boolean;
 }
 
 export interface UIProps {
@@ -25,6 +35,15 @@ export interface UIProps {
   onPointerUpCapture?: (event: UIPointerEvent) => void;
   onPointerMove?: (event: UIPointerEvent) => void;
   onPointerMoveCapture?: (event: UIPointerEvent) => void;
+  /** The OS or the root ended the pointer's contact: no `pointerup` and no `click` follow. */
+  onPointerCancel?: (event: UIPointerEvent) => void;
+  onPointerCancelCapture?: (event: UIPointerEvent) => void;
+  /** The second `click` of a sequence; `detail` is 2. */
+  onDoubleClick?: (event: UIPointerEvent) => void;
+  /** A `click` of a button other than the primary one (`button` 1 middle, 2 secondary, 3 back, 4 forward). */
+  onAuxClick?: (event: UIPointerEvent) => void;
+  /** The secondary button was pressed. */
+  onContextMenu?: (event: UIPointerEvent) => void;
   /**
    * A wheel tick or trackpad pan. Cancelable: `preventDefault()` keeps it from the game and, from
    * Phase I5, from native scrolling.

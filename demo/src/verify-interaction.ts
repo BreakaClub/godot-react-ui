@@ -1,9 +1,11 @@
 import {
   Control, DirAccess, DisplayServer, Engine, FileAccess, GError, Input, InputEventKey, InputEventMouseButton,
-  InputEventMouseMotion, InputEventPanGesture, Key, MouseButton, Node, OS, RenderingServer, Vector2,
+  InputEventMouseMotion, InputEventPanGesture, InputEventScreenDrag, InputEventScreenTouch, Key, MouseButton,
+  MouseButtonMask, Node, OS, ProjectSettings, RenderingServer, Vector2,
 } from 'godot';
 import type { RendererProfile } from '../../src';
 import type { NativeSnapshot, NativeSnapshotNode } from '../../src/native';
+import type { LabName } from './labs';
 import type { PassthroughCounts } from './main';
 import type { DemoInspection } from './verify';
 
@@ -12,8 +14,10 @@ export interface InteractionInspection extends DemoInspection {
   surfaceAttached(attached: boolean): void;
   profile(enabled: boolean): void;
   takeProfile(): { js: RendererProfile };
-  /** Render the HUD whose ancestors are all `pointer-events-none`, over the backdrop Control. */
-  showHud(): void;
+  /** Render a page in place of the app: the pass-through HUD, the pointer lab. */
+  showLab(name: LabName): void;
+  pointerCancels(): number;
+  resetPointerCancels(): void;
   restoreDemo(): void;
   passthrough(): PassthroughCounts;
   resetPassthrough(): void;
@@ -35,6 +39,19 @@ const CHAIN_PARENT_HOVER = '#e2e8f0';
 const FAR_CORNER = new Vector2(1, 1);
 /** Inside a button's border box but outside its label. */
 const POINTER_PADDING_INSET = 4;
+/** Longer than the click-count interval (plan Appendix A, 500 ms), so the next click starts a sequence. */
+const CLICK_SEQUENCE_PAUSE_MS = 650;
+/** More than the click-count slop (4 px), so a second click there is not part of the same sequence. */
+const CLICK_SLOP_BREAKER_PX = 10;
+/** How far outside the window the knob test drags: beyond the root and the window itself. */
+const OUTSIDE_THE_ROOT_PX = 300;
+/** The pad's paint at rest: indigo-50 (`hover:` is indigo-100). */
+const PAD_REST_COLOR = '#eef2ff';
+/** The touch indices of the multi-touch test and the pointer ids they get (plan: base 2). */
+const FIRST_TOUCH = 0;
+const SECOND_TOUCH = 1;
+const FIRST_TOUCH_ID = 2;
+const SECOND_TOUCH_ID = 3;
 /** The grid step when looking for a point no HUD control covers. */
 const EMPTY_POINT_SEARCH_STEP = 24;
 /** Where the root is moved inside the window to tell root-local from viewport coordinates. */
@@ -82,6 +99,41 @@ function pointer(position: Vector2, pressed: boolean): void {
   event.globalPosition = position;
   event.buttonIndex = MouseButton.MouseButtonLeft;
   event.pressed = pressed;
+  Input.parseInputEvent(event);
+}
+
+const BUTTON_MASKS: Readonly<Partial<Record<MouseButton, number>>> = {
+  [MouseButton.MouseButtonLeft]: MouseButtonMask.MouseButtonMaskLeft,
+  [MouseButton.MouseButtonRight]: MouseButtonMask.MouseButtonMaskRight,
+  [MouseButton.MouseButtonMiddle]: MouseButtonMask.MouseButtonMaskMiddle,
+};
+
+/** A press or release of any button, with the button mask a real device reports. */
+function mouseButton(position: Vector2, button: MouseButton, pressed: boolean): void {
+  const event = new InputEventMouseButton();
+  event.position = position;
+  event.globalPosition = position;
+  event.buttonIndex = button;
+  event.pressed = pressed;
+  event.buttonMask = pressed ? BUTTON_MASKS[button] ?? 0 : 0;
+  Input.parseInputEvent(event);
+}
+
+/** A real touch (device 0), which Godot also translates to an emulated mouse event. */
+function touch(index: number, position: Vector2, pressed: boolean, canceled = false): void {
+  const event = new InputEventScreenTouch();
+  event.index = index;
+  event.position = position;
+  event.pressed = pressed;
+  event.canceled = canceled;
+  Input.parseInputEvent(event);
+}
+
+function touchDrag(index: number, position: Vector2, relative: Vector2): void {
+  const event = new InputEventScreenDrag();
+  event.index = index;
+  event.position = position;
+  event.relative = relative;
   Input.parseInputEvent(event);
 }
 
@@ -222,6 +274,26 @@ async function measureSynchronousDispatch(api: InteractionInspection, id: string
   return summarize(durations);
 }
 
+interface PadTally {
+  downs: { mouse: number; touch: number };
+  ids: number[];
+  clicks: number[];
+  doubleClicks: number;
+  auxClicks: number;
+  contextMenus: number;
+  cancels: number;
+}
+
+function padTally(api: DemoInspection): PadTally {
+  const match = /^down mouse (\d+) touch (\d+), ids ([\d,]+|none), clicks ([\d,]+|none), dbl (\d+), aux (\d+), ctx (\d+), cancel (\d+)$/.exec(text(api, 'pad-tally'));
+  assert(match, `Malformed pad tally: ${text(api, 'pad-tally')}`);
+  const list = (value: string | undefined) => value === undefined || value === 'none' ? [] : value.split(',').map(Number);
+  return {
+    downs: { mouse: Number(match[1]), touch: Number(match[2]) }, ids: list(match[3]), clicks: list(match[4]),
+    doubleClicks: Number(match[5]), auxClicks: Number(match[6]), contextMenus: Number(match[7]), cancels: Number(match[8]),
+  };
+}
+
 const HUD_TARGETS = [
   'hud-inventory', 'hud-map', 'hud-help', 'hud-lock', 'hud-panel', 'hud-wheel-consume', 'hud-wheel-pass',
 ] as const;
@@ -250,7 +322,7 @@ async function verifyGodotCooperation(owner: Node, api: InteractionInspection, c
   // The root takes no key focus when it enters the tree: only its owner or a focused element does.
   assert(!api.bareSurfaceHasFocus(), 'A root that has just entered the tree must not steal key focus');
 
-  api.showHud();
+  api.showLab('hud');
   await settle();
   api.resetPassthrough();
   api.grabSurfaceFocus();
@@ -434,6 +506,191 @@ async function verifyGodotCooperation(owner: Node, api: InteractionInspection, c
   await settle();
 }
 
+/**
+ * Plan I2: the pointer model. Every mouse button, click counting, touch pointers with the engine's
+ * emulation left on, multi-touch, cancel, capture, and the root leaving the tree mid-press.
+ */
+async function verifyPointers(owner: Node, api: InteractionInspection, capture: (name: string) => Promise<void>): Promise<void> {
+  assert(ProjectSettings.getSetting('input_devices/pointing/emulate_mouse_from_touch') === true,
+    'The pointer lab only proves the emulation is ignored while the engine emulates mouse events from touch');
+  const reset = async () => {
+    // A fresh lab: the pad's log and counters start empty.
+    api.showLab('hud');
+    await settle();
+    api.showLab('pointers');
+    await settle();
+  };
+  await reset();
+  const lines = () => text(api, 'pad-log').split('\n').filter(line => line !== '');
+  const pad = point(api, 'pad');
+  const snapshotPointer = (id: number) => api.snapshot().pointers.find(entry => entry.id === id);
+  await capture('11-pointers');
+
+  // Right and middle buttons: pointerdown, then contextmenu on the right press, pointerup, auxclick;
+  // never a click.
+  move(pad);
+  await settle();
+  mouseButton(pad, MouseButton.MouseButtonRight, true);
+  await settle();
+  mouseButton(pad, MouseButton.MouseButtonRight, false);
+  await settle();
+  assert(lines().join('|') === 'pointerenter mouse#1 b-1 bs0 d0|pointerdown mouse#1 b2 bs2 d0|contextmenu mouse#1 b2 bs2 d0|pointerup mouse#1 b2 bs0 d0|auxclick mouse#1 b2 bs0 d1',
+    `A right click is pointerdown, contextmenu, pointerup, auxclick: ${lines().join('|')}`);
+  let seen = padTally(api);
+  assert(seen.contextMenus === 1 && seen.auxClicks === 1 && seen.clicks.length === 0, `No click follows a right click: ${text(api, 'pad-tally')}`);
+  mouseButton(pad, MouseButton.MouseButtonMiddle, true);
+  mouseButton(pad, MouseButton.MouseButtonMiddle, false);
+  await settle();
+  assert(lines().slice(-3).join('|') === 'pointerdown mouse#1 b1 bs4 d0|pointerup mouse#1 b1 bs0 d0|auxclick mouse#1 b1 bs0 d1',
+    `A middle click is an auxclick of button 1: ${lines().join('|')}`);
+  seen = padTally(api);
+  assert(seen.contextMenus === 1 && seen.auxClicks === 2 && seen.clicks.length === 0, 'A middle click is not a click and opens no menu');
+
+  // Click counting: three quick presses count 1, 2, 3 with one dblclick, after the second.
+  for (let press = 0; press < 3; press++) {
+    mouseButton(pad, MouseButton.MouseButtonLeft, true);
+    mouseButton(pad, MouseButton.MouseButtonLeft, false);
+  }
+  await settle();
+  seen = padTally(api);
+  assert(seen.clicks.join(',') === '1,2,3' && seen.doubleClicks === 1, `A triple click counts 1, 2, 3 with one dblclick: ${text(api, 'pad-tally')}`);
+  assert(lines().filter(line => line.startsWith('dblclick')).join('|') === 'dblclick mouse#1 b0 bs0 d2', 'The dblclick carries detail 2');
+  await capture('12-pointer-clicks');
+  // A press after the interval starts a new sequence; so does one that is farther than the slop.
+  await new Promise(resolve => setTimeout(resolve, CLICK_SEQUENCE_PAUSE_MS));
+  mouseButton(pad, MouseButton.MouseButtonLeft, true);
+  mouseButton(pad, MouseButton.MouseButtonLeft, false);
+  await settle();
+  assert(padTally(api).clicks.join(',') === '1,2,3,1', `A click after the interval counts 1 again: ${text(api, 'pad-tally')}`);
+  const nearby = new Vector2(pad.x + CLICK_SLOP_BREAKER_PX, pad.y);
+  mouseButton(nearby, MouseButton.MouseButtonLeft, true);
+  mouseButton(nearby, MouseButton.MouseButtonLeft, false);
+  await settle();
+  assert(padTally(api).clicks.join(',') === '1,2,3,1,1', `A click beyond the slop starts a sequence: ${text(api, 'pad-tally')}`);
+
+  // Capture: the knob follows a drag wherever it goes, outside itself and the root and the window.
+  const track = get(api, 'knob-track');
+  const middle = (value: number) => new Vector2(track.rect.x + value * track.rect.width, track.rect.y + track.rect.height / 2);
+  const readout = () => text(api, 'knob-readout');
+  move(middle(0.05));
+  await settle();
+  mouseButton(middle(0.05), MouseButton.MouseButtonLeft, true);
+  await settle();
+  assert(readout().includes('captured true'), `Pressing the knob captures the pointer: ${readout()}`);
+  const mouse = snapshotPointer(1);
+  assert(mouse?.down === true && mouse.capture?.target === track.id && !mouse.capture.implicit,
+    `Native records the explicit capture: ${JSON.stringify(mouse)}`);
+  const valueOf = () => Number(/value (\d+)/.exec(readout())?.[1]);
+  move(middle(0.5));
+  await settle();
+  assert(Math.abs(valueOf() - 50) <= 10, `Dragging inside the track moves the knob: ${readout()}`);
+  const beyondRight = new Vector2(api.snapshot().width + OUTSIDE_THE_ROOT_PX, track.rect.y - OUTSIDE_THE_ROOT_PX);
+  move(beyondRight);
+  await settle();
+  assert(valueOf() === 100, `Outside the root, to the right, the knob is at its end: ${readout()}`);
+  const beyondLeft = new Vector2(-OUTSIDE_THE_ROOT_PX, track.rect.y + OUTSIDE_THE_ROOT_PX);
+  move(beyondLeft);
+  await settle();
+  assert(valueOf() === 0, `Outside the root, to the left, the knob is at its start: ${readout()}`);
+  move(middle(0.75));
+  await capture('13-knob-captured');
+  assert(Math.abs(valueOf() - 75) <= 10, `And back inside it follows again: ${readout()}`);
+  mouseButton(beyondRight, MouseButton.MouseButtonLeft, false);
+  await settle();
+  assert(readout().includes('captured false'), `The knob saw the pointerup outside the root: ${readout()}`);
+  assert(snapshotPointer(1)?.capture === null && snapshotPointer(1)?.down === false, 'The capture ended with the press');
+  const movesAfter = readout();
+  move(middle(0.2));
+  await settle();
+  assert(readout() === movesAfter, 'Without a press the knob ignores the pointer');
+
+  // An idle pointer cannot be captured, and the error says why.
+  await click(api, 'capture-bad');
+  assert(text(api, 'capture-status').startsWith('setPointerCapture failed: pointer 1 is not active'),
+    `Capturing a pointer that is up is an error: ${text(api, 'capture-status')}`);
+
+  // Touch, with the engine translating it to mouse events as well: one pointer, never a mouse press.
+  await reset();
+  // The mouse is parked away from the pad, so any hover left on it afterwards would come from the touch.
+  move(FAR_CORNER);
+  await settle();
+  assert(get(api, 'pad').style.backgroundColor === PAD_REST_COLOR, 'The pad is unhovered before the touch');
+  const before = padTally(api);
+  touch(FIRST_TOUCH, pad, true);
+  await settle();
+  touch(FIRST_TOUCH, pad, false);
+  await settle();
+  seen = padTally(api);
+  assert(seen.downs.touch === before.downs.touch + 1 && seen.downs.mouse === before.downs.mouse,
+    `A touch is one touch pointerdown and no mouse press: ${text(api, 'pad-tally')}`);
+  assert(lines().join('|') === `pointerenter touch#${FIRST_TOUCH_ID} b-1 bs0 d0|pointerdown touch#${FIRST_TOUCH_ID} b0 bs1 d0|pointerup touch#${FIRST_TOUCH_ID} b0 bs0 d0|pointerleave touch#${FIRST_TOUCH_ID} b-1 bs0 d0|click touch#${FIRST_TOUCH_ID} b0 bs0 d1`,
+    `A tap is enter, down, up, leave, click: ${lines().join('|')}`);
+  assert(seen.ids.join(',') === String(FIRST_TOUCH_ID), `The first touch is pointer ${FIRST_TOUCH_ID}: ${text(api, 'pad-tally')}`);
+  const afterTap = api.snapshot();
+  const padNode = get(api, 'pad');
+  assert(afterTap.hovered !== padNode.id && !padNode.children.includes(afterTap.hovered ?? -1), `A touch never hovers: ${afterTap.hovered}`);
+  assert(padNode.style.backgroundColor === PAD_REST_COLOR, `No hover paint is left after a tap: ${padNode.style.backgroundColor}`);
+  assert(afterTap.pointers.every(entry => entry.type === 'mouse'), 'A finished touch leaves no pointer record');
+  await capture('14-pointer-touch-tap');
+
+  // Two fingers: two pointers, each captured to where it went down, independent of one another.
+  const knobPoint = middle(0.1);
+  touch(FIRST_TOUCH, pad, true);
+  touch(SECOND_TOUCH, knobPoint, true);
+  await settle();
+  const both = api.snapshot().pointers.filter(entry => entry.type === 'touch');
+  assert(both.map(entry => entry.id).join(',') === `${FIRST_TOUCH_ID},${SECOND_TOUCH_ID}` && both.every(entry => entry.down),
+    `Two touches are two pointers, both down: ${JSON.stringify(both)}`);
+  const padNodes = [get(api, 'pad').id, ...get(api, 'pad').children];
+  assert(both[0]?.capture?.implicit === true && padNodes.includes(both[0].capture.target),
+    `A touch is captured, without asking, to the element it went down on (here the pad's label): ${JSON.stringify(both[0])}`);
+  assert(both[1]?.capture?.implicit === false && both[1].capture.target === get(api, 'knob-track').id,
+    `The knob's own capture replaces the implicit one: ${JSON.stringify(both[1])}`);
+  assert(padTally(api).ids.join(',') === `${FIRST_TOUCH_ID}`, 'The pad only saw the finger that went down on it');
+  touchDrag(SECOND_TOUCH, new Vector2(api.snapshot().width + OUTSIDE_THE_ROOT_PX, 0), new Vector2(OUTSIDE_THE_ROOT_PX, 0));
+  await settle();
+  assert(valueOf() === 100, `A finger moving the knob far outside the root is still captured by it: ${readout()}`);
+  touch(SECOND_TOUCH, knobPoint, false);
+  touch(FIRST_TOUCH, pad, false);
+  await settle();
+  assert(api.snapshot().pointers.every(entry => !entry.down), 'Both fingers are up');
+
+  // A cancelled touch ends with pointercancel: no pointerup and no click.
+  const beforeCancel = padTally(api);
+  touch(FIRST_TOUCH, pad, true);
+  await settle();
+  touch(FIRST_TOUCH, pad, false, true);
+  await settle();
+  seen = padTally(api);
+  assert(seen.cancels === beforeCancel.cancels + 1 && seen.clicks.length === beforeCancel.clicks.length,
+    `A cancelled touch is a pointercancel and no click: ${text(api, 'pad-tally')}`);
+  assert(!lines().slice(-4).some(line => line.startsWith('pointerup') || line.startsWith('click')),
+    `Nothing but the cancel and the leave follows: ${lines().join('|')}`);
+
+  // The root leaving the scene tree mid-press cancels the pointer.
+  api.resetPointerCancels();
+  move(pad);
+  await settle();
+  mouseButton(pad, MouseButton.MouseButtonLeft, true);
+  await settle();
+  api.surfaceAttached(false);
+  await settle();
+  assert(api.pointerCancels() === 1, `Leaving the tree while a button is down cancels the pointer: ${api.pointerCancels()}`);
+  api.surfaceAttached(true);
+  await settle();
+  mouseButton(pad, MouseButton.MouseButtonLeft, false);
+  await settle();
+  assert(!api.snapshot().pointers.some(entry => entry.down), 'No pointer is left down');
+  assert(padTally(api).cancels >= 1, 'The pad saw the cancel too');
+
+  move(FAR_CORNER);
+  await settle();
+  api.restoreDemo();
+  await settle();
+  api.grabSurfaceFocus();
+  await settle();
+}
+
 export async function runInteractionVerification(owner: Node, api: InteractionInspection): Promise<void> {
   const directory = OS.getEnvironment('GODOT_REACT_ARTIFACTS') || 'user://react-ui-verification';
   assert(DirAccess.makeDirRecursiveAbsolute(directory) === GError.Ok, 'Cannot create evidence directory');
@@ -587,6 +844,7 @@ export async function runInteractionVerification(owner: Node, api: InteractionIn
   await settle();
 
   await verifyGodotCooperation(owner, api, capture);
+  await verifyPointers(owner, api, capture);
 
   console.log('GODOT_REACT_INTERACTION_VERIFY_PASSED', JSON.stringify({captures, dispatchTiming: timing}));
 }

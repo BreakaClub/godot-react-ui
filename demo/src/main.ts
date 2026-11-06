@@ -7,7 +7,7 @@ import { createClassBinder } from 'godot.annotations';
 import { createRoot, readActivity, takeNativeProfile, type ReactRoot } from '../../src';
 import { App } from './app';
 import { setLabOwner } from './interaction-lab';
-import { PassthroughHud } from './passthrough-hud';
+import { labElement, type LabName } from './labs';
 import { observeInputFailure, runVerification } from './verify';
 import { BenchmarkApp, type BenchmarkProps } from './benchmark';
 import { runProbe } from './probe';
@@ -45,6 +45,7 @@ export default class Main extends Node {
   private readonly web = OS.hasFeature('web');
   /** A full-window Control behind the React root: the "game" the HUD sits over. */
   private backdrop: ColorRect | null = null;
+  private pointerCancels = 0;
   private passthrough: PassthroughCounts = { backdropPresses: 0, unhandledPresses: 0, unhandledWheels: 0, unhandledPans: 0, unhandledKeys: {} };
 
   override _ready(): void {
@@ -66,8 +67,11 @@ export default class Main extends Node {
       runProbe: () => runProbe(),
       benchmark: (props: BenchmarkProps) => this.requireRenderer().render(createElement(BenchmarkApp, props)),
       restoreDemo: () => this.requireRenderer().render(createElement(App)),
-      // A HUD whose every ancestor is pointer-events-none, over the backdrop Control (plan I1).
-      showHud: () => this.requireRenderer().render(createElement(PassthroughHud)),
+      // A page in place of the app: the HUD over the backdrop Control (plan I1), the pointer lab (I2), ...
+      showLab: (name: LabName) => this.requireRenderer().render(labElement(name)),
+      /** `pointercancel`s the root's own listener saw since the last reset. */
+      pointerCancels: () => this.pointerCancels,
+      resetPointerCancels: () => { this.pointerCancels = 0; },
       passthrough: (): PassthroughCounts => ({ ...this.passthrough, unhandledKeys: { ...this.passthrough.unhandledKeys } }),
       resetPassthrough: () => { this.passthrough = { backdropPresses: 0, unhandledPresses: 0, unhandledWheels: 0, unhandledPans: 0, unhandledKeys: {} }; },
       /** The cursor Godot would show with the pointer at (x, y), through the root's `_get_cursor_shape`. */
@@ -225,6 +229,7 @@ export default class Main extends Node {
       },
     });
     this.renderer = renderer;
+    renderer.addEventListener('pointercancel', () => { this.pointerCancels += 1; });
     setLabOwner({
       unmountRoot: () => this.unmount(),
       detachSurface: () => {

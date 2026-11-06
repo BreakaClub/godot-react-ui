@@ -734,6 +734,8 @@ impl ReactUiRoot {
         if self.focused == Some(tag) {
             self.focused = None;
         }
+        // A capture on it ends, and a press that targeted it no longer clicks.
+        self.pointers.forget_target(tag);
         self.pending_style_removals.push(tag);
         self.deletions.push(tag);
         // `node.render` drops here and frees the canvas items.

@@ -49,6 +49,14 @@ const EMPTY_POINT_SEARCH_STEP = 24;
 // Where the root is moved inside the window to tell root-local from viewport coordinates.
 const SURFACE_OFFSET = { x: 50, y: 30 };
 const WHEEL_TICK_PIXELS = 100;
+// Longer than the click-count interval (plan Appendix A, 500 ms), and farther than its slop (4 px).
+const CLICK_SEQUENCE_PAUSE_MS = 650;
+const CLICK_SLOP_BREAKER_PX = 10;
+// How far outside the page the knob test drags.
+const OUTSIDE_THE_PAGE_PX = 300;
+// The pad's paint at rest: indigo-50 (`hover:` is indigo-100).
+const PAD_REST_COLOR = '#eef2ff';
+const FIRST_TOUCH_ID = 2;
 const EMSCRIPTEN_STARTUP_DIAGNOSTIC = 'Blocking on the main thread is very dangerous, see https://emscripten.org/docs/porting/pthreads.html#blocking-on-the-main-browser-thread';
 const viewports = [
   { name: 'landscape', width: 1120, height: 800, deviceScaleFactor: 1 },
@@ -618,7 +626,7 @@ async function focusCanvas() {
  */
 async function runCooperationScenario() {
   check('A root that has just entered the tree does not steal key focus', (await demo('bareSurfaceHasFocus')) === false);
-  await demo('showHud');
+  await demo('showLab', 'hud');
   await waitUntil('the HUD mounts', () => nodeExists('hud'));
   await demo('resetPassthrough');
   await demo('grabSurfaceFocus');
@@ -807,6 +815,185 @@ async function runCooperationScenario() {
   await demo('grabSurfaceFocus');
 }
 
+const padLines = async () => (await text('pad-log')).split('\n').filter((line) => line !== '');
+async function padTally() {
+  const match = /^down mouse (\d+) touch (\d+), ids ([\d,]+|none), clicks ([\d,]+|none), dbl (\d+), aux (\d+), ctx (\d+), cancel (\d+)$/.exec(await text('pad-tally'));
+  assert.ok(match, `Malformed pad tally: ${await text('pad-tally')}`);
+  const list = (value) => value === 'none' ? [] : value.split(',').map(Number);
+  return {
+    downs: { mouse: Number(match[1]), touch: Number(match[2]) }, ids: list(match[3]), clicks: list(match[4]),
+    doubleClicks: Number(match[5]), auxClicks: Number(match[6]), contextMenus: Number(match[7]), cancels: Number(match[8]),
+  };
+}
+async function expectPadLines(name, predicate) {
+  await waitUntil(name, async () => predicate(await padLines()))
+    .catch(async (error) => { throw new Error(`${error.message}: the pad log reads ${JSON.stringify(await padLines())}`); });
+  check(name, true, { lines: await padLines() });
+}
+async function expectPadTally(name, predicate) {
+  await waitUntil(name, async () => predicate(await padTally()))
+    .catch(async (error) => { throw new Error(`${error.message}: the pad tally reads ${await text('pad-tally')}`); });
+  check(name, true, await padTally());
+}
+
+/**
+ * Plan I2, mouse half: the pointer model with real Chrome input: every mouse button, click counting and a
+ * knob that keeps following a captured drag outside the page. Mirrors demo/src/verify-interaction.ts.
+ */
+async function runPointersScenario() {
+  await demo('showLab', 'hud');
+  await demo('showLab', 'pointers');
+  await waitUntil('the pointer lab mounts', () => nodeExists('pointer-lab'));
+  const padLogical = await centerOf('pad');
+  const pad = await pagePoint(padLogical.x, padLogical.y);
+  await capture('11-pointers');
+
+  // Right and middle buttons: pointerdown, then contextmenu on the right press, pointerup, auxclick; never a click.
+  await page.mouse.move(pad.x, pad.y);
+  await frames();
+  await page.mouse.click(pad.x, pad.y, { button: 'right' });
+  await expectPadLines('A right click is pointerdown, contextmenu, pointerup, auxclick',
+    (all) => all.join('|') === 'pointerenter mouse#1 b-1 bs0 d0|pointerdown mouse#1 b2 bs2 d0|contextmenu mouse#1 b2 bs2 d0|pointerup mouse#1 b2 bs0 d0|auxclick mouse#1 b2 bs0 d1');
+  await page.mouse.click(pad.x, pad.y, { button: 'middle' });
+  await expectPadLines('A middle click is an auxclick of button 1',
+    (all) => all.slice(-3).join('|') === 'pointerdown mouse#1 b1 bs4 d0|pointerup mouse#1 b1 bs0 d0|auxclick mouse#1 b1 bs0 d1');
+  const afterAux = await padTally();
+  check('No click and one menu follow right and middle clicks', afterAux.clicks.length === 0 && afterAux.contextMenus === 1 && afterAux.auxClicks === 2, afterAux);
+
+  // Click counting: three quick presses count 1, 2, 3 with one dblclick, after the second.
+  for (let press = 0; press < 3; press += 1) {
+    await page.mouse.down();
+    await page.mouse.up();
+  }
+  await expectPadTally('A triple click counts 1, 2, 3 with one dblclick', (seen) => seen.clicks.join(',') === '1,2,3' && seen.doubleClicks === 1);
+  check('The dblclick carries detail 2', (await padLines()).filter((line) => line.startsWith('dblclick')).join('|') === 'dblclick mouse#1 b0 bs0 d2');
+  await capture('12-pointer-clicks');
+  await new Promise((resolve) => setTimeout(resolve, CLICK_SEQUENCE_PAUSE_MS));
+  await page.mouse.down();
+  await page.mouse.up();
+  await expectPadTally('A click after the interval counts 1 again', (seen) => seen.clicks.join(',') === '1,2,3,1');
+  await page.mouse.move(pad.x + CLICK_SLOP_BREAKER_PX, pad.y);
+  await page.mouse.down();
+  await page.mouse.up();
+  await expectPadTally('A click beyond the slop starts a sequence', (seen) => seen.clicks.join(',') === '1,2,3,1,1');
+
+  // Capture: the knob follows a drag wherever it goes, outside itself, the root and the page.
+  const track = await find('knob-track');
+  const at = (fraction) => ({ x: track.rect.x + fraction * track.rect.width, y: track.rect.y + track.rect.height / 2 });
+  const readout = () => text('knob-readout');
+  const valueOf = async () => Number(/value (\d+)/.exec(await readout())?.[1]);
+  const start = await pagePoint(at(0.05).x, at(0.05).y);
+  await page.mouse.move(start.x, start.y);
+  await frames();
+  await page.mouse.down();
+  await waitUntil('pressing the knob captures the pointer', async () => (await readout()).includes('captured true'));
+  const captured = (await snapshot()).pointers.find((entry) => entry.id === 1);
+  check('Native records the explicit capture', captured?.down === true && captured.capture?.target === track.id && captured.capture.implicit === false, captured);
+  const middle = await pagePoint(at(0.5).x, at(0.5).y);
+  await page.mouse.move(middle.x, middle.y);
+  await waitUntil('dragging inside the track moves the knob', async () => Math.abs((await valueOf()) - 50) <= 10);
+  const viewportSize = page.viewport();
+  await page.mouse.move(viewportSize.width + OUTSIDE_THE_PAGE_PX, -OUTSIDE_THE_PAGE_PX);
+  await waitUntil('outside the page, to the right, the knob is at its end', async () => (await valueOf()) === 100);
+  await page.mouse.move(-OUTSIDE_THE_PAGE_PX, viewportSize.height + OUTSIDE_THE_PAGE_PX);
+  await waitUntil('outside the page, to the left, the knob is at its start', async () => (await valueOf()) === 0);
+  const back = await pagePoint(at(0.75).x, at(0.75).y);
+  await page.mouse.move(back.x, back.y);
+  await waitUntil('back inside, the knob follows again', async () => Math.abs((await valueOf()) - 75) <= 10);
+  await capture('13-knob-captured');
+  await page.mouse.move(viewportSize.width + OUTSIDE_THE_PAGE_PX, -OUTSIDE_THE_PAGE_PX);
+  await frames();
+  await page.mouse.up();
+  await waitUntil('the knob saw the pointerup outside the page', async () => (await readout()).includes('captured false'));
+  const released = (await snapshot()).pointers.find((entry) => entry.id === 1);
+  check('The capture ended with the press', released?.capture === null && released.down === false, released);
+
+  await click('capture-bad');
+  await expectTextWhere('capture-status', 'Capturing a pointer that is up is an error',
+    (value) => value.startsWith('setPointerCapture failed: pointer 1 is not active'));
+
+  await page.mouse.move(1, 1);
+  await frames();
+  await demo('restoreDemo');
+  await waitUntil('the demo returns', () => nodeExists('app'));
+  await demo('grabSurfaceFocus');
+
+  await page.mouse.move(1, 1);
+  await frames();
+  await demo('restoreDemo');
+  await waitUntil('the demo returns', () => nodeExists('app'));
+  await demo('grabSurfaceFocus');
+}
+
+/**
+ * Plan I2, touch half, on the page with real touch support: a tap with the engine's mouse emulation
+ * on (one pointer, never a mouse press, no hover left), two fingers through CDP (two ids), and a
+ * cancelled touch.
+ */
+async function runTouchPointersScenario() {
+  await demo('showLab', 'pointers');
+  await waitUntil('the pointer lab mounts on touch', () => nodeExists('pointer-lab'));
+  await page.mouse.move(1, 1);
+  await frames();
+  check('The pad is unhovered before the touch', (await find('pad')).style.backgroundColor === PAD_REST_COLOR);
+  const before = await padTally();
+  const touchPoint = await pagePoint((await centerOf('pad')).x, (await centerOf('pad')).y);
+  await page.touchscreen.tap(touchPoint.x, touchPoint.y);
+  // Godot's Web build numbers a touch by the browser's contact identifier, which keeps counting across
+  // taps, so the pointer id is any id from the touch range; what must hold is that one id runs through
+  // the whole tap.
+  let tapId;
+  await expectPadLines('A tap is enter, down, up, leave, click', (all) => {
+    const id = /touch#(\d+)/.exec(all[0] ?? '')?.[1];
+    if (id === undefined) return false;
+    tapId = Number(id);
+    return all.join('|') === `pointerenter touch#${id} b-1 bs0 d0|pointerdown touch#${id} b0 bs1 d0|pointerup touch#${id} b0 bs0 d0|pointerleave touch#${id} b-1 bs0 d0|click touch#${id} b0 bs0 d1`;
+  });
+  check('A touch gets a pointer id from the touch range', tapId >= FIRST_TOUCH_ID, { tapId });
+  const afterTap = await padTally();
+  check('A tap is exactly one touch pointerdown and no mouse press',
+    afterTap.downs.touch === before.downs.touch + 1 && afterTap.downs.mouse === before.downs.mouse, afterTap);
+  const padNode = await find('pad');
+  const hovered = (await snapshot()).hovered;
+  check('A touch never hovers', hovered !== padNode.id && !padNode.children.includes(hovered ?? -1), { hovered });
+  check('No hover paint is left after a tap', padNode.style.backgroundColor === PAD_REST_COLOR, padNode.style.backgroundColor);
+  check('A finished touch leaves no pointer record', (await snapshot()).pointers.every((entry) => entry.type === 'mouse'));
+  await capture('14-pointer-touch-tap');
+
+  // Two fingers through CDP: two pointer ids.
+  const cdp = await page.createCDPSession();
+  const track = await find('knob-track');
+  const knobTouch = await pagePoint(track.rect.x + 0.1 * track.rect.width, track.rect.y + track.rect.height / 2);
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ x: touchPoint.x, y: touchPoint.y, id: 1 }, { x: knobTouch.x, y: knobTouch.y, id: 2 }],
+  });
+  await waitUntil('two touches are down', async () => (await snapshot()).pointers.filter((entry) => entry.type === 'touch' && entry.down).length === 2);
+  const fingers = (await snapshot()).pointers.filter((entry) => entry.type === 'touch');
+  const ids = fingers.map((entry) => entry.id);
+  check('Two fingers are two distinct touch pointer ids', new Set(ids).size === 2 && ids.every((id) => id >= FIRST_TOUCH_ID), { ids });
+  check('Each finger is captured to where it went down', fingers.every((entry) => entry.capture !== null), fingers);
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await waitUntil('both fingers are up', async () => (await snapshot()).pointers.every((entry) => !entry.down));
+
+  // A cancelled touch ends with pointercancel: no pointerup and no click.
+  const beforeCancel = await padTally();
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: touchPoint.x, y: touchPoint.y, id: 1 }] });
+  await waitUntil('a finger is down on the pad', async () => (await padTally()).downs.touch === beforeCancel.downs.touch + 1);
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] });
+  await expectPadTally('A cancelled touch is a pointercancel and no click',
+    (seen) => seen.cancels === beforeCancel.cancels + 1 && seen.clicks.length === beforeCancel.clicks.length);
+  check('Nothing but the cancel and the leave follows', !(await padLines()).slice(-4).some((line) => line.startsWith('pointerup') || line.startsWith('click')), await padLines());
+  await cdp.detach();
+
+
+  await page.mouse.move(1, 1);
+  await frames();
+  await demo('restoreDemo');
+  await waitUntil('the demo returns', () => nodeExists('app'));
+  await demo('grabSurfaceFocus');
+}
+
 async function runWorkflow(viewport) {
   activeViewport = viewport.name;
   await page.setViewport({ width: viewport.width, height: viewport.height, deviceScaleFactor: viewport.deviceScaleFactor });
@@ -923,6 +1110,7 @@ async function runWorkflow(viewport) {
   console.log(`GODOT_REACT_WEB_DISPATCH_TIMING ${viewport.name} ${JSON.stringify(report.timing[viewport.name])}`);
 
   await runCooperationScenario();
+  await runPointersScenario();
 
   // This page keeps running across viewports (the native verifier gets a fresh process for each),
   // so leave a fresh root: the lab's log and click counters must not leak into the next viewport.
@@ -957,6 +1145,7 @@ async function runTouchWorkflow() {
   await expectText('focus-status', 'Clicks: normal 1, no-focus 1', 'A touch tap on a prevented button still clicks');
   check('A prevented touch tap does not take focus', (await focusedId()) === normal);
   await capture('01-touch-interaction');
+  await runTouchPointersScenario();
 }
 
 try {

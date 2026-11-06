@@ -174,12 +174,14 @@ browser model, not an IPC round trip.
 - `resolve_event(seq: int, default_prevented: bool, drop_effect: String) -> String` answers that event. Only the
   awaited `seq` can be resolved, once; anything else returns an error string. `drop_effect` is `""`, `none`,
   `copy`, `move` or `link` (drag and drop is not implemented yet).
-- Event types: `pointerdown|pointermove|pointerup|pointerenter|pointerleave|click` carry `x,y` (root-local
+- Event types: `pointerdown|pointermove|pointerup|pointerenter|pointerleave|pointercancel|click|dblclick|auxclick|
+  contextmenu` carry `x,y` (root-local
   logical pixels), `viewportX,viewportY` (canvas coordinates: the root's global transform with canvas applied to the
-  root-local position, which is what `_unhandled_input` receives), `pointerId` (1 mouse, 0 synthetic keyboard
-  activation), `pointerType` (`"mouse"` or `""`), `button` (DOM button, -1 when not a button change), `buttons`
-  (DOM `buttons` bitmask mapped from Godot's mask), `detail` (1 on a mouse `click`, otherwise 0; click counting is
-  not implemented yet), `relatedTarget` (enter and leave only, else `null`) and `shiftKey,ctrlKey,altKey,metaKey`.
+  root-local position, which is what `_unhandled_input` receives), `pointerId` (1 mouse, 2 and up touches, 0
+  synthetic keyboard activation), `pointerType` (`"mouse"`, `"touch"` or `""`), `button` (DOM button: 0 left, 1
+  middle, 2 right, 3 back, 4 forward; -1 when not a button change), `buttons`
+  (DOM `buttons` bitmask mapped from Godot's mask), `detail` (the click count on `click`, `auxclick` and `dblclick`,
+  otherwise 0), `relatedTarget` (enter and leave only, else `null`) and `shiftKey,ctrlKey,altKey,metaKey`.
   Enter and leave events also carry `relatedPath`, the other side's path. `wheel` carries the same pointer fields
   (`button` -1, `pointerType` `"mouse"`) plus `deltaX,deltaY` in wheel ticks, positive down and right: one per notch
   of a discrete wheel, scaled by Godot's `factor` (or a pan gesture's `delta`) for smooth devices, which is what
@@ -193,7 +195,45 @@ browser model, not an IPC round trip.
 - Enter/Space on a focused button keeps its synthetic `pointerdown`/`pointerup`/`click` with `pointerId: 0` and
   `pointerType: ""`; they are not cancelable.
 - A press in flight when the window loses OS focus is cancelled natively (Godot drops mouse focus and its
-  synthetic release never reaches `gui_input`).
+  synthetic release never reaches `gui_input`): JS gets `pointercancel`.
+
+## Pointer model
+
+One record per pointer id (`native/pointer_state.rs`, unit tested): the mouse is pointer 1, a touch is pointer
+`2 + Godot touch index`, and synthetic keyboard activation is pointer 0. Each record holds the position, the DOM
+`buttons`, for every button that is down its press (target element and click count), and its capture.
+
+- **Emulation.** Godot translates the first touch to mouse events and, if enabled, mouse events to touches, and
+  marks the copies with `DEVICE_ID_EMULATION` (-1; `core/input/input.cpp:926`). Native ignores every input event
+  with that device, so a touch is one touch pointer and never also a mouse press, and a touch never sets `hover`.
+- **Mouse buttons.** Every button is a pointer. Only the primary `pointerdown` is cancelable (nothing native
+  follows another button). The right press queues `contextmenu` after its `pointerdown`. On release: `pointerup`,
+  then `click` (primary) or `auxclick` (any other button), then `dblclick` after the second `click` of a sequence.
+  `contextmenu`, `auxclick` and `dblclick` are not cancelable.
+- **Click counting.** A press continues a sequence if it is the same button of the same kind of pointer, at most
+  500 ms after the previous press and within 4 logical pixels of where the sequence began; its count is one more.
+  `detail` on `click`, `auxclick` and `dblclick` is the count of the press. A click needs press and release on the
+  same element, or on two parts of one enabled button; a pointer an element captured clicks that element if the
+  press began inside it. Pressing a disabled element or releasing outside the pressed one does not click.
+- **Touch.** A finger that goes down queues `pointerenter` (no related element, so JS enters the whole path), then
+  `pointerdown` (cancelable, `buttons` 1, `pointerType` `"touch"`) with the same default action as a mouse press
+  (focus, or hand key focus back). The finger is captured to its `pointerdown` target for as long as it is down,
+  so its `pointermove`s (from `InputEventScreenDrag`) go there wherever the finger is. Lifting it queues
+  `pointerup`, `pointerleave` and `click`; a cancelled touch (`InputEventScreenTouch.canceled`) queues
+  `pointercancel` and `pointerleave` and nothing else. A touch is `active` (the `active:` style) while it is down.
+- **Capture.** `set_pointer_capture(tag: int, pointer_id: int) -> String` makes the element the target of that
+  pointer's `pointermove`, `pointerup`, `pointercancel` and `click` wherever the pointer is (events keep the
+  element's own path). It refuses (nothing changes, the string says why) an element that is not mounted and a
+  pointer that is not down. `release_pointer_capture(tag, pointer_id) -> String` ends the capture only if `tag`
+  holds it; `has_pointer_capture(tag, pointer_id) -> bool`. A capture ends by itself with the last button
+  release or touch lift, with `pointercancel`, and when the element is deleted. An explicit capture replaces the
+  implicit one of a touch. Godot keeps routing a pressed mouse to the root wherever the pointer goes (its mouse
+  focus), so a captured drag keeps working outside the root and the window.
+- **Cancel.** `pointercancel` (target the capture target, else the press target; `buttons` 0) ends a pointer's
+  contact when the OS cancels a touch, the window loses OS focus, or the root leaves the scene tree; no `pointerup`
+  or `click` follows.
+- `get_snapshot()` adds `pointers: [{id, type: 'mouse'|'touch', x, y, buttons, down, capture: {target, implicit}|null}]`:
+  the mouse, and each touch while it is down.
 
 Rules native follows: only input callbacks emit (`gui_input`); `commit`, lifecycle notifications and `process()`
 queue events for the next emission or the owner's per-frame `dispatchEvents()`. Input that arrives while JS is

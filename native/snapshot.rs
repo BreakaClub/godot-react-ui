@@ -6,6 +6,7 @@ use serde_json::{Value, json};
 use crate::ReactUiRoot;
 use crate::commit::LAYER_COUNT;
 use crate::geometry::{BoxRect, intersect_clip};
+use crate::pointer_state::PointerKind;
 
 /// A computed style as JSON without the properties nothing set.
 fn style_json(style: &crate::computed_style::ComputedStyle) -> Value {
@@ -80,6 +81,24 @@ impl ReactUiRoot {
             }
         }
         nodes.sort_by_key(|node| node["id"].as_u64());
+        let pointers: Vec<Value> = self
+            .pointers
+            .iter()
+            .map(|(id, record)| {
+                json!({
+                    "id": id,
+                    "type": match record.kind {
+                        PointerKind::Mouse => "mouse",
+                        PointerKind::Touch => "touch",
+                    },
+                    "x": record.position.x, "y": record.position.y,
+                    "buttons": record.buttons, "down": record.is_down(),
+                    "capture": record.capture.map(|capture| json!({
+                        "target": capture.target, "implicit": capture.implicit,
+                    })),
+                })
+            })
+            .collect();
         let mut stats = serde_json::to_value(&self.stats).expect("stats serialize");
         stats["commits"] = json!(self.stats.batches);
         json!({
@@ -87,6 +106,7 @@ impl ReactUiRoot {
             "width": self.viewport_size.x, "height": self.viewport_size.y,
             "hovered": self.hovered, "focused": self.focused, "pressed": self.pressed,
             "focusVisible": self.focus_visible,
+            "pointers": pointers,
             "clockMs": self.clock_ms,
             "transitions": self.transitions.values().collect::<Vec<_>>(),
         })
