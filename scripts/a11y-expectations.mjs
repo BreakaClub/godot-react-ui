@@ -93,12 +93,21 @@ export function checkElements(reading, phase, snapshots) {
   return failures;
 }
 
-/** The expectations that read the tree after the change: focus. */
+/**
+ * The expectation that reads the tree after the change: the Volume slider has platform focus. The platform
+ * reports focus only while the application's window is the key window, and a verifier run keeps its window from
+ * ever becoming one (demo/src/verifier-input.ts, plan D21), so then there is nothing to read: the check is
+ * skipped, with a note saying why, instead of passing or failing on no evidence.
+ * @returns {{failures: string[], note?: string}}
+ */
 export function checkFocus(reading) {
+  const window = flatten(reading.tree).find(node => node.role === 'AXWindow');
+  if (window?.focused !== true) {
+    return { failures: [], note: 'platform focus was not checked: the window is not the key window, which a verifier run guarantees' };
+  }
   const focused = reading.focusedElement;
-  if (focused === undefined) return ['the application reports no focused element'];
+  if (focused === undefined) return { failures: ['the application reports no focused element'] };
   return focused.role === 'AXSlider' && labelOf(focused) === 'Volume'
-    ? []
-    : [`the focused element should be the Volume slider, it is ${JSON.stringify({ role: focused.role, label: labelOf(focused) })}`];
+    ? { failures: [] }
+    : { failures: [`the focused element should be the Volume slider, it is ${JSON.stringify({ role: focused.role, label: labelOf(focused) })}`] };
 }
-

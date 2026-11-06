@@ -37,6 +37,7 @@ use crate::accessibility_model::{
 use crate::computed_style::StyleChange;
 use crate::events::{AccessibilityActionData, AccessibilityActionKind, EventPayload};
 use crate::focus::is_focusable;
+use crate::geometry::BoxRect;
 use crate::mount::Mounted;
 use crate::props::{DisplaySpec, LiveSpec};
 
@@ -64,14 +65,18 @@ impl AxSource for Mounted {
 
     fn node(&self, tag: u32) -> Option<AxNode<'_>> {
         let node = self.nodes.get(&tag)?;
+        // The root-local rectangle comes from the paint tree: an `absolute` or `fixed` element is
+        // located in its paint parent's frame, not its tree parent's. The viewport only seeds the
+        // clip, which is not used here.
+        let (rect, _) = self.absolute_geometry(tag, BoxRect::default())?;
         Some(AxNode {
             kind: node.kind,
             props: &node.props,
             children: &node.children,
-            x: node.geometry.location.x,
-            y: node.geometry.location.y,
-            width: node.geometry.size.x,
-            height: node.geometry.size.y,
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
             display_none: node.computed.display == Some(DisplaySpec::None),
             clips_children: node.clips_content(),
         })

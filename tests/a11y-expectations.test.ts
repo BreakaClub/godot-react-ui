@@ -108,8 +108,17 @@ test('too few comparable elements is a failure, not a pass', () => {
   assert.ok(failures.some(failure => failure.includes('only 1 elements could be compared')), failures.join('\n'));
 });
 
-test('focus must be the volume slider', () => {
-  assert.deepEqual(checkFocus(reading(1)), []);
-  assert.deepEqual(checkFocus({ tree: { role: 'AXApplication' } }), ['the application reports no focused element']);
-  assert.ok(checkFocus({ tree: { role: 'AXApplication' }, focusedElement: { role: 'AXButton', title: 'Save' } })[0]?.includes('should be the Volume slider'));
+test('platform focus must be the volume slider when the window is key, and is not judged when it is not', () => {
+  const keyWindow = (focusedElement?: AxNode): Reading => ({
+    tree: { role: 'AXApplication', children: [{ role: 'AXWindow', focused: true, frame: WINDOW }] },
+    ...(focusedElement === undefined ? {} : { focusedElement }),
+  });
+  assert.deepEqual(checkFocus(keyWindow({ role: 'AXSlider', description: 'Volume' })), { failures: [] });
+  assert.deepEqual(checkFocus(keyWindow()), { failures: ['the application reports no focused element'] });
+  const wrong = checkFocus(keyWindow({ role: 'AXButton', title: 'Save' }));
+  assert.ok(wrong.failures[0]?.includes('should be the Volume slider'));
+  // A verifier's window is never key: nothing to read, said so, and not a pass or a failure on no evidence.
+  const unkeyed = checkFocus(reading(1));
+  assert.deepEqual(unkeyed.failures, []);
+  assert.match(unkeyed.note ?? '', /not the key window/);
 });

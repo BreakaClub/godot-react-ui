@@ -1,19 +1,13 @@
 import { createElement } from 'react';
-import { Callable, DisplayServer, InputEvent, Node, OS, ReactUiRoot, Time, Vector2 } from 'godot';
+import { Callable, DisplayServer, InputEvent, Node, OS, ReactUiRoot, Time } from 'godot';
 import { createClassBinder } from 'godot.annotations';
 import { createRoot, type NativeSnapshot, type NativeSnapshotNode, type ReactRoot } from '../../src';
 import { A11yPanel } from './a11y-panel';
-import { runA11yVerification, VERIFIER_DEVICE_ID } from './verify-a11y';
+import { VerifierInputIsolation, injectsOwnInput } from './verifier-input';
+import { runA11yVerification } from './verify-a11y';
 
 const bind = createClassBinder();
 const MICROSECONDS_PER_MILLISECOND = 1000;
-
-/** What could have disturbed a verification: input from a real device, and the window losing OS focus. */
-export interface A11yInterference {
-  /** Events from any device but the verifier's, swallowed before the panel saw them. */
-  foreignInput: number;
-  windowFocusLosses: number;
-}
 
 /**
  * One Godot node owns the accessibility lab (`a11y.tscn`): a full-window `ReactUiRoot` showing `A11yPanel`,
@@ -24,17 +18,23 @@ export interface A11yInterference {
 export default class A11yMain extends Node {
   private surface: ReactUiRoot | null = null;
   private renderer: ReactRoot | null = null;
-  private interference: A11yInterference = { foreignInput: 0, windowFocusLosses: 0 };
-  /** While verifying, only the verifier's own events reach the panel. */
-  private verifying = false;
+  /** Set only in a run that injects its own input (the verifier); a normal run takes real input. */
+  private isolation: VerifierInputIsolation | null = null;
 
   override _ready(): void {
+    const args = OS.getCmdlineUserArgs();
+    const userArgs = Array.from({ length: args.size() }, (_, i) => args.get(i));
+    // First, before the window can become the key window: see VerifierInputIsolation.
+    if (injectsOwnInput(userArgs)) {
+      const window = this.getWindow();
+      if (!window) throw new Error('A verifier run requires its owning Window');
+      this.isolation = VerifierInputIsolation.begin(window);
+    }
     this.mount();
     const api = {
       snapshot: (): NativeSnapshot => this.requireRenderer().getSnapshot(),
       find: (testID: string): NativeSnapshotNode | undefined => this.requireRenderer().findByTestID(testID),
       surface: (): ReactUiRoot => this.requireSurface(),
-      interference: (): A11yInterference => ({ ...this.interference }),
       /** What the engine says about accessibility: the facts the README records. */
       engine: () => ({
         screenReaderFeature: DisplayServer.hasFeature(DisplayServer.Feature.FeatureAccessibilityScreenReader),
@@ -42,32 +42,25 @@ export default class A11yMain extends Node {
         enabled: this.getTree()?.isAccessibilityEnabled() ?? false,
         supported: this.getTree()?.isAccessibilitySupported() ?? false,
       }),
-      windowSize: (): Vector2 => this.requireSurface().size,
     };
     Object.assign(globalThis, { godotReactA11y: api });
     console.log('GODOT_REACT_A11Y_READY');
-    const args = OS.getCmdlineUserArgs();
-    if (Array.from({ length: args.size() }, (_, i) => args.get(i)).includes('--verify-a11y')) {
-      this.verifying = true;
-      void runA11yVerification(api).then(() => this.getTree()?.quit()).catch(error => {
-        console.error('GODOT_REACT_VERIFY_FAILED', error instanceof Error ? error.stack : String(error));
+    if (userArgs.includes('--verify-a11y')) {
+      void runA11yVerification(api).then(() => { this.isolation?.report(); this.getTree()?.quit(); }).catch(error => {
+        console.error('GODOT_REACT_VERIFY_FAILED', error instanceof Error ? error.message : String(error));
+        this.isolation?.report();
         this.getTree()?.quit(1);
       });
     }
   }
 
-  /**
-   * Verification only: a real mouse or keyboard sends events to the window too, and would interleave with the
-   * verifier's own. Everything not from the verifier's device is counted and swallowed before the GUI sees it.
-   */
+  /** A foreign event should not reach an isolated window; one that does is dropped and recorded. */
   override _input(event: InputEvent): void {
-    if (!this.verifying || event.device === VERIFIER_DEVICE_ID) return;
-    this.interference.foreignInput += 1;
-    this.getViewport()?.setInputAsHandled();
+    if (this.isolation?.rejects(event)) this.getViewport()?.setInputAsHandled();
   }
 
   _notification(what: number): void {
-    if (what === Node.NOTIFICATION_WM_WINDOW_FOCUS_OUT) this.interference.windowFocusLosses += 1;
+    this.isolation?.notify(what);
   }
 
   private mount(): void {

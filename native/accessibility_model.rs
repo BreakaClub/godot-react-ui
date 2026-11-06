@@ -167,7 +167,9 @@ pub(crate) struct AxNode<'a> {
     pub(crate) kind: Kind,
     pub(crate) props: &'a PropsSpec,
     pub(crate) children: &'a [u32],
-    /// The border box's position relative to the parent's border box, and its size.
+    /// The border box's root-local position and size. Out-of-flow elements (`absolute`, `fixed`) are
+    /// located in their paint parent's frame, not their tree parent's, so the source resolves this
+    /// through the paint tree (`stacking::absolute_geometry`) instead of the walk adding up parents.
     pub(crate) x: f32,
     pub(crate) y: f32,
     pub(crate) width: f32,
@@ -192,8 +194,6 @@ pub(crate) struct AxEntry {
     /// The nearest exposed ancestor; `None` hangs the element on the root's own element.
     pub(crate) parent: Option<u32>,
     pub(crate) resolved: Resolved,
-    /// The border box's root-local origin.
-    origin: (f32, f32),
     /// The element or an ancestor is disabled (`disabled` or `aria-disabled`).
     disabled: bool,
     /// The element or an ancestor has the `disabled` prop, which also keeps it from taking focus.
@@ -207,7 +207,7 @@ pub(crate) struct AxEntry {
 pub(crate) fn walk(source: &impl AxSource) -> Vec<AxEntry> {
     let mut entries = Vec::new();
     for tag in source.roots() {
-        visit(source, tag, None, (0.0, 0.0), false, false, &mut entries);
+        visit(source, tag, None, false, false, &mut entries);
     }
     entries
 }
@@ -216,7 +216,6 @@ fn visit(
     source: &impl AxSource,
     tag: u32,
     parent: Option<u32>,
-    parent_origin: (f32, f32),
     parent_disabled: bool,
     parent_real_disabled: bool,
     entries: &mut Vec<AxEntry>,
@@ -227,7 +226,6 @@ fn visit(
     if node.display_none || node.props.aria_hidden == Some(true) {
         return;
     }
-    let origin = (parent_origin.0 + node.x, parent_origin.1 + node.y);
     let real_disabled = parent_real_disabled || node.props.is_disabled();
     let disabled = parent_disabled || real_disabled || node.props.aria_disabled == Some(true);
     let resolved = resolve_role(node.kind, node.props);
@@ -236,7 +234,6 @@ fn visit(
             tag,
             parent,
             resolved,
-            origin,
             disabled,
             real_disabled,
         });
@@ -252,7 +249,6 @@ fn visit(
             source,
             *child,
             child_parent,
-            origin,
             disabled,
             real_disabled,
             entries,
@@ -395,8 +391,8 @@ pub(crate) fn props_of(source: &impl AxSource, entry: &AxEntry) -> AxProps {
         value,
         placeholder: props.aria_placeholder.clone().unwrap_or_default(),
         bounds: AxBounds {
-            x: entry.origin.0,
-            y: entry.origin.1,
+            x: node.x,
+            y: node.y,
             width: node.width,
             height: node.height,
         },
@@ -732,7 +728,7 @@ mod tests {
         kind: Kind,
         props: PropsSpec,
         children: Vec<u32>,
-        /// Position relative to the parent, then size.
+        /// Root-local position, then size.
         rect: [f32; 4],
         display_none: bool,
     }
@@ -1128,7 +1124,7 @@ mod tests {
     }
 
     #[test]
-    fn bounds_are_root_local_and_state_flags_come_through() {
+    fn bounds_are_the_sources_root_local_rect_and_state_flags_come_through() {
         let mut tree = Tree::new(&[1]);
         tree.add(1, Kind::View, props(r#"{"role":"group"}"#), &[2])
             .add(
@@ -1140,8 +1136,9 @@ mod tests {
                 ),
                 &[],
             )
+            // The source reports root-local rectangles, whatever the tree and paint parents are.
             .place(1, [100.0, 50.0, 400.0, 300.0])
-            .place(2, [10.0, 20.0, 30.0, 40.0]);
+            .place(2, [110.0, 70.0, 30.0, 40.0]);
         let walked = walk(&tree);
         let inner = props_of(&tree, &walked[1]);
         assert_eq!(
@@ -1260,7 +1257,6 @@ mod tests {
                     tag: *tag,
                     parent: *parent,
                     resolved: role,
-                    origin: (0.0, 0.0),
                     disabled: false,
                     real_disabled: false,
                 })

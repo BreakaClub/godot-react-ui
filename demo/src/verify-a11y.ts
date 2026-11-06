@@ -1,29 +1,30 @@
-import { Callable, DirAccess, DisplayServer, Engine, FileAccess, GArray, Input, InputEventKey, Key, OS, ReactUiRoot } from 'godot';
+import { Callable, DirAccess, Engine, FileAccess, GArray, InputEventKey, Key, OS, ReactUiRoot } from 'godot';
 import type { NativeSnapshot, NativeSnapshotNode } from '../../src';
-import type { A11yInterference } from './a11y-main';
+import { checkElements, checkFocus, type Reading } from '../../scripts/a11y-expectations.mjs';
+import { findByLabel, flatten, type FlatNode } from '../../scripts/ax-tree.mjs';
 import { A11Y_INITIAL_SIZE, A11Y_SLIDER_MAX, A11Y_SLIDER_START } from './a11y-panel';
+import { parseVerifierEvent } from './verifier-input';
 
 /** What the owner exposes (`godotReactA11y`) to the verifier. */
 export interface A11yInspection {
   snapshot(): NativeSnapshot;
   find(testID: string): NativeSnapshotNode | undefined;
   surface(): ReactUiRoot;
-  interference(): A11yInterference;
   engine(): { screenReaderFeature: boolean; screenReaderActive: number; enabled: boolean; supported: boolean };
 }
 
-/**
- * The device id of every event this verifier injects. The owner swallows events from any other device
- * while verifying, so a person using a real mouse or keyboard over the window cannot interleave with it.
- */
-export const VERIFIER_DEVICE_ID = 1 << 30;
 const SETTLE_MS = 100;
 const MIN_SETTLE_FRAMES = 3;
 const FRAME_POLL_MS = 10;
 const FILE_POLL_MS = 25;
-/** The Node wrapper reads the accessibility tree in between; it gives up well before the run's own deadline. */
-const WRAPPER_DEADLINE_MS = 90_000;
-const DIRECTORY_VARIABLE = 'GODOT_REACT_A11Y_DIR';
+/** The platform adapter builds its tree on the first request; the elements may take a few frames after it. */
+const TREE_DEADLINE_MS = 30_000;
+const TREE_POLL_MS = 500;
+/** One run of the dump tool reads a few hundred nodes; it takes a fraction of a second. */
+const DUMP_DEADLINE_MS = 20_000;
+const ARTIFACTS_VARIABLE = 'GODOT_REACT_ARTIFACTS';
+/** The compiled `scripts/ax-dump.swift`, which `scripts/verify-a11y.mjs` builds and names here. */
+const AX_DUMP_VARIABLE = 'GODOT_REACT_AX_DUMP';
 
 /** Press the slider's arrow this many times; the value an assistive technology reads moves by that many steps. */
 const ARROW_PRESSES = 5;
@@ -38,12 +39,9 @@ const ACTION_INCREMENT = 3;
 const ACTION_DECREMENT = 4;
 const ACTION_SET_VALUE = 5;
 
-/** The test ids the Node wrapper looks for in the platform's tree, with the geometry native laid them out at. */
-const REPORTED = [
-  'a11y-root', 'a11y-title', 'a11y-caption', 'a11y-actions', 'a11y-save', 'a11y-delete', 'a11y-saves',
-  'a11y-subscribe', 'a11y-select-all', 'a11y-sound', 'a11y-size', 'a11y-size-small', 'a11y-size-medium',
-  'a11y-size-large', 'a11y-volume-thumb', 'a11y-hidden', 'a11y-hidden-text', 'a11y-hidden-button',
-] as const;
+/** What a run that could not read the platform tree logs, so `scripts/verify-a11y.mjs` can tell it from a failure. */
+export const UNSUPPORTED_MARKER = 'GODOT_REACT_A11Y_UNSUPPORTED';
+export const NOT_TRUSTED_MARKER = 'GODOT_REACT_A11Y_NOT_TRUSTED';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -77,8 +75,7 @@ async function pressKey(keycode: Key): Promise<void> {
     const event = new InputEventKey();
     event.keycode = keycode;
     event.pressed = pressed;
-    event.device = VERIFIER_DEVICE_ID;
-    Input.parseInputEvent(event);
+    parseVerifierEvent(event);
     await settle();
   }
 }
@@ -106,49 +103,67 @@ function write(directory: string, name: string, value: unknown): void {
   file.close();
 }
 
-async function waitForFile(path: string): Promise<void> {
-  const started = Date.now();
-  while (!FileAccess.fileExists(path)) {
-    assert(Date.now() - started < WRAPPER_DEADLINE_MS, `The wrapper never wrote ${path}`);
-    await new Promise(resolve => setTimeout(resolve, FILE_POLL_MS));
-  }
+async function sleep(milliseconds: number): Promise<void> {
+  await new Promise(resolve => setTimeout(resolve, milliseconds));
 }
 
-/** Everything the wrapper compares the platform tree with. */
-function report(api: A11yInspection): unknown {
-  const nodes: Record<string, unknown> = {};
-  for (const testID of REPORTED) {
-    const node = get(api, testID);
-    nodes[testID] = { id: node.id, kind: node.kind, text: node.text, rect: node.rect, props: node.props };
+/** The native geometry of the elements the platform tree is compared with, as `checkElements` reads it. */
+function geometry(api: A11yInspection): Record<string, { rect: { x: number; y: number; width: number; height: number } }> {
+  const nodes: Record<string, { rect: { x: number; y: number; width: number; height: number } }> = {};
+  for (const node of api.snapshot().nodes) {
+    const testID = node.props.testID;
+    if (typeof testID === 'string') nodes[testID] = { rect: node.rect };
   }
-  const snapshot = api.snapshot();
-  const screen = DisplayServer.windowGetSize();
-  const position = DisplayServer.windowGetPosition();
-  return {
-    processId: OS.getProcessId(),
-    viewport: { width: snapshot.width, height: snapshot.height },
-    window: {
-      x: position.x, y: position.y, width: screen.x, height: screen.y,
-      scale: DisplayServer.screenGetScale(), contentScaleFactor: api.surface().getWindow()?.contentScaleFactor ?? 1,
-    },
-    focused: snapshot.focused,
-    engine: api.engine(),
-    interference: api.interference(),
-    nodes,
-  };
+  return nodes;
 }
 
 /**
- * Phase I10 (native): drive the lab with Godot's own input, and with the assistive actions the platform adapter
- * would deliver, and leave the platform's accessibility tree to `scripts/verify-a11y.mjs`, which reads it from
- * outside the process before and after the changes below (it writes `go-mutate` and `go-finish` into the shared
- * directory). When the engine has no accessibility driver (`engine.enabled` is false: an engine built without
- * AccessKit), there is no tree to read: the checks of this file still run, `GODOT_REACT_A11Y_UNSUPPORTED` is
- * printed, and the wrapper reports that the platform half could not be verified.
+ * One reading of this process's accessibility tree through `scripts/ax-dump.swift`, started with
+ * `OS.createProcess` and not `OS.execute`: the tool asks this process's main thread for its tree, so waiting
+ * for it on that thread would never end. The tool writes its result to `file` in one step; this polls for it
+ * while the main loop keeps running. Reads again until `satisfied` holds or the deadline passes.
+ */
+async function readTree(directory: string, name: string, satisfied: (nodes: FlatNode[]) => boolean): Promise<Reading | undefined> {
+  const axDump = OS.getEnvironment(AX_DUMP_VARIABLE);
+  assert(axDump !== '', `${AX_DUMP_VARIABLE} must name the compiled scripts/ax-dump.swift`);
+  const file = `${directory}/${name}`;
+  const deadline = Date.now() + TREE_DEADLINE_MS;
+  let last: Reading | undefined;
+  for (;;) {
+    if (FileAccess.fileExists(file)) DirAccess.removeAbsolute(file);
+    const child = OS.createProcess(axDump, [String(OS.getProcessId()), '--output', file]);
+    assert(child > 0, `Cannot start ${axDump}`);
+    const started = Date.now();
+    while (!FileAccess.fileExists(file)) {
+      assert(Date.now() - started < DUMP_DEADLINE_MS, `${axDump} wrote nothing to ${file}`);
+      await sleep(FILE_POLL_MS);
+    }
+    const parsed: unknown = JSON.parse(FileAccess.getFileAsString(file));
+    assert(typeof parsed === 'object' && parsed !== null, `${file} is not a JSON object`);
+    if ('error' in parsed) {
+      const { error, detail } = parsed as { error: string; detail: string };
+      if (error === 'not-trusted') throw new Error(`${NOT_TRUSTED_MARKER}: ${detail}`);
+      assert(error === 'no-application', `ax-dump failed (${error}): ${detail}`);
+    } else {
+      last = parsed as Reading;
+      if (satisfied(flatten(last.tree))) return last;
+    }
+    if (Date.now() > deadline) return last;
+    await sleep(TREE_POLL_MS);
+  }
+}
+
+/**
+ * Phase I10 (native): the lab in a real window, read three ways. Godot's own input and the assistive actions
+ * the platform adapter would deliver change its state, the native snapshot says what native knows, and, when the
+ * engine has an accessibility driver, `scripts/ax-dump.swift` reads the tree the platform exposes before and after
+ * the changes and `scripts/a11y-expectations.mjs` judges it. Without a driver (an engine built without AccessKit)
+ * there is no tree to read: the Godot-side checks still run, and the run then fails with `UNSUPPORTED_MARKER` so it
+ * is never mistaken for a pass.
  */
 export async function runA11yVerification(api: A11yInspection): Promise<void> {
-  const directory = OS.getEnvironment(DIRECTORY_VARIABLE);
-  assert(directory !== '', `${DIRECTORY_VARIABLE} must name the directory shared with scripts/verify-a11y.mjs`);
+  const directory = OS.getEnvironment(ARTIFACTS_VARIABLE);
+  assert(directory !== '', `${ARTIFACTS_VARIABLE} must name the evidence directory`);
   DirAccess.makeDirRecursiveAbsolute(directory);
   const engine = api.engine();
   console.log(`GODOT_REACT_A11Y_ENGINE ${JSON.stringify(engine)}`);
@@ -166,12 +181,13 @@ export async function runA11yVerification(api: A11yInspection): Promise<void> {
   assert(get(api, 'a11y-delete').props.disabled === true, 'Delete is disabled');
   assert(api.snapshot().nodes.every(node => node.kind !== 'text' || isAbsent(node.props.role)), 'Text has no explicit role');
 
+  // ---- The platform's view of the initial state ---------------------------------------------------------
   const platformTree = engine.enabled;
+  const failures: string[] = [];
   if (platformTree) {
-    write(directory, 'ready.json', report(api));
-    write(directory, 'ready.marker', 'ready');
-    console.log('GODOT_REACT_A11Y_WAITING_FOR_FIRST_READ');
-    await waitForFile(`${directory}/go-mutate`);
+    const before = await readTree(directory, 'ax-before.json', nodes => findByLabel(nodes, 'Save', ['AXButton']).length > 0);
+    assert(before !== undefined, 'The platform never exposed an accessibility tree for the lab');
+    failures.push(...checkElements(before, 0, geometry(api)).map(failure => `before: ${failure}`));
   }
 
   // ---- Godot's own input changes state; the platform tree must follow --------------------------------
@@ -218,14 +234,17 @@ export async function runA11yVerification(api: A11yInspection): Promise<void> {
   console.log('GODOT_REACT_A11Y_NATIVE_PASSED');
 
   if (!platformTree) {
-    write(directory, 'unsupported.json', { engine });
-    write(directory, 'unsupported.marker', 'unsupported');
-    console.log('GODOT_REACT_A11Y_UNSUPPORTED the engine has no accessibility driver; the platform tree was not read');
-    return;
+    throw new Error(`${UNSUPPORTED_MARKER}: the engine has no accessibility driver (it was built without AccessKit), so the platform tree was not read`);
   }
-  write(directory, 'mutated.json', report(api));
-  write(directory, 'mutated.marker', 'mutated');
-  console.log('GODOT_REACT_A11Y_WAITING_FOR_SECOND_READ');
-  await waitForFile(`${directory}/go-finish`);
+  // ---- The platform's view of the changed state ---------------------------------------------------------
+  const after = await readTree(directory, 'ax-after.json', nodes => findByLabel(nodes, 'Volume', ['AXSlider'])
+    .some(node => Number(node.value) === SET_VALUE_REQUEST));
+  assert(after !== undefined, 'The platform stopped exposing the accessibility tree');
+  failures.push(...checkElements(after, 1, geometry(api)).map(failure => `after: ${failure}`));
+  const platformFocus = checkFocus(after);
+  failures.push(...platformFocus.failures.map(failure => `after: ${failure}`));
+  if (platformFocus.note !== undefined) console.log(`GODOT_REACT_A11Y_NOTE ${platformFocus.note}`);
+  write(directory, 'snapshot-geometry.json', geometry(api));
+  assert(failures.length === 0, `The platform's accessibility tree is wrong:\n - ${failures.join('\n - ')}`);
   console.log('GODOT_REACT_A11Y_VERIFY_PASSED');
 }

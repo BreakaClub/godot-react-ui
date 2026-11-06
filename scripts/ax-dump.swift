@@ -1,7 +1,10 @@
 // Prints another process's macOS accessibility tree as JSON: for each element its role, title,
 // description, value, state and frame, and the element the process says has keyboard focus.
 //
-//   swiftc -O scripts/ax-dump.swift -o ax-dump && ./ax-dump <pid> [--max-nodes <n>]
+//   swiftc -O scripts/ax-dump.swift -o ax-dump && ./ax-dump <pid> [--max-nodes <n>] [--output <file>]
+//
+// With --output the JSON (or the error object) is written to <file> in one atomic step instead of standard
+// output, so a process that cannot wait for this one (the verifier, which this tool is reading) can poll for it.
 //
 // READ ONLY. This tool never performs an action, sets a value, posts a keyboard or mouse event, or
 // raises a window: it calls AXUIElementCopyAttributeValue and nothing else that touches the target.
@@ -25,10 +28,21 @@ let messagingTimeoutSeconds: Float = 5
 let defaultMaxNodes = 5000
 let maxDepth = 40
 
+var outputPath: String?
+
 func finish(_ object: [String: Any], status: Int32) -> Never {
     let data = (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .prettyPrinted])) ?? Data("{}".utf8)
-    FileHandle.standardOutput.write(data)
-    FileHandle.standardOutput.write(Data("\n".utf8))
+    if let path = outputPath {
+        do {
+            try data.write(to: URL(fileURLWithPath: path), options: .atomic)
+        } catch {
+            FileHandle.standardError.write(Data("ax-dump: cannot write \(path): \(error)\n".utf8))
+            exit(exitUsage)
+        }
+    } else {
+        FileHandle.standardOutput.write(data)
+        FileHandle.standardOutput.write(Data("\n".utf8))
+    }
     exit(status)
 }
 
@@ -45,8 +59,15 @@ if let flag = arguments.firstIndex(of: "--max-nodes") {
     maxNodes = count
     arguments.removeSubrange(flag...(flag + 1))
 }
+if let flag = arguments.firstIndex(of: "--output") {
+    guard flag + 1 < arguments.count else {
+        fail("usage", "--output needs a file path", status: exitUsage)
+    }
+    outputPath = arguments[flag + 1]
+    arguments.removeSubrange(flag...(flag + 1))
+}
 guard arguments.count == 1, let pid = Int32(arguments[0]) else {
-    fail("usage", "ax-dump <pid> [--max-nodes <n>]", status: exitUsage)
+    fail("usage", "ax-dump <pid> [--max-nodes <n>] [--output <file>]", status: exitUsage)
 }
 
 // AXIsProcessTrusted() only asks; it never shows the permission prompt.
