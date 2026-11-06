@@ -12,6 +12,7 @@ import type { PassthroughCounts } from './main';
 import { verifyHidpi } from './verify-hidpi';
 import { assertionTally, bindVerifierKeys, parseVerifierEvent, verifierClipboard } from './verifier-input';
 import { measureFilterCost, verifyFilterFaults, verifyFilters } from './verify-filters';
+import { GLASS_FAULT_CONTROLS, verifyGlass } from './verify-glass';
 import { verifyTextInput } from './verify-text-input';
 import type { DemoInspection } from './verify';
 
@@ -338,7 +339,7 @@ function geometry(snapshot: NativeSnapshot, overflowing: ReadonlySet<number> = n
   const content = scrolledContent(snapshot);
   for (const node of snapshot.nodes) {
     const r = node.rect;
-    if (r.width === 0 || r.height === 0 || content.has(node.id)) continue;
+    if (r.width === 0 || r.height === 0 || content.has(node.id) || overflowing.has(node.id)) continue;
     assert(r.x >= -GEOMETRY_TOLERANCE && r.y >= -GEOMETRY_TOLERANCE, `Node ${node.id} escapes top/left`);
     assert(r.x + r.width <= snapshot.width + GEOMETRY_TOLERANCE, `Node ${node.id} escapes right: ${JSON.stringify(r)}`);
     assert(r.y + r.height <= snapshot.height + GEOMETRY_TOLERANCE, `Node ${node.id} escapes bottom: ${JSON.stringify(r)}`);
@@ -3542,7 +3543,7 @@ async function verifyDragging(owner: Node, api: InteractionInspection, capture: 
 }
 
 /** The sections of this verifier, in the order they run (plan 0.4.1: `--only=<name>[,<name>]` runs just those). */
-const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard', 'positioning', 'inputs', 'scroll', 'selection', 'drag', 'forms', 'hidpi', 'filters', 'filters-cost', 'filters-faults'] as const;
+const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard', 'positioning', 'inputs', 'scroll', 'selection', 'drag', 'forms', 'hidpi', 'filters', 'glass', 'filters-cost', 'filters-faults'] as const;
 /** Sections that measure or need a special build rather than verify: they run only when `--only=` names them. */
 const OPT_IN_SECTIONS: readonly Section[] = ['filters-cost', 'filters-faults'];
 type Section = (typeof SECTIONS)[number];
@@ -3610,8 +3611,9 @@ export async function runInteractionVerification(owner: Node, api: InteractionIn
   if (sections.has('forms')) await timed('forms', () => verifyTextInput(owner, api, capture));
   if (sections.has('hidpi')) await timed('hidpi', () => verifyHidpi(owner, api, capture));
   if (sections.has('filters')) await timed('filters', () => verifyFilters(owner, api, capture));
+  if (sections.has('glass')) await timed('glass', () => verifyGlass(owner, api, capture));
   if (sections.has('filters-cost')) await timed('filters-cost', () => measureFilterCost(owner, api));
-  if (sections.has('filters-faults')) await timed('filters-faults', () => verifyFilterFaults(owner, api, capture));
+  if (sections.has('filters-faults')) await timed('filters-faults', () => verifyFilterFaults(owner, api, capture, GLASS_FAULT_CONTROLS));
 
   // A section that asserted nothing passed nothing; a run that left sections out says so (the verify script prints it).
   const empty = [...sections].filter(section => sectionChecks[section] === 0);

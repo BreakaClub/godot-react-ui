@@ -14,6 +14,7 @@ import { selectEngine } from './engine.mjs';
 import { isolateBrowserClipboard } from './web-clipboard.mjs';
 import { startVerificationServer } from './web-verify.mjs';
 import { runFiltersScenario } from './verify-filters-web.mjs';
+import { runGlassScenario } from './verify-glass-web.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const engine = selectEngine();
@@ -38,7 +39,7 @@ const TOTAL_TIMEOUT_MS = 1_200_000;
 const POLL_MS = 50;
 // `--only=<section>[,<section>]` runs just those sections (plan 0.4.1); the names are the native verifier's, and `touch`
 // is this verifier's touch page. An unknown name is an error: a typo must not skip a section.
-const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard', 'scroll', 'selection', 'drag', 'forms', 'hidpi', 'filters', 'touch'];
+const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard', 'scroll', 'selection', 'drag', 'forms', 'hidpi', 'filters', 'glass', 'touch'];
 const requestedSections = process.argv.filter((argument) => argument.startsWith('--only='))
   .flatMap((argument) => argument.slice('--only='.length).split(','));
 for (const name of requestedSections) {
@@ -2859,6 +2860,9 @@ async function runWorkflow(viewport) {
   if (wanted('hidpi')) await section('hidpi', () => runHidpiScenario(viewport));
   if (wanted('filters')) {
     await section('filters', () => runFiltersScenario({ demo, page, frames, snapshot, find, check, capture, decodePng, moveTo, centerOf, actionTimeoutMs: ACTION_TIMEOUT_MS }));
+  }
+  if (wanted('glass')) {
+    await runGlassScenario({ demo, page, frames, snapshot, find, check, capture, decodePng, moveTo, centerOf, actionTimeoutMs: ACTION_TIMEOUT_MS });
   }
 
   // This page keeps running across viewports (the native verifier gets a fresh process for each),

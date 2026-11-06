@@ -4,6 +4,7 @@ import {
   COLOUR_CELL, MOVING_SIZE, MOVING_TOP, PANEL_HEIGHT, PANEL_INSET, PANEL_TOP, SCROLL_ROW, SHAPE_RADIUS, STRIPE_PX,
   SWATCH_COLOURS, type FiltersLabProps,
 } from './filters-lab';
+import type { GlassInspection } from './verify-glass';
 import { parseVerifierEvent } from './verifier-input';
 
 /**
@@ -21,7 +22,8 @@ export interface FiltersInspection {
   scrollTo(testID: string, top: number): void;
 }
 
-export type FiltersCapture = (name: string) => Promise<void>;
+/** `overflowing`: test ids of nodes that reach past the window by design (the glass lab's blobs). */
+export type FiltersCapture = (name: string, overflowing?: readonly string[]) => Promise<void>;
 
 const FRAME_POLL_MS = 10;
 /** A render settles in two frames: native paints inside the commit, the engine draws it the next frame. */
@@ -1044,14 +1046,16 @@ const LARGEST_TEXEL_PX = 16;
  * One regression guard: `run` is the check that guards a fix, `fault` names the fault that takes the fix out
  * (native/filter_faults.rs) and `fails` matches the assertion that must then fail (not some other one).
  */
-interface FaultControl {
+export interface FaultControl {
   fault: string;
   guards: string;
   /** `faultOn` is for a check that provokes an error on purpose: with the fault on, the error is not raised. */
-  run(owner: Node, api: FiltersInspection, capture: FiltersCapture, faultOn: boolean): Promise<void>;
+  run(owner: Node, api: FiltersInspection & GlassInspection, capture: FiltersCapture, faultOn: boolean): Promise<void>;
   fails: RegExp;
+  /** Nodes the control's page lets reach past the window, for the capture of its broken picture. */
+  overflowing?: readonly string[];
   /** Why the fault cannot show on this window or renderer, when it cannot. */
-  notApplicable?(owner: Node, api: FiltersInspection): string | undefined;
+  notApplicable?(owner: Node, api: FiltersInspection & GlassInspection): string | undefined;
 }
 
 const FAULT_CONTROLS: readonly FaultControl[] = [
@@ -1152,7 +1156,7 @@ async function verifyUnalignedRegionIsTolerated(owner: Node, api: FiltersInspect
  * on, which must fail with the control's own message. The faults are switched with `OS.setEnvironment`; effects are
  * cleared between runs (a radius of zero makes none) so each starts with fresh items, materials and shaders.
  */
-export async function verifyFilterFaults(owner: Node, api: FiltersInspection, capture: FiltersCapture): Promise<void> {
+export async function verifyFilterFaults(owner: Node, api: FiltersInspection & GlassInspection, capture: FiltersCapture, more: readonly FaultControl[] = []): Promise<void> {
   const silent: FiltersCapture = async () => {};
   const reset = async (): Promise<void> => {
     api.showFilters({ scene: 'edge', radius: 0 });
@@ -1162,7 +1166,7 @@ export async function verifyFilterFaults(owner: Node, api: FiltersInspection, ca
   const problems: string[] = [];
   let controlled = 0;
   try {
-    for (const control of FAULT_CONTROLS) {
+    for (const control of [...FAULT_CONTROLS, ...more]) {
       const reason = control.notApplicable?.(owner, api);
       if (reason !== undefined) {
         console.log('GODOT_REACT_FILTERS_FAULT_SKIPPED', JSON.stringify({ fault: control.fault, reason }));
@@ -1184,7 +1188,7 @@ export async function verifyFilterFaults(owner: Node, api: FiltersInspection, ca
       } catch (error) {
         failure = error;
       }
-      await capture(`filters-fault-${control.fault}`);
+      await capture(`filters-fault-${control.fault}`, control.overflowing);
       OS.unsetEnvironment(FAULT_ENV);
       if (failure === undefined) {
         problems.push(`With the fault "${control.fault}" on, the check for "${control.guards}" still passes (is the installed library a --faults build?)`);
