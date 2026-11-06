@@ -9,7 +9,7 @@ import type { BenchmarkProps } from './benchmark';
 import type { LabName } from './labs';
 import type { PassthroughCounts } from './main';
 import { verifyHidpi } from './verify-hidpi';
-import { bindVerifierKeys, parseVerifierEvent } from './verifier-input';
+import { assertionTally, bindVerifierKeys, parseVerifierEvent, verifierClipboard } from './verifier-input';
 import { verifyTextInput } from './verify-text-input';
 import type { DemoInspection } from './verify';
 
@@ -126,6 +126,7 @@ const FIXED_BOX_SIZE = new Vector2(64, 32);
 const PAN_DELTA = new Vector2(0.5, -2);
 
 function assert(condition: unknown, message: string): asserts condition {
+  assertionTally.count += 1;
   if (!condition) throw new Error(message);
 }
 
@@ -2537,15 +2538,12 @@ function glyphArea(rect: LayoutRect): LayoutRect {
  * text and scrolls and clips with its list.
  */
 async function verifySelection(owner: Node, api: InteractionInspection, capture: (name: string) => Promise<void>): Promise<void> {
-  const clipboardBefore = DisplayServer.clipboardGet();
   // The keys that copy and select all are `InputMap` actions, which match only a real keyboard's events.
   const unbindKeys = bindVerifierKeys(['ui_copy', 'ui_text_select_all']);
   try {
     await verifySelectionGestures(owner, api, capture);
   } finally {
     unbindKeys();
-    // The run wrote to the machine's clipboard; leave it as it was found.
-    DisplayServer.clipboardSet(clipboardBefore);
   }
 }
 
@@ -2728,22 +2726,22 @@ async function verifySelectionGestures(owner: Node, api: InteractionInspection, 
 
   // ---- Copy and select all -----------------------------------------------------------------------------------------------
   await clickAt(p1Start, 3);
-  DisplayServer.clipboardSet('before the copy');
+  verifierClipboard.set('before the copy');
   const copiedKeys = unhandled(Key.KeyC);
   await chord(Key.KeyC);
-  assert(DisplayServer.clipboardGet() === p1, `Cmd/Ctrl+C puts the selected text on the clipboard: ${JSON.stringify(DisplayServer.clipboardGet())}`);
+  assert(verifierClipboard.get() === p1, `Cmd/Ctrl+C puts the selected text on the clipboard: ${JSON.stringify(verifierClipboard.get())}`);
   assert(unhandled(Key.KeyC) === copiedKeys, 'The key that copied is consumed: the game does not see it');
   await dragSelect(p1Start, intoSecond, [nonePoint]);
   const dragged = selected();
   assert(dragged !== undefined, 'A drag selected something');
   await chord(Key.KeyC);
-  assert(DisplayServer.clipboardGet() === dragged.text && DisplayServer.clipboardGet().includes('\n') && !DisplayServer.clipboardGet().includes('select-none'),
-    `A selection across paragraphs copies their text joined by a newline, without the select-none sentence: ${JSON.stringify(DisplayServer.clipboardGet())}`);
+  assert(verifierClipboard.get() === dragged.text && verifierClipboard.get().includes('\n') && !verifierClipboard.get().includes('select-none'),
+    `A selection across paragraphs copies their text joined by a newline, without the select-none sentence: ${JSON.stringify(verifierClipboard.get())}`);
   await clickAt(p1Start);
-  DisplayServer.clipboardSet('untouched');
+  verifierClipboard.set('untouched');
   const uncopiedKeys = unhandled(Key.KeyC);
   await chord(Key.KeyC);
-  assert(DisplayServer.clipboardGet() === 'untouched' && unhandled(Key.KeyC) === uncopiedKeys + 1,
+  assert(verifierClipboard.get() === 'untouched' && unhandled(Key.KeyC) === uncopiedKeys + 1,
     'A collapsed selection has nothing to copy: the clipboard is left alone and the key goes to the game');
   const selectAllKeys = unhandled(Key.KeyA);
   await chord(Key.KeyA);
@@ -3393,12 +3391,15 @@ export async function runInteractionVerification(owner: Node, api: InteractionIn
   await settle();
   // How long each section took, for the budget `scripts/verify.mjs` gives a window.
   const sectionMs: Record<string, number> = {};
+  const sectionChecks: Record<string, number> = {};
   const timed = async <T>(name: Section, run: () => Promise<T>): Promise<T> => {
     const started = Time.getTicksMsec();
+    const checksBefore = assertionTally.count;
     try {
       return await run();
     } finally {
       sectionMs[name] = Time.getTicksMsec() - started;
+      sectionChecks[name] = assertionTally.count - checksBefore;
     }
   };
   const timing = sections.has('events') ? await timed('events', () => verifyEvents(api, owner, directory, capture)) : null;
@@ -3413,5 +3414,9 @@ export async function runInteractionVerification(owner: Node, api: InteractionIn
   if (sections.has('forms')) await timed('forms', () => verifyTextInput(owner, api, capture));
   if (sections.has('hidpi')) await timed('hidpi', () => verifyHidpi(owner, api, capture));
 
-  console.log('GODOT_REACT_INTERACTION_VERIFY_PASSED', JSON.stringify({sections: [...sections], sectionMs, captures, dispatchTiming: timing}));
+  // A section that asserted nothing passed nothing; a run that left sections out says so (the verify script prints it).
+  const empty = [...sections].filter(section => sectionChecks[section] === 0);
+  if (empty.length > 0) throw new Error(`Section(s) ${empty.join(', ')} ran no assertion`);
+  const skipped = SECTIONS.filter(section => !sections.has(section));
+  console.log('GODOT_REACT_INTERACTION_VERIFY_PASSED', JSON.stringify({sections: [...sections], partial: skipped.length > 0, skipped, sectionChecks, sectionMs, captures, dispatchTiming: timing}));
 }

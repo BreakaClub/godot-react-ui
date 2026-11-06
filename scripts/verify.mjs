@@ -1,8 +1,8 @@
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { importDemo } from './import-demo.mjs';
-import { selectEngine } from './engine.mjs';
-import { runNativeVerifier } from './native-run.mjs';
+import { argsWithoutEngine, selectEngine } from './engine.mjs';
+import { runNativeVerifier, summarizeRuns } from './native-run.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 // The engine profile (`--engine=stock`, `GODOT_REACT_ENGINE=stock`; scripts/engine.mjs) picks the Godot binary,
@@ -15,6 +15,9 @@ const godot = engine.godot;
 // the interaction pass line has the numbers.
 const INTERACTION_DEADLINE_MS = 300_000;
 const DEFAULT_DEADLINE_MS = 120_000;
+for (const argument of argsWithoutEngine(process.argv.slice(2))) {
+  if (!['--motion', '--interaction', '--no-retry'].includes(argument) && !argument.startsWith('--only=')) throw new Error(`Unknown argument: ${argument}`);
+}
 const motion = process.argv.includes('--motion');
 const interaction = process.argv.includes('--interaction');
 if (motion && interaction) throw new Error('Choose one workflow: --motion or --interaction.');
@@ -25,6 +28,8 @@ const deadlineMs = interaction ? INTERACTION_DEADLINE_MS : DEFAULT_DEADLINE_MS;
 const userFlag = motion ? '--verify-motion' : interaction ? '--verify-interaction' : '--verify';
 // `--only=<section>[,<section>]` runs just those sections of the interaction verifier (plan 0.4.1).
 const only = process.argv.filter(argument => argument.startsWith('--only='));
+// `--no-retry` runs each window once, whatever disturbed it: for negative controls, where a re-run would hide the very failure being looked for.
+const retry = !process.argv.includes('--no-retry');
 if (only.length > 0 && !interaction) throw new Error('--only=<section> applies to the interaction workflow (--interaction).');
 // Fail first if the binary or the installed library belongs to the other engine profile.
 engine.prepareNative();
@@ -33,10 +38,14 @@ const build = spawnSync('pnpm', ['build'], {cwd:root, stdio:'inherit'});
 if (build.error) throw build.error;
 if (build.status !== 0) process.exit(build.status ?? 1);
 importDemo(godot);
+const results = [];
 for (const [name, resolution] of [['landscape','1120x800'],['portrait','600x900']]) {
-  await runNativeVerifier({
+  results.push(await runNativeVerifier({
     godot, project: resolve(root, 'demo'), output: resolve(artifactRoot, name), name, resolution,
-    scriptArgs: [userFlag, ...only], successMarker, deadlineMs,
+    scriptArgs: [userFlag, ...only], successMarker, deadlineMs, retry,
+    // The library is checked again before every window, not only before the first: another session may rebuild it in between.
+    beforeLaunch: () => engine.requireInstalledLibrary(),
     errorPattern: /ERROR:|Uncaught|\[panic /u,
-  });
+  }));
 }
+console.log(`${userFlag.slice(2)} summary:\n${summarizeRuns(results)}`);

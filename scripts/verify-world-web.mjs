@@ -8,13 +8,16 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
 import { selectEngine } from './engine.mjs';
+import { startVerificationServer } from './web-verify.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const engine = selectEngine();
 // Refuse an export whose side module was built from other sources than the working tree (docs/tracks/freshness.md).
 engine.requireFreshWebExport();
-const base = process.env.GODOT_REACT_WEB_URL ?? 'http://127.0.0.1:8096';
-const url = new URL('/?scene=res://world.tscn', base).href;
+// Served by this verifier on a free port, or compared with the export first (scripts/web-verify.mjs): this verifier used to
+// judge whatever server answered on its port.
+const server = await startVerificationServer(engine);
+const url = new URL('/?scene=res://world.tscn', server.url).href;
 const executablePath = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const output = engine.artifactPath('web-world-verification');
 const STARTUP_TIMEOUT_MS = 180_000;
@@ -451,6 +454,7 @@ try {
     for (const viewport of viewports) await runWorkflow(viewport);
     await runTouchWorkflow();
     checkBrowserErrors();
+    assert.ok(report.assertions.length > 0, 'The run made no assertion');
     report.passed = true;
   })(), TOTAL_TIMEOUT_MS, 'Browser workflow verification');
 } catch (error) {
@@ -468,6 +472,7 @@ try {
     browser.process()?.kill('SIGTERM');
     process.exitCode = 1;
   });
+  await server.close();
   await writeFile(resolve(output, 'report.json'), JSON.stringify(report, null, 2) + '\n');
   console.log(`GODOT_REACT_WEB_VERIFY_REPORT ${resolve(output, 'report.json')} passed=${report.passed} assertions=${report.assertions.length}`);
 }

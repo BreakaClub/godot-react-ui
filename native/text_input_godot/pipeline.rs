@@ -15,7 +15,7 @@
 //! 6. `selectionchange` is sent if the selection now differs from the last one JS was told of,
 //!    read after JS had its say. A reverted edit therefore sends no stale numbers.
 
-use godot::classes::{DisplayServer, InputEventKey};
+use godot::classes::InputEventKey;
 use godot::prelude::*;
 use serde_json::{Value, json};
 
@@ -232,7 +232,7 @@ impl ReactUiRoot {
     pub(super) fn finish_text_command(&mut self, tag: u32, result: EditResult) {
         match &result.clipboard {
             Some(ClipboardEffect::Write(text)) => {
-                DisplayServer::singleton().clipboard_set(text.as_str());
+                crate::clipboard::write(text.as_str());
             }
             Some(ClipboardEffect::Read) => {
                 self.paste_from_clipboard(tag);

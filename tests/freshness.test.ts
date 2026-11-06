@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { selectEngine, type Engine } from '../scripts/engine.mjs';
 import {
-  collectInputs, compareInputs, findProblem, prepareTarget, readStamp, requireBuild, requireExport, stampFor, writeStamp, type BuildInputs, type BuildStamp,
+  collectContentInputs, collectInputs, compareInputs, exportFileProblems, findProblem, prepareTarget, readStamp, requireBuild, requireExport, stampFor, writeStamp, type BuildInputs, type BuildStamp,
 } from '../scripts/freshness.mjs';
 import { ensureStockTypings } from '../scripts/typings.mjs';
 
@@ -253,6 +254,52 @@ test('a Web export is accepted only with a receipt whose side module is a build 
 
   repo.write('Cargo.toml', '[package]\nname = "godot-react-ui"\nversion = "0.2.0"\n');
   assert.throws(() => requireExport({ ...options, current: repo.inputs(['web']) }), /Web export artifacts\/web-debug is stale.*changed: Cargo\.toml/u);
+});
+
+test('a Web export is also stale when its pack, shell or engine template were made from other sources, or its files are not the exported ones', () => {
+  const repo = makeRepo();
+  const inputs = repo.inputs(['web']);
+  const directory = join(repo.root, 'artifacts/web-debug');
+  const wasm = write(repo.root, 'artifacts/web-debug/godot_react_ui.web.wasm', 'side module');
+  write(repo.root, 'artifacts/web-debug/index.pck', 'pack made from main.ts v1');
+  write(repo.root, 'src/index.ts', 'library v1');
+  write(repo.root, 'demo/src/main.ts', 'main v1');
+  write(repo.root, 'demo/web-shell.html', 'shell v1');
+  const sources = ['src/index.ts', 'demo/src/main.ts', 'demo/web-shell.html'];
+  const contentNow = (extra: Record<string, string> = { 'template:/t.zip': 'template v1' }): BuildInputs => collectContentInputs({ root: repo.root, paths: sources, extra, features: ['debug'] });
+  const options = {
+    directory, receiptName: 'build-receipt.json', libraryName: 'godot_react_ui.web.wasm', engine: 'breaka', probe: false,
+    subject: 'Web export artifacts/web-debug', fix: 'pnpm build:web --engine=breaka',
+  };
+  const listed = (name: string) => ({ name, bytes: statSync(join(directory, name)).size, sha256: createHash('sha256').update(readFileSync(join(directory, name))).digest('hex') });
+  const receipt = (content?: BuildInputs): string => JSON.stringify({
+    engine: 'breaka', extension: stampFor({ library: wasm, engine: 'breaka', probe: false, inputs }), content,
+    files: ['index.pck', 'godot_react_ui.web.wasm'].map(listed),
+  });
+  const receiptPath = join(directory, 'build-receipt.json');
+
+  // An export made before the guard has no content record: refused once, with the command that records one.
+  writeFileSync(receiptPath, receipt());
+  assert.throws(() => requireExport({ ...options, current: inputs, content: contentNow() }), /records no digest of the pack, shell and template.*Run `pnpm build:web --export-only --engine=breaka` first/u);
+
+  writeFileSync(receiptPath, receipt(contentNow()));
+  assert.doesNotThrow(() => requireExport({ ...options, current: inputs, content: contentNow() }));
+
+  // A script, the shell or the template changed after the export: the pack the browser would run is old.
+  write(repo.root, 'demo/src/main.ts', 'main v2');
+  assert.throws(() => requireExport({ ...options, current: inputs, content: contentNow() }), /pack, shell or engine template were made from different sources.*changed: demo\/src\/main\.ts.*--export-only/u);
+  write(repo.root, 'demo/src/main.ts', 'main v1');
+  write(repo.root, 'demo/web-shell.html', 'shell v2');
+  assert.throws(() => requireExport({ ...options, current: inputs, content: contentNow() }), /changed: demo\/web-shell\.html/u);
+  write(repo.root, 'demo/web-shell.html', 'shell v1');
+  assert.throws(() => requireExport({ ...options, current: inputs, content: contentNow({ 'template:/t.zip': 'template v2' }) }), /changed: template:\/t\.zip/u);
+
+  // The files in the directory are the ones exported, not another export's.
+  assert.deepEqual(exportFileProblems(directory, JSON.parse(receipt(contentNow()))), []);
+  write(repo.root, 'artifacts/web-debug/index.pck', 'pack made from main.ts v2, in another export');
+  assert.throws(() => requireExport({ ...options, current: inputs, content: contentNow() }), /is not the export its receipt describes \(index\.pck differs from the export\)/u);
+  rmSync(join(directory, 'index.pck'));
+  assert.deepEqual(exportFileProblems(directory, { files: [{ name: 'index.pck', bytes: 1, sha256: 'x' }] }), ['index.pck is missing']);
 });
 
 test('each profile hashes its own API dump and its own features', () => {

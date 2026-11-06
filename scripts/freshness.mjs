@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join, relative, resolve, sep } from 'node:path';
 
 /**
@@ -77,6 +77,19 @@ export function collectInputs({ root, apiFiles, features }) {
   for (const path of [...new Set(paths)].sort(byCodePoint)) inputs[path] = sha256(resolve(root, path));
   const sortedFeatures = [...features].sort(byCodePoint);
   return { features: sortedFeatures, digest: digestOf(sortedFeatures, inputs), inputs };
+}
+
+/**
+ * The same record for inputs the caller names: `paths` (relative to `root`) hashed by content, plus `extra`, a map of
+ * already-computed hashes under their own names. Used for what a Web export's pack and shell are made from
+ * (scripts/web-content.mjs).
+ */
+export function collectContentInputs({ root, paths, extra = {}, features = [] }) {
+  const inputs = { ...extra };
+  for (const path of [...new Set(paths)]) inputs[path] = sha256(resolve(root, path));
+  const sorted = Object.fromEntries(Object.entries(inputs).sort(([a], [b]) => byCodePoint(a, b)));
+  const sortedFeatures = [...features].sort(byCodePoint);
+  return { features: sortedFeatures, digest: digestOf(sortedFeatures, sorted), inputs: sorted };
 }
 
 /** How the inputs of a build differ from the inputs now; `same` is true when nothing does. */
@@ -189,11 +202,26 @@ export function prepareTarget({ stampPath, library, engine, probe, current, subj
 }
 
 /**
+ * Why the files of the export in `directory` are not the ones its receipt lists (`receipt.files`: name, size and hash of each,
+ * taken when it was made): a file missing, resized or changed. Empty when the directory is what was exported.
+ */
+export function exportFileProblems(directory, receipt) {
+  const problems = [];
+  for (const { name, bytes, sha256: expected } of Array.isArray(receipt?.files) ? receipt.files : []) {
+    const path = join(directory, name);
+    if (!existsSync(path)) problems.push(`${name} is missing`);
+    else if (statSync(path).size !== bytes || sha256(path) !== expected) problems.push(`${name} differs from the export`);
+  }
+  return problems;
+}
+
+/**
  * Throw unless the Web export in `directory` carries the `engine` profile's side module built from the current
  * sources. A Web export records the side module's stamp as `extension` in its receipt, and the module itself sits
- * beside it, which is what the browser runs.
+ * beside it, which is what the browser runs. With `content` (the pack, shell and template inputs now: scripts/web-content.mjs),
+ * the export must also have been made from them, and every file in it must still be the one it was made with.
  */
-export function requireExport({ directory, receiptName, libraryName, engine, probe, current, subject, fix }) {
+export function requireExport({ directory, receiptName, libraryName, engine, probe, current, content, subject, fix }) {
   const receiptPath = join(directory, receiptName);
   if (!existsSync(receiptPath)) throw new Error(`No ${engine} ${subject} exists: ${receiptPath} is missing. Run \`${fix}\` first.`);
   let receipt;
@@ -203,4 +231,17 @@ export function requireExport({ directory, receiptName, libraryName, engine, pro
     receipt = undefined;
   }
   requireBuild({ library: join(directory, libraryName), stamp: receipt?.extension, engine, probe, current, subject, fix });
+  if (content === undefined) return;
+  const exportOnly = fix.replace('build:web', 'build:web --export-only');
+  if (receipt?.content === undefined || !hasDigest(receipt.content)) {
+    throw new Error(`The ${subject} is stale: its receipt records no digest of the pack, shell and template it was made from (it was made before that guard), so it cannot be shown to match the sources. Run \`${exportOnly}\` first.`);
+  }
+  const difference = compareInputs(receipt.content, content);
+  if (!difference.same) {
+    throw new Error(`The ${subject} is stale: its pack, shell or engine template were made from different sources than the working tree (${describeDifference(difference)}). Run \`${exportOnly}\` first.`);
+  }
+  const problems = exportFileProblems(directory, receipt);
+  if (problems.length > 0) {
+    throw new Error(`The ${subject} is not the export its receipt describes (${listPaths(problems)}). Run \`${exportOnly}\` first.`);
+  }
 }

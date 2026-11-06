@@ -1,10 +1,10 @@
 import {
-  Color, Control, DisplayServer, Engine, Image, InputEventKey, InputEventMouseButton, InputEventMouseMotion, InputMap, Key,
+  Color, Control, Engine, Image, InputEventKey, InputEventMouseButton, InputEventMouseMotion, InputMap, Key,
   MouseButton, MouseButtonMask, Node, RenderingServer, Vector2,
 } from 'godot';
 import type { LayoutRect, NativeSnapshotNode, NativeTextInputSnapshot } from '../../src/native';
 import type { InteractionInspection } from './verify-interaction';
-import { parseVerifierEvent } from './verifier-input';
+import { assertionTally, parseVerifierEvent, verifierClipboard } from './verifier-input';
 
 /**
  * Phase I7: `TextInput` in a window (docs/tracks/text-input.md). Real Godot input only (`Input.parseInputEvent`, marked
@@ -37,6 +37,7 @@ const THUMB_DRAG_STEPS = 4;
 const MAX_STEPS = 80;
 
 function assert(condition: unknown, message: string): asserts condition {
+  assertionTally.count += 1;
   if (!condition) throw new Error(message);
 }
 
@@ -330,18 +331,13 @@ export async function verifyTextInput(owner: Node, api: InteractionInspection, c
     return [state.selectionStart, state.selectionEnd];
   };
 
-  // The clipboard is the machine's, shared with whoever is using it: put back what the run found, whatever the run does.
-  const clipboardBefore = DisplayServer.clipboardGet();
-  try {
-    await verifyTyping(owner, api, capture, { focusField, focusedTestID, selection });
-    await verifySelecting(owner, api, capture, { focusField, selection });
-    await verifyEditing(owner, api, capture, { focusField, selection });
-    await verifyModes(owner, api, capture, { focusField, selection });
-    await verifyClipboard(owner, api, capture, { focusField, selection });
-    await verifyMultiline(owner, api, capture, { focusField, selection });
-  } finally {
-    DisplayServer.clipboardSet(clipboardBefore);
-  }
+  // The clipboard of a verifier run is the process's own (`verifierClipboard`): the machine's is the person's, and is never touched.
+  await verifyTyping(owner, api, capture, { focusField, focusedTestID, selection });
+  await verifySelecting(owner, api, capture, { focusField, selection });
+  await verifyEditing(owner, api, capture, { focusField, selection });
+  await verifyModes(owner, api, capture, { focusField, selection });
+  await verifyClipboard(owner, api, capture, { focusField, selection });
+  await verifyMultiline(owner, api, capture, { focusField, selection });
 }
 
 interface Helpers {
@@ -578,28 +574,28 @@ async function verifyClipboard(owner: Node, api: InteractionInspection, capture:
   await typeText('copy me please');
 
   // Copy writes the selected text and changes nothing else; with nothing selected it writes nothing.
-  DisplayServer.clipboardSet('sentinel');
+  verifierClipboard.set('sentinel');
   const counted = input(api, 'form-name').eventCount;
   await pressAction('ui_text_select_all');
   await pressAction('ui_copy');
-  assert(DisplayServer.clipboardGet() === 'copy me please', `Copy puts the selected text on the clipboard: ${DisplayServer.clipboardGet()}`);
+  assert(verifierClipboard.get() === 'copy me please', `Copy puts the selected text on the clipboard: ${verifierClipboard.get()}`);
   assert(valueOf('form-name') === 'copy me please' && input(api, 'form-name').eventCount === counted, 'Copy edits nothing and makes no input event');
   await pressAction('ui_text_caret_line_end');
-  DisplayServer.clipboardSet('sentinel');
+  verifierClipboard.set('sentinel');
   await pressAction('ui_copy');
-  assert(DisplayServer.clipboardGet() === 'sentinel', `Copy with nothing selected leaves the clipboard alone: ${DisplayServer.clipboardGet()}`);
+  assert(verifierClipboard.get() === 'sentinel', `Copy with nothing selected leaves the clipboard alone: ${verifierClipboard.get()}`);
 
   // Cut writes it and removes it, as one deleteByCut input that React sees.
   await pressAction('ui_text_caret_word_left', true);
   assert(selection('form-name').join() === '8,14', `Shift+word-left selects the last word: ${selection('form-name')}`);
   await pressAction('ui_cut');
-  assert(DisplayServer.clipboardGet() === 'please', `Cut puts the selection on the clipboard: ${DisplayServer.clipboardGet()}`);
+  assert(verifierClipboard.get() === 'please', `Cut puts the selection on the clipboard: ${verifierClipboard.get()}`);
   assert(valueOf('form-name') === 'copy me ', `Cut removes it: ${valueOf('form-name')}`);
   assert(log().endsWith('input:deleteByCut'), `Cut is a deleteByCut input: ${log()}`);
   assert(readForm(api).name === 'copy me ', 'React saw the cut');
 
   // Paste inserts the clipboard at the caret, as an insertFromPaste input, and undo takes it back.
-  DisplayServer.clipboardSet('pasted text');
+  verifierClipboard.set('pasted text');
   await pressAction('ui_paste');
   assert(valueOf('form-name') === 'copy me pasted text', `Paste inserts the clipboard at the caret: ${valueOf('form-name')}`);
   assert(selection('form-name').join() === '19,19', `The caret follows the pasted text: ${selection('form-name')}`);
@@ -612,11 +608,11 @@ async function verifyClipboard(owner: Node, api: InteractionInspection, capture:
 
   // A paste replaces the selection; line breaks cannot be in a single-line input; an empty clipboard pastes nothing.
   await pressAction('ui_text_select_all');
-  DisplayServer.clipboardSet('one\r\ntwo\nthree');
+  verifierClipboard.set('one\r\ntwo\nthree');
   await pressAction('ui_paste');
   assert(valueOf('form-name') === 'onetwothree', `A paste replaces the selection and drops the line breaks: ${valueOf('form-name')}`);
   const pasted = input(api, 'form-name').eventCount;
-  DisplayServer.clipboardSet('');
+  verifierClipboard.set('');
   await pressAction('ui_paste');
   assert(input(api, 'form-name').eventCount === pasted && valueOf('form-name') === 'onetwothree', 'An empty clipboard pastes nothing');
   await capture('forms-11-paste');
@@ -624,7 +620,7 @@ async function verifyClipboard(owner: Node, api: InteractionInspection, capture:
   // maxLength cuts what does not fit; a paste that fits nothing is refused.
   await focusField('form-code');
   await pressAction('ui_text_select_all');
-  DisplayServer.clipboardSet('abcdefghij');
+  verifierClipboard.set('abcdefghij');
   await pressAction('ui_paste');
   assert(valueOf('form-code') === 'abcdef', `A paste is cut to maxLength: ${valueOf('form-code')}`);
   assert(readForm(api).code === 'abcdef', 'React never saw the part that did not fit');
@@ -635,7 +631,7 @@ async function verifyClipboard(owner: Node, api: InteractionInspection, capture:
   // A controlled field that transforms stores the pasted text transformed.
   await focusField('form-shout');
   await pressAction('ui_text_select_all');
-  DisplayServer.clipboardSet('quiet');
+  verifierClipboard.set('quiet');
   await pressAction('ui_paste');
   assert(valueOf('form-shout') === 'QUIET', `A pasted text is transformed like a typed one: ${valueOf('form-shout')}`);
   assert(readForm(api).shout === 'QUIET', 'React holds the capitals');
@@ -841,9 +837,9 @@ async function verifyModes(owner: Node, api: InteractionInspection, capture: Cap
   await pressAction('ui_cut');
   await pressAction('ui_paste');
   assert(input(api, 'form-readonly').value === frozen && input(api, 'form-readonly').eventCount === countBefore, 'Nothing edits a read-only field');
-  DisplayServer.clipboardSet('sentinel');
+  verifierClipboard.set('sentinel');
   await pressAction('ui_copy');
-  assert(DisplayServer.clipboardGet() === frozen, `Copy works in a read-only field: ${DisplayServer.clipboardGet()}`);
+  assert(verifierClipboard.get() === frozen, `Copy works in a read-only field: ${verifierClipboard.get()}`);
   await capture('forms-09-read-only');
 
   // A password: bullets on screen, the real text to React, nothing to the clipboard.
@@ -853,11 +849,11 @@ async function verifyModes(owner: Node, api: InteractionInspection, capture: Cap
   assert(readForm(api).password === 's3cret pass', 'React gets the real text');
   assert(input(api, 'form-password').displayText === '•'.repeat(11), `The input draws bullets: ${input(api, 'form-password').displayText}`);
   await capture('forms-10-password');
-  DisplayServer.clipboardSet('sentinel');
+  verifierClipboard.set('sentinel');
   await pressAction('ui_text_select_all');
   await pressAction('ui_copy');
   await pressAction('ui_cut');
-  assert(DisplayServer.clipboardGet() === 'sentinel', `Copy and cut of a password write nothing: ${DisplayServer.clipboardGet()}`);
+  assert(verifierClipboard.get() === 'sentinel', `Copy and cut of a password write nothing: ${verifierClipboard.get()}`);
   assert(input(api, 'form-password').value === 's3cret pass', 'Cut of a password deletes nothing');
   await pressAction('ui_text_caret_word_left');
   assert(selection('form-password').join() === '0,0', `A password has no words to jump between: ${selection('form-password')}`);

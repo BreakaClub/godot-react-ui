@@ -5,6 +5,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
 import { argsWithoutEngine, selectEngine } from './engine.mjs';
+import { startVerificationServer } from './web-verify.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // `--baseline` records the pre-Fabric benchmark scenarios (Phase F0) and never touches the motion evidence.
@@ -23,7 +24,9 @@ const expectedPack = {
   bytes: packBuffer.byteLength,
   sha256: createHash('sha256').update(packBuffer).digest('hex'),
 };
-const url = process.env.GODOT_REACT_WEB_URL ?? 'http://127.0.0.1:8096';
+// Served by this verifier on a free port, or compared with the export first (scripts/web-verify.mjs).
+const server = await startVerificationServer(engine);
+const url = server.url;
 const STARTUP_MS = 180_000;
 const ACTION_MS = 15_000;
 const TOTAL_MS = 600_000;
@@ -1207,6 +1210,7 @@ try {
     }
     await page.evaluate(() => globalThis.__godotMotionProbe.dispose());
     healthy();
+    assert.ok(report.assertions.length > 0, 'The run made no assertion');
     report.passed = true;
   })(), TOTAL_MS, 'Motion and benchmark verification');
 } catch (error) {
@@ -1228,6 +1232,7 @@ try {
     browser.process()?.kill('SIGTERM');
     process.exitCode = 1;
   });
+  await server.close();
   report.finishedAt = new Date().toISOString();
   await writeFile(resolve(output, 'report.json'), JSON.stringify(report, null, 2) + '\n');
   await writeFile(resolve(output, 'browser.log'), report.console.map((entry) => `[${entry.type}] ${entry.text}`).join('\n') + '\n');

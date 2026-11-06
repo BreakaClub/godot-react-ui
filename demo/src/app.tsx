@@ -16,7 +16,7 @@ const LARGE_STEP = 5;
 const DERIVED_MULTIPLIER = 2;
 const INVENTORY_CARD_HEIGHT = 124;
 
-const lifecycle = { appMounts: 0, appCleanups: 0, counterMounts: 0, counterCleanups: 0 };
+const lifecycle = { appMounts: 0, appCleanups: 0, counterMounts: 0, counterCleanups: 0, resetPresses: 0 };
 
 /** Read-only observations of actual React effects, for the native verifier. */
 export function getDemoLifecycle() {
@@ -75,7 +75,7 @@ function CounterLab() {
               Add {step}
             </Button>
             <Button testID="decrement" className={secondaryButton} onClick={() => setCount(value => value - step)}>Subtract</Button>
-            <Button testID="reset" className={`${secondaryButton} disabled:bg-slate-100 disabled:text-slate-400`} disabled={count === INITIAL_COUNT} onClick={() => setCount(INITIAL_COUNT)}>Reset</Button>
+            <Button testID="reset" className={`${secondaryButton} disabled:bg-slate-100 disabled:text-slate-400`} disabled={count === INITIAL_COUNT} onClick={() => { lifecycle.resetPresses += 1; setCount(INITIAL_COUNT); }}>Reset</Button>
           </View>
           <Text testID="counter-derived" className="text-sm text-slate-500">Derived with useMemo: {doubled}</Text>
         </View>

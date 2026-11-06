@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { importDemo } from './import-demo.mjs';
 import { selectEngine } from './engine.mjs';
-import { runNativeVerifier } from './native-run.mjs';
+import { runNativeVerifier, summarizeRuns } from './native-run.mjs';
 
 // Phase I11: the world-space panel (docs/WORLD_SPACE.md). Godot runs a scene other than the project's main
 // scene when its path follows the project options; arguments for the scripts follow `--`.
@@ -20,11 +20,16 @@ const build = spawnSync('pnpm', ['build'], {cwd:root, stdio:'inherit'});
 if (build.error) throw build.error;
 if (build.status !== 0) process.exit(build.status ?? 1);
 importDemo(godot);
+// `--no-retry` runs each window once, whatever disturbed it (see scripts/verify.mjs).
+const retry = !process.argv.includes('--no-retry');
+const results = [];
 for (const [name, resolution] of [['landscape','1120x800'],['portrait','600x900']]) {
-  await runNativeVerifier({
+  results.push(await runNativeVerifier({
     godot, project: resolve(root, 'demo'), output: resolve(artifactRoot, name), name, resolution,
-    leading: [scene], scriptArgs: ['--verify-world'], successMarker, deadlineMs,
+    leading: [scene], scriptArgs: ['--verify-world'], successMarker, deadlineMs, retry,
+    beforeLaunch: () => engine.requireInstalledLibrary(),
     // `previously notified` is the engine's warning for an unpaired notifyMouseEntered/notifyMouseExited.
     errorPattern: /ERROR:|Uncaught|\[panic |previously notified/u,
-  });
+  }));
 }
+console.log(`verify-world summary:\n${summarizeRuns(results)}`);

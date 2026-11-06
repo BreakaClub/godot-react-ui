@@ -11,6 +11,8 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
 import { selectEngine } from './engine.mjs';
+import { isolateBrowserClipboard } from './web-clipboard.mjs';
+import { startVerificationServer } from './web-verify.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const engine = selectEngine();
@@ -22,7 +24,9 @@ const expectedPack = {
   bytes: packBuffer.byteLength,
   sha256: createHash('sha256').update(packBuffer).digest('hex'),
 };
-const url = process.env.GODOT_REACT_WEB_URL ?? 'http://127.0.0.1:8096';
+// Served by this verifier on a free port, or compared with the export first (scripts/web-verify.mjs).
+const server = await startVerificationServer(engine);
+const url = server.url;
 const executablePath = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const output = engine.artifactPath('web-interaction-verification');
 const STARTUP_TIMEOUT_MS = 180_000;
@@ -115,6 +119,18 @@ const expectedConsoleErrors = [];
 function check(name, condition, detail) {
   report.assertions.push({ viewport: activeViewport, name, passed: Boolean(condition), detail });
   assert.ok(condition, `${activeViewport}: ${name}${detail === undefined ? '' : `: ${JSON.stringify(detail)}`}`);
+}
+
+/** How many assertions each section made, over every viewport: a section that made none verified nothing. */
+const sectionChecks = {};
+
+async function section(name, run) {
+  const before = report.assertions.length;
+  try {
+    await run();
+  } finally {
+    sectionChecks[name] = (sectionChecks[name] ?? 0) + report.assertions.length - before;
+  }
 }
 
 function checkBrowserErrors() {
@@ -506,6 +522,8 @@ async function loadPage(viewport) {
   page.setDefaultNavigationTimeout(STARTUP_TIMEOUT_MS);
   await page.setViewport(viewport);
   currentPackObserver = await observePage(page);
+  // The clipboard of the page is the page's own: the machine's is the person's (scripts/web-clipboard.mjs).
+  await isolateBrowserClipboard(page);
   const response = await page.goto(url, { waitUntil: 'domcontentloaded' });
   check('Demo document loaded', response?.ok(), { status: response?.status() });
   check('Browser is cross-origin isolated for WebAssembly threads',
@@ -2617,16 +2635,16 @@ async function runWorkflow(viewport) {
   check('Godot logical viewport matches browser CSS viewport', true,
     { width: viewport.width, height: viewport.height, deviceScaleFactor: viewport.deviceScaleFactor });
 
-  if (wanted('events')) await runEventsScenario(viewport);
+  if (wanted('events')) await section('events', () => runEventsScenario(viewport));
 
-  if (wanted('cooperation')) await runCooperationScenario();
-  if (wanted('pointers')) await runPointersScenario();
-  if (wanted('keyboard')) await runKeyboardScenario();
-  if (wanted('scroll')) await runScrollScenario();
-  if (wanted('selection')) await runSelectionScenario();
-  if (wanted('drag')) await runDragScenario();
-  if (wanted('forms')) await runFormsScenario(viewport);
-  if (wanted('hidpi')) await runHidpiScenario(viewport);
+  if (wanted('cooperation')) await section('cooperation', runCooperationScenario);
+  if (wanted('pointers')) await section('pointers', runPointersScenario);
+  if (wanted('keyboard')) await section('keyboard', runKeyboardScenario);
+  if (wanted('scroll')) await section('scroll', runScrollScenario);
+  if (wanted('selection')) await section('selection', runSelectionScenario);
+  if (wanted('drag')) await section('drag', runDragScenario);
+  if (wanted('forms')) await section('forms', () => runFormsScenario(viewport));
+  if (wanted('hidpi')) await section('hidpi', () => runHidpiScenario(viewport));
 
   // This page keeps running across viewports (the native verifier gets a fresh process for each),
   // so leave a fresh root: the lab's log and click counters must not leak into the next viewport.
@@ -2645,7 +2663,7 @@ async function runTouchWorkflow() {
     const data = await snapshot();
     return data.width === viewport.width && data.height === viewport.height;
   });
-  if (wanted('touch')) {
+  if (wanted('touch')) await section('touch', async () => {
     const tap = async (testID) => {
       const point = await pointerPoint(testID);
       await page.touchscreen.tap(point.x, point.y);
@@ -2665,8 +2683,8 @@ async function runTouchWorkflow() {
     await runTouchPointersScenario();
     await runTouchScrollScenario();
     await runTouchFormsScenario();
-  }
-  if (wanted('drag')) await runTouchDragScenario();
+  });
+  if (wanted('drag')) await section('drag', runTouchDragScenario);
 }
 
 try {
@@ -2676,12 +2694,12 @@ try {
       args: ['--no-first-run', '--no-default-browser-check', '--mute-audio',
         '--disable-background-timer-throttling', '--disable-renderer-backgrounding'],
     });
-    // The selection scenario copies to the clipboard and reads it back through the page.
-    await browser.defaultBrowserContext().overridePermissions(new URL(url).origin, ['clipboard-read', 'clipboard-write', 'clipboard-sanitized-write']);
     await loadPage({ width: viewports[0].width, height: viewports[0].height, deviceScaleFactor: 1 });
     for (const viewport of viewports) await runWorkflow(viewport);
     if (wanted('touch') || wanted('drag')) await runTouchWorkflow();
     checkBrowserErrors();
+    const empty = SECTIONS.filter((name) => wanted(name) && !(sectionChecks[name] > 0));
+    assert.ok(empty.length === 0, `Section(s) ${empty.join(', ')} ran no assertion`);
     report.passed = true;
   })(), TOTAL_TIMEOUT_MS, 'Browser interaction verification');
 } catch (error) {
@@ -2700,13 +2718,17 @@ try {
     browser.process()?.kill('SIGTERM');
     process.exitCode = 1;
   });
+  await server.close();
   report.finishedAt = new Date().toISOString();
   await writeFile(resolve(output, 'report.json'), JSON.stringify(report, null, 2) + '\n');
   await writeFile(resolve(output, 'browser.log'), report.console.map((entry) => `[${entry.type}] ${entry.text}`).join('\n') + '\n');
 }
 
 if (report.passed && !process.exitCode) {
+  // A run that left sections out says so, here and in the summary line a person reads.
+  const skipped = SECTIONS.filter((name) => !wanted(name));
   console.log('GODOT_REACT_WEB_INTERACTION_VERIFY_PASSED', JSON.stringify({
+    sections: SECTIONS.filter(wanted), partial: skipped.length > 0, skipped, sectionChecks,
     assertions: report.assertions.length, captures: report.captures.length, timing: report.timing, engineGaps: report.engineGaps,
     report: resolve(output, 'report.json'),
   }));

@@ -23,7 +23,7 @@
 use std::collections::BTreeMap;
 
 use godot::builtin::{Rect2, Vector2};
-use godot::classes::{DisplayServer, Font, InputEventKey, RenderingServer, TextParagraph};
+use godot::classes::{Font, InputEventKey, RenderingServer, TextParagraph};
 use godot::prelude::*;
 use serde_json::{Value, json};
 
@@ -644,7 +644,7 @@ impl ReactUiRoot {
         if text.is_empty() {
             return false;
         }
-        DisplayServer::singleton().clipboard_set(&GString::from(&text));
+        crate::clipboard::write(&text);
         true
     }
 

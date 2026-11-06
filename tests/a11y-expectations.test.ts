@@ -60,17 +60,17 @@ function reading(phase: 0 | 1, variation: Variation = {}): Reading {
     ...base, frame: frameOf(id, variation.shift?.[id] ?? 0), ...variation.patch?.[id],
   });
   const nodes: Array<[string, AxNode]> = [
-    ['a11y-save', { role: 'AXButton', title: 'Save', enabled: true }],
+    ['a11y-save', { role: 'AXButton', title: 'Save', enabled: true, actionNames: ['AXPress'] }],
     ['a11y-delete', { role: 'AXButton', title: 'Delete', enabled: false }],
     ['a11y-title', { role: 'AXStaticText', value: 'Accessibility lab' }],
-    ['a11y-subscribe', { role: 'AXCheckBox', title: 'Subscribe to updates', value: values('a11y-subscribe') }],
-    ['a11y-select-all', { role: 'AXCheckBox', title: 'Select all', value: 2 }],
-    ['a11y-sound', { role: 'AXCheckBox', subrole: 'AXSwitch', description: 'Sound', value: values('a11y-sound') }],
+    ['a11y-subscribe', { role: 'AXCheckBox', title: 'Subscribe to updates', value: values('a11y-subscribe'), actionNames: ['AXPress'] }],
+    ['a11y-select-all', { role: 'AXCheckBox', title: 'Select all', value: 2, actionNames: ['AXPress'] }],
+    ['a11y-sound', { role: 'AXCheckBox', subrole: 'AXSwitch', description: 'Sound', value: values('a11y-sound'), actionNames: ['AXPress'] }],
     ['a11y-size', { role: 'AXGroup', description: 'Size' }],
-    ['a11y-size-small', { role: 'AXRadioButton', title: 'Small', value: values('a11y-size-small') }],
-    ['a11y-size-medium', { role: 'AXRadioButton', title: 'Medium', value: values('a11y-size-medium') }],
-    ['a11y-size-large', { role: 'AXRadioButton', title: 'Large', value: values('a11y-size-large') }],
-    ['a11y-volume-thumb', { role: 'AXSlider', description: 'Volume', value: values('a11y-volume-thumb'), minValue: 0, maxValue: 100 }],
+    ['a11y-size-small', { role: 'AXRadioButton', title: 'Small', value: values('a11y-size-small'), actionNames: ['AXPress'] }],
+    ['a11y-size-medium', { role: 'AXRadioButton', title: 'Medium', value: values('a11y-size-medium'), actionNames: ['AXPress'] }],
+    ['a11y-size-large', { role: 'AXRadioButton', title: 'Large', value: values('a11y-size-large'), actionNames: ['AXPress'] }],
+    ['a11y-volume-thumb', { role: 'AXSlider', description: 'Volume', value: values('a11y-volume-thumb'), minValue: 0, maxValue: 100, actionNames: ['AXIncrement', 'AXDecrement'] }],
     ['a11y-scroller', { role: 'AXScrollArea', description: 'Messages' }],
     ...(['a11y-message-1', 'a11y-message-2', 'a11y-message-3', 'a11y-message-4'] as const).map((id, index): [string, AxNode] => [
       id, { role: 'AXStaticText', value: `Message ${index + 1}`, actionNames: ['AXScrollToVisible'] },
@@ -208,7 +208,7 @@ test('what the engine cannot convey is noted and is not a failure', () => {
   // The real macOS tree of the lab (docs/tracks/stock-engine.md): no group named Size, and the mixed checkbox unchecked.
   const notes: string[] = [];
   const asRecorded = reading(0, { remove: 'a11y-size', patch: { 'a11y-select-all': { value: 0 } } });
-  assert.deepEqual(checkElements(asRecorded, 0, snapshots, notes), []);
+  assert.deepEqual(checkElements(asRecorded, 0, snapshots, notes, { mixedGap: true }), []);
   assert.ok(noteFor(notes, 'a11y-size', 'no group role'), notes.join('\n'));
   assert.ok(noteFor(notes, 'a11y-select-all', 'unchecked'));
   // A faithful adapter that gave a scroll area its role but no scroll state, and left out the far child, is still noted for those.
@@ -273,13 +273,13 @@ const RECORDED_POINTS_PER_PIXEL = 0.5;
 
 test('the recorded macOS tree of the lab passes, with what the engine cannot convey noted', () => {
   const notes: string[] = [];
-  assert.deepEqual(checkElements(recordedReading('macos-after.json'), 1, recordedGeometry, notes), []);
+  assert.deepEqual(checkElements(recordedReading('macos-after.json'), 1, recordedGeometry, notes, { mixedGap: true }), []);
   assert.deepEqual(notes.map(note => note.split(':')[0]).sort(), ['a11y-notes', 'a11y-readonly', 'a11y-scroller', 'a11y-scroller', 'a11y-scroller', 'a11y-scroller', 'a11y-select-all', 'a11y-size']);
   for (const fragment of ['AXUnknown, not AXScrollArea', 'no scroll position or range', 'no scroll up, down, left, right or set-offset action', 'leaves out scroll view children']) {
     assert.ok(noteFor(notes, 'a11y-scroller', fragment), fragment);
   }
   // The same recording judged against the other phase is wrong in exactly the values the Godot-side input changed.
-  const wrongPhase = checkElements(recordedReading('macos-after.json'), 0, recordedGeometry);
+  const wrongPhase = checkElements(recordedReading('macos-after.json'), 0, recordedGeometry, [], { mixedGap: true });
   assert.ok(wrongPhase.some(failure => failure.startsWith('a11y-volume-thumb: AXValue is 80, expected 30')), wrongPhase.join('\n'));
 });
 
@@ -354,4 +354,46 @@ test('a tree that kept the children where they were before a scroll is caught by
   }
   const failures = checkElements(stale, 1, recordedGeometry);
   assert.ok(failures.some(failure => failure.startsWith('frames disagree with the snapshot geometry')), failures.join('\n'));
+});
+
+test('the actions the platform advertises are judged: each expected one is there, and a disabled element has none that acts', () => {
+  const failuresOf = (variation: Variation) => checkElements(reading(0, variation), 0, snapshots);
+  assert.deepEqual(failuresOf({}), []);
+  assert.ok(failuresOf({ patch: { 'a11y-save': { actionNames: [] } } }).some(failure => failure.startsWith('a11y-save: the platform does not advertise AXPress')));
+  assert.ok(failuresOf({ patch: { 'a11y-subscribe': { actionNames: undefined } } }).some(failure => failure.startsWith('a11y-subscribe: the platform does not advertise AXPress')));
+  assert.ok(failuresOf({ patch: { 'a11y-volume-thumb': { actionNames: ['AXIncrement'] } } }).some(failure => failure.startsWith('a11y-volume-thumb: the platform does not advertise AXDecrement')));
+  assert.ok(failuresOf({ patch: { 'a11y-delete': { actionNames: ['AXPress'] } } }).some(failure => failure.startsWith('a11y-delete: a disabled element advertises AXPress')));
+  // The window's and the other elements' extra actions are not judged.
+  assert.deepEqual(failuresOf({ patch: { 'a11y-save': { actionNames: ['AXPress', 'AXShowMenu'] } } }), []);
+});
+
+test('the recorded macOS tree advertises the actions the lab expects, and the same tree without them fails', () => {
+  const recorded = recordedReading('macos-after.json');
+  assert.deepEqual(checkElements(recorded, 1, recordedGeometry, [], { mixedGap: true }), []);
+  const stripped: Reading = JSON.parse(JSON.stringify(recorded));
+  const strip = (node: AxNode): void => {
+    if (labelOf(node) === 'Save' || labelOf(node) === 'Volume') delete node.actionNames;
+    for (const child of node.children ?? []) strip(child);
+  };
+  strip(stripped.tree);
+  const failures = checkElements(stripped, 1, recordedGeometry, [], { mixedGap: true });
+  assert.ok(failures.some(failure => failure.startsWith('a11y-save: the platform does not advertise AXPress')), failures.join('\n'));
+});
+
+test('a mixed checkbox that reads unchecked is a recorded gap only where it was recorded, and only if it says nothing else', () => {
+  const asRecorded = { patch: { 'a11y-select-all': { value: 0 } } };
+  const notes: string[] = [];
+  assert.deepEqual(checkElements(reading(0, asRecorded), 0, snapshots, notes, { mixedGap: true }), []);
+  assert.ok(noteFor(notes, 'a11y-select-all', 'unchecked'));
+  // Another engine has not recorded the gap: the same reading is a failure there.
+  const elsewhere = checkElements(reading(0, asRecorded), 0, snapshots);
+  assert.ok(elsewhere.some(failure => failure.startsWith('a11y-select-all: a mixed checkbox reads as neither')), elsewhere.join('\n'));
+  // On the engine of the gap, unchecked with a description that says something else, or checked, is still wrong.
+  const described = checkElements(reading(0, { patch: { 'a11y-select-all': { value: 0, valueDescription: 'unchecked' } } }), 0, snapshots, [], { mixedGap: true });
+  assert.ok(described.some(failure => failure.startsWith('a11y-select-all: a mixed checkbox reads as neither')));
+  const checked = checkElements(reading(0, { patch: { 'a11y-select-all': { value: 1 } } }), 0, snapshots, [], { mixedGap: true });
+  assert.ok(checked.some(failure => failure.startsWith('a11y-select-all: a mixed checkbox reads as neither')));
+  // Conveyed, by value or by description, passes anywhere.
+  assert.deepEqual(checkElements(reading(0, { patch: { 'a11y-select-all': { value: 0, valueDescription: 'mixed' } } }), 0, snapshots), []);
+  assert.deepEqual(checkElements(reading(0), 0, snapshots), []);
 });

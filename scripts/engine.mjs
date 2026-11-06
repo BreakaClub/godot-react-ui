@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { collectInputs, prepareTarget, readStamp, requireBuild, requireExport, stampFor, writeStamp } from './freshness.mjs';
+import { webContentInputs } from './web-content.mjs';
 
 /**
  * Engine profiles (docs/tracks/stock-engine.md).
@@ -160,10 +161,15 @@ export function selectEngine(argv = process.argv.slice(2), env = process.env) {
     },
     /** An evidence directory below this profile's artifacts root (`artifacts/<name>` or `artifacts/stock/<name>`). */
     artifactPath: (...names) => resolve(profile.artifacts, ...names),
-    /** The API dump pair cargo binds against, as environment variables; empty for the default profile. */
-    bindingEnvironment: () => profile.apiDirectory === undefined ? {} : {
-      GDRUST_GODOT_API_JSON: resolve(profile.apiDirectory, 'extension_api.json'),
-      GDRUST_GODOT_INTERFACE_JSON: resolve(profile.apiDirectory, 'gdextension_interface.json'),
+    /**
+     * The API dump pair cargo binds against, as environment variables, for either profile. The default profile's is also what
+     * `.cargo/config.toml` names, but cargo's `[env]` does not override a variable that is already set: a shell that still
+     * exports the stock pair would bind a default build to the stock engine under a stamp that says breaka. Setting both here
+     * means the stamp's inputs (the same files) are what cargo reads.
+     */
+    bindingEnvironment: () => {
+      const [api, bindings] = apiFiles(profile);
+      return { GDRUST_GODOT_API_JSON: api, GDRUST_GODOT_INTERFACE_JSON: bindings };
     },
     /** The `godot --version` line of the selected binary. Throws if it is not the profile's engine. */
     verifiedVersion() {
@@ -216,10 +222,13 @@ export function selectEngine(argv = process.argv.slice(2), env = process.env) {
       const directory = this.artifactPath(`web-${mode}`);
       requireExport({
         directory, receiptName: WEB_RECEIPT, libraryName: 'godot_react_ui.web.wasm', engine: profile.name, probe, current: sourceInputs('web', probe),
+        content: webContentInputs({ root, presetName: profile.web.presetName, mode }),
         subject: `Web export ${relative(root, directory)}`,
         fix: `pnpm build:web${mode === 'release' ? ' --release' : ''}${probe ? ' --probe' : ''} ${ENGINE_FLAG}${profile.name}`,
       });
     },
+    /** The inputs of the pack, shell and engine template of the Web export in `mode` (scripts/web-content.mjs); the receipt records them. */
+    webContentInputs: mode => webContentInputs({ root, presetName: profile.web.presetName, mode }),
     /** The cargo features a build of `kind` (`native` or `web`) enables; the build scripts pass exactly these. */
     features: (kind, { probe = false } = {}) => kinds[kind].features(probe),
     /** The content hashes a build of `kind` is made from (scripts/freshness.mjs). */

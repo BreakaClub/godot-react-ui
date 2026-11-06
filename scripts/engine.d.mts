@@ -67,6 +67,8 @@ export interface Engine {
   /** The cargo features a build of `kind` enables. */
   features(kind: BuildKind, options?: { probe?: boolean }): string[];
   sourceInputs(kind: BuildKind, options?: { probe?: boolean }): BuildInputs;
+  /** The inputs of the pack, shell and engine template of the Web export in `mode` (scripts/web-content.mjs). */
+  webContentInputs(mode: string): BuildInputs;
   /** Hash the inputs, have `clean` run if cargo's last output is not provably a build of them, and return the recording steps. */
   beginBuild(kind: BuildKind, options: { probe?: boolean; clean: () => void }): BuildRecord;
 }

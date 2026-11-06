@@ -1,19 +1,22 @@
 // Phase F0: run the evidence probe (demo/src/probe.ts) in real Chrome against a Web export built with
-// `pnpm build:web --probe`. Serve it on a port you have checked is free and point
-// GODOT_REACT_WEB_URL at it, as for the other Web verifiers.
+// `pnpm build:web --probe`. The script serves the export itself on a free port; GODOT_REACT_WEB_URL names another server,
+// whose every file is compared with the export first, as for the other Web verifiers.
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
 import { selectEngine } from './engine.mjs';
+import { startVerificationServer } from './web-verify.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const engine = selectEngine();
 // The probe export (`pnpm build:web --probe`) must be a probe build of the current sources (docs/tracks/freshness.md).
 engine.requireFreshWebExport({ probe: true });
 const output = engine.artifactPath('fabric-probe');
-const url = process.env.GODOT_REACT_WEB_URL ?? 'http://127.0.0.1:8096';
+// Served by this script on a free port, or compared with the export first (scripts/web-verify.mjs).
+const server = await startVerificationServer(engine);
+const url = server.url;
 const executablePath = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const STARTUP_TIMEOUT_MS = 180_000;
 const PROBE_TIMEOUT_MS = 900_000;
@@ -79,6 +82,7 @@ try {
   process.exitCode = 1;
 } finally {
   if (browser) await browser.close().catch(() => browser.process()?.kill('SIGTERM'));
+  await server.close();
   report.finishedAt = new Date().toISOString();
   await writeFile(resolve(output, 'web.json'), JSON.stringify(report, null, 2) + '\n');
 }

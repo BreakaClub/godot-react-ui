@@ -25,6 +25,8 @@ const TREE_POLL_MS = 500;
 /** One run of the dump tool reads a few hundred nodes; it takes a fraction of a second. */
 const DUMP_DEADLINE_MS = 45_000;
 const ARTIFACTS_VARIABLE = 'GODOT_REACT_ARTIFACTS';
+/** The engine profile (scripts/engine.mjs), which the verify script exports and the runner passes on. */
+const ENGINE_VARIABLE = 'GODOT_REACT_ENGINE';
 /** The compiled `scripts/ax-dump.swift`, which `scripts/verify-a11y.mjs` builds and names here. */
 const AX_DUMP_VARIABLE = 'GODOT_REACT_AX_DUMP';
 
@@ -229,6 +231,8 @@ export async function runA11yVerification(api: A11yInspection): Promise<void> {
 
   // ---- The platform's view of the initial state ---------------------------------------------------------
   const platformTree = engine.enabled;
+  // The mixed checkbox reads as unchecked on the stock engine, where that was recorded; any other engine must convey it.
+  const mixedGap = OS.getEnvironment(ENGINE_VARIABLE) === 'stock';
   const failures: string[] = [];
   // What the engine cannot convey (scripts/a11y-expectations.mjs): the same each time it is read, logged once.
   const gaps: string[] = [];
@@ -237,7 +241,7 @@ export async function runA11yVerification(api: A11yInspection): Promise<void> {
   if (platformTree) {
     const before = await readTree(directory, 'ax-before.json', nodes => findByLabel(nodes, 'Save', ['AXButton']).length > 0);
     assert(before !== undefined, 'The platform never exposed an accessibility tree for the lab');
-    failures.push(...checkElements(before, 0, geometry(api), gaps).map(failure => `before: ${failure}`));
+    failures.push(...checkElements(before, 0, geometry(api), gaps, { mixedGap }).map(failure => `before: ${failure}`));
     baselineMessageY = findByLabel(flatten(before.tree), SCROLL_PROBE_LABEL, ['AXStaticText'])[0]?.frame?.y;
     assert(baselineMessageY !== undefined, `The platform tree has no "${SCROLL_PROBE_LABEL}" before any scroll`);
   }
@@ -251,7 +255,7 @@ export async function runA11yVerification(api: A11yInspection): Promise<void> {
     if (!platformTree) return;
     const reading = await readTree(directory, name, satisfied);
     assert(reading !== undefined, `The platform never exposed the scrolled tree for ${name}`);
-    failures.push(...checkElements(reading, 1, geometry(api), gaps).map(failure => `${name}: ${failure}`));
+    failures.push(...checkElements(reading, 1, geometry(api), gaps, { mixedGap }).map(failure => `${name}: ${failure}`));
   };
 
   // ---- Godot's own input changes state; the platform tree must follow --------------------------------
@@ -387,12 +391,16 @@ export async function runA11yVerification(api: A11yInspection): Promise<void> {
   const after = await readTree(directory, 'ax-after.json', nodes => findByLabel(nodes, 'Volume', ['AXSlider'])
     .some(node => Number(node.value) === SET_VALUE_REQUEST));
   assert(after !== undefined, 'The platform stopped exposing the accessibility tree');
-  failures.push(...checkElements(after, 1, geometry(api), gaps).map(failure => `after: ${failure}`));
+  failures.push(...checkElements(after, 1, geometry(api), gaps, { mixedGap }).map(failure => `after: ${failure}`));
   const platformFocus = checkFocus(after);
   failures.push(...platformFocus.failures.map(failure => `after: ${failure}`));
   if (platformFocus.note !== undefined) console.log(`GODOT_REACT_A11Y_NOTE ${platformFocus.note}`);
   for (const gap of new Set(gaps)) console.log(`GODOT_REACT_A11Y_GAP ${gap}`);
   write(directory, 'snapshot-geometry.json', geometry(api));
   assert(failures.length === 0, `The platform's accessibility tree is wrong:\n - ${failures.join('\n - ')}`);
-  console.log('GODOT_REACT_A11Y_VERIFY_PASSED');
+  // What this run did not judge, and what the engine cannot convey, in the line the script reads: a pass that skipped the
+  // platform's focus says so, and so does one that accepted a recorded gap.
+  const skipped = platformFocus.note === undefined ? [] : ['platform focus (the window is not the key window)'];
+  const recordedGaps = [...new Set([...gaps].map(gap => gap.slice(0, gap.indexOf(':'))))];
+  console.log('GODOT_REACT_A11Y_VERIFY_PASSED', JSON.stringify({ partial: skipped.length > 0, skipped, gaps: recordedGaps }));
 }

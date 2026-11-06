@@ -15,7 +15,7 @@
 
 use std::collections::VecDeque;
 
-use godot::classes::{DisplayServer, Engine, Os};
+use godot::classes::{Engine, Os};
 use godot::prelude::*;
 
 use crate::ReactUiRoot;
@@ -46,7 +46,7 @@ impl ReactUiRoot {
     /// platform answers at once, when the browser answers on the Web.
     pub(super) fn paste_from_clipboard(&mut self, tag: u32) {
         if !Os::singleton().has_feature(WEB_FEATURE) {
-            let text = DisplayServer::singleton().clipboard_get().to_string();
+            let text = crate::clipboard::read();
             self.run_text_command(tag, EditCommand::PasteText(text));
             return;
         }

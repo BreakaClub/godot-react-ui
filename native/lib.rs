@@ -1,5 +1,6 @@
 mod accessibility;
 mod accessibility_model;
+mod clipboard;
 mod commit;
 mod computed_style;
 mod diff;
@@ -529,6 +530,26 @@ impl ReactUiRoot {
     #[func]
     fn set_profiling(&mut self, enabled: bool) {
         self.profiler.enable(enabled);
+    }
+
+    /// Keep the clipboard that copy, cut and paste use in this process's memory (`true`, empty) or return to the
+    /// machine's (`false`). A verifier run isolates it so a test cannot overwrite what the person copied
+    /// (`native/clipboard.rs`); a normal run never calls this.
+    #[func]
+    fn isolate_clipboard(isolated: bool) {
+        clipboard::isolate(isolated);
+    }
+
+    /// The clipboard's text: the machine's, or the isolated one a verifier run reads back.
+    #[func]
+    fn clipboard_text() -> GString {
+        GString::from(&clipboard::read())
+    }
+
+    /// Put text on the clipboard as a copy would: the machine's, or the isolated one.
+    #[func]
+    fn set_clipboard_text(text: GString) {
+        clipboard::write(&text.to_string());
     }
 
     #[func]

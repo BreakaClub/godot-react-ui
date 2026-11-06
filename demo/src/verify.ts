@@ -213,8 +213,13 @@ export async function runVerification(owner: Node, api: DemoInspection): Promise
   await click(api, 'step-toggle');
   await click(api, 'increment');
   if (text(api, 'counter-value') !== '6') throw new Error(`Event closure uses new step: ${inputFailureState(owner, api)}`);
+  const resetPressesBefore = getDemoLifecycle().resetPresses;
   await click(api, 'reset');
+  assert(getDemoLifecycle().resetPresses === resetPressesBefore + 1, 'An enabled Reset runs its handler once');
+  assert(text(api, 'counter-value') === '0', 'Reset restores the counter');
+  // Reset activating at zero would leave zero: what shows that a disabled button did not activate is that its handler did not run.
   await click(api, 'reset');
+  assert(getDemoLifecycle().resetPresses === resetPressesBefore + 1, 'A disabled Reset does not run its handler');
   assert(text(api, 'counter-value') === '0', 'Disabled reset does not change state');
 
   const button = get(api, 'increment').rect;

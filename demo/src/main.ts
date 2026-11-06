@@ -5,7 +5,7 @@ import {
 } from 'godot';
 import { createClassBinder } from 'godot.annotations';
 import { createRoot, readActivity, takeNativeProfile, type ReactRoot } from '../../src';
-import { App } from './app';
+import { App, getDemoLifecycle } from './app';
 import { setLabOwner } from './interaction-lab';
 import { labElement, type LabName } from './labs';
 import { selectionLabControls } from './selection-lab';
@@ -71,6 +71,8 @@ export default class Main extends Node {
     this.mount();
     const api = {
       snapshot: () => this.requireRenderer().getSnapshot(),
+      /** What the demo's React effects and handlers have done (`getDemoLifecycle`): a disabled button's handler must not appear in it. */
+      lifecycle: () => getDemoLifecycle(),
       find: (testID: string) => this.requireRenderer().findByTestID(testID),
       mount: () => this.mount(),
       unmount: () => this.unmount(),

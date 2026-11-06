@@ -32,6 +32,17 @@ const SCROLL_ACTIONS_GAP = 'the platform advertises no scroll up, down, left, ri
 const SCROLL_CULL_GAP = 'the platform tree leaves out scroll view children that lie beyond a margin outside the viewport, so a child scrolled far out of view is not in it until it comes near';
 /** The one action macOS has for scrolling something into view; D38's `scroll_into_view` is advertised as this. */
 const SCROLL_TO_VISIBLE = 'AXScrollToVisible';
+/**
+ * The actions the macOS adapter advertises, as the recorded tree of the lab shows them (tests/fixtures/ax-lab): a button, a
+ * toggle and a radio button advertise AXPress when they are enabled, a slider AXIncrement and AXDecrement, and a disabled
+ * button none. The Godot-side half of the verifier calls the element's action callable itself, so this is what shows that the
+ * action is registered with the platform at all.
+ */
+const PRESS = 'AXPress';
+const INCREMENT = 'AXIncrement';
+const DECREMENT = 'AXDecrement';
+/** The actions that act on the element: a disabled element advertises none of them. */
+const ACTING_ACTIONS = [PRESS, INCREMENT, DECREMENT];
 /** The scroll view's children (demo/src/a11y-panel.tsx) and what the platform calls them. */
 export const SCROLL_ITEMS = [
   ...Array.from({ length: 12 }, (_, index) => ({ id: `a11y-message-${index + 1}`, label: `Message ${index + 1}`, roles: ['AXStaticText'] })),
@@ -42,17 +53,17 @@ const VIEW_SLACK = 0.5;
 
 /** What the lab shows and what an assistive technology must therefore read, before and after the Godot-side changes. */
 export const ELEMENTS = [
-  { id: 'a11y-save', label: 'Save', roles: ['AXButton'], enabled: true },
-  { id: 'a11y-delete', label: 'Delete', roles: ['AXButton'], enabled: false },
+  { id: 'a11y-save', label: 'Save', roles: ['AXButton'], enabled: true, actions: [PRESS] },
+  { id: 'a11y-delete', label: 'Delete', roles: ['AXButton'], enabled: false, actions: [] },
   { id: 'a11y-title', label: 'Accessibility lab', roles: ['AXStaticText'] },
-  { id: 'a11y-subscribe', label: 'Subscribe to updates', roles: ['AXCheckBox'], value: [1, 0] },
-  { id: 'a11y-select-all', label: 'Select all', roles: ['AXCheckBox'], mixed: true },
-  { id: 'a11y-sound', label: 'Sound', roles: ['AXCheckBox'], value: [0, 1] },
+  { id: 'a11y-subscribe', label: 'Subscribe to updates', roles: ['AXCheckBox'], value: [1, 0], actions: [PRESS] },
+  { id: 'a11y-select-all', label: 'Select all', roles: ['AXCheckBox'], mixed: true, actions: [PRESS] },
+  { id: 'a11y-sound', label: 'Sound', roles: ['AXCheckBox'], value: [0, 1], actions: [PRESS] },
   { id: 'a11y-size', label: 'Size', roles: ['AXGroup', 'AXRadioGroup'], engineGap: GROUP_GAP },
-  { id: 'a11y-size-small', label: 'Small', roles: ['AXRadioButton'], value: [0, 0] },
-  { id: 'a11y-size-medium', label: 'Medium', roles: ['AXRadioButton'], value: [1, 0] },
-  { id: 'a11y-size-large', label: 'Large', roles: ['AXRadioButton'], value: [0, 1] },
-  { id: 'a11y-volume-thumb', label: 'Volume', roles: ['AXSlider'], value: [30, 80], range: [0, 100] },
+  { id: 'a11y-size-small', label: 'Small', roles: ['AXRadioButton'], value: [0, 0], actions: [PRESS] },
+  { id: 'a11y-size-medium', label: 'Medium', roles: ['AXRadioButton'], value: [1, 0], actions: [PRESS] },
+  { id: 'a11y-size-large', label: 'Large', roles: ['AXRadioButton'], value: [0, 1], actions: [PRESS] },
+  { id: 'a11y-volume-thumb', label: 'Volume', roles: ['AXSlider'], value: [30, 80], range: [0, 100], actions: [INCREMENT, DECREMENT] },
   // A text input is a text field (AXTextField) or a text area (AXTextArea). Its text is what the platform reads of it, its
   // selection and caret are where the Godot-side half left them (a name edited and "Lovelace" selected, a read-only field
   // selected whole), a placeholder shows only while the field is empty, and a field with no label is named by its placeholder.
@@ -85,8 +96,9 @@ export function numeric(value) {
 /**
  * The elements of one reading checked against what the lab shows. `phase` is 0 before the Godot-side input and
  * 1 after it. Returns the failures; what the engine cannot convey is appended to `notes` (see GROUP_GAP, MIXED_GAP).
+ * `mixedGap` says the engine is the one MIXED_GAP was recorded on (the stock engine); for any other the mixed state must be conveyed.
  */
-export function checkElements(reading, phase, snapshots, notes = []) {
+export function checkElements(reading, phase, snapshots, notes = [], { mixedGap = false } = {}) {
   const failures = [];
   const pairs = [];
   const nodes = flatten(reading.tree);
@@ -110,19 +122,24 @@ export function checkElements(reading, phase, snapshots, notes = []) {
     }
     if (expected.textField !== undefined) failures.push(...checkTextField(expected, node, phase, notes));
     if (expected.mixed) {
-      // Conveyed (AXValue 2, or a description saying so) is a pass. Unchecked is what this engine can do, and is noted.
-      // Anything else, a mixed checkbox that reads as checked above all, is wrong.
-      const conveyed = numeric(node.value) === 2 || /mixed/iu.test(String(node.valueDescription ?? ''));
-      if (!conveyed && numeric(node.value) === 0) {
+      // Conveyed (AXValue 2, or a description saying so) is a pass. On the engine MIXED_GAP was recorded on, exactly what it does
+      // is accepted and noted: unchecked, with no state text. Anything else, a mixed checkbox that reads as checked above all,
+      // or unchecked with a description that says something else, is wrong, and so is the gap on an engine it was not recorded on.
+      const description = String(node.valueDescription ?? '');
+      const conveyed = numeric(node.value) === 2 || /mixed/iu.test(description);
+      if (conveyed) {
+        // Nothing to note.
+      } else if (mixedGap && numeric(node.value) === 0 && description === '') {
         notes.push(`${expected.id}: ${MIXED_GAP}`);
-      } else if (!conveyed) {
-        failures.push(`${expected.id}: a mixed checkbox reads as neither AXValue 2, described as mixed, nor unchecked (AXValue ${JSON.stringify(node.value)}, AXValueDescription ${JSON.stringify(node.valueDescription)})`);
+      } else {
+        failures.push(`${expected.id}: a mixed checkbox reads as neither AXValue 2, described as mixed, nor ${mixedGap ? 'plainly unchecked' : 'conveyed on this engine'} (AXValue ${JSON.stringify(node.value)}, AXValueDescription ${JSON.stringify(node.valueDescription)})`);
       }
     }
     if (expected.range !== undefined
       && (numeric(node.minValue) !== expected.range[0] || numeric(node.maxValue) !== expected.range[1])) {
       failures.push(`${expected.id}: range is ${node.minValue}..${node.maxValue}, expected ${expected.range.join('..')}`);
     }
+    if (expected.actions !== undefined) failures.push(...checkActions(expected, node));
     if (expected.scroll) checkScrollView(node, notes);
     else if (node.actionNames?.includes(SCROLL_TO_VISIBLE)) {
       failures.push(`${expected.id}: it advertises ${SCROLL_TO_VISIBLE} but is not inside a scroll view`);
@@ -154,6 +171,20 @@ export function checkElements(reading, phase, snapshots, notes = []) {
     console.log(`GEOMETRY phase ${phase}: scale ${fit.scale.toFixed(3)}, offset ${fit.offsetX.toFixed(1)},${fit.offsetY.toFixed(1)}, residual ${fit.residual.toFixed(3)} points over ${pairs.length} elements`);
   } else {
     failures.push(`only ${pairs.length} elements could be compared with the snapshot geometry`);
+  }
+  return failures;
+}
+
+/** The actions the platform advertises on the element: every one expected, and none that acts on a disabled element. */
+function checkActions(expected, node) {
+  const advertised = node.actionNames ?? [];
+  const failures = [];
+  for (const action of expected.actions) {
+    if (!advertised.includes(action)) failures.push(`${expected.id}: the platform does not advertise ${action} (it advertises ${JSON.stringify(advertised)})`);
+  }
+  if (expected.actions.length === 0) {
+    const acting = advertised.filter(action => ACTING_ACTIONS.includes(action));
+    if (acting.length > 0) failures.push(`${expected.id}: a disabled element advertises ${acting.join(', ')}`);
   }
   return failures;
 }

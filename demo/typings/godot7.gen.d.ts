@@ -1195,6 +1195,9 @@ declare module "godot" {
     interface __NameMapReactUiRoot extends __NameMapControl {
         take_commit_deletions: "takeCommitDeletions";
         set_profiling: "setProfiling";
+        isolate_clipboard: "isolateClipboard";
+        clipboard_text: "clipboardText";
+        set_clipboard_text: "setClipboardText";
         get_activity: "getActivity";
         take_profile: "takeProfile";
         get_snapshot: "getSnapshot";
@@ -1228,6 +1231,9 @@ declare module "godot" {
         commit(layer: int64, payloadJson: string): string
         takeCommitDeletions(): PackedInt64Array
         setProfiling(enabled: boolean): any
+        static isolateClipboard(isolated: boolean): any
+        static clipboardText(): string
+        static setClipboardText(text: string): any
         getActivity(): string
         takeProfile(): string
         getSnapshot(): string

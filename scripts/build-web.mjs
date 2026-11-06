@@ -4,6 +4,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSyn
 import { delimiter, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { argsWithoutEngine, CARGO_PACKAGE, selectEngine } from './engine.mjs';
+import { presetTemplate } from './web-content.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // The engine profile (`--engine=stock` / `GODOT_REACT_ENGINE=stock`; scripts/engine.mjs) decides the Emscripten SDK, the
@@ -47,20 +48,6 @@ const env = {
 };
 // Another SDK's Binaryen must not leak into a build that has none of its own to override.
 if (!lazyTable) delete env.EM_BINARYEN_ROOT;
-
-/**
- * The `custom_template/<mode>` path of the export preset named `presetName` in `export_presets.cfg`. A preset's
- * options are the `[preset.N.options]` section that follows its `[preset.N]` section.
- */
-function presetTemplate(presets, presetName, mode) {
-  const sections = presets.split(/^\[(preset\.\d+(?:\.options)?)\]$/mu);
-  for (let index = 1; index < sections.length; index += 2) {
-    if (sections[index].endsWith('.options') || sections[index + 1].match(/^name="([^"]*)"$/mu)?.[1] !== presetName) continue;
-    const options = sections[sections.indexOf(`${sections[index]}.options`) + 1] ?? '';
-    return options.match(new RegExp(`^custom_template/${mode}="([^"]+)"$`, 'mu'))?.[1];
-  }
-  throw new Error(`No export preset named "${presetName}" in export_presets.cfg`);
-}
 
 function run(command, commandArgs, options = {}) {
   const result = spawnSync(command, commandArgs, { cwd: root, env, stdio: 'inherit', timeout: buildTimeoutMs, ...options });
@@ -137,6 +124,9 @@ if (!args.has('--wasm-only')) {
   // The export must not package the other engine's side module, nor a probe build as the shipping one.
   engine.requireInstalledWasm({ probe });
   const exporterVersion = engine.verifiedVersion();
+  // What the pack, shell and template are made from, before the build and the export and again after: an edit while they ran
+  // would leave an export that neither state describes (docs/tracks/verifier-integrity.md).
+  const contentBefore = engine.webContentInputs(mode);
   // The authoritative typecheck is part of build; export never trusts a watcher.
   run('pnpm', ['build']);
   const template = presetTemplate(readFileSync(join(root, 'demo', 'export_presets.cfg'), 'utf8'), web.presetName, mode);
@@ -151,6 +141,10 @@ if (!args.has('--wasm-only')) {
   const output = engine.artifactPath(`web-${mode}`);
   mkdirSync(output, { recursive: true });
   run(godot, ['--headless', '--audio-driver', 'Dummy', '--path', join(root, 'demo'), `--export-${mode}`, web.presetName, join(output, 'index.html')]);
+  const content = engine.webContentInputs(mode);
+  if (content.digest !== contentBefore.digest) {
+    throw new Error('The sources of the pack, shell or template changed while the export was made, so it cannot be recorded. Run `pnpm build:web --export-only` again.');
+  }
   const copiedExtension = join(output, 'godot_react_ui.web.wasm');
   if (!existsSync(copiedExtension) || hash(readFileSync(copiedExtension)) !== hash(extensionBytes)) {
     throw new Error('The exported extension differs from the qualified build.');
@@ -160,6 +154,8 @@ if (!args.has('--wasm-only')) {
     template, templateSha256: hash(readFileSync(template)), mode, toolchain, sdk,
     // The side module's stamp (what it was built from): the Web verifiers and the server refuse an export whose sources have moved on.
     extension: engine.installedWasmStamp(),
+    // The pack, shell and engine template inputs: the Web verifiers and the server refuse an export whose sources have moved on.
+    content,
     emscripten: readFileSync(join(sdk, 'upstream', 'emscripten', 'emscripten-version.txt'), 'utf8').trim().replaceAll('"', ''),
     ...(lazyTable ? { binaryenManifestSha256: manifestHash } : {}), modules,
     api: ['extension_api.json', 'gdextension_interface.json'].map(name => {

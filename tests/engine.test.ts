@@ -38,8 +38,11 @@ test('the stock profile binds to its own dumps and keeps its caches and evidence
   const breaka = selectEngine([], {});
   assert.match(stock.bindingEnvironment().GDRUST_GODOT_API_JSON ?? '', /native\/api\/stock-4\.7\.2\/extension_api\.json$/u);
   assert.match(stock.bindingEnvironment().GDRUST_GODOT_INTERFACE_JSON ?? '', /native\/api\/stock-4\.7\.2\/gdextension_interface\.json$/u);
-  // The default profile leaves cargo's own `.cargo/config.toml` selection alone.
-  assert.deepEqual(breaka.bindingEnvironment(), {});
+  // The default profile names its own dumps too (the ones `.cargo/config.toml` selects): cargo's `[env]` does not override a variable
+  // a shell already exports, so a stock pair left in the environment cannot redirect a default build.
+  assert.match(breaka.bindingEnvironment().GDRUST_GODOT_API_JSON ?? '', /native\/api\/extension_api\.json$/u);
+  assert.match(breaka.bindingEnvironment().GDRUST_GODOT_INTERFACE_JSON ?? '', /native\/api\/gdextension_interface\.json$/u);
+  assert.doesNotMatch(breaka.bindingEnvironment().GDRUST_GODOT_API_JSON ?? '', /stock/u);
   const stockTargets = Object.values(stock.targets);
   const breakaTargets = Object.values(breaka.targets);
   assert.equal(new Set([...stockTargets, ...breakaTargets]).size, stockTargets.length + breakaTargets.length);

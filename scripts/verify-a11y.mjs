@@ -1,9 +1,10 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { importDemo } from './import-demo.mjs';
 import { selectEngine } from './engine.mjs';
-import { runNativeVerifier } from './native-run.mjs';
+import { runNativeVerifier, summarizeRuns } from './native-run.mjs';
 
 // Phase I10: the accessibility tree the platform sees (docs/tracks/accessibility.md). Godot runs the lab scene
 // (demo/a11y.tscn) with `--accessibility always`, so the platform tree exists without a screen reader running.
@@ -21,6 +22,8 @@ const scene = 'res://a11y.tscn';
 const artifactRoot = engine.artifactPath('native-a11y');
 const swiftSource = resolve(import.meta.dirname, 'ax-dump.swift');
 const axDump = resolve(artifactRoot, 'bin/ax-dump');
+/** The hash of the source `axDump` was compiled from, beside it: the tool is rebuilt when the source differs, whatever the file times say. */
+const axDumpSource = `${axDump}.source.sha256`;
 const resolution = '900x900';
 // Six platform readings of the lab (two before and after the Godot-side input, two while it is scrolled, the window outline): each is
 // several seconds, because the target answers one attribute request per frame.
@@ -41,10 +44,12 @@ function assertDumpToolIsReadOnly() {
 
 function buildDumpTool() {
   mkdirSync(resolve(artifactRoot, 'bin'), { recursive: true });
-  if (existsSync(axDump) && statSync(axDump).mtimeMs > statSync(swiftSource).mtimeMs) return;
+  const sourceHash = createHash('sha256').update(readFileSync(swiftSource)).digest('hex');
+  if (existsSync(axDump) && existsSync(axDumpSource) && readFileSync(axDumpSource, 'utf8').trim() === sourceHash) return;
   const result = spawnSync('swiftc', ['-O', swiftSource, '-o', axDump], { stdio: 'inherit', timeout: swiftDeadlineMs });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`swiftc failed compiling scripts/ax-dump.swift (${result.status})`);
+  writeFileSync(axDumpSource, `${sourceHash}\n`);
 }
 
 if (process.platform !== 'darwin') throw new Error('verify:a11y reads the macOS accessibility tree; run it on macOS');
@@ -60,15 +65,20 @@ buildDumpTool();
 process.env.GODOT_REACT_AX_DUMP = axDump;
 
 const output = resolve(artifactRoot, 'run');
+// `--no-retry` runs the window once, whatever disturbed it (see scripts/verify.mjs).
+const retry = !process.argv.includes('--no-retry');
 try {
-  await runNativeVerifier({
+  const result = await runNativeVerifier({
     godot, project: resolve(root, 'demo'), output, name: 'a11y', resolution,
-    leading: ['--accessibility', 'always', scene], scriptArgs: ['--verify-a11y'], successMarker, deadlineMs,
+    leading: ['--accessibility', 'always', scene], scriptArgs: ['--verify-a11y'], successMarker, deadlineMs, retry,
+    beforeLaunch: () => engine.requireInstalledLibrary(),
     errorPattern: /ERROR:|Uncaught|\[panic /u,
   });
   console.log(`Accessibility verification passed. Evidence: ${output} (ax-before.json, ax-after.json, run.log)`);
+  console.log(`verify-a11y summary:\n${summarizeRuns([result])}`);
 } catch (error) {
-  // A run that could not read the platform tree is not a failure of the code under test and not a pass.
+  // A run that could not read the platform tree is not a failure of the code under test and not a pass. The runner clears the
+  // previous run's log before it launches, so what is read here is this run's, or nothing.
   const log = existsSync(resolve(output, 'run.log')) ? readFileSync(resolve(output, 'run.log'), 'utf8') : '';
   if (log.includes(notTrustedMarker)) {
     console.error(

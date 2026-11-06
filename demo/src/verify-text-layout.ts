@@ -108,5 +108,9 @@ export async function runTextLayoutVerification(owner: Node, probe: ReactUiTextL
   const { lines, failed } = summarize(all);
   console.log(`Text layout checks (${all.length}, ${rendering ? 'rendered' : 'headless: no pixel checks, no captures'}):\n${lines.join('\n')}`);
   assert(failed === 0, `${failed} text layout check(s) failed`);
-  console.log('GODOT_REACT_TEXT_LAYOUT_VERIFY_PASSED', JSON.stringify({ checks: all.length, captures }));
+  // A probe that reports no check at all has verified nothing: passing it would be the same as passing a probe that broke.
+  assert(all.length > 0, 'The probe ran no text layout check');
+  // A headless run has no pixels: say so in the marker, where the script's summary reads it.
+  const skipped = rendering ? [] : ['pixel checks', 'captures'];
+  console.log('GODOT_REACT_TEXT_LAYOUT_VERIFY_PASSED', JSON.stringify({ checks: all.length, captures, partial: skipped.length > 0, skipped }));
 }

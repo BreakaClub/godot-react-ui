@@ -5,6 +5,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
 import { selectEngine } from './engine.mjs';
+import { startVerificationServer } from './web-verify.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // The engine profile (`--engine=stock`; scripts/engine.mjs) decides which export is judged and where evidence goes.
@@ -17,7 +18,10 @@ const expectedPack = {
   bytes: packBuffer.byteLength,
   sha256: createHash('sha256').update(packBuffer).digest('hex'),
 };
-const url = process.env.GODOT_REACT_WEB_URL ?? 'http://127.0.0.1:8096';
+// The export is served by this verifier on a free port, or, with GODOT_REACT_WEB_URL, by a server whose every file is compared
+// with the export's receipt first (scripts/web-verify.mjs).
+const server = await startVerificationServer(engine);
+const url = server.url;
 const executablePath = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const output = engine.artifactPath('web-verification');
 const STARTUP_TIMEOUT_MS = 180_000;
@@ -86,6 +90,10 @@ async function frames() {
   await withDeadline(page.evaluate(() => new Promise((resolve) => {
     requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   })), ACTION_TIMEOUT_MS, 'Waiting for browser paint');
+}
+
+async function lifecycle() {
+  return page.evaluate(() => globalThis.godotReactDemo.lifecycle());
 }
 
 async function snapshot() {
@@ -274,8 +282,11 @@ async function runWorkflow(viewport) {
 
   const initialReset = await find('reset');
   check('Reset is initially disabled', initialReset.props.disabled === true);
+  // Reset activating at zero would leave zero: what shows that a disabled button did not activate is that its handler did not run.
+  const resetPressesBefore = (await lifecycle()).resetPresses;
   await click('reset');
-  await expectText('counter-value', '0', 'Disabled button does not activate');
+  await expectText('counter-value', '0', 'Disabled button does not change state');
+  check('A disabled Reset does not run its handler', (await lifecycle()).resetPresses === resetPressesBefore, await lifecycle());
   await page.mouse.move(viewport.width - 1, viewport.height - 1);
   await frames();
   const passesBeforeHover = (await snapshot()).stats.layoutPasses;
@@ -299,6 +310,7 @@ async function runWorkflow(viewport) {
   await expectText('counter-value', '6', 'New event closure uses step five');
   await click('reset');
   await expectText('counter-value', '0', 'Reset restores counter');
+  check('An enabled Reset runs its handler once', (await lifecycle()).resetPresses === resetPressesBefore + 1, await lifecycle());
 
   const padding = await pointerPoint('increment', BUTTON_PADDING_INSET);
   const label = await pointerPoint('increment');
@@ -626,6 +638,7 @@ try {
     for (const viewport of viewports) await runWorkflow(viewport);
     await runTouchWorkflow();
     checkBrowserErrors();
+    assert.ok(report.assertions.length > 0, 'The run made no assertion');
     report.passed = true;
   })(), TOTAL_TIMEOUT_MS, 'Browser workflow verification');
 } catch (error) {
@@ -644,6 +657,7 @@ try {
     browser.process()?.kill('SIGTERM');
     process.exitCode = 1;
   });
+  await server.close();
   report.finishedAt = new Date().toISOString();
   await writeFile(resolve(output, 'report.json'), JSON.stringify(report, null, 2) + '\n');
   await writeFile(resolve(output, 'browser.log'), report.console.map((entry) => `[${entry.type}] ${entry.text}`).join('\n') + '\n');
