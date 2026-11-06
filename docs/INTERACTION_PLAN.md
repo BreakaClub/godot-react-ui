@@ -11,7 +11,7 @@ D37) with scroll accessibility (D38) and the scrolling Select list (D39). Phase 
 D42). Phase I9 (`400bea3`; D43). The freshness guard (`941334b`). Phase I7 with the kit `TextField`, `TextInput` accessibility and
 world-space typing, which finishes I8, I10's `TextInput` part and I11 (`539e787`; D44). HiDPI (`6c6abd7`, hardened in `5b7faba`; D45). Verifier
 integrity (D46). Scroll bar elements, which finish I10 (D47). `TextInput` fixes (D48). Phase V1, filters and frosted glass (`abdc077`; D40, D49). Input fixes (D50).
-Now: an independent review of V1, the batch regression, then final acceptance.
+Filter fixes (`6a7815c`; D51). Now: final acceptance.
 
 v1 of this plan (`7f0a96c`) was rejected because it built every interaction feature on the
 prototype's commit path, which re-walks and re-sends the whole tree on every change. v2 replaces
@@ -515,6 +515,13 @@ not a reason to wait.
   nearest common inclusive ancestor of the press and release targets, mouse and touch alike, as the UI Events spec and browsers do; two parts of one enabled button
   still click the button; a release on a disabled element or over nothing clicks nothing. A touch pan and a thumb drag now honour JS capture, as 3.12 rule 1 and D33
   say. Key focus is released whenever no element or selection needs it, including when a commit removes the focused element. The hover stays frozen for a whole drag.
+- **D51 (filter fixes)**: from an independent review; calibration tables and evidence are in `docs/tracks/filter-fixes.md`, part of this log. `RendererKind` has separate constants for
+  Compatibility, Mobile and Forward+, whose compute chain adds 11.0 px² per step against 1.75; an unmeasured rendering method draws nothing and logs one error. A backdrop hangs
+  beside its element's filter group on a shell item, so `backdrop-blur-xl drop-shadow-lg` works; unlike CSS the element's filter does not apply to its backdrop's result. On
+  RenderingDevice a level's texels are placed by the whole target. Each Compatibility blur group has its own mipmap probe. A root may request frames only while an effect exists,
+  which keeps rectangles right under a camera or canvas-layer move. Limits: a Compatibility group's buffer is the opaque target's RGB10_A2 back buffer
+  (`drivers/gles3/storage/texture_storage.cpp:2567`), so alpha inside a `filter` has four levels (0.5 comes out 0.333); a scrolled `TextInput`'s own text overflow is not in a group's
+  extent. The truncation fix is unit-tested but did not reproduce on a real renderer.
 
 The plan is written so an implementer can execute it phase by phase without re-deciding the
 architecture. Where it says **must**, it is a contract. Where it says *suggested*, use judgement and
