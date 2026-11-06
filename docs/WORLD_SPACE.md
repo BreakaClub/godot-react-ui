@@ -8,8 +8,8 @@ This is the recipe of plan Phase I11 (`docs/INTERACTION_PLAN.md`, section 3.22).
 verified in `demo/world.tscn`; every number below is from that scene.
 
 Verified on macOS (Godot 4.8, Compatibility renderer, `pnpm verify:world`, landscape 1120x800 and
-portrait 600x900) and in real Chrome on Breaka's Web template (`scripts/verify-world-web.mjs`, DPR 1
-and DPR 2, plus a touch page). The anchored label (below) was added after the Web run and is verified natively
+portrait 600x900, including the panel at twice its texels) and in real Chrome on Breaka's Web template
+(`scripts/verify-world-web.mjs`, DPR 1 and DPR 2, plus a touch page). The anchored label (below) was added after the Web run and is verified natively
 only. Typing into a world-space `TextInput` is built and verified (below), natively and in Chrome.
 
 | File | Role |
@@ -37,10 +37,13 @@ World (Node, world-main.ts)
 
 All of it is built in `WorldMain.buildScene()`.
 
-- **`SubViewport`**: `size` is the panel's pixels (480x320). `transparentBg = true`, so the panel can
-  be any shape. `renderTargetUpdateMode = UpdateAlways`; the default `UpdateWhenVisible` should stop
-  the panel rendering off-screen, but it was not tried here, so test the first frame if you switch.
-  A `SubViewport` is not a `Container`: set the root's `size` to the viewport's size yourself.
+- **`SubViewport`**: the panel's pixels are `480x320`. `size2DOverride` is that size and `size2DOverrideStretch` is on,
+  and `size` is the **texture** size: the panel's pixels times a texel scale (`PanelViewport.size` is 480x320 at scale 1
+  and 960x640 at scale 2; see "Resolution and oversampling"). The root lays out in panel pixels, input arrives in panel
+  pixels, and the viewport draws them at the texel scale. `transparentBg = true`, so the panel can be any shape.
+  `renderTargetUpdateMode = UpdateAlways`; the default `UpdateWhenVisible` should stop the panel rendering off-screen,
+  but it was not tried here, so test the first frame if you switch. A `SubViewport` is not a `Container`: set the
+  root's `size` to the panel size (the override's, not `size`) yourself.
 - **Material**: a `StandardMaterial3D`, `ShadingModeUnshaded`, `albedoTexture = viewport.getTexture()`,
   `TransparencyAlpha`, **`BlendModePremultAlpha`**. Canvas items drawn into a transparent viewport leave
   premultiplied colour on their antialiased edges; the default blend scales it by alpha again and
@@ -185,20 +188,32 @@ are unchanged.
 
 - **Panel pixels per screen pixel.** The panel is `480x320`; with the camera at `z = 2.6` and a 50
   degree field of view the 360-pixel card is drawn 342 screen pixels wide at 1120x800 (0.95 screen
-  pixel per panel pixel) and 385 wide at 600x900 (1.07), so the texture is sampled almost 1:1 and text
-  is as crisp as in a normal root. Choose the `SubViewport` size from the quad's footprint on screen
-  (distance, field of view, window size); the root lays out in those pixels.
-- **High-DPI.** On Web at DPR 2 (`contentScaleFactor` 2, as in `main.ts`) the same quad covers about
-  twice as many physical pixels, so the 480-pixel texture is magnified about 2x and the text is softer
-  (`artifacts/web-world-verification/retina-portrait/*.png`, inspected: legible, visibly soft next to the
-  DPR 1 captures). To keep it sharp, size the panel for the physical footprint and author its
-  layout at that size.
-- **`size2DOverrideStretch` does not fix it.** Tried at 2x (`size` 960x640, `size2DOverride` 480x320,
-  stretch on): input still maps correctly (the whole native verifier passed, because input positions
-  are in the override's logical 480x320 space), the texture is 960x640, but the text was not
-  re-rasterised at 2x: the glyphs in it are softer than the 1x texture scaled up (mean absolute
-  difference 2.2 of 255 from a bicubic upscale of the 1x raster; peak gradient 70 against 139). Why
-  the native text path ignores the viewport's oversampling here was not investigated.
+  pixel per panel pixel) and 385 wide at 600x900 (1.07), so a panel pixel is about a screen pixel.
+  Choose the panel size from the quad's footprint on screen (distance, field of view, window size); the
+  root lays out in those pixels.
+- **Texels per panel pixel.** On a screen with `devicePixelRatio` 2 the same quad covers about twice as many *device*
+  pixels, so a 480x320 texture is magnified about 2x and soft. Render the panel at more texels instead of laying it
+  out larger: `size2DOverride` = the panel's pixels, `size2DOverrideStretch = true`, `size` = the panel's pixels times
+  the texel scale. The demo's owner takes the scale from the window it is in (`Window.contentScaleFactor`, which it
+  already sets from `DisplayServer.screenGetScale()` on the Web), so a panel about as big on screen as its panel is
+  as sharp as the screen. `WorldMain.updatePanelResolution` does it each frame; `godotReactWorld.setPanelPixelScale(n)`
+  fixes it for a test. The texture is `PANEL_WIDTH * n` by `PANEL_HEIGHT * n` and everything else is unchanged:
+  input positions are in the override's panel pixels (the verifier clicks a button, types in the field and places the
+  caret through the quad at scale 2), `panelPixelAt` and `screenPointOf` do not change.
+- **Why that makes the text sharp.** A viewport's font oversampling is its size over its 2D override when the stretch is on
+  (`Viewport::_set_size`), so the panel's viewport has an oversampling of 2, and the root draws its glyphs at the
+  viewport's oversampling (`docs/tracks/hidpi.md`): a 2x raster for a 2x texture. The first version of this recipe tried
+  the same override and found the text soft ("the glyphs in it are softer than the 1x texture scaled up"): the root
+  then drew its text with no oversampling at all, outside Godot's `_draw`, so the texture held a 1x raster scaled up by
+  the viewport. Read from the raster now: the digit in the panel at scale 2 has a peak edge step of 0.81 (the same
+  digit at scale 1: 0.88, a scale-1 texture upscaled to 2x: 0.44), and the caret of the field is two texels wide.
+- **The window's scale does not reach the panel.** A root draws at the oversampling of *its* viewport. A node in a
+  `SubViewport` that is not stretched has an oversampling of 1 however the window around it is scaled
+  (`get_window()` from inside the `SubViewport` is the main window, which is why the rule is not "the larger of the
+  viewport's and the window's"), so a 1x panel in a window at content scale 2 is drawn exactly as in a window at 1: the
+  verifier compares the two rasters.
+- **A change of scale needs no commit.** Setting `setPanelPixelScale(1)` then `(2)` changes the viewport's size, hence its
+  oversampling, and the root repaints its text at the new scale on the viewport's redraw request with no React render.
 - **Minification.** A viewport texture has no mipmaps and the material uses linear filtering, so a quad
   much smaller on screen than its panel will shimmer. Not exercised here.
 

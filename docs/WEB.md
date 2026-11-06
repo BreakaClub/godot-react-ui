@@ -26,10 +26,13 @@ The demo keeps `Window.contentScaleMode` disabled and sets its
 `contentScaleFactor` to `DisplayServer.screenGetScale()` on Web. Godot's Web
 display server sizes the backing canvas in device pixels; its Window then divides
 the logical viewport by this factor and transforms input back to logical units.
-The render target stays at full resolution, and CanvasItem supplies the viewport
-oversampling factor to native text drawing. The owner checks the live ratio each
-frame so browser zoom and display changes are handled even when the backing size
-does not change. Browser verification covers both DPR 1 and DPR 2 at landscape
+The render target stays at full resolution. The viewport carries the factor as its
+font oversampling, and native reads it from there and passes it to every text and
+rounded-edge draw it records (Godot supplies it only to a `CanvasItem` drawing in
+`_draw`, and the root records its own canvas items). The owner checks the live
+ratio each frame so browser zoom and display changes are handled even when the
+backing size does not change; native repaints on the viewport's redraw request, so
+text is redrawn at the new ratio without a commit (`docs/tracks/hidpi.md`). Browser verification covers both DPR 1 and DPR 2 at landscape
 and portrait sizes, plus real touch input.
 
 The source shell `demo/web-shell.html` passes `--audio-driver Dummy` to the Web
