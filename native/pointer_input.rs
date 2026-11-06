@@ -269,7 +269,7 @@ impl ReactUiRoot {
         }
         if let Some(press) = press
             && !dragged_thumb
-            && let Some(target) = self.click_target(press.target, self.pointer, hit, capture)
+            && let Some(target) = self.click_target(press.target, hit, capture)
         {
             let data = self.mouse_pointer_data(button, press.detail, None);
             if primary {
@@ -291,12 +291,11 @@ impl ReactUiRoot {
     /// asked to capture clicks that element, if the press began inside it. Otherwise it is the nearest
     /// common inclusive ancestor of the press target and the element the pointer was released over
     /// (`pointer::click_target_of`), mouse and touch alike: a press on a row's text that lifts on the
-    /// row's padding clicks the row. A release over nothing, beyond the root (where an overflowing
-    /// element could still be under the pointer) or on a disabled element clicks nothing.
+    /// row's padding clicks the row. A release over nothing (which includes beyond the root, where
+    /// nothing is hit) or on a disabled element clicks nothing.
     fn click_target(
         &self,
         press_target: u32,
-        release_at: Vector2,
         release_hit: Option<u32>,
         capture: Option<Capture>,
     ) -> Option<u32> {
@@ -310,9 +309,6 @@ impl ReactUiRoot {
                 .path_of(press_target)
                 .contains(&target)
                 .then_some(target);
-        }
-        if !self.viewport_box().contains(release_at) {
-            return None;
         }
         click_target_of(&self.mounted, press_target, release_hit?)
     }
@@ -390,9 +386,7 @@ impl ReactUiRoot {
         }
         self.leave_touch(id, position, press.target);
         self.text_input_pointer_up(hit);
-        if !stopped_a_fling
-            && let Some(target) = self.click_target(press.target, position, hit, capture)
-        {
+        if !stopped_a_fling && let Some(target) = self.click_target(press.target, hit, capture) {
             let data = self.touch_pointer_data(position, id, DOM_BUTTON_PRIMARY, 0, press.detail);
             self.queue(target, EventPayload::Click(data));
             if press.detail == DOUBLE_CLICK_DETAIL {

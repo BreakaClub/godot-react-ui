@@ -448,9 +448,9 @@ One record per pointer id (`native/pointer_state.rs`, unit tested): the mouse is
   `detail` on `click`, `auxclick` and `dblclick` is the count of the press. A click goes to the nearest common
   inclusive ancestor of the element pressed and the element the pointer was released over, mouse and touch alike (two
   parts of one enabled button click the button itself); a pointer an element captured clicks that element if the
-  press began inside it. Pressing a disabled element, releasing on one, releasing over nothing or beyond the root,
-  or releasing over an element with no ancestor in common with the pressed one (another layer or top-level
-  element) does not click.
+  press began inside it. Pressing a disabled element, releasing on one, releasing over nothing (beyond the root
+  nothing is hit, unless an element overflows it), or releasing over an element with no ancestor in common with
+  the pressed one (another layer or top-level element) does not click.
 - **Touch.** A finger that goes down queues `pointerenter` (no related element, so JS enters the whole path), then
   `pointerdown` (cancelable, `buttons` 1, `pointerType` `"touch"`) with the same default action as a mouse press
   (focus, or hand key focus back). The finger is captured to its `pointerdown` target for as long as it is down,
