@@ -7,6 +7,11 @@ export interface AxNode {
   attributeNames?: string[]; verticalScrollBar?: AxNode; horizontalScrollBar?: AxNode;
   /** The actions the element advertises, by name (this tool never performs one). */
   actionNames?: string[];
+  /** A text field or text area only: placeholder, selected text and range, character count, visible range, caret line. */
+  placeholder?: string; selectedText?: string; selectedTextRange?: { location: number; length: number };
+  numberOfCharacters?: number; stringForRange?: string; visibleCharacterRange?: { location: number; length: number }; insertionPointLineNumber?: number;
+  /** The attributes the element could have set by an assistive technology (asked with `AXUIElementIsAttributeSettable`, never set). */
+  settableAttributeNames?: string[];
 }
 export type FlatNode = AxNode & { ancestors: AxNode[] };
 export function flatten(root: AxNode): FlatNode[];

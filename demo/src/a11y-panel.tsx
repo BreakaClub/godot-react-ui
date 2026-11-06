@@ -58,6 +58,7 @@ export function A11yPanel() {
       <TextInput testID="a11y-name" aria-label="Name" placeholder="Your name" defaultValue={A11Y_NAME_START} className={field} />
       <TextInput testID="a11y-notes" aria-label="Notes" multiline rows={2} defaultValue={A11Y_NOTES_START} className={`${field} h-auto`} />
       <TextInput testID="a11y-readonly" aria-label="Reference" readOnly defaultValue={A11Y_READONLY_TEXT} className={field} />
+      <TextInput testID="a11y-search" placeholder="Search" className={field} />
       <ScrollView testID="a11y-scroller" aria-label="Messages" className={scroller} contentClassName="p-2 gap-1">
         {Array.from({ length: A11Y_MESSAGE_COUNT }, (_, index) => (
           <Text key={index} testID={`a11y-message-${index + 1}`} className={caption}>{`Message ${index + 1}`}</Text>

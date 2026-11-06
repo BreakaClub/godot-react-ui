@@ -34,6 +34,7 @@ const RECTS: Record<string, Frame> = {
   'a11y-name': { x: 16, y: 530, width: 320, height: 42 },
   'a11y-notes': { x: 16, y: 584, width: 320, height: 72 },
   'a11y-readonly': { x: 16, y: 668, width: 320, height: 42 },
+  'a11y-search': { x: 16, y: 722, width: 320, height: 42 },
 };
 const IN_VIEW = ['a11y-message-1', 'a11y-message-2', 'a11y-message-3'];
 
@@ -74,9 +75,27 @@ function reading(phase: 0 | 1, variation: Variation = {}): Reading {
     ...(['a11y-message-1', 'a11y-message-2', 'a11y-message-3', 'a11y-message-4'] as const).map((id, index): [string, AxNode] => [
       id, { role: 'AXStaticText', value: `Message ${index + 1}`, actionNames: ['AXScrollToVisible'] },
     ]),
-    ['a11y-name', { role: 'AXTextField', description: 'Name', enabled: true, value: phase === 0 ? 'Ada' : 'Ada Lovelace' }],
-    ['a11y-notes', { role: 'AXTextArea', description: 'Notes', enabled: true, value: 'first\nsecond' }],
-    ['a11y-readonly', { role: 'AXTextField', description: 'Reference', value: 'Fixed' }],
+    ['a11y-name', {
+      role: 'AXTextField', title: 'Name', enabled: true, value: phase === 0 ? 'Ada' : 'Ada Lovelace',
+      numberOfCharacters: phase === 0 ? 3 : 12, selectedTextRange: phase === 0 ? { location: 3, length: 0 } : { location: 4, length: 8 },
+      selectedText: phase === 0 ? '' : 'Lovelace', insertionPointLineNumber: 0, stringForRange: phase === 0 ? 'Ada' : 'Ada Lovelace',
+      settableAttributeNames: ['AXFocused', 'AXSelectedTextRange', 'AXValue'],
+    }],
+    ['a11y-notes', {
+      role: 'AXTextArea', title: 'Notes', enabled: true, numberOfCharacters: 12, selectedTextRange: { location: 12, length: 0 },
+      selectedText: '', insertionPointLineNumber: 1, stringForRange: 'first\nsecond',
+      settableAttributeNames: ['AXFocused', 'AXSelectedTextRange', 'AXValue'],
+    }],
+    ['a11y-readonly', {
+      role: 'AXTextField', title: 'Reference', value: 'Fixed', numberOfCharacters: 5, stringForRange: 'Fixed',
+      selectedTextRange: phase === 0 ? { location: 5, length: 0 } : { location: 0, length: 5 }, selectedText: phase === 0 ? '' : 'Fixed',
+      insertionPointLineNumber: 0, settableAttributeNames: ['AXFocused', 'AXSelectedTextRange', 'AXValue'],
+    }],
+    ['a11y-search', {
+      role: 'AXTextField', title: 'Search', value: '', placeholder: 'Search', numberOfCharacters: 0, stringForRange: '',
+      selectedTextRange: { location: 0, length: 0 }, selectedText: '', insertionPointLineNumber: 0,
+      settableAttributeNames: ['AXFocused', 'AXSelectedTextRange', 'AXValue'],
+    }],
   ];
   const children = nodes.filter(([id]) => id !== variation.remove).map(([id, base]) => node(id, base));
   children.push({ role: 'AXStaticText', value: phase === 0 ? 'Saved 0 times' : 'Saved 1 times', frame: { x: 650, y: 560, width: 90, height: 12 } });
@@ -117,7 +136,7 @@ test('each way a reading can be wrong is named', () => {
   assert.ok(failuresOf({ extra: [{ role: 'AXButton', description: 'Hidden text' }] }).some(failure => failure.includes('"Hidden text"')));
 });
 
-test('a text field is a text field or a text area with its text, and a wrong reading of either is named', () => {
+test('a text field is a text field or a text area with its text, selection and placeholder, and a wrong reading of any is named', () => {
   const failuresOf = (variation: Variation, phase: 0 | 1 = 0) => checkElements(reading(phase, variation), phase, snapshots);
   assert.ok(failuresOf({ patch: { 'a11y-name': { value: 'Ada Lovelace' } } })
     .some(failure => failure === 'a11y-name: AXValue is "Ada Lovelace", expected "Ada"'), 'the text before the Godot-side edit');
@@ -128,6 +147,28 @@ test('a text field is a text field or a text area with its text, and a wrong rea
   assert.ok(failuresOf({ patch: { 'a11y-name': { role: 'AXStaticText' } } })
     .some(failure => failure.startsWith('a11y-name: expected one AXTextField named "Name", found 0')), 'a field exposed as static text');
   assert.ok(failuresOf({ remove: 'a11y-readonly' }).some(failure => failure.startsWith('a11y-readonly: expected one AXTextField')));
+  // The counts, the selection, the caret's line and the placeholder, each wrong in the way the double line break was.
+  assert.ok(failuresOf({ patch: { 'a11y-notes': { numberOfCharacters: 13 } } })
+    .some(failure => failure === 'a11y-notes: AXNumberOfCharacters is 13, expected 12'), 'a line break counted twice');
+  assert.ok(failuresOf({ patch: { 'a11y-notes': { stringForRange: 'first\n\nsecond' } } })
+    .some(failure => failure.startsWith('a11y-notes: the text read by range is')), 'the text of a text area is read by range');
+  assert.ok(failuresOf({ patch: { 'a11y-name': { selectedTextRange: { location: 0, length: 0 } } } })
+    .some(failure => failure.startsWith('a11y-name: AXSelectedTextRange is')), 'a selection that did not arrive');
+  assert.ok(failuresOf({ patch: { 'a11y-name': { selectedText: 'Ada' } } }, 1)
+    .some(failure => failure === 'a11y-name: AXSelectedText is "Ada", expected "Lovelace"'), 'the selected text');
+  assert.ok(failuresOf({ patch: { 'a11y-notes': { insertionPointLineNumber: 0 } } })
+    .some(failure => failure.startsWith('a11y-notes: AXInsertionPointLineNumber is 0')), 'the caret line of a text area');
+  assert.ok(failuresOf({ patch: { 'a11y-name': { placeholder: 'Your name' } } })
+    .some(failure => failure.startsWith('a11y-name: AXPlaceholderValue')), 'a placeholder that shows while the field has text');
+  assert.ok(failuresOf({ patch: { 'a11y-search': { placeholder: undefined } } })
+    .some(failure => failure.startsWith('a11y-search: AXPlaceholderValue')), 'an empty field with no placeholder');
+  assert.ok(failuresOf({ patch: { 'a11y-name': { settableAttributeNames: ['AXFocused'] } } })
+    .some(failure => failure.startsWith('a11y-name: an editable field should let AXValue')), 'an editable field that cannot be set');
+  // The gaps are notes, not failures.
+  const notes: string[] = [];
+  assert.deepEqual(checkElements(reading(0), 0, snapshots, notes), []);
+  assert.ok(notes.some(note => note.startsWith('a11y-notes: a text area has no AXValue')));
+  assert.ok(notes.some(note => note.startsWith('a11y-readonly: the platform does not say that a read-only field is read-only')));
 });
 
 test('a frame that does not agree with the others, or leaves the window, is reported', () => {
@@ -233,13 +274,50 @@ const RECORDED_POINTS_PER_PIXEL = 0.5;
 test('the recorded macOS tree of the lab passes, with what the engine cannot convey noted', () => {
   const notes: string[] = [];
   assert.deepEqual(checkElements(recordedReading('macos-after.json'), 1, recordedGeometry, notes), []);
-  assert.deepEqual(notes.map(note => note.split(':')[0]).sort(), ['a11y-scroller', 'a11y-scroller', 'a11y-scroller', 'a11y-scroller', 'a11y-select-all', 'a11y-size']);
+  assert.deepEqual(notes.map(note => note.split(':')[0]).sort(), ['a11y-notes', 'a11y-readonly', 'a11y-scroller', 'a11y-scroller', 'a11y-scroller', 'a11y-scroller', 'a11y-select-all', 'a11y-size']);
   for (const fragment of ['AXUnknown, not AXScrollArea', 'no scroll position or range', 'no scroll up, down, left, right or set-offset action', 'leaves out scroll view children']) {
     assert.ok(noteFor(notes, 'a11y-scroller', fragment), fragment);
   }
   // The same recording judged against the other phase is wrong in exactly the values the Godot-side input changed.
   const wrongPhase = checkElements(recordedReading('macos-after.json'), 0, recordedGeometry);
   assert.ok(wrongPhase.some(failure => failure.startsWith('a11y-volume-thumb: AXValue is 80, expected 30')), wrongPhase.join('\n'));
+});
+
+/** The text fields and text areas of a recorded reading, by title. */
+const recordedTextInputs = (reading: Reading): Map<string, AxNode> => new Map(
+  flatten(reading.tree).filter(node => node.role === 'AXTextField' || node.role === 'AXTextArea').map(node => [labelOf(node), node]),
+);
+
+test('the recorded text inputs read exactly as a stock LineEdit and TextEdit do through the same adapter', () => {
+  const ours = recordedTextInputs(recordedReading('macos-after.json'));
+  // The stock controls: a LineEdit and a read-only one, one with only a placeholder, and a TextEdit, in the same engine and adapter.
+  const stock = recordedTextInputs(recordedReading('macos-stock-controls.json'));
+  for (const name of ['Name', 'Notes', 'Reference', 'Search']) {
+    const mine = ours.get(name);
+    const control = stock.get(name);
+    assert.ok(mine && control, name);
+    for (const attribute of ['role', 'roleDescription', 'subrole', 'orientation', 'enabled'] as const) {
+      assert.equal(mine[attribute], control[attribute], `${name} ${attribute}`);
+    }
+    assert.deepEqual([...(mine.attributeNames ?? [])].sort(), [...(control.attributeNames ?? [])].sort(), `${name} attributes`);
+    assert.deepEqual(mine.settableAttributeNames, control.settableAttributeNames, `${name} settable attributes`);
+    assert.equal(mine.value === undefined, control.value === undefined, `${name} has an AXValue in the same cases`);
+  }
+  // What the adapter cannot convey, read from the controls, not from the library: a text area has no AXValue, and a read-only
+  // field is as settable as an editable one.
+  assert.equal(stock.get('Notes')?.value, undefined);
+  assert.ok(stock.get('Reference')?.settableAttributeNames?.includes('AXValue'));
+  // The count of characters of a two-line text is the text's length in both: a line break counted twice read 13 (observed).
+  assert.equal(ours.get('Notes')?.numberOfCharacters, 12);
+  assert.equal(ours.get('Notes')?.stringForRange, 'first\nsecond');
+  assert.equal(stock.get('Notes')?.numberOfCharacters, 12);
+  // A placeholder shows on the empty field, which a field with no label takes its name from, as the stock one does.
+  assert.equal(ours.get('Search')?.placeholder, 'Search');
+  assert.equal(stock.get('Search')?.placeholder, 'Search');
+  assert.equal(ours.get('Name')?.placeholder, undefined, 'a placeholder is not shown while the field has text');
+  // The selection of the last Godot-side step.
+  assert.deepEqual(ours.get('Name')?.selectedTextRange, { location: 4, length: 8 });
+  assert.equal(ours.get('Name')?.selectedText, 'Lovelace');
 });
 
 test('the recorded scroll view: AXUnknown with no scroll state, and a tree that follows every scroll to the pixel', () => {

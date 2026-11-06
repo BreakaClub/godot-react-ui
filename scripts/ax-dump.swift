@@ -110,6 +110,10 @@ func plain(_ value: CFTypeRef?) -> Any? {
             var rect = CGRect.zero
             AXValueGetValue(axValue, .cgRect, &rect)
             return ["x": rect.origin.x, "y": rect.origin.y, "width": rect.size.width, "height": rect.size.height]
+        case .cfRange:
+            var range = CFRange()
+            AXValueGetValue(axValue, .cfRange, &range)
+            return ["location": range.location, "length": range.length]
         default:
             return nil
         }
@@ -127,11 +131,37 @@ let attributes: [(String, String)] = [
     ("maxValue", "AXMaxValue"), ("orientation", "AXOrientation"), ("frame", "AXFrame"),
 ]
 
+/// What a text field or text area says of its text and selection, under the keys the wrapper looks for.
+let textAttributes: [(String, String)] = [
+    ("selectedText", "AXSelectedText"), ("selectedTextRange", "AXSelectedTextRange"),
+    ("numberOfCharacters", "AXNumberOfCharacters"), ("visibleCharacterRange", "AXVisibleCharacterRange"),
+    ("insertionPointLineNumber", "AXInsertionPointLineNumber"),
+]
+
 /// An element's own attribute names. For a scroll area this shows what the adapter exposes of its scrolling.
 func attributeNames(_ element: AXUIElement) -> [String]? {
     var names: CFArray?
     guard AXUIElementCopyAttributeNames(element, &names) == .success else { return nil }
     return names as? [String]
+}
+
+/// The text of a text field or area as the platform reads it by range (`AXStringForRange`), which is how a text area's text is read: the
+/// adapter gives a text area no `AXValue`. A parameterized attribute is a read: it takes a range and returns a string.
+func stringForRange(_ element: AXUIElement, length: Int) -> String? {
+    var range = CFRange(location: 0, length: length)
+    guard let argument = AXValueCreate(.cfRange, &range) else { return nil }
+    var value: CFTypeRef?
+    guard AXUIElementCopyParameterizedAttributeValue(element, "AXStringForRange" as CFString, argument, &value) == .success else { return nil }
+    return value as? String
+}
+
+/// The attributes of an element that an assistive technology could set (asked, never set: this tool performs no write).
+func settableAttributeNames(_ element: AXUIElement) -> [String]? {
+    guard let names = attributeNames(element) else { return nil }
+    return names.filter { name in
+        var settable: DarwinBoolean = false
+        return AXUIElementIsAttributeSettable(element, name as CFString, &settable) == .success && settable.boolValue
+    }
 }
 
 /// The actions an element advertises (names only: this tool never performs one).
@@ -168,6 +198,18 @@ func describe(_ element: AXUIElement, depth: Int) -> [String: Any] {
         if let value = plain(attribute(element, name)) { node[key] = value }
     }
     if let names = actionNames(element), !names.isEmpty { node["actionNames"] = names }
+    // A text field or text area: its text, selection and caret, and which attributes the adapter offers (a read-only field
+    // has no attribute of its own on macOS, so the names are what says what an assistive technology can do with it).
+    if let role = node["role"] as? String, role == "AXTextField" || role == "AXTextArea" || role == "AXComboBox" {
+        for (key, name) in textAttributes {
+            if let value = plain(attribute(element, name)) { node[key] = value }
+        }
+        if let count = node["numberOfCharacters"] as? Double, let text = stringForRange(element, length: Int(count)) {
+            node["stringForRange"] = text
+        }
+        if let names = attributeNames(element) { node["attributeNames"] = names }
+        if let settable = settableAttributeNames(element), !settable.isEmpty { node["settableAttributeNames"] = settable }
+    }
     // A scroll container may reach the platform as a scroll area or, if the adapter has no scroll area, as an unknown
     // element; either way its attribute names and scroll bars say what the adapter exposes of its scrolling.
     if let role = node["role"] as? String, role == "AXScrollArea" || role == "AXUnknown" {

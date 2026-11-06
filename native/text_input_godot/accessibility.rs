@@ -26,10 +26,13 @@ use godot::classes::accessibility_server::AccessibilityAction;
 use godot::prelude::*;
 
 use crate::ReactUiRoot;
-use crate::accessibility_model::{AxAction, AxBounds, AxTextField, line_for_offset};
+use crate::accessibility_model::{
+    AxAction, AxBounds, AxTextField, hard_line_of, hard_line_starts, line_for_offset,
+};
 use crate::text_input::EditCommand;
 
-use super::{TextInputState, sanitize_value, shaping::display_string};
+use super::shaping::{display_string, shape};
+use super::{TextInputState, sanitize_value};
 
 /// The method the text actions' callables call.
 const ACTION_METHOD: &str = "_on_accessibility_action";
@@ -107,38 +110,77 @@ impl ReactUiRoot {
         }
     }
 
-    /// Where each line of the display text is, in the field's own space, and the range of text it holds.
+    /// The rows of the display text, each hard line shaped on its own, as `TextEdit` shapes them: the server
+    /// reads a row's text from its shaped text and adds the line break itself, so a row shaped with its `\n`
+    /// would be read as a double break (observed: a two-line text read 13 characters, a stock `TextEdit` 12).
+    /// A row is placed from the display layout (where the input draws it) and read from the shaped row of
+    /// the same hard line; the two wrap alike, and a hard line that does not is an error, not a guess.
     fn text_line_placement(&self, tag: u32, field: &AxTextField) -> Result<LinePlacement, String> {
         let layout = self
             .display_layout(tag)
             .map_err(|error| error.to_string())?;
-        let state = self.text_state(tag).ok_or("it is not a text input")?;
-        let shaped = state.shaped.as_ref().ok_or("it has no shaped text")?;
-        let paragraph_lines = shaped.display.get_line_count();
-        let mut lines = Vec::new();
-        let mut paragraph_line = 0;
-        for line in layout.lines() {
-            // The empty line after a final hard break is not a line of the paragraph.
-            let shaped_text = if line.after_final_break || field.text.is_empty() {
-                None
+        let frame = self
+            .input_frame(tag)
+            .ok_or("it has no font to measure with")?;
+        let font = self.font.as_ref().ok_or("there is no font")?;
+        let font_size = self
+            .text_state(tag)
+            .and_then(|state| state.shaped.as_ref())
+            .ok_or("it has no shaped text")?
+            .font_size;
+        let characters: Vec<char> = field.text.chars().collect();
+        let starts = hard_line_starts(&field.text);
+        let mut display_rows: Vec<Vec<&crate::text_layout::Line>> = vec![Vec::new(); starts.len()];
+        for row in layout.lines() {
+            display_rows[hard_line_of(&starts, row.range.start)].push(row);
+        }
+        let mut rows = Vec::new();
+        let mut paragraphs = Vec::new();
+        for (hard_line, display) in display_rows.iter().enumerate() {
+            let begin = starts[hard_line];
+            let end = starts
+                .get(hard_line + 1)
+                .map_or(characters.len(), |next| next - 1);
+            let text: String = characters[begin..end].iter().collect();
+            // An empty hard line (and an empty field) is one row with no shaped text: the server makes
+            // the element and its line break from nothing.
+            let rids: Vec<Option<Rid>> = if text.is_empty() {
+                vec![None]
             } else {
-                let rid = shaped.display.get_line_rid(paragraph_line);
-                paragraph_line += 1;
-                Some(rid)
+                let mut paragraph = shape(font, &text, font_size, field.multiline);
+                frame.prepare(&mut paragraph);
+                let count = usize::try_from(paragraph.get_line_count()).unwrap_or(0);
+                let rids = (0..count)
+                    .map(|index| {
+                        Some(paragraph.get_line_rid(i32::try_from(index).unwrap_or(i32::MAX)))
+                    })
+                    .collect();
+                paragraphs.push(paragraph);
+                rids
             };
-            lines.push(PlacedLine {
-                range: line.range.clone(),
-                shaped_text,
-                origin: Vector2::new(line.origin.x, line.top()),
-                height: line.height(),
-            });
+            if rids.len() != display.len() {
+                return Err(format!(
+                    "hard line {hard_line} shapes into {} rows and the display draws {}",
+                    rids.len(),
+                    display.len()
+                ));
+            }
+            for (row, shaped_text) in display.iter().zip(rids) {
+                rows.push(PlacedRow {
+                    hard_line,
+                    column_range: row.range.start.saturating_sub(begin)
+                        ..row.range.end.saturating_sub(begin).min(end - begin),
+                    shaped_text,
+                    origin: Vector2::new(row.origin.x, row.top()),
+                    height: row.height(),
+                });
+            }
         }
-        if paragraph_line > paragraph_lines && paragraph_lines > 0 {
-            return Err(format!(
-                "the layout has more lines than the paragraph ({paragraph_line} of {paragraph_lines})"
-            ));
-        }
-        Ok(LinePlacement { lines })
+        Ok(LinePlacement {
+            rows,
+            starts,
+            _paragraphs: paragraphs,
+        })
     }
 
     fn place_text_lines(
@@ -153,22 +195,22 @@ impl ReactUiRoot {
         let existing = self.accessibility.text_lines.remove(&tag);
         let usable = existing
             .filter(|lines| {
-                lines.rids.len() == placement.lines.len()
+                lines.rids.len() == placement.rows.len()
                     && lines.rids.iter().all(|rid| server.has_element(*rid))
             })
             .unwrap_or_else(|| {
-                let last = placement.lines.len().saturating_sub(1);
+                let last = placement.rows.len().saturating_sub(1);
                 TextLineElements {
                     rids: placement
-                        .lines
+                        .rows
                         .iter()
                         .enumerate()
-                        .map(|(index, line)| {
+                        .map(|(index, row)| {
                             server
                                 .create_sub_text_edit_elements_ex(
                                     element,
-                                    line.shaped_text.unwrap_or(Rid::Invalid),
-                                    line.height,
+                                    row.shaped_text.unwrap_or(Rid::Invalid),
+                                    row.height,
                                 )
                                 .insert_pos(APPEND)
                                 .is_last_line(index == last)
@@ -177,34 +219,43 @@ impl ReactUiRoot {
                         .collect(),
                 }
             });
-        for (rid, line) in usable.rids.iter().zip(&placement.lines) {
-            // The field's element shares the root's space, so a line is placed by where it is in the
-            // root: the field's box, the line in the box, less how far the text is scrolled.
+        for (rid, row) in usable.rids.iter().zip(&placement.rows) {
+            // The field's element shares the root's space, so a row is placed by where it is in the
+            // root: the field's box, the row in the box, less how far the text is scrolled.
             let origin = Vector2::new(
-                bounds.x + line.origin.x - field.scroll.0,
-                bounds.y + line.origin.y - field.scroll.1,
+                bounds.x + row.origin.x - field.scroll.0,
+                bounds.y + row.origin.y - field.scroll.1,
             );
             server.update_set_transform(
                 *rid,
                 Transform2D::from_cols(Vector2::RIGHT, Vector2::DOWN, origin),
             );
         }
-        let ranges: Vec<_> = placement
-            .lines
-            .iter()
-            .map(|line| line.range.clone())
-            .collect();
+        // An end of the selection is a column in a hard line, on the element of the row that holds it.
         let end_of = |offset: usize| {
-            line_for_offset(&ranges, offset).and_then(|index| usable.rids.get(index).copied())
+            let hard_line = hard_line_of(&placement.starts, offset);
+            let column = offset.saturating_sub(placement.starts[hard_line]);
+            let indices: Vec<usize> = (0..placement.rows.len())
+                .filter(|index| placement.rows[*index].hard_line == hard_line)
+                .collect();
+            let ranges: Vec<_> = indices
+                .iter()
+                .map(|index| placement.rows[*index].column_range.clone())
+                .collect();
+            line_for_offset(&ranges, column)
+                .and_then(|row| usable.rids.get(indices[row]).copied())
+                .map(|rid| (rid, column))
         };
         let (anchor, focus) = field.selection;
-        if let (Some(anchor_line), Some(focus_line)) = (end_of(anchor), end_of(focus)) {
+        if let (Some((anchor_row, anchor_column)), Some((focus_row, focus_column))) =
+            (end_of(anchor), end_of(focus))
+        {
             server.update_set_text_selection(
                 element,
-                anchor_line,
-                signed(anchor),
-                focus_line,
-                signed(focus),
+                anchor_row,
+                signed(anchor_column),
+                focus_row,
+                signed(focus_column),
             );
         }
         self.accessibility.text_lines.insert(tag, usable);
@@ -300,17 +351,23 @@ impl ReactUiRoot {
     }
 }
 
-/// One line of the field's text: what it holds, the shaped line the platform reads it from, and where it is.
-struct PlacedLine {
-    range: std::ops::Range<usize>,
+/// One row of the field's text: the hard line it is in, the columns of that line it holds, the shaped row the
+/// platform reads it from, and where it is.
+struct PlacedRow {
+    hard_line: usize,
+    column_range: std::ops::Range<usize>,
     shaped_text: Option<Rid>,
-    /// The left end of the line's box and its top, in the field's border box.
+    /// The left end of the row's box and its top, in the field's border box.
     origin: Vector2,
     height: f32,
 }
 
 struct LinePlacement {
-    lines: Vec<PlacedLine>,
+    rows: Vec<PlacedRow>,
+    /// Where each hard line starts, in code points of the display text.
+    starts: Vec<usize>,
+    /// The shaped paragraphs the rows' RIDs belong to, alive until the elements are made.
+    _paragraphs: Vec<Gd<godot::classes::TextParagraph>>,
 }
 
 /// A character offset as the server counts it.

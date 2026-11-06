@@ -53,6 +53,8 @@ const SELECTED_FROM = 1;
 const SELECTED_TO = 3;
 const REPLACEMENT = 'XY';
 const NEW_VALUE = 'Ada Lovelace';
+/** Where "Lovelace" starts in it. */
+const LOVELACE_FROM = 4;
 
 /** `AccessibilityServer.AccessibilityScrollUnit`, which the platform adapter sends with a scroll action. */
 const SCROLL_UNIT_ITEM = 0;
@@ -217,6 +219,8 @@ export async function runA11yVerification(api: A11yInspection): Promise<void> {
     'The name field is a text input with its text and its label');
   assert(propsOf(api, 'a11y-notes').multiline === true && get(api, 'a11y-notes').textInput?.value === A11Y_NOTES_START, 'The notes field is a text area');
   assert(propsOf(api, 'a11y-readonly').readOnly === true, 'The reference field is read-only');
+  assert(get(api, 'a11y-search').textInput?.showingPlaceholder === true && isAbsent(propsOf(api, 'a11y-search').ariaLabel),
+    'The search field is empty, shows its placeholder and has no label of its own');
 
   // ---- The dump tool reaches this process whatever the engine exposes: the window is always there ----------
   const outline = await readTree(directory, 'ax-window.json', nodes => nodes.some(node => node.role === 'AXWindow'));
@@ -313,6 +317,9 @@ export async function runA11yVerification(api: A11yInspection): Promise<void> {
   assert(textOf('a11y-notes').value === 'one\ntwo\nthree', 'A set-value action gives a text area its line breaks');
   await assistiveAction(api, 'a11y-notes', ACTION_SET_VALUE, A11Y_NOTES_START);
   assert(textOf('a11y-notes').value === A11Y_NOTES_START, 'and puts them back');
+  // The platform reads this selection ("Lovelace") when it reads the tree again.
+  await assistiveAction(api, 'a11y-name', ACTION_SET_TEXT_SELECTION, GDictionary.create({ start_char: LOVELACE_FROM, end_char: NEW_VALUE.length }));
+  assert(textOf('a11y-name').selection.join() === `${LOVELACE_FROM},${NEW_VALUE.length}`, `A set-text-selection action selects a name: ${textOf('a11y-name').selection}`);
   await assistiveAction(api, 'a11y-name', ACTION_BLUR);
   // ---- Scroll actions on a scroll container, as the platform adapter would deliver them ---------------------------
   const scrollOf = (): NativeScrollState => {

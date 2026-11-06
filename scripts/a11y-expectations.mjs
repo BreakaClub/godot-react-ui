@@ -53,11 +53,22 @@ export const ELEMENTS = [
   { id: 'a11y-size-medium', label: 'Medium', roles: ['AXRadioButton'], value: [1, 0] },
   { id: 'a11y-size-large', label: 'Large', roles: ['AXRadioButton'], value: [0, 1] },
   { id: 'a11y-volume-thumb', label: 'Volume', roles: ['AXSlider'], value: [30, 80], range: [0, 100] },
-  // A text input is a text field (AXTextField) or a text area (AXTextArea); its text is its AXValue, which the Godot-side
-  // half changes with the assistive actions (replace selected text, set value). The read-only field cannot be edited.
-  { id: 'a11y-name', label: 'Name', roles: ['AXTextField'], enabled: true, text: ['Ada', 'Ada Lovelace'] },
-  { id: 'a11y-notes', label: 'Notes', roles: ['AXTextArea'], enabled: true, text: ['first\nsecond', 'first\nsecond'] },
-  { id: 'a11y-readonly', label: 'Reference', roles: ['AXTextField'], text: ['Fixed', 'Fixed'] },
+  // A text input is a text field (AXTextField) or a text area (AXTextArea). Its text is what the platform reads of it, its
+  // selection and caret are where the Godot-side half left them (a name edited and "Lovelace" selected, a read-only field
+  // selected whole), a placeholder shows only while the field is empty, and a field with no label is named by its placeholder.
+  // `line` is the caret's line. See checkTextField.
+  { id: 'a11y-name', label: 'Name', roles: ['AXTextField'], enabled: true, textField: {
+    text: ['Ada', 'Ada Lovelace'], selection: [[3, 0], [4, 8]], selected: ['', 'Lovelace'], line: [0, 0],
+  } },
+  { id: 'a11y-notes', label: 'Notes', roles: ['AXTextArea'], enabled: true, textField: {
+    text: ['first\nsecond', 'first\nsecond'], selection: [[12, 0], [12, 0]], selected: ['', ''], line: [1, 1], multiline: true,
+  } },
+  { id: 'a11y-readonly', label: 'Reference', roles: ['AXTextField'], textField: {
+    text: ['Fixed', 'Fixed'], selection: [[5, 0], [0, 5]], selected: ['', 'Fixed'], line: [0, 0], readOnly: true,
+  } },
+  { id: 'a11y-search', label: 'Search', roles: ['AXTextField'], textField: {
+    text: ['', ''], selection: [[0, 0], [0, 0]], selected: ['', ''], line: [0, 0], placeholder: 'Search',
+  } },
   // A scroll container is a SCROLL_VIEW. The macOS adapter has no scroll area role, so it is AXUnknown (SCROLL_ROLE_GAP);
   // AXScrollArea would be right if an adapter had one, and either is accepted, one noted.
   { id: 'a11y-scroller', label: 'Messages', roles: ['AXScrollArea', 'AXUnknown'], scroll: true },
@@ -97,9 +108,7 @@ export function checkElements(reading, phase, snapshots, notes = []) {
     if (expected.value !== undefined && numeric(node.value) !== expected.value[phase]) {
       failures.push(`${expected.id}: AXValue is ${JSON.stringify(node.value)}, expected ${expected.value[phase]}`);
     }
-    if (expected.text !== undefined && String(node.value ?? '') !== expected.text[phase]) {
-      failures.push(`${expected.id}: AXValue is ${JSON.stringify(node.value)}, expected ${JSON.stringify(expected.text[phase])}`);
-    }
+    if (expected.textField !== undefined) failures.push(...checkTextField(expected, node, phase, notes));
     if (expected.mixed) {
       // Conveyed (AXValue 2, or a description saying so) is a pass. Unchecked is what this engine can do, and is noted.
       // Anything else, a mixed checkbox that reads as checked above all, is wrong.
@@ -145,6 +154,57 @@ export function checkElements(reading, phase, snapshots, notes = []) {
     console.log(`GEOMETRY phase ${phase}: scale ${fit.scale.toFixed(3)}, offset ${fit.offsetX.toFixed(1)},${fit.offsetY.toFixed(1)}, residual ${fit.residual.toFixed(3)} points over ${pairs.length} elements`);
   } else {
     failures.push(`only ${pairs.length} elements could be compared with the snapshot geometry`);
+  }
+  return failures;
+}
+
+const TEXT_AREA_VALUE_GAP = 'a text area has no AXValue in the platform tree (a stock Godot TextEdit has none either); its text is read through AXStringForRange, which is checked';
+const READ_ONLY_GAP = 'the platform does not say that a read-only field is read-only: its AXValue stays settable, exactly as a stock LineEdit with editable off shows it, and the adapter offers no attribute for it';
+
+/**
+ * What the platform says of a text input: its text (the AXValue of a field; a text area has none, so the text read by range),
+ * the number of characters, the selection and what it selects, the caret's line, and the placeholder, which belongs to the
+ * field only while it is empty. A read-only field is noted as a gap, never failed: the adapter cannot convey it (READ_ONLY_GAP).
+ */
+function checkTextField(expected, node, phase, notes) {
+  const failures = [];
+  const field = expected.textField;
+  const text = field.text[phase];
+  const name = expected.id;
+  const byRange = node.stringForRange;
+  if (field.multiline) {
+    if (node.value !== undefined) notes.push(`${name}: the platform now gives a text area an AXValue (${JSON.stringify(node.value)}); judge it`);
+    else notes.push(`${name}: ${TEXT_AREA_VALUE_GAP}`);
+  } else if (String(node.value ?? '') !== text) {
+    failures.push(`${name}: AXValue is ${JSON.stringify(node.value)}, expected ${JSON.stringify(text)}`);
+  }
+  if (byRange !== undefined && byRange !== text) {
+    failures.push(`${name}: the text read by range is ${JSON.stringify(byRange)}, expected ${JSON.stringify(text)}`);
+  }
+  if (field.multiline && byRange === undefined) failures.push(`${name}: the platform could not read the text area's text by range`);
+  if (numeric(node.numberOfCharacters) !== text.length) {
+    failures.push(`${name}: AXNumberOfCharacters is ${JSON.stringify(node.numberOfCharacters)}, expected ${text.length}`);
+  }
+  const [location, length] = field.selection[phase];
+  if (node.selectedTextRange?.location !== location || node.selectedTextRange?.length !== length) {
+    failures.push(`${name}: AXSelectedTextRange is ${JSON.stringify(node.selectedTextRange)}, expected ${JSON.stringify({ location, length })}`);
+  }
+  if (String(node.selectedText ?? '') !== field.selected[phase]) {
+    failures.push(`${name}: AXSelectedText is ${JSON.stringify(node.selectedText)}, expected ${JSON.stringify(field.selected[phase])}`);
+  }
+  if (numeric(node.insertionPointLineNumber) !== field.line[phase]) {
+    failures.push(`${name}: AXInsertionPointLineNumber is ${JSON.stringify(node.insertionPointLineNumber)}, expected ${field.line[phase]}`);
+  }
+  if (field.placeholder !== undefined ? node.placeholder !== field.placeholder : (node.placeholder ?? '') !== '') {
+    failures.push(`${name}: AXPlaceholderValue is ${JSON.stringify(node.placeholder)}, expected ${JSON.stringify(field.placeholder ?? '')}`);
+  }
+  const settable = node.settableAttributeNames;
+  if (settable !== undefined) {
+    if (field.readOnly) {
+      if (settable.includes('AXValue')) notes.push(`${name}: ${READ_ONLY_GAP}`);
+    } else if (!settable.includes('AXValue') || !settable.includes('AXSelectedTextRange')) {
+      failures.push(`${name}: an editable field should let AXValue and AXSelectedTextRange be set, it offers ${JSON.stringify(settable)}`);
+    }
   }
   return failures;
 }

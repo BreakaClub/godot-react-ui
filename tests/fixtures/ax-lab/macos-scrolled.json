@@ -1,6 +1,20 @@
 {
-  "nodes" : 30,
-  "pid" : 43609,
+  "focusedElement" : {
+    "enabled" : true,
+    "frame" : {
+      "height" : 0,
+      "width" : 0,
+      "x" : 0,
+      "y" : 1117
+    },
+    "orientation" : "AXUnknownOrientation",
+    "role" : "AXUnknown",
+    "roleDescription" : "unknown",
+    "subrole" : "AXUnknown",
+    "title" : "SceneLauncher"
+  },
+  "nodes" : 35,
+  "pid" : 57330,
   "tree" : {
     "children" : [
       {
@@ -11,6 +25,50 @@
           {
             "children" : [
               {
+                "attributeNames" : [
+                  "AXFocused",
+                  "AXFrame",
+                  "AXChildrenInNavigationOrder",
+                  "AXSelectedChildren",
+                  "AXTitle",
+                  "AXMaxValue",
+                  "AXLinkedUIElements",
+                  "AXRequired",
+                  "AXMinValue",
+                  "AXEnabled",
+                  "AXPlaceholderValue",
+                  "AXHelp",
+                  "AXChildren",
+                  "AXRole",
+                  "AXParent",
+                  "AXTopLevelUIElement",
+                  "AXSubrole",
+                  "AXOrientation",
+                  "AXValue",
+                  "AXRoleDescription",
+                  "AXIdentifier",
+                  "AXWindow",
+                  "AXSize",
+                  "AXPosition"
+                ],
+                "children" : [
+
+                ],
+                "enabled" : true,
+                "focused" : true,
+                "frame" : {
+                  "height" : 0,
+                  "width" : 0,
+                  "x" : 0,
+                  "y" : 1117
+                },
+                "orientation" : "AXUnknownOrientation",
+                "role" : "AXUnknown",
+                "roleDescription" : "unknown",
+                "subrole" : "AXUnknown",
+                "title" : "SceneLauncher"
+              },
+              {
                 "children" : [
 
                 ],
@@ -20,7 +78,7 @@
                   "height" : 14,
                   "width" : 434,
                   "x" : 647,
-                  "y" : 408
+                  "y" : 358
                 },
                 "orientation" : "AXUnknownOrientation",
                 "role" : "AXStaticText",
@@ -38,7 +96,7 @@
                   "height" : 10,
                   "width" : 434,
                   "x" : 647,
-                  "y" : 428
+                  "y" : 378
                 },
                 "orientation" : "AXUnknownOrientation",
                 "role" : "AXStaticText",
@@ -59,7 +117,7 @@
                   "height" : 20.5,
                   "width" : 35,
                   "x" : 647,
-                  "y" : 444
+                  "y" : 394
                 },
                 "orientation" : "AXUnknownOrientation",
                 "role" : "AXButton",
@@ -77,7 +135,7 @@
                   "height" : 20.5,
                   "width" : 42.5,
                   "x" : 686,
-                  "y" : 444
+                  "y" : 394
                 },
                 "orientation" : "AXUnknownOrientation",
                 "role" : "AXButton",
@@ -95,7 +153,7 @@
                   "height" : 10,
                   "width" : 434,
                   "x" : 647,
-                  "y" : 470.5
+                  "y" : 420.5
                 },
                 "orientation" : "AXUnknownOrientation",
                 "role" : "AXStaticText",
@@ -116,7 +174,7 @@
                   "height" : 11.5,
                   "width" : 434,
                   "x" : 647,
-                  "y" : 486.5
+                  "y" : 436.5
                 },
                 "orientation" : "AXUnknownOrientation",
                 "role" : "AXCheckBox",
@@ -138,7 +196,7 @@
                   "height" : 11.5,
                   "width" : 434,
                   "x" : 647,
-                  "y" : 504
+                  "y" : 454
                 },
                 "orientation" : "AXUnknownOrientation",
                 "role" : "AXCheckBox",
@@ -160,7 +218,7 @@
                   "height" : 12,
                   "width" : 434,
                   "x" : 647,
-                  "y" : 521.5
+                  "y" : 471.5
                 },
                 "orientation" : "AXUnknownOrientation",
                 "role" : "AXCheckBox",
@@ -182,7 +240,7 @@
                   "height" : 16.5,
                   "width" : 48.5,
                   "x" : 647,
-                  "y" : 539.5
+                  "y" : 489.5
                 },
                 "orientation" : "AXUnknownOrientation",
                 "role" : "AXRadioButton",
@@ -205,7 +263,7 @@
                   "height" : 16.5,
                   "width" : 59,
                   "x" : 699.5,
-                  "y" : 539.5
+                  "y" : 489.5
                 },
                 "orientation" : "AXUnknownOrientation",
                 "role" : "AXRadioButton",
@@ -228,7 +286,7 @@
                   "height" : 16.5,
                   "width" : 48.5,
                   "x" : 762.5,
-                  "y" : 539.5
+                  "y" : 489.5
                 },
                 "orientation" : "AXUnknownOrientation",
                 "role" : "AXRadioButton",
@@ -252,7 +310,7 @@
                   "height" : 10,
                   "width" : 10,
                   "x" : 767,
-                  "y" : 563
+                  "y" : 513
                 },
                 "maxValue" : 100,
                 "minValue" : 0,
@@ -266,16 +324,20 @@
               {
                 "attributeNames" : [
                   "AXFocused",
-                  "AXChildrenInNavigationOrder",
-                  "AXTitle",
-                  "AXSelectedChildren",
                   "AXFrame",
+                  "AXChildrenInNavigationOrder",
+                  "AXSelectedChildren",
+                  "AXTitle",
+                  "AXInsertionPointLineNumber",
+                  "AXMaxValue",
                   "AXLinkedUIElements",
                   "AXRequired",
                   "AXMinValue",
-                  "AXPlaceholderValue",
+                  "AXNumberOfCharacters",
                   "AXEnabled",
-                  "AXMaxValue",
+                  "AXPlaceholderValue",
+                  "AXSelectedText",
+                  "AXSelectedTextRange",
                   "AXHelp",
                   "AXChildren",
                   "AXRole",
@@ -284,8 +346,252 @@
                   "AXSubrole",
                   "AXOrientation",
                   "AXValue",
-                  "AXIdentifier",
                   "AXRoleDescription",
+                  "AXIdentifier",
+                  "AXWindow",
+                  "AXSize",
+                  "AXPosition"
+                ],
+                "children" : [
+
+                ],
+                "enabled" : true,
+                "focused" : false,
+                "frame" : {
+                  "height" : 20.5,
+                  "width" : 160,
+                  "x" : 647,
+                  "y" : 530
+                },
+                "insertionPointLineNumber" : 0,
+                "numberOfCharacters" : 12,
+                "orientation" : "AXUnknownOrientation",
+                "role" : "AXTextField",
+                "roleDescription" : "text field",
+                "selectedText" : "Lovelace",
+                "selectedTextRange" : {
+                  "length" : 8,
+                  "location" : 4
+                },
+                "settableAttributeNames" : [
+                  "AXFocused",
+                  "AXSelectedTextRange",
+                  "AXValue"
+                ],
+                "stringForRange" : "Ada Lovelace",
+                "subrole" : "AXUnknown",
+                "title" : "Name",
+                "value" : "Ada Lovelace"
+              },
+              {
+                "attributeNames" : [
+                  "AXFocused",
+                  "AXFrame",
+                  "AXChildrenInNavigationOrder",
+                  "AXSelectedChildren",
+                  "AXTitle",
+                  "AXInsertionPointLineNumber",
+                  "AXMaxValue",
+                  "AXLinkedUIElements",
+                  "AXRequired",
+                  "AXMinValue",
+                  "AXNumberOfCharacters",
+                  "AXEnabled",
+                  "AXPlaceholderValue",
+                  "AXSelectedText",
+                  "AXSelectedTextRange",
+                  "AXHelp",
+                  "AXChildren",
+                  "AXRole",
+                  "AXParent",
+                  "AXTopLevelUIElement",
+                  "AXSubrole",
+                  "AXOrientation",
+                  "AXValue",
+                  "AXRoleDescription",
+                  "AXIdentifier",
+                  "AXWindow",
+                  "AXSize",
+                  "AXPosition"
+                ],
+                "children" : [
+
+                ],
+                "enabled" : true,
+                "focused" : false,
+                "frame" : {
+                  "height" : 32,
+                  "width" : 160,
+                  "x" : 647,
+                  "y" : 556.5
+                },
+                "insertionPointLineNumber" : 1,
+                "numberOfCharacters" : 12,
+                "orientation" : "AXUnknownOrientation",
+                "role" : "AXTextArea",
+                "roleDescription" : "text entry area",
+                "selectedText" : "",
+                "selectedTextRange" : {
+                  "length" : 0,
+                  "location" : 12
+                },
+                "settableAttributeNames" : [
+                  "AXFocused",
+                  "AXSelectedTextRange",
+                  "AXValue"
+                ],
+                "stringForRange" : "first\nsecond",
+                "subrole" : "AXUnknown",
+                "title" : "Notes"
+              },
+              {
+                "attributeNames" : [
+                  "AXFocused",
+                  "AXFrame",
+                  "AXChildrenInNavigationOrder",
+                  "AXSelectedChildren",
+                  "AXTitle",
+                  "AXInsertionPointLineNumber",
+                  "AXMaxValue",
+                  "AXLinkedUIElements",
+                  "AXRequired",
+                  "AXMinValue",
+                  "AXNumberOfCharacters",
+                  "AXEnabled",
+                  "AXPlaceholderValue",
+                  "AXSelectedText",
+                  "AXSelectedTextRange",
+                  "AXHelp",
+                  "AXChildren",
+                  "AXRole",
+                  "AXParent",
+                  "AXTopLevelUIElement",
+                  "AXSubrole",
+                  "AXOrientation",
+                  "AXValue",
+                  "AXRoleDescription",
+                  "AXIdentifier",
+                  "AXWindow",
+                  "AXSize",
+                  "AXPosition"
+                ],
+                "children" : [
+
+                ],
+                "enabled" : true,
+                "focused" : false,
+                "frame" : {
+                  "height" : 20.5,
+                  "width" : 160,
+                  "x" : 647,
+                  "y" : 594.5
+                },
+                "insertionPointLineNumber" : 0,
+                "numberOfCharacters" : 5,
+                "orientation" : "AXUnknownOrientation",
+                "role" : "AXTextField",
+                "roleDescription" : "text field",
+                "selectedText" : "Fixed",
+                "selectedTextRange" : {
+                  "length" : 5,
+                  "location" : 0
+                },
+                "settableAttributeNames" : [
+                  "AXFocused",
+                  "AXSelectedTextRange",
+                  "AXValue"
+                ],
+                "stringForRange" : "Fixed",
+                "subrole" : "AXUnknown",
+                "title" : "Reference",
+                "value" : "Fixed"
+              },
+              {
+                "attributeNames" : [
+                  "AXFocused",
+                  "AXFrame",
+                  "AXChildrenInNavigationOrder",
+                  "AXSelectedChildren",
+                  "AXTitle",
+                  "AXInsertionPointLineNumber",
+                  "AXMaxValue",
+                  "AXLinkedUIElements",
+                  "AXRequired",
+                  "AXMinValue",
+                  "AXNumberOfCharacters",
+                  "AXEnabled",
+                  "AXPlaceholderValue",
+                  "AXSelectedText",
+                  "AXSelectedTextRange",
+                  "AXHelp",
+                  "AXChildren",
+                  "AXRole",
+                  "AXParent",
+                  "AXTopLevelUIElement",
+                  "AXSubrole",
+                  "AXOrientation",
+                  "AXValue",
+                  "AXRoleDescription",
+                  "AXIdentifier",
+                  "AXWindow",
+                  "AXSize",
+                  "AXPosition"
+                ],
+                "children" : [
+
+                ],
+                "enabled" : true,
+                "focused" : false,
+                "frame" : {
+                  "height" : 20.5,
+                  "width" : 160,
+                  "x" : 647,
+                  "y" : 621
+                },
+                "insertionPointLineNumber" : 0,
+                "numberOfCharacters" : 0,
+                "orientation" : "AXUnknownOrientation",
+                "placeholder" : "Search",
+                "role" : "AXTextField",
+                "roleDescription" : "text field",
+                "selectedText" : "",
+                "selectedTextRange" : {
+                  "length" : 0,
+                  "location" : 0
+                },
+                "settableAttributeNames" : [
+                  "AXFocused",
+                  "AXSelectedTextRange",
+                  "AXValue"
+                ],
+                "stringForRange" : "",
+                "subrole" : "AXUnknown",
+                "title" : "Search",
+                "value" : ""
+              },
+              {
+                "attributeNames" : [
+                  "AXFocused",
+                  "AXFrame",
+                  "AXChildrenInNavigationOrder",
+                  "AXSelectedChildren",
+                  "AXTitle",
+                  "AXMaxValue",
+                  "AXLinkedUIElements",
+                  "AXRequired",
+                  "AXMinValue",
+                  "AXEnabled",
+                  "AXPlaceholderValue",
+                  "AXHelp",
+                  "AXChildren",
+                  "AXRole",
+                  "AXParent",
+                  "AXTopLevelUIElement",
+                  "AXSubrole",
+                  "AXOrientation",
+                  "AXValue",
+                  "AXRoleDescription",
+                  "AXIdentifier",
                   "AXWindow",
                   "AXSize",
                   "AXPosition"
@@ -304,7 +610,7 @@
                       "height" : 10,
                       "width" : 151,
                       "x" : 651.5,
-                      "y" : 564.5
+                      "y" : 632
                     },
                     "orientation" : "AXUnknownOrientation",
                     "role" : "AXStaticText",
@@ -325,7 +631,7 @@
                       "height" : 10,
                       "width" : 151,
                       "x" : 651.5,
-                      "y" : 576.5
+                      "y" : 644
                     },
                     "orientation" : "AXUnknownOrientation",
                     "role" : "AXStaticText",
@@ -346,7 +652,7 @@
                       "height" : 10,
                       "width" : 151,
                       "x" : 651.5,
-                      "y" : 588.5
+                      "y" : 656
                     },
                     "orientation" : "AXUnknownOrientation",
                     "role" : "AXStaticText",
@@ -367,7 +673,7 @@
                       "height" : 10,
                       "width" : 151,
                       "x" : 651.5,
-                      "y" : 600.5
+                      "y" : 668
                     },
                     "orientation" : "AXUnknownOrientation",
                     "role" : "AXStaticText",
@@ -388,7 +694,7 @@
                       "height" : 10,
                       "width" : 151,
                       "x" : 651.5,
-                      "y" : 612.5
+                      "y" : 680
                     },
                     "orientation" : "AXUnknownOrientation",
                     "role" : "AXStaticText",
@@ -409,7 +715,7 @@
                       "height" : 10,
                       "width" : 151,
                       "x" : 651.5,
-                      "y" : 624.5
+                      "y" : 692
                     },
                     "orientation" : "AXUnknownOrientation",
                     "role" : "AXStaticText",
@@ -430,7 +736,7 @@
                       "height" : 10,
                       "width" : 151,
                       "x" : 651.5,
-                      "y" : 636.5
+                      "y" : 704
                     },
                     "orientation" : "AXUnknownOrientation",
                     "role" : "AXStaticText",
@@ -445,7 +751,7 @@
                   "height" : 48,
                   "width" : 160,
                   "x" : 647,
-                  "y" : 580
+                  "y" : 647.5
                 },
                 "orientation" : "AXUnknownOrientation",
                 "role" : "AXUnknown",
@@ -474,10 +780,10 @@
             "enabled" : true,
             "focused" : false,
             "frame" : {
-              "height" : 350,
+              "height" : 450,
               "width" : 450,
               "x" : 639,
-              "y" : 400
+              "y" : 350
             },
             "orientation" : "AXUnknownOrientation",
             "role" : "AXGroup",
@@ -497,7 +803,7 @@
               "height" : 16,
               "width" : 16,
               "x" : 647,
-              "y" : 376
+              "y" : 326
             },
             "role" : "AXButton",
             "roleDescription" : "close button",
@@ -521,7 +827,7 @@
                       "height" : 14,
                       "width" : 14,
                       "x" : 694,
-                      "y" : 377
+                      "y" : 327
                     },
                     "role" : "AXGroup",
                     "roleDescription" : "group"
@@ -532,7 +838,7 @@
                   "height" : 14,
                   "width" : 14,
                   "x" : 694,
-                  "y" : 377
+                  "y" : 327
                 },
                 "role" : "AXGroup",
                 "roleDescription" : "group"
@@ -544,7 +850,7 @@
               "height" : 16,
               "width" : 16,
               "x" : 693,
-              "y" : 376
+              "y" : 326
             },
             "help" : "this button also has an action to zoom the window",
             "role" : "AXButton",
@@ -564,7 +870,7 @@
               "height" : 16,
               "width" : 16,
               "x" : 670,
-              "y" : 376
+              "y" : 326
             },
             "role" : "AXButton",
             "roleDescription" : "minimize button",
@@ -580,7 +886,7 @@
               "height" : 16,
               "width" : 291,
               "x" : 721,
-              "y" : 376
+              "y" : 326
             },
             "role" : "AXStaticText",
             "roleDescription" : "text",
@@ -589,10 +895,10 @@
         ],
         "focused" : false,
         "frame" : {
-          "height" : 382,
+          "height" : 482,
           "width" : 450,
           "x" : 639,
-          "y" : 368
+          "y" : 318
         },
         "role" : "AXWindow",
         "roleDescription" : "standard window",

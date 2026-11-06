@@ -119,10 +119,42 @@
       "height": 24
     }
   },
+  "a11y-name": {
+    "rect": {
+      "x": 16,
+      "y": 360,
+      "width": 320,
+      "height": 41
+    }
+  },
+  "a11y-notes": {
+    "rect": {
+      "x": 16,
+      "y": 413,
+      "width": 320,
+      "height": 64
+    }
+  },
+  "a11y-readonly": {
+    "rect": {
+      "x": 16,
+      "y": 489,
+      "width": 320,
+      "height": 41
+    }
+  },
+  "a11y-search": {
+    "rect": {
+      "x": 16,
+      "y": 542,
+      "width": 320,
+      "height": 41
+    }
+  },
   "a11y-message-1": {
     "rect": {
       "x": 25,
-      "y": 361,
+      "y": 596,
       "width": 302,
       "height": 20
     }
@@ -130,7 +162,7 @@
   "a11y-message-2": {
     "rect": {
       "x": 25,
-      "y": 385,
+      "y": 620,
       "width": 302,
       "height": 20
     }
@@ -138,7 +170,7 @@
   "a11y-message-3": {
     "rect": {
       "x": 25,
-      "y": 409,
+      "y": 644,
       "width": 302,
       "height": 20
     }
@@ -146,7 +178,7 @@
   "a11y-message-4": {
     "rect": {
       "x": 25,
-      "y": 433,
+      "y": 668,
       "width": 302,
       "height": 20
     }
@@ -154,7 +186,7 @@
   "a11y-message-5": {
     "rect": {
       "x": 25,
-      "y": 457,
+      "y": 692,
       "width": 302,
       "height": 20
     }
@@ -162,7 +194,7 @@
   "a11y-message-6": {
     "rect": {
       "x": 25,
-      "y": 481,
+      "y": 716,
       "width": 302,
       "height": 20
     }
@@ -170,7 +202,7 @@
   "a11y-message-7": {
     "rect": {
       "x": 25,
-      "y": 505,
+      "y": 740,
       "width": 302,
       "height": 20
     }
@@ -178,7 +210,7 @@
   "a11y-message-8": {
     "rect": {
       "x": 25,
-      "y": 529,
+      "y": 764,
       "width": 302,
       "height": 20
     }
@@ -186,7 +218,7 @@
   "a11y-message-9": {
     "rect": {
       "x": 25,
-      "y": 553,
+      "y": 788,
       "width": 302,
       "height": 20
     }
@@ -194,7 +226,7 @@
   "a11y-message-10": {
     "rect": {
       "x": 25,
-      "y": 577,
+      "y": 812,
       "width": 302,
       "height": 20
     }
@@ -202,7 +234,7 @@
   "a11y-message-11": {
     "rect": {
       "x": 25,
-      "y": 601,
+      "y": 836,
       "width": 302,
       "height": 20
     }
@@ -210,7 +242,7 @@
   "a11y-message-12": {
     "rect": {
       "x": 25,
-      "y": 625,
+      "y": 860,
       "width": 302,
       "height": 20
     }
@@ -218,7 +250,7 @@
   "a11y-scroll-end": {
     "rect": {
       "x": 25,
-      "y": 649,
+      "y": 884,
       "width": 302,
       "height": 41
     }
@@ -226,7 +258,7 @@
   "a11y-scroller": {
     "rect": {
       "x": 16,
-      "y": 360,
+      "y": 595,
       "width": 320,
       "height": 96
     }
@@ -234,7 +266,7 @@
   "a11y-hidden-text": {
     "rect": {
       "x": 16,
-      "y": 468,
+      "y": 703,
       "width": 868,
       "height": 23
     }
@@ -242,7 +274,7 @@
   "a11y-hidden-button": {
     "rect": {
       "x": 16,
-      "y": 499,
+      "y": 734,
       "width": 868,
       "height": 41
     }
@@ -250,7 +282,7 @@
   "a11y-hidden": {
     "rect": {
       "x": 16,
-      "y": 468,
+      "y": 703,
       "width": 868,
       "height": 72
     }
@@ -260,7 +292,7 @@
       "x": 0,
       "y": 0,
       "width": 900,
-      "height": 700
+      "height": 900
     }
   }
 }

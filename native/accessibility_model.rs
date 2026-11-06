@@ -271,6 +271,27 @@ pub(crate) fn line_for_offset(lines: &[std::ops::Range<usize>], offset: usize) -
         .or_else(|| lines.len().checked_sub(1))
 }
 
+/// Where each hard line of `text` starts, in code points: 0, then after every line break. A text field's
+/// text elements are made for each hard line on its own, as `TextEdit` makes them, because the server adds
+/// the line break to the text it reads: a line shaped with its `\n` would read it twice.
+pub(crate) fn hard_line_starts(text: &str) -> Vec<usize> {
+    std::iter::once(0)
+        .chain(
+            text.chars()
+                .enumerate()
+                .filter(|(_, character)| *character == '\n')
+                .map(|(index, _)| index + 1),
+        )
+        .collect()
+}
+
+/// The hard line of `starts` that holds `offset`: the last one that starts at or before it.
+pub(crate) fn hard_line_of(starts: &[usize], offset: usize) -> usize {
+    starts
+        .partition_point(|start| *start <= offset)
+        .saturating_sub(1)
+}
+
 /// The mounted tree, as far as the accessibility tree needs it.
 pub(crate) trait AxSource {
     /// The top-level elements of every layer, main layer first (the overlay draws above it).
@@ -2129,5 +2150,36 @@ mod tests {
             AxAction::ReplaceSelectedText.code()
         );
         assert_ne!(AxAction::SetTextSelection.code(), AxAction::SetValue.code());
+    }
+
+    #[test]
+    fn hard_lines_start_after_each_line_break_and_a_final_break_starts_an_empty_one() {
+        assert_eq!(hard_line_starts(""), vec![0]);
+        assert_eq!(hard_line_starts("abc"), vec![0]);
+        assert_eq!(hard_line_starts("ab\ncd"), vec![0, 3]);
+        assert_eq!(hard_line_starts("a\n\nb\n"), vec![0, 2, 3, 5]);
+        assert_eq!(
+            hard_line_starts("é\n👩\u{200d}👩"),
+            vec![0, 2],
+            "in code points, not bytes"
+        );
+    }
+
+    #[test]
+    fn an_offset_belongs_to_the_hard_line_that_starts_at_or_before_it() {
+        let starts = hard_line_starts("ab\ncd\n");
+        assert_eq!(hard_line_of(&starts, 0), 0);
+        assert_eq!(hard_line_of(&starts, 2), 0, "before the break");
+        assert_eq!(
+            hard_line_of(&starts, 3),
+            1,
+            "after the break, the start of the next line"
+        );
+        assert_eq!(
+            hard_line_of(&starts, 6),
+            2,
+            "the empty line a final break starts"
+        );
+        assert_eq!(hard_line_of(&[0], 4), 0);
     }
 }

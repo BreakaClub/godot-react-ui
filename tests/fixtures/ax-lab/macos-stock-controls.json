@@ -1,0 +1,542 @@
+{
+  "focusedElement" : {
+    "enabled" : true,
+    "frame" : {
+      "height" : 0,
+      "width" : 0,
+      "x" : 0,
+      "y" : 1117
+    },
+    "orientation" : "AXUnknownOrientation",
+    "role" : "AXUnknown",
+    "roleDescription" : "unknown",
+    "subrole" : "AXUnknown",
+    "title" : "SceneLauncher"
+  },
+  "nodes" : 16,
+  "pid" : 55612,
+  "tree" : {
+    "children" : [
+      {
+        "actionNames" : [
+          "AXRaise"
+        ],
+        "children" : [
+          {
+            "children" : [
+              {
+                "attributeNames" : [
+                  "AXFocused",
+                  "AXChildrenInNavigationOrder",
+                  "AXTitle",
+                  "AXSelectedChildren",
+                  "AXFrame",
+                  "AXLinkedUIElements",
+                  "AXRequired",
+                  "AXMinValue",
+                  "AXPlaceholderValue",
+                  "AXEnabled",
+                  "AXMaxValue",
+                  "AXHelp",
+                  "AXChildren",
+                  "AXRole",
+                  "AXParent",
+                  "AXTopLevelUIElement",
+                  "AXSubrole",
+                  "AXOrientation",
+                  "AXValue",
+                  "AXIdentifier",
+                  "AXRoleDescription",
+                  "AXWindow",
+                  "AXSize",
+                  "AXPosition"
+                ],
+                "children" : [
+
+                ],
+                "enabled" : true,
+                "focused" : true,
+                "frame" : {
+                  "height" : 0,
+                  "width" : 0,
+                  "x" : 0,
+                  "y" : 1117
+                },
+                "orientation" : "AXUnknownOrientation",
+                "role" : "AXUnknown",
+                "roleDescription" : "unknown",
+                "subrole" : "AXUnknown",
+                "title" : "SceneLauncher"
+              },
+              {
+                "actionNames" : [
+                  "AXScrollToVisible"
+                ],
+                "attributeNames" : [
+                  "AXFocused",
+                  "AXFrame",
+                  "AXChildrenInNavigationOrder",
+                  "AXSelectedChildren",
+                  "AXTitle",
+                  "AXInsertionPointLineNumber",
+                  "AXMaxValue",
+                  "AXLinkedUIElements",
+                  "AXRequired",
+                  "AXMinValue",
+                  "AXNumberOfCharacters",
+                  "AXEnabled",
+                  "AXPlaceholderValue",
+                  "AXSelectedText",
+                  "AXSelectedTextRange",
+                  "AXHelp",
+                  "AXChildren",
+                  "AXRole",
+                  "AXParent",
+                  "AXTopLevelUIElement",
+                  "AXSubrole",
+                  "AXOrientation",
+                  "AXValue",
+                  "AXRoleDescription",
+                  "AXIdentifier",
+                  "AXWindow",
+                  "AXSize",
+                  "AXPosition"
+                ],
+                "children" : [
+
+                ],
+                "enabled" : true,
+                "focused" : false,
+                "frame" : {
+                  "height" : 21,
+                  "width" : 160,
+                  "x" : 647,
+                  "y" : 358
+                },
+                "insertionPointLineNumber" : 0,
+                "numberOfCharacters" : 3,
+                "orientation" : "AXUnknownOrientation",
+                "role" : "AXTextField",
+                "roleDescription" : "text field",
+                "selectedText" : "",
+                "selectedTextRange" : {
+                  "length" : 0,
+                  "location" : 3
+                },
+                "settableAttributeNames" : [
+                  "AXFocused",
+                  "AXSelectedTextRange",
+                  "AXValue"
+                ],
+                "subrole" : "AXUnknown",
+                "title" : "Name",
+                "value" : "Ada"
+              },
+              {
+                "actionNames" : [
+                  "AXScrollToVisible"
+                ],
+                "attributeNames" : [
+                  "AXFocused",
+                  "AXFrame",
+                  "AXChildrenInNavigationOrder",
+                  "AXSelectedChildren",
+                  "AXTitle",
+                  "AXInsertionPointLineNumber",
+                  "AXMaxValue",
+                  "AXLinkedUIElements",
+                  "AXRequired",
+                  "AXMinValue",
+                  "AXNumberOfCharacters",
+                  "AXEnabled",
+                  "AXPlaceholderValue",
+                  "AXSelectedText",
+                  "AXSelectedTextRange",
+                  "AXHelp",
+                  "AXChildren",
+                  "AXRole",
+                  "AXParent",
+                  "AXTopLevelUIElement",
+                  "AXSubrole",
+                  "AXOrientation",
+                  "AXValue",
+                  "AXRoleDescription",
+                  "AXIdentifier",
+                  "AXWindow",
+                  "AXSize",
+                  "AXPosition"
+                ],
+                "children" : [
+
+                ],
+                "enabled" : true,
+                "focused" : false,
+                "frame" : {
+                  "height" : 36,
+                  "width" : 160,
+                  "x" : 647,
+                  "y" : 385
+                },
+                "insertionPointLineNumber" : 0,
+                "numberOfCharacters" : 12,
+                "orientation" : "AXUnknownOrientation",
+                "role" : "AXTextArea",
+                "roleDescription" : "text entry area",
+                "selectedText" : "",
+                "selectedTextRange" : {
+                  "length" : 0,
+                  "location" : 0
+                },
+                "settableAttributeNames" : [
+                  "AXFocused",
+                  "AXSelectedTextRange",
+                  "AXValue"
+                ],
+                "subrole" : "AXUnknown",
+                "title" : "Notes"
+              },
+              {
+                "actionNames" : [
+                  "AXScrollToVisible"
+                ],
+                "attributeNames" : [
+                  "AXFocused",
+                  "AXFrame",
+                  "AXChildrenInNavigationOrder",
+                  "AXSelectedChildren",
+                  "AXTitle",
+                  "AXInsertionPointLineNumber",
+                  "AXMaxValue",
+                  "AXLinkedUIElements",
+                  "AXRequired",
+                  "AXMinValue",
+                  "AXNumberOfCharacters",
+                  "AXEnabled",
+                  "AXPlaceholderValue",
+                  "AXSelectedText",
+                  "AXSelectedTextRange",
+                  "AXHelp",
+                  "AXChildren",
+                  "AXRole",
+                  "AXParent",
+                  "AXTopLevelUIElement",
+                  "AXSubrole",
+                  "AXOrientation",
+                  "AXValue",
+                  "AXRoleDescription",
+                  "AXIdentifier",
+                  "AXWindow",
+                  "AXSize",
+                  "AXPosition"
+                ],
+                "children" : [
+
+                ],
+                "enabled" : true,
+                "focused" : false,
+                "frame" : {
+                  "height" : 21,
+                  "width" : 160,
+                  "x" : 647,
+                  "y" : 427
+                },
+                "insertionPointLineNumber" : 0,
+                "numberOfCharacters" : 5,
+                "orientation" : "AXUnknownOrientation",
+                "role" : "AXTextField",
+                "roleDescription" : "text field",
+                "selectedText" : "",
+                "selectedTextRange" : {
+                  "length" : 0,
+                  "location" : 0
+                },
+                "settableAttributeNames" : [
+                  "AXFocused",
+                  "AXSelectedTextRange",
+                  "AXValue"
+                ],
+                "subrole" : "AXUnknown",
+                "title" : "Reference",
+                "value" : "Fixed"
+              },
+              {
+                "actionNames" : [
+                  "AXScrollToVisible"
+                ],
+                "attributeNames" : [
+                  "AXFocused",
+                  "AXFrame",
+                  "AXChildrenInNavigationOrder",
+                  "AXSelectedChildren",
+                  "AXTitle",
+                  "AXInsertionPointLineNumber",
+                  "AXMaxValue",
+                  "AXLinkedUIElements",
+                  "AXRequired",
+                  "AXMinValue",
+                  "AXNumberOfCharacters",
+                  "AXEnabled",
+                  "AXPlaceholderValue",
+                  "AXSelectedText",
+                  "AXSelectedTextRange",
+                  "AXHelp",
+                  "AXChildren",
+                  "AXRole",
+                  "AXParent",
+                  "AXTopLevelUIElement",
+                  "AXSubrole",
+                  "AXOrientation",
+                  "AXValue",
+                  "AXRoleDescription",
+                  "AXIdentifier",
+                  "AXWindow",
+                  "AXSize",
+                  "AXPosition"
+                ],
+                "children" : [
+
+                ],
+                "enabled" : true,
+                "focused" : false,
+                "frame" : {
+                  "height" : 21,
+                  "width" : 160,
+                  "x" : 647,
+                  "y" : 454
+                },
+                "insertionPointLineNumber" : 0,
+                "numberOfCharacters" : 0,
+                "orientation" : "AXUnknownOrientation",
+                "placeholder" : "Search",
+                "role" : "AXTextField",
+                "roleDescription" : "text field",
+                "selectedText" : "",
+                "selectedTextRange" : {
+                  "length" : 0,
+                  "location" : 0
+                },
+                "settableAttributeNames" : [
+                  "AXFocused",
+                  "AXSelectedTextRange",
+                  "AXValue"
+                ],
+                "subrole" : "AXUnknown",
+                "title" : "Search",
+                "value" : ""
+              },
+              {
+                "actionNames" : [
+                  "AXScrollToVisible"
+                ],
+                "attributeNames" : [
+                  "AXFocused",
+                  "AXFrame",
+                  "AXChildrenInNavigationOrder",
+                  "AXSelectedChildren",
+                  "AXTitle",
+                  "AXInsertionPointLineNumber",
+                  "AXMaxValue",
+                  "AXLinkedUIElements",
+                  "AXRequired",
+                  "AXMinValue",
+                  "AXNumberOfCharacters",
+                  "AXEnabled",
+                  "AXPlaceholderValue",
+                  "AXSelectedText",
+                  "AXSelectedTextRange",
+                  "AXHelp",
+                  "AXChildren",
+                  "AXRole",
+                  "AXParent",
+                  "AXTopLevelUIElement",
+                  "AXSubrole",
+                  "AXOrientation",
+                  "AXValue",
+                  "AXRoleDescription",
+                  "AXIdentifier",
+                  "AXWindow",
+                  "AXSize",
+                  "AXPosition"
+                ],
+                "children" : [
+
+                ],
+                "enabled" : true,
+                "focused" : false,
+                "frame" : {
+                  "height" : 36,
+                  "width" : 160,
+                  "x" : 647,
+                  "y" : 481
+                },
+                "insertionPointLineNumber" : 0,
+                "numberOfCharacters" : 9,
+                "orientation" : "AXUnknownOrientation",
+                "role" : "AXTextArea",
+                "roleDescription" : "text entry area",
+                "selectedText" : "",
+                "selectedTextRange" : {
+                  "length" : 0,
+                  "location" : 0
+                },
+                "settableAttributeNames" : [
+                  "AXFocused",
+                  "AXSelectedTextRange",
+                  "AXValue"
+                ],
+                "subrole" : "AXUnknown",
+                "title" : "Reference area"
+              },
+              {
+                "children" : [
+
+                ],
+                "enabled" : true,
+                "focused" : false,
+                "frame" : {
+                  "height" : 0,
+                  "width" : 0,
+                  "x" : 0,
+                  "y" : 1117
+                },
+                "orientation" : "AXUnknownOrientation",
+                "role" : "AXStaticText",
+                "roleDescription" : "text",
+                "subrole" : "AXUnknown"
+              }
+            ],
+            "enabled" : true,
+            "focused" : false,
+            "frame" : {
+              "height" : 450,
+              "width" : 450,
+              "x" : 639,
+              "y" : 350
+            },
+            "orientation" : "AXUnknownOrientation",
+            "role" : "AXGroup",
+            "roleDescription" : "group",
+            "subrole" : "AXUnknown"
+          },
+          {
+            "actionNames" : [
+              "AXPress"
+            ],
+            "children" : [
+
+            ],
+            "enabled" : true,
+            "focused" : false,
+            "frame" : {
+              "height" : 16,
+              "width" : 16,
+              "x" : 647,
+              "y" : 326
+            },
+            "role" : "AXButton",
+            "roleDescription" : "close button",
+            "subrole" : "AXCloseButton"
+          },
+          {
+            "actionNames" : [
+              "AXPress",
+              "AXZoomWindow",
+              "AXShowMenu"
+            ],
+            "children" : [
+              {
+                "children" : [
+                  {
+                    "children" : [
+
+                    ],
+                    "focused" : false,
+                    "frame" : {
+                      "height" : 14,
+                      "width" : 14,
+                      "x" : 694,
+                      "y" : 327
+                    },
+                    "role" : "AXGroup",
+                    "roleDescription" : "group"
+                  }
+                ],
+                "focused" : false,
+                "frame" : {
+                  "height" : 14,
+                  "width" : 14,
+                  "x" : 694,
+                  "y" : 327
+                },
+                "role" : "AXGroup",
+                "roleDescription" : "group"
+              }
+            ],
+            "enabled" : true,
+            "focused" : false,
+            "frame" : {
+              "height" : 16,
+              "width" : 16,
+              "x" : 693,
+              "y" : 326
+            },
+            "help" : "this button also has an action to zoom the window",
+            "role" : "AXButton",
+            "roleDescription" : "full screen button",
+            "subrole" : "AXFullScreenButton"
+          },
+          {
+            "actionNames" : [
+              "AXPress"
+            ],
+            "children" : [
+
+            ],
+            "enabled" : true,
+            "focused" : false,
+            "frame" : {
+              "height" : 16,
+              "width" : 16,
+              "x" : 670,
+              "y" : 326
+            },
+            "role" : "AXButton",
+            "roleDescription" : "minimize button",
+            "subrole" : "AXMinimizeButton"
+          },
+          {
+            "children" : [
+
+            ],
+            "enabled" : true,
+            "focused" : false,
+            "frame" : {
+              "height" : 16,
+              "width" : 291,
+              "x" : 721,
+              "y" : 326
+            },
+            "role" : "AXStaticText",
+            "roleDescription" : "text",
+            "value" : "Godot React UI · Native playground (DEBUG)"
+          }
+        ],
+        "focused" : false,
+        "frame" : {
+          "height" : 482,
+          "width" : 450,
+          "x" : 639,
+          "y" : 318
+        },
+        "role" : "AXWindow",
+        "roleDescription" : "standard window",
+        "subrole" : "AXStandardWindow",
+        "title" : "Godot React UI · Native playground (DEBUG)"
+      }
+    ],
+    "role" : "AXApplication",
+    "roleDescription" : "application",
+    "title" : "godot.macos.editor.arm64"
+  },
+  "truncated" : false
+}
