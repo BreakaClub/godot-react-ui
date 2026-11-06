@@ -10,6 +10,10 @@ export interface WebProfile {
   /** Whether the templates use Breaka's lazy function-table ABI (the extension's final link must match). */
   lazyFunctionTable: boolean;
   nightly: string;
+  /** Whether this profile's debug engine template starts in a browser (the stock one does not). */
+  debugTemplateStarts: boolean;
+  /** Whether the engine's Web input turns a browser `touchcancel` into a cancelled touch (stock 4.7.2 does not). */
+  reportsCancelledTouch: boolean;
 }
 
 export interface Engine {
@@ -27,6 +31,8 @@ export interface Engine {
   libraryName: string;
   installDirectory: string;
   installedLibrary: string;
+  /** `release` if the arguments say `--release`, else `debug`; throws for a mode whose template does not start in a browser. */
+  webMode(argv?: readonly string[]): 'debug' | 'release';
   artifactPath(...names: string[]): string;
   bindingEnvironment(): Record<string, string>;
   verifiedVersion(): string;

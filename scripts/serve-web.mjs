@@ -3,9 +3,10 @@ import { createReadStream, statSync } from 'node:fs';
 import { extname, resolve, sep } from 'node:path';
 import { selectEngine } from './engine.mjs';
 
-const mode = process.argv.includes('--release') ? 'release' : 'debug';
-// Serves the selected engine profile's export (`--engine=stock` / `GODOT_REACT_ENGINE=stock`).
-const root = selectEngine().artifactPath(`web-${mode}`);
+// Serves the selected engine profile's export (`--engine=stock` / `GODOT_REACT_ENGINE=stock`), in `--release` mode or debug.
+const engine = selectEngine();
+const mode = engine.webMode();
+const root = engine.artifactPath(`web-${mode}`);
 if (!statSync(resolve(root, 'index.html')).isFile()) throw new Error('Build the Web demo before serving it.');
 const port = Number(process.env.PORT ?? '8096');
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be 1..65535.');

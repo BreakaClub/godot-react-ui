@@ -47,6 +47,10 @@ const profiles = {
       // Breaka's templates carry a lazy function-table ABI that the extension's final link must match.
       lazyFunctionTable: true,
       nightly: 'nightly-2026-05-15',
+      debugTemplateStarts: true,
+      // `DisplayServerWeb::_touch_callback` marks a `touchcancel` as `InputEventScreenTouch.canceled`
+      // (platform/web/display_server_web.cpp:772, library_godot_input.js:602 in /Users/ben/Development/godot).
+      reportsCancelledTouch: true,
     },
   },
   stock: {
@@ -65,6 +69,13 @@ const profiles = {
       emscripten: `${stockRoot}/emsdk`,
       lazyFunctionTable: false,
       nightly: 'nightly-2026-05-15',
+      // The stock tree's debug template (closure compiler plus Emscripten runtime assertions) aborts in every pthread worker
+      // before the engine starts, in Chrome 156, with a minimal project and no extension; its release template runs
+      // (docs/tracks/stock-engine.md, S10). Flip this when that template is rebuilt and loads.
+      debugTemplateStarts: false,
+      // Stock 4.7.2 gives `touchend` and `touchcancel` the same callback type (library_godot_input.js:601-602), so a
+      // cancelled touch reaches the engine as an ordinary release and never as a cancel (S11).
+      reportsCancelledTouch: false,
     },
   },
 };
@@ -121,6 +132,17 @@ export function selectEngine(argv = process.argv.slice(2), env = process.env) {
     libraryName,
     installDirectory,
     installedLibrary: resolve(installDirectory, libraryName),
+    /**
+     * The Web export mode the arguments ask for (`--release`, else debug). A mode whose engine template does not start in
+     * a browser is refused here, once, for every script that builds, serves or verifies an export.
+     */
+    webMode(argv = process.argv.slice(2)) {
+      const mode = argv.includes('--release') ? 'release' : 'debug';
+      if (mode === 'debug' && !profile.web.debugTemplateStarts) {
+        throw new Error(`The ${profile.name} profile's debug Web template does not start in a browser (docs/tracks/stock-engine.md, S10). Use --release.`);
+      }
+      return mode;
+    },
     /** An evidence directory below this profile's artifacts root (`artifacts/<name>` or `artifacts/stock/<name>`). */
     artifactPath: (...names) => resolve(profile.artifacts, ...names),
     /** The API dump pair cargo binds against, as environment variables; empty for the default profile. */

@@ -14,7 +14,8 @@ import { selectEngine } from './engine.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const engine = selectEngine();
-const packBuffer = await readFile(engine.artifactPath('web-debug', 'index.pck'));
+// `--release` verifies the release export (the stock profile's only Web mode that starts: docs/tracks/stock-engine.md, S10).
+const packBuffer = await readFile(engine.artifactPath(`web-${engine.webMode()}`, 'index.pck'));
 const expectedPack = {
   bytes: packBuffer.byteLength,
   sha256: createHash('sha256').update(packBuffer).digest('hex'),
@@ -96,7 +97,7 @@ const viewports = [
 
 const report = {
   url, executablePath, startedAt: new Date().toISOString(),
-  assertions: [], captures: [], console: [], pageErrors: [], failedRequests: [], expectedDiagnostics: [],
+  assertions: [], captures: [], console: [], pageErrors: [], failedRequests: [], expectedDiagnostics: [], engineGaps: [],
   passed: false,
 };
 await mkdir(output, { recursive: true });
@@ -1278,9 +1279,24 @@ async function runTouchPointersScenario() {
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: touchPoint.x, y: touchPoint.y, id: 1 }] });
   await waitUntil('a finger is down on the pad', async () => (await padTally()).downs.touch === beforeCancel.downs.touch + 1);
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] });
-  await expectPadTally('A cancelled touch is a pointercancel and no click',
-    (seen) => seen.cancels === beforeCancel.cancels + 1 && seen.clicks.length === beforeCancel.clicks.length);
-  check('Nothing but the cancel and the leave follows', !(await padLines()).slice(-4).some((line) => line.startsWith('pointerup') || line.startsWith('click')), await padLines());
+  if (engine.web.reportsCancelledTouch) {
+    await expectPadTally('A cancelled touch is a pointercancel and no click',
+      (seen) => seen.cancels === beforeCancel.cancels + 1 && seen.clicks.length === beforeCancel.clicks.length);
+    check('Nothing but the cancel and the leave follows', !(await padLines()).slice(-4).some((line) => line.startsWith('pointerup') || line.startsWith('click')), await padLines());
+  } else {
+    // This engine's Web input has no cancelled touch: `touchcancel` is delivered as `touchend` (scripts/engine.mjs), so the
+    // page sees an ordinary release and cannot report a pointercancel. Record what it did deliver instead of asserting
+    // what it cannot, and check the finger does end, so the rest of the run starts from a clean pointer state.
+    await waitUntil('the cancelled finger is released', async () => (await snapshot()).pointers.every((entry) => !entry.down));
+    const seen = await padTally();
+    const gap = {
+      id: 'touch-cancel', engine: engine.name,
+      reason: 'the engine maps touchcancel to touchend, so a cancelled touch cannot be a pointercancel',
+      observed: { cancels: seen.cancels - beforeCancel.cancels, clicks: seen.clicks.length - beforeCancel.clicks.length, lines: (await padLines()).slice(-4) },
+    };
+    report.engineGaps.push(gap);
+    console.log('GODOT_REACT_WEB_GAP', JSON.stringify(gap));
+  }
   await cdp.detach();
 
 
@@ -1857,7 +1873,7 @@ try {
 
 if (report.passed && !process.exitCode) {
   console.log('GODOT_REACT_WEB_INTERACTION_VERIFY_PASSED', JSON.stringify({
-    assertions: report.assertions.length, captures: report.captures.length, timing: report.timing,
+    assertions: report.assertions.length, captures: report.captures.length, timing: report.timing, engineGaps: report.engineGaps,
     report: resolve(output, 'report.json'),
   }));
 }

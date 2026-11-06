@@ -16,7 +16,7 @@ const acceptance = process.argv.includes('--acceptance');
 if (baseline && acceptance) throw new Error('Choose one scenario mode: --baseline or --acceptance.');
 const scenarioMode = baseline || acceptance;
 const output = engine.artifactPath(baseline ? 'fabric-baseline' : acceptance ? 'fabric-acceptance' : 'motion-web-verification');
-const packBuffer = await readFile(engine.artifactPath('web-debug', 'index.pck'));
+const packBuffer = await readFile(engine.artifactPath(`web-${engine.webMode()}`, 'index.pck'));
 const expectedPack = {
   bytes: packBuffer.byteLength,
   sha256: createHash('sha256').update(packBuffer).digest('hex'),
@@ -51,7 +51,7 @@ const BASELINE_RESIZE_PAIRS = 10;
 const BASELINE_NARROW_VIEWPORT = { width: 700, height: 800 };
 const BASELINE_DRAIN_EVERY = 25;
 const quick = process.argv.includes('--quick');
-for (const argument of argsWithoutEngine(process.argv.slice(2))) assert.ok(['--quick', '--baseline', '--acceptance'].includes(argument), `Unknown argument ${argument}`);
+for (const argument of argsWithoutEngine(process.argv.slice(2))) assert.ok(['--quick', '--baseline', '--acceptance', '--release'].includes(argument), `Unknown argument ${argument}`);
 const repetitions = Number(process.env.MOTION_BENCH_REPETITIONS ?? (quick ? 3 : 30));
 assert.ok(Number.isSafeInteger(repetitions) && repetitions > 0, 'MOTION_BENCH_REPETITIONS must be a positive integer');
 const counts = process.env.MOTION_BENCH_COUNTS

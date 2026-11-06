@@ -15,6 +15,8 @@ const args = new Set(argsWithoutEngine(process.argv.slice(2)));
 const supportedArgs = new Set(['--wasm-only', '--export-only', '--release', '--probe']);
 for (const arg of args) if (!supportedArgs.has(arg)) throw new Error(`Unknown argument: ${arg}`);
 if (args.has('--wasm-only') && args.has('--export-only')) throw new Error('Choose one partial build mode.');
+// Refuse a Web export mode the profile's engine template cannot start in before spending minutes on the side module.
+const mode = args.has('--wasm-only') ? undefined : engine.webMode([...args]);
 
 // `breaka`: the SDK, compiler pass and engine templates of Breaka's current threaded Web build. A plain eager side
 // module cannot call a lazy engine. `stock`: Emscripten 4.0.11 from the stock tree, whose own Binaryen links an
@@ -130,7 +132,6 @@ if (!args.has('--wasm-only')) {
   const exporterVersion = engine.verifiedVersion();
   // The authoritative typecheck is part of build; export never trusts a watcher.
   run('pnpm', ['build']);
-  const mode = args.has('--release') ? 'release' : 'debug';
   const template = presetTemplate(readFileSync(join(root, 'demo', 'export_presets.cfg'), 'utf8'), web.presetName, mode);
   if (!template) throw new Error(`Missing ${mode} template in the "${web.presetName}" export preset`);
   const modules = ['godot.wasm', 'godot.side.wasm'].map(name => {

@@ -9,7 +9,8 @@ import { selectEngine } from './engine.mjs';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // The engine profile (`--engine=stock`; scripts/engine.mjs) decides which export is judged and where evidence goes.
 const engine = selectEngine();
-const packBuffer = await readFile(engine.artifactPath('web-debug', 'index.pck'));
+// `--release` verifies the release export (the stock profile's only Web mode that starts: docs/tracks/stock-engine.md, S10).
+const packBuffer = await readFile(engine.artifactPath(`web-${engine.webMode()}`, 'index.pck'));
 const expectedPack = {
   bytes: packBuffer.byteLength,
   sha256: createHash('sha256').update(packBuffer).digest('hex'),
