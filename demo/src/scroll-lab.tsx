@@ -175,7 +175,7 @@ function CaptureSection() {
         onPointerCancel={(_: UIPointerEvent) => setSeen(current => ({ ...current, cancels: current.cancels + 1 }))}
       >
         {indexes(CAPTURE_ROWS).map(index => (
-          <View key={index} className="h-6 shrink-0 justify-center rounded bg-sky-100 px-2"><Text className="text-xs text-sky-800">{`Captured ${index}`}</Text></View>
+          <View key={index} className="h-6 shrink-0 justify-center rounded bg-emerald-100 px-2"><Text className="text-xs text-emerald-800">{`Captured ${index}`}</Text></View>
         ))}
       </View>
       <Text testID="capture-status" className="text-xs text-slate-600">{`down ${seen.down}, moves ${seen.moves}, cancels ${seen.cancels}`}</Text>
