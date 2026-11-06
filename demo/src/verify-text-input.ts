@@ -30,6 +30,9 @@ const CODE_MAX_LENGTH = 6;
 /** A family emoji: three people joined by zero-width joiners. One grapheme, eight UTF-16 units. */
 const FAMILY = '👩‍👩‍👧';
 const FAMILY_UTF16_LENGTH = 8;
+/** How far the verifier drags a text area's scrollbar thumb. */
+const THUMB_DRAG_PX = 8;
+const THUMB_DRAG_STEPS = 4;
 /** Far more steps than any section takes: a loop that reaches this is a bug. */
 const MAX_STEPS = 80;
 
@@ -767,6 +770,34 @@ async function verifyMultiline(owner: Node, api: InteractionInspection, capture:
   const text = scrollOf(api, notes);
   assert(text.scrollTop >= text.scrollHeight - text.clientHeight - 1, 'And the text stays at its end');
   await capture('forms-13-page-scrolled');
+
+  // A scrollbar thumb wins the press (plan 3.12 puts it before a drag and before a selection): dragging the text area's thumb
+  // scrolls its text and neither moves the caret nor selects anything.
+  await pressAction('ui_text_caret_document_start');
+  await wheel(centerOf(boxOf(api, notes)), MouseButton.MouseButtonWheelDown);
+  const grip = scrollOf(api, notes).thumbs?.y;
+  assert(grip, 'The text area shows its scrollbar thumb after it scrolled');
+  const caretBefore = selection(notes).join();
+  const scrolledBefore = scrollOf(api, notes).scrollTop;
+  // At once, with the pointer put over the thumb first: an overlay thumb fades out some time after the text scrolled.
+  const gripStart = centerOf(grip);
+  move(gripStart);
+  await settle();
+  const gripNow = scrollOf(api, notes).thumbs?.y;
+  assert(gripNow, 'The thumb is still shown with the pointer over it');
+  const gripAt = centerOf(gripNow);
+  button(gripAt, true);
+  await frames(CLICK_PAUSE_FRAMES);
+  const gripEnd = new Vector2(gripAt.x, gripAt.y + THUMB_DRAG_PX);
+  for (let step = 1; step <= THUMB_DRAG_STEPS; step++) {
+    move(gripAt.lerp(gripEnd, step / THUMB_DRAG_STEPS), true);
+    await frames(1);
+  }
+  await settle();
+  button(gripEnd, false);
+  await settle();
+  assert(scrollOf(api, notes).scrollTop > scrolledBefore, `Dragging the thumb scrolls the text: ${scrolledBefore} to ${scrollOf(api, notes).scrollTop}`);
+  assert(selection(notes).join() === caretBefore, `and leaves the caret where it was: ${caretBefore} to ${selection(notes)}`);
 }
 
 /** maxLength, a transforming controlled field, read-only, a password and blocked copy. */

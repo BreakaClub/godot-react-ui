@@ -2850,6 +2850,16 @@ const HOLD_DEADLINE_MS = 3000;
 const AUTOSCROLL_BAND_PX = 12;
 const AUTOSCROLL_DEADLINE_MS = 10_000;
 const AUTOSCROLL_SAMPLE_MS = 100;
+/** The draggable form (the drag lab's `input-chip`): where a press is in its field, how far it moves, and where one is beside the field. */
+const CHIP_FIELD_PRESS_PX = 12;
+const CHIP_FIELD_MOVE_THRESHOLDS = 3;
+const CHIP_GRAB_PX = 6;
+const CHIP_INPUT_TEXT = 'Ada Lovelace';
+const MAX_CARET_WAITS = 20;
+/** A ghost pixel darker than this (per channel, 0 to 1) is text: the field is white and the page nearly so. */
+const GHOST_INK_LUMINANCE = 0.6;
+/** A ghost pixel whose blue exceeds its red and its green by this much is the caret's indigo, not slate text. */
+const GHOST_CARET_HUE = 0.25;
 /** The ghost's opacity (`DRAG_GHOST_OPACITY`, native/drag_ghost.rs) over the lab's page; the palette item is amber-100. */
 const GHOST_OPACITY = 0.6;
 const AMBER_100 = '#fef3c7';
@@ -3028,6 +3038,57 @@ async function verifyDragging(owner: Node, api: InteractionInspection, capture: 
   assert(drag().state === 'dragging' && drag().ghost === null, 'dragPreview none: the drag runs with no ghost');
   assert(paintIs(frameImage(owner), probeInGhost(spot), PAGE_FILL), 'And nothing is drawn');
   await release(spot);
+
+  // ---- A text input in a draggable element keeps its press, and is drawn in the ghost ----------------------------------
+  // The draggable form holds a field. A press in the field places the caret and a move selects text, as for an HTML
+  // `<input>` under a draggable parent: no drag starts. A press beside the field drags the form, and the ghost shows the
+  // field's text and none of its caret.
+  const chipRect = get(api, 'input-chip').rect;
+  const fieldRect = get(api, 'chip-input').rect;
+  const chipField = () => {
+    const state = get(api, 'chip-input').textInput;
+    assert(state, 'The form\'s field is a text input');
+    return state;
+  };
+  const sessionsBefore = drag().session;
+  const fieldPress = new Vector2(fieldRect.x + CHIP_FIELD_PRESS_PX, fieldRect.y + fieldRect.height / 2);
+  const fieldMove = offset(fieldPress, BEYOND_THRESHOLD_PX * CHIP_FIELD_MOVE_THRESHOLDS, 0);
+  await dragVia(fieldPress, fieldMove);
+  assert(isOver() && drag().session === sessionsBefore && drag().ghost === null && !log().includes('dragstart input-chip'),
+    `A press in a text input under a draggable element starts no drag: ${JSON.stringify(drag())} ${log()}`);
+  assert(api.snapshot().focused === idOf('chip-input'), 'The press focused the field');
+  assert(chipField().selectionStart === 0 && chipField().selectionEnd > 0 && chipField().selectionEnd < CHIP_INPUT_TEXT.length,
+    `and moving on selected text in it: ${chipField().selectionStart},${chipField().selectionEnd}`);
+  await release(fieldMove);
+  assert(isOver() && chipField().selectionEnd > 0 && log().indexOf('input-chip') === -1,
+    'Letting go ends the selection and makes no drag event');
+  // Wait for the field's caret to be on, so that it would be in the ghost if the ghost copied it.
+  for (let step = 0; step < MAX_CARET_WAITS && !chipField().caretVisible; step++) await settle();
+  assert(chipField().caretVisible, 'The focused field draws its caret');
+  const formGrab = new Vector2(chipRect.x + CHIP_GRAB_PX, chipRect.y + CHIP_GRAB_PX);
+  const formSpot = barePage(owner, new Vector2(chipRect.width, chipRect.height), api.snapshot());
+  await dragVia(formGrab, offset(formGrab, 0, BEYOND_THRESHOLD_PX));
+  assert(drag().state === 'dragging' && drag().ghost !== null, `A press beside the field drags the form: ${JSON.stringify(drag())}`);
+  const formPointer = new Vector2(formSpot.x + CHIP_GRAB_PX, formSpot.y + CHIP_GRAB_PX);
+  move(formPointer);
+  await settle();
+  const ghostLeft = Math.floor(formSpot.x + (fieldRect.x - chipRect.x));
+  const ghostTop = Math.floor(formSpot.y + (fieldRect.y - chipRect.y));
+  const formImage = frameImage(owner);
+  let dark = false;
+  let caret = false;
+  for (let y = ghostTop; y < ghostTop + fieldRect.height; y++) {
+    for (let x = ghostLeft; x < ghostLeft + fieldRect.width; x++) {
+      const color = formImage.getPixel(x, y);
+      if (color.r + color.g + color.b < GHOST_INK_LUMINANCE * 3) dark = true;
+      if (color.b - color.r > GHOST_CARET_HUE && color.b - color.g > GHOST_CARET_HUE) caret = true;
+    }
+  }
+  assert(dark, 'The ghost of a form shows its field\'s text');
+  assert(!caret, 'and none of the field\'s caret');
+  await capture('37b-drag-input-ghost');
+  await release(formPointer);
+  assert(drag().ghost === null && lastEnd().reason === 'released', 'The form\'s drag ends where it was released');
 
   // ---- The trash takes only a move; the palette item only copies -----------------------------------------------------
   const trash = point(api, 'trash');

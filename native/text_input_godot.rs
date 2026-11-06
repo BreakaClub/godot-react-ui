@@ -53,6 +53,7 @@ use crate::text_offsets::OffsetError;
 
 pub(crate) use accessibility::{TextLines, ax_text_field};
 pub(crate) use keys::TextActionTable;
+pub(crate) use paint::GhostText;
 pub(crate) use pipeline::TextCommandOutcome;
 pub(crate) use pointer::TextDrag;
 pub(crate) use shaping::scroll_ranges;

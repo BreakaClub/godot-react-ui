@@ -6,14 +6,18 @@
 //! opacities and scroll offsets, over the same paint resources. It is a snapshot, as a browser's drag
 //! image is: it is taken when the drag is about to start, before any `dragstart` handler can restyle
 //! the source, and it does not follow later changes to the source (or its removal). Scrollbar thumbs
-//! are not copied. The root `Control` clips everything it draws, so the ghost is cut off at the root's
+//! are not copied. A text input's text (or its placeholder) is copied, without a selection, an IME preedit
+//! or a caret: it is drawn from its own paragraph, which the root hands in ready. The root `Control` clips everything it draws, so the ghost is cut off at the root's
 //! edge like the rest of the UI.
+
+use std::collections::HashMap;
 
 use godot::prelude::*;
 
 use crate::geometry::BoxRect;
 use crate::mount::Mounted;
 use crate::render_tree::{ContentKey, GHOST_DRAW_INDEX, RenderNode, RootItem};
+use crate::text_input_godot::GhostText;
 
 /// How opaque the ghost is (plan Appendix A: a browser-like ghost), multiplied into whatever
 /// opacity the copied elements already have.
@@ -43,6 +47,7 @@ impl DragGhost {
         viewport: BoxRect,
         source: u32,
         grab: Vector2,
+        texts: &HashMap<u32, GhostText>,
     ) -> Option<Self> {
         let (rect, _) = mounted.absolute_geometry(source, viewport)?;
         if rect.width <= 0.0 || rect.height <= 0.0 {
@@ -86,6 +91,9 @@ impl DragGhost {
             if let Some(offset) = recorded.scroll_offset {
                 copy.make_scroller();
                 copy.set_scroll_offset(offset);
+                if let Some(text) = texts.get(&tag) {
+                    text.record(&mut copy);
+                }
             }
             let children = copy.child_item();
             for (rank, child) in node.paint_children.iter().enumerate() {

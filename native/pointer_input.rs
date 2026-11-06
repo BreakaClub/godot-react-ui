@@ -221,14 +221,16 @@ impl ReactUiRoot {
             self.run_pointerdown_default(hit, prevented, selecting);
             // An un-prevented press in a text input places the caret and may start a selection in it; it
             // is never a document selection (a text input is not selectable text), so the press has
-            // cleared that one above.
-            if !prevented {
+            // cleared that one above. It comes last in the arbitration (plan 3.12): a press on the
+            // input's scrollbar thumb is the thumb's, and a draggable element around the input does not
+            // take it either (`begin_drag_gesture` declines a press on a text input).
+            if !prevented && !grabbed_thumb {
                 self.text_input_pointer_down(
                     hit,
                     self.pointer,
                     detail,
                     self.pointer_modifiers.shift_key,
-                    !grabbed_thumb && !self.mouse_is_captured(),
+                    !self.mouse_is_captured(),
                 );
             }
         }

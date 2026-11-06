@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import {
-  ScrollView, Text, View,
+  ScrollView, Text, TextInput, View,
   type EffectAllowed, type UIDragEndEvent, type UIDragEvent, type UIPointerEvent,
 } from 'godot-react-ui';
 
@@ -9,6 +9,8 @@ const LIST_ROWS = 20;
 /** The log keeps this many of the latest drag events. */
 const LOG_LINES = 6;
 const CARD_MIME = 'text/plain';
+/** The text the draggable form's field starts with. */
+export const CHIP_INPUT_TEXT = 'Ada Lovelace';
 const PALETTE_ITEM = 'palette';
 const ROW_PREFIX = 'row-';
 
@@ -137,7 +139,7 @@ export function DragLab() {
     <View testID="drag-lab" className="w-full min-h-full bg-slate-50 p-4 gap-3" onPointerUp={(_: UIPointerEvent) => setUps(current => current + 1)}>
       <View className="gap-1">
         <Text testID="drag-title" className="text-2xl text-slate-900">Drag and drop</Text>
-        <Text className="text-sm text-slate-500">Drag cards between the columns and onto the trash (move only). The palette item copies, so the trash refuses it. Drag to a list's edge to scroll it. Escape cancels. The gesture chips cannot start a drag: locked (its pointerdown is prevented), captured (it captured the pointer), refused (its dragstart is prevented). The no-ghost chip drags with no ghost, and the select-text chip is a drag source whose text starts no selection.</Text>
+        <Text className="text-sm text-slate-500">Drag cards between the columns and onto the trash (move only). The palette item copies, so the trash refuses it. Drag to a list's edge to scroll it. Escape cancels. The gesture chips cannot start a drag: locked (its pointerdown is prevented), captured (it captured the pointer), refused (its dragstart is prevented). The no-ghost chip drags with no ghost, and the select-text chip is a drag source whose text starts no selection. The draggable form holds a text input: a press in the field edits it and starts no drag, a press beside it drags the form, and the ghost shows the field's text.</Text>
       </View>
       <View testID="drag-sections" className="flex-row flex-wrap gap-3">
         <Section title="Board">
@@ -214,6 +216,13 @@ export function DragLab() {
             <Text testID="selectable-text" className="text-xs text-slate-700">select me</Text>
           </View>
           <Text testID="selectable-plain" className="select-text text-xs text-slate-700">plain text, selectable</Text>
+          <View testID="input-chip" className="w-44 shrink-0 gap-1 rounded-lg border border-slate-200 bg-white p-2" {...source('input-chip', 'move')}>
+            <Text className="pointer-events-none text-xs text-slate-700">a draggable form</Text>
+            <TextInput
+              testID="chip-input" className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm text-slate-900 caret-indigo-600"
+              defaultValue={CHIP_INPUT_TEXT}
+            />
+          </View>
         </Section>
         <Section title="List (drag to its edge)">
           <ScrollView testID="drag-list" className="h-44 w-44 rounded-xl border border-slate-200 bg-white" focusable={false} contentClassName="gap-1 p-2">

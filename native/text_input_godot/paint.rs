@@ -8,6 +8,8 @@
 //! direction markers where they differ or sit inside a ligature. The caret is its own item, so that
 //! blinking redraws nothing but it.
 
+use std::collections::HashMap;
+
 use godot::classes::RenderingServer;
 use godot::prelude::*;
 
@@ -18,7 +20,7 @@ use super::{
 };
 use crate::ReactUiRoot;
 use crate::paint::parse_color;
-use crate::render_tree::{CaretKey, EditTextKey};
+use crate::render_tree::{CaretKey, EditTextKey, RenderNode};
 use crate::scroll::Vec2;
 use crate::scroll_input::to_vector;
 use crate::text_layout::{Carets, GodotTextLayout, TextDirection, TextLayoutError};
@@ -91,7 +93,58 @@ struct TextDrawing {
     oversampling: f32,
 }
 
+/// What the drag ghost draws of one text input: its text or placeholder, nothing else.
+pub(crate) struct GhostText {
+    drawing: TextDrawing,
+}
+
+impl GhostText {
+    /// Draw it into the copy's text item.
+    pub(crate) fn record(&self, copy: &mut RenderNode) {
+        copy.make_edit_items();
+        copy.record_edit_text(self.drawing.key.clone(), |item| {
+            draw_text(item, &self.drawing);
+        });
+    }
+}
+
 impl ReactUiRoot {
+    /// What the drag ghost of `source` draws for each text input at or under it, by tag. A selection,
+    /// an IME preedit and the caret belong to the live input, not to a copy of it.
+    pub(crate) fn text_input_ghost_texts(&self, source: u32) -> HashMap<u32, GhostText> {
+        let mut texts = HashMap::new();
+        let mut pending = vec![source];
+        while let Some(tag) = pending.pop() {
+            let Some(node) = self.mounted.nodes.get(&tag) else {
+                continue;
+            };
+            pending.extend(node.paint_children.iter().copied());
+            if node.text_input.is_none() {
+                continue;
+            }
+            let drawing = self
+                .display_layout(tag)
+                .and_then(|layout| self.text_drawing(tag, &layout, false));
+            match drawing {
+                Ok((mut drawing, _)) => {
+                    drawing.selection.clear();
+                    drawing.underline.clear();
+                    drawing.converting.clear();
+                    drawing.key.selection = None;
+                    drawing.key.preedit = None;
+                    texts.insert(tag, GhostText { drawing });
+                }
+                Err(TextInputError::NotShaped) => {}
+                Err(error) => {
+                    godot_error!(
+                        "ReactUiRoot: text input {tag}: cannot copy it into a drag ghost: {error}"
+                    );
+                }
+            }
+        }
+        texts
+    }
+
     /// Bring the text and caret items of the text input `tag` up to date. Returns whether either was
     /// re-recorded. A layout that cannot be built is an `ERROR` line and leaves what is drawn alone.
     pub(crate) fn paint_text_input(&mut self, tag: u32) -> bool {

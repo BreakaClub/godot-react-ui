@@ -36,7 +36,7 @@ use crate::drag::{
 use crate::drag_ghost::DragGhost;
 use crate::events::{DragData, DragEndData, EventPayload, PointerData, PointerType};
 use crate::pointer::{DOM_BUTTON_NONE, DOM_BUTTONS_PRIMARY, MOUSE_POINTER_ID};
-use crate::props::DragPreviewSpec;
+use crate::props::{DragPreviewSpec, Kind};
 use crate::scroll::{Rect, Vec2, autoscroll_velocity};
 use crate::scroll_input::{to_scroll, to_vector};
 use crate::{ROOT_TARGET, ReactUiRoot, event_time_ms};
@@ -225,6 +225,17 @@ impl ReactUiRoot {
             .and_then(|record| record.capture)
             .is_some_and(|capture| !capture.implicit);
         if captured_by_js {
+            return false;
+        }
+        // A text input keeps its own press: it places the caret and extends the selection as the pointer
+        // moves, whatever draggable element it sits in (and it is never dragged itself), as an HTML
+        // `<input>` does. The press cannot also be the start of a drag.
+        if hit.is_some_and(|tag| {
+            self.mounted
+                .nodes
+                .get(&tag)
+                .is_some_and(|node| node.kind == Kind::TextInput)
+        }) {
             return false;
         }
         let Some(source) = hit.and_then(|tag| self.nearest_draggable(tag)) else {
@@ -559,12 +570,14 @@ impl ReactUiRoot {
         };
         let canvas = self.base().get_canvas_item();
         let viewport = self.viewport_box();
+        let texts = self.text_input_ghost_texts(source);
         self.drag.ghost = DragGhost::capture(
             &mut self.mounted,
             canvas,
             viewport,
             source,
             to_vector(grab.origin),
+            &texts,
         );
     }
 
