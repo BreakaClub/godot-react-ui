@@ -97,6 +97,7 @@ pub(crate) struct EditTextKey {
     pub selection: Option<(usize, usize)>,
     /// The IME preedit's display offsets and the part of it being converted.
     pub preedit: Option<((usize, usize), (usize, usize))>,
+    pub oversampling: u32,
 }
 
 /// What a text input's caret item last drew: the rectangles, in the scroll item's coordinates.
@@ -585,7 +586,7 @@ impl ReactUiRoot {
         if (oversampling - self.last_oversampling).abs() > 0.001 {
             self.last_oversampling = oversampling;
             for (tag, node) in &self.mounted.nodes {
-                if node.kind == Kind::Text {
+                if node.kind == Kind::Text || node.kind == Kind::TextInput {
                     self.paint_dirty.insert(*tag);
                 }
             }
