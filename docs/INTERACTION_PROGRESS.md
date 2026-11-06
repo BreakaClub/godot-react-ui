@@ -1480,3 +1480,42 @@ Natively and on Web (Web: the ring is read from the canvas screenshot with an in
 - The F3 verifier's `05-keyboard-focus` never pressed Tab (the mouse had already focused the button), so it was
   not a keyboard-focus capture and the assertion named `Tab reaches increment` could not fail (D17).
 - Plan 3.24 omits `native/keyboard_input.rs`, `demo/src/keyboard-lab.tsx` and `tests/recording-host.ts`.
+
+
+## Batch regression after Phase I3 (I1 to I3)
+
+Date: 6 November 2026, run on the I3 commit `dec1f5d` (the plan edit that followed it changes no code). This is the
+full regression run D20 asks for at the end of a batch: `pnpm build:web` and all six verifiers, each run once with a
+retry budget of three; every one passed on its first attempt (logs in `/tmp/regress/`, 3 of 3 verifiers per platform).
+Host while running: 48 % free, swap 8.2 GB of 9.2 GB used.
+
+| Command | Result |
+| --- | --- |
+| `pnpm build:web` | ok (44 s); Wasm 6,737,867 bytes |
+| `pnpm verify:interaction:web` (port 8097) | passed: **610 assertions**, 66 captures |
+| `pnpm verify:web` | passed: **253 assertions**, 53 captures (unchanged since F4) |
+| `pnpm verify:motion:web` | passed: **433 assertions**, 26 captures, 30 benchmark cells (unchanged) |
+| `pnpm verify` (native, both viewports) | passed |
+| `pnpm verify:motion` (native, both viewports) | passed |
+| `pnpm verify:interaction` (native, both viewports) | passed |
+
+The existing assertions of `verify`, `verify:motion`, `verify:web`, `verify:motion:web`, `verify:interaction` and
+`verify:interaction:web` are those of the pre-I1 commit `1b7a14b`, with the single exception D17 records (the
+`verify.ts` mouse-press ring assertion, inverted, and the keyboard-focus step that now really presses Tab); the
+Web counts of `verify:web` and `verify:motion:web` are exactly the F4 and I2 counts, so no I1 to I3 change moved a
+Web assertion in those two.
+
+### Rasters of this run against the pre-I1 build
+
+Every native capture of this run against the worktree at `1b7a14b` (`classify.py`): **94 pairs, 20 identical,
+46 with only the focus ring removed (D17; at least 90 % of the differing pixels are the baseline's ring blue), 27
+that differ for the reasons I1 and I2 recorded** (22 mid-transition motion captures sampled at wall-clock offsets,
+and five interaction captures that print the engine frame number, which also carry the ring), **and 1 whose hover
+differs**. That one is the portrait `native-interaction/06-self-removed`: the pointer is at (362.5, 668.5), over the
+`Restore` button that slid into the place of the button that removed itself, and this build hovers it. The baseline's
+own landscape capture of the same step shows `Restore` hovered, and its portrait capture does not, so the baseline's
+portrait run lost the hover (the `MOUSE_EXIT` timing described in the I3 section); the I3 tree's portrait capture
+agrees with both landscape captures. No pixel differs for any other reason.
+
+I1's and I2's claims that those phases changed no pixel of the existing demo stand: the pixels that changed are the
+focus ring, and they changed in I3.
