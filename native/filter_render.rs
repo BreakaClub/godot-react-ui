@@ -19,7 +19,9 @@ use serde_json::json;
 
 use crate::CORNER_DETAIL;
 use crate::ReactUiRoot;
-use crate::blur::{BlurPlan, PixelRect, RendererKind, copy_region, max_level, plan};
+use crate::blur::{
+    BlurPlan, ChainMap, PixelRect, RendererKind, chain_map, copy_region, max_level, plan,
+};
 use crate::filter::{ColorMatrix, FilterEffect};
 use crate::geometry::BoxRect;
 use crate::motion::{resolved_backdrop_filter, resolved_filter};
@@ -51,9 +53,13 @@ fn gaussian_function() -> String {
         "
 const int MAX_PAIRS = {SHADER_MAX_PAIRS};
 
-vec4 gaussian_at(vec2 uv, float lvl, int n, float inv2s2) {{
+vec4 gaussian_at(vec2 uv, vec2 pixel_size, vec2 ca, vec2 cb, float lvl, int n, float inv2s2) {{
 	vec2 size = vec2(textureSize(screen_tex, int(lvl)));
-	vec2 p = uv * size - 0.5;
+	// Texel j of level L holds the picture around pixel chain_a * j + chain_b + 0.5 (native/blur.rs, chain_map): the
+	// engine halves regions with integer shifts (copy_effects.cpp:276), so unless the region is a multiple of 2^L the
+	// map is stretched and shifted (a 900 px target's level 3 has 112 rows over 900 px, and `uv * size` would put an
+	// edge 200 px down 0.9 px off).
+	vec2 p = ((uv / pixel_size - 0.5) - cb) / ca;
 	vec2 j0 = floor(p);
 	vec2 f = p - j0;
 	float wx[MAX_PAIRS];
@@ -88,6 +94,8 @@ vec4 gaussian_at(vec2 uv, float lvl, int n, float inv2s2) {{
 }
 
 const BLUR_UNIFORMS: &str = "
+uniform vec2 chain_a = vec2(1.0);
+uniform vec2 chain_b = vec2(0.0);
 uniform float level = 0.0;
 uniform int pairs = 1;
 uniform float inv_two_sigma2 = 1.0;
@@ -155,7 +163,7 @@ void fragment() {
                 code.push_str(
                     "
 void fragment() {
-	vec4 c = gaussian_at(SCREEN_UV, level, pairs, inv_two_sigma2);
+	vec4 c = gaussian_at(SCREEN_UV, SCREEN_PIXEL_SIZE, chain_a, chain_b, level, pairs, inv_two_sigma2);
 	if (c.a > 0.0001) { c.rgb /= c.a; }
 	c = apply_map(c, a_r, a_g, a_b, a_a, a_off);
 	COLOR = vec4(clamp(c.rgb, 0.0, 1.0), clamp(c.a, 0.0, 1.0) * COLOR.a);
@@ -186,6 +194,8 @@ uniform float s_level = 0.0;
 uniform int s_pairs = 1;
 uniform float s_inv_two_sigma2 = 1.0;
 uniform bool s_blur = true;
+uniform vec2 s_chain_a = vec2(1.0);
+uniform vec2 s_chain_b = vec2(0.0);
 uniform vec2 s_offset = vec2(0.0);
 uniform vec4 s_color = vec4(0.0);
 uniform vec4 b_r = vec4(1.0, 0.0, 0.0, 0.0);
@@ -201,7 +211,7 @@ uniform vec4 b_off = vec4(0.0);
 void fragment() {
 	vec4 c;
 	if (src_blur) {
-		c = gaussian_at(SCREEN_UV, level, pairs, inv_two_sigma2);
+		c = gaussian_at(SCREEN_UV, SCREEN_PIXEL_SIZE, chain_a, chain_b, level, pairs, inv_two_sigma2);
 	} else {
 		c = textureLod(screen_tex, SCREEN_UV, 0.0);
 	}
@@ -211,7 +221,7 @@ void fragment() {
 		vec2 shadow_uv = SCREEN_UV - s_offset * SCREEN_PIXEL_SIZE;
 		vec4 h;
 		if (s_blur) {
-			h = gaussian_at(shadow_uv, s_level, s_pairs, s_inv_two_sigma2);
+			h = gaussian_at(shadow_uv, SCREEN_PIXEL_SIZE, s_chain_a, s_chain_b, s_level, s_pairs, s_inv_two_sigma2);
 		} else {
 			h = textureLod(screen_tex, shadow_uv, 0.0);
 		}
@@ -312,6 +322,42 @@ struct ShadowUniforms {
     color: [f32; 4],
 }
 
+/// Where the level read sits on the render target, per axis (`blur::chain_map`), as the shader's uniforms.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct ChainUniforms {
+    scale: [f32; 2],
+    offset: [f32; 2],
+}
+
+impl ChainUniforms {
+    fn of(region: PixelRect, level: u32) -> ChainUniforms {
+        let x: ChainMap = chain_map(region.x, region.width, level);
+        let y: ChainMap = chain_map(region.y, region.height, level);
+        ChainUniforms {
+            scale: [x.scale, y.scale],
+            offset: [x.offset, y.offset],
+        }
+    }
+}
+
+fn set_chain_params(
+    rs: &mut Gd<RenderingServer>,
+    material: Rid,
+    prefix: &str,
+    chain: &ChainUniforms,
+) {
+    rs.material_set_param(
+        material,
+        &format!("{prefix}chain_a"),
+        &Vector2::new(chain.scale[0], chain.scale[1]).to_variant(),
+    );
+    rs.material_set_param(
+        material,
+        &format!("{prefix}chain_b"),
+        &Vector2::new(chain.offset[0], chain.offset[1]).to_variant(),
+    );
+}
+
 /// One material of an element: its shader kind, and what has been written to it (`None` until the first write).
 #[derive(Clone, Copy)]
 struct MaterialSlot {
@@ -331,6 +377,9 @@ struct NodeEffect {
     region: Option<PixelRect>,
     backdrop_plan: Option<BlurPlan>,
     group_plan: Option<BlurPlan>,
+    /// The chain maps last written to the backdrop's material (`.0`), and to the group's: for the source and for the shadow.
+    backdrop_chain: Option<ChainUniforms>,
+    group_chain: Option<(Option<ChainUniforms>, Option<ChainUniforms>)>,
     /// The group's drop shadow: where it falls (render-target pixels) and how it is blurred.
     group_shadow: Option<(Vector2, Option<BlurPlan>)>,
     /// The rectangles currently set on the group (what it covers, what its mipmaps are made for), in its frame.
@@ -759,6 +808,8 @@ impl ReactUiRoot {
                 backdrop_plan: None,
                 group_plan: None,
                 group_shadow: None,
+                backdrop_chain: None,
+                group_chain: None,
                 bounds: None,
             }
         });
@@ -809,6 +860,10 @@ impl ReactUiRoot {
             return;
         };
         let mut rs = server();
+        if slot.applied.is_none() {
+            // A new material has the shader's defaults, not the maps of the last one.
+            state.backdrop_chain = None;
+        }
         if slot.applied != Some(applied) || state.backdrop_plan != blur_plan {
             set_map_params(&mut rs, slot.material, "a", &applied.map);
             if kind.reads_mipmaps() {
@@ -886,6 +941,9 @@ impl ReactUiRoot {
             return;
         };
         let mut rs = server();
+        if slot.applied.is_none() {
+            state.group_chain = None;
+        }
         if slot.applied != Some(applied) || state.group_plan != blur_plan {
             let material = slot.material;
             set_map_params(&mut rs, material, "a", &applied.map);
@@ -1008,6 +1066,16 @@ impl ReactUiRoot {
             _ => None,
         };
         let mut rs = server();
+        // Where the level read sits on the target depends on the region the chain is generated for.
+        let chain = region
+            .zip(state.backdrop_plan)
+            .map(|(region, plan)| ChainUniforms::of(region, plan.level));
+        if let (Some(chain), Some(slot)) = (chain, state.backdrop_material)
+            && state.backdrop_chain != Some(chain)
+        {
+            set_chain_params(&mut rs, slot.material, "", &chain);
+            state.backdrop_chain = Some(chain);
+        }
         if state.region != region {
             match region {
                 Some(region) => rs.canvas_item_set_copy_to_backbuffer(
@@ -1026,7 +1094,7 @@ impl ReactUiRoot {
         }
     }
 
-    fn refresh_group_rect(&mut self, tag: u32, transform: &Transform2D, _target: (i32, i32)) {
+    fn refresh_group_rect(&mut self, tag: u32, transform: &Transform2D, target: (i32, i32)) {
         let Some(bounds_local) = self.subtree_bounds(tag) else {
             return;
         };
@@ -1073,6 +1141,35 @@ impl ReactUiRoot {
             }
         }
         let region = gen_plan.map_or(gen_area, |plan| copy_region_unclipped(gen_area, &plan));
+        // What the renderer generates the mipmaps for: the union of the group's rectangles, cut to the target. The
+        // shader finds each level's texels through the chain maps of that region.
+        let engine_region = union_pixels(region, draw).intersection(&PixelRect {
+            x: 0,
+            y: 0,
+            width: target.0,
+            height: target.1,
+        });
+        let chains = (
+            state
+                .group_plan
+                .map(|plan| ChainUniforms::of(engine_region, plan.level)),
+            state
+                .group_shadow
+                .and_then(|(_, plan)| plan)
+                .map(|plan| ChainUniforms::of(engine_region, plan.level)),
+        );
+        if let Some(slot) = state.group_material
+            && state.group_chain != Some(chains)
+        {
+            let mut rs = server();
+            if let Some(chain) = chains.0 {
+                set_chain_params(&mut rs, slot.material, "", &chain);
+            }
+            if let Some(chain) = chains.1 {
+                set_chain_params(&mut rs, slot.material, "s_", &chain);
+            }
+            state.group_chain = Some(chains);
+        }
         // The rectangles in the group's frame, the region biased so truncation keeps its aligned integers.
         let inverse = transform.affine_inverse();
         let local = |rect: PixelRect, bias: f32| {

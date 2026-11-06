@@ -280,11 +280,11 @@ function ClipScene({ radius = 16 }: FiltersLabProps) {
 function OpacityScene({ radius = 4 }: FiltersLabProps) {
   return (
     <View className="absolute inset-0 bg-black">
-      <View testID="faded" className="absolute left-[40px] top-[40px] h-[300px] w-[400px] opacity-50">
-        <View testID="blurred" className="absolute left-[50px] top-[50px] h-[200px] w-[300px] bg-white" style={{ filter: `blur(${radius}px)` }} />
+      <View testID="faded" className="absolute left-[20px] top-[40px] h-[300px] w-[260px] opacity-50">
+        <View testID="blurred" className="absolute left-[30px] top-[50px] h-[200px] w-[200px] bg-white" style={{ filter: `blur(${radius}px)` }} />
       </View>
-      <View testID="plain" className="absolute left-[500px] top-[40px] h-[300px] w-[400px] opacity-50">
-        <View className="absolute left-[50px] top-[50px] h-[200px] w-[300px] bg-white" />
+      <View testID="plain" className="absolute left-[320px] top-[40px] h-[300px] w-[260px] opacity-50">
+        <View className="absolute left-[30px] top-[50px] h-[200px] w-[200px] bg-white" />
       </View>
     </View>
   );

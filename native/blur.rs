@@ -159,6 +159,43 @@ pub fn plan(sigma_px: f32, max_level: u32) -> Option<BlurPlan> {
     })
 }
 
+/// Where the texels of one level are, along one axis: `index0 = scale * index_level + offset`, with texel
+/// indices measured to their centres (a pixel at `x` has index `x - 0.5`). For a region whose size is a
+/// multiple of `2^level` it is the textbook `2^level` and `2^(level - 1) - 0.5`; for any other, the
+/// engine's integer halving of the region (`copy_effects.cpp:276-279`) makes each step map the destination
+/// quad onto a source region of `S[n-1]` texels rather than exactly `2 * S[n]`, so the map is stretched by
+/// `S[n-1] / S[n]` and shifted. A 600 x 900 target's level 3 has 112 rows that cover 900, not 896, pixels.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ChainMap {
+    pub scale: f32,
+    pub offset: f32,
+}
+
+/// The map for `level` of the chain generated for the region `[origin, origin + size)` of a target, along
+/// one axis, replaying the engine's integer arithmetic.
+pub fn chain_map(origin: i32, size: i32, level: u32) -> ChainMap {
+    let (mut origin_prev, mut size_prev) = (origin, size.max(1));
+    // index0 = scale * index_n + offset, built up from n = 0.
+    let (mut scale, mut offset) = (1.0f64, 0.0f64);
+    for _ in 0..level {
+        let (origin_n, size_n) = (origin_prev >> 1, (size_prev >> 1).max(1));
+        // The destination quad [origin_n, origin_n + size_n) is drawn from the source region
+        // [origin_prev, origin_prev + size_prev): texel i (centre i - origin_n + 0.5 into the quad) samples the
+        // source at origin_prev + size_prev * (i - origin_n + 0.5) / size_n texels from the edge.
+        let ratio = f64::from(size_prev) / f64::from(size_n);
+        let step_offset = f64::from(origin_prev) + ratio * (0.5 - f64::from(origin_n)) - 0.5;
+        // index_{n-1} = ratio * index_n + step_offset.
+        offset += scale * step_offset;
+        scale *= ratio;
+        origin_prev = origin_n;
+        size_prev = size_n;
+    }
+    ChainMap {
+        scale: scale as f32,
+        offset: offset as f32,
+    }
+}
+
 /// An integer rectangle in render-target pixels.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PixelRect {
@@ -430,6 +467,35 @@ mod tests {
         assert!(
             worst < 0.01,
             "worst deviation of a 1 % step from the ideal step: {worst}"
+        );
+    }
+
+    #[test]
+    fn the_chain_map_is_the_textbook_one_for_regions_that_halve_exactly() {
+        for level in 0..=5u32 {
+            let texel = (1u32 << level) as f32;
+            for (origin, size) in [(0, 1120), (64, 512), (0, 800), (96, 704)] {
+                let map = chain_map(origin, size, level);
+                assert!((map.scale - texel).abs() < 1e-4, "level {level}: {map:?}");
+                assert!(
+                    (map.offset - (0.5 * texel - 0.5)).abs() < 1e-3,
+                    "level {level}: {map:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_chain_map_is_stretched_where_the_engine_halves_an_odd_region() {
+        // 900 rows: 450, 225, 112 (the 225 is odd), so level 3 stretches by 225 / 112 over the last step.
+        let map = chain_map(0, 900, 3);
+        assert!((map.scale - 8.0 * 225.0 / 224.0).abs() < 1e-3, "{map:?}");
+        // A texel 25 rows down is 0.9 px further down than the textbook map puts it: the verifier's portrait defect.
+        let at = |map: ChainMap, index: f32| map.scale * index + map.offset;
+        let textbook = chain_map(0, 896, 3);
+        assert!(
+            (at(map, 25.0) - at(textbook, 25.0) - 0.9).abs() < 0.1,
+            "{map:?} against {textbook:?}"
         );
     }
 

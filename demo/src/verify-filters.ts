@@ -800,7 +800,7 @@ async function verifySubtree(owner: Node, api: FiltersInspection, capture: Filte
   image = grab(owner);
   ratio = pixelRatio(image, api);
   const blurred = channelAt(image, centreOf(api, 'blurred').x * ratio, centreOf(api, 'blurred').y * ratio);
-  const plain = channelAt(image, (node(api, 'plain').rect.x + 200) * ratio, (node(api, 'plain').rect.y + 150) * ratio);
+  const plain = channelAt(image, (node(api, 'plain').rect.x + 130) * ratio, (node(api, 'plain').rect.y + 150) * ratio);
   assert(near(plain, 0.5, 0.01), `The plain white box under opacity 0.5 over black is 0.5: ${plain}`);
   assert(near(blurred, plain, 0.01), `The blurred one is the same, the opacity applied once (twice would be 0.25): ${blurred}`);
   await capture('filters-opacity');
