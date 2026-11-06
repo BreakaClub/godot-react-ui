@@ -94,7 +94,7 @@ tested, and `b`, `b` natively). Closing by any user path (item, Escape, Tab, bac
    its string children and `Select.ItemText`s, else its `value`. The open list renders the same elements as buttons.
 6. **Focus lives in the list.** The selected item takes focus on opening and the arrow keys call `focus()` on the next
    item (Radix's model, and "focus returns to the trigger" in the brief), not `aria-activedescendant`. The item under
-   the pointer takes focus too (`pointerenter`, `focusVisible: false`), so the pointer and the keyboard share one highlight
+   the pointer moves over takes focus too (`pointermove`, mouse and pen, `focusVisible: false`; it was `pointerenter` until the list could scroll, see plan D39), so the pointer and the keyboard share one highlight
    (`focus:`) and only the keyboard shows the ring. The list is `tabIndex -1` so that a list with no enabled item still has
    somewhere for focus and Escape to go. Keys are handled on the list and clicks on the items: overlay events bubble
    along the overlay's own tree (D26), never through the React ancestors of the `<Portal>`.
@@ -117,7 +117,8 @@ tested, and `b`, `b` natively). Closing by any user path (item, Escape, Tab, bac
     aligned, flipped above when it does not fit below and there is more room above, kept `collisionPadding` inside the
     root, at least as wide as the trigger. Both commits run before anything is drawn. A list taller than either side is
     pinned to the nearer edge and clipped by the window: `ScrollView` (I5) is the answer, and `Select.Content` takes a
-    `className` for it then.
+    `className` for it then. (Superseded by plan D39: `placePopover` now returns `maxHeight` and a taller list is capped to
+    the room on its side and scrolls.)
 11. **Tab chooses the focused item and is not prevented.** `choose()` focuses the trigger first, so native's Tab default
     moves on from the trigger (APG: "Tab ... sets the value ... closes the listbox, moves focus to the next focusable
     element"). Verified natively: focus lands on the next tab stop.
@@ -179,7 +180,7 @@ Unit tests, one mutation at a time, the file restored after each (`git diff` emp
 | collector not `display: none` | "closed adds one hidden node ..." |
 | opening takes no focus | the keyboard and focus tests (the mutated suite had to be run on a quiet host: the first attempts only looked hung, see "Environment") |
 | backdrop does not close | 1+ |
-| pointer enter focuses a disabled item | "a pointer entering an item ..." |
+| pointer move focuses a disabled item | "a pointer moving over an item ..." |
 | `minWidth` ignores the trigger | "places the list under the trigger ..." |
 
 Native, one run each (windowed):
@@ -246,7 +247,7 @@ Inspected PNGs (every one looked at):
   `22-inputs-rest.png` (all five controls at rest, the locked copies dimmed, the slider thumb centred and standing out of its track, the caret
   on both triggers), `23-inputs-slider-rest.png`, `24-inputs-select-open.png` (pointer open: Apple highlighted, no ring, the disabled Cherry
   dimmed, list under the trigger and over the JSON box), `25-inputs-select-keyboard.png` (keyboard open: Blueberry with the ring and the
-  indicator square), `26-inputs-select-flipped.png` (the bottom select's list above its trigger), `27-inputs-final.png`.
+  indicator square), `26-inputs-select-flipped.png` (the bottom select's list above its trigger), `27-inputs-select-long.png` (the long list capped to the room under its trigger and scrolled, added with plan D39), `28-inputs-final.png` (it was `27` before the scroll branch).
 - `.../native-world/landscape/` and `.../portrait/`: `09-anchored-label.png` (the label above the sphere, over the 3D view, off the card),
   `10-anchored-label-over-button.png` (the label covering the Add button, whose click still reaches it),
   `11-anchored-label-behind-camera.png` (no label), and `01-world.png` to `08-remounted.png`, with the orbiter parked: `01-world.png` shows
@@ -264,9 +265,10 @@ Inspected PNGs (every one looked at):
   `aria-haspopup` and `aria-controls` are not typed; focus is on the option itself, so
   `aria-activedescendant` is not needed. The options are in the overlay layer: the accessibility parent of the list is the
   nearest exposed ancestor in the overlay layer, i.e. the root's element.
-- **I5 (scroll):** `Select.Content` needs `overflow-y: auto` and a `max-height` for long lists, and native's minimal
-  scroll-into-view on keyboard focus. Until then a long list is clipped by the window. Resizing then closes the list as
-  now.
+- **I5 (scroll): done on the `scroll` branch (plan D39).** `Select.Content` is `overflow-y-auto` with a `maxHeight` of the room
+  on the side `placePopover` chose, and native's minimal scroll-into-view on focus brings the focused item into view.
+  Resizing still closes the list. The Inputs lab has a 40-item select (`inputs-long`) and `verify:interaction`'s `inputs`
+  section checks the cap, the keys, the wheel, the thumb and a press on a scrolled item.
 - **Event for the root size**, if `scroll`'s event plumbing lands: replace the read in `dispatchEvents` (decision 1).
 
 ## Integration with main

@@ -1759,13 +1759,13 @@ logged one.
 Every settled native capture of the final run against the main checkout's last captures: **112 of 112 identical** (`native`,
 `native-motion` and the 18 pre-I4 and I4 captures of `native-interaction`, both viewports). In particular the Interaction tab, now a
 `ScrollView`, is pixel-identical to its capture before (`01-interaction`): its content fits, so no bar shows. The new captures were
-inspected, both viewports: `22-scroll-lab` (the seven sections at rest: thumbs at the right edges, none on the carousel, the rose
-thumb on the touch list, the reversed list at its end with its thumb at the bottom), `23-scroll-clipped` (the quiet list scrolled four steps: rows
-straddling its top and bottom edges are cut at them and nothing draws above or below), `24-scroll-list-scrolled` (the clicked row in its
-scrolled place, with the hover and the click readout), `25-scroll-tab-reveals` (Tab brought row 3 into view: the keyboard ring around it,
-fully inside the list, `top 22`), `26-scroll-chained` (the inner list at its end and the outer one scrolled on) and `27-scroll-contained` (the
-inner list at its end and the outer one at 0), `28-scroll-touch-pan` (the touch list panned 15 px, `clicks 1` from the earlier tap only).
-`22-scroll-lab` in portrait fits the 600 x 900 window in three rows; it did not at the first section width (the first portrait run failed `Node 460 escapes bottom`, a real layout defect of the lab, fixed by narrowing the sections). The Web captures were inspected too (`retina-landscape/26-scroll-chained`, `touch/28-scroll-touch-pan`: crisp thumbs and clipping at ratio 2; the touch list coasted past 12 rows).
+inspected, both viewports: `29-scroll-lab` (the seven sections at rest: thumbs at the right edges, none on the carousel, the rose
+thumb on the touch list, the reversed list at its end with its thumb at the bottom), `30-scroll-clipped` (the quiet list scrolled four steps: rows
+straddling its top and bottom edges are cut at them and nothing draws above or below), `31-scroll-list-scrolled` (the clicked row in its
+scrolled place, with the hover and the click readout), `32-scroll-tab-reveals` (Tab brought row 3 into view: the keyboard ring around it,
+fully inside the list, `top 22`), `33-scroll-chained` (the inner list at its end and the outer one scrolled on) and `34-scroll-contained` (the
+inner list at its end and the outer one at 0), `35-scroll-touch-pan` (the touch list panned 15 px, `clicks 1` from the earlier tap only).
+`29-scroll-lab` in portrait fits the 600 x 900 window in three rows; it did not at the first section width (the first portrait run failed `Node 460 escapes bottom`, a real layout defect of the lab, fixed by narrowing the sections). The Web captures were inspected too (`retina-landscape/26-scroll-chained`, `touch/28-scroll-touch-pan`: crisp thumbs and clipping at ratio 2; the touch list coasted past 12 rows).
 
 ### Negative controls
 
@@ -1863,8 +1863,110 @@ Native (`verify:interaction --only=scroll`, both viewports; Web mirrors the mous
 - **I9 (drag and drop)**: drag auto-scroll through `scrolled(&tags)` and the `update_process()` decision; `autoscroll_velocity` is built and
   unused (its `allow(dead_code)` goes then); `begin_touch_pan` must come after the drag arbitration of 3.12 rule 3; `DragMachine::Refresh`
   after each scroll under a stationary pointer. Details in the scroll-drag-core notes.
-- **I10 (accessibility)**: scroll containers' offsets and ranges are in `Mounted` and `get_scroll_state`; the AX scroll actions call
-  `scroll_by_checked`, `scroll_to_checked` and `scroll_into_view_checked` (`ticks_to_pixels` is for their line and page steps).
+- **I10 (accessibility)**: done on this branch after the rebase (D38, "Rebased onto `cab7d0f`" below): the AX scroll actions call
+  `scroll_by_checked`, `scroll_to_checked` and `scroll_into_view_checked`.
 - **I7**: text inputs must be excluded from key scrolling in `key_down_default`.
 - Not done, by plan or choice: scrollbar track clicks (paging), animated programmatic scrolling, overscroll bounce, `position: sticky`,
   fading scrollbars, native list virtualization.
+
+## Rebased onto `cab7d0f`: scroll accessibility and the scrolling Select list (D38, D39)
+
+Main moved to `cab7d0f` (text layout, I10 accessibility, kit Select and the anchored label) while the `scroll` branch was waiting. The
+branch is rebased onto it (its four commits are now `02fb2b7`, `b2f4d48`, `554cb58` and `6cf7406`), then carries the two pieces the
+coordinator asked for: the I10 remainder for scroll containers (`3ceb564`), the Select list that scrolls (`714a640`) and the interaction
+verifier's deadline (`836447b`).
+
+### Rebase
+
+Every conflict was a place where both sides added to the same list or block, and both were kept:
+
+| File | Resolution |
+| --- | --- |
+| `native/lib.rs` | main's `_on_accessibility_action` and the accessibility element hooks, then this branch's `scroll_to`, `scroll_by`, `scroll_into_view`, `get_scroll_state`, `mod pan; mod scroll; mod scroll_input;` and the scroll `process()` tick |
+| `src/native.ts`, `src/renderer.ts`, `src/components.tsx`, `src/events.ts`, `src/index.ts`, `src/kit/index.ts` | main's `getSize`/`useRootSize`, the ARIA props and `UIAccessibilityActionEvent`, plus this branch's scroll host methods, the handle's four scroll methods, `UIScrollEvent`/`onScroll`, `ScrollView` |
+| `tests/recording-host.ts`, `tests/events.test.ts` | the fake host keeps main's `size`/`resize` and accessibility action events and this branch's `scrollStates`, scroll requests and `scroll` events |
+| `demo/src/labs.tsx`, `demo/src/verify-interaction.ts` | both labs (`inputs`, `scroll`) and both sections; the scroll captures were `22` to `28` and collided with main's inputs captures, so they are now `29` to `35` (inputs `22` to `28`) |
+| `scripts/build.mjs`, `demo/typings/godot7.gen.d.ts` | main's `text-layout` and `a11y-main` entry points beside this branch's `verifier-input`; the typings keep the four scroll methods |
+| `demo/typings/jsb.*.bundle.d.ts` | CRLF-only differences (`git diff --ignore-cr-at-eol --stat` printed nothing), restored, not committed |
+
+ARIA props now go to native, and `PropsSpec` rejects unknown keys: nothing this branch adds is an ARIA prop (scroll is style, events and
+handle methods), and `tests/prop-tree.ts` was not used by any of its tests. After the rebase and before anything new: `cargo test` 489,
+`pnpm test:types` clean, `pnpm test` 286.
+
+### What was added
+
+| File | Change |
+| --- | --- |
+| `native/accessibility_model.rs` | `AxRole::ScrollView`; `AxScroll` and `AxScrollAxis` on `AxNode` and `AxProps`; `AxNode::in_scrollable`; the unroled-scroll-container rule in `visit`; `AxActions::{scroll_x, scroll_y, scroll_into_view}`; `AxAction::{ScrollUp, ScrollDown, ScrollLeft, ScrollRight, SetScrollOffset, ScrollIntoView}` (codes 6 to 11). 6 tests |
+| `native/accessibility.rs` | `Mounted` reads the scroll state and the paint chain for `AxNode`; the role, `update_set_scroll_x/y` and ranges, the six actions' callables; `handle_accessibility_action` performs them through `scroll_by_checked`, `scroll_to_checked` and `scroll_into_view_checked`, with the unit (`AccessibilityScrollUnit`, none meaning an item) and the offset (`Vector2`) read and rejected loudly |
+| `native/scroll.rs`, `native/scroll_input.rs` | `ScrollDirection`, `ScrollUnit` and `assistive_scroll_delta` (the distances of the arrow and Page keys; 1 test); `scroll_changed` asks for an accessibility update |
+| `src/kit/popover-position.ts`, `src/kit/select.tsx` | `placePopover` returns `maxHeight`; the list is `overflow-y-auto overscroll-contain` with it, items `shrink-0`, the placed height is the items' (`scrollHeight`), a press on a thumb is not prevented, items take focus on `pointermove` (mouse and pen) instead of `pointerenter`. 5 tests |
+| `tests/kit-host.ts`, `tests/select.test.ts`, `tests/a11y-expectations.test.ts` | `scrollStatesByTestID` for the fake host; the placement, cap, natural-height, thumb and pointer tests; the scroll area in the hand-written readings |
+| `demo/src/inputs-lab.tsx`, `demo/src/verify-interaction.ts` | a 40-item select in the Inputs lab (own state, not in the readout) and its `inputs` verifier case; the tab stops and the captures (`27-inputs-select-long`, `28-inputs-final`, scroll `29` to `35`) |
+| `demo/src/a11y-panel.tsx`, `demo/src/verify-a11y.ts`, `scripts/a11y-expectations.mjs` | a `ScrollView` of twelve messages and a button in the accessibility lab; the Godot-side checks of all six actions; `AXScrollArea` in the table the platform tree will be judged by |
+| `scripts/verify.mjs` | the interaction verifier's deadline, see "Gate" |
+
+The Select verifier case (`verifyInputs`, in the landscape window the list is capped to 502 px under its trigger: 1368 px of items): the list is
+as tall as the room under its trigger less the gap and the margin, still under the trigger, scrollable with a thumb; opening focuses
+item 1; ArrowDown as many times as items fit lands on the first item that was cut, and the list scrolled just far enough to put it flush with the
+bottom edge; End shows the last item flush; the wheel scrolls a step, goes on to the end, and a tick at the end is contained (the game's
+wheel counter does not move); Home shows the first item flush with the top edge; a thumb drag moves the content one to one and
+neither closes the list nor chooses; a press on an item that was scrolled into view chooses it, closes the list and refocuses the trigger.
+
+### Found on the way
+
+- **Keyboard against a resting pointer** (a real defect, found by that verifier case on its first run): items took focus on
+  `pointerenter`, and a key that scrolled the list moved items under a pointer that had not moved, so the item that arrived under it took
+  focus from the one the key had chosen ("Home goes to the first item ...: inputs-long-item-option-8"). Items take focus on
+  `pointermove` now (D39).
+- **A thumb that could not be dragged**: the list prevents the `pointerdown` of the presses that are its padding's, and native only
+  drags a thumb for a press nobody prevented (D34); the list now leaves a press on a thumb alone (D39).
+- **The interaction verifier's deadline**: with the scroll and inputs sections both in it, a landscape run takes about 130 s, and the
+  120 s deadline (`SIGTERM`, `exit null`) killed it in every attempt. Each attempt also logged an unrelated `window-focus-loss` (and, in
+  the controls, a real `InputEventMouseMotion device=32` from outside the verifier), so the runner took the kills for interference and
+  ran it again three times (D22). `scripts/verify.mjs` now gives the interaction workflow 300 s, a hang guard and not a budget.
+  The first full run with it passed; both windows logged one focus loss each and passed.
+
+### Gate
+
+All on the final tree, each once except where said:
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked` | **496 passed** (489 after the rebase: 6 in `accessibility_model`, 1 in `scroll`) |
+| `cargo clippy --locked --all-targets -- -D warnings`, also `--features probe` | 0 warnings |
+| `rustup run stable rustfmt --edition 2024 --check native/lib.rs` | clean |
+| `pnpm test:types` / `pnpm test` | clean / **292 passed** (286 after the rebase) |
+| `pnpm build:native` | ok; the installed dylib is the default build (rebuilt after the negative controls) |
+| `pnpm verify:a11y` | the Godot-side half passed (`GODOT_REACT_A11Y_NATIVE_PASSED`, with the scroll checks), then exit 2 "the platform tree was NOT verified: no accessibility driver" (Godot48 has no AccessKit), as expected |
+| `pnpm verify:interaction` | exit 0, both windows, all seven sections. Runs before it: one failed at the Home assertion (the defect above), then the runner's three attempts were killed by the 120 s deadline; the passing run is the next one. Both windows logged one `window-focus-loss` and passed |
+| `pnpm verify` / `pnpm verify:motion` / `pnpm verify:world` | exit 0 / 0 / 0 (a focus loss in `verify`'s portrait window; it passed) |
+| `pnpm build:web`, then `pnpm verify:interaction:web` (port 8099, free beforehand, my own `PORT=8099 node scripts/serve-web.mjs --debug`, stopped afterwards) | passed: **691 assertions**, 79 captures, the same as before the rebase (the Web verifier has no `inputs` section, and accessibility is native-only here) |
+
+The new captures were inspected, both viewports: `27-inputs-select-long` (the list ends 8 px above the window's bottom edge, an item cut at its top
+edge, the thumb at the right edge, near the top of its track after the drag) and `22-inputs-rest` (the new select fits in the row, portrait too).
+
+### Negative controls
+
+Each with the fix reverted alone, rebuilt (`pnpm build:native` or `pnpm build`), run once, restored from a copy and verified restored:
+
+| Reverted | Failing assertion |
+| --- | --- |
+| the scroll actions move by zero | `verify:a11y`: "A scroll-down action by an item scrolls a step: 0 for 11.75" |
+| `SET_SCROLL_OFFSET` does nothing | `verify:a11y`: "A set-scroll-offset action scrolls to the offset: 0" |
+| `SCROLL_INTO_VIEW` does nothing | `verify:a11y`: "A scroll-into-view action on the last item scrolls it into view: 0" |
+| the list gets no `maxHeight` | `inputs`: "A list taller than the room under its trigger is capped to that room: 1368 for 502" |
+| the list prevents every press | `inputs`: "Dragging the list's thumb moves the content with it: 4 -> 4" (two of the three attempts reached it; the third was disturbed earlier) |
+| items focus on `pointerenter` | the first full run, before the fix: "Home goes to the first item and shows it at the top edge: inputs-long-item-option-8". The control run that put it back failed earlier in all three attempts, in assertions that are hover-sensitive and have nothing to do with the change, with a foreign `InputEventMouseMotion` in each log, so it shows nothing |
+| the placed height is the box's, and a thumb press is prevented | the Select unit tests 46 and 47 ("places a capped list for its items' height ...", "a press on a scrollbar thumb is left to native ...") |
+
+What no control or run here can show: that the platform tree has an `AXScrollArea` with the scroll values and offers the actions, and that
+`request_accessibility_update` in `scroll_changed` keeps a live tree current (the engine does not deliver updates when accessibility is
+off, which is how the verifier runs). That needs the stock engine with AccessKit; another agent is wiring the verifier to it.
+
+### What is left
+
+- Read the platform tree for the scroll view on a stock engine: `AXScrollArea` for `a11y-scroller`, its scroll bar values, and that
+  VoiceOver's scroll gestures reach the actions. The table in `scripts/a11y-expectations.mjs` for it was written, not read from an adapter.
+- A transform on a content element, as `ItemList` does, if a long scroll view under a screen reader shows churn (D38).
+- `focus({ preventScroll })`, so that moving the pointer over an item cut by the list's edge does not scroll it into view (D39).

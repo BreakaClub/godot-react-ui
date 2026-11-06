@@ -7,8 +7,9 @@ its numbers and decisions D7 to D10 are in the progress log and the decision log
 D19); decision D20 sets the verification tiers; decisions D21 and D22 isolate the native verifiers from real input
 (Task 0). Phase I4 (`5018fee`; decisions D23 to D26). Parallel tracks on main (D27): text engine, scroll and drag core,
 world-space part 1, kit part 1; kit approach D28; test-input rules D29. Phase I5 (scroll containers; decisions D30 to D37)
-is built on the `scroll` branch and waits for the coordinator's merge. In progress in worktrees: text layout,
-accessibility (I10 minus scroll and TextInput). Next on the main line after the merge: Phase I6.
+is built on the `scroll` branch and waits for the coordinator's merge; the branch is rebased onto main `cab7d0f` (text layout, I10
+accessibility, kit Select) and also carries scroll accessibility (D38) and the scrolling Select list (D39). Still open from I10:
+`TextInput` (I7). Next on the main line after the merge: Phase I6.
 
 v1 of this plan (`7f0a96c`) was rejected because it built every interaction feature on the
 prototype's commit path, which re-walks and re-sends the whole tree on every change. v2 replaces
@@ -375,6 +376,41 @@ not a reason to wait.
   The geometry checks of both verifiers skip what a scroll container holds (it reaches past the container and the window by design); they
   still check the container and its siblings. Found on the way: the Web export had been failing since Task 0 added `demo/src/verifier-input.ts`
   without an entry point of its own (`failed to include module: res://.godot/GodotJS/src/verifier-input.js`); `scripts/build.mjs` builds it now.
+- **D38 (I5 on I10)**: scroll accessibility. A scroll container whose `role` is unset is exposed as `SCROLL_VIEW` and exposes its
+  children (an explicit `role` wins and still carries the scroll state; `role="none"` or `presentation` still keeps it out), whether or not it
+  has anything to scroll right now (Godot's `ScrollContainer` is always one). Each axis that can move reports its position and its
+  range (`update_set_scroll_x/y` and `_range`; a reversed axis has a negative `min`, as `scrollTop` does), an axis that cannot move reports
+  nothing, and the actions follow what can move: `SCROLL_UP` and `SCROLL_DOWN` with a vertical range, `SCROLL_LEFT` and `SCROLL_RIGHT`
+  with a horizontal one, `SET_SCROLL_OFFSET` with either, and `SCROLL_INTO_VIEW` on every exposed element that has a scrollable
+  container in its paint chain (the chain `reveal_node` walks, so an `absolute` child counts as inside its positioned scroller).
+  Native performs them through `scroll_by_checked`, `scroll_to_checked` and `scroll_into_view_checked`, not JS (scrolling is native, as the
+  wheel is): a scroll by an item or a page moves the distance the arrow and Page keys do (`assistive_scroll_delta`: client size / `SCROLL_PAGE_DIVISOR`,
+  or the client size, which is also what `ScrollContainer`'s own actions do), a request with no unit is an item (the engine's
+  reading of an absent enum), a unit that is neither is logged and does nothing, and the request's scroll hint is not used (the
+  least scrolling that shows the element is `block: nearest`). A set-scroll-offset takes the `Vector2` as `scrollTo(left, top)`, clamped.
+  Codes 6 to 11 of `AxAction`. `scroll_changed` asks for an accessibility update (it asks nothing while accessibility is off), and
+  layout already does after every pass, which covers a range that changed. **Not done, on purpose:** `ItemList`'s transform on a
+  content element. Here every element's bounds are root-local and follow the scroll (`absolute_geometry`), so scrolling re-sets every
+  exposed descendant while a screen reader is attached, instead of one element; a transform would need an element of the registry that no
+  tag owns, and bounds the registry compares exactly could then change by a rounding error per scroll (`P - offset + offset`). It is the
+  optimisation to make if a long list under VoiceOver shows churn. Verified: 7 unit tests; `verify:a11y`'s Godot-side half drives all six
+  actions through the bound callables on a scroll view in the lab. The platform tree (`AXScrollArea`, the values) was not read: Godot48
+  has no AccessKit, so the run ends "not verified", as before.
+- **D39 (I8 on I5)**: the Select list scrolls. `placePopover` returns `maxHeight`, the room on the side it chose (never negative), and
+  `Select.Content` is `overflow-y-auto overscroll-contain` with that `maxHeight`, items `shrink-0` (a flex item would shrink to fit and
+  nothing would scroll). The height placement is given is the list's own, not the capped box: `box.height - clientHeight + scrollHeight`
+  from `getScrollState()` (a list that is not a scroll container, because the caller turned `overflow` off, is as tall as its box), so
+  the side and the cap are right again when the trigger moves after an earlier cap. The first pass has no cap, the second sets it, and
+  neither draws. Keys that move focus need nothing new: `focus()` already brings the element into view (`focus_element` calls
+  `reveal_node`), by the least scrolling, so the first and last items are shown flush with the edge and their padding is not
+  scrolled in. Native sends a thumb drag only for a `pointerdown` that was not prevented (D34), and the list prevents the presses that are
+  its padding's (so they keep focus in it), so a press on the thumb has to be told apart: `isOnThumb` reads the thumb rectangles from
+  `getScrollState()`, and a press there is left alone (it focuses the list, which has `tabIndex -1`, and drags). A real defect the verifier found: the item took
+  focus on `pointerenter`, and a key that scrolled the list moved items under a pointer that rested on it, so the item under it took
+  focus from the one the keys had just chosen (Home went to item 1, the list scrolled to the top, item 8 was now under the pointer
+  and kept the focus). Items take focus on `pointermove` instead (mouse and pen; a finger dragging the list is not choosing),
+  as Radix does. Known and left: moving the pointer over an item that is cut by the edge focuses it, and that scrolls it into view
+  (`focus()` has no `preventScroll`). `Select.Content` takes `className` for a smaller cap or another look as before.
 
 The plan is written so an implementer can execute it phase by phase without re-deciding the
 architecture. Where it says **must**, it is a contract. Where it says *suggested*, use judgement and

@@ -2,7 +2,7 @@
 
 Branch `accessibility`, rebased onto main `a98df16` (positioning, the shared verifier isolation and text layout). Notes and report for the coordinator; `docs/INTERACTION_PLAN.md` and
 `docs/INTERACTION_PROGRESS.md` are not edited here. This is plan I10 tasks 1 and 2 plus the verification of task 4,
-for everything except scroll containers (I5) and `TextInput` (I7).
+for everything except `TextInput` (I7); scroll containers (I5) were added on the `scroll` branch (D38).
 
 **Headline: the platform's accessibility tree could not be read, because no engine that can run this project has an
 accessibility driver.** `/Applications/Godot48.app` (27 Oct) was built without AccessKit:
@@ -277,9 +277,11 @@ Web is not claimed. `DisplayServer.hasFeature(FEATURE_ACCESSIBILITY_SCREEN_READE
 
 ## Deferred
 
-- **Scroll containers (I5):** `SCROLL_VIEW`, the scroll offsets and ranges, the scroll actions
-  (`SCROLL_UP/DOWN/LEFT/RIGHT`, `SET_SCROLL_OFFSET`, `SCROLL_INTO_VIEW`), and a transform on the scrolled content's
-  element as `ItemList` does. No placeholder code exists for them.
+- **Scroll containers (I5): done on the `scroll` branch (plan D38).** `SCROLL_VIEW`, the scroll offsets and ranges and
+  the scroll actions (`SCROLL_UP/DOWN/LEFT/RIGHT`, `SET_SCROLL_OFFSET`, `SCROLL_INTO_VIEW`) are built, with unit tests and Godot-side
+  checks in `verify:a11y`; the platform tree for them (`AXScrollArea`) is unread, as for everything here. Still not done: a
+  transform on the scrolled content's element as `ItemList` does. Our bounds are root-local and follow the scroll, so a scroll
+  re-sets every exposed descendant while a screen reader is attached; the transform is the optimisation if that shows.
 - **`TextInput` (I7):** `TEXT_FIELD`/`MULTILINE_TEXT_FIELD`, value, placeholder, read-only, selection through
   `create_sub_text_edit_elements`, and the set-selection and replace-text actions. `role="textbox"` is parsed and not
   exposed until then.
