@@ -2054,3 +2054,13 @@ Built on the `text-input-fixes` branch from an independent review of Phase I7; p
 
 - **Agent's gates, rebased onto `15bace3`:** `cargo test` 576 passed, Clippy clean, fmt clean, `test:types` clean on both profiles, `pnpm test` 407 passed, `verify:interaction --only=forms,inputs` in both viewports, stock `verify:a11y`, and `verify:interaction:web --only=forms,touch` (308 assertions, 25 captures).
 - **Not verified:** macOS IME, which cannot be injected; tested on the buffer and in Chrome only. No native or Web negative controls were run for the forms section; five unit mutants were killed.
+
+## Input fixes (D50) and Phase V1 (`abdc077`, D49)
+
+**Input fixes**, from an independent review; detail is in `docs/tracks/input-fixes.md`. Agent's gates on `67aeea9`: `cargo test` 565 passed, Clippy clean, fmt clean, `test:types` clean on both profiles, `pnpm test` 402 passed, `verify:interaction` (all sections, both viewports), `verify:interaction:web` (all sections with touch). Coordinator's check after rebasing onto `0563092`: `cargo test` 592 passed, Clippy clean, fmt clean, `pnpm test` exit 0, `test:types` clean, `verify:interaction --only=pointers,forms,selection` in both viewports.
+
+**Phase V1**: evidence, calibration, cost and limits are in `docs/tracks/filters.md`. Agent's gates on `67aeea9`: `cargo test` 569 passed, also with `filter-faults`; Clippy clean, also with `filter-faults`; fmt clean; `test:types` clean on both profiles; `pnpm test` 413 passed; `verify:interaction --only=filters,glass` in both viewports; stock `--only=filters`; the faults section (every control held); `verify:interaction:web --only=filters,glass` (676 assertions, 56 captures). Coordinator's checks: on `c3d6d58`, `cargo test` 596 passed, Clippy clean, fmt clean, `test:types` clean on both profiles, `verify:interaction --only=filters,glass,forms` in both viewports; after rebasing onto `f6a57d0` (input fixes, no conflicts), `cargo test` 612 passed, Clippy clean, fmt clean, `pnpm test` exit 0, `test:types` clean. No windows on that last tree: the batch regression covers it.
+
+**Inspected by the coordinator:** `glass-compare/retina-landscape-page.png` and `retina-landscape-sheet.png`: Godot at DPR 2 beside the same design in headless Chrome, a very close match. Interiors measured within about 1 level of 255 at DPR 1; the bar about 3 at DPR 1 and 6 at DPR 2 near the window's top edge.
+
+**Not re-run after the last rebases:** the Mobile renderer run. It ran once, in landscape, before the rebases; the batch regression does not cover it.

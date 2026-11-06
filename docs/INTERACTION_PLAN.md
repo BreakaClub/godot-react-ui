@@ -10,8 +10,8 @@ world-space part 1, kit part 1; kit approach D28; test-input rules D29. Phase I5
 D37) with scroll accessibility (D38) and the scrolling Select list (D39). Phase I6 (`1071e8d`; D41). The stock engine profile (`64e674c`;
 D42). Phase I9 (`400bea3`; D43). The freshness guard (`941334b`). Phase I7 with the kit `TextField`, `TextInput` accessibility and
 world-space typing, which finishes I8, I10's `TextInput` part and I11 (`539e787`; D44). HiDPI (`6c6abd7`, hardened in `5b7faba`; D45). Verifier
-integrity (D46). Scroll bar elements, which finish I10 (D47). In parallel tracks now: Phase V1 (filters and frosted glass, D40), input fixes and
-`TextInput` fixes (both from an independent code review of the landed code).
+integrity (D46). Scroll bar elements, which finish I10 (D47). `TextInput` fixes (D48). Phase V1, filters and frosted glass (`abdc077`; D40, D49). Input fixes (D50).
+Now: an independent review of V1, the batch regression, then final acceptance.
 
 v1 of this plan (`7f0a96c`) was rejected because it built every interaction feature on the
 prototype's commit path, which re-walks and re-sends the whole tree on every change. v2 replaces
@@ -502,6 +502,19 @@ not a reason to wait.
   mid-text. **Engine bug, not fixed here**: after a Web composition ended by a focus move, `ime_started` stays set and raw keys are dropped until one more
   composition commits; the fix belongs in the engine. `setTextAndSelection` clears undo and a length-changing transform moves the caret to the end, as
   browsers with React do; the README says so.
+- **D49 (V1, filters and frosted glass)**: built as D40 designed; the evidence, blur calibration, GPU cost and limits are in `docs/tracks/filters.md`, part of this log. A
+  backdrop is a copy item plus a draw item behind the box; a filter is a canvas group with its own rectangle; a tree with no filters creates no items, materials or
+  shaders. Limits: a filter or backdrop inside a filter logs one `ERROR` and that inner effect is skipped; one `drop-shadow` per list, with no blur after it, none on
+  `backdropFilter`; colour functions compose with no clamp between them; a blur is capped by the target's mip levels (49.5 px at 600x900); an ancestor's clip fades a
+  group's blur at its edge; blur near the render target's edge re-reads the edge texels; a root in a `SubViewport` sees only that viewport; a rotated root blurs by its
+  mean scale; a drag ghost shows a filtered source unfiltered. Cost on an M1 Max at 1120x800: about 0.2 to 1.6 ms a panel on Compatibility, 1.2 to 1.9 ms on Mobile.
+  First use compiles the shader (about 50 ms on Compatibility, up to 1 s on Mobile with a cold cache); the notes give a warm-up recipe, and nothing runs it automatically.
+  `src/styles.ts` also gained colour opacity modifiers (`bg-white/20`) on all 22 palette colours. Known missing utilities: `shadow-*`, font weights, `leading-*`,
+  `tracking-*`, gradients, `border-b`, `ring`, `ml-auto`, `transition-*` classes, plus `sticky` and `scale-*`, which 2.3 excludes.
+- **D50 (input fixes)**: from an independent review; per-finding detail is in `docs/tracks/input-fixes.md`, part of this log. **Replaces D15(b)**: a `click` goes to the
+  nearest common inclusive ancestor of the press and release targets, mouse and touch alike, as the UI Events spec and browsers do; two parts of one enabled button
+  still click the button; a release on a disabled element or over nothing clicks nothing. A touch pan and a thumb drag now honour JS capture, as 3.12 rule 1 and D33
+  say. Key focus is released whenever no element or selection needs it, including when a commit removes the focused element. The hover stays frozen for a whole drag.
 
 The plan is written so an implementer can execute it phase by phase without re-deciding the
 architecture. Where it says **must**, it is a contract. Where it says *suggested*, use judgement and
@@ -1916,7 +1929,7 @@ by mouse, keyboard and (Web) touch.
 
 **Gate**: native gate (including `verify:world`); Web gate only if the phase changed Web-specific behaviour.
 
-### Phase V1 — Filters and frosted glass
+### Phase V1 — Filters and frosted glass — done (`abdc077`, decisions D40, D49)
 
 Read D40 first. **Files**: `native/props.rs`, `computed_style.rs`, `render_tree.rs`, `motion.rs`, a new native filter module and its
 shaders, `src/types.ts`, `src/styles.ts`, a demo lab, a verifier section.
