@@ -238,16 +238,21 @@ impl ReactUiRoot {
         Document::new(nodes)
     }
 
+    /// [`ReactUiRoot::selection_document`], with an error (a tag listed twice: a bug) logged.
+    fn selection_document_or_report(&self) -> Option<Document> {
+        match self.selection_document() {
+            Ok(document) => Some(document),
+            Err(error) => {
+                godot_error!("ReactUiRoot: cannot build the selection document: {error}");
+                None
+            }
+        }
+    }
+
     /// The document, with a selection that no longer describes it cleared first (a node it covered
     /// stopped being selectable or its text shrank: see `TextSelection::clear_if_stale`).
     fn current_selection_document(&mut self) -> Option<Document> {
-        let document = match self.selection_document() {
-            Ok(document) => document,
-            Err(error) => {
-                godot_error!("ReactUiRoot: cannot build the selection document: {error}");
-                return None;
-            }
-        };
+        let document = self.selection_document_or_report()?;
         if self.selecting.selection.clear_if_stale(&document) {
             self.selecting.dragging = false;
             self.selection_changed(None);
@@ -402,8 +407,20 @@ impl ReactUiRoot {
         }
     }
 
-    /// Finish what [`ReactUiRoot::selection_node_changed`] started.
-    pub(crate) fn settle_selection(&mut self) {
+    /// Finish what [`ReactUiRoot::selection_node_changed`] started. `structure_changed` says the commit
+    /// changed a child list: a selectable node may then have been inserted or moved between the ends, or
+    /// an end may have stopped being selectable (its ancestor became a `Button` or `display: none`), and
+    /// no node names that, so the selection is checked against a fresh document
+    /// (`TextSelection::clear_if_stale`). That is whole-tree work, done only while a selection exists
+    /// and only for a commit that changed a child list.
+    pub(crate) fn settle_selection(&mut self, structure_changed: bool) {
+        if structure_changed
+            && self.selecting.selection.is_active()
+            && let Some(document) = self.selection_document_or_report()
+            && self.selecting.selection.clear_if_stale(&document)
+        {
+            self.selecting.cleared_by_change = true;
+        }
         if !std::mem::take(&mut self.selecting.cleared_by_change) {
             return;
         }

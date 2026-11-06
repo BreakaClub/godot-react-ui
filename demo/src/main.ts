@@ -101,6 +101,7 @@ export default class Main extends Node {
       /** The selection lab's commits (React state changes made outside any event, as an app's timer would). */
       changeSelectionLiveText: () => selectionLabControls().changeLiveText(),
       removeSelectionTail: () => selectionLabControls().removeTail(),
+      insertSelectionLine: () => selectionLabControls().insertLine(),
       /** `selectionchange` events the root's own listener saw since the last reset. */
       selectionChanges: () => this.selectionChanges,
       resetSelectionChanges: () => { this.selectionChanges = 0; },

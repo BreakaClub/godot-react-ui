@@ -601,7 +601,7 @@ impl ReactUiRoot {
         }
         self.settle_structure(&touched);
         self.publish_commit(&dry_run.changes, !touched.is_empty());
-        self.settle_selection();
+        self.settle_selection(!touched.is_empty());
         self.refresh_interaction();
         self.apply_auto_focus(&validated);
         // What is exposed may have changed in any way a commit can change the tree; pruning is a

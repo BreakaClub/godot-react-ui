@@ -26,7 +26,7 @@ const TOTAL_TIMEOUT_MS = 600_000;
 const POLL_MS = 50;
 // `--only=<section>[,<section>]` runs just those sections (plan 0.4.1); the names are the native verifier's, and `touch`
 // is this verifier's touch page. An unknown name is an error: a typo must not skip a section.
-const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard', 'scroll', 'touch'];
+const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard', 'scroll', 'selection', 'touch'];
 const requestedSections = process.argv.filter((argument) => argument.startsWith('--only='))
   .flatMap((argument) => argument.slice('--only='.length).split(','));
 for (const name of requestedSections) {
@@ -1601,6 +1601,165 @@ async function runEventsScenario(viewport) {
   console.log(`GODOT_REACT_WEB_DISPATCH_TIMING ${viewport.name} ${JSON.stringify(report.timing[viewport.name])}`);
 }
 
+// The selection lab's colours (native/render_tree.rs `DEFAULT_SELECTION_COLOR`, blue-500 at 35 %, over white) and its text (`text-slate-900`).
+const DEFAULT_HIGHLIGHT_ON_WHITE = [0xbb, 0xd3, 0xfc];
+const SELECTION_TEXT_RGB = [0x0f, 0x17, 0x2a];
+const HIGHLIGHT_TOLERANCE_CHANNELS = 6;
+const MIN_HIGHLIGHT_SHARE = 0.5;
+const SELECTION_SCAN_STEP_PX = 2;
+const SHORT_TEXT_PADDING_PX = 4;
+const FIRST_LINE_PROBE_Y = 6;
+const SELECTABLE_LAB_TEXTS = ['sel-p1', 'sel-p2', 'sel-live', 'sel-tail', 'sel-captured', 'sel-prevented', 'sel-short', 'sel-rose',
+  ...Array.from({ length: 14 }, (_, index) => `sel-row-${index}`)];
+// The Command key on macOS (Godot's `ui_copy` is Cmd+C there, and Ctrl+C elsewhere, including on the Web build).
+const COMMAND_KEY = process.platform === 'darwin' ? 'Meta' : 'Control';
+
+async function selectionState() {
+  return page.evaluate(() => {
+    const selection = globalThis.godotReactDemo.selection();
+    if (!selection) return null;
+    return {
+      text: selection.text, isCollapsed: selection.isCollapsed,
+      anchor: { testID: selection.anchor.node.testID, offset: selection.anchor.offset },
+      focus: { testID: selection.focus.node.testID, offset: selection.focus.offset },
+    };
+  });
+}
+
+/** The browser's clipboard, read back through Chrome (the verifier grants the page the permission). */
+async function browserClipboard() {
+  return page.evaluate(() => navigator.clipboard.readText());
+}
+
+/** A logical point on the first line of `testID`, `x` logical pixels from its left edge. */
+async function firstLine(testID, x = 1) {
+  const { rect } = await find(testID);
+  return { x: rect.x + x, y: rect.y + FIRST_LINE_PROBE_Y };
+}
+
+/** A press, a drag through `through` and a release, with real Chrome mouse input. */
+async function dragSelect(from, to, through = []) {
+  await moveTo(from);
+  await page.mouse.down();
+  await frames();
+  for (const step of [...through, to]) await moveTo(step);
+  await page.mouse.up();
+  await frames();
+}
+
+/** `times` quick presses at `logical`: a double or triple click, which native counts. */
+async function clickAt(logical, times = 1) {
+  const point = await moveTo(logical);
+  for (let press = 0; press < times; press += 1) {
+    await page.mouse.down();
+    await page.mouse.up();
+  }
+  await frames();
+  return point;
+}
+
+/** The share of the pixels inside `area` (logical pixels) of the real canvas that are `rgb`, and the darkest pixel's colour. */
+async function scanCanvas(area, rgb) {
+  const data = await snapshot();
+  const canvas = await page.$('canvas');
+  assert.ok(canvas, 'Godot canvas vanished');
+  const image = decodePng(Buffer.from(await canvas.screenshot({ type: 'png', timeout: ACTION_TIMEOUT_MS })));
+  await canvas.dispose();
+  const scale = image.width / data.width;
+  let matching = 0;
+  let total = 0;
+  let darkest = [255, 255, 255];
+  for (let y = Math.ceil(area.y); y < area.y + area.height; y += SELECTION_SCAN_STEP_PX) {
+    for (let x = Math.ceil(area.x); x < area.x + area.width; x += SELECTION_SCAN_STEP_PX) {
+      const offset = (Math.floor(y * scale) * image.width + Math.floor(x * scale)) * image.channels;
+      const pixel = [image.pixels[offset], image.pixels[offset + 1], image.pixels[offset + 2]];
+      total += 1;
+      if (pixel.every((channel, index) => Math.abs(channel - rgb[index]) <= HIGHLIGHT_TOLERANCE_CHANNELS)) matching += 1;
+      if (pixel[0] + pixel[1] + pixel[2] < darkest[0] + darkest[1] + darkest[2]) darkest = pixel;
+    }
+  }
+  return { share: total === 0 ? 0 : matching / total, darkest };
+}
+
+/**
+ * Plan I6: text selection in real Chrome, at both device pixel ratios. Mirrors the native `selection` section's mouse
+ * gestures; what differs is what only the browser can answer: the clipboard (`navigator.clipboard`, with the page granted
+ * `clipboard-read` and `clipboard-write`), real keyboard chords, and the highlight's pixels on the real canvas.
+ */
+async function runSelectionScenario() {
+  await demo('showLab', 'selection');
+  await waitUntil('the selection lab mounts', () => nodeExists('selection-lab'));
+  await page.mouse.move(1, 1);
+  await frames();
+  await focusCanvas();
+  const p1 = await text('sel-p1');
+  const p2 = await text('sel-p2');
+  const none = await text('sel-none');
+  const p1Start = await firstLine('sel-p1');
+  const intoSecond = await firstLine('sel-p2', (await find('sel-p2')).rect.width / 3);
+  const nonePoint = await centerOf('sel-none');
+  const plainPoint = await centerOf('sel-plain');
+  const buttonPoint = await centerOf('sel-button');
+  check('Nothing is selected at first', (await selectionState()) === null);
+
+  await clickAt(p1Start);
+  let state = await selectionState();
+  check('A click collapses at the glyph under it', state?.isCollapsed === true && state.anchor.testID === 'sel-p1' && state.anchor.offset === 0, state);
+  check('And the root holds key focus without an element', await demo('surfaceHasFocus') && (await focusedId()) === null);
+  await expectText('sel-ends', 'anchor sel-p1:0, focus sel-p1:0, collapsed', 'useTextSelection follows the click');
+  await new Promise((resolve) => setTimeout(resolve, CLICK_SEQUENCE_PAUSE_MS));
+  await clickAt(p1Start, 2);
+  state = await selectionState();
+  check('A double click selects the word', state?.text === 'The' && state.focus.offset === 3, state);
+  await new Promise((resolve) => setTimeout(resolve, CLICK_SEQUENCE_PAUSE_MS));
+  await clickAt(p1Start, 3);
+  state = await selectionState();
+  check('A triple click selects the whole text of the node', state?.text === p1 && state.anchor.offset === 0 && state.focus.offset === p1.length, state);
+  await new Promise((resolve) => setTimeout(resolve, CLICK_SEQUENCE_PAUSE_MS));
+
+  await dragSelect(p1Start, intoSecond, [nonePoint]);
+  state = await selectionState();
+  check('A drag from the first paragraph into the second selects across, skipping the select-none sentence',
+    state?.anchor.testID === 'sel-p1' && state.focus.testID === 'sel-p2' && state.focus.offset > 0 && state.text === `${p1}\n${p2.slice(0, state.focus.offset)}` && !state.text.includes(none), state);
+  await capture('selection-01-across');
+
+  // Copy: the text reaches the browser's clipboard through `DisplayServer.clipboard_set` -> `navigator.clipboard.writeText`.
+  await page.evaluate(() => navigator.clipboard.writeText('before the copy'));
+  const keysBefore = (await counts()).unhandledKeys;
+  await pressKey('c', [COMMAND_KEY]);
+  await waitUntil('Cmd/Ctrl+C reaches the browser clipboard', async () => (await browserClipboard()) === state.text);
+  check('Cmd/Ctrl+C copies the selected text, the paragraphs joined by a newline', true, { clipboard: await browserClipboard() });
+  check('And the key that copied is consumed', JSON.stringify((await counts()).unhandledKeys) === JSON.stringify(keysBefore), await counts());
+
+  await pressKey('a', [COMMAND_KEY]);
+  const everything = (await Promise.all(SELECTABLE_LAB_TEXTS.map((testID) => text(testID)))).join('\n');
+  state = await selectionState();
+  check('Cmd/Ctrl+A selects all the selectable text in order and none of the rest', state?.text === everything, state);
+  await capture('selection-02-all');
+
+  await clickAt(buttonPoint);
+  check('A press on a Button clears the selection and starts none', (await selectionState()) === null);
+  await clickAt(plainPoint);
+  check('Text with no select-text is not selectable', (await selectionState()) === null && !(await demo('surfaceHasFocus')));
+  await new Promise((resolve) => setTimeout(resolve, CLICK_SEQUENCE_PAUSE_MS));
+
+  // The highlight is on the canvas, in the right colour, with the text drawn over it.
+  const short = (await find('sel-short')).rect;
+  const glyphs = { x: short.x + SHORT_TEXT_PADDING_PX, y: short.y, width: short.width - 2 * SHORT_TEXT_PADDING_PX, height: short.height };
+  check('Nothing is highlighted before the selection', (await scanCanvas(glyphs, DEFAULT_HIGHLIGHT_ON_WHITE)).share === 0);
+  await clickAt(await centerOf('sel-short'), 3);
+  check('The short text is selected', (await selectionState())?.text === 'Highlight');
+  const highlighted = await scanCanvas(glyphs, DEFAULT_HIGHLIGHT_ON_WHITE);
+  check('The selected text is highlighted on the canvas', highlighted.share >= MIN_HIGHLIGHT_SHARE, highlighted);
+  check('And its text is drawn over the highlight, in its own colour',
+    highlighted.darkest.every((channel, index) => Math.abs(channel - SELECTION_TEXT_RGB[index]) <= 0x20), highlighted);
+  await capture('selection-03-highlight');
+  await clickAt(plainPoint);
+  check('Clearing the selection removes the highlight', (await scanCanvas(glyphs, DEFAULT_HIGHLIGHT_ON_WHITE)).share === 0);
+  await demo('restoreDemo');
+  await focusCanvas();
+}
+
 async function runWorkflow(viewport) {
   activeViewport = viewport.name;
   await page.setViewport({ width: viewport.width, height: viewport.height, deviceScaleFactor: viewport.deviceScaleFactor });
@@ -1617,6 +1776,7 @@ async function runWorkflow(viewport) {
   if (wanted('pointers')) await runPointersScenario();
   if (wanted('keyboard')) await runKeyboardScenario();
   if (wanted('scroll')) await runScrollScenario();
+  if (wanted('selection')) await runSelectionScenario();
 
   // This page keeps running across viewports (the native verifier gets a fresh process for each),
   // so leave a fresh root: the lab's log and click counters must not leak into the next viewport.
@@ -1662,6 +1822,8 @@ try {
       args: ['--no-first-run', '--no-default-browser-check', '--mute-audio',
         '--disable-background-timer-throttling', '--disable-renderer-backgrounding'],
     });
+    // The selection scenario copies to the clipboard and reads it back through the page.
+    await browser.defaultBrowserContext().overridePermissions(new URL(url).origin, ['clipboard-read', 'clipboard-write', 'clipboard-sanitized-write']);
     await loadPage({ width: viewports[0].width, height: viewports[0].height, deviceScaleFactor: 1 });
     for (const viewport of viewports) await runWorkflow(viewport);
     if (wanted('touch')) await runTouchWorkflow();

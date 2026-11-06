@@ -44,6 +44,7 @@ export interface InteractionInspection extends DemoInspection {
   /** The selection lab's commits: change the text of its live line, and remove its tail paragraph. */
   changeSelectionLiveText(): void;
   removeSelectionTail(): void;
+  insertSelectionLine(): void;
 }
 
 const SETTLE_MS = 100;
@@ -2792,6 +2793,14 @@ async function verifySelectionGestures(owner: Node, api: InteractionInspection, 
   assert(scanArea(image, above, DEFAULT_HIGHLIGHT_ON_WHITE).share === 0, `And the part of the row past the top edge is clipped: nothing is highlighted above the list ${JSON.stringify(above)}`);
   await capture('selection-05-scrolled');
 
+  // A selectable element inserted between the ends changes what is selected, and nothing names it: the commit's child list does.
+  await dragSelect(p1Start, firstLine('sel-live'));
+  assert(same(selected(), 'sel-p1', 0, 'sel-live', selected()?.focus.offset ?? -1) && (selected()?.text ?? '').includes('\n'), `A selection from the first paragraph to the live line: ${JSON.stringify(selected())}`);
+  api.insertSelectionLine();
+  await settle();
+  assert(api.find('sel-inserted') !== undefined, 'The line was inserted');
+  assert(selected() === undefined, 'A selectable line inserted between the ends clears the selection');
+
   move(FAR_CORNER);
   await settle();
   api.restoreDemo();
@@ -2842,14 +2851,24 @@ export async function runInteractionVerification(owner: Node, api: InteractionIn
   }
   const sections = selectedSections();
   await settle();
-  const timing = sections.has('events') ? await verifyEvents(api, owner, directory, capture) : null;
-  if (sections.has('cooperation')) await verifyGodotCooperation(owner, api, capture);
-  if (sections.has('pointers')) await verifyPointers(owner, api, capture);
-  if (sections.has('keyboard')) await verifyKeyboard(owner, api, capture);
-  if (sections.has('positioning')) await verifyPositioning(owner, api, capture);
-  if (sections.has('inputs')) await verifyInputs(owner, api, capture);
-  if (sections.has('scroll')) await verifyScrolling(owner, api, capture);
-  if (sections.has('selection')) await verifySelection(owner, api, capture);
+  // How long each section took, for the budget `scripts/verify.mjs` gives a window.
+  const sectionMs: Record<string, number> = {};
+  const timed = async <T>(name: Section, run: () => Promise<T>): Promise<T> => {
+    const started = Time.getTicksMsec();
+    try {
+      return await run();
+    } finally {
+      sectionMs[name] = Time.getTicksMsec() - started;
+    }
+  };
+  const timing = sections.has('events') ? await timed('events', () => verifyEvents(api, owner, directory, capture)) : null;
+  if (sections.has('cooperation')) await timed('cooperation', () => verifyGodotCooperation(owner, api, capture));
+  if (sections.has('pointers')) await timed('pointers', () => verifyPointers(owner, api, capture));
+  if (sections.has('keyboard')) await timed('keyboard', () => verifyKeyboard(owner, api, capture));
+  if (sections.has('positioning')) await timed('positioning', () => verifyPositioning(owner, api, capture));
+  if (sections.has('inputs')) await timed('inputs', () => verifyInputs(owner, api, capture));
+  if (sections.has('scroll')) await timed('scroll', () => verifyScrolling(owner, api, capture));
+  if (sections.has('selection')) await timed('selection', () => verifySelection(owner, api, capture));
 
-  console.log('GODOT_REACT_INTERACTION_VERIFY_PASSED', JSON.stringify({sections: [...sections], captures, dispatchTiming: timing}));
+  console.log('GODOT_REACT_INTERACTION_VERIFY_PASSED', JSON.stringify({sections: [...sections], sectionMs, captures, dispatchTiming: timing}));
 }

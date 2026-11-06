@@ -155,7 +155,7 @@ impl ReactUiRoot {
     /// a node's computed style (hover/focus, resize) ends here.
     pub(crate) fn publish_style_changes(&mut self, changes: &[StyleChange]) {
         self.publish(changes, false);
-        self.settle_selection();
+        self.settle_selection(false);
         self.note_accessibility_restyle(changes);
     }
 

@@ -14,6 +14,8 @@ export interface SelectionLabControls {
   changeLiveText(): void;
   /** Remove the tail paragraph, the last element of the article. */
   removeTail(): void;
+  /** Insert a new selectable line between the second paragraph and the live line. */
+  insertLine(): void;
 }
 
 let controls: SelectionLabControls | undefined;
@@ -47,8 +49,13 @@ function Readout() {
 export function SelectionLab() {
   const [count, setCount] = useState(0);
   const [showTail, setShowTail] = useState(true);
+  const [showInserted, setShowInserted] = useState(false);
   useLayoutEffect(() => {
-    controls = { changeLiveText: () => setCount(current => current + 1), removeTail: () => setShowTail(false) };
+    controls = {
+      changeLiveText: () => setCount(current => current + 1),
+      removeTail: () => setShowTail(false),
+      insertLine: () => setShowInserted(true),
+    };
     return () => { controls = undefined; };
   }, []);
   return (
@@ -61,6 +68,7 @@ export function SelectionLab() {
         <Text testID="sel-p1" className="text-sm text-slate-900">The quick brown fox jumps over the lazy dog. Pack my box with five dozen liquor jugs.</Text>
         <Text testID="sel-none" className="select-none text-sm text-slate-400">This sentence is select-none: a selection runs past it and skips it.</Text>
         <Text testID="sel-p2" className="text-sm text-slate-900">Sphinx of black quartz, judge my vow. A backpack 🎒 is two UTF-16 units. How vexingly quick daft zebras jump!</Text>
+        {showInserted ? <Text testID="sel-inserted" className="text-sm text-slate-900">An inserted line.</Text> : null}
         <Text testID="sel-live" className="text-sm text-slate-900">{`Live line ${count}`}</Text>
         {showTail ? <Text testID="sel-tail" className="text-sm text-slate-900">The tail paragraph can be removed.</Text> : null}
         <Button testID="sel-button" className="self-start rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-100 active:bg-slate-200 focus:border-indigo-500">Buttons are never selectable</Button>

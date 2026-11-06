@@ -68,7 +68,7 @@ so JS drops its instances and public handles.
 JS compiles `className` and `style` once per distinct input into ordered **layers** (`src/styles.ts`;
 shorthands `padding`, `margin`, `gap`, `overflow` and `inset` are expanded to longhands there). Native resolves
 a node's **computed style**: its parent's inherited properties (`color`, `fontSize`, `textAlign`,
-`interpolateSize`, `pointerEvents`, `cursor`, `scrollbarColor`), then every layer whose conditions hold, in order. A layer applies when the root's
+`interpolateSize`, `pointerEvents`, `cursor`, `scrollbarColor`, `userSelect`, `selectionColor`), then every layer whose conditions hold, in order. A layer applies when the root's
 logical width is at least its `minWidth` and every listed state holds: `hover` and `active` apply to the
 target and its ancestors; `focus` and `focusVisible` to the focused element only; `focusWithin` to it
 and its ancestors; `disabled` to a node whose own `disabled` prop is true. Hover, press, focus and
@@ -88,7 +88,7 @@ positive integer (equal fractional columns); backgroundColor/color/borderColor
 pixels; opacity 0..1; textAlign `left|center|right`; overscrollBehavior `auto|contain`, scrollbarWidth `auto|none`,
 scrollbarColor (a hex colour, inherited) and touchAction `auto|none|pan-x|pan-y` (see "Scrolling" below); pointerEvents `auto|none` and cursor
 `default|pointer|text|move|grab|grabbing|not-allowed|crosshair|wait|progress|help|ew-resize|ns-resize|nesw-resize|nwse-resize`
-(both inherited; see "Godot co-operation" below); transition and interpolateSize as described below; overflowX/overflowY
+(both inherited; see "Godot co-operation" below); userSelect `none|text` and selectionColor (a hex colour), both inherited (see "Text selection" below); transition and interpolateSize as described below; overflowX/overflowY
 `visible|hidden|scroll|auto` ("Scrolling" below). `position` is `static|relative|absolute|fixed` (not inherited; `sticky` is
 rejected), `top`/`right`/`bottom`/`left` are finite numbers (negative allowed), percentage strings (negative
 allowed) or `"auto"`, and `zIndex` is a 32-bit integer; see "Positioning and stacking" below. Unsupported properties fail explicitly. Default is a flex column,
@@ -157,15 +157,17 @@ The root is one `Control` among the game's own (plan 3.11), so it passes on what
 - **Cursor.** `get_cursor_shape(at)` maps the computed `cursor` of the element the hit test finds at `at` to a
   Godot `CursorShape` (`default` ARROW, `pointer` POINTING_HAND, `text` IBEAM, `move` MOVE, `grab` and `grabbing`
   DRAG, `not-allowed` FORBIDDEN, `crosshair` CROSS, `wait` WAIT, `progress` BUSY, `help` HELP, `ew-resize` HSIZE,
-  `ns-resize` VSIZE, `nesw-resize` BDIAGSIZE, `nwse-resize` FDIAGSIZE); over nothing it is ARROW.
+  `ns-resize` VSIZE, `nesw-resize` BDIAGSIZE, `nwse-resize` FDIAGSIZE); over nothing it is ARROW. An element that set no
+  `cursor` over selectable text (below) shows IBEAM.
 - **Key focus.** The root's focus mode is click-only and `ready()` does not grab focus. It holds Godot key focus
-  only when its owner calls `grab_focus()` or an element is focused. Godot grants key focus to a focusable
+  only when its owner calls `grab_focus()`, an element is focused or a text selection exists. Godot grants key focus to a focusable
   Control on every left press that reaches it, before any handler runs, so a primary press that leaves no element
   focused (a press on something that cannot take focus, or one whose `pointerdown` was prevented with nothing
   focused) hands key focus back: keys then go to the game. A key press in flight (Enter or Space held) ends if the
   root loses key focus; a mouse press does not, because Godot routes it by mouse focus, not key focus.
 - **Keys.** Tab and Shift+Tab are consumed only if element focus moved. Enter and Space are consumed only when
-  they press or release a focused enabled button. Every other key is left for `_unhandled_input`.
+  they press or release a focused enabled button. `ui_copy` is consumed only when it copied a selection and
+  `ui_text_select_all` only when something is selectable. Every other key is left for `_unhandled_input`.
 - **Wheel.** `force_pass_scroll_events` is set. A wheel tick (`WHEEL_UP|DOWN|LEFT|RIGHT` press; the release Godot
   sends with it is not a tick; a `factor` of 0 means 1) and a trackpad pan gesture each queue a cancelable `wheel`
   at the pointer. The event is consumed only if JS calls `preventDefault()`, or its default action (scrolling, below)
@@ -209,6 +211,52 @@ transform and as the hit-test and geometry offset, and re-clamped after layout.
   `minScrollTop`, `maxScrollTop` and the drawn `thumbs`) or `null`. `get_snapshot()` gives every node a `scroll` field with the same.
 - **Frames**: `process()` runs only while native motion is running, a flick is coasting or a finger is panning
   (`update_process()` is the one decision).
+
+## Text selection
+
+The document has one text selection (`native/selection_input.rs`; the Godot-free model is `native/selection.rs`, the
+offset conversions `native/text_offsets.rs`, the geometry over Godot's `TextParagraph` and `TextServer`
+`native/text_layout.rs`). Only `Text` elements with a computed `userSelect: text`, outside any `Button` and not under
+`display: none`, can hold an end of it; a `userSelect: none` element between the ends contributes no range and no text.
+A `Document` (the `Text` nodes in document order, with their length in code points and whether they are selectable) and
+a text layout are built when a gesture, a key or a query needs them and are dropped after it: nothing is built on a
+commit path. The model works in code points; every offset that crosses to JS is a UTF-16 code unit offset.
+
+- **Gestures** (mouse only; plan 3.12 rule 5, after a pointer JS captured and after a scrollbar thumb). An un-prevented
+  primary `pointerdown` on selectable text collapses the selection at the glyph boundary under the pointer
+  (`TextLayout::hit_test`); with Shift it extends the current selection; a second press of a click sequence (`detail` 2)
+  selects the word (`shaped_text_get_word_breaks`), a third the whole text of the node. Moving the mouse with the button
+  down extends the selection to the point under the pointer. A pointer that is not over selectable text extends to the
+  start of the first selectable text after it in reading order (below a line, or right of it, counts as after), or to the
+  end of the last selectable text if there is none (`selection_input::drag_target`). A press that starts or extends no
+  selection (a `Button`, `select-none` text, anything else, or text whose pointer was captured) clears the current one; a
+  prevented `pointerdown` leaves it alone. A touch starts no selection and a touch press clears one.
+- **Focus.** Starting a selection takes Godot key focus for the root without focusing an element; the root keeps it while
+  a selection exists, and a press that clears the selection and focuses nothing hands it back (see "Godot co-operation").
+  Clearing it through `clear_selection` never releases focus: the owner may have asked for it.
+- **Keys.** With the root holding key focus and no `TextInput` focused (Phase I7), the `ui_copy` action puts the selected
+  nodes' text, one per non-empty range, joined by `\n`, on the clipboard (`DisplayServer.clipboard_set`) and the
+  `ui_text_select_all` action selects from the start of the first selectable text to the end of the last. Matching is
+  `event.is_action("ui_copy", true)`, so it needs the device an `InputMap` event has (a real keyboard's).
+- **Lifecycle.** A commit that changes the text of, or removes, a `Text` element the selection covers (a covered element
+  is a selectable one from the first end's to the last's), or a restyle that changes such an element's `userSelect` or
+  `display`, clears the selection. A commit that changes a child list while a selection exists builds a document and
+  clears the selection if it no longer describes it (a selectable element inserted or moved between the ends, or an
+  end that stopped being selectable): whole-tree work, but only in that case. A stale selection is also found whenever
+  a document is next built.
+- **Painting.** What each element has selected is a code point range kept by the root; the element's content item
+  records the highlight rectangles (`TextLayout::selection_rects`, in the item's coordinates) under the paragraph, in
+  `selectionColor` (default `#3b82f659`), and the range and colour are part of the content item's key, so changing the
+  selection re-records exactly the elements whose range changed. The highlight is inside the content item, so it scrolls
+  with a scroll container and is clipped by the containers around it.
+- **Events**: `selectionchange` is addressed to the root listeners (target 0, empty path), is not cancelable and has no
+  payload; a change queues one, and one still waiting for JS is updated in place. JS asks the root for the selection.
+- **Queries and commands**: `get_selection() -> String` is `null`, or `{"anchor": {"tag", "offset"}, "focus": {"tag",
+  "offset"}, "isCollapsed", "text"}` (`text` is what copying gives; the anchor may come after the focus);
+  `clear_selection()` drops it and queues `selectionchange` if there was one. JS: `root.getSelection()` (element handles
+  and offsets), `root.clearSelection()`, `root.addEventListener('selectionchange', ...)` and the `useTextSelection()` hook.
+- Not built: word-granularity drag after a double click, caret affinity at wraps and direction changes, highlighting a
+  selected line break, auto-scroll while dragging, touch selection handles, selection inside a `TextInput` (Phase I7).
 
 ## Queries
 
@@ -353,7 +401,7 @@ Godot's `Input` dispatches every `InputEventGesture` twice (once explicitly and 
 `core/input/input.cpp:995-1003` and `:1046-1048`), so a pan gesture, real or parsed, reaches JS as two `wheel` events
 with the same deltas, exactly as it reaches Godot's own `ScrollContainer`. Native does not filter this.
 
-Limits: no text input/IME, text selection, accessibility tree, images, rich inline text, rounded clip
+Limits: no text input/IME, touch text selection, accessibility tree, images, rich inline text, rounded clip
 masks, `position: sticky`, CSS stacking contexts (`zIndex` orders siblings of one paint parent), a public CSS stylesheet/selector API, arbitrary keyframe animations, or custom native
 materials. Both overflow axes clip together (`hidden`, `scroll` or `auto` on either clips the padding box). Not scrolling: scrollbar
 track clicks (paging), animated programmatic scrolling, overscroll bounce, `position: sticky`. Native drawing uses owned
