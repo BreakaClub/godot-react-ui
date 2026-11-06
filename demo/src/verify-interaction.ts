@@ -2547,6 +2547,28 @@ async function verifyScrolling(owner: Node, api: InteractionInspection, capture:
   await settle();
   assert(touchStatus().endsWith(clicksBefore.slice(clicksBefore.lastIndexOf('clicks'))), `The tap that stopped it does not click: ${touchStatus()}`);
 
+  // The lift of a touch that stopped a flick spends that record even when the element it landed on removed itself under
+  // the finger (its press went with it): the next tap is a tap, not another one that "stopped a fling".
+  await click(api, 'touch-top');
+  finger = await flick();
+  touch(FIRST_TOUCH, finger, false);
+  await frames(1);
+  const vanishAt = point(api, 'touch-vanish');
+  touch(FIRST_TOUCH, vanishAt, true);
+  await settle();
+  assert(!api.find('touch-vanish'), 'The button the finger landed on removed itself on pointerdown');
+  touch(FIRST_TOUCH, vanishAt, false);
+  await settle();
+  const touchClicks = () => Number(/clicks (\d+)$/.exec(touchStatus())?.[1]);
+  const clicksBeforeNextTap = touchClicks();
+  const nextTap = rowAt(touchList().y + touchList().height / 2);
+  touch(FIRST_TOUCH, nextTap, true);
+  await settle();
+  touch(FIRST_TOUCH, nextTap, false);
+  await settle();
+  assert(touchClicks() === clicksBeforeNextTap + 1, `The next tap clicks: ${touchStatus()}`);
+  await click(api, 'touch-vanish-restore');
+
   // Left alone, the same flick coasts to a stop by itself.
   await click(api, 'touch-top');
   finger = await flick();

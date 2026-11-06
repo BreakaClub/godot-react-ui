@@ -127,6 +127,7 @@ function TouchSection() {
   const [pad, setPad] = useState({ down: 0, moves: 0, cancels: 0 });
   const [clicks, setClicks] = useState(0);
   const [bars, setBars] = useState(true);
+  const [vanished, setVanished] = useState(false);
   const list = useRef<UIHandle>(null);
   return (
     <Section title="Touch list">
@@ -147,6 +148,8 @@ function TouchSection() {
       <View className="flex-row gap-1">
         <Button testID="touch-top" className={labButton} onClick={() => list.current?.scrollTo({ top: 0 })}>Top</Button>
         <Button testID="touch-bars" className={labButton} onClick={() => setBars(current => !current)}>{bars ? 'Hide bar' : 'Show bar'}</Button>
+        {!vanished && <Button testID="touch-vanish" className={labButton} onPointerDown={() => setVanished(true)}>Vanish</Button>}
+        <Button testID="touch-vanish-restore" className={labButton} onClick={() => setVanished(false)}>Bring back</Button>
       </View>
       <Text testID="touch-status" className="text-xs text-slate-600">{`pad down ${pad.down}, moves ${pad.moves}, cancels ${pad.cancels}, clicks ${clicks}`}</Text>
     </Section>

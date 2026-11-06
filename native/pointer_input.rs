@@ -376,8 +376,12 @@ impl ReactUiRoot {
         let hit = self.mounted.hit_test(position);
         let capture = self.pointers.get(id).and_then(|record| record.capture);
         let up_target = self.pointers.target_for(id, hit);
+        // A tap that stopped a coasting flick only stopped it. The record is spent by this lift whether
+        // or not the touch has a press left: its target may have been removed under the finger.
+        let stopped_a_fling = self.touch_stopped_a_fling(id);
         let Some(press) = self.pointers.release(id, DOM_BUTTON_PRIMARY, position, 0) else {
-            // A touch native never took (a disabled element, or nothing): nothing to end.
+            // A touch native never took (a disabled element, or nothing), or one whose target was
+            // removed: nothing to end.
             return;
         };
         if let Some(target) = up_target.filter(|tag| self.mounted.nodes.contains_key(tag)) {
@@ -386,8 +390,6 @@ impl ReactUiRoot {
         }
         self.leave_touch(id, position, press.target);
         self.text_input_pointer_up(hit);
-        // A tap that stopped a coasting flick only stopped it.
-        let stopped_a_fling = self.touch_stopped_a_fling(id);
         if !stopped_a_fling
             && let Some(target) = self.click_target(press.target, position, hit, capture)
         {
