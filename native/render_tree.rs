@@ -654,19 +654,20 @@ impl ReactUiRoot {
         if node.kind == Kind::TextInput {
             return (boxed, false);
         }
-        let contented = match node.visual.paragraph.as_mut() {
-            Some(paragraph) => {
-                let key = ContentKey {
-                    generation: node.visual.generation,
-                    color: parse_color(style.color.as_deref(), Color::WHITE),
-                    content_width: node.geometry.content_width(),
-                    origin: node.geometry.content_origin(),
-                    selection: highlight.map(|range| highlight_paint(style, range)),
-                    oversampling: (oversampling * 64.0).round() as u32,
-                };
-                let geometry = node.geometry;
-                let computed = &node.computed;
-                node.render
+        let contented =
+            match node.visual.paragraph.as_mut() {
+                Some(paragraph) => {
+                    let key = ContentKey {
+                        generation: node.visual.generation,
+                        color: parse_color(style.color.as_deref(), Color::WHITE),
+                        content_width: node.geometry.content_width(),
+                        origin: node.geometry.content_origin(),
+                        selection: highlight.map(|range| highlight_paint(style, range)),
+                        oversampling: (oversampling * 64.0).round() as u32,
+                    };
+                    let geometry = node.geometry;
+                    let computed = &node.computed;
+                    node.render
                     .record_content(key, Some(paragraph), oversampling, |paragraph, selection| {
                         let Some(font) = font.as_ref() else {
                             godot_error!(
@@ -689,9 +690,9 @@ impl ReactUiRoot {
                             Vec::new()
                         })
                     })
-            }
-            None => node.render.clear_content(),
-        };
+                }
+                None => node.render.clear_content(),
+            };
         (boxed, contented)
     }
 

@@ -484,7 +484,7 @@ impl ReactUiRoot {
         let window_scale = self
             .base()
             .get_window()
-            .map_or(1.0, |window| window.get_content_scale_factor() as f32);
+            .map_or(1.0, |window| window.get_content_scale_factor());
         f32::max(1.0, f32::max(viewport_oversampling, window_scale))
     }
 
