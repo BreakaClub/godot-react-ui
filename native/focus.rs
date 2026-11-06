@@ -5,6 +5,8 @@
 //! order (pre-order of the mounted tree), never paint order. Nothing here touches Godot; the mounting
 //! layer implements [`FocusTree`] and says which elements are visible.
 
+use std::collections::HashMap;
+
 use crate::pointer::ButtonTree;
 use crate::props::Kind;
 
@@ -82,11 +84,14 @@ pub(crate) fn next_tab_stop(
     current: Option<u32>,
     backwards: bool,
 ) -> Option<u32> {
-    let index_of = |tag: u32| {
-        document_order
-            .iter()
-            .position(|candidate| *candidate == tag)
-    };
+    // Every position is looked up once per call: scanning the order for each stop made a Tab press
+    // cost stops x nodes, which a long list of buttons feels.
+    let positions: HashMap<u32, usize> = document_order
+        .iter()
+        .enumerate()
+        .map(|(position, tag)| (*tag, position))
+        .collect();
+    let index_of = |tag: u32| positions.get(&tag).copied();
     let from = current.and_then(index_of);
     let first = stops.first().copied();
     let last = stops.last().copied();
@@ -274,6 +279,37 @@ mod tests {
         // A focused element that left the tree has no place: start from an end.
         assert_eq!(next_tab_stop(&order, &stops, Some(99), false), Some(2));
         assert_eq!(next_tab_stop(&order, &stops, Some(99), true), Some(11));
+    }
+
+    #[test]
+    fn tab_in_a_very_long_list_costs_what_the_list_does_not_its_square() {
+        // Twenty thousand buttons, each with a label: from the last stop forward, every stop used to be
+        // looked up by scanning the whole order.
+        const BUTTONS: u32 = 20_000;
+        let order: Vec<u32> = (0..BUTTONS * 2).collect();
+        let stops: Vec<u32> = (0..BUTTONS).map(|button| button * 2).collect();
+        let started = std::time::Instant::now();
+        let last = *stops.last().unwrap();
+        assert_eq!(
+            next_tab_stop(&order, &stops, Some(last), false),
+            Some(0),
+            "wraps"
+        );
+        assert_eq!(
+            next_tab_stop(&order, &stops, Some(0), true),
+            Some(last),
+            "and the other way"
+        );
+        assert_eq!(
+            next_tab_stop(&order, &stops, Some(BUTTONS + 1), false),
+            Some(BUTTONS + 2),
+            "from a label half way along (an element that is not a stop) to the next button"
+        );
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(1),
+            "three Tab presses took {:?}",
+            started.elapsed()
+        );
     }
 
     #[test]
