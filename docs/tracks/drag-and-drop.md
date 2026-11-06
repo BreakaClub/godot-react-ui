@@ -116,3 +116,64 @@ Each was made from the evidence named; none contradicts plan section 3.
 - Plan 3.10 rule 1 (only input callbacks emit) has one exception, the hold timer (I9-2).
 - The plan's `resolve_event(seq, default_prevented, drop_effect)` had no rule for a prevented drag event without an effect
   (I9-8).
+
+## Checks (on the rebased branch, after Phases I5 and I6 landed on main)
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked` | 510 passed |
+| `cargo clippy --locked --all-targets` | 0 warnings |
+| `rustup run stable cargo fmt --check` | clean |
+| `pnpm test:types` | clean |
+| `pnpm test` | 310 passed (34 new: `tests/drag-events.test.ts`, `tests/props.test.ts`) |
+| `pnpm verify:interaction` (all nine sections, both viewports) | passed; the drag section takes about 15.6 s. Landscape's first attempt was disturbed by another window (`window-focus-loss`) and D22 re-ran it |
+| `pnpm verify`, `pnpm verify:motion` (`motion.rs` and `render_tree.rs` changed) | passed, both viewports |
+| `pnpm build:web` and `pnpm verify:interaction:web` (port 8103, stopped afterwards) | passed: 906 assertions, 104 captures, four viewports and the touch page |
+
+Inspected PNGs (native, landscape and portrait directories under `artifacts/native-interaction/`): `35-drag-lab` (the lab at
+rest), `36-drag-reorder` (card a over card c, ghost on the target, event log), `37-drag-ghost` (the palette chip's
+60 % copy on bare page, the source at full opacity), `38-drag-autoscroll` (the list scrolled to row 13 under a
+stationary pointer, the target highlighted and the log showing the walk through the rows), `39-drag-list-end` (the drop on
+row 19 at the end of the list), `40-drag-touch-hold` (a held finger's ghost over card b). Web, under
+`artifacts/web-interaction-verification/<viewport>/`: `30-drag-reorder`, `31-drag-ghost`, `32-drag-autoscroll` for each
+of the four viewports and `touch/33-drag-touch-hold`. A raster probe asserts the ghost's pixel (60 % amber over the page)
+and the source's (full amber) natively and in Chrome.
+
+Evidence that the section is tied to the code, not to itself: the first portrait run of this section was cancelled twice by
+real focus losses and the assertions that expect a running drag failed exactly there (I9-11).
+
+### Negative controls
+
+Each was one change to the named source, one `pnpm build:native` and one `verify:interaction --only=drag` run (landscape,
+which stops at the first failure), then restored. (A restored file keeps its old modification time, so cargo does not
+rebuild it: the dylib must be rebuilt after the last restore. It was, and the gate runs above are on the default build.)
+
+| Change | Assertion that failed |
+| --- | --- |
+| the machine's `PointerCancel` does nothing | `Starting a drag cancels the pointer once: 0` |
+| a consumed release is handed to the pointer events as well | `No pointerup follows it either (the pointer was cancelled)` |
+| `input` is never enabled for a drag | `A running drag listens for Escape` |
+| `scrolled` does not ask for the machine to look again | `The element under the stationary pointer was looked up again as the list scrolled: 1 targets seen` |
+| `get_cursor_shape` ignores the drag | `Over a target that accepts, the cursor is can-drop` |
+| the hit test never says "beyond the root" | `Released beyond the root: {... "endedOutsideRoot":false}` |
+| the ghost is never captured | `A dragged element with a native preview has a ghost` |
+| `drag_wants_frames` leaves out the touch hold | `A touch waiting out its hold asks for frames` |
+| a prevented `pointerdown` is still offered to the machine | `locked: JS took the pointer, so no drag is offered` |
+| selection ignores that the press is on a draggable | `A press on select-text inside a draggable element starts no selection ...` |
+| the root leaving does not cancel the drag | `The drag ends with the root` (it ended as `pointercancel`, not `rootexit`) |
+
+JS (unit tests, by hand): `resolveEvent` without the effect fails 4 tests; a prevented `dragstart` that keeps its store fails
+`preventing dragstart stops the drag and forgets its store`; drag events that do not bubble fail the bubbling test;
+negotiation that ignores `effectAllowed` fails 3 tests (two in `tests/data-transfer.test.ts`).
+
+## Merge notes
+
+- Rebased onto `main` (`710adc3`, Phases I5 and I6) once, as asked. Conflicts: `native/events.rs` (both new payloads, plus
+  `DocumentSelectionChange` in the exhaustive match), `native/lib.rs` (fields, `get_cursor_shape` now passes `unset_cursor_of`),
+  `native/pointer_input.rs` (I9-15), the TypeScript event and snapshot types, `README.md`, `native/PROTOCOL.md`, the lab
+  registry, the section list and the timed section runner in `demo/src/verify-interaction.ts`, and the Web verifier's
+  section list. `RenderNode::record_content` gained a highlight argument in I6: the ghost passes no highlight.
+  `scripts/verify.mjs` needed nothing (main's 300 s deadline stands).
+- The Web verifier's total deadline is doubled (1,200 s): four viewports, a touch page, and the scroll, selection and drag
+  sections that wait on real time.
+- No `demo/typings` or `demo/gen` changes (no new `#[func]`); the installed dylib is the default build.
