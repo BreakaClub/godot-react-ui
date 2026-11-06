@@ -129,7 +129,70 @@ For the plan's Phase I6 entry ("done as built" text), the coordinator may use th
 
 ## Verification
 
-RESULTS
+### Gates
+
+| Check | Result |
+| --- | --- |
+| `cargo test --locked` | 498 passed (490 at `6cf7406`; `drag_target` 7, the style parsing, the event coalescing and `Document::node` added, the snapping test removed) |
+| `cargo clippy --locked --all-targets` (and with `--features probe`) | 0 warnings |
+| `rustup run stable cargo fmt --check` | clean |
+| `pnpm test:types`, `pnpm test` | clean, 293 passed (287 before: `selection.test.ts` 6; the style and fixture tests gained cases) |
+| `pnpm verify:interaction` (all eight sections, both viewports) | passed. Landscape passed on its third attempt: the first two failed while the window was disturbed by a real mouse (86 and 167 foreign `InputEventMouseMotion`s, the assertion `Entering a child hovers its parent`; D22). Portrait passed on its first attempt, which saw 464 foreign inputs and one focus loss. An earlier invocation failed in three disturbed attempts, two of them killed by the old 120 s limit (S18) |
+| `pnpm verify` | passed (portrait on its second attempt; the first failed while disturbed) |
+| `pnpm verify:motion` | passed, both viewports (the phase touched `motion.rs`, `computed_style.rs` and `render_tree.rs`) |
+| `pnpm build:web` and `pnpm verify:interaction:web` (port 8101, my own `node scripts/serve-web.mjs --debug`, stopped afterwards) | passed: **771 assertions** (691 at I5, +20 per viewport), 91 captures, at both device pixel ratios and orientations. The first run failed on the verifier's own assertion (it counted the Command key press, which nothing handles, as a leak of the copy key); fixed and run again |
+| Installed library | a default build (`strings` finds no `SEL_NC`), `pnpm build:native` after the last negative control |
+
+The Web wasm was compiled while the one-line font-clone change in `paint_node` was being made, so it may hold the
+version before it; the change does not alter behaviour. The native windows after it (`verify`, `verify:motion` and a last
+selection-only run, `final-default-build`) ran on the final library.
+
+`sectionMs` of the landscape pass: events 25.9 s, cooperation 7.5, pointers 5.7, keyboard 17.7, positioning 5.7, inputs
+14.8, scroll 45.3, selection 14.9 (a busy machine: other worktrees were running their own windows and builds).
+
+### Captures inspected
+
+Native, landscape (`artifacts/native-interaction/landscape/`): `selection-01-paragraph.png` (a triple-clicked paragraph:
+the blue run under the two lines of text, each line to its wrap), `selection-02-across.png` (the first paragraph and the
+start of the second, the `select-none` sentence between them untouched), `selection-03-all.png` (every selectable text,
+including the first rows of the list and the two short texts, and not the sentence, the Button's label or the plain
+text; the readout is the whole selected string), `selection-04-highlight.png` (the rose highlight, and the default one
+gone from the other short text), `selection-05-scrolled.png` (the highlighted row scrolled partly past the list's top
+edge: the highlight is clipped there). Portrait (`.../portrait/selection-03-all.png`, `selection-05-scrolled.png`): the
+same at 600 x 900, the lab fitting. Web (`artifacts/web-interaction-verification/landscape/selection-01-across.png`): the
+same drag in Chrome; the emoji is the Web font's missing-glyph box.
+
+### Negative controls
+
+One build with temporary mutations, each switched on by an environment variable the run set (`SEL_NC`), each in one
+window of `verify:interaction --only=selection`, none re-run. The mutations are not in any commit and the final library is
+a default build.
+
+| Mutation | Verifier assertion that failed |
+| --- | --- |
+| none (the same build, no mutation) | passed |
+| the highlight drawn after the text (`over-text`) | `The text is drawn over its highlight, in its own colour: darkest pixel #822b44` (twice, in two disturbed attempts) |
+| the selection left out of the content key (`no-key`) | `The selected text is highlighted in the default colour: 0 of its box` |
+| no `node_changed` on a text change (`keep-on-text-change`) | `Changing the text of what is selected clears it, with a selectionchange` |
+| no `node_changed` on delete (`keep-on-removal`) | **passed**: the structural check clears a removal too (S6); the two mechanisms overlap |
+| no structural check (`no-stale-check`) | `A selectable line inserted between the ends clears the selection, with a selectionchange, when the commit lands` |
+| neither of the two (`keep-on-removal,no-stale-check`) | `Removing what is selected clears it, with a selectionchange` |
+| a Button's label selectable (`button-selectable`) | `A press on a Button clears the selection and starts none, though its label inherits select-text` |
+| a captured pointer still starts a selection (`capture-ignored`) | `A pointer an element captured is its element's: no selection starts` |
+| a selection does not hold key focus (`focus-released`) | `Starting a selection takes Godot key focus for the root without focusing an element` |
+| a press that starts no selection leaves the old one (`press-keeps`) | `It ends inside the second paragraph: 0` (the next gesture ran from the old selection) |
+| no rule for a pointer that is not over selectable text (`no-gap-rule`) | `Over a select-none sentence the drag reaches the start of the text after it` |
+
+Two findings from the controls: the first `no-stale-check` and `keep-on-removal` runs passed because asking for the
+selection (`getSelection()`) finds a stale selection and clears it too; the removal and insertion assertions now require
+the `selectionchange` and the readout (which only asks native after one) before anything asks for the selection, and that
+is what made them fail. And one run of `no-stale-check` failed earlier than its target, at the copy assertion, with a
+clipboard holding text from another process (`touchend touchcancel`): the system clipboard is shared with whatever else
+runs on the machine, and nothing in the verifier can tell that apart from a wrong copy. It is a possible source of a
+flake, not of a failure that persisted.
+
+The pure rules have Rust unit tests (`drag_target`, `selectionchange` coalescing, the style parsing and inheritance,
+`Document::node`); no negative control was made for those.
 
 ## Merge notes (for the coordinator)
 
