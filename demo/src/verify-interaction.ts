@@ -6,10 +6,12 @@ import {
 import type { NativeActivity, NativeProfile, RendererProfile, UISelection } from '../../src';
 import type { LayoutRect, NativeScrollState, NativeSnapshot, NativeSnapshotNode } from '../../src/native';
 import type { BenchmarkProps } from './benchmark';
+import type { FiltersLabProps } from './filters-lab';
 import type { LabName } from './labs';
 import type { PassthroughCounts } from './main';
 import { verifyHidpi } from './verify-hidpi';
 import { assertionTally, bindVerifierKeys, parseVerifierEvent, verifierClipboard } from './verifier-input';
+import { verifyFilters } from './verify-filters';
 import { verifyTextInput } from './verify-text-input';
 import type { DemoInspection } from './verify';
 
@@ -22,6 +24,14 @@ export interface InteractionInspection extends DemoInspection {
   benchmark(props: BenchmarkProps): void;
   /** Render a page in place of the app: the pass-through HUD, the pointer lab. */
   showLab(name: LabName): void;
+  /** The filters lab, rendered again with new props (plan Phase V1). */
+  showFilters(props: FiltersLabProps): void;
+  /** What Godot draws behind the root: two flat colours, a lit box in 3D, or nothing. */
+  godotContent(kind: 'none' | '2d' | '3d'): void;
+  /** Scale the root's Control. */
+  scaleSurface(factor: number): void;
+  /** Scroll a scroll container to `top` through the programmatic path. */
+  scrollTo(testID: string, top: number): void;
   pointerCancels(): number;
   /** How many `wheel` events (ticks and pans) JS has been shown. */
   wheelEvents(): number;
@@ -3532,7 +3542,7 @@ async function verifyDragging(owner: Node, api: InteractionInspection, capture: 
 }
 
 /** The sections of this verifier, in the order they run (plan 0.4.1: `--only=<name>[,<name>]` runs just those). */
-const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard', 'positioning', 'inputs', 'scroll', 'selection', 'drag', 'forms', 'hidpi'] as const;
+const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard', 'positioning', 'inputs', 'scroll', 'selection', 'drag', 'forms', 'hidpi', 'filters'] as const;
 type Section = (typeof SECTIONS)[number];
 
 function isSection(value: string): value is Section {
@@ -3597,6 +3607,7 @@ export async function runInteractionVerification(owner: Node, api: InteractionIn
   if (sections.has('drag')) await timed('drag', () => verifyDragging(owner, api, capture));
   if (sections.has('forms')) await timed('forms', () => verifyTextInput(owner, api, capture));
   if (sections.has('hidpi')) await timed('hidpi', () => verifyHidpi(owner, api, capture));
+  if (sections.has('filters')) await timed('filters', () => verifyFilters(owner, api, capture));
 
   // A section that asserted nothing passed nothing; a run that left sections out says so (the verify script prints it).
   const empty = [...sections].filter(section => sectionChecks[section] === 0);

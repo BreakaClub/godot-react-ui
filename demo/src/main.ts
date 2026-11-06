@@ -1,13 +1,15 @@
 import { createElement } from 'react';
 import {
-  Callable, Color, ColorRect, Control, DirAccess, DisplayServer, Engine, FileAccess, InputEvent, InputEventKey,
-  InputEventMouseButton, InputEventPanGesture, InputMap, MouseButton, Node, ReactUiRoot, OS, Time, Vector2,
+  BaseMaterial3D, BoxMesh, Callable, Camera3D, Color, ColorRect, Control, DirAccess, DisplayServer, Engine, FileAccess, InputEvent, InputEventKey,
+  InputEventMouseButton, InputEventPanGesture, InputMap, MeshInstance3D, MouseButton, Node, Node3D, ReactUiRoot, OS, StandardMaterial3D,
+  Time, Vector2, Vector3,
 } from 'godot';
 import { createClassBinder } from 'godot.annotations';
 import { createRoot, readActivity, takeNativeProfile, type ReactRoot } from '../../src';
 import { App, getDemoLifecycle } from './app';
 import { setLabOwner } from './interaction-lab';
 import { labElement, type LabName } from './labs';
+import { FiltersLab, type FiltersLabProps } from './filters-lab';
 import { selectionLabControls } from './selection-lab';
 import { observeInputFailure, runVerification } from './verify';
 import { BenchmarkApp, type BenchmarkProps } from './benchmark';
@@ -88,6 +90,14 @@ export default class Main extends Node {
       restoreDemo: () => this.requireRenderer().render(createElement(App)),
       // A page in place of the app: the HUD over the backdrop Control (plan I1), the pointer lab (I2), ...
       showLab: (name: LabName) => this.requireRenderer().render(labElement(name)),
+      /** The filters lab (plan Phase V1): rendered again with new props, so a change is an ordinary commit. */
+      showFilters: (props: FiltersLabProps) => this.requireRenderer().render(createElement(FiltersLab, props)),
+      /**
+       * What Godot draws behind the root, for the filters that read it: `2d` is a Control of two flat colours meeting at the
+       * window's middle, `3d` is a lit box in the window's own viewport (the backdrop Control is hidden so the 3D shows),
+       * `none` removes both and restores the backdrop.
+       */
+      godotContent: (kind: 'none' | '2d' | '3d') => this.setGodotContent(kind),
       /** The `key` of every `keydown` addressed to the root itself (no element focused), in order. */
       rootKeys: () => [...this.rootKeys],
       resetRootKeys: () => { this.rootKeys = []; },
@@ -165,6 +175,15 @@ export default class Main extends Node {
       },
       /** Move the root inside the window, to tell root-local from viewport coordinates. */
       offsetSurface: (x: number, y: number) => { this.requireSurface().position = new Vector2(x, y); },
+      /** Scale the root's Control (everything it draws), as a world-space owner might. */
+      scaleSurface: (factor: number) => { this.requireSurface().scale = new Vector2(factor, factor); },
+      /** Scroll a scroll container, found by `testID`, to `top`: the programmatic path of `scrollTo`. */
+      scrollTo: (testID: string, top: number) => {
+        const found = this.requireRenderer().findByTestID(testID);
+        if (!found) throw new Error(`No element ${testID} to scroll`);
+        const error = this.requireSurface().scrollTo(found.id, 0, top);
+        if (error !== '') throw new Error(`scrollTo ${testID}: ${error}`);
+      },
       /**
        * Resize the root's Control, as the owner does when the window changes size. Until the window itself
        * changes size `_process` leaves it as set here.
@@ -231,6 +250,48 @@ export default class Main extends Node {
     this.addChild(backdrop, false, Node.InternalMode.InternalModeFront);
     this.backdrop = backdrop;
     this.sizeToViewport();
+  }
+
+  private godotNodes: Node[] = [];
+
+  private setGodotContent(kind: 'none' | '2d' | '3d'): void {
+    for (const node of this.godotNodes) {
+      this.removeChild(node);
+      node.free();
+    }
+    this.godotNodes = [];
+    if (this.backdrop) this.backdrop.visible = kind !== '3d';
+    if (kind === 'none') return;
+    if (kind === '2d') {
+      const left = new ColorRect();
+      left.color = new Color(0.8, 0.1, 0.1, 1);
+      left.mouseFilter = Control.MouseFilter.MouseFilterIgnore;
+      const right = new ColorRect();
+      right.color = new Color(1, 0.9, 0.2, 1);
+      right.mouseFilter = Control.MouseFilter.MouseFilterIgnore;
+      this.addChild(left, false, Node.InternalMode.InternalModeFront);
+      this.addChild(right, false, Node.InternalMode.InternalModeFront);
+      left.size = new Vector2(this.width / 2, this.height);
+      right.position = new Vector2(this.width / 2, 0);
+      right.size = new Vector2(this.width / 2, this.height);
+      this.godotNodes.push(left, right);
+      return;
+    }
+    // A flat-lit box filling the middle of the view, in the window's own 3D world.
+    const camera = new Camera3D();
+    camera.position = new Vector3(0, 0, 4);
+    const box = new MeshInstance3D();
+    box.mesh = new BoxMesh();
+    const material = new StandardMaterial3D();
+    material.albedoColor = new Color(0.1, 0.5, 0.9, 1);
+    material.shadingMode = BaseMaterial3D.ShadingMode.ShadingModeUnshaded;
+    box.setSurfaceOverrideMaterial(0, material);
+    const holder = new Node3D();
+    holder.addChild(camera);
+    holder.addChild(box);
+    this.addChild(holder);
+    camera.makeCurrent();
+    this.godotNodes.push(holder);
   }
 
   private sizeToViewport(): void {
