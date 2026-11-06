@@ -1116,6 +1116,15 @@ async function verifyEvents(
   await click(api, 'self-restore');
   assert(api.find('self-remove'), 'The removed button can be restored');
 
+  // A commit that removes the element focus is on, from inside its own click, leaves nothing focused and the root
+  // gives Godot key focus back (plan 3.11, D11): the dialog that closes from its button is the usual case.
+  await click(api, 'click-remove');
+  assert(!api.find('click-remove'), 'The click handler removed the button it had focused');
+  assert(focused() === null, `Nothing is focused: ${focused()}`);
+  assert(!api.surfaceHasFocus(), 'and the root gave Godot key focus back, which a removed element cannot ask for');
+  await click(api, 'click-restore');
+  assert(api.find('click-remove'), 'The removed button can be brought back');
+
   // Rule 4: a handler takes the root out of the scene tree while native is inside the press.
   await click(api, 'focus-normal');
   const detachButton = point(api, 'danger-detach');

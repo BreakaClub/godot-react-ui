@@ -256,6 +256,8 @@ impl ReactUiRoot {
         if self.selecting.selection.clear_if_stale(&document) {
             self.selecting.dragging = false;
             self.selection_changed(None);
+            // The selection held key focus (S3); with it gone, and no element focused, so does nothing.
+            self.release_key_focus_without_element();
         }
         Some(document)
     }
@@ -432,6 +434,9 @@ impl ReactUiRoot {
         }
         self.selecting.dragging = false;
         self.selection_changed(None);
+        // The selection held Godot key focus for the keys that copy and select all (S3): a commit or a
+        // restyle that cleared it leaves no reason to keep it unless an element is focused.
+        self.release_key_focus_without_element();
     }
 
     /// A selection covers a node whose `userSelect` just changed, or that stopped being shown: it is

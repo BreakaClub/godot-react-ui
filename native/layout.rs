@@ -106,6 +106,7 @@ impl ReactUiRoot {
             .is_some_and(|tag| !self.mounted.visible_for_input(tag, viewport))
         {
             self.set_focus(None, false);
+            self.release_key_focus_without_element();
         }
         if self
             .pressed

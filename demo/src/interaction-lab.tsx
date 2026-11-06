@@ -142,6 +142,7 @@ function CrossingPanel() {
 function ReentrancyPanel() {
   const [present, setPresent] = useState(true);
   const [removedClicks, setRemovedClicks] = useState(0);
+  const [clickPresent, setClickPresent] = useState(true);
 
   return (
     <Panel title="Re-entrancy" hint="Each button changes the tree while native is still handling its press.">
@@ -157,6 +158,10 @@ function ReentrancyPanel() {
           </Button>
         )}
         <Button testID="self-restore" className={labButton} onClick={() => setPresent(true)}>Restore</Button>
+        {clickPresent && (
+          <Button testID="click-remove" className={labButton} onClick={() => setClickPresent(false)}>Remove on click</Button>
+        )}
+        <Button testID="click-restore" className={labButton} onClick={() => setClickPresent(true)}>Bring back</Button>
         <Button testID="danger-detach" className={labButton} onPointerDown={() => requireOwner().detachSurface()}>Detach root</Button>
         <Button testID="danger-unmount" className={labButton} onPointerDown={() => requireOwner().unmountRoot()}>Unmount root</Button>
       </View>

@@ -567,6 +567,16 @@ impl ReactUiRoot {
         }
     }
 
+    /// The end of a commit: if it removed the focused element (a dialog closing from its own button's
+    /// click is the usual way) and nothing took focus since, the root gives Godot key focus back, as it
+    /// does when a press or `blur()` leaves no element focused (plan 3.11, D11). A commit that did not
+    /// remove focus leaves key focus alone: an owner may have asked for it with `grabFocus()`.
+    pub(crate) fn settle_key_focus(&mut self) {
+        if std::mem::take(&mut self.key_focus_release_due) {
+            self.release_key_focus_without_element();
+        }
+    }
+
     /// `element.setPointerCapture(pointerId)`: the element receives the pointer's events until it
     /// is released, the pointer goes up or is cancelled, or the element is removed.
     pub(crate) fn set_pointer_capture_checked(

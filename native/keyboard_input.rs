@@ -192,6 +192,8 @@ impl ReactUiRoot {
             self.reveal_node(next);
         }
         self.set_focus(next, true);
+        // With nothing to tab to, focus left the element it was on and nothing holds it now.
+        self.release_key_focus_without_element();
         self.focused != before
     }
 

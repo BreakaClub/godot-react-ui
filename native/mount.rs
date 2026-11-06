@@ -664,6 +664,7 @@ impl ReactUiRoot {
         self.settle_selection(!touched.is_empty());
         self.refresh_interaction();
         self.apply_auto_focus(&validated);
+        self.settle_key_focus();
         // What is exposed may have changed in any way a commit can change the tree; pruning is a
         // no-op until an assistive technology has asked for the tree (plan 3.21).
         self.accessibility.mark_structure_dirty();
@@ -935,6 +936,9 @@ impl ReactUiRoot {
         }
         if self.focused == Some(tag) {
             self.focused = None;
+            // Godot key focus goes back once the commit has settled (`settle_key_focus`): the tree is
+            // half applied now, and the release sends the root a `FOCUS_EXIT`.
+            self.key_focus_release_due = true;
         }
         // A capture on it ends, and a press that targeted it no longer clicks.
         self.pointers.forget_target(tag);

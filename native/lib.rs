@@ -188,6 +188,9 @@ pub struct ReactUiRoot {
     pressed_by_keyboard: bool,
     /// The key that pressed a focused button, while it is held.
     activation_key: Option<Key>,
+    /// A commit removed the focused element: once it has settled the root hands Godot key focus back
+    /// unless something else took focus meanwhile (`settle_key_focus`).
+    key_focus_release_due: bool,
     /// How the user last gave input (plan 3.13).
     modality: Modality,
     focus_visible: bool,
@@ -263,6 +266,7 @@ impl IControl for ReactUiRoot {
             pressed: None,
             pressed_by_keyboard: false,
             activation_key: None,
+            key_focus_release_due: false,
             modality: Modality::Keyboard,
             focus_visible: false,
             pointer: Vector2::ZERO,
@@ -884,6 +888,7 @@ impl ReactUiRoot {
             && self.mounted.is_disabled(tag)
         {
             self.set_focus(None, false);
+            self.release_key_focus_without_element();
         }
         if self.pressed.is_some_and(|tag| {
             !self.mounted.nodes.contains_key(&tag) || self.mounted.is_disabled(tag)
