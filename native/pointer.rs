@@ -135,6 +135,46 @@ pub(crate) fn shared_button_target<T: ButtonTree>(
     (enabled_button_ancestor(tree, released) == Some(button)).then_some(button)
 }
 
+/// `tag` and its ancestors up to its layer's top-level node; empty for an unmounted tag.
+fn chain_of<T: ButtonTree>(tree: &T, tag: u32) -> Vec<u32> {
+    if tree.kind_of(tag).is_none() {
+        return Vec::new();
+    }
+    let mut chain = vec![tag];
+    while let Some(parent) = tree.parent_of(chain[chain.len() - 1]) {
+        chain.push(parent);
+    }
+    chain
+}
+
+/// Whether `tag` or any ancestor has the `disabled` prop.
+fn disabled_in_chain<T: ButtonTree>(tree: &T, tag: u32) -> bool {
+    chain_of(tree, tag)
+        .into_iter()
+        .any(|node| tree.disabled_prop(node))
+}
+
+/// The element a `click` is dispatched to when the primary button was pressed on `pressed` and let go
+/// over `released`, neither captured by JS: the nearest common inclusive ancestor of the two, as the UI
+/// Events spec has it. A press on a row's text that lifts on the row's padding clicks the row; a press
+/// and release on one element click it. Two parts of one enabled button click the button itself, even
+/// if they share a nearer ancestor inside it. Nothing is clicked if the two have no common ancestor
+/// (another layer, or another top-level element), or the release is on a disabled element or inside
+/// one (a disabled element receives no pointer events, and the common ancestor of the two is an
+/// ancestor of the release, so it is disabled only if the release is).
+pub(crate) fn click_target_of<T: ButtonTree>(tree: &T, pressed: u32, released: u32) -> Option<u32> {
+    if tree.kind_of(released).is_none() || disabled_in_chain(tree, released) {
+        return None;
+    }
+    if let Some(button) = shared_button_target(tree, pressed, released) {
+        return Some(button);
+    }
+    let lifted = chain_of(tree, released);
+    chain_of(tree, pressed)
+        .into_iter()
+        .find(|tag| lifted.contains(tag))
+}
+
 #[cfg(test)]
 mod input_tests {
     use super::*;
@@ -253,6 +293,115 @@ mod input_tests {
         assert_eq!(shared_button_target(&tree, 1, 5), None);
         assert_eq!(shared_button_target(&tree, 2, 6), None);
         assert_eq!(shared_button_target(&tree, 2, 7), None);
+    }
+
+    /// 1 view > (2 text, 3 view > (4 text, 5 text), 6 button > (7 text, 8 view > (9 text, 10 text)));
+    /// 11 view > 12 text; 13 view > (14 view[disabled] > 15 text, 16 button[disabled] > 17 text, 18 text).
+    fn rows() -> TestTree {
+        let node = |kind, parent| TestNode {
+            kind,
+            parent,
+            disabled: false,
+        };
+        let mut nodes = BTreeMap::from([
+            (1, node(Kind::View, None)),
+            (2, node(Kind::Text, Some(1))),
+            (3, node(Kind::View, Some(1))),
+            (4, node(Kind::Text, Some(3))),
+            (5, node(Kind::Text, Some(3))),
+            (6, node(Kind::Button, Some(1))),
+            (7, node(Kind::Text, Some(6))),
+            (8, node(Kind::View, Some(6))),
+            (9, node(Kind::Text, Some(8))),
+            (10, node(Kind::Text, Some(8))),
+            (11, node(Kind::View, None)),
+            (12, node(Kind::Text, Some(11))),
+            (13, node(Kind::View, None)),
+            (14, node(Kind::View, Some(13))),
+            (15, node(Kind::Text, Some(14))),
+            (16, node(Kind::Button, Some(13))),
+            (17, node(Kind::Text, Some(16))),
+            (18, node(Kind::Text, Some(13))),
+        ]);
+        for disabled in [14, 16] {
+            nodes.get_mut(&disabled).expect("listed above").disabled = true;
+        }
+        TestTree(nodes)
+    }
+
+    #[test]
+    fn a_click_goes_to_the_nearest_common_inclusive_ancestor() {
+        let tree = rows();
+        assert_eq!(click_target_of(&tree, 4, 4), Some(4), "the same element");
+        assert_eq!(
+            click_target_of(&tree, 4, 5),
+            Some(3),
+            "two siblings: their row"
+        );
+        assert_eq!(
+            click_target_of(&tree, 4, 3),
+            Some(3),
+            "the row's text, lifted on the row's padding"
+        );
+        assert_eq!(
+            click_target_of(&tree, 3, 4),
+            Some(3),
+            "and the other way round"
+        );
+        assert_eq!(
+            click_target_of(&tree, 4, 2),
+            Some(1),
+            "cousins: the nearest ancestor of both"
+        );
+        assert_eq!(
+            click_target_of(&tree, 5, 12),
+            None,
+            "another top-level element has no common ancestor"
+        );
+    }
+
+    #[test]
+    fn parts_of_one_enabled_button_click_the_button_not_a_view_inside_it() {
+        let tree = rows();
+        assert_eq!(
+            click_target_of(&tree, 9, 10),
+            Some(6),
+            "two labels in a view inside the button"
+        );
+        assert_eq!(click_target_of(&tree, 7, 10), Some(6));
+        assert_eq!(click_target_of(&tree, 6, 9), Some(6));
+        assert_eq!(
+            click_target_of(&tree, 9, 4),
+            Some(1),
+            "from a button's label to something beside it: their common ancestor, not the button"
+        );
+    }
+
+    #[test]
+    fn nothing_disabled_is_clicked() {
+        let tree = rows();
+        assert_eq!(
+            click_target_of(&tree, 18, 15),
+            None,
+            "a release on a disabled element's text"
+        );
+        assert_eq!(
+            click_target_of(&tree, 18, 17),
+            None,
+            "a release inside a disabled button"
+        );
+        assert_eq!(
+            click_target_of(&tree, 15, 14),
+            None,
+            "both inside a disabled element"
+        );
+    }
+
+    #[test]
+    fn an_element_that_is_not_mounted_is_not_clicked() {
+        let tree = rows();
+        assert_eq!(click_target_of(&tree, 4, 99), None);
+        assert_eq!(click_target_of(&tree, 99, 4), None);
     }
 
     #[test]

@@ -74,6 +74,9 @@ const CLICK_SEQUENCE_PAUSE_MS = 650;
 const CLICK_SLOP_BREAKER_PX = 10;
 /** How far outside the window the knob test drags: beyond the root and the window itself. */
 const OUTSIDE_THE_ROOT_PX = 300;
+/** How far inside and outside the pad's label edge a click's press and release are, and the page corner that is bare. */
+const CLICK_EDGE_PX = 2;
+const BARE_CORNER_PX = 4;
 /** The focus ring's colour (`FOCUS_RING_COLOR` in native/lib.rs) and how far a raster may stray. */
 const FOCUS_RING_COLOR = new Color(0.49, 0.66, 1.0);
 const FOCUS_RING_TOLERANCE = 0.02;
@@ -717,6 +720,32 @@ async function verifyPointers(owner: Node, api: InteractionInspection, capture: 
   await settle();
   assert(padTally(api).clicks.join(',') === '1,2,3,1,1', `A click beyond the slop starts a sequence: ${text(api, 'pad-tally')}`);
 
+  // The click goes to the nearest common ancestor of the press and the release (UI Events): a press on the pad's label
+  // that lifts on the pad itself clicks the pad, which a press and release on two different elements used to miss.
+  const padLabel = api.snapshot().nodes.find(node => node.id === get(api, 'pad').children[0]);
+  assert(padLabel && padLabel.rect.width > 0, 'The pad has a label of its own');
+  const inLabel = new Vector2(padLabel.rect.x + CLICK_EDGE_PX, padLabel.rect.y + padLabel.rect.height / 2);
+  const besideLabel = new Vector2(padLabel.rect.x - CLICK_EDGE_PX, inLabel.y);
+  const padClicks = () => padTally(api).clicks.length;
+  const clicksBeforeLabel = padClicks();
+  mouseButton(inLabel, MouseButton.MouseButtonLeft, true);
+  mouseButton(besideLabel, MouseButton.MouseButtonLeft, false);
+  await settle();
+  assert(padClicks() === clicksBeforeLabel + 1, `A press on the label lifted on the pad clicks the pad: ${text(api, 'pad-tally')}`);
+  mouseButton(besideLabel, MouseButton.MouseButtonLeft, true);
+  mouseButton(inLabel, MouseButton.MouseButtonLeft, false);
+  await settle();
+  assert(padClicks() === clicksBeforeLabel + 2, `and so does a press on the pad lifted on the label: ${text(api, 'pad-tally')}`);
+  const bareCorner = new Vector2(BARE_CORNER_PX, BARE_CORNER_PX);
+  mouseButton(inLabel, MouseButton.MouseButtonLeft, true);
+  mouseButton(bareCorner, MouseButton.MouseButtonLeft, false);
+  await settle();
+  assert(padClicks() === clicksBeforeLabel + 2, `Lifted over the lab's bare page, the common ancestor is the page, not the pad: ${text(api, 'pad-tally')}`);
+  mouseButton(inLabel, MouseButton.MouseButtonLeft, true);
+  mouseButton(new Vector2(api.snapshot().width + OUTSIDE_THE_ROOT_PX, inLabel.y), MouseButton.MouseButtonLeft, false);
+  await settle();
+  assert(padClicks() === clicksBeforeLabel + 2, `Lifted beyond the root, nothing is clicked: ${text(api, 'pad-tally')}`);
+
   // Capture: the knob follows a drag wherever it goes, outside itself and the root and the window.
   const track = get(api, 'knob-track');
   const middle = (value: number) => new Vector2(track.rect.x + value * track.rect.width, track.rect.y + track.rect.height / 2);
@@ -781,6 +810,15 @@ async function verifyPointers(owner: Node, api: InteractionInspection, capture: 
   assert(padNode.style.backgroundColor === PAD_REST_COLOR, `No hover paint is left after a tap: ${padNode.style.backgroundColor}`);
   assert(afterTap.pointers.every(entry => entry.type === 'mouse'), 'A finished touch leaves no pointer record');
   await capture('14-pointer-touch-tap');
+  // A finger that drifts from the label onto the pad within the slop taps the pad, as the mouse does.
+  const clicksBeforeDrift = padClicks();
+  touch(FIRST_TOUCH, inLabel, true);
+  await settle();
+  touchDrag(FIRST_TOUCH, besideLabel, new Vector2(-2 * CLICK_EDGE_PX, 0));
+  await settle();
+  touch(FIRST_TOUCH, besideLabel, false);
+  await settle();
+  assert(padClicks() === clicksBeforeDrift + 1, `A tap whose finger drifted from the label onto the pad clicks the pad: ${text(api, 'pad-tally')}`);
 
   // Two fingers: two pointers, each captured to where it went down, independent of one another.
   const knobPoint = middle(0.1);

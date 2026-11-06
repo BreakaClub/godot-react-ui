@@ -14,7 +14,7 @@ use crate::events::{EventPayload, PointerData, PointerType, WheelData};
 use crate::focus::{Modality, nearest_focusable};
 use crate::pointer::{
     DOM_BUTTON_NONE, DOM_BUTTON_PRIMARY, DOM_BUTTON_SECONDARY, DOM_BUTTONS_PRIMARY,
-    MOUSE_POINTER_ID, dom_button_of, shared_button_target, wheel_ticks,
+    MOUSE_POINTER_ID, click_target_of, dom_button_of, wheel_ticks,
 };
 use crate::pointer_state::{Capture, PointerKind, Press, touch_pointer_id};
 use crate::scroll::{ScrollInput, Vec2, wheel_factor};
@@ -266,7 +266,7 @@ impl ReactUiRoot {
         }
         if let Some(press) = press
             && !dragged_thumb
-            && let Some(target) = self.click_target(press.target, hit, capture)
+            && let Some(target) = self.click_target(press.target, self.pointer, hit, capture)
         {
             let data = self.mouse_pointer_data(button, press.detail, None);
             if primary {
@@ -285,12 +285,15 @@ impl ReactUiRoot {
     }
 
     /// The element a click is dispatched to, if the press and release make one. A pointer an element
-    /// asked to capture clicks that element, if the press began inside it. Otherwise press and
-    /// release must reach the same element, or two parts of one enabled button (its padding and its
-    /// label): crossing to another button or releasing outside the pressed one does not click.
+    /// asked to capture clicks that element, if the press began inside it. Otherwise it is the nearest
+    /// common inclusive ancestor of the press target and the element the pointer was released over
+    /// (`pointer::click_target_of`), mouse and touch alike: a press on a row's text that lifts on the
+    /// row's padding clicks the row. A release over nothing, beyond the root (where an overflowing
+    /// element could still be under the pointer) or on a disabled element clicks nothing.
     fn click_target(
         &self,
         press_target: u32,
+        release_at: Vector2,
         release_hit: Option<u32>,
         capture: Option<Capture>,
     ) -> Option<u32> {
@@ -305,14 +308,10 @@ impl ReactUiRoot {
                 .contains(&target)
                 .then_some(target);
         }
-        let hit = release_hit.filter(|id| !self.mounted.is_disabled(*id))?;
-        if press_target == hit {
-            Some(hit)
-        } else {
-            // Padding and label are different pointer targets, but they activate the same
-            // button. Keep pointer event IDs unchanged.
-            shared_button_target(&self.mounted, press_target, hit)
+        if !self.viewport_box().contains(release_at) {
+            return None;
         }
+        click_target_of(&self.mounted, press_target, release_hit?)
     }
 
     /// A finger went down (or another one did). Returns false when JS left the root outside the
@@ -386,7 +385,9 @@ impl ReactUiRoot {
         self.text_input_pointer_up(hit);
         // A tap that stopped a coasting flick only stopped it.
         let stopped_a_fling = self.touch_stopped_a_fling(id);
-        if !stopped_a_fling && let Some(target) = self.click_target(press.target, hit, capture) {
+        if !stopped_a_fling
+            && let Some(target) = self.click_target(press.target, position, hit, capture)
+        {
             let data = self.touch_pointer_data(position, id, DOM_BUTTON_PRIMARY, 0, press.detail);
             self.queue(target, EventPayload::Click(data));
             if press.detail == DOUBLE_CLICK_DETAIL {

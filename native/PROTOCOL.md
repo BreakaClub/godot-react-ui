@@ -445,9 +445,12 @@ One record per pointer id (`native/pointer_state.rs`, unit tested): the mouse is
   `contextmenu`, `auxclick` and `dblclick` are not cancelable.
 - **Click counting.** A press continues a sequence if it is the same button of the same kind of pointer, at most
   500 ms after the previous press and within 4 logical pixels of where the sequence began; its count is one more.
-  `detail` on `click`, `auxclick` and `dblclick` is the count of the press. A click needs press and release on the
-  same element, or on two parts of one enabled button; a pointer an element captured clicks that element if the
-  press began inside it. Pressing a disabled element or releasing outside the pressed one does not click.
+  `detail` on `click`, `auxclick` and `dblclick` is the count of the press. A click goes to the nearest common
+  inclusive ancestor of the element pressed and the element the pointer was released over, mouse and touch alike (two
+  parts of one enabled button click the button itself); a pointer an element captured clicks that element if the
+  press began inside it. Pressing a disabled element, releasing on one, releasing over nothing or beyond the root,
+  or releasing over an element with no ancestor in common with the pressed one (another layer or top-level
+  element) does not click.
 - **Touch.** A finger that goes down queues `pointerenter` (no related element, so JS enters the whole path), then
   `pointerdown` (cancelable, `buttons` 1, `pointerType` `"touch"`) with the same default action as a mouse press
   (focus, or hand key focus back). The finger is captured to its `pointerdown` target for as long as it is down,
