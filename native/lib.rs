@@ -35,6 +35,13 @@ mod style_engine;
 // Integrated in Phase I7 (TextInput); remove the attribute then.
 #[cfg_attr(not(test), allow(dead_code))]
 mod text_input;
+// Caret, hit-test and selection geometry over Godot's `TextParagraph`. Until Phase I6 (text selection)
+// and I7 (TextInput) integrate it, only the `probe` build calls the half that talks to the text server
+// (the unit tests use a fake paragraph); remove the attribute then.
+#[cfg_attr(not(feature = "probe"), allow(dead_code))]
+mod text_layout;
+#[cfg(feature = "probe")]
+mod text_layout_probe;
 // Integrated in Phase I6 (text selection) and I7 (TextInput); remove the attribute then.
 #[cfg_attr(not(test), allow(dead_code))]
 mod text_offsets;
