@@ -155,6 +155,7 @@ impl ReactUiRoot {
     /// a node's computed style (hover/focus, resize) ends here.
     pub(crate) fn publish_style_changes(&mut self, changes: &[StyleChange]) {
         self.publish(changes, false);
+        self.note_accessibility_restyle(changes);
     }
 
     /// Publish a commit. `structure_changed` says some child list changed, which needs a layout

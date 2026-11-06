@@ -91,6 +91,24 @@ pub struct FocusData {
     pub focus_visible: bool,
 }
 
+/// What an assistive technology can ask of a slider that has no pointer or key gesture (plan 3.21).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AccessibilityActionKind {
+    Increment,
+    Decrement,
+    SetValue,
+}
+
+/// `accessibilityaction`: an assistive technology acted on the element's accessibility node. `value`
+/// is the number `setValue` asked for, and `null` for the other actions.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccessibilityActionData {
+    pub action: AccessibilityActionKind,
+    pub value: Option<f64>,
+}
+
 /// One variant per wire `type`.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
@@ -115,6 +133,7 @@ pub enum EventPayload {
     KeyUp(KeyData),
     Focus(FocusData),
     Blur(FocusData),
+    AccessibilityAction(AccessibilityActionData),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -572,6 +591,36 @@ mod tests {
         assert!(
             events[4].get("relatedPath").is_none(),
             "only crossing events name the other side's path"
+        );
+    }
+
+    #[test]
+    fn an_accessibility_action_serializes_with_its_value_or_null() {
+        let mut queue = EventQueue::new();
+        for (action, value) in [
+            (AccessibilityActionKind::Increment, None),
+            (AccessibilityActionKind::Decrement, None),
+            (AccessibilityActionKind::SetValue, Some(42.5)),
+        ] {
+            queue.push(
+                5,
+                vec![5, 1],
+                EventPayload::AccessibilityAction(AccessibilityActionData { action, value }),
+                STAMP,
+            );
+        }
+        let events: Vec<Value> = queue.drain().iter().map(wire).collect();
+        let expected = |seq: u64, action: &str, value: Value| {
+            json!({"seq": seq, "target": 5, "path": [5, 1], "cancelable": false, "timeStamp": STAMP,
+                   "type": "accessibilityaction", "action": action, "value": value})
+        };
+        assert_eq!(
+            events,
+            vec![
+                expected(1, "increment", Value::Null),
+                expected(2, "decrement", Value::Null),
+                expected(3, "setValue", json!(42.5)),
+            ]
         );
     }
 

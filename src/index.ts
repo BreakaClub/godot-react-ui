@@ -7,8 +7,8 @@ export type {
 } from './kit';
 export { EventPhase } from './events';
 export type {
-  EventPhaseValue, UIAnyEvent, UIEvent, UIEventMap, UIFocusEvent, UIKeyboardEvent, UIMouseFields, UIPointerEvent, UISyntheticEvent,
-  UIWheelEvent,
+  EventPhaseValue, UIAccessibilityActionEvent, UIAnyEvent, UIEvent, UIEventMap, UIFocusEvent, UIKeyboardEvent, UIMouseFields,
+  UIPointerEvent, UISyntheticEvent, UIWheelEvent,
 } from './events';
 export { createRoot } from './renderer';
 export type { RootOptions, UIRoot } from './renderer';

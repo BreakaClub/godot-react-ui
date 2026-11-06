@@ -1,3 +1,4 @@
+import type { NativeAccessibilityAction } from '../native';
 import { Key } from './keys';
 
 /** PageUp and PageDown move this many steps (the Authoring Practices leave the amount open; Radix uses 10). */
@@ -82,6 +83,25 @@ export function valueForKey(key: string, current: number, bounds: SliderBounds):
     case Key.Home: return bounds.min;
     case Key.End: return bounds.max;
     default: return undefined;
+  }
+}
+
+/**
+ * The value an assistive technology asks for: one step up or down (what an arrow key does), or the
+ * number it sets, moved onto the grid and held to the ends. `setValue` with no number is a bug in whoever
+ * sent it, so it throws instead of leaving the slider where it was.
+ */
+export function valueForAccessibilityAction(
+  action: NativeAccessibilityAction, requested: number | undefined, current: number, bounds: SliderBounds,
+): number {
+  switch (action) {
+    case 'increment': return snapToStep(current + bounds.step, bounds);
+    case 'decrement': return snapToStep(current - bounds.step, bounds);
+    case 'setValue':
+      if (requested === undefined || !Number.isFinite(requested)) {
+        throw new Error(`A slider's setValue action needs a finite number, not ${String(requested)}`);
+      }
+      return snapToStep(requested, bounds);
   }
 }
 

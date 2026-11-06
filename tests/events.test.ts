@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createElement as h } from 'react';
-import { View, type UIFocusEvent, type UIKeyboardEvent, type UIPointerEvent, type UIWheelEvent } from '../src';
+import {
+  View, type UIAccessibilityActionEvent, type UIFocusEvent, type UIKeyboardEvent, type UIPointerEvent, type UIWheelEvent,
+} from '../src';
 import { EventPhase, exclusiveAncestry } from '../src/events';
 import { createTestRoot, RecordingHost } from './recording-host';
 
@@ -558,6 +560,51 @@ test('focus and blur name the element on the other side and whether the focus is
   root.dispatchEvents();
   assert.deepEqual(log, ['a:focus:none:true', 'a:blur:b:true', 'b:focus:a:true', 'b:blur:none:false']);
   assert.equal(seen[0]?.bubbles, true, 'focus bubbles, as React\'s onFocus does');
+  root.unmount();
+});
+
+test('an accessibility action reaches the target\'s onAccessibilityAction and bubbles, uncancelable', () => {
+  const host = new RecordingHost();
+  const { root } = createTestRoot(host);
+  const log: string[] = [];
+  const seen: UIAccessibilityActionEvent[] = [];
+  root.render(h(View, {
+    testID: 'outer', onAccessibilityAction: (event) => log.push(`outer:${event.action}:${event.value ?? 'none'}:${event.currentTarget.testID}`),
+  }, h(View, {
+    testID: 'inner', role: 'slider',
+    onAccessibilityAction: (event) => { log.push(`inner:${event.action}:${event.value ?? 'none'}`); seen.push(event); event.preventDefault(); },
+  })));
+  const inner = requireNode(root, 'inner');
+  host.events.push(
+    host.accessibilityActionEvent(inner, 'increment'),
+    host.accessibilityActionEvent(inner, 'setValue', 0),
+    host.accessibilityActionEvent(inner, 'setValue', 42.5),
+  );
+  root.dispatchEvents();
+  assert.deepEqual(log, [
+    'inner:increment:none', 'outer:increment:none:outer',
+    'inner:setValue:0', 'outer:setValue:0:outer',
+    'inner:setValue:42.5', 'outer:setValue:42.5:outer',
+  ]);
+  assert.equal(seen[0]?.bubbles, true);
+  assert.equal(seen[0]?.cancelable, false);
+  assert.equal(seen[0]?.defaultPrevented, false, 'preventDefault does nothing for an event native does not await');
+  assert.deepEqual(host.resolutions, [], 'native awaits no answer');
+  root.unmount();
+});
+
+test('an accessibility action for an element that is gone is dropped, and a malformed one is rejected', () => {
+  const host = new RecordingHost();
+  const { root } = createTestRoot(host);
+  let calls = 0;
+  root.render(h(View, { testID: 'only', onAccessibilityAction: () => { calls += 1; } }));
+  host.events.push(host.accessibilityActionEvent(9999, 'decrement'));
+  root.dispatchEvents();
+  assert.equal(calls, 0);
+  // Native's JSON, with an action no native build sends.
+  const malformed = JSON.stringify([{ ...host.accessibilityActionEvent(requireNode(root, 'only'), 'increment'), action: 'explode' }]);
+  host.drainEvents = () => malformed;
+  assert.throws(() => root.dispatchEvents(), /Invalid native accessibility action: explode/);
   root.unmount();
 });
 

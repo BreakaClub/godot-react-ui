@@ -114,7 +114,8 @@ export interface CompiledStyle {
 
 /**
  * The `role` values the accessibility tree understands (plan Appendix D). `Button`, `TextInput` and
- * `Text` have implicit roles. JavaScript-only until Phase I10 sends it to native.
+ * `Text` have implicit roles. Sent to native as the `role` prop; `none` and `presentation` keep an
+ * element out of the tree.
  */
 export type UIRole =
   | 'button' | 'checkbox' | 'switch' | 'radio' | 'radiogroup' | 'group' | 'slider' | 'progressbar'
@@ -123,10 +124,9 @@ export type UIRole =
   | 'dialog' | 'img' | 'region' | 'tooltip' | 'none' | 'presentation';
 
 /**
- * `role` and the `aria-*` props of plan section 4.2, plus `aria-orientation` (which section 4.2 has
- * no native field for yet). They are JavaScript-only: `nativeProps` drops them and native's
- * `PropsSpec` rejects unknown keys, so they stay out of `NATIVE_PROP_KEYS` until Phase I10 adds the
- * native fields and maps them.
+ * `role` and the `aria-*` props of plan section 4.2, plus `aria-orientation` (Phase I10 adds the
+ * native `ariaOrientation` field for it). `nativeProps` maps each JSX name to the camelCase native
+ * field (`aria-valuenow` to `ariaValueNow`) and native applies them to the accessibility tree.
  */
 export interface UIAriaProps {
   role?: UIRole;

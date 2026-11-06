@@ -1,5 +1,5 @@
 import { Children, createElement, forwardRef, useContext, type ReactNode } from 'react';
-import type { UIFocusEvent, UIKeyboardEvent, UIPointerEvent, UIWheelEvent } from './events';
+import type { UIAccessibilityActionEvent, UIFocusEvent, UIKeyboardEvent, UIPointerEvent, UIWheelEvent } from './events';
 import type { LayoutRect } from './native';
 import { createOverlayPortal, OverlayContext } from './renderer';
 import type { StyleProp, UIAriaProps } from './types';
@@ -74,6 +74,12 @@ export interface UIProps extends UIAriaProps {
   onPointerLeave?: (event: UIPointerEvent) => void;
   onFocus?: (event: UIFocusEvent) => void;
   onBlur?: (event: UIFocusEvent) => void;
+  /**
+   * A screen reader or other assistive technology acted on this element's accessibility node: `increment`,
+   * `decrement` and `setValue` for `role="slider"`. Its clicks and focus changes arrive as `onClick`,
+   * `onFocus` and `onBlur`. Bubbles, and cannot be prevented.
+   */
+  onAccessibilityAction?: (event: UIAccessibilityActionEvent) => void;
 }
 
 /** A flex-column element by default; Taffy owns its complete layout. */

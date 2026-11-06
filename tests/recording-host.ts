@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import { createRoot, type RootOptions, type UIRoot } from '../src';
 import type { CommitPayload } from '../src/commit';
 import type {
-  NativeEvent, NativeEventType, NativeFocusEventType, NativeHost, NativeKeyEvent, NativePointerEvent,
-  NativePointerEventType, NativeSnapshot, NativeSnapshotNode, NativeWheelEvent, PackedTags,
+  NativeAccessibilityAction, NativeAccessibilityActionEvent, NativeEvent, NativeEventType, NativeFocusEventType,
+  NativeHost, NativeKeyEvent, NativePointerEvent, NativePointerEventType, NativeSnapshot, NativeSnapshotNode,
+  NativeWheelEvent, PackedTags,
 } from '../src/native';
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -272,7 +273,9 @@ export class RecordingHost implements NativeHost {
     const event = isFocusType(type)
       ? this.focusEvent(target, type)
       : type === 'wheel' ? this.wheelEvent(target)
-        : type === 'keydown' || type === 'keyup' ? this.keyEvent(target, type) : this.pointerEvent(target, type, overrides);
+        : type === 'keydown' || type === 'keyup' ? this.keyEvent(target, type)
+          : type === 'accessibilityaction' ? this.accessibilityActionEvent(target, 'increment')
+            : this.pointerEvent(target, type, overrides);
     this.events.push(event);
     return event;
   }
@@ -305,6 +308,16 @@ export class RecordingHost implements NativeHost {
     return {
       seq: this.nextSeq++, target, path: this.pathOf(target), cancelable: false, timeStamp: 1.5, type,
       relatedTarget: related, focusVisible,
+    };
+  }
+
+  /** An assistive technology's action on `target`'s accessibility node; never cancelable. */
+  accessibilityActionEvent(
+    target: number, action: NativeAccessibilityAction, value: number | null = null,
+  ): NativeAccessibilityActionEvent {
+    return {
+      seq: this.nextSeq++, target, path: this.pathOf(target), cancelable: false, timeStamp: 1.5,
+      type: 'accessibilityaction', action, value,
     };
   }
 

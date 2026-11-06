@@ -1203,6 +1203,7 @@ declare module "godot" {
         has_pointer_capture: "hasPointerCapture";
         focus_node: "focusNode";
         blur_node: "blurNode";
+        _on_accessibility_action: "_onAccessibilityAction";
         get_node_rect: "getNodeRect";
         find_by_test_id: "findByTestId";
         drain_events: "drainEvents";
@@ -1223,6 +1224,7 @@ declare module "godot" {
         hasPointerCapture(tag: int64, pointerId: int64): boolean
         focusNode(tag: int64, focusVisible: int64): string
         blurNode(tag: int64): string
+        _onAccessibilityAction(data: any, tag: int64, action: int64): any
         getNodeRect(tag: int64): string
         findByTestId(testId: string): int64
         drainEvents(): string

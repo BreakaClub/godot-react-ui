@@ -1,3 +1,5 @@
+mod accessibility;
+mod accessibility_model;
 mod commit;
 mod computed_style;
 mod diff;
@@ -63,6 +65,7 @@ use serde::Serialize;
 use serde_json::json;
 use taffy::prelude::{NodeId, TaffyTree};
 
+use accessibility::Accessibility;
 use commit::{CommitPayload, LAYER_COUNT};
 use computed_style::{InteractionState, PseudoStates, restyle};
 use diff::Parent;
@@ -181,6 +184,8 @@ pub struct ReactUiRoot {
     pointers: PointerTable,
     clicks: ClickCounter,
     stats: Stats,
+    /// The accessibility elements this root has made for assistive technologies (plan 3.21).
+    accessibility: Accessibility,
     clock_ms: f64,
     profiler: Profiler,
     style_engine: StyleEngine,
@@ -242,6 +247,7 @@ impl IControl for ReactUiRoot {
             pointers: PointerTable::default(),
             clicks: ClickCounter::default(),
             stats: Stats::default(),
+            accessibility: Accessibility::default(),
             clock_ms: 0.0,
             profiler: Profiler::default(),
             style_engine: StyleEngine::new(),
@@ -310,7 +316,11 @@ impl IControl for ReactUiRoot {
                 self.flush_layout();
                 self.refresh_intrinsic_targets();
             }
+            ControlNotification::ACCESSIBILITY_UPDATE => self.update_accessibility(),
+            // The engine freed the root's element, and ours with it.
+            ControlNotification::ACCESSIBILITY_INVALIDATE => self.forget_accessibility_elements(),
             ControlNotification::PREDELETE => {
+                self.release_accessibility_elements();
                 self.mounted.nodes.clear();
                 self.layer_items.clear();
                 self.ring_item = None;
@@ -350,6 +360,8 @@ impl IControl for ReactUiRoot {
                 self.update_process();
             }
             ControlNotification::EXIT_TREE => {
+                // The engine frees the root's element, and ours with it, when the root leaves.
+                self.forget_accessibility_elements();
                 // Leaving the tree is a pause, not destruction. Keep the native
                 // clock, Stylo transitions and presentation overrides for reentry.
                 self.events.retain(|payload| {
@@ -392,6 +404,11 @@ impl IControl for ReactUiRoot {
 
     fn get_cursor_shape(&self, at_position: Vector2) -> i32 {
         cursor_shape(self.mounted.cursor_at(at_position)).ord()
+    }
+
+    /// Which accessibility element holds assistive focus while the root has key focus.
+    fn get_focused_accessibility_element(&self) -> Rid {
+        self.focused_accessibility_element()
     }
 }
 
@@ -512,6 +529,14 @@ impl ReactUiRoot {
             Ok(()) => GString::new(),
             Err(error) => GString::from(&error),
         }
+    }
+
+    /// An assistive technology acted on node `tag`'s accessibility element. The element's action
+    /// callables are bound to this method, so the platform adapter calls it (deferred) with the
+    /// request's data first, then the tag and the action code bound by `accessibility.rs`.
+    #[func]
+    fn _on_accessibility_action(&mut self, data: Variant, tag: i64, action: i64) {
+        self.handle_accessibility_action(&data, tag, action);
     }
 
     /// The root-local rectangle of a node as JSON, or `null` if no such node is mounted.
@@ -868,6 +893,7 @@ impl ReactUiRoot {
             }
             return;
         }
+        self.request_accessibility_update();
         let previous = self
             .focused
             .filter(|id| self.mounted.nodes.contains_key(id));

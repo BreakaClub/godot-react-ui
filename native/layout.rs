@@ -122,6 +122,8 @@ impl ReactUiRoot {
         self.phase_layout_micros += self.last_layout_micros;
         self.phase_geometry_micros += self.geometry_micros;
         self.paint_pass();
+        // Bounds are part of the accessibility tree.
+        self.request_accessibility_update();
     }
 }
 

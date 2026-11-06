@@ -519,6 +519,11 @@ impl ReactUiRoot {
         self.publish_commit(&dry_run.changes, !touched.is_empty());
         self.refresh_interaction();
         self.apply_auto_focus(&validated);
+        // What is exposed may have changed in any way a commit can change the tree; pruning is a
+        // no-op until an assistive technology has asked for the tree (plan 3.21).
+        self.accessibility.mark_structure_dirty();
+        self.prune_accessibility();
+        self.request_accessibility_update();
         self.stats.batches += 1;
         self.stats.node_count = self.mounted.nodes.len();
         let mount_micros = micros(mount_started)
@@ -740,6 +745,7 @@ impl ReactUiRoot {
         self.mounted
             .index_test_id(tag, node.props.test_id.as_deref(), None);
         self.forget_motion(tag);
+        self.forget_accessibility_node(tag);
         self.layout_dirty.remove(&tag);
         self.paint_dirty.remove(&tag);
         self.paint_reeval.remove(&tag);

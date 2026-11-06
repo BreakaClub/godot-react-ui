@@ -100,3 +100,54 @@ test('diffs are stable: equal changes serialize to the same payload however the 
   assert.equal(first, second);
   assert.equal(JSON.stringify(diffNativeProps({}, { text: 'x', style: compileStyle('p-1 w-4') })), first, 'and in a fixed key order');
 });
+
+test('role and aria props map to camelCase native fields; a boolean whose default is false is sent only when true', () => {
+  assert.deepEqual(nativeProps('view', { role: 'group', 'aria-label': 'Options', 'aria-description': 'Pick one' }, false), {
+    role: 'group', ariaLabel: 'Options', ariaDescription: 'Pick one',
+  });
+  const everything = nativeProps('view', {
+    'aria-hidden': true, 'aria-disabled': true, 'aria-readonly': true, 'aria-required': true, 'aria-modal': true,
+    'aria-valuetext': 'half', 'aria-placeholder': 'type', 'aria-live': 'assertive', 'aria-orientation': 'vertical',
+  }, false);
+  assert.deepEqual(everything, {
+    ariaHidden: true, ariaDisabled: true, ariaReadOnly: true, ariaRequired: true, ariaModal: true,
+    ariaValueText: 'half', ariaPlaceholder: 'type', ariaLive: 'assertive', ariaOrientation: 'vertical',
+  });
+  assert.deepEqual(nativeProps('view', {
+    'aria-hidden': false, 'aria-disabled': false, 'aria-readonly': false, 'aria-required': false, 'aria-modal': false,
+  }, false), {}, 'false is the default for these');
+  // Absent means "not applicable" for these three, so a false is information.
+  assert.deepEqual(nativeProps('view', { 'aria-expanded': false, 'aria-selected': false, 'aria-checked': false }, false), {
+    ariaExpanded: false, ariaSelected: false, ariaChecked: false,
+  });
+  assert.deepEqual(nativeProps('view', { 'aria-expanded': true, 'aria-selected': true, 'aria-checked': 'mixed' }, false), {
+    ariaExpanded: true, ariaSelected: true, ariaChecked: 'mixed',
+  });
+  assert.deepEqual(nativeProps('view', { 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': 0 }, false), {
+    ariaValueMin: 0, ariaValueMax: 100, ariaValueNow: 0,
+  }, 'a value of 0 is a value');
+  assert.deepEqual(nativeProps('view', { 'aria-label': '' }, false), { ariaLabel: '' }, 'an empty label is still a label');
+});
+
+test('aria numbers must be finite', () => {
+  for (const prop of ['aria-valuemin', 'aria-valuemax', 'aria-valuenow'] as const) {
+    for (const invalid of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      assert.throws(() => nativeProps('view', { [prop]: invalid }, false), new RegExp(`${prop} must be a finite number`), `${prop} ${invalid}`);
+    }
+  }
+});
+
+test('a diff names each accessibility field that changed, with null when it went away', () => {
+  const checked: NativeProps = { role: 'checkbox', ariaChecked: false, ariaLabel: 'Sound' };
+  assert.equal(diffNativeProps(checked, { ...checked }), null);
+  assert.deepEqual(diffNativeProps(checked, { ...checked, ariaChecked: true }), { ariaChecked: true });
+  assert.deepEqual(diffNativeProps(checked, { ...checked, ariaChecked: 'mixed' }), { ariaChecked: 'mixed' });
+  assert.deepEqual(diffNativeProps(checked, { role: 'checkbox', ariaChecked: false }), { ariaLabel: null });
+  assert.deepEqual(diffNativeProps(checked, {}), { role: null, ariaChecked: null, ariaLabel: null });
+  assert.deepEqual(diffNativeProps({}, { ariaHidden: true, ariaValueNow: 0 }), { ariaHidden: true, ariaValueNow: 0 });
+  assert.deepEqual(diffNativeProps({ ariaValueNow: 3 }, { ariaValueNow: 0 }), { ariaValueNow: 0 }, '0 replaces 3, it does not reset');
+  assert.deepEqual(diffNativeProps({ ariaExpanded: true }, { ariaExpanded: false }), { ariaExpanded: false });
+  for (const diff of [diffNativeProps(checked, {}), diffNativeProps({}, checked)]) {
+    for (const key of Object.keys(diff ?? {})) assert.ok((NATIVE_PROP_KEYS as readonly string[]).includes(key), key);
+  }
+});

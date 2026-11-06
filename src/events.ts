@@ -1,7 +1,8 @@
 import type { UIHandle, UIProps } from './components';
 import type {
-  NativeEvent, NativeEventType, NativeFocusEvent, NativeFocusEventType, NativeKeyEvent, NativeKeyEventType,
-  NativeMouseFields, NativePointerEvent, NativePointerEventType, NativePointerType, NativeWheelEvent,
+  NativeAccessibilityAction, NativeAccessibilityActionEvent, NativeEvent, NativeEventType, NativeFocusEvent,
+  NativeFocusEventType, NativeKeyEvent, NativeKeyEventType, NativeMouseFields, NativePointerEvent,
+  NativePointerEventType, NativePointerType, NativeWheelEvent,
 } from './native';
 
 /** DOM `Event.eventPhase`. */
@@ -89,9 +90,21 @@ export interface UIKeyboardEvent extends UISyntheticEvent<NativeKeyEventType> {
   readonly metaKey: boolean;
 }
 
+/**
+ * An assistive technology asked the element to do something no pointer or key gesture says. Sent for an
+ * element with `role="slider"` (`increment`, `decrement`, `setValue`); a screen reader's click, focus and
+ * blur actions arrive as the ordinary `click`, `focus` and `blur` events. Not cancelable: native has no
+ * default action to keep, so the handler is the whole effect (plan 3.21).
+ */
+export interface UIAccessibilityActionEvent extends UISyntheticEvent<'accessibilityaction'> {
+  readonly action: NativeAccessibilityAction;
+  /** The number `setValue` asked for; `undefined` for `increment` and `decrement`. */
+  readonly value: number | undefined;
+}
+
 /** Kept so handler types written against the first event model still compile. */
 export type UIEvent = UIPointerEvent;
-export type UIAnyEvent = UIPointerEvent | UIWheelEvent | UIKeyboardEvent | UIFocusEvent;
+export type UIAnyEvent = UIPointerEvent | UIWheelEvent | UIKeyboardEvent | UIFocusEvent | UIAccessibilityActionEvent;
 
 export interface UIEventMap {
   pointerdown: UIPointerEvent;
@@ -109,6 +122,7 @@ export interface UIEventMap {
   keyup: UIKeyboardEvent;
   focus: UIFocusEvent;
   blur: UIFocusEvent;
+  accessibilityaction: UIAccessibilityActionEvent;
 }
 
 class SyntheticEvent<Type extends NativeEventType> implements UISyntheticEvent<Type> {
@@ -233,6 +247,17 @@ class KeyboardEventImpl extends SyntheticEvent<NativeKeyEventType> implements UI
   }
 }
 
+class AccessibilityActionEventImpl extends SyntheticEvent<'accessibilityaction'> implements UIAccessibilityActionEvent {
+  readonly action: NativeAccessibilityAction;
+  readonly value: number | undefined;
+
+  constructor(native: NativeAccessibilityActionEvent, target: UIHandle, bubbles: boolean) {
+    super(native.type, target, bubbles, native.cancelable, native.timeStamp);
+    this.action = native.action;
+    this.value = native.value ?? undefined;
+  }
+}
+
 type Handler<E> = ((event: E) => void) | undefined;
 
 /** `focus` and `blur` are the only events without pointer data. */
@@ -246,6 +271,10 @@ function isWheelEvent(event: UIAnyEvent): event is UIWheelEvent {
 
 function isKeyboardEvent(event: UIAnyEvent): event is UIKeyboardEvent {
   return event.type === 'keydown' || event.type === 'keyup';
+}
+
+function isAccessibilityActionEvent(event: UIAnyEvent): event is UIAccessibilityActionEvent {
+  return event.type === 'accessibilityaction';
 }
 
 /** One entry per native event type: whether it bubbles and which prop receives each phase. */
@@ -265,7 +294,7 @@ function pointerSpec(
     invoke(props, isCapture, event) {
       const handler = isCapture ? capture?.(props) : bubble(props);
       if (handler === undefined) return;
-      if (isFocusEvent(event) || isWheelEvent(event) || isKeyboardEvent(event)) {
+      if (isFocusEvent(event) || isWheelEvent(event) || isKeyboardEvent(event) || isAccessibilityActionEvent(event)) {
         throw new Error(`UI internal error: ${event.type} reached a pointer event handler`);
       }
       handler(event);
@@ -322,6 +351,21 @@ function focusSpec(bubble: (props: UIProps) => Handler<UIFocusEvent>): EventSpec
   };
 }
 
+function accessibilityActionSpec(bubble: (props: UIProps) => Handler<UIAccessibilityActionEvent>): EventSpec {
+  return {
+    bubbles: true,
+    invoke(props, isCapture, event) {
+      if (isCapture) return;
+      const handler = bubble(props);
+      if (handler === undefined) return;
+      if (!isAccessibilityActionEvent(event)) {
+        throw new Error(`UI internal error: ${event.type} reached an accessibility action handler`);
+      }
+      handler(event);
+    },
+  };
+}
+
 /** The only place that knows which prop names which event. Completeness is checked by `Record`. */
 const EVENT_TABLE: Record<NativeEventType, EventSpec> = {
   pointerdown: pointerSpec(true, (p) => p.onPointerDown, (p) => p.onPointerDownCapture),
@@ -339,6 +383,7 @@ const EVENT_TABLE: Record<NativeEventType, EventSpec> = {
   keyup: keySpec((p) => p.onKeyUp, (p) => p.onKeyUpCapture),
   focus: focusSpec((p) => p.onFocus),
   blur: focusSpec((p) => p.onBlur),
+  accessibilityaction: accessibilityActionSpec((p) => p.onAccessibilityAction),
 };
 
 /** `event` is a `type` event: this is the runtime check behind the typed listener registration. */
@@ -387,7 +432,7 @@ export const NOT_DISPATCHED: DispatchResult = Object.freeze({ defaultPrevented: 
 
 function createEvent(
   native: NativeEvent, target: UIHandle, related: UIHandle | null, bubbles: boolean,
-): PointerEventImpl | WheelEventImpl | KeyboardEventImpl | FocusEventImpl {
+): PointerEventImpl | WheelEventImpl | KeyboardEventImpl | FocusEventImpl | AccessibilityActionEventImpl {
   switch (native.type) {
     case 'pointerdown': case 'pointermove': case 'pointerup':
     case 'pointerenter': case 'pointerleave': case 'pointercancel': case 'click': case 'dblclick':
@@ -399,6 +444,8 @@ function createEvent(
       return new KeyboardEventImpl(native, target, bubbles);
     case 'focus': case 'blur':
       return new FocusEventImpl(native, target, related, bubbles);
+    case 'accessibilityaction':
+      return new AccessibilityActionEventImpl(native, target, bubbles);
   }
 }
 

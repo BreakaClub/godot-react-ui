@@ -6,12 +6,12 @@ import {
 } from '../src';
 import { adjacentEnabledIndex, arrowDirection } from '../src/kit/radio-group';
 import {
-  PAGE_STEPS, clampToBounds, fractionAtPointer, fractionOf, sliderBounds, snapToStep, valueAtFraction, valueForKey,
+  PAGE_STEPS, clampToBounds, fractionAtPointer, fractionOf, sliderBounds, snapToStep, valueAtFraction,
+  valueForAccessibilityAction, valueForKey,
 } from '../src/kit/slider-math';
 import { useControllableState } from '../src/kit/use-controllable-state';
 import { NATIVE_PROP_KEYS, nativeProps } from '../src/props';
 import { KitHost } from './kit-host';
-import { createPropTreeRoot, findByTestID } from './prop-tree';
 import { createTestRoot, isRecord } from './recording-host';
 
 // ---------------------------------------------------------------------------------------------------
@@ -88,11 +88,21 @@ function Controlled<T>(props: { initial: T; render: (value: T, set: (next: T) =>
   return props.render(value, setValue);
 }
 
+/** The `role` and `aria*` fields among a node's native props. */
+function ariaPropsOf(props: Record<string, unknown> | undefined): Record<string, unknown> {
+  assert.ok(props !== undefined, 'the node is mounted');
+  const aria: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(props)) {
+    if (key === 'role' || key.startsWith('aria')) aria[key] = value;
+  }
+  return aria;
+}
+
 // ---------------------------------------------------------------------------------------------------
 // ARIA props
 // ---------------------------------------------------------------------------------------------------
 
-test('role and aria props are typed on every element but are never native props', () => {
+test('role and aria props are typed on every element and cross to native as the camelCase fields', () => {
   const aria: UIProps = {
     role: 'checkbox', 'aria-label': 'Sound', 'aria-description': 'Turns the sound on', 'aria-valuetext': 'loud',
     'aria-placeholder': 'none', 'aria-hidden': false, 'aria-disabled': false, 'aria-expanded': false,
@@ -100,17 +110,27 @@ test('role and aria props are typed on every element but are never native props'
     'aria-checked': 'mixed', 'aria-valuemin': 0, 'aria-valuemax': 10, 'aria-valuenow': 3, 'aria-live': 'polite',
     'aria-orientation': 'vertical',
   };
+  // A false whose default is false is absent; `aria-expanded` and `aria-selected` keep their false.
+  const expected = {
+    role: 'checkbox', ariaLabel: 'Sound', ariaDescription: 'Turns the sound on', ariaValueText: 'loud',
+    ariaPlaceholder: 'none', ariaExpanded: false, ariaSelected: false, ariaRequired: true, ariaChecked: 'mixed',
+    ariaValueMin: 0, ariaValueMax: 10, ariaValueNow: 3, ariaLive: 'polite', ariaOrientation: 'vertical',
+  };
   for (const kind of ['view', 'text', 'button'] as const) {
-    assert.deepEqual(nativeProps(kind, aria, false), {}, `${kind} sends nothing for role and aria props`);
+    assert.deepEqual(nativeProps(kind, aria, false), expected, `${kind} sends role and aria props`);
   }
-  const nativeKeys: readonly string[] = NATIVE_PROP_KEYS;
-  for (const key of nativeKeys) {
-    assert.ok(key !== 'role' && !key.startsWith('aria'), `${key} is a native prop`);
+  for (const key of Object.keys(expected)) {
+    assert.ok((NATIVE_PROP_KEYS as readonly string[]).includes(key), `${key} is a native prop`);
   }
 
   const host = new KitHost();
   const { root } = createTestRoot(host);
   root.render(h(View, { testID: 'view', ...aria }, h(Button, { testID: 'button', ...aria }, 'ok')));
+  for (const testID of ['view', 'button']) {
+    const found = root.findByTestID(testID);
+    assert.ok(found, testID);
+    assert.deepEqual(ariaPropsOf(host.nodes.get(found.id)?.props), expected, `${testID} reached native with its aria props`);
+  }
   const sent = new Set<string>();
   for (const { payload } of host.commits) {
     for (const entry of [...payload.created, ...payload.updated]) Object.keys(entry.props).forEach((key) => sent.add(key));
@@ -784,6 +804,22 @@ test('valueForKey: arrows step, Page keys move ten steps, Home and End go to the
   assert.equal(valueForKey('ArrowLeft', 0, bounds), 0);
 });
 
+test('valueForAccessibilityAction: one step either way, or a number moved onto the grid and held to the ends', () => {
+  const bounds = sliderBounds(1, 10, 3);
+  assert.equal(bounds.max, 10, 'the grid is 1, 4, 7, 10');
+  assert.equal(valueForAccessibilityAction('increment', undefined, 4, bounds), 7);
+  assert.equal(valueForAccessibilityAction('decrement', undefined, 4, bounds), 1);
+  assert.equal(valueForAccessibilityAction('decrement', undefined, 1, bounds), 1, 'clamped');
+  assert.equal(valueForAccessibilityAction('increment', undefined, 10, bounds), 10);
+  assert.equal(valueForAccessibilityAction('setValue', 5, 1, bounds), 4, 'nearest grid value');
+  assert.equal(valueForAccessibilityAction('setValue', 6, 1, bounds), 7);
+  assert.equal(valueForAccessibilityAction('setValue', -50, 4, bounds), 1);
+  assert.equal(valueForAccessibilityAction('setValue', 50, 4, bounds), 10);
+  assert.equal(valueForAccessibilityAction('setValue', 0, 4, sliderBounds(0, 1, 0.1)), 0, '0 is a number');
+  assert.throws(() => valueForAccessibilityAction('setValue', undefined, 4, bounds), /needs a finite number/);
+  assert.throws(() => valueForAccessibilityAction('setValue', Number.NaN, 4, bounds), /needs a finite number/);
+});
+
 test('fractionAtPointer puts the thumb\'s centre under the pointer and keeps the thumb inside the track', () => {
   const axis = { start: 100, length: 300, thumbLength: 20, reversed: false };
   assert.equal(fractionAtPointer(110, axis), 0, 'the thumb at the start has its centre half a thumb in');
@@ -1068,6 +1104,61 @@ test('Slider keys at an end are still the slider\'s but change and commit nothin
   m.root.unmount();
 });
 
+/** An assistive technology's action on the thumb, delivered the way native delivers it. */
+function accessibilityAction(m: Mounted, action: 'increment' | 'decrement' | 'setValue', value: number | null = null): void {
+  m.host.events.push(m.host.accessibilityActionEvent(m.tag('thumb'), action, value));
+  m.root.dispatchEvents();
+}
+
+test('Slider accessibility actions: increment and decrement take one step, setValue snaps and clamps, each commits once', () => {
+  const changes: number[] = [];
+  const commits: number[] = [];
+  const m = mountSlider({
+    root: { defaultValue: 50, step: 5, onValueChange: (v: number) => changes.push(v), onValueCommit: (v: number) => commits.push(v) },
+  });
+  accessibilityAction(m, 'increment');
+  accessibilityAction(m, 'decrement');
+  accessibilityAction(m, 'decrement');
+  accessibilityAction(m, 'setValue', 62);
+  accessibilityAction(m, 'setValue', 1e6);
+  accessibilityAction(m, 'setValue', -3);
+  assert.deepEqual(changes, [55, 50, 45, 60, 100, 0]);
+  assert.deepEqual(commits, changes, 'one commit per action, like a key press');
+  m.root.unmount();
+});
+
+test('Slider accessibility actions that change nothing, and those on a disabled slider, commit nothing', () => {
+  const changes: number[] = [];
+  const commits: number[] = [];
+  const handlers = { onValueChange: (v: number) => changes.push(v), onValueCommit: (v: number) => commits.push(v) };
+  const atEnd = mountSlider({ root: { defaultValue: 100, ...handlers } });
+  accessibilityAction(atEnd, 'increment');
+  accessibilityAction(atEnd, 'setValue', 100);
+  accessibilityAction(atEnd, 'setValue', 100.4);
+  const disabled = mountSlider({ root: { defaultValue: 10, disabled: true, ...handlers } });
+  accessibilityAction(disabled, 'increment');
+  accessibilityAction(disabled, 'setValue', 90);
+  assert.equal(changes.length + commits.length, 0);
+  atEnd.root.unmount();
+  disabled.root.unmount();
+});
+
+test('Slider setValue without a number is an error, and the value stays', () => {
+  const m = mountSlider({ root: { defaultValue: 30 } });
+  assert.throws(() => accessibilityAction(m, 'setValue'), /setValue action needs a finite number/);
+  assert.equal(ariaOf(m, 'thumb').ariaValueNow, 30);
+  m.root.unmount();
+});
+
+test('Slider accessibility actions move the value that native is told', () => {
+  const m = mountSlider({ root: { defaultValue: 20 } });
+  accessibilityAction(m, 'increment');
+  assert.equal(ariaOf(m, 'thumb').ariaValueNow, 21);
+  accessibilityAction(m, 'setValue', 77);
+  assert.equal(ariaOf(m, 'thumb').ariaValueNow, 77);
+  m.root.unmount();
+});
+
 test('Slider leaves every other key, and chords with Ctrl, Alt or Meta, to native and the game', () => {
   const changes: number[] = [];
   const m = mountSlider({ root: { defaultValue: 50, onValueChange: (v: number) => changes.push(v) } });
@@ -1186,62 +1277,64 @@ test('Slider parts take className and style after their defaults, and each ref i
 });
 
 // ---------------------------------------------------------------------------------------------------
-// ARIA output
+// ARIA output (what native receives)
 // ---------------------------------------------------------------------------------------------------
 
-function ariaOf(nodes: readonly import('./prop-tree').PropNode[], testID: string): Record<string, unknown> {
-  const found = findByTestID(nodes, testID);
-  assert.ok(found, `no element with testID "${testID}"`);
-  const aria: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(found.props)) {
-    if (key === 'role' || key.startsWith('aria-')) aria[key] = value;
-  }
-  return aria;
+function ariaOf(m: Mounted, testID: string): Record<string, unknown> {
+  return ariaPropsOf(m.host.nodes.get(m.tag(testID))?.props);
 }
 
-test('Checkbox renders role checkbox and aria-checked true, false or mixed, with the caller\'s aria props', () => {
-  const tree = createPropTreeRoot();
-  const nodes = tree.render(h(View, null,
+test('Checkbox sends role checkbox and ariaChecked true, false or mixed, with the caller\'s aria props', () => {
+  const m = mount(h(View, null,
     h(Checkbox, { testID: 'off', 'aria-label': 'Off' }),
     h(Checkbox, { testID: 'on', defaultChecked: true, 'aria-description': 'It is on' }),
     h(Checkbox, { testID: 'mixed', checked: 'indeterminate', onCheckedChange: () => {}, 'aria-required': true })));
-  assert.deepEqual(ariaOf(nodes, 'off'), { role: 'checkbox', 'aria-checked': false, 'aria-label': 'Off' });
-  assert.deepEqual(ariaOf(nodes, 'on'), { role: 'checkbox', 'aria-checked': true, 'aria-description': 'It is on' });
-  assert.deepEqual(ariaOf(nodes, 'mixed'), { role: 'checkbox', 'aria-checked': 'mixed', 'aria-required': true });
-  tree.unmount();
+  assert.deepEqual(ariaOf(m, 'off'), { role: 'checkbox', ariaChecked: false, ariaLabel: 'Off' });
+  assert.deepEqual(ariaOf(m, 'on'), { role: 'checkbox', ariaChecked: true, ariaDescription: 'It is on' });
+  assert.deepEqual(ariaOf(m, 'mixed'), { role: 'checkbox', ariaChecked: 'mixed', ariaRequired: true });
+  m.root.unmount();
 });
 
-test('Switch renders role switch and aria-checked', () => {
-  const tree = createPropTreeRoot();
-  const nodes = tree.render(h(View, null,
+test('a Checkbox that is clicked sends its new ariaChecked to native', () => {
+  const m = mount(h(Checkbox, { testID: 'box', 'aria-label': 'Box' }));
+  assert.equal(ariaOf(m, 'box').ariaChecked, false);
+  click(m, 'box');
+  assert.equal(ariaOf(m, 'box').ariaChecked, true);
+  click(m, 'box');
+  assert.equal(ariaOf(m, 'box').ariaChecked, false);
+  m.root.unmount();
+});
+
+test('Switch sends role switch and ariaChecked', () => {
+  const m = mount(h(View, null,
     h(Switch, { testID: 'off', 'aria-label': 'Sound' }), h(Switch, { testID: 'on', defaultChecked: true })));
-  assert.deepEqual(ariaOf(nodes, 'off'), { role: 'switch', 'aria-checked': false, 'aria-label': 'Sound' });
-  assert.deepEqual(ariaOf(nodes, 'on'), { role: 'switch', 'aria-checked': true });
-  tree.unmount();
+  assert.deepEqual(ariaOf(m, 'off'), { role: 'switch', ariaChecked: false, ariaLabel: 'Sound' });
+  assert.deepEqual(ariaOf(m, 'on'), { role: 'switch', ariaChecked: true });
+  m.root.unmount();
 });
 
-test('RadioGroup renders role radiogroup with its orientation, and role radio with aria-checked per item', () => {
-  const tree = createPropTreeRoot();
-  const nodes = tree.render(radioGroup(ABC, { defaultValue: 'b', orientation: 'horizontal', 'aria-label': 'Size' }));
-  assert.deepEqual(ariaOf(nodes, 'group'), { role: 'radiogroup', 'aria-orientation': 'horizontal', 'aria-label': 'Size' });
-  assert.deepEqual(ariaOf(nodes, 'a'), { role: 'radio', 'aria-checked': false });
-  assert.deepEqual(ariaOf(nodes, 'b'), { role: 'radio', 'aria-checked': true });
-  assert.deepEqual(ariaOf(nodes, 'c'), { role: 'radio', 'aria-checked': false });
-  const unset = createPropTreeRoot().render(radioGroup());
-  assert.deepEqual(ariaOf(unset, 'group'), { role: 'radiogroup', 'aria-orientation': undefined }, 'no orientation unless asked for');
-  tree.unmount();
+test('RadioGroup sends role radiogroup with its orientation, and role radio with ariaChecked per item', () => {
+  const m = mount(radioGroup(ABC, { defaultValue: 'b', orientation: 'horizontal', 'aria-label': 'Size' }));
+  assert.deepEqual(ariaOf(m, 'group'), { role: 'radiogroup', ariaOrientation: 'horizontal', ariaLabel: 'Size' });
+  assert.deepEqual(ariaOf(m, 'a'), { role: 'radio', ariaChecked: false });
+  assert.deepEqual(ariaOf(m, 'b'), { role: 'radio', ariaChecked: true });
+  assert.deepEqual(ariaOf(m, 'c'), { role: 'radio', ariaChecked: false });
+  const unset = mount(radioGroup());
+  assert.deepEqual(ariaOf(unset, 'group'), { role: 'radiogroup' }, 'no orientation unless asked for');
+  m.root.unmount();
+  unset.root.unmount();
 });
 
-test('Slider\'s thumb renders role slider with its range, value and orientation, and the caller\'s label', () => {
-  const tree = createPropTreeRoot();
-  const nodes = tree.render(sliderElement({ root: { min: 10, max: 20, step: 2, defaultValue: 14 }, thumb: { 'aria-valuetext': '14 percent' } }));
-  assert.deepEqual(ariaOf(nodes, 'thumb'), {
-    role: 'slider', 'aria-valuemin': 10, 'aria-valuemax': 20, 'aria-valuenow': 14, 'aria-orientation': 'horizontal',
-    'aria-label': 'Volume', 'aria-valuetext': '14 percent',
+test('Slider\'s thumb sends role slider with its range, value and orientation, and the caller\'s label', () => {
+  const m = mount(sliderElement({ root: { min: 10, max: 20, step: 2, defaultValue: 14 }, thumb: { 'aria-valuetext': '14 percent' } }));
+  assert.deepEqual(ariaOf(m, 'thumb'), {
+    role: 'slider', ariaValueMin: 10, ariaValueMax: 20, ariaValueNow: 14, ariaOrientation: 'horizontal',
+    ariaLabel: 'Volume', ariaValueText: '14 percent',
   });
-  const vertical = tree.render(sliderElement({ root: { orientation: 'vertical', min: 0, max: 10, step: 3, value: 99 } }));
+  const vertical = mount(sliderElement({ root: { orientation: 'vertical', min: 0, max: 10, step: 3, value: 99 } }));
   assert.deepEqual(ariaOf(vertical, 'thumb'), {
-    role: 'slider', 'aria-valuemin': 0, 'aria-valuemax': 9, 'aria-valuenow': 9, 'aria-orientation': 'vertical', 'aria-label': 'Volume',
+    role: 'slider', ariaValueMin: 0, ariaValueMax: 9, ariaValueNow: 9, ariaOrientation: 'vertical', ariaLabel: 'Volume',
   }, 'max is the last value on the grid, and a value past it is shown at it');
-  tree.unmount();
+  m.root.unmount();
+  vertical.root.unmount();
 });

@@ -191,6 +191,97 @@ pub enum CursorSpec {
     NwseResize,
 }
 
+/// The `role` prop (plan Appendix D). `none` and `presentation` keep an element out of the
+/// accessibility tree; every other value names what the element is. Wire names are the ARIA role
+/// names, all lowercase.
+#[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum RoleSpec {
+    Button,
+    Checkbox,
+    Switch,
+    Radio,
+    RadioGroup,
+    Group,
+    Slider,
+    ProgressBar,
+    TextBox,
+    Text,
+    Link,
+    List,
+    ListItem,
+    ListBox,
+    Option,
+    ComboBox,
+    Menu,
+    MenuItem,
+    MenuItemCheckbox,
+    MenuItemRadio,
+    TabList,
+    Tab,
+    TabPanel,
+    Dialog,
+    Img,
+    Region,
+    Tooltip,
+    None,
+    Presentation,
+}
+
+/// `aria-checked`: `true`, `false` or the string `"mixed"`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CheckedSpec {
+    Unchecked,
+    Checked,
+    Mixed,
+}
+
+impl<'de> Deserialize<'de> for CheckedSpec {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(DeriveDeserialize)]
+        #[serde(untagged)]
+        enum Wire {
+            Flag(bool),
+            Word(String),
+        }
+        match Wire::deserialize(deserializer)? {
+            Wire::Flag(true) => Ok(CheckedSpec::Checked),
+            Wire::Flag(false) => Ok(CheckedSpec::Unchecked),
+            Wire::Word(word) if word == "mixed" => Ok(CheckedSpec::Mixed),
+            Wire::Word(word) => Err(serde::de::Error::custom(format!(
+                "ariaChecked must be true, false or \"mixed\", not {word:?}"
+            ))),
+        }
+    }
+}
+
+impl Serialize for CheckedSpec {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            CheckedSpec::Unchecked => serializer.serialize_bool(false),
+            CheckedSpec::Checked => serializer.serialize_bool(true),
+            CheckedSpec::Mixed => serializer.serialize_str("mixed"),
+        }
+    }
+}
+
+/// `aria-live`.
+#[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum LiveSpec {
+    Off,
+    Polite,
+    Assertive,
+}
+
+/// `aria-orientation`.
+#[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum OrientationSpec {
+    Horizontal,
+    Vertical,
+}
+
 #[derive(Clone, Debug, DeriveDeserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TransitionSpec {
@@ -706,6 +797,27 @@ pub struct PropsSpec {
     /// Focus this element when it is first mounted (the first such element of a commit, in document
     /// order).
     pub auto_focus: Option<bool>,
+    /// Accessibility (plan 3.21, 4.2, Appendix D). `Button`, `Text` and `TextInput` have implicit
+    /// roles; every other element is exposed only if it has an explicit one.
+    pub role: Option<RoleSpec>,
+    pub aria_label: Option<String>,
+    pub aria_description: Option<String>,
+    pub aria_value_text: Option<String>,
+    pub aria_placeholder: Option<String>,
+    /// Removes the element and its subtree from the accessibility tree.
+    pub aria_hidden: Option<bool>,
+    pub aria_disabled: Option<bool>,
+    pub aria_expanded: Option<bool>,
+    pub aria_selected: Option<bool>,
+    pub aria_read_only: Option<bool>,
+    pub aria_required: Option<bool>,
+    pub aria_modal: Option<bool>,
+    pub aria_checked: Option<CheckedSpec>,
+    pub aria_value_min: Option<f64>,
+    pub aria_value_max: Option<f64>,
+    pub aria_value_now: Option<f64>,
+    pub aria_live: Option<LiveSpec>,
+    pub aria_orientation: Option<OrientationSpec>,
 }
 
 /// A change to one prop inside a commit payload. JSON `null` resets the prop to its default and an
@@ -755,6 +867,42 @@ pub struct PropsDiff {
     pub tab_index: Patch<i32>,
     #[serde(default)]
     pub auto_focus: Patch<bool>,
+    #[serde(default)]
+    pub role: Patch<RoleSpec>,
+    #[serde(default)]
+    pub aria_label: Patch<String>,
+    #[serde(default)]
+    pub aria_description: Patch<String>,
+    #[serde(default)]
+    pub aria_value_text: Patch<String>,
+    #[serde(default)]
+    pub aria_placeholder: Patch<String>,
+    #[serde(default)]
+    pub aria_hidden: Patch<bool>,
+    #[serde(default)]
+    pub aria_disabled: Patch<bool>,
+    #[serde(default)]
+    pub aria_expanded: Patch<bool>,
+    #[serde(default)]
+    pub aria_selected: Patch<bool>,
+    #[serde(default)]
+    pub aria_read_only: Patch<bool>,
+    #[serde(default)]
+    pub aria_required: Patch<bool>,
+    #[serde(default)]
+    pub aria_modal: Patch<bool>,
+    #[serde(default)]
+    pub aria_checked: Patch<CheckedSpec>,
+    #[serde(default)]
+    pub aria_value_min: Patch<f64>,
+    #[serde(default)]
+    pub aria_value_max: Patch<f64>,
+    #[serde(default)]
+    pub aria_value_now: Patch<f64>,
+    #[serde(default)]
+    pub aria_live: Patch<LiveSpec>,
+    #[serde(default)]
+    pub aria_orientation: Patch<OrientationSpec>,
 }
 
 impl PropsSpec {
@@ -768,6 +916,24 @@ impl PropsSpec {
             test_id: diff.test_id.apply(&self.test_id),
             tab_index: diff.tab_index.apply(&self.tab_index),
             auto_focus: diff.auto_focus.apply(&self.auto_focus),
+            role: diff.role.apply(&self.role),
+            aria_label: diff.aria_label.apply(&self.aria_label),
+            aria_description: diff.aria_description.apply(&self.aria_description),
+            aria_value_text: diff.aria_value_text.apply(&self.aria_value_text),
+            aria_placeholder: diff.aria_placeholder.apply(&self.aria_placeholder),
+            aria_hidden: diff.aria_hidden.apply(&self.aria_hidden),
+            aria_disabled: diff.aria_disabled.apply(&self.aria_disabled),
+            aria_expanded: diff.aria_expanded.apply(&self.aria_expanded),
+            aria_selected: diff.aria_selected.apply(&self.aria_selected),
+            aria_read_only: diff.aria_read_only.apply(&self.aria_read_only),
+            aria_required: diff.aria_required.apply(&self.aria_required),
+            aria_modal: diff.aria_modal.apply(&self.aria_modal),
+            aria_checked: diff.aria_checked.apply(&self.aria_checked),
+            aria_value_min: diff.aria_value_min.apply(&self.aria_value_min),
+            aria_value_max: diff.aria_value_max.apply(&self.aria_value_max),
+            aria_value_now: diff.aria_value_now.apply(&self.aria_value_now),
+            aria_live: diff.aria_live.apply(&self.aria_live),
+            aria_orientation: diff.aria_orientation.apply(&self.aria_orientation),
         }
     }
 
@@ -782,6 +948,27 @@ impl PropsSpec {
             && !TAB_INDICES.contains(&index)
         {
             return Err(format!("tabIndex must be 0 or -1, not {index}"));
+        }
+        self.validate_accessibility()
+    }
+
+    /// The numeric `aria-value*` props are finite, and a range runs from its minimum up.
+    fn validate_accessibility(&self) -> Result<(), String> {
+        for (name, value) in [
+            ("ariaValueMin", self.aria_value_min),
+            ("ariaValueMax", self.aria_value_max),
+            ("ariaValueNow", self.aria_value_now),
+        ] {
+            if value.is_some_and(|value| !value.is_finite()) {
+                return Err(format!("{name} must be a finite number"));
+            }
+        }
+        if let (Some(min), Some(max)) = (self.aria_value_min, self.aria_value_max)
+            && min > max
+        {
+            return Err(format!(
+                "ariaValueMin ({min}) must not be greater than ariaValueMax ({max})"
+            ));
         }
         Ok(())
     }
@@ -798,6 +985,25 @@ impl PropsSpec {
     pub fn is_hidden(&self) -> bool {
         self.hidden == Some(true)
     }
+
+    /// Everything that decides whether an element is in the accessibility tree and where: when it
+    /// changes, the tree's structure may have (plan 3.21). Other accessibility props only change
+    /// what an exposed element says.
+    pub(crate) fn exposure(&self) -> Exposure {
+        Exposure {
+            role: self.role,
+            hidden: self.aria_hidden == Some(true),
+            has_text: self.text.as_deref().is_some_and(|text| !text.is_empty()),
+        }
+    }
+}
+
+/// See [`PropsSpec::exposure`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Exposure {
+    pub(crate) role: Option<RoleSpec>,
+    pub(crate) hidden: bool,
+    pub(crate) has_text: bool,
 }
 
 /// Parse a JSON props diff and merge it over `previous`, validating the result for `kind`. This is
@@ -1342,6 +1548,7 @@ mod tests {
             test_id: Some("id".into()),
             tab_index: Some(0),
             auto_focus: None,
+            ..PropsSpec::default()
         };
         // Absent keys are kept, null resets, a value sets.
         let merged = merge_diff(
@@ -1392,6 +1599,129 @@ mod tests {
         // Any kind may take a tabIndex or ask for focus.
         for kind in [Kind::View, Kind::Text, Kind::Button] {
             assert!(merge_diff(&previous, kind, r#"{"tabIndex":0,"autoFocus":true}"#).is_ok());
+        }
+    }
+
+    #[test]
+    fn accessibility_props_parse_merge_reset_and_serialize() {
+        let previous = PropsSpec::default();
+        let merged = merge_diff(
+            &previous,
+            Kind::View,
+            r#"{"role":"slider","ariaLabel":"Volume","ariaDescription":"d","ariaValueText":"loud",
+            "ariaPlaceholder":"p","ariaHidden":true,"ariaDisabled":true,"ariaExpanded":false,
+            "ariaSelected":true,"ariaReadOnly":true,"ariaRequired":true,"ariaModal":true,
+            "ariaChecked":"mixed","ariaValueMin":0,"ariaValueMax":10,"ariaValueNow":3.5,
+            "ariaLive":"assertive","ariaOrientation":"vertical"}"#,
+        )
+        .unwrap();
+        assert_eq!(merged.role, Some(RoleSpec::Slider));
+        assert_eq!(merged.aria_label.as_deref(), Some("Volume"));
+        assert_eq!(merged.aria_expanded, Some(false), "false is not absent");
+        assert_eq!(merged.aria_checked, Some(CheckedSpec::Mixed));
+        assert_eq!(merged.aria_value_now, Some(3.5));
+        assert_eq!(merged.aria_live, Some(LiveSpec::Assertive));
+        assert_eq!(merged.aria_orientation, Some(OrientationSpec::Vertical));
+        assert!(merged.exposure().hidden);
+        // Absent keys are kept, null resets.
+        let reset = merge_diff(
+            &merged,
+            Kind::View,
+            r#"{"role":null,"ariaChecked":null,"ariaValueNow":null,"ariaLabel":"Other"}"#,
+        )
+        .unwrap();
+        assert_eq!(reset.role, None);
+        assert_eq!(reset.aria_checked, None);
+        assert_eq!(reset.aria_value_now, None);
+        assert_eq!(reset.aria_label.as_deref(), Some("Other"));
+        assert_eq!(reset.aria_value_max, Some(10.0));
+        assert!(!PropsSpec::default().exposure().hidden);
+        // What a snapshot reports is what was sent.
+        let json = serde_json::to_value(&merged).unwrap();
+        assert_eq!(json["ariaChecked"], serde_json::json!("mixed"));
+        assert_eq!(json["role"], serde_json::json!("slider"));
+        let checked = merge_diff(&previous, Kind::Button, r#"{"ariaChecked":true}"#).unwrap();
+        assert_eq!(
+            serde_json::to_value(&checked).unwrap()["ariaChecked"],
+            serde_json::json!(true)
+        );
+    }
+
+    #[test]
+    fn every_role_name_parses_and_round_trips() {
+        let names = [
+            "button",
+            "checkbox",
+            "switch",
+            "radio",
+            "radiogroup",
+            "group",
+            "slider",
+            "progressbar",
+            "textbox",
+            "text",
+            "link",
+            "list",
+            "listitem",
+            "listbox",
+            "option",
+            "combobox",
+            "menu",
+            "menuitem",
+            "menuitemcheckbox",
+            "menuitemradio",
+            "tablist",
+            "tab",
+            "tabpanel",
+            "dialog",
+            "img",
+            "region",
+            "tooltip",
+            "none",
+            "presentation",
+        ];
+        for name in names {
+            let role: RoleSpec = serde_json::from_value(serde_json::json!(name)).unwrap();
+            assert_eq!(serde_json::to_value(role).unwrap(), serde_json::json!(name));
+        }
+        for invalid in ["Button", "heading", "", "radio-group"] {
+            assert!(
+                serde_json::from_value::<RoleSpec>(serde_json::json!(invalid)).is_err(),
+                "{invalid:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_accessibility_props_are_rejected() {
+        let empty = PropsSpec::default();
+        for json in [
+            r#"{"role":"heading"}"#,
+            r#"{"ariaChecked":"yes"}"#,
+            r#"{"ariaChecked":1}"#,
+            r#"{"ariaLive":"loud"}"#,
+            r#"{"ariaOrientation":"diagonal"}"#,
+            r#"{"ariaHidden":"true"}"#,
+            r#"{"ariaValueNow":"3"}"#,
+            r#"{"ariaLabel":3}"#,
+            r#"{"ariaImaginary":true}"#,
+            r#"{"aria-label":"x"}"#,
+        ] {
+            assert!(merge_diff(&empty, Kind::View, json).is_err(), "{json}");
+        }
+        let error =
+            merge_diff(&empty, Kind::View, r#"{"ariaValueMin":5,"ariaValueMax":1}"#).unwrap_err();
+        assert!(
+            error.contains("ariaValueMin (5) must not be greater than ariaValueMax (1)"),
+            "{error}"
+        );
+        // A range is checked against the merged props, not just the diff.
+        let with_max = merge_diff(&empty, Kind::View, r#"{"ariaValueMax":1}"#).unwrap();
+        assert!(merge_diff(&with_max, Kind::View, r#"{"ariaValueMin":2}"#).is_err());
+        assert!(merge_diff(&with_max, Kind::View, r#"{"ariaValueMin":1}"#).is_ok());
+        // Any kind may carry any accessibility prop.
+        for kind in [Kind::View, Kind::Text, Kind::Button] {
+            assert!(merge_diff(&empty, kind, r#"{"role":"group","ariaLabel":""}"#).is_ok());
         }
     }
 

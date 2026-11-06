@@ -1,11 +1,11 @@
 import { createContext, forwardRef, useCallback, useContext, useMemo, useRef, type MutableRefObject, type ReactNode } from 'react';
 import { View, type UIHandle } from '../components';
-import type { UIKeyboardEvent, UIPointerEvent } from '../events';
+import type { UIAccessibilityActionEvent, UIKeyboardEvent, UIPointerEvent } from '../events';
 import type { Style, UIAriaProps } from '../types';
 import { hasShortcutModifier } from './keys';
 import { joinClassNames, useComposedRef, useStyle, type PartProps } from './parts';
 import {
-  clampToBounds, fractionAtPointer, fractionOf, sliderBounds, valueAtFraction, valueForKey,
+  clampToBounds, fractionAtPointer, fractionOf, sliderBounds, valueAtFraction, valueForAccessibilityAction, valueForKey,
   type PointerAxis, type SliderBounds,
 } from './slider-math';
 import { useControllableState } from './use-controllable-state';
@@ -232,7 +232,8 @@ SliderRange.displayName = 'Slider.Range';
 /**
  * The thumb: focusable, `role="slider"`, and the keyboard's target. Arrow keys move one step (Right and
  * Up increase), PageUp and PageDown ten steps, Home and End go to the ends; each of them prevents the
- * key's default.
+ * key's default. A screen reader's increment, decrement and set-value actions arrive as
+ * `accessibilityaction` events and take the same path as a key: the value moves, then commits once.
  */
 const SliderThumb = forwardRef<UIHandle, SliderThumbProps>(function SliderThumb(props, ref) {
   const { className, style, testID, ...aria } = props;
@@ -243,6 +244,13 @@ const SliderThumb = forwardRef<UIHandle, SliderThumbProps>(function SliderThumb(
     const next = valueForKey(event.key, slider.value, slider.bounds);
     if (next === undefined) return;
     event.preventDefault();
+    if (next === slider.value) return;
+    slider.setValue(next);
+    slider.commit(next);
+  };
+  const onAccessibilityAction = (event: UIAccessibilityActionEvent) => {
+    if (slider.disabled) return;
+    const next = valueForAccessibilityAction(event.action, event.value, slider.value, slider.bounds);
     if (next === slider.value) return;
     slider.setValue(next);
     slider.commit(next);
@@ -262,6 +270,7 @@ const SliderThumb = forwardRef<UIHandle, SliderThumbProps>(function SliderThumb(
       aria-valuenow={slider.value}
       aria-orientation={slider.orientation}
       onKeyDown={onKeyDown}
+      onAccessibilityAction={onAccessibilityAction}
     />
   );
 });

@@ -99,7 +99,9 @@ export type NativePointerEventType =
 export type NativeWheelEventType = 'wheel';
 export type NativeFocusEventType = 'focus' | 'blur';
 export type NativeKeyEventType = 'keydown' | 'keyup';
-export type NativeEventType = NativePointerEventType | NativeWheelEventType | NativeKeyEventType | NativeFocusEventType;
+export type NativeAccessibilityEventType = 'accessibilityaction';
+export type NativeEventType =
+  | NativePointerEventType | NativeWheelEventType | NativeKeyEventType | NativeFocusEventType | NativeAccessibilityEventType;
 
 /** '' is synthetic keyboard activation, as in browsers. */
 export type NativePointerType = 'mouse' | 'touch' | '';
@@ -177,7 +179,22 @@ export interface NativeKeyEvent extends NativeEventBase {
   metaKey: boolean;
 }
 
-export type NativeEvent = NativePointerEvent | NativeWheelEvent | NativeKeyEvent | NativeFocusEvent;
+/** What an assistive technology can ask of a slider (plan 3.21): step it, or set it to a number. */
+export type NativeAccessibilityAction = 'increment' | 'decrement' | 'setValue';
+
+/**
+ * An assistive technology acted on the element's accessibility node. Not cancelable: native has no default
+ * action to keep. `click`, `focus` and `blur` actions reach JS as the ordinary events.
+ */
+export interface NativeAccessibilityActionEvent extends NativeEventBase {
+  type: NativeAccessibilityEventType;
+  action: NativeAccessibilityAction;
+  /** The requested value of `setValue`; `null` for `increment` and `decrement`. */
+  value: number | null;
+}
+
+export type NativeEvent =
+  | NativePointerEvent | NativeWheelEvent | NativeKeyEvent | NativeFocusEvent | NativeAccessibilityActionEvent;
 
 export interface LayoutRect {
   x: number;
@@ -317,10 +334,16 @@ function eventType(value: unknown): NativeEventType {
     case 'pointerdown': case 'pointerup': case 'pointermove': case 'pointerenter':
     case 'pointerleave': case 'pointercancel': case 'click': case 'dblclick': case 'auxclick':
     case 'contextmenu': case 'wheel': case 'keydown': case 'keyup': case 'focus': case 'blur':
+    case 'accessibilityaction':
       return value;
     default:
       throw new Error(`Invalid native event type: ${String(value)}`);
   }
+}
+
+function accessibilityAction(value: unknown): NativeAccessibilityAction {
+  if (value === 'increment' || value === 'decrement' || value === 'setValue') return value;
+  throw new Error(`Invalid native accessibility action: ${String(value)}`);
 }
 
 function modality(value: unknown): 'keyboard' | 'pointer' {
@@ -409,6 +432,11 @@ function nativeEvent(entry: unknown): NativeEvent {
       return {
         ...base, type, relatedTarget: optionalId(event.relatedTarget, 'event.relatedTarget'),
         focusVisible: boolean(event.focusVisible, 'event.focusVisible'),
+      };
+    case 'accessibilityaction':
+      return {
+        ...base, type, action: accessibilityAction(event.action),
+        value: event.value === null ? null : number(event.value, 'event.value'),
       };
   }
 }
