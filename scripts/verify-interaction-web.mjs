@@ -2037,16 +2037,13 @@ async function runPasteScenario() {
   await pressAction('ui_paste');
   await expectInput('form-name', (state) => state.value === 'abc alphabetagamma', 'Pasting works again once the browser allows the read');
 
-  // A clipboard that holds an image has no text: `readText()` resolves to "". That is no paste. It must leave a selection
-  // alone, where an empty insertion over it would have deleted it.
+  // A clipboard that holds an image has no text: `readText()` resolves to "". The engine reaches the browser's clipboard only
+  // through `readText`, so that is all it can see of one, and the page's own clipboard (scripts/web-clipboard.mjs) holds only
+  // text: "nothing but an image" is the empty text it reads. That is no paste. It must leave a selection alone, where an empty
+  // insertion over it would have deleted it.
   await pressAction('ui_text_select_all');
   const beforeImage = await inputState('form-name');
-  await page.evaluate(async () => {
-    const canvas = document.createElement('canvas');
-    canvas.width = canvas.height = 2;
-    const png = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
-    await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
-  });
+  await setClipboard('');
   check('An image on the clipboard reads as empty text', (await page.evaluate(() => window.__readText())) === '');
   await takeLog();
   await pressAction('ui_paste');
