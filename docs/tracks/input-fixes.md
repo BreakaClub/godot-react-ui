@@ -143,6 +143,25 @@ The first `verify:interaction:web` run failed in the drag scenario of the portra
 - Fix: the chip and the button moved under the List section, which is shorter than the Gestures column, so the lab has its
   old height again.
 
+## Gates
+
+Run once each on the branch rebased onto main `67aeea9` (D46), logs in `artifacts/logs/inputfixes2-*.log`:
+
+| Gate | Result |
+| --- | --- |
+| `cargo test --locked` | 565 passed |
+| `cargo clippy --locked --all-targets` | no warnings |
+| `cargo fmt --check` (stable) | clean |
+| `pnpm test:types`, and `--engine=stock` (a stock native build first) | clean, both |
+| `pnpm test` | 402 passed |
+| `pnpm verify:interaction` (default build, eleven sections, both viewports) | passed; landscape's window was disturbed and passed |
+| `pnpm build:web`, `pnpm verify:interaction:web` (serves its own export) | passed: ten sections, all viewports and the touch page |
+
+Before the rebase (main `944ca90`): `pnpm verify` passed (both viewports), and the first `verify:interaction` on this branch
+failed twice for causes in this branch's own labs (the scroll lab's unsupported `sky` colour, then its button row wider than
+its section) and once for a window focus loss in the middle of a click (the trace above). `pnpm verify` was not re-run after
+the rebase (it was not in the post-rebase list).
+
 ## Merge notes
 
 - Based on `944ca90`. Commits touch `native/` (the files in the table), `native/PROTOCOL.md` (the click rule),
