@@ -3,7 +3,7 @@ import {
   InputEventMouseMotion, InputEventPanGesture, InputEventScreenDrag, InputEventScreenTouch, Key, MouseButton,
   MouseButtonMask, Node, OS, ProjectSettings, RenderingServer, Vector2,
 } from 'godot';
-import type { RendererProfile } from '../../src';
+import type { NativeActivity, RendererProfile } from '../../src';
 import type { LayoutRect, NativeSnapshot, NativeSnapshotNode } from '../../src/native';
 import type { LabName } from './labs';
 import type { PassthroughCounts } from './main';
@@ -29,6 +29,9 @@ export interface InteractionInspection extends DemoInspection {
   grabSurfaceFocus(): void;
   bareSurfaceHasFocus(): boolean;
   offsetSurface(x: number, y: number): void;
+  /** Resize the root's Control, as the owner does when the window changes size. */
+  resizeSurface(width: number, height: number): void;
+  activity(): NativeActivity;
   /** Deliver the notification the window system sends when the window loses OS focus. */
   simulateWindowFocusLoss(): void;
 }
@@ -273,8 +276,11 @@ function isOutOfFlow(node: NativeSnapshotNode): boolean {
   return node.style.position === 'absolute' || node.style.position === 'fixed';
 }
 
-/** Measures actual Taffy output, including sibling separation and viewport clipping. */
-function geometry(snapshot: NativeSnapshot): void {
+/**
+ * Measures actual Taffy output, including sibling separation and viewport clipping. `overflowing` are elements
+ * that are meant to extend beyond their parent (a slider's thumb is taller than its track).
+ */
+function geometry(snapshot: NativeSnapshot, overflowing: ReadonlySet<number> = new Set()): void {
   for (const node of snapshot.nodes) {
     const r = node.rect;
     if (r.width === 0 || r.height === 0) continue;
@@ -286,9 +292,9 @@ function geometry(snapshot: NativeSnapshot): void {
       const first = children[i];
       if (!first || first.rect.width === 0 || first.rect.height === 0 || isOutOfFlow(first)) continue;
       const a = first.rect;
-      assert(a.x >= r.x - GEOMETRY_TOLERANCE && a.y >= r.y - GEOMETRY_TOLERANCE &&
+      assert(overflowing.has(first.id) || (a.x >= r.x - GEOMETRY_TOLERANCE && a.y >= r.y - GEOMETRY_TOLERANCE &&
         a.x + a.width <= r.x + r.width + GEOMETRY_TOLERANCE &&
-        a.y + a.height <= r.y + r.height + GEOMETRY_TOLERANCE, `Child ${first.id} escapes parent ${node.id}`);
+        a.y + a.height <= r.y + r.height + GEOMETRY_TOLERANCE), `Child ${first.id} escapes parent ${node.id}`);
       for (let j = i + 1; j < children.length; j++) {
         const second = children[j];
         if (!second || second.rect.width === 0 || second.rect.height === 0 || isOutOfFlow(second)) continue;
@@ -1366,8 +1372,408 @@ async function verifyPositioning(owner: Node, api: InteractionInspection, captur
   await settle();
 }
 
+// ---- Phase I8: the input kit, rendered by Godot (the Inputs lab) ---------------------------------------------------
+
+/** What the Inputs lab prints: the one state object all its controls edit. */
+interface InputsReadout {
+  subscribe: boolean;
+  notifications: boolean;
+  size: string | null;
+  volume: number;
+  fruit: string | null;
+  shipping: string | null;
+}
+
+function isNullableString(value: unknown): value is string | null {
+  return value === null || typeof value === 'string';
+}
+
+function readInputs(api: DemoInspection): InputsReadout {
+  const parsed: unknown = JSON.parse(text(api, 'inputs-json'));
+  assert(typeof parsed === 'object' && parsed !== null, `The readout is an object: ${text(api, 'inputs-json')}`);
+  const { subscribe, notifications, size, volume, fruit, shipping } = parsed as Record<string, unknown>;
+  assert(typeof subscribe === 'boolean' && typeof notifications === 'boolean' && typeof volume === 'number'
+    && isNullableString(size) && isNullableString(fruit) && isNullableString(shipping), `The readout has the lab's fields: ${text(api, 'inputs-json')}`);
+  return { subscribe, notifications, size, volume, fruit, shipping };
+}
+
+/** The lab's starting state (`INITIAL_STATE` in inputs-lab.tsx). */
+const INPUTS_INITIAL: InputsReadout = { subscribe: false, notifications: false, size: 'medium', volume: 40, fruit: null, shipping: null };
+/** A switch's thumb travels `trackWidth - thumbSize - 2 * thumbInset` = 44 - 20 - 4 and starts `thumbInset` in. */
+const SWITCH_TRAVEL_PX = 20;
+const SWITCH_INSET_PX = 2;
+/** A slider thumb is `w-5 h-5` and its track `h-1.5` (6 px): the thumb is 14 px taller and sticks out 7 px each side. */
+const SLIDER_THUMB_PX = 20;
+const SLIDER_TRACK_PX = 6;
+/** The slider's range: min 0, max 100, step 1; a Page key moves ten steps, a drag the thumb's travel. */
+const SLIDER_PAGE_STEPS = 10;
+const SLIDER_DRAG_PX = 60;
+/** Where on the track a press jumps the thumb to, as a fraction of its travel. */
+const SLIDER_JUMP_FRACTION = 0.25;
+/** The select's gap to its trigger (`DEFAULT_SIDE_OFFSET`) and the margin it keeps to the root's edges. */
+const SELECT_GAP_PX = 4;
+const SELECT_MARGIN_PX = 8;
+/** A disabled subtree is drawn at half opacity (`disabled:opacity-50`). */
+const DISABLED_OPACITY = 0.5;
+const INDIGO_600 = '#4f46e5';
+const SLATE_50 = '#f8fafc';
+const OPACITY_TOLERANCE = 0.05;
+/** Transitions end within 150 ms; this many settles (100 ms and two frames each) is far more than needed. */
+const MAX_TRANSITION_SETTLES = 30;
+/** How much shorter than the lab the root is made to see the open list place itself again. */
+const ROOT_SHRINK_PX = 200;
+const SPACE_KEY: KeySpec = { keycode: Key.KeySpace, unicode: 32 };
+
+/** The enabled `tap` for each key the section uses. */
+const KEY_DOWN: KeySpec = { keycode: Key.KeyDown };
+const KEY_UP: KeySpec = { keycode: Key.KeyUp };
+
+async function waitForTransitions(api: DemoInspection): Promise<void> {
+  for (let step = 0; step < MAX_TRANSITION_SETTLES; step++) {
+    if (api.snapshot().transitions.length === 0) return;
+    await settle();
+  }
+  throw new Error(`Transitions were still running after ${MAX_TRANSITION_SETTLES} settles: ${JSON.stringify(api.snapshot().transitions)}`);
+}
+
+/** The colour of `hex` blended with `background` at `opacity`, as a Color. */
+function blend(hex: string, background: string, opacity: number): Color {
+  const front = Color.fromString(hex, new Color(0, 0, 0, 0));
+  const back = Color.fromString(background, new Color(0, 0, 0, 0));
+  return new Color(
+    front.r * opacity + back.r * (1 - opacity), front.g * opacity + back.g * (1 - opacity),
+    front.b * opacity + back.b * (1 - opacity), 1,
+  );
+}
+
+function paintNear(image: Image, at: Vector2, expected: Color, tolerance: number): boolean {
+  const color = image.getPixel(Math.floor(at.x), Math.floor(at.y));
+  return Math.abs(color.r - expected.r) <= tolerance && Math.abs(color.g - expected.g) <= tolerance
+    && Math.abs(color.b - expected.b) <= tolerance;
+}
+
+/**
+ * Plan I8: the kit's inputs in a window. Checkbox, Switch, RadioGroup, Slider and Select edit one state object by
+ * mouse and keyboard; what the kit notes could only reason about is checked here: the slider thumb sticking out of its
+ * track (centred, and hit where it sticks out), the switch's `0 <-> 20` px spacer transition being accepted, the
+ * `disabled` opacity reaching the subtree, a radio group that mounts over two commits and follows a reordered list,
+ * and the select opening, moving, choosing, closing, flipping and placing itself again when the root is resized.
+ */
+async function verifyInputs(owner: Node, api: InteractionInspection, capture: (name: string, overflowing?: readonly string[]) => Promise<void>): Promise<void> {
+  api.showLab('hud');
+  await settle();
+  api.showLab('inputs');
+  await settle();
+  move(FAR_CORNER);
+  await settle();
+  const nodeOf = (testID: string): NativeSnapshotNode => get(api, testID);
+  const rectOf = (testID: string): LayoutRect => nodeOf(testID).rect;
+  const state = (): InputsReadout => readInputs(api);
+  const focusedTestID = (): string => {
+    const id = api.snapshot().focused;
+    const testID = api.snapshot().nodes.find(node => node.id === id)?.props.testID;
+    return typeof testID === 'string' ? testID : 'none';
+  };
+  const hoveredAt = async (at: Vector2): Promise<number | null> => {
+    move(at);
+    await settle();
+    return api.snapshot().hovered;
+  };
+  const childOf = (testID: string, ...path: number[]): NativeSnapshotNode => {
+    const snapshot = api.snapshot();
+    let node = get(api, testID);
+    for (const index of path) {
+      const next = snapshot.nodes.find(candidate => candidate.id === node.children[index]);
+      assert(next, `${testID} has no child at ${path.join('/')}`);
+      node = next;
+    }
+    return node;
+  };
+  const overflowing = ['inputs-slider-thumb'];
+
+  // ---- Rest: the state, the tab stops (the radio group has mounted over two commits) ------------------------------
+  assert(JSON.stringify(state()) === JSON.stringify(INPUTS_INITIAL), `The lab starts from its initial state: ${text(api, 'inputs-json')}`);
+  const stops = tabStops(api, 'inputs-');
+  assert(stops.join(',') === 'inputs-checkbox,inputs-switch,inputs-radio-medium,inputs-radio-reverse,inputs-slider-thumb,inputs-fruit,inputs-next,inputs-shipping',
+    `One radio item is a tab stop (the selected one), locked controls and the disabled item are none: ${stops.join(',')}`);
+  for (const size of ['small', 'large']) {
+    assert(nodeOf(`inputs-radio-${size}`).props.tabIndex === -1, `The unselected ${size} item is not a tab stop`);
+  }
+  assert(nodeOf('inputs-radio-huge').props.disabled === true, 'The disabled radio item is disabled natively');
+  assert(nodeOf('inputs-checkbox-locked').props.disabled === true && nodeOf('inputs-switch-locked').props.disabled === true,
+    'The locked controls are disabled natively');
+  await capture('22-inputs-rest', overflowing);
+
+  // ---- Checkbox: press and Space toggle it, Enter does not, a locked one is dimmed through its whole subtree -------
+  await click(api, 'inputs-checkbox');
+  assert(state().subscribe, `A press checks the checkbox: ${text(api, 'inputs-json')}`);
+  assert(focusedTestID() === 'inputs-checkbox', `A press focuses it: ${focusedTestID()}`);
+  await tap(SPACE_KEY);
+  assert(!state().subscribe, 'Space on the focused checkbox unchecks it');
+  await tap({ keycode: Key.KeyEnter });
+  assert(!state().subscribe, 'Enter does not toggle a checkbox');
+  await tap(SPACE_KEY);
+  assert(state().subscribe, 'Space checks it again');
+  const enabledMark = childOf('inputs-checkbox', 0, 0);
+  const lockedMark = childOf('inputs-checkbox-locked', 0, 0);
+  assert(enabledMark.rect.width > 0 && lockedMark.rect.width > 0, 'Both checked checkboxes draw their mark');
+  assert(nodeOf('inputs-checkbox-locked').presentation.opacity === DISABLED_OPACITY && nodeOf('inputs-checkbox').presentation.opacity === 1,
+    `The locked checkbox is at half opacity: ${nodeOf('inputs-checkbox-locked').presentation.opacity}`);
+  move(FAR_CORNER);
+  await settle();
+  let image = frameImage(owner);
+  assert(paintIs(image, centerOf(enabledMark.rect), INDIGO_600), `The enabled mark is indigo: ${describePaint(image, centerOf(enabledMark.rect))}`);
+  const dimmed = blend(INDIGO_600, SLATE_50, DISABLED_OPACITY);
+  assert(paintNear(image, centerOf(lockedMark.rect), dimmed, OPACITY_TOLERANCE),
+    `The locked mark, a grandchild of the disabled button, is drawn at half opacity (about #${dimmed.toHtml(false)}): ${describePaint(image, centerOf(lockedMark.rect))}`);
+  const before = state();
+  await click(api, 'inputs-checkbox-locked');
+  assert(JSON.stringify(state()) === JSON.stringify(before), 'A press on the locked checkbox changes nothing');
+  assert(focusedTestID() !== 'inputs-checkbox-locked', 'and it takes no focus');
+
+  // ---- Switch: the spacer's 0 <-> 20 px width transition is accepted and moves the thumb -------------------------
+  const switchTrack = childOf('inputs-switch', 0);
+  const spacer = (): NativeSnapshotNode => childOf('inputs-switch', 0, 0);
+  const thumbX = (): number => childOf('inputs-switch', 0, 1).rect.x - switchTrack.rect.x;
+  assert(spacer().rect.width === 0 && Math.abs(thumbX() - SWITCH_INSET_PX) <= GEOMETRY_TOLERANCE, `An off switch has its thumb at the inset: ${thumbX()}`);
+  const framesBefore = api.activity().animationFrames;
+  await click(api, 'inputs-switch');
+  await waitForTransitions(api);
+  assert(state().notifications, 'A press turns the switch on');
+  assert(api.activity().animationFrames > framesBefore, 'The spacer animated: native ran animation frames');
+  assert(Math.abs(spacer().rect.width - SWITCH_TRAVEL_PX) <= GEOMETRY_TOLERANCE,
+    `The spacer grew to the thumb's travel, so native accepted the 0 -> 20 px transition: ${spacer().rect.width}`);
+  assert(Math.abs(thumbX() - (SWITCH_INSET_PX + SWITCH_TRAVEL_PX)) <= GEOMETRY_TOLERANCE, `The thumb moved by the travel: ${thumbX()}`);
+  await tap({ keycode: Key.KeyEnter });
+  await waitForTransitions(api);
+  assert(!state().notifications && spacer().rect.width === 0, `Enter turns it off and the spacer shrinks back, 20 -> 0 px: ${spacer().rect.width}`);
+  await tap(SPACE_KEY);
+  await waitForTransitions(api);
+  assert(state().notifications, 'Space turns it on again');
+  const lockedThumb = childOf('inputs-switch-locked', 0, 1).rect.x - childOf('inputs-switch-locked', 0).rect.x;
+  assert(Math.abs(lockedThumb - (SWITCH_INSET_PX + SWITCH_TRAVEL_PX)) <= GEOMETRY_TOLERANCE, `The locked, checked switch shows its thumb on: ${lockedThumb}`);
+
+  // ---- RadioGroup: arrows move focus and selection, wrap and skip the disabled item; a reorder is followed ---------
+  await click(api, 'inputs-radio-medium');
+  assert(state().size === 'medium' && focusedTestID() === 'inputs-radio-medium', 'A press selects and focuses the radio item');
+  await tap({ keycode: Key.KeyRight });
+  assert(state().size === 'large' && focusedTestID() === 'inputs-radio-large', `ArrowRight moves to the next item: ${state().size}`);
+  await tap({ keycode: Key.KeyRight });
+  assert(state().size === 'small' && focusedTestID() === 'inputs-radio-small', `The disabled item is skipped and the end wraps: ${state().size}`);
+  await tap({ keycode: Key.KeyLeft });
+  assert(state().size === 'large', `ArrowLeft wraps back, past the disabled item: ${state().size}`);
+  assert(stops.join(',') !== tabStops(api, 'inputs-').join(',') && tabStops(api, 'inputs-').includes('inputs-radio-large'),
+    'The tab stop followed the selection');
+  const xOf = (size: string): number => rectOf(`inputs-radio-${size}`).x;
+  assert(xOf('small') < xOf('medium') && xOf('medium') < xOf('large') && xOf('large') < xOf('huge'), 'The items are shown small to huge');
+  await click(api, 'inputs-radio-reverse');
+  assert(xOf('huge') < xOf('large') && xOf('large') < xOf('medium') && xOf('medium') < xOf('small'), 'Reverse shows them huge to small');
+  const order = ['small', 'medium', 'large', 'huge'].map(size => nodeOf(`inputs-radio-${size}`).documentIndex);
+  assert(order[0] !== undefined && order[1] !== undefined && order[2] !== undefined && order[3] !== undefined
+    && order[3] < order[2] && order[2] < order[1] && order[1] < order[0], `Native's document order is the reversed one: ${order.join(',')}`);
+  await click(api, 'inputs-radio-small');
+  assert(state().size === 'small', 'Pressing small selects it');
+  await tap({ keycode: Key.KeyRight });
+  assert(state().size === 'large' && focusedTestID() === 'inputs-radio-large',
+    `ArrowRight follows the reordered items (small is last, then huge is skipped): ${state().size}`);
+  await click(api, 'inputs-radio-reverse');
+  assert(tabStops(api, 'inputs-').includes('inputs-radio-large'), 'The selected item is still the one radio tab stop after the order changed back');
+
+  // ---- Slider: the thumb sticks out of the track, is centred, is hit where it sticks out, and drags ----------------
+  const trackRect = (): LayoutRect => rectOf('inputs-slider-track');
+  const thumbRect = (): LayoutRect => rectOf('inputs-slider-thumb');
+  assert(Math.abs(trackRect().height - SLIDER_TRACK_PX) <= 1 && Math.abs(thumbRect().height - SLIDER_THUMB_PX) <= 1,
+    `The track is ${SLIDER_TRACK_PX} px high and the thumb ${SLIDER_THUMB_PX}: ${trackRect().height}, ${thumbRect().height}`);
+  assert(thumbRect().y < trackRect().y && thumbRect().y + thumbRect().height > trackRect().y + trackRect().height, 'The thumb sticks out above and below the track');
+  assert(Math.abs(centerOf(thumbRect()).y - centerOf(trackRect()).y) <= 1,
+    `The overflowing thumb is centred on the track: thumb ${centerOf(thumbRect()).y}, track ${centerOf(trackRect()).y}`);
+  const travel = (): number => trackRect().width - thumbRect().width;
+  const thumbAtValue = (value: number): number => trackRect().x + thumbRect().width / 2 + travel() * value / 100;
+  assert(Math.abs(centerOf(thumbRect()).x - thumbAtValue(state().volume)) <= 1, `At 40 the thumb sits 40% along its travel: ${centerOf(thumbRect()).x}`);
+  const aboveTrack = new Vector2(centerOf(thumbRect()).x, thumbRect().y + 2);
+  assert(aboveTrack.y < trackRect().y, 'The probe point is above the track');
+  assert(await hoveredAt(aboveTrack) === nodeOf('inputs-slider-thumb').id, 'A pointer where the thumb sticks out of the track hits the thumb');
+  await capture('23-inputs-slider-rest', overflowing);
+  // Grab the thumb and drag it right: the thumb keeps its offset, so the value follows the pointer's travel.
+  const grab = centerOf(thumbRect());
+  const startValue = state().volume;
+  pointer(grab, true);
+  await settle();
+  assert(state().volume === startValue, 'Pressing the thumb does not move it');
+  assert(focusedTestID() === 'inputs-slider-thumb', 'and focuses it');
+  const dragged = new Vector2(grab.x + SLIDER_DRAG_PX, grab.y + SLIDER_THUMB_PX);
+  move(dragged);
+  await settle();
+  const expected = startValue + SLIDER_DRAG_PX / travel() * 100;
+  const dragValue = state().volume;
+  assert(Math.abs(dragValue - expected) <= 1, `Dragging ${SLIDER_DRAG_PX} px right (and off the track vertically) sets about ${expected}: ${dragValue}`);
+  assert(Math.abs(centerOf(thumbRect()).x - thumbAtValue(dragValue)) <= 1, 'The thumb follows the value');
+  pointer(dragged, false);
+  await settle();
+  assert(state().volume === dragValue, 'Releasing keeps the value');
+  await tap({ keycode: Key.KeyRight });
+  assert(state().volume === dragValue + 1, `ArrowRight adds a step: ${state().volume}`);
+  await tap({ keycode: Key.KeyPageup });
+  assert(state().volume === dragValue + 1 + SLIDER_PAGE_STEPS, `PageUp adds ten steps: ${state().volume}`);
+  await tap({ keycode: Key.KeyHome });
+  assert(state().volume === 0, `Home goes to the minimum: ${state().volume}`);
+  await tap({ keycode: Key.KeyEnd });
+  assert(state().volume === 100, `End goes to the maximum: ${state().volume}`);
+  const jump = new Vector2(trackRect().x + thumbRect().width / 2 + travel() * SLIDER_JUMP_FRACTION, centerOf(trackRect()).y);
+  await click(api, 'inputs-slider-track');
+  const jumped = state().volume;
+  assert(jumped === 50, `A press at the middle of the track jumps there (clicked at ${centerOf(trackRect()).x}): ${jumped}`);
+  move(jump);
+  await settle();
+  pointer(jump, true);
+  await settle();
+  pointer(jump, false);
+  await settle();
+  assert(state().volume === 25, `A press a quarter along the travel jumps to 25: ${state().volume}`);
+  move(FAR_CORNER);
+  await settle();
+
+  // ---- Select, opened with the pointer ---------------------------------------------------------------------------
+  assert(text(api, 'inputs-fruit-value') === 'Pick a fruit', `Nothing selected shows the placeholder: ${text(api, 'inputs-fruit-value')}`);
+  assert(!api.find('inputs-fruit-list') && !api.find('inputs-fruit-item-apple'), 'A closed select has no list and no items');
+  const triggerRect = rectOf('inputs-fruit');
+  await click(api, 'inputs-fruit');
+  const list = nodeOf('inputs-fruit-list');
+  const backdrop = nodeOf('inputs-fruit-list-backdrop');
+  const viewport = api.snapshot();
+  assert(list.layer === 1 && backdrop.layer === 1 && nodeOf('inputs-fruit-item-apple').layer === 1, 'The list, its backdrop and the items are in the overlay layer');
+  assert(Math.abs(list.rect.x - triggerRect.x) <= GEOMETRY_TOLERANCE
+    && Math.abs(list.rect.y - (triggerRect.y + triggerRect.height + SELECT_GAP_PX)) <= GEOMETRY_TOLERANCE,
+  `The list opens under the trigger: ${JSON.stringify(list.rect)} under ${JSON.stringify(triggerRect)}`);
+  assert(list.rect.width >= triggerRect.width - GEOMETRY_TOLERANCE, `and is at least as wide as the trigger: ${list.rect.width} against ${triggerRect.width}`);
+  assert(backdrop.rect.width === viewport.width && backdrop.rect.height === viewport.height, 'The backdrop covers the window');
+  assert(focusedTestID() === 'inputs-fruit-item-apple', `Focus moves to the first enabled item when nothing is selected: ${focusedTestID()}`);
+  assert(!viewport.focusVisible, 'A pointer opened it, so the focus shows no ring');
+  assert(nodeOf('inputs-fruit').props.disabled !== true, 'The trigger of an enabled select is enabled');
+  const optionRect = (value: string): LayoutRect => rectOf(`inputs-fruit-item-${value}`);
+  assert(optionRect('apple').y < optionRect('banana').y && optionRect('banana').y < optionRect('blueberry').y, 'The items are listed in order');
+  image = frameImage(owner);
+  assert(paintIs(image, new Vector2(optionRect('apple').x + POPOVER_PADDING_PROBE_PX, centerOf(optionRect('apple')).y), '#eef2ff'),
+    `The focused item is highlighted: ${describePaint(image, new Vector2(optionRect('apple').x + POPOVER_PADDING_PROBE_PX, centerOf(optionRect('apple')).y))}`);
+  await capture('24-inputs-select-open', overflowing);
+
+  // A pointer over an item moves the one highlight (focus); a disabled item takes none.
+  await hoveredAt(centerOf(optionRect('blueberry')));
+  assert(focusedTestID() === 'inputs-fruit-item-blueberry', `A pointer over an item focuses it: ${focusedTestID()}`);
+  await hoveredAt(centerOf(optionRect('cherry')));
+  assert(focusedTestID() === 'inputs-fruit-item-blueberry', `A pointer over the disabled item moves nothing: ${focusedTestID()}`);
+  await click(api, 'inputs-fruit-item-cherry');
+  assert(api.find('inputs-fruit-list') !== undefined && state().fruit === null, 'The disabled item cannot be chosen: the list stays open');
+
+  // Keys: arrows, Home and End, type-ahead, Enter.
+  await tap(KEY_DOWN);
+  assert(focusedTestID() === 'inputs-fruit-item-date', `ArrowDown skips the disabled cherry: ${focusedTestID()}`);
+  await tap(KEY_DOWN);
+  assert(focusedTestID() === 'inputs-fruit-item-date', 'and stops at the last item');
+  await tap({ keycode: Key.KeyHome });
+  assert(focusedTestID() === 'inputs-fruit-item-apple', 'Home goes to the first item');
+  await tap({ keycode: Key.KeyEnd });
+  assert(focusedTestID() === 'inputs-fruit-item-date', 'End goes to the last');
+  api.resetPassthrough();
+  await tap({ keycode: Key.KeyB, unicode: 'b'.charCodeAt(0) });
+  assert(focusedTestID() === 'inputs-fruit-item-banana', `Typing b goes to the first item starting with b: ${focusedTestID()}`);
+  await tap({ keycode: Key.KeyB, unicode: 'b'.charCodeAt(0) });
+  assert(focusedTestID() === 'inputs-fruit-item-blueberry', `Typing b again goes on to the next: ${focusedTestID()}`);
+  assert((counts(api).unhandledKeys[Key.KeyB] ?? 0) === 0, 'Letters typed into the list are the list\'s: the game saw none');
+  await tap({ keycode: Key.KeyEnter });
+  assert(state().fruit === 'blueberry' && !api.find('inputs-fruit-list'), `Enter chooses the focused item and closes the list: ${text(api, 'inputs-json')}`);
+  assert(focusedTestID() === 'inputs-fruit', `Focus is back on the trigger: ${focusedTestID()}`);
+  assert(text(api, 'inputs-fruit-value') === 'Blueberry', `The trigger shows the choice: ${text(api, 'inputs-fruit-value')}`);
+
+  // Opened from the keyboard: the chosen item is focused and shows the ring; Escape changes nothing.
+  await tap(KEY_DOWN);
+  assert(api.find('inputs-fruit-list') !== undefined, 'ArrowDown on the focused trigger opens the list');
+  assert(focusedTestID() === 'inputs-fruit-item-blueberry' && api.snapshot().focusVisible, `Opening focuses the chosen item, with the keyboard ring: ${focusedTestID()}`);
+  await capture('25-inputs-select-keyboard', overflowing);
+  await tap(KEY_UP);
+  assert(focusedTestID() === 'inputs-fruit-item-banana', 'ArrowUp moves up');
+  await tap({ keycode: Key.KeyEscape });
+  assert(!api.find('inputs-fruit-list') && state().fruit === 'blueberry', `Escape closes without choosing: ${text(api, 'inputs-json')}`);
+  assert(focusedTestID() === 'inputs-fruit', 'and gives the trigger focus back');
+  await tap({ keycode: Key.KeyEnter });
+  assert(api.find('inputs-fruit-list') !== undefined && focusedTestID() === 'inputs-fruit-item-blueberry', 'Enter on the trigger opens it too');
+  await tap({ keycode: Key.KeyEscape });
+  await tap(SPACE_KEY);
+  assert(api.find('inputs-fruit-list') !== undefined, 'and so does Space');
+
+  // Tab chooses the focused item, closes the list and moves on from the trigger to the next control.
+  await tap(KEY_UP);
+  assert(focusedTestID() === 'inputs-fruit-item-banana', 'Moved to banana');
+  await tap({ keycode: Key.KeyTab });
+  assert(!api.find('inputs-fruit-list') && state().fruit === 'banana', `Tab chooses the focused item and closes: ${text(api, 'inputs-json')}`);
+  assert(focusedTestID() === 'inputs-next', `and native moves on from the trigger to the next tab stop: ${focusedTestID()}`);
+
+  // A press outside the list closes it, and the control under the press does not receive it.
+  await click(api, 'inputs-fruit');
+  assert(api.find('inputs-fruit-list') !== undefined, 'The trigger opens the list again');
+  const nextBefore = text(api, 'inputs-next');
+  await click(api, 'inputs-next');
+  assert(!api.find('inputs-fruit-list'), 'A press outside the list closes it');
+  assert(text(api, 'inputs-next') === nextBefore, `and the press did not reach the button under the backdrop: ${text(api, 'inputs-next')}`);
+  assert(state().fruit === 'banana', 'Closing from outside chooses nothing');
+  assert(focusedTestID() === 'inputs-fruit', `and puts focus on the trigger: ${focusedTestID()}`);
+  await click(api, 'inputs-fruit');
+  await click(api, 'inputs-fruit-item-date');
+  assert(state().fruit === 'date' && !api.find('inputs-fruit-list') && focusedTestID() === 'inputs-fruit',
+    `Pressing an item chooses it, closes the list and refocuses the trigger: ${text(api, 'inputs-json')}`);
+
+  // ---- Select near the bottom of the window: the list flips above its trigger ---------------------------------------
+  const shippingRect = rectOf('inputs-shipping');
+  await click(api, 'inputs-shipping');
+  const above = nodeOf('inputs-shipping-list');
+  assert(above.rect.y + above.rect.height <= shippingRect.y - SELECT_GAP_PX + GEOMETRY_TOLERANCE,
+    `With no room below the trigger the list opens above it: ${JSON.stringify(above.rect)} over ${JSON.stringify(shippingRect)}`);
+  assert(above.rect.y >= SELECT_MARGIN_PX - GEOMETRY_TOLERANCE, `and stays inside the root: ${JSON.stringify(above.rect)}`);
+  assert(Math.abs(above.rect.y + above.rect.height - (shippingRect.y - SELECT_GAP_PX)) <= GEOMETRY_TOLERANCE, 'flush with the gap above the trigger');
+  await capture('26-inputs-select-flipped', overflowing);
+
+  // The root shrinks while the list is open: useRootSize() reads the Control's new size (native `Control.size`, found
+  // when the owner calls dispatchEvents) and the list, placed for the old size, closes and hands focus back.
+  const full = api.snapshot();
+  api.resizeSurface(full.width, full.height - ROOT_SHRINK_PX);
+  await settle();
+  const smaller = api.snapshot();
+  assert(smaller.height === full.height - ROOT_SHRINK_PX, `The root is smaller: ${smaller.height}`);
+  assert(!api.find('inputs-shipping-list') && !api.find('inputs-shipping-list-backdrop'), 'Resizing the root closes the open list');
+  assert(focusedTestID() === 'inputs-shipping', `and the trigger has focus: ${focusedTestID()}`);
+  assert(state().shipping === null, 'without choosing anything');
+  assert(rectOf('inputs-shipping').y < shippingRect.y, `The page re-laid out with the trigger higher: ${rectOf('inputs-shipping').y} from ${shippingRect.y}`);
+  api.resizeSurface(full.width, full.height);
+  await settle();
+  assert(!api.find('inputs-shipping-list'), 'A root that grows again does not reopen it');
+  // Closed, a select keeps no watch on the root, and it opens against the size the root has now.
+  api.resizeSurface(full.width, full.height - ROOT_SHRINK_PX);
+  await settle();
+  const smallTrigger = rectOf('inputs-shipping');
+  await click(api, 'inputs-shipping');
+  const smallList = nodeOf('inputs-shipping-list');
+  assert(smallList.rect.y + smallList.rect.height <= smallTrigger.y - SELECT_GAP_PX + GEOMETRY_TOLERANCE && smallList.rect.y >= SELECT_MARGIN_PX - GEOMETRY_TOLERANCE,
+    `A list opened in the smaller root is placed against the smaller root: ${JSON.stringify(smallList.rect)} over ${JSON.stringify(smallTrigger)}`);
+  await tap({ keycode: Key.KeyEscape });
+  assert(!api.find('inputs-shipping-list') && focusedTestID() === 'inputs-shipping', 'Escape closes it and refocuses the trigger');
+  api.resizeSurface(full.width, full.height);
+  await settle();
+
+  // The page ends in the state the controls were driven to, and all of it was one object.
+  const finalState = state();
+  assert(finalState.subscribe && finalState.notifications && finalState.size === 'large' && finalState.fruit === 'date'
+    && finalState.shipping === null && finalState.volume === 25, `The final state: ${text(api, 'inputs-json')}`);
+  await capture('27-inputs-final', overflowing);
+  move(FAR_CORNER);
+  await settle();
+  api.restoreDemo();
+  await settle();
+  api.grabSurfaceFocus();
+  await settle();
+}
+
 /** The sections of this verifier, in the order they run (plan 0.4.1: `--only=<name>[,<name>]` runs just those). */
-const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard', 'positioning'] as const;
+const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard', 'positioning', 'inputs'] as const;
 type Section = (typeof SECTIONS)[number];
 
 function isSection(value: string): value is Section {
@@ -1391,10 +1797,10 @@ export async function runInteractionVerification(owner: Node, api: InteractionIn
   const directory = OS.getEnvironment('GODOT_REACT_ARTIFACTS') || 'user://react-ui-verification';
   assert(DirAccess.makeDirRecursiveAbsolute(directory) === GError.Ok, 'Cannot create evidence directory');
   const captures: string[] = [];
-  async function capture(name: string): Promise<void> {
+  async function capture(name: string, overflowing: readonly string[] = []): Promise<void> {
     await settle();
     const snapshot = api.snapshot();
-    geometry(snapshot);
+    geometry(snapshot, new Set(overflowing.map(testID => get(api, testID).id)));
     RenderingServer.forceDraw();
     const image = owner.getViewport()?.getTexture()?.getImage();
     assert(image, 'Native verification requires a rendered viewport');
@@ -1413,6 +1819,7 @@ export async function runInteractionVerification(owner: Node, api: InteractionIn
   if (sections.has('pointers')) await verifyPointers(owner, api, capture);
   if (sections.has('keyboard')) await verifyKeyboard(owner, api, capture);
   if (sections.has('positioning')) await verifyPositioning(owner, api, capture);
+  if (sections.has('inputs')) await verifyInputs(owner, api, capture);
 
   console.log('GODOT_REACT_INTERACTION_VERIFY_PASSED', JSON.stringify({sections: [...sections], captures, dispatchTiming: timing}));
 }

@@ -112,6 +112,11 @@ export default class Main extends Node {
       },
       /** Move the root inside the window, to tell root-local from viewport coordinates. */
       offsetSurface: (x: number, y: number) => { this.requireSurface().position = new Vector2(x, y); },
+      /**
+       * Resize the root's Control, as the owner does when the window changes size. Until the window itself
+       * changes size `_process` leaves it as set here.
+       */
+      resizeSurface: (width: number, height: number) => { this.requireSurface().size = new Vector2(width, height); },
       surfaceAttached: (attached: boolean) => {
         const surface = this.requireSurface();
         const parent = surface.getParent();

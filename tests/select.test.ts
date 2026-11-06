@@ -301,7 +301,7 @@ test('Select: pressing the trigger opens the list in the overlay layer, backdrop
     assert.equal(m.props(`item-${value}`).tabIndex, -1, `${value} is not a tab stop`);
   }
   assert.equal(focusedTestID(m), 'item-banana', 'focus moves to the selected item');
-  assert.equal(m.props('item-cherry').disabled, true);
+  assert.equal(m.props('item-cherry').disabled, undefined, 'a disabled item is not disabled natively (see Select.Item)');
   m.root.unmount();
 });
 
@@ -358,6 +358,16 @@ test('Select: pressing the backdrop closes the list, changes nothing and focuses
   m.root.unmount();
 });
 
+test('Select: pressing a disabled item is the list\'s press, so focus stays in the list', () => {
+  const m = mount(fruitSelect({ root: { defaultValue: 'apple' } }));
+  click(m, 'trigger');
+  m.host.pointer(m.root, 'pointerdown', { x: 5, y: 5 }, { over: m.tag('item-cherry') });
+  assert.equal(m.host.wasPrevented(m.host.resolutions.at(-1)?.seq ?? -1), true,
+    'native sends the press (the item is not disabled natively) and the list prevents its default, which would clear focus');
+  assert.equal(focusedTestID(m), 'item-apple');
+  m.root.unmount();
+});
+
 test('Select: a pointer entering an item focuses it without a ring, and a disabled item takes nothing', () => {
   const m = mount(fruitSelect({ root: { defaultValue: 'apple' } }));
   click(m, 'trigger');
@@ -372,6 +382,7 @@ test('Select: a pointer entering an item focuses it without a ring, and a disabl
   assert.equal(focusedTestID(m), 'item-blueberry');
   click(m, 'item-cherry');
   assert.ok(m.has('list'), 'and it cannot be chosen: the list stays open');
+  assert.equal(m.host.focused, m.tag('item-blueberry'));
   m.root.unmount();
 });
 
@@ -734,24 +745,27 @@ test('Select flips above the trigger when there is not room below, and honours s
   low.root.unmount();
 });
 
-test('Select places again when the root is resized while it is open, and measures nothing while closed', () => {
-  const m = mount(fruitSelect());
+test('Select closes when the root is resized while it is open, and watches the root only while open', () => {
+  const m = mount(fruitSelect({ root: { defaultValue: 'apple' } }));
   lay(m, { trigger: { x: 100, y: 500, width: 120, height: 30 }, list: LIST_SIZE });
-  const before = m.host.calls.length;
-  assert.ok(!m.host.callsSince(before).includes('getNodeRect'));
-  click(m, 'trigger');
-  assert.equal(m.style('list').top, 534, 'room below in a 768 px root');
-  m.host.resize(1024, 600);
-  m.root.dispatchEvents();
-  assert.equal(m.style('list').top, 296, 'a 600 px root has no room below 500 + 30 + 4, so the list flips above');
-  m.host.resize(1024, 768);
-  m.root.dispatchEvents();
-  assert.equal(m.style('list').top, 534, 'and back');
-  click(m, 'list-backdrop');
   const closed = m.host.calls.length;
-  m.host.resize(1024, 600);
+  m.host.resize(1024, 700);
   m.root.dispatchEvents();
   assert.ok(!m.host.callsSince(closed).includes('getSize'), 'a closed select does not watch the root');
+
+  click(m, 'trigger');
+  assert.ok(m.has('list'));
+  m.root.dispatchEvents();
+  assert.ok(m.has('list'), 'a frame in which the size did not change leaves it open');
+  m.host.resize(1024, 600);
+  m.root.dispatchEvents();
+  assert.ok(!m.has('list'), 'a resize closes it: it was placed for the old size');
+  assert.equal(m.host.focused, m.tag('trigger'), 'and gives the trigger focus back');
+  assert.equal(textOf(m, 'value'), 'Apple', 'without choosing anything');
+  const after = m.host.calls.length;
+  m.host.resize(1024, 500);
+  m.root.dispatchEvents();
+  assert.ok(!m.host.callsSince(after).includes('getSize'), 'once closed it stops watching');
   m.root.unmount();
 });
 
@@ -803,8 +817,10 @@ test('Select sends role combobox with ariaExpanded, role listbox, and role optio
   const open = mount(render(true));
   assert.deepEqual(ariaOf(open, 'trigger'), { role: 'combobox', ariaExpanded: true, ariaLabel: 'Fruit' });
   assert.deepEqual(ariaOf(open, 'list'), { role: 'listbox' });
+  // A false `aria-disabled` is absent natively (a boolean whose default is false is sent only when true).
   assert.deepEqual(ariaOf(open, 'item-apple'), { role: 'option', ariaSelected: false });
   assert.deepEqual(ariaOf(open, 'item-banana'), { role: 'option', ariaSelected: true });
+  assert.deepEqual(ariaOf(open, 'item-cherry'), { role: 'option', ariaSelected: false, ariaDisabled: true });
   open.root.unmount();
 });
 

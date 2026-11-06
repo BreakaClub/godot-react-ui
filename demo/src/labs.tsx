@@ -1,4 +1,5 @@
 import type { ReactElement } from 'react';
+import { InputsLab } from './inputs-lab';
 import { KeyboardLab } from './keyboard-lab';
 import { PassthroughHud } from './passthrough-hud';
 import { PointerLab } from './pointer-lab';
@@ -9,7 +10,7 @@ import { PositioningLab } from './positioning-lab';
  * verifiers. They are separate from the Interaction tab, which has a fixed height and no scrolling
  * until Phase I5, so a new section there would push the others out of the window.
  */
-export type LabName = 'hud' | 'pointers' | 'keyboard' | 'positioning';
+export type LabName = 'hud' | 'pointers' | 'keyboard' | 'positioning' | 'inputs';
 
 export function labElement(name: LabName): ReactElement {
   switch (name) {
@@ -17,5 +18,6 @@ export function labElement(name: LabName): ReactElement {
     case 'pointers': return <PointerLab />;
     case 'keyboard': return <KeyboardLab />;
     case 'positioning': return <PositioningLab />;
+    case 'inputs': return <InputsLab />;
   }
 }

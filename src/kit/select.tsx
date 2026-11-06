@@ -140,7 +140,10 @@ const CARET_ROW_WIDTHS: readonly number[] = [9, 7, 5, 3, 1];
 const CARET_ROW_STYLES: readonly Style[] = CARET_ROW_WIDTHS.map((width) => Object.freeze({ width }));
 const CONTENT_CLASS = 'absolute rounded-lg border border-slate-200 bg-white p-1 gap-0.5';
 const BACKDROP_CLASS = 'absolute inset-0';
-const ITEM_CLASS = 'flex-row items-center justify-between gap-3 rounded-md px-2 py-1.5 text-sm text-slate-800 cursor-pointer focus:bg-indigo-50 active:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50';
+const ITEM_CLASS = 'flex-row items-center justify-between gap-3 rounded-md px-2 py-1.5 text-sm text-slate-800';
+const ENABLED_ITEM_CLASS = 'cursor-pointer focus:bg-indigo-50 active:bg-indigo-100';
+/** A disabled item is dimmed by its own class: see `SelectItem` for why native is not told it is disabled. */
+const DISABLED_ITEM_CLASS = 'cursor-not-allowed opacity-50';
 const ITEM_TEXT_CLASS = 'text-slate-800';
 const INDICATOR_CLASS = 'w-2 h-2 rounded-sm bg-indigo-600';
 /** The closed list's children render here: nothing inside it takes part in layout. */
@@ -299,6 +302,11 @@ function textOf(node: ReactNode): string | undefined {
  * between items with the arrow keys). Choosing it is the button's `click`, so a press, Enter and Space
  * all do it. The item under the pointer takes focus, so the pointer and the keyboard share one highlight
  * (`focus:`); that focus shows no ring.
+ *
+ * A disabled item is dimmed, skipped by the keys, and chooses nothing, but native is not told it is
+ * `disabled`: native sends no pointer event for a press on a disabled element, so the list could not
+ * prevent the press's default, which clears focus from an element that takes none, and the keys would stop
+ * reaching the list. It is `aria-disabled` instead, and the press is the list's like any other.
  */
 const SelectItem = forwardRef<UIHandle, SelectItemProps>(function SelectItem(props, ref) {
   const { value, disabled = false, textValue, className, style, testID, children, ...aria } = props;
@@ -324,15 +332,14 @@ const SelectItem = forwardRef<UIHandle, SelectItemProps>(function SelectItem(pro
         {...aria}
         ref={setRef}
         testID={testID}
-        disabled={disabled}
         tabIndex={-1}
-        className={joinClassNames(ITEM_CLASS, className)}
+        className={joinClassNames(ITEM_CLASS, disabled ? DISABLED_ITEM_CLASS : ENABLED_ITEM_CLASS, className)}
         style={style}
         role="option"
         aria-selected={selected}
-        onClick={() => { select.choose(value); }}
+        aria-disabled={disabled}
+        onClick={() => { if (!disabled) select.choose(value); }}
         onPointerEnter={(event) => {
-          // A pointer can enter the label of a disabled item, whose button takes no focus.
           if (!disabled) event.currentTarget.focus({ focusVisible: false });
         }}
       >
@@ -389,9 +396,18 @@ const OpenContent = forwardRef<UIHandle, SelectContentProps>(function OpenConten
   const setRef = useComposedRef(listbox, ref);
   const [placement, setPlacement] = useState<ListPlacement | undefined>(undefined);
 
+  // The list was placed for the size the root had when it opened. A resize lays the page out again and
+  // native drops the focus of an element that layout pushed out of the root before JS can place the list
+  // again, so, as Radix's Select does, the list closes instead. `dismiss` gives the trigger focus back.
+  const openedIn = useRef(viewport);
+  const { dismiss } = select;
+  useLayoutEffect(() => {
+    if (viewport !== openedIn.current) dismiss();
+  }, [viewport, dismiss]);
+
   // Placed from what layout made of it, after every render: its size depends on its items, and the
-  // trigger and the root can move. The first pass is at the origin, and the second is final; both happen
-  // before anything is drawn.
+  // trigger can move. The first pass is at the origin, and the second is final; both happen before
+  // anything is drawn.
   useLayoutEffect(() => {
     const anchor = select.trigger.current?.getRect();
     const box = listbox.current?.getRect();
@@ -510,7 +526,7 @@ OpenContent.displayName = 'Select.OpenContent';
  * The list. Closed, it only collects its items (see `ItemMode`); open, it is the listbox in the overlay
  * layer, under the trigger or above it where there is more room, at least as wide as the trigger and
  * kept inside the root. A list taller than the space it has is clipped by the window: scrolling comes
- * with `ScrollView` (Phase I5).
+ * with `ScrollView` (Phase I5). It closes if the root is resized while it is open.
  */
 const SelectContent = forwardRef<UIHandle, SelectContentProps>(function SelectContent(props, ref) {
   const select = useSelect('Content');
