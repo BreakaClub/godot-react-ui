@@ -1,15 +1,14 @@
 # Fabric renderer and interaction plan
 
-Status: plan v2.9, 6 November 2026. Done: Phase 0 (`9f4a02c`), Phase 1 (`0d11607`), Phase F0
+Status: plan v2.10, 6 November 2026. Done: Phase 0 (`9f4a02c`), Phase 1 (`0d11607`), Phase F0
 (`4f7dd0d`), Phase F1 (`ce99bea`), Phase F2 (`578b461`), Phase F3 (`07a8344`), Phase F4 (`e60f6e5`;
 its numbers and decisions D7 to D10 are in the progress log and the decision log below), Phase I1
 (`edf6081`; decisions D11 to D13), Phase I2 (`fd11f41`; decisions D14 to D16), Phase I3 (`dec1f5d`; decisions D17 to
 D19); decision D20 sets the verification tiers; decisions D21 and D22 isolate the native verifiers from real input
 (Task 0). Phase I4 (`5018fee`; decisions D23 to D26). Parallel tracks on main (D27): text engine, scroll and drag core,
-world-space part 1, kit part 1; kit approach D28; test-input rules D29. Phase I5 (scroll containers; decisions D30 to D37)
-is built on the `scroll` branch and waits for the coordinator's merge; the branch is rebased onto main `cab7d0f` (text layout, I10
-accessibility, kit Select) and also carries scroll accessibility (D38) and the scrolling Select list (D39). Still open from I10:
-`TextInput` (I7). Next on the main line after the merge: Phase I6.
+world-space part 1, kit part 1; kit approach D28; test-input rules D29. Phase I5 (`5858a54`; scroll containers, decisions D30 to
+D37) with scroll accessibility (D38) and the scrolling Select list (D39). Still open from I10: `TextInput` (I7). In parallel tracks
+now: Phase I6, Phase I7 with the kit `TextField`, Phase I9, the stock engine profile, and Phase V1 (filters and frosted glass, D40).
 
 v1 of this plan (`7f0a96c`) was rejected because it built every interaction feature on the
 prototype's commit path, which re-walks and re-sends the whole tree on every change. v2 replaces
@@ -280,7 +279,9 @@ not a reason to wait.
   that the integrating phase removes. Landed this way: the text engine (`docs/tracks/text-engine.md`: `text_offsets`,
   `selection`, `text_input`), the scroll and drag core (`docs/tracks/scroll-drag-core.md`: `scroll`, `drag`,
   `src/data-transfer.ts`), the world-space recipe (`docs/tracks/world-space.md`, I11 part 1), and kit part 1
-  (`docs/tracks/kit.md`: Checkbox, Switch, RadioGroup, Slider). Each notes file is part of this decision log; the
+  (`docs/tracks/kit.md`: Checkbox, Switch, RadioGroup, Slider); later also `text-layout.md`, `accessibility.md`,
+  `select-anchor.md`, `headless-kit-evaluation.md`, and, as they land, `stock-engine.md`, `text-selection.md`, `text-input.md`,
+  `drag-and-drop.md` and `filters.md`. Each notes file is part of this decision log; the
   integrating phases must read the relevant one first. Highlights that change plan text: paste is a request
   followed by `PasteText` so `beforeinput` sees the data; secure inputs treat the whole text as one word; End on a
   soft-wrapped line goes before its last character (no caret affinity); keyboard scroll steps are page/8 for arrows
@@ -411,6 +412,26 @@ not a reason to wait.
   and kept the focus). Items take focus on `pointermove` instead (mouse and pen; a finger dragging the list is not choosing),
   as Radix does. Known and left: moving the pointer over an item that is cut by the edge focuses it, and that scrolls it into view
   (`focus()` has no `preventScroll`). `Select.Content` takes `className` for a smaller cap or another look as before.
+- **D40 (coordinator, filters)**: Ben asked for `filter` and, above all, `backdrop-filter` with blur, because frosted glass is a common
+  UI effect (Phase V1). Both are built from engine primitives through `RenderingServer` from the GDExtension: no engine change, no
+  per-element `SubViewport`. Engine evidence, identical in `renderer_rd/renderer_canvas_render_rd.cpp:762-892` and
+  `drivers/gles3/rasterizer_canvas_gles3.cpp:414-541`, that shapes the design:
+  (a) A material with `hint_screen_texture` copies the back buffer only once per canvas pass, then reuses it, so a second frosted panel
+  would not see the first. Each backdrop needs an explicit `canvas_item_set_copy_to_backbuffer`.
+  (b) An explicit copy on the same item as a mipmap-reading material does not regenerate the mipmaps once they have been generated in
+  that pass (`backbuffer_gen_mipmaps` stays false at line 783), so that panel would get a fresh level 0 and stale blur levels. A
+  separate copy item, drawn just before the item with the material, clears the cached flag and forces regeneration for that rectangle.
+  (c) The renderer passes `copy_back_buffer->rect` straight to the copy as render-target pixels; the `screen_rect` the culler computes
+  (`renderer_canvas_cull.cpp:194`) is not used. So the rectangle must be in render-target pixels and be kept current.
+  (d) Mipmap generation covers only that region (`gaussian_blur` over the region, halved per level), so the rectangle must include the
+  blur's reach or edges read stale pixels. An item with a copy is attached even when off screen (`renderer_canvas_cull.cpp:260`); a
+  rectangle outside the target returns early, so a correct rectangle also keeps off-screen panels free.
+  (e) Canvas groups do not nest and screen reads inside one are ignored: the back-buffer logic is gated on
+  `canvas_group_owner == nullptr`, and the first group clears the whole back buffer. A `filter` inside a `filter`, or a
+  `backdrop-filter` inside a `filter`, cannot work this way; each must produce an explicit error, never a silent no-op.
+  (f) An item in canvas group mode draws its children first and then composites (`renderer_canvas_cull.cpp:480-487`), and a box item
+  draws its own commands before its children unless they are `behind`, so the backdrop must be behind the box's background and the
+  group must be a wrapper around the box. The agent's decisions and measurements are in `docs/tracks/filters.md`.
 
 The plan is written so an implementer can execute it phase by phase without re-deciding the
 architecture. Where it says **must**, it is a contract. Where it says *suggested*, use judgement and
@@ -628,6 +649,7 @@ selection, drag and drop, accessibility, positioning).
 10. **HTML-style drag and drop** inside a root, with a usable result when a drag ends outside the UI.
 11. **Accessibility** through Godot's `AccessibilityServer` sub-elements.
 12. **World-space UI**: a verified recipe for a root inside a `SubViewport` on a 3D quad.
+13. **Filters and frosted glass**: `filter` and `backdrop-filter` with blur and the CSS colour functions (Phase V1, D40).
 
 ### 2.3 Non-goals
 
@@ -1823,6 +1845,32 @@ by mouse, keyboard and (Web) touch.
    3D, else record the evidence and limit the claim to native.
 
 **Gate**: native gate (including `verify:world`); Web gate only if the phase changed Web-specific behaviour.
+
+### Phase V1 — Filters and frosted glass
+
+Read D40 first. **Files**: `native/props.rs`, `computed_style.rs`, `render_tree.rs`, `motion.rs`, a new native filter module and its
+shaders, `src/types.ts`, `src/styles.ts`, a demo lab, a verifier section.
+
+1. **API**: style props `filter` and `backdropFilter` taking CSS filter functions (`blur`, `brightness`, `contrast`, `grayscale`,
+   `hue-rotate`, `invert`, `opacity`, `saturate`, `sepia`; `drop-shadow` on `filter`), validated natively at commit. Tailwind utilities
+   with their scales and arbitrary values (`blur-md`, `brightness-110`, `backdrop-blur-lg`, `backdrop-saturate-150`, `blur-[6px]`, and
+   so on). As in Tailwind, separate utilities compose across variants: `blur-sm hover:brightness-110` keeps the blur on hover.
+2. **Native state**: `hover:`, `focus:` and breakpoint variants resolve natively with no React work. A changed filter value updates
+   material parameters only, with no commit, layout or re-record. An element without a filter pays nothing, and a tree without any
+   filter does no filter work on any frame.
+3. **Backdrop**: shows everything already drawn in the render target, including React siblings, the main layer under a `Portal` and
+   Godot content behind the root (2D and 3D). Follows the element's rounded corners and inherited opacity, and sits under its
+   background and border. Stacked panels each see what is below them. Content scrolling under a fixed frosted header updates live.
+   Moving, resizing or scrolling an element keeps its copy rectangle right.
+4. **Filter**: applies to the element's whole subtree. Blur may extend outside the box, and ancestors' clips still apply.
+5. **Blur quality**: `blur(r)` is a Gaussian with sigma `r` in logical pixels, scaled to render-target pixels. Measured against a real
+   Gaussian on a hard edge, with no visible blocks at large radii and no popping as the radius changes.
+6. **Transitions**: `filter` and `backdropFilter` join `TransitionProperty`, sampled natively. Matching function lists interpolate per
+   function and a missing function interpolates from its identity, per CSS.
+7. **Demo and verifier**: a filters lab and verifier section prove each point numerically, plus inspected PNGs.
+
+**Gate**: native gate; Web gate (Web uses the Compatibility renderer, which is the renderer most players get); one lab run on a
+`RenderingDevice` renderer. The track notes record the measured GPU cost per panel, because this is the expensive part of the feature.
 
 ### Final acceptance
 
