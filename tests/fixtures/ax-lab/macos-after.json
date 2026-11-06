@@ -1,9 +1,12 @@
 {
-  "nodes" : 22,
-  "pid" : 68795,
+  "nodes" : 28,
+  "pid" : 43609,
   "tree" : {
     "children" : [
       {
+        "actionNames" : [
+          "AXRaise"
+        ],
         "children" : [
           {
             "children" : [
@@ -44,6 +47,9 @@
                 "value" : "Read by VoiceOver and the verifier alike."
               },
               {
+                "actionNames" : [
+                  "AXPress"
+                ],
                 "children" : [
 
                 ],
@@ -98,6 +104,9 @@
                 "value" : "Saved 1 times"
               },
               {
+                "actionNames" : [
+                  "AXPress"
+                ],
                 "children" : [
 
                 ],
@@ -117,6 +126,9 @@
                 "value" : false
               },
               {
+                "actionNames" : [
+                  "AXPress"
+                ],
                 "children" : [
 
                 ],
@@ -136,6 +148,9 @@
                 "value" : false
               },
               {
+                "actionNames" : [
+                  "AXPress"
+                ],
                 "children" : [
 
                 ],
@@ -155,6 +170,9 @@
                 "value" : true
               },
               {
+                "actionNames" : [
+                  "AXPress"
+                ],
                 "children" : [
 
                 ],
@@ -175,6 +193,9 @@
                 "value" : false
               },
               {
+                "actionNames" : [
+                  "AXPress"
+                ],
                 "children" : [
 
                 ],
@@ -195,6 +216,9 @@
                 "value" : false
               },
               {
+                "actionNames" : [
+                  "AXPress"
+                ],
                 "children" : [
 
                 ],
@@ -215,6 +239,10 @@
                 "value" : true
               },
               {
+                "actionNames" : [
+                  "AXIncrement",
+                  "AXDecrement"
+                ],
                 "children" : [
 
                 ],
@@ -234,6 +262,154 @@
                 "subrole" : "AXUnknown",
                 "title" : "Volume",
                 "value" : 80
+              },
+              {
+                "attributeNames" : [
+                  "AXFocused",
+                  "AXChildrenInNavigationOrder",
+                  "AXTitle",
+                  "AXSelectedChildren",
+                  "AXFrame",
+                  "AXLinkedUIElements",
+                  "AXRequired",
+                  "AXMinValue",
+                  "AXPlaceholderValue",
+                  "AXEnabled",
+                  "AXMaxValue",
+                  "AXHelp",
+                  "AXChildren",
+                  "AXRole",
+                  "AXParent",
+                  "AXTopLevelUIElement",
+                  "AXSubrole",
+                  "AXOrientation",
+                  "AXValue",
+                  "AXIdentifier",
+                  "AXRoleDescription",
+                  "AXWindow",
+                  "AXSize",
+                  "AXPosition"
+                ],
+                "children" : [
+                  {
+                    "actionNames" : [
+                      "AXScrollToVisible"
+                    ],
+                    "children" : [
+
+                    ],
+                    "enabled" : true,
+                    "focused" : false,
+                    "frame" : {
+                      "height" : 10,
+                      "width" : 151,
+                      "x" : 651.5,
+                      "y" : 580.5
+                    },
+                    "orientation" : "AXUnknownOrientation",
+                    "role" : "AXStaticText",
+                    "roleDescription" : "text",
+                    "subrole" : "AXUnknown",
+                    "value" : "Message 1"
+                  },
+                  {
+                    "actionNames" : [
+                      "AXScrollToVisible"
+                    ],
+                    "children" : [
+
+                    ],
+                    "enabled" : true,
+                    "focused" : false,
+                    "frame" : {
+                      "height" : 10,
+                      "width" : 151,
+                      "x" : 651.5,
+                      "y" : 592.5
+                    },
+                    "orientation" : "AXUnknownOrientation",
+                    "role" : "AXStaticText",
+                    "roleDescription" : "text",
+                    "subrole" : "AXUnknown",
+                    "value" : "Message 2"
+                  },
+                  {
+                    "actionNames" : [
+                      "AXScrollToVisible"
+                    ],
+                    "children" : [
+
+                    ],
+                    "enabled" : true,
+                    "focused" : false,
+                    "frame" : {
+                      "height" : 10,
+                      "width" : 151,
+                      "x" : 651.5,
+                      "y" : 604.5
+                    },
+                    "orientation" : "AXUnknownOrientation",
+                    "role" : "AXStaticText",
+                    "roleDescription" : "text",
+                    "subrole" : "AXUnknown",
+                    "value" : "Message 3"
+                  },
+                  {
+                    "actionNames" : [
+                      "AXScrollToVisible"
+                    ],
+                    "children" : [
+
+                    ],
+                    "enabled" : true,
+                    "focused" : false,
+                    "frame" : {
+                      "height" : 10,
+                      "width" : 151,
+                      "x" : 651.5,
+                      "y" : 616.5
+                    },
+                    "orientation" : "AXUnknownOrientation",
+                    "role" : "AXStaticText",
+                    "roleDescription" : "text",
+                    "subrole" : "AXUnknown",
+                    "value" : "Message 4"
+                  },
+                  {
+                    "actionNames" : [
+                      "AXScrollToVisible"
+                    ],
+                    "children" : [
+
+                    ],
+                    "enabled" : true,
+                    "focused" : false,
+                    "frame" : {
+                      "height" : 10,
+                      "width" : 151,
+                      "x" : 651.5,
+                      "y" : 628.5
+                    },
+                    "orientation" : "AXUnknownOrientation",
+                    "role" : "AXStaticText",
+                    "roleDescription" : "text",
+                    "subrole" : "AXUnknown",
+                    "value" : "Message 5"
+                  }
+                ],
+                "enabled" : true,
+                "focused" : false,
+                "frame" : {
+                  "height" : 48,
+                  "width" : 160,
+                  "x" : 647,
+                  "y" : 580
+                },
+                "orientation" : "AXUnknownOrientation",
+                "role" : "AXUnknown",
+                "roleDescription" : "unknown",
+                "subrole" : "AXUnknown",
+                "title" : "Messages"
               },
               {
                 "children" : [
@@ -267,6 +443,9 @@
             "subrole" : "AXUnknown"
           },
           {
+            "actionNames" : [
+              "AXPress"
+            ],
             "children" : [
 
             ],
@@ -283,6 +462,11 @@
             "subrole" : "AXCloseButton"
           },
           {
+            "actionNames" : [
+              "AXPress",
+              "AXZoomWindow",
+              "AXShowMenu"
+            ],
             "children" : [
               {
                 "children" : [
@@ -326,6 +510,9 @@
             "subrole" : "AXFullScreenButton"
           },
           {
+            "actionNames" : [
+              "AXPress"
+            ],
             "children" : [
 
             ],

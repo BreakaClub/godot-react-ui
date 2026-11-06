@@ -22,7 +22,9 @@ const artifactRoot = engine.artifactPath('native-a11y');
 const swiftSource = resolve(import.meta.dirname, 'ax-dump.swift');
 const axDump = resolve(artifactRoot, 'bin/ax-dump');
 const resolution = '900x700';
-const deadlineMs = 180_000;
+// Six platform readings of the lab (two before and after the Godot-side input, two while it is scrolled, the window outline): each is
+// several seconds, because the target answers one attribute request per frame.
+const deadlineMs = 300_000;
 const successMarker = 'GODOT_REACT_A11Y_VERIFY_PASSED';
 const unsupportedMarker = 'GODOT_REACT_A11Y_UNSUPPORTED';
 const notTrustedMarker = 'GODOT_REACT_A11Y_NOT_TRUSTED';

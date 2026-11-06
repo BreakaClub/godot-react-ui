@@ -1,0 +1,608 @@
+{
+  "nodes" : 30,
+  "pid" : 43609,
+  "tree" : {
+    "children" : [
+      {
+        "actionNames" : [
+          "AXRaise"
+        ],
+        "children" : [
+          {
+            "children" : [
+              {
+                "children" : [
+
+                ],
+                "enabled" : true,
+                "focused" : false,
+                "frame" : {
+                  "height" : 14,
+                  "width" : 434,
+                  "x" : 647,
+                  "y" : 408
+                },
+                "orientation" : "AXUnknownOrientation",
+                "role" : "AXStaticText",
+                "roleDescription" : "text",
+                "subrole" : "AXUnknown",
+                "value" : "Accessibility lab"
+              },
+              {
+                "children" : [
+
+                ],
+                "enabled" : true,
+                "focused" : false,
+                "frame" : {
+                  "height" : 10,
+                  "width" : 434,
+                  "x" : 647,
+                  "y" : 428
+                },
+                "orientation" : "AXUnknownOrientation",
+                "role" : "AXStaticText",
+                "roleDescription" : "text",
+                "subrole" : "AXUnknown",
+                "value" : "Read by VoiceOver and the verifier alike."
+              },
+              {
+                "actionNames" : [
+                  "AXPress"
+                ],
+                "children" : [
+
+                ],
+                "enabled" : true,
+                "focused" : false,
+                "frame" : {
+                  "height" : 20.5,
+                  "width" : 35,
+                  "x" : 647,
+                  "y" : 444
+                },
+                "orientation" : "AXUnknownOrientation",
+                "role" : "AXButton",
+                "roleDescription" : "button",
+                "subrole" : "AXUnknown",
+                "title" : "Save"
+              },
+              {
+                "children" : [
+
+                ],
+                "enabled" : false,
+                "focused" : false,
+                "frame" : {
+                  "height" : 20.5,
+                  "width" : 42.5,
+                  "x" : 686,
+                  "y" : 444
+                },
+                "orientation" : "AXUnknownOrientation",
+                "role" : "AXButton",
+                "roleDescription" : "button",
+                "subrole" : "AXUnknown",
+                "title" : "Delete"
+              },
+              {
+                "children" : [
+
+                ],
+                "enabled" : true,
+                "focused" : false,
+                "frame" : {
+                  "height" : 10,
+                  "width" : 434,
+                  "x" : 647,
+                  "y" : 470.5
+                },
+                "orientation" : "AXUnknownOrientation",
+                "role" : "AXStaticText",
+                "roleDescription" : "text",
+                "subrole" : "AXUnknown",
+                "value" : "Saved 1 times"
+              },
+              {
+                "actionNames" : [
+                  "AXPress"
+                ],
+                "children" : [
+
+                ],
+                "enabled" : true,
+                "focused" : false,
+                "frame" : {
+                  "height" : 11.5,
+                  "width" : 434,
+                  "x" : 647,
+                  "y" : 486.5
+                },
+                "orientation" : "AXUnknownOrientation",
+                "role" : "AXCheckBox",
+                "roleDescription" : "checkbox",
+                "subrole" : "AXUnknown",
+                "title" : "Subscribe to updates",
+                "value" : false
+              },
+              {
+                "actionNames" : [
+                  "AXPress"
+                ],
+                "children" : [
+
+                ],
+                "enabled" : true,
+                "focused" : false,
+                "frame" : {
+                  "height" : 11.5,
+                  "width" : 434,
+                  "x" : 647,
+                  "y" : 504
+                },
+                "orientation" : "AXUnknownOrientation",
+                "role" : "AXCheckBox",
+                "roleDescription" : "checkbox",
+                "subrole" : "AXUnknown",
+                "title" : "Select all",
+                "value" : false
+              },
+              {
+                "actionNames" : [
+                  "AXPress"
+                ],
+                "children" : [
+
+                ],
+                "enabled" : true,
+                "focused" : false,
+                "frame" : {
+                  "height" : 12,
+                  "width" : 434,
+                  "x" : 647,
+                  "y" : 521.5
+                },
+                "orientation" : "AXUnknownOrientation",
+                "role" : "AXCheckBox",
+                "roleDescription" : "switch",
+                "subrole" : "AXSwitch",
+                "title" : "Sound",
+                "value" : true
+              },
+              {
+                "actionNames" : [
+                  "AXPress"
+                ],
+                "children" : [
+
+                ],
+                "enabled" : true,
+                "focused" : false,
+                "frame" : {
+                  "height" : 16.5,
+                  "width" : 48.5,
+                  "x" : 647,
+                  "y" : 539.5
+                },
+                "orientation" : "AXUnknownOrientation",
+                "role" : "AXRadioButton",
+                "roleDescription" : "radio button",
+                "selected" : false,
+                "subrole" : "AXUnknown",
+                "title" : "Small",
+                "value" : false
+              },
+              {
+                "actionNames" : [
+                  "AXPress"
+                ],
+                "children" : [
+
+                ],
+                "enabled" : true,
+                "focused" : false,
+                "frame" : {
+                  "height" : 16.5,
+                  "width" : 59,
+                  "x" : 699.5,
+                  "y" : 539.5
+                },
+                "orientation" : "AXUnknownOrientation",
+                "role" : "AXRadioButton",
+                "roleDescription" : "radio button",
+                "selected" : false,
+                "subrole" : "AXUnknown",
+                "title" : "Medium",
+                "value" : false
+              },
+              {
+                "actionNames" : [
+                  "AXPress"
+                ],
+                "children" : [
+
+                ],
+                "enabled" : true,
+                "focused" : false,
+                "frame" : {
+                  "height" : 16.5,
+                  "width" : 48.5,
+                  "x" : 762.5,
+                  "y" : 539.5
+                },
+                "orientation" : "AXUnknownOrientation",
+                "role" : "AXRadioButton",
+                "roleDescription" : "radio button",
+                "selected" : false,
+                "subrole" : "AXUnknown",
+                "title" : "Large",
+                "value" : true
+              },
+              {
+                "actionNames" : [
+                  "AXIncrement",
+                  "AXDecrement"
+                ],
+                "children" : [
+
+                ],
+                "enabled" : true,
+                "focused" : false,
+                "frame" : {
+                  "height" : 10,
+                  "width" : 10,
+                  "x" : 767,
+                  "y" : 563
+                },
+                "maxValue" : 100,
+                "minValue" : 0,
+                "orientation" : "AXHorizontalOrientation",
+                "role" : "AXSlider",
+                "roleDescription" : "slider",
+                "subrole" : "AXUnknown",
+                "title" : "Volume",
+                "value" : 80
+              },
+              {
+                "attributeNames" : [
+                  "AXFocused",
+                  "AXChildrenInNavigationOrder",
+                  "AXTitle",
+                  "AXSelectedChildren",
+                  "AXFrame",
+                  "AXLinkedUIElements",
+                  "AXRequired",
+                  "AXMinValue",
+                  "AXPlaceholderValue",
+                  "AXEnabled",
+                  "AXMaxValue",
+                  "AXHelp",
+                  "AXChildren",
+                  "AXRole",
+                  "AXParent",
+                  "AXTopLevelUIElement",
+                  "AXSubrole",
+                  "AXOrientation",
+                  "AXValue",
+                  "AXIdentifier",
+                  "AXRoleDescription",
+                  "AXWindow",
+                  "AXSize",
+                  "AXPosition"
+                ],
+                "children" : [
+                  {
+                    "actionNames" : [
+                      "AXScrollToVisible"
+                    ],
+                    "children" : [
+
+                    ],
+                    "enabled" : true,
+                    "focused" : false,
+                    "frame" : {
+                      "height" : 10,
+                      "width" : 151,
+                      "x" : 651.5,
+                      "y" : 564.5
+                    },
+                    "orientation" : "AXUnknownOrientation",
+                    "role" : "AXStaticText",
+                    "roleDescription" : "text",
+                    "subrole" : "AXUnknown",
+                    "value" : "Message 1"
+                  },
+                  {
+                    "actionNames" : [
+                      "AXScrollToVisible"
+                    ],
+                    "children" : [
+
+                    ],
+                    "enabled" : true,
+                    "focused" : false,
+                    "frame" : {
+                      "height" : 10,
+                      "width" : 151,
+                      "x" : 651.5,
+                      "y" : 576.5
+                    },
+                    "orientation" : "AXUnknownOrientation",
+                    "role" : "AXStaticText",
+                    "roleDescription" : "text",
+                    "subrole" : "AXUnknown",
+                    "value" : "Message 2"
+                  },
+                  {
+                    "actionNames" : [
+                      "AXScrollToVisible"
+                    ],
+                    "children" : [
+
+                    ],
+                    "enabled" : true,
+                    "focused" : false,
+                    "frame" : {
+                      "height" : 10,
+                      "width" : 151,
+                      "x" : 651.5,
+                      "y" : 588.5
+                    },
+                    "orientation" : "AXUnknownOrientation",
+                    "role" : "AXStaticText",
+                    "roleDescription" : "text",
+                    "subrole" : "AXUnknown",
+                    "value" : "Message 3"
+                  },
+                  {
+                    "actionNames" : [
+                      "AXScrollToVisible"
+                    ],
+                    "children" : [
+
+                    ],
+                    "enabled" : true,
+                    "focused" : false,
+                    "frame" : {
+                      "height" : 10,
+                      "width" : 151,
+                      "x" : 651.5,
+                      "y" : 600.5
+                    },
+                    "orientation" : "AXUnknownOrientation",
+                    "role" : "AXStaticText",
+                    "roleDescription" : "text",
+                    "subrole" : "AXUnknown",
+                    "value" : "Message 4"
+                  },
+                  {
+                    "actionNames" : [
+                      "AXScrollToVisible"
+                    ],
+                    "children" : [
+
+                    ],
+                    "enabled" : true,
+                    "focused" : false,
+                    "frame" : {
+                      "height" : 10,
+                      "width" : 151,
+                      "x" : 651.5,
+                      "y" : 612.5
+                    },
+                    "orientation" : "AXUnknownOrientation",
+                    "role" : "AXStaticText",
+                    "roleDescription" : "text",
+                    "subrole" : "AXUnknown",
+                    "value" : "Message 5"
+                  },
+                  {
+                    "actionNames" : [
+                      "AXScrollToVisible"
+                    ],
+                    "children" : [
+
+                    ],
+                    "enabled" : true,
+                    "focused" : false,
+                    "frame" : {
+                      "height" : 10,
+                      "width" : 151,
+                      "x" : 651.5,
+                      "y" : 624.5
+                    },
+                    "orientation" : "AXUnknownOrientation",
+                    "role" : "AXStaticText",
+                    "roleDescription" : "text",
+                    "subrole" : "AXUnknown",
+                    "value" : "Message 6"
+                  },
+                  {
+                    "actionNames" : [
+                      "AXScrollToVisible"
+                    ],
+                    "children" : [
+
+                    ],
+                    "enabled" : true,
+                    "focused" : false,
+                    "frame" : {
+                      "height" : 10,
+                      "width" : 151,
+                      "x" : 651.5,
+                      "y" : 636.5
+                    },
+                    "orientation" : "AXUnknownOrientation",
+                    "role" : "AXStaticText",
+                    "roleDescription" : "text",
+                    "subrole" : "AXUnknown",
+                    "value" : "Message 7"
+                  }
+                ],
+                "enabled" : true,
+                "focused" : false,
+                "frame" : {
+                  "height" : 48,
+                  "width" : 160,
+                  "x" : 647,
+                  "y" : 580
+                },
+                "orientation" : "AXUnknownOrientation",
+                "role" : "AXUnknown",
+                "roleDescription" : "unknown",
+                "subrole" : "AXUnknown",
+                "title" : "Messages"
+              },
+              {
+                "children" : [
+
+                ],
+                "enabled" : true,
+                "focused" : false,
+                "frame" : {
+                  "height" : 0,
+                  "width" : 0,
+                  "x" : 0,
+                  "y" : 1117
+                },
+                "orientation" : "AXUnknownOrientation",
+                "role" : "AXStaticText",
+                "roleDescription" : "text",
+                "subrole" : "AXUnknown"
+              }
+            ],
+            "enabled" : true,
+            "focused" : false,
+            "frame" : {
+              "height" : 350,
+              "width" : 450,
+              "x" : 639,
+              "y" : 400
+            },
+            "orientation" : "AXUnknownOrientation",
+            "role" : "AXGroup",
+            "roleDescription" : "group",
+            "subrole" : "AXUnknown"
+          },
+          {
+            "actionNames" : [
+              "AXPress"
+            ],
+            "children" : [
+
+            ],
+            "enabled" : true,
+            "focused" : false,
+            "frame" : {
+              "height" : 16,
+              "width" : 16,
+              "x" : 647,
+              "y" : 376
+            },
+            "role" : "AXButton",
+            "roleDescription" : "close button",
+            "subrole" : "AXCloseButton"
+          },
+          {
+            "actionNames" : [
+              "AXPress",
+              "AXZoomWindow",
+              "AXShowMenu"
+            ],
+            "children" : [
+              {
+                "children" : [
+                  {
+                    "children" : [
+
+                    ],
+                    "focused" : false,
+                    "frame" : {
+                      "height" : 14,
+                      "width" : 14,
+                      "x" : 694,
+                      "y" : 377
+                    },
+                    "role" : "AXGroup",
+                    "roleDescription" : "group"
+                  }
+                ],
+                "focused" : false,
+                "frame" : {
+                  "height" : 14,
+                  "width" : 14,
+                  "x" : 694,
+                  "y" : 377
+                },
+                "role" : "AXGroup",
+                "roleDescription" : "group"
+              }
+            ],
+            "enabled" : true,
+            "focused" : false,
+            "frame" : {
+              "height" : 16,
+              "width" : 16,
+              "x" : 693,
+              "y" : 376
+            },
+            "help" : "this button also has an action to zoom the window",
+            "role" : "AXButton",
+            "roleDescription" : "full screen button",
+            "subrole" : "AXFullScreenButton"
+          },
+          {
+            "actionNames" : [
+              "AXPress"
+            ],
+            "children" : [
+
+            ],
+            "enabled" : true,
+            "focused" : false,
+            "frame" : {
+              "height" : 16,
+              "width" : 16,
+              "x" : 670,
+              "y" : 376
+            },
+            "role" : "AXButton",
+            "roleDescription" : "minimize button",
+            "subrole" : "AXMinimizeButton"
+          },
+          {
+            "children" : [
+
+            ],
+            "enabled" : true,
+            "focused" : false,
+            "frame" : {
+              "height" : 16,
+              "width" : 291,
+              "x" : 721,
+              "y" : 376
+            },
+            "role" : "AXStaticText",
+            "roleDescription" : "text",
+            "value" : "Godot React UI · Native playground (DEBUG)"
+          }
+        ],
+        "focused" : false,
+        "frame" : {
+          "height" : 382,
+          "width" : 450,
+          "x" : 639,
+          "y" : 368
+        },
+        "role" : "AXWindow",
+        "roleDescription" : "standard window",
+        "subrole" : "AXStandardWindow",
+        "title" : "Godot React UI · Native playground (DEBUG)"
+      }
+    ],
+    "role" : "AXApplication",
+    "roleDescription" : "application",
+    "title" : "godot.macos.editor.arm64"
+  },
+  "truncated" : false
+}

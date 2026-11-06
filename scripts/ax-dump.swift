@@ -127,6 +127,31 @@ let attributes: [(String, String)] = [
     ("maxValue", "AXMaxValue"), ("orientation", "AXOrientation"), ("frame", "AXFrame"),
 ]
 
+/// An element's own attribute names. For a scroll area this shows what the adapter exposes of its scrolling.
+func attributeNames(_ element: AXUIElement) -> [String]? {
+    var names: CFArray?
+    guard AXUIElementCopyAttributeNames(element, &names) == .success else { return nil }
+    return names as? [String]
+}
+
+/// The actions an element advertises (names only: this tool never performs one).
+func actionNames(_ element: AXUIElement) -> [String]? {
+    var names: CFArray?
+    guard AXUIElementCopyActionNames(element, &names) == .success else { return nil }
+    return names as? [String]
+}
+
+/// An attribute whose value is another element (a scroll area's scroll bars), described without its children.
+func elementAttribute(_ element: AXUIElement, _ name: String) -> [String: Any]? {
+    guard let value = attribute(element, name), CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
+    let target = value as! AXUIElement
+    var node: [String: Any] = [:]
+    for (key, attributeName) in attributes {
+        if let read = plain(attribute(target, attributeName)) { node[key] = read }
+    }
+    return node
+}
+
 var visited = 0
 var truncated = false
 
@@ -141,6 +166,15 @@ func describe(_ element: AXUIElement, depth: Int) -> [String: Any] {
     var node: [String: Any] = [:]
     for (key, name) in attributes {
         if let value = plain(attribute(element, name)) { node[key] = value }
+    }
+    if let names = actionNames(element), !names.isEmpty { node["actionNames"] = names }
+    // A scroll container may reach the platform as a scroll area or, if the adapter has no scroll area, as an unknown
+    // element; either way its attribute names and scroll bars say what the adapter exposes of its scrolling.
+    if let role = node["role"] as? String, role == "AXScrollArea" || role == "AXUnknown" {
+        if let names = attributeNames(element) { node["attributeNames"] = names }
+        for (key, name) in [("verticalScrollBar", "AXVerticalScrollBar"), ("horizontalScrollBar", "AXHorizontalScrollBar")] {
+            if let bar = elementAttribute(element, name) { node[key] = bar }
+        }
     }
     var children: [[String: Any]] = []
     if depth < maxDepth, let list = childElements(of: element, depth: depth) {

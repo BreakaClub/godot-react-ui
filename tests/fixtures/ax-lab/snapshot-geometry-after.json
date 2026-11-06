@@ -119,10 +119,122 @@
       "height": 24
     }
   },
-  "a11y-hidden-text": {
+  "a11y-message-1": {
+    "rect": {
+      "x": 25,
+      "y": 361,
+      "width": 302,
+      "height": 20
+    }
+  },
+  "a11y-message-2": {
+    "rect": {
+      "x": 25,
+      "y": 385,
+      "width": 302,
+      "height": 20
+    }
+  },
+  "a11y-message-3": {
+    "rect": {
+      "x": 25,
+      "y": 409,
+      "width": 302,
+      "height": 20
+    }
+  },
+  "a11y-message-4": {
+    "rect": {
+      "x": 25,
+      "y": 433,
+      "width": 302,
+      "height": 20
+    }
+  },
+  "a11y-message-5": {
+    "rect": {
+      "x": 25,
+      "y": 457,
+      "width": 302,
+      "height": 20
+    }
+  },
+  "a11y-message-6": {
+    "rect": {
+      "x": 25,
+      "y": 481,
+      "width": 302,
+      "height": 20
+    }
+  },
+  "a11y-message-7": {
+    "rect": {
+      "x": 25,
+      "y": 505,
+      "width": 302,
+      "height": 20
+    }
+  },
+  "a11y-message-8": {
+    "rect": {
+      "x": 25,
+      "y": 529,
+      "width": 302,
+      "height": 20
+    }
+  },
+  "a11y-message-9": {
+    "rect": {
+      "x": 25,
+      "y": 553,
+      "width": 302,
+      "height": 20
+    }
+  },
+  "a11y-message-10": {
+    "rect": {
+      "x": 25,
+      "y": 577,
+      "width": 302,
+      "height": 20
+    }
+  },
+  "a11y-message-11": {
+    "rect": {
+      "x": 25,
+      "y": 601,
+      "width": 302,
+      "height": 20
+    }
+  },
+  "a11y-message-12": {
+    "rect": {
+      "x": 25,
+      "y": 625,
+      "width": 302,
+      "height": 20
+    }
+  },
+  "a11y-scroll-end": {
+    "rect": {
+      "x": 25,
+      "y": 649,
+      "width": 302,
+      "height": 41
+    }
+  },
+  "a11y-scroller": {
     "rect": {
       "x": 16,
       "y": 360,
+      "width": 320,
+      "height": 96
+    }
+  },
+  "a11y-hidden-text": {
+    "rect": {
+      "x": 16,
+      "y": 468,
       "width": 868,
       "height": 23
     }
@@ -130,7 +242,7 @@
   "a11y-hidden-button": {
     "rect": {
       "x": 16,
-      "y": 391,
+      "y": 499,
       "width": 868,
       "height": 41
     }
@@ -138,7 +250,7 @@
   "a11y-hidden": {
     "rect": {
       "x": 16,
-      "y": 360,
+      "y": 468,
       "width": 868,
       "height": 72
     }

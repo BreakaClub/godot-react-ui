@@ -284,7 +284,9 @@ Web is not claimed. `DisplayServer.hasFeature(FEATURE_ACCESSIBILITY_SCREEN_READE
 
 - **Scroll containers (I5): done on the `scroll` branch (plan D38).** `SCROLL_VIEW`, the scroll offsets and ranges and
   the scroll actions (`SCROLL_UP/DOWN/LEFT/RIGHT`, `SET_SCROLL_OFFSET`, `SCROLL_INTO_VIEW`) are built, with unit tests and Godot-side
-  checks in `verify:a11y`; the platform tree for them (`AXScrollArea`) is unread, as for everything here. Still not done: a
+  checks in `verify:a11y`. The platform tree for them has been read since, on a stock engine with AccessKit (`docs/tracks/stock-engine.md`, S14): the view is
+  `AXUnknown`, not `AXScrollArea`, conveys no scroll position or range or scroll actions (only `AXScrollToVisible` on its contents), and its
+  children and their frames follow every scroll. Still not done: a
   transform on the scrolled content's element as `ItemList` does. Our bounds are root-local and follow the scroll, so a scroll
   re-sets every exposed descendant while a screen reader is attached; the transform is the optimisation if that shows.
 - **`TextInput` (I7):** `TEXT_FIELD`/`MULTILINE_TEXT_FIELD`, value, placeholder, read-only, selection through

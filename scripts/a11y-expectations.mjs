@@ -16,9 +16,29 @@ const CONTAINMENT_SLACK = 2;
  *   the engine does have, `PANEL`, appears as `AXUnknown` with its title, not as `AXGroup`.
  * - The mixed state: `update_set_checked` takes a bool, so the platform reads a mixed checkbox as unchecked, and the
  *   state description native sets with it ("mixed") reaches no attribute the Accessibility API exposes.
+ * - A scroll view (plan D38): AccessKit's macOS adapter has no scroll area role, so a SCROLL_VIEW is `AXUnknown` (a stock
+ *   Godot `ScrollContainer` is too), it ignores the scroll position and range set on the node (the element has no AXValue,
+ *   AXMinValue, AXMaxValue or scroll bar; the stock container conveys them through a SCROLL_BAR child element, which this
+ *   library does not create), and macOS has no scroll up, down or set-offset action to advertise (only `AXScrollToVisible`,
+ *   which the scroll view's contents do advertise). The adapter also leaves out children that lie a little beyond the
+ *   viewport's edge. What it does convey is checked: the children in view, their frames, which follow the scroll, and
+ *   the scroll-into-view action on the contents and nowhere else.
  */
 const GROUP_GAP = 'the platform tree has no group named "Size": the engine has no group role, and the macOS adapter leaves out the generic container it has (the radio buttons are in the tree)';
 const MIXED_GAP = 'the platform reports the mixed checkbox as unchecked (AXValue 0) and has no state text for it: the engine can only set a checkbox to checked or unchecked';
+const SCROLL_ROLE_GAP = 'the scroll view reaches the platform as AXUnknown, not AXScrollArea: the macOS adapter has no scroll area role (a stock Godot ScrollContainer is AXUnknown too)';
+const SCROLL_VALUES_GAP = 'the platform exposes no scroll position or range for the scroll view (no AXValue, AXMinValue, AXMaxValue or scroll bar): the macOS adapter ignores the scroll properties set on a node; a stock Godot ScrollContainer conveys them through an AXScrollBar child element';
+const SCROLL_ACTIONS_GAP = 'the platform advertises no scroll up, down, left, right or set-offset action on the scroll view: macOS has AXScrollToVisible only, which its contents do advertise';
+const SCROLL_CULL_GAP = 'the platform tree leaves out scroll view children that lie beyond a margin outside the viewport, so a child scrolled far out of view is not in it until it comes near';
+/** The one action macOS has for scrolling something into view; D38's `scroll_into_view` is advertised as this. */
+const SCROLL_TO_VISIBLE = 'AXScrollToVisible';
+/** The scroll view's children (demo/src/a11y-panel.tsx) and what the platform calls them. */
+export const SCROLL_ITEMS = [
+  ...Array.from({ length: 12 }, (_, index) => ({ id: `a11y-message-${index + 1}`, label: `Message ${index + 1}`, roles: ['AXStaticText'] })),
+  { id: 'a11y-scroll-end', label: 'Mark all read', roles: ['AXButton'] },
+];
+/** How far (snapshot pixels) a child may poke outside the scroll view and still count as in view. */
+const VIEW_SLACK = 0.5;
 
 /** What the lab shows and what an assistive technology must therefore read, before and after the Godot-side changes. */
 export const ELEMENTS = [
@@ -33,9 +53,9 @@ export const ELEMENTS = [
   { id: 'a11y-size-medium', label: 'Medium', roles: ['AXRadioButton'], value: [1, 0] },
   { id: 'a11y-size-large', label: 'Large', roles: ['AXRadioButton'], value: [0, 1] },
   { id: 'a11y-volume-thumb', label: 'Volume', roles: ['AXSlider'], value: [30, 80], range: [0, 100] },
-  // A scroll container is a SCROLL_VIEW, which AccessKit maps to AXScrollArea; its scroll position and range
-  // travel as the scroll bars' values, which this table does not judge (they were not read from the adapter).
-  { id: 'a11y-scroller', label: 'Messages', roles: ['AXScrollArea'] },
+  // A scroll container is a SCROLL_VIEW. The macOS adapter has no scroll area role, so it is AXUnknown (SCROLL_ROLE_GAP);
+  // AXScrollArea would be right if an adapter had one, and either is accepted, one noted.
+  { id: 'a11y-scroller', label: 'Messages', roles: ['AXScrollArea', 'AXUnknown'], scroll: true },
 ];
 /** Static text whose content changes with the Godot-side input. */
 const SAVES_LABELS = ['Saved 0 times', 'Saved 1 times'];
@@ -86,6 +106,10 @@ export function checkElements(reading, phase, snapshots, notes = []) {
       && (numeric(node.minValue) !== expected.range[0] || numeric(node.maxValue) !== expected.range[1])) {
       failures.push(`${expected.id}: range is ${node.minValue}..${node.maxValue}, expected ${expected.range.join('..')}`);
     }
+    if (expected.scroll) checkScrollView(node, notes);
+    else if (node.actionNames?.includes(SCROLL_TO_VISIBLE)) {
+      failures.push(`${expected.id}: it advertises ${SCROLL_TO_VISIBLE} but is not inside a scroll view`);
+    }
     const snapshot = snapshots[expected.id]?.rect;
     if (node.frame === undefined) {
       failures.push(`${expected.id}: the element has no AXFrame`);
@@ -96,6 +120,7 @@ export function checkElements(reading, phase, snapshots, notes = []) {
       }
     }
   }
+  failures.push(...checkScrollItems(nodes, snapshots, pairs, notes));
   const saves = findByLabel(nodes, SAVES_LABELS[phase], ['AXStaticText']);
   if (saves.length !== 1) failures.push(`a11y-saves: expected one static text "${SAVES_LABELS[phase]}", found ${saves.length}`);
   for (const text of HIDDEN_TEXTS) {
@@ -113,6 +138,55 @@ export function checkElements(reading, phase, snapshots, notes = []) {
   } else {
     failures.push(`only ${pairs.length} elements could be compared with the snapshot geometry`);
   }
+  return failures;
+}
+
+/** What the platform says about the scroll view itself: noted where the adapter cannot convey it (see SCROLL_ROLE_GAP). */
+function checkScrollView(node, notes) {
+  if (node.role === 'AXUnknown') notes.push(`a11y-scroller: ${SCROLL_ROLE_GAP}`);
+  const exposed = [node.value, node.minValue, node.maxValue, node.verticalScrollBar, node.horizontalScrollBar].some(value => value !== undefined);
+  if (!exposed) notes.push(`a11y-scroller: ${SCROLL_VALUES_GAP}`);
+  else notes.push(`a11y-scroller: the platform now exposes scroll state (${JSON.stringify({ value: node.value, min: node.minValue, max: node.maxValue, verticalScrollBar: node.verticalScrollBar })}); judge it in scripts/a11y-expectations.mjs`);
+  // The dump tool leaves out an empty action list, so an element with no `actionNames` advertises none.
+  if (!(node.actionNames ?? []).some(name => /^AXScroll(Up|Down|Left|Right)/u.test(name))) {
+    notes.push(`a11y-scroller: ${SCROLL_ACTIONS_GAP}`);
+  }
+}
+
+/**
+ * The scroll view's children as the platform tree has them at this scroll position. A child that lies wholly inside the
+ * view must be in the tree; the others may be left out (SCROLL_CULL_GAP). Every child that is in it must have the frame
+ * the native geometry says (appended to `pairs` for the fit that judges every frame together), which is what makes a
+ * tree that did not follow a scroll fail, and must advertise scroll-into-view.
+ */
+function checkScrollItems(nodes, snapshots, pairs, notes) {
+  const failures = [];
+  const view = snapshots['a11y-scroller']?.rect;
+  if (view === undefined) return failures;
+  let leftOut = 0;
+  for (const item of SCROLL_ITEMS) {
+    const rect = snapshots[item.id]?.rect;
+    if (rect === undefined) continue;
+    const wholly = rect.x >= view.x - VIEW_SLACK && rect.y >= view.y - VIEW_SLACK
+      && rect.x + rect.width <= view.x + view.width + VIEW_SLACK && rect.y + rect.height <= view.y + view.height + VIEW_SLACK;
+    const matches = findByLabel(nodes, item.label, item.roles);
+    if (matches.length > 1) {
+      failures.push(`${item.id}: expected at most one ${item.roles.join(' or ')} named "${item.label}", found ${matches.length}`);
+      continue;
+    }
+    const node = matches[0];
+    if (node === undefined) {
+      if (wholly) failures.push(`${item.id}: "${item.label}" is in view in the scroll view but not in the platform tree`);
+      else leftOut += 1;
+      continue;
+    }
+    if (node.frame === undefined) failures.push(`${item.id}: the element has no AXFrame`);
+    else pairs.push({ id: item.id, snapshot: rect, frame: node.frame });
+    if (!(node.actionNames ?? []).includes(SCROLL_TO_VISIBLE)) {
+      failures.push(`${item.id}: it is inside a scroll view but does not advertise ${SCROLL_TO_VISIBLE}`);
+    }
+  }
+  if (leftOut > 0) notes.push(`a11y-scroller: ${SCROLL_CULL_GAP}`);
   return failures;
 }
 

@@ -3,6 +3,10 @@ export interface AxNode {
   role?: string; subrole?: string; roleDescription?: string; title?: string; description?: string; value?: unknown;
   valueDescription?: string; help?: string; enabled?: boolean; focused?: boolean; selected?: boolean;
   expanded?: boolean; minValue?: unknown; maxValue?: unknown; orientation?: string; frame?: Frame; children?: AxNode[];
+  /** A scroll area only: what the adapter exposes of it, and its scroll bars (described without their children). */
+  attributeNames?: string[]; verticalScrollBar?: AxNode; horizontalScrollBar?: AxNode;
+  /** The actions the element advertises, by name (this tool never performs one). */
+  actionNames?: string[];
 }
 export type FlatNode = AxNode & { ancestors: AxNode[] };
 export function flatten(root: AxNode): FlatNode[];

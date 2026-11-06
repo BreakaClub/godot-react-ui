@@ -18,10 +18,10 @@ const MIN_SETTLE_FRAMES = 3;
 const FRAME_POLL_MS = 10;
 const FILE_POLL_MS = 25;
 /** The platform adapter builds its tree on the first request; the elements may take a few frames after it. */
-const TREE_DEADLINE_MS = 30_000;
+const TREE_DEADLINE_MS = 60_000;
 const TREE_POLL_MS = 500;
 /** One run of the dump tool reads a few hundred nodes; it takes a fraction of a second. */
-const DUMP_DEADLINE_MS = 20_000;
+const DUMP_DEADLINE_MS = 45_000;
 const ARTIFACTS_VARIABLE = 'GODOT_REACT_ARTIFACTS';
 /** The compiled `scripts/ax-dump.swift`, which `scripts/verify-a11y.mjs` builds and names here. */
 const AX_DUMP_VARIABLE = 'GODOT_REACT_AX_DUMP';
@@ -55,6 +55,11 @@ const REQUESTED_SCROLL_TOP = 40;
 const SCROLL_PAST_END = 100_000;
 /** Offsets are floats; this is how far a reading may differ from the step it should be. */
 const SCROLL_TOLERANCE = 0.01;
+/** The scroll child whose platform frame tells that the tree has followed a scroll, and the last child that only a scroll to the end shows. */
+const SCROLL_PROBE_LABEL = 'Message 2';
+const SCROLL_END_LABEL = 'Mark all read';
+/** A scroll by `REQUESTED_SCROLL_TOP` pixels moves a child by more than this many points (half the scroll, on a retina display), whatever the display's scale. */
+const SCROLL_FOLLOWED_POINTS = 5;
 /** The scroll view's border (`border`): its client area starts this far inside its rectangle. */
 const SCROLLER_BORDER_PX = 1;
 
@@ -210,11 +215,27 @@ export async function runA11yVerification(api: A11yInspection): Promise<void> {
   const failures: string[] = [];
   // What the engine cannot convey (scripts/a11y-expectations.mjs): the same each time it is read, logged once.
   const gaps: string[] = [];
+  /** Where the platform tree had the first scroll child before any scroll: a later reading moves from it once it follows one. */
+  let baselineMessageY: number | undefined;
   if (platformTree) {
     const before = await readTree(directory, 'ax-before.json', nodes => findByLabel(nodes, 'Save', ['AXButton']).length > 0);
     assert(before !== undefined, 'The platform never exposed an accessibility tree for the lab');
     failures.push(...checkElements(before, 0, geometry(api), gaps).map(failure => `before: ${failure}`));
+    baselineMessageY = findByLabel(flatten(before.tree), SCROLL_PROBE_LABEL, ['AXStaticText'])[0]?.frame?.y;
+    assert(baselineMessageY !== undefined, `The platform tree has no "${SCROLL_PROBE_LABEL}" before any scroll`);
   }
+  /**
+   * The platform's view of the lab at a scroll position (plan D38: the accessibility update each scroll requests keeps a
+   * live tree current). Read after the Godot-side scroll has settled, and judged in full like the others: every frame
+   * must agree with where native has the element now, so a tree that did not follow the scroll fails. `satisfied` is
+   * only the wait for the update to arrive; the judgement is the same whenever it does.
+   */
+  const readScrolled = async (name: string, satisfied: (nodes: FlatNode[]) => boolean): Promise<void> => {
+    if (!platformTree) return;
+    const reading = await readTree(directory, name, satisfied);
+    assert(reading !== undefined, `The platform never exposed the scrolled tree for ${name}`);
+    failures.push(...checkElements(reading, 1, geometry(api), gaps).map(failure => `${name}: ${failure}`));
+  };
 
   // ---- Godot's own input changes state; the platform tree must follow --------------------------------
   focus(api, 'a11y-subscribe');
@@ -288,9 +309,14 @@ export async function runA11yVerification(api: A11yInspection): Promise<void> {
   assert(scrollOf().scrollLeft === 0 && scrollOf().scrollTop === 0, 'Sideways actions leave a vertical-only view where it was');
   await assistiveAction(api, 'a11y-scroller', ACTION_SET_SCROLL_OFFSET, new Vector2(0, REQUESTED_SCROLL_TOP));
   assert(near(scrollOf().scrollTop, REQUESTED_SCROLL_TOP), `A set-scroll-offset action scrolls to the offset: ${scrollOf().scrollTop}`);
+  await readScrolled('ax-scrolled.json', nodes => {
+    const moved = findByLabel(nodes, SCROLL_PROBE_LABEL, ['AXStaticText'])[0]?.frame?.y;
+    return moved !== undefined && baselineMessageY !== undefined && Math.abs(moved - baselineMessageY) > SCROLL_FOLLOWED_POINTS;
+  });
   await assistiveAction(api, 'a11y-scroller', ACTION_SET_SCROLL_OFFSET, new Vector2(0, SCROLL_PAST_END));
   assert(scrollOf().scrollTop === scrollOf().maxScrollTop, `and clamps a request past the end to the end: ${scrollOf().scrollTop}`);
   assert(inView('a11y-scroll-end'), 'which shows the last item');
+  await readScrolled('ax-scrolled-end.json', nodes => findByLabel(nodes, SCROLL_END_LABEL, ['AXButton']).length > 0);
   await assistiveAction(api, 'a11y-scroller', ACTION_SET_SCROLL_OFFSET, new Vector2(0, 0));
   assert(scrollOf().scrollTop === 0 && !inView('a11y-scroll-end'), 'A set-scroll-offset action to zero goes back to the top');
   await assistiveAction(api, 'a11y-scroll-end', ACTION_SCROLL_INTO_VIEW);
