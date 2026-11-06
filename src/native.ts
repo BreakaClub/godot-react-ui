@@ -116,6 +116,8 @@ export interface NativeEffectsActivity {
   /** Elements with live backdrop items / a live filter group. */
   backdrops: number;
   groups: number;
+  /** Elements that ask for an effect and cannot have it, because a filter group is above them. */
+  blocked: number;
   /** Backdrops whose copy rectangle is set (not culled or clipped away). */
   copiesEnabled: number;
   itemsCreated: number;
@@ -124,8 +126,13 @@ export interface NativeEffectsActivity {
   /** Times a material's parameters were written. */
   materialUpdates: number;
   copyRectUpdates: number;
-  /** Whether the Compatibility mipmap primer exists. */
-  primer: boolean;
+  /** Times a group walked its subtree for the rectangle it covers (it keeps the answer until something inside changes). */
+  subtreeWalks: number;
+  /** Groups that have a Compatibility probe, which makes their mipmaps readable. */
+  probes: number;
+  /** Refreshes of the effects' rectangles that had something to do, and the microseconds they took in all. */
+  refreshes: number;
+  refreshMicros: number;
 }
 
 /** How a blur was built: the back-buffer mip level read and the Gaussian reconstruction on it. */
@@ -140,7 +147,10 @@ export interface NativeBlurPlan {
 
 export interface NativeEffects {
   backdrop: { plan: NativeBlurPlan | null; region: [number, number, number, number] | null; kind: string | null } | null;
-  filter: { plan: NativeBlurPlan | null; kind: string | null } | null;
+  /** `culled`: the element's opacity is too low for the engine to draw anything of it, so its group is not drawn either. */
+  filter: { plan: NativeBlurPlan | null; kind: string | null; probe: boolean; culled: boolean } | null;
+  /** How the effect items hang: `plain`, `backdrop`, `group`, or `both` (the backdrop outside the group, on its shell). */
+  layout: string;
 }
 
 export interface NativeTransition {
@@ -933,13 +943,17 @@ function effectsActivity(value: unknown): NativeEffectsActivity {
   return {
     backdrops: number(effects.backdrops, 'effects.backdrops'),
     groups: number(effects.groups, 'effects.groups'),
+    blocked: number(effects.blocked, 'effects.blocked'),
     copiesEnabled: number(effects.copiesEnabled, 'effects.copiesEnabled'),
     itemsCreated: number(effects.itemsCreated, 'effects.itemsCreated'),
     materialsCreated: number(effects.materialsCreated, 'effects.materialsCreated'),
     shadersCreated: number(effects.shadersCreated, 'effects.shadersCreated'),
     materialUpdates: number(effects.materialUpdates, 'effects.materialUpdates'),
     copyRectUpdates: number(effects.copyRectUpdates, 'effects.copyRectUpdates'),
-    primer: boolean(effects.primer, 'effects.primer'),
+    subtreeWalks: number(effects.subtreeWalks, 'effects.subtreeWalks'),
+    probes: number(effects.probes, 'effects.probes'),
+    refreshes: number(effects.refreshes, 'effects.refreshes'),
+    refreshMicros: number(effects.refreshMicros, 'effects.refreshMicros'),
   };
 }
 
@@ -965,7 +979,11 @@ function nodeEffects(value: unknown): NativeEffects | null {
       region: backdrop.region === null ? null : regionTuple(backdrop.region),
       kind: kind(backdrop.kind),
     },
-    filter: filter === null ? null : { plan: blurPlan(filter.plan, 'effects.filter.plan'), kind: kind(filter.kind) },
+    filter: filter === null ? null : {
+      plan: blurPlan(filter.plan, 'effects.filter.plan'), kind: kind(filter.kind),
+      probe: boolean(filter.probe, 'effects.filter.probe'), culled: boolean(filter.culled, 'effects.filter.culled'),
+    },
+    layout: string(effects.layout, 'effects.layout'),
   };
 }
 

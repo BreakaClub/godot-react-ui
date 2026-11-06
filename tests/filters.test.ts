@@ -107,3 +107,13 @@ test('equal filter inputs intern to the identical compiled style', () => {
   const compiled = compileStyle('blur-sm');
   assert.ok(Object.isFrozen(compiled.layers[0]?.style.filterParts), 'the parts of an interned style are frozen');
 });
+
+test('units in arbitrary values are case-insensitive, as they are in CSS', () => {
+  assert.deepEqual(partsOf('blur-[6PX]'), { blur: 6 });
+  assert.deepEqual(partsOf('backdrop-blur-[2.5Px]', 'backdropFilterParts'), { blur: 2.5 });
+  assert.deepEqual(partsOf('hue-rotate-[90DEG]'), { hueRotate: 90 });
+  assert.deepEqual(partsOf('-hue-rotate-[0.25TURN]'), { hueRotate: -90 });
+  assert.deepEqual(partsOf('hue-rotate-[200Grad]'), { hueRotate: 180 });
+  assert.deepEqual(partsOf('drop-shadow-[0_4PX_8Px_rgba(0,0,0,0.25)]'), { dropShadow: { x: 0, y: 4, blur: 8, color: 'rgba(0,0,0,0.25)' } });
+  assert.throws(() => compileStyle('blur-[6em]'), /Unsupported utility/);
+});

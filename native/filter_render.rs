@@ -12,6 +12,7 @@
 //! this: every entry point starts by finding nothing to do.
 
 use std::collections::{BTreeSet, HashMap};
+use std::time::Instant;
 
 use godot::classes::{RenderingServer, StyleBoxFlat};
 use godot::prelude::*;
@@ -19,18 +20,18 @@ use serde_json::json;
 
 use crate::CORNER_DETAIL;
 use crate::ReactUiRoot;
+#[cfg(feature = "filter-faults")]
+use crate::blur::ChainMap;
 use crate::blur::{
-    BlurPlan, ChainMap, PixelRect, RendererKind, chain_map, copy_region, max_level, plan,
+    BlurPlan, MAX_PAIRS, PixelRect, RendererKind, copy_region, max_level, plan, texel_map,
 };
 use crate::filter::{ColorMatrix, FilterEffect};
 use crate::filter_faults::{self as faults, Fault};
 use crate::geometry::BoxRect;
 use crate::motion::{resolved_backdrop_filter, resolved_filter};
+use crate::profile::micros;
 use crate::render_tree::Oversampling;
 use crate::style_engine::current_color;
-
-/// The most pairs of bilinear fetches per axis the shaders' arrays hold (`blur::MAX_PAIRS`).
-const SHADER_MAX_PAIRS: &str = "10";
 
 /// The pieces the four shaders share.
 const SHADER_HEADER: &str = "shader_type canvas_item;\nrender_mode unshaded;\n";
@@ -53,7 +54,7 @@ vec4 apply_map(vec4 c, vec4 r, vec4 g, vec4 b, vec4 a, vec4 off) {
 fn gaussian_function() -> String {
     format!(
         "
-const int MAX_PAIRS = {SHADER_MAX_PAIRS};
+const int MAX_PAIRS = {MAX_PAIRS};
 
 vec4 gaussian_at(vec2 uv, vec2 pixel_size, vec2 ca, vec2 cb, float lvl, int n, float inv2s2) {{
 	vec2 size = vec2(textureSize(screen_tex, int(lvl)));
@@ -253,17 +254,20 @@ void fragment() {
     }
 }
 
-/// What the "mipmaps cached" flag primer draws: a copy of one pixel, then a transparent pixel with a
-/// material that reads a mipmap. Compatibility only (see [`Effects::ensure_primer`]).
-const PRIMER_SHADER: &str = "shader_type canvas_item;
+/// What a probe draws: a copy of one pixel, then a transparent pixel with a material that reads a mipmap. Compatibility
+/// only (see [`Effects::probe_material`]).
+const PROBE_SHADER: &str = "shader_type canvas_item;
 render_mode unshaded;
 uniform sampler2D screen_tex : hint_screen_texture, filter_linear_mipmap, repeat_disable;
 void fragment() { COLOR = vec4(textureLod(screen_tex, SCREEN_UV, 1.0).rgb * 0.0, 0.0); }
 ";
+#[cfg(feature = "filter-faults")]
 const PRIMER_COPY_INDEX: i32 = -2;
+#[cfg(feature = "filter-faults")]
 const PRIMER_DRAW_INDEX: i32 = -1;
-/// A coordinate in the group's rectangle is truncated to an integer by the engine; a quarter pixel of
-/// bias keeps a rectangle computed through a non-integer transform from falling one pixel short.
+/// A coordinate in the group's rectangle is truncated to an integer by the engine (toward zero: `Rect2::operator Rect2i`);
+/// a quarter pixel of bias keeps a rectangle computed through a non-integer transform from falling one pixel short.
+/// It is only right for coordinates that are not negative, so the group's region is cut to the target before it is biased.
 const REGION_BIAS_PX: f32 = 0.25;
 
 /// A colour map as the shader's uniforms: rows for red, green, blue and alpha, then the offsets.
@@ -333,7 +337,7 @@ struct ShadowUniforms {
     color: [f32; 4],
 }
 
-/// Where the level read sits on the render target, per axis (`blur::chain_map`), as the shader's uniforms.
+/// Where the level read sits on the render target, per axis (`blur::texel_map`), as the shader's uniforms.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct ChainUniforms {
     scale: [f32; 2],
@@ -341,7 +345,14 @@ struct ChainUniforms {
 }
 
 impl ChainUniforms {
-    fn of(region: PixelRect, level: u32) -> ChainUniforms {
+    /// The maps of `level` for the chain generated for `region` of a target of `target` pixels on `renderer`.
+    fn of(
+        region: PixelRect,
+        level: u32,
+        renderer: RendererKind,
+        target: (i32, i32),
+    ) -> ChainUniforms {
+        #[cfg(feature = "filter-faults")]
         if faults::active(Fault::TextbookChain) {
             // The map of a region whose size is a multiple of `2^level`: exact only then.
             let texel = (1u32 << level) as f32;
@@ -354,8 +365,18 @@ impl ChainUniforms {
                 offset: [textbook.offset; 2],
             };
         }
-        let x: ChainMap = chain_map(region.x, region.width, level);
-        let y: ChainMap = chain_map(region.y, region.height, level);
+        #[cfg(feature = "filter-faults")]
+        if faults::active(Fault::RegionChain) {
+            // Every renderer placed by the copy region, as only Compatibility does.
+            let x = crate::blur::chain_map(region.x, region.width, level);
+            let y = crate::blur::chain_map(region.y, region.height, level);
+            return ChainUniforms {
+                scale: [x.scale, y.scale],
+                offset: [x.offset, y.offset],
+            };
+        }
+        let x = texel_map(renderer, region.x, region.width, target.0, level);
+        let y = texel_map(renderer, region.y, region.height, target.1, level);
         ChainUniforms {
             scale: [x.scale, y.scale],
             offset: [x.offset, y.offset],
@@ -389,7 +410,13 @@ struct MaterialSlot {
     applied: Option<Applied>,
 }
 
-/// The per-element state of the effects: materials, what they hold and what was last reported.
+/// The rectangles currently set on a group, in its frame: what it covers, what its mipmaps are made for, and where the
+/// Compatibility probe draws its pixel.
+type GroupRects = (Rect2, Rect2, Option<Vector2>);
+
+/// The per-element state of the effects: materials, what they hold and what was last reported. The backdrop's fields and
+/// the group's are each cleared when that effect goes (`Effects::drop_backdrop_state`, `drop_group_state`), because the
+/// next one gets new canvas items that have none of it.
 struct NodeEffect {
     backdrop_material: Option<MaterialSlot>,
     group_material: Option<MaterialSlot>,
@@ -406,8 +433,11 @@ struct NodeEffect {
     group_chain: Option<(Option<ChainUniforms>, Option<ChainUniforms>)>,
     /// The group's drop shadow: where it falls (render-target pixels) and how it is blurred.
     group_shadow: Option<(Vector2, Option<BlurPlan>)>,
-    /// The rectangles currently set on the group (what it covers, what its mipmaps are made for), in its frame.
-    bounds: Option<(Rect2, Rect2)>,
+    /// The rectangles currently set on the group.
+    bounds: Option<GroupRects>,
+    /// The rectangle of the element's box and everything painted below it, relative to the box's own corner. Walking the
+    /// subtree for it is the one cost that grows with the subtree, so it is kept until something inside changes.
+    extent: Option<BoxRect>,
 }
 
 /// Counters of the work the effects did, for the snapshot and the verifiers.
@@ -418,6 +448,25 @@ pub(crate) struct EffectStats {
     pub(crate) shaders_created: u64,
     pub(crate) material_updates: u64,
     pub(crate) copy_rect_updates: u64,
+    /// Walks of a group's subtree for its extent.
+    pub(crate) subtree_walks: u64,
+    /// Refreshes of the rectangles that had something to do, and the microseconds they took in all.
+    pub(crate) refreshes: u64,
+    pub(crate) refresh_micros: u64,
+}
+
+/// The shader and material every Compatibility probe shares: they hold no parameters.
+struct ProbeMaterial {
+    shader: Rid,
+    material: Rid,
+}
+
+#[cfg(feature = "filter-faults")]
+struct Primer {
+    copy: Rid,
+    draw: Rid,
+    material: Rid,
+    shader: Rid,
 }
 
 /// Everything the effects keep for one root.
@@ -427,31 +476,32 @@ pub(crate) struct Effects {
     /// The source each shader was compiled from: a fault changes a shader's source between runs.
     #[cfg(feature = "filter-faults")]
     shader_sources: [Option<String>; 4],
+    probe: Option<ProbeMaterial>,
+    /// The old global primer, put back by `Fault::RootPrimer`.
+    #[cfg(feature = "filter-faults")]
     primer: Option<Primer>,
     nodes: HashMap<u32, NodeEffect>,
     /// Elements with a live backdrop and with a live filter group.
     backdrops: BTreeSet<u32>,
     groups: BTreeSet<u32>,
+    /// Elements that ask for an effect they cannot have, because a filter group is above them. They are not drawn, and are
+    /// looked at again when a group appears or goes.
+    blocked: BTreeSet<u32>,
     /// Pairs (element, filtered ancestor) already reported, so a nesting error is one line.
     reported: BTreeSet<(u32, u32)>,
-    /// Elements whose clamped blur was reported.
-    reported_clamps: BTreeSet<u32>,
     /// Something that decides a rectangle changed since the last refresh.
     stale: bool,
+    /// The elements whose geometry, scroll, text or paint children changed since the last refresh: the groups that contain
+    /// one have to measure their subtree again.
+    touched: BTreeSet<u32>,
     /// Elements to look at again after this paint pass, because a filter group came or went.
     resync: BTreeSet<u32>,
     /// The root-to-target transform and the target's size the plans and rectangles were computed for.
     transform: Option<Transform2D>,
     target: Option<(i32, i32)>,
-    renderer: Option<RendererKind>,
+    /// The renderer, once asked: `Some(None)` for one the module has not measured.
+    renderer: Option<Option<RendererKind>>,
     pub(crate) stats: EffectStats,
-}
-
-struct Primer {
-    copy: Rid,
-    draw: Rid,
-    material: Rid,
-    shader: Rid,
 }
 
 fn server() -> Gd<RenderingServer> {
@@ -463,15 +513,27 @@ impl Effects {
         self.backdrops.is_empty() && self.groups.is_empty()
     }
 
-    pub(crate) fn mark_stale(&mut self) {
+    /// Something that decides where an effect's rectangles go changed at `tag`: its geometry, its scroll offset, its text or
+    /// its paint children. A tree with no effect keeps nothing.
+    pub(crate) fn note_changed(&mut self, tag: u32) {
         if !self.is_empty() {
             self.stale = true;
+            self.touched.insert(tag);
         }
     }
 
-    fn renderer(&mut self) -> RendererKind {
+    /// The renderer, asked of the engine once. `None` (and one error, once) for a rendering method whose back-buffer chain has
+    /// not been measured: nothing is drawn rather than something wrong.
+    fn renderer(&mut self) -> Option<RendererKind> {
         *self.renderer.get_or_insert_with(|| {
-            RendererKind::from_method(&server().get_current_rendering_method().to_string())
+            let method = server().get_current_rendering_method().to_string();
+            let kind = RendererKind::from_method(&method);
+            if kind.is_none() {
+                godot_error!(
+                    "ReactUiRoot: filter and backdrop-filter are not drawn: the rendering method {method:?} has not been measured (gl_compatibility, mobile and forward_plus have)."
+                );
+            }
+            kind
         })
     }
 
@@ -505,7 +567,8 @@ impl Effects {
         self.shader_sources[kind.index()] = Some(source);
     }
 
-    /// The slot's material for `kind`: the one it has, or a new one (the old one is freed) put on `item`.
+    /// The slot's material for `kind`: the one it has, or a new one (the old one is freed) put on `item`. A slot is only
+    /// kept while the item it was put on is (`drop_backdrop_state`, `drop_group_state`).
     fn ensure_material(
         &mut self,
         slot: Option<MaterialSlot>,
@@ -531,16 +594,39 @@ impl Effects {
         }
     }
 
-    /// Compatibility only: a canvas group reads its mipmaps only if the renderer believes the back
-    /// buffer has them, which it does after an earlier item that asked for them this frame
-    /// (`rasterizer_canvas_gles3.cpp:403-541`; `exp2.gd`: a group's blur was a hard edge until a frosted
-    /// panel ran before it). One pixel copied and one pixel drawn with a mipmap-reading material, before
-    /// everything else, set that belief for the frame.
-    fn ensure_primer(&mut self, layer_item: Rid) {
-        if self.primer.is_some()
-            || self.renderer() != RendererKind::Compatibility
+    /// The material a Compatibility group's probe draws with (made on first use), or `None` where no probe is needed.
+    ///
+    /// A canvas group reads its mipmaps only if the renderer believes the back buffer has them, which it does after an
+    /// earlier item that asked for them in the same pass (`rasterizer_canvas_gles3.cpp:403-541`; `exp2.gd`: a group's
+    /// blur was a hard edge until a frosted panel ran before it). Every copy item clears that belief (`:523-529`: it is
+    /// set to whether the copy generated mipmaps), and only an item whose material reads a mipmap sets it again, so a
+    /// mip-less backdrop (`backdrop-brightness-50`) between a global primer and a group undid it. A probe, a copy of one
+    /// pixel and a draw of one pixel with a mip-reading material, sits right before its own group, where nothing can come
+    /// between it and the composite.
+    fn probe_for(&mut self, blur_kind: bool) -> Option<Rid> {
+        if !blur_kind
+            || self.renderer() != Some(RendererKind::Compatibility)
             || faults::active(Fault::NoPrimer)
+            || faults::active(Fault::RootPrimer)
         {
+            return None;
+        }
+        if let Some(probe) = &self.probe {
+            return Some(probe.material);
+        }
+        let mut rs = server();
+        let shader = rs.shader_create();
+        rs.shader_set_code(shader, PROBE_SHADER);
+        let material = rs.material_create();
+        rs.material_set_shader(material, shader);
+        self.probe = Some(ProbeMaterial { shader, material });
+        Some(material)
+    }
+
+    /// The old primer, once under the first layer's root for the whole tree. Only a fault puts it back.
+    #[cfg(feature = "filter-faults")]
+    fn ensure_primer(&mut self, layer_item: Rid) {
+        if self.primer.is_some() || self.renderer() != Some(RendererKind::Compatibility) {
             return;
         }
         let mut rs = server();
@@ -553,7 +639,7 @@ impl Effects {
         rs.canvas_item_set_copy_to_backbuffer(copy, true, Rect2::new(Vector2::ZERO, Vector2::ONE));
         rs.canvas_item_add_rect(draw, Rect2::new(Vector2::ZERO, Vector2::ONE), Color::WHITE);
         let shader = rs.shader_create();
-        rs.shader_set_code(shader, PRIMER_SHADER);
+        rs.shader_set_code(shader, PROBE_SHADER);
         let material = rs.material_create();
         rs.material_set_shader(material, shader);
         rs.canvas_item_set_material(draw, material);
@@ -566,6 +652,7 @@ impl Effects {
         });
     }
 
+    #[cfg(feature = "filter-faults")]
     fn drop_primer(&mut self) {
         if let Some(primer) = self.primer.take() {
             let mut rs = server();
@@ -575,10 +662,51 @@ impl Effects {
         }
     }
 
+    /// Free the backdrop's material and forget everything that was written to it. Its items are gone (or were never
+    /// made), and the next ones start without a material, a shape or a copy rectangle.
+    fn drop_backdrop_state(&mut self, tag: u32) {
+        self.backdrops.remove(&tag);
+        if let Some(state) = self.nodes.get_mut(&tag) {
+            if faults::active(Fault::KeepEffectState) {
+                return;
+            }
+            if let Some(slot) = state.backdrop_material.take() {
+                server().free_rid(slot.material);
+            }
+            state.fill_key = None;
+            state.region = None;
+            state.backdrop_plan = None;
+            state.backdrop_chain = None;
+        }
+    }
+
+    /// As [`Self::drop_backdrop_state`], for the group.
+    fn drop_group_state(&mut self, tag: u32) {
+        self.groups.remove(&tag);
+        if let Some(state) = self.nodes.get_mut(&tag) {
+            if faults::active(Fault::KeepEffectState) {
+                return;
+            }
+            if let Some(slot) = state.group_material.take() {
+                server().free_rid(slot.material);
+            }
+            state.group_plan = None;
+            state.group_chain = None;
+            state.group_shadow = None;
+            state.bounds = None;
+            state.extent = None;
+        }
+    }
+
     /// Free every material and shader (the root is going away).
     pub(crate) fn release(&mut self) {
+        #[cfg(feature = "filter-faults")]
         self.drop_primer();
         let mut rs = server();
+        if let Some(probe) = self.probe.take() {
+            rs.free_rid(probe.material);
+            rs.free_rid(probe.shader);
+        }
         for (_, effect) in self.nodes.drain() {
             for slot in [effect.backdrop_material, effect.group_material]
                 .into_iter()
@@ -592,6 +720,7 @@ impl Effects {
         }
         self.backdrops.clear();
         self.groups.clear();
+        self.blocked.clear();
     }
 }
 
@@ -645,6 +774,47 @@ fn to_target(transform: &Transform2D, rect: BoxRect) -> PixelRect {
     }
 }
 
+/// `rect` (render-target pixels, biased by `bias` at its corner and again in its size) in the group's frame: the bounding
+/// box of the four corners, so a root that is rotated or mirrored gets the rectangle that covers it, not the one the
+/// transformed corner and the absolute size would make.
+fn local_rect(inverse: &Transform2D, rect: PixelRect, bias: f32, frame_origin: Vector2) -> Rect2 {
+    let (x0, y0) = (rect.x as f32 + bias, rect.y as f32 + bias);
+    let (x1, y1) = (
+        x0 + rect.width as f32 + bias,
+        y0 + rect.height as f32 + bias,
+    );
+    if faults::active(Fault::CornerRect) {
+        // The transformed corner and the size's absolute value.
+        return Rect2::new(
+            *inverse * Vector2::new(x0, y0) - frame_origin,
+            inverse
+                .basis_xform(Vector2::new(
+                    rect.width as f32 + bias,
+                    rect.height as f32 + bias,
+                ))
+                .abs(),
+        );
+    }
+    let corners = [
+        Vector2::new(x0, y0),
+        Vector2::new(x1, y0),
+        Vector2::new(x0, y1),
+        Vector2::new(x1, y1),
+    ]
+    .map(|corner| *inverse * corner);
+    let min = corners
+        .iter()
+        .fold(Vector2::new(f32::MAX, f32::MAX), |m, c| {
+            Vector2::new(m.x.min(c.x), m.y.min(c.y))
+        });
+    let max = corners
+        .iter()
+        .fold(Vector2::new(f32::MIN, f32::MIN), |m, c| {
+            Vector2::new(m.x.max(c.x), m.y.max(c.y))
+        });
+    Rect2::new(min - frame_origin, max - min)
+}
+
 impl ReactUiRoot {
     /// The transform from root-local pixels to the render target's, and the target's size in pixels.
     fn target_transform(&self) -> Option<(Transform2D, (i32, i32))> {
@@ -668,6 +838,13 @@ impl ReactUiRoot {
         ))
     }
 
+    /// Whether the root needs a frame to look at the viewport's transform: only while an effect exists. Nothing tells a root
+    /// that the viewport's canvas transform (a `Camera2D`) or a `CanvasLayer`'s moved, and its rectangles are in render-target
+    /// pixels, so they are read once a frame; a tree with no effect asks for no frame.
+    pub(crate) fn effects_want_frames(&self) -> bool {
+        !self.effects.is_empty() && !faults::active(Fault::StaleViewport)
+    }
+
     /// Bring one element's effect items up to date with its `filter` and `backdrop-filter`. Called
     /// from the paint pass for every element whose paint inputs may have changed; an element with no
     /// filter and no effect items returns at once.
@@ -680,6 +857,12 @@ impl ReactUiRoot {
             || sampled.is_some_and(|s| !s.filter.is_empty() || !s.backdrop_filter.is_empty());
         let had_effects = node.render.backdrop.is_some() || node.render.group.is_some();
         if !has_filters && !had_effects {
+            if !self.effects.blocked.is_empty() {
+                self.effects.blocked.remove(&tag);
+            }
+            return;
+        }
+        if self.effects.renderer().is_none() {
             return;
         }
         let (filter, backdrop) = match sampled {
@@ -700,10 +883,18 @@ impl ReactUiRoot {
         let backdrop_effect = FilterEffect::compose(&backdrop, current);
         let wants_filter = drawable && !filter_effect.is_none();
         let wants_backdrop = drawable && !backdrop_effect.is_none();
+        // An element's own group is not above it: its backdrop is drawn outside the wrapper (`render_tree.rs`), so an element
+        // can have both `filter` and `backdrop-filter`.
+        let blocked = blocker.is_some() && (wants_filter || wants_backdrop);
         if let Some(ancestor) = blocker
-            && (wants_filter || wants_backdrop)
+            && blocked
         {
             self.report_nesting(tag, ancestor, wants_filter, wants_backdrop);
+        }
+        if blocked && !faults::active(Fault::BlockedForgotten) {
+            self.effects.blocked.insert(tag);
+        } else {
+            self.effects.blocked.remove(&tag);
         }
         let wanted = Wanted {
             backdrop: (wants_backdrop && blocker.is_none()).then_some(WantedBackdrop {
@@ -713,21 +904,45 @@ impl ReactUiRoot {
                 effect: filter_effect,
             }),
         };
+        let was_empty = self.effects.is_empty();
         let groups_before = self.effects.groups.contains(&tag);
         self.apply_wanted(tag, wanted);
         if groups_before != self.effects.groups.contains(&tag) {
-            // A group appeared or went: every other effect re-checks whether it sits inside one.
+            // A group appeared or went: every other effect re-checks whether it sits inside one, and so does every element
+            // that was held back by one.
             let others: Vec<u32> = self
                 .effects
                 .backdrops
                 .iter()
                 .chain(self.effects.groups.iter())
+                .chain(self.effects.blocked.iter())
                 .copied()
                 .filter(|other| *other != tag)
                 .collect();
             self.effects.resync.extend(others);
         }
         self.effects.stale = true;
+        if was_empty != self.effects.is_empty() {
+            self.update_process();
+        }
+    }
+
+    /// Look again at the elements a group coming or going may have changed. Each look can move a group of its own, so the
+    /// chain is as long as the nesting is deep; the bound is the number of elements that have an effect or want one.
+    pub(crate) fn settle_effect_resyncs(&mut self) {
+        let rounds = self.effects.backdrops.len()
+            + self.effects.groups.len()
+            + self.effects.blocked.len()
+            + 1;
+        for _ in 0..rounds {
+            let batch = std::mem::take(&mut self.effects.resync);
+            if batch.is_empty() {
+                return;
+            }
+            for tag in batch {
+                self.sync_effects(tag);
+            }
+        }
     }
 
     /// The nearest paint ancestor with a live filter group. Canvas groups do not nest and screen reads
@@ -766,8 +981,11 @@ impl ReactUiRoot {
 
     fn apply_wanted(&mut self, tag: u32, wanted: Wanted) {
         // Items are created and removed here; their parameters in `update_effect_params`.
-        let layer_item = self.node_layer_item(tag);
-        let created_before = self.effects.stats.items_created;
+        let blur_kind = wanted
+            .group
+            .as_ref()
+            .map(|group| group.effect.sigma_css_px > 0.0 || group.effect.shadow.is_some());
+        let probe = blur_kind.and_then(|blur_kind| self.effects.probe_for(blur_kind));
         {
             let Some(node) = self.mounted.nodes.get_mut(&tag) else {
                 return;
@@ -778,18 +996,19 @@ impl ReactUiRoot {
                     self.effects.stats.items_created += 2;
                 }
             } else if node.render.remove_backdrop() {
-                self.effects.backdrops.remove(&tag);
+                self.effects.drop_backdrop_state(tag);
             }
-            if let Some(group) = &wanted.group {
-                let blur_kind = group.effect.sigma_css_px > 0.0 || group.effect.shadow.is_some();
+            if let Some(blur_kind) = blur_kind {
                 if node.render.group.is_none() {
-                    node.render.ensure_group(blur_kind);
+                    self.effects.stats.items_created += 3;
+                }
+                let probes_before = node.render.has_probe();
+                node.render.ensure_group(blur_kind, probe);
+                if node.render.has_probe() && !probes_before {
                     self.effects.stats.items_created += 2;
-                } else {
-                    node.render.ensure_group(blur_kind);
                 }
             } else if node.render.remove_group() {
-                self.effects.groups.remove(&tag);
+                self.effects.drop_group_state(tag);
             }
         }
         if wanted.backdrop.is_none() && wanted.group.is_none() {
@@ -801,25 +1020,19 @@ impl ReactUiRoot {
         }
         if wanted.group.is_some() {
             self.effects.groups.insert(tag);
-            if let Some(item) = layer_item {
+            #[cfg(feature = "filter-faults")]
+            if faults::active(Fault::RootPrimer)
+                && let Some(item) = self.layer_items.first().map(|item| item.item)
+            {
                 self.effects.ensure_primer(item);
             }
         }
-        let _ = created_before;
         self.update_effect_params(tag, &wanted);
     }
 
-    /// The layer root item of the node's layer (where the primer goes).
-    fn node_layer_item(&self, tag: u32) -> Option<Rid> {
-        let layer = self.mounted.nodes.get(&tag)?.layer;
-        // The primer belongs to the first layer's root, drawn before everything.
-        let _ = layer;
-        self.layer_items.first().map(|item| item.item)
-    }
-
     fn forget_effect_state(&mut self, tag: u32) {
-        self.effects.backdrops.remove(&tag);
-        self.effects.groups.remove(&tag);
+        self.effects.drop_backdrop_state(tag);
+        self.effects.drop_group_state(tag);
         if let Some(effect) = self.effects.nodes.remove(&tag) {
             let mut rs = server();
             for slot in [effect.backdrop_material, effect.group_material]
@@ -829,6 +1042,7 @@ impl ReactUiRoot {
                 rs.free_rid(slot.material);
             }
         }
+        #[cfg(feature = "filter-faults")]
         if self.effects.groups.is_empty() {
             self.effects.drop_primer();
         }
@@ -837,10 +1051,17 @@ impl ReactUiRoot {
     /// Set materials, the backdrop's shape and the rectangles for the effects the element has.
     fn update_effect_params(&mut self, tag: u32, wanted: &Wanted) {
         let Some((transform, target)) = self.target_transform() else {
+            // Nothing can be planned outside the tree (no viewport to read the scale and the target from). Forget the
+            // transform the plans were made for, so the first refresh after the root is back plans every effect again.
+            if !faults::active(Fault::KeepTransformOutOfTree) {
+                self.effects.transform = None;
+            }
+            return;
+        };
+        let Some(renderer) = self.effects.renderer() else {
             return;
         };
         let scale = mean_scale(&transform);
-        let renderer = self.effects.renderer();
         let levels = max_level(target.0.max(1) as u32, target.1.max(1) as u32, renderer);
         self.effects.nodes.entry(tag).or_insert_with(|| {
             let mut fill = StyleBoxFlat::new_gd();
@@ -858,20 +1079,28 @@ impl ReactUiRoot {
                 backdrop_chain: None,
                 group_chain: None,
                 bounds: None,
+                extent: None,
             }
         });
         if let Some(backdrop) = &wanted.backdrop {
-            self.update_backdrop(tag, &backdrop.effect, scale, levels);
+            self.update_backdrop(tag, &backdrop.effect, scale, levels, renderer);
         }
         if let Some(group) = &wanted.group {
-            self.update_group(tag, &group.effect, scale, levels);
+            self.update_group(tag, &group.effect, scale, levels, renderer);
         }
     }
 
-    fn update_backdrop(&mut self, tag: u32, effect: &FilterEffect, scale: f32, levels: u32) {
+    fn update_backdrop(
+        &mut self,
+        tag: u32,
+        effect: &FilterEffect,
+        scale: f32,
+        levels: u32,
+        renderer: RendererKind,
+    ) {
         // Read once for the pass: the root caches the level its items are drawn at.
         let oversampling = self.oversampling();
-        let blur_plan = plan(effect.sigma_css_px * scale, levels);
+        let blur_plan = plan(effect.sigma_css_px * scale, levels, renderer);
         let kind = if blur_plan.is_some() {
             ShaderKind::BackdropBlur
         } else {
@@ -949,11 +1178,18 @@ impl ReactUiRoot {
         }
     }
 
-    fn update_group(&mut self, tag: u32, effect: &FilterEffect, scale: f32, levels: u32) {
-        let blur_plan = plan(effect.sigma_css_px * scale, levels);
+    fn update_group(
+        &mut self,
+        tag: u32,
+        effect: &FilterEffect,
+        scale: f32,
+        levels: u32,
+        renderer: RendererKind,
+    ) {
+        let blur_plan = plan(effect.sigma_css_px * scale, levels, renderer);
         let shadow_plan = effect
             .shadow_sigma_css_px()
-            .and_then(|sigma| plan(sigma * scale, levels));
+            .and_then(|sigma| plan(sigma * scale, levels, renderer));
         let blur_kind = blur_plan.is_some() || effect.shadow.is_some();
         let kind = if blur_kind {
             ShaderKind::GroupBlur
@@ -987,6 +1223,7 @@ impl ReactUiRoot {
         else {
             return;
         };
+        let probe = self.effects.probe_for(blur_kind);
         let current = self
             .effects
             .nodes
@@ -1037,12 +1274,14 @@ impl ReactUiRoot {
                 shadow_plan,
             )
         });
-        node.render.ensure_group(blur_kind);
+        // The mode follows the shader kind (`blur_mipmaps`), and the probe follows the mode.
+        node.render.ensure_group(blur_kind, probe);
     }
 
     /// Recompute every effect's rectangle: the copy rectangle of each backdrop and the group region of
     /// each filter, for where the element is on the render target now. Called when anything that
-    /// decides a position changed: layout, a scroll, a motion sample, the root's own transform.
+    /// decides a position changed: layout, a scroll, a motion sample, the root's own transform, and each
+    /// frame the viewport's (`effects_want_frames`).
     pub(crate) fn refresh_effect_rects(&mut self) {
         if self.effects.is_empty() {
             return;
@@ -1050,11 +1289,15 @@ impl ReactUiRoot {
         let Some((transform, target)) = self.target_transform() else {
             return;
         };
+        let Some(renderer) = self.effects.renderer() else {
+            return;
+        };
         let transform_changed =
             self.effects.transform != Some(transform) || self.effects.target != Some(target);
         if !std::mem::take(&mut self.effects.stale) && !transform_changed {
             return;
         }
+        let started = Instant::now();
         self.effects.transform = Some(transform);
         self.effects.target = Some(target);
         if transform_changed {
@@ -1071,19 +1314,63 @@ impl ReactUiRoot {
             for tag in all {
                 self.sync_effects(tag);
             }
+            self.settle_effect_resyncs();
             self.effects.stale = false;
         }
+        self.forget_stale_extents();
         let backdrops: Vec<u32> = self.effects.backdrops.iter().copied().collect();
         let groups: Vec<u32> = self.effects.groups.iter().copied().collect();
         for tag in backdrops {
-            self.refresh_backdrop_rect(tag, &transform, target);
+            self.refresh_backdrop_rect(tag, &transform, target, renderer);
         }
         for tag in groups {
-            self.refresh_group_rect(tag, &transform, target);
+            self.refresh_group_rect(tag, &transform, target, renderer);
+        }
+        self.effects.stats.refreshes += 1;
+        self.effects.stats.refresh_micros += micros(started);
+    }
+
+    /// The groups that contain an element that changed measure their subtree again; the others keep their extent, so a change
+    /// elsewhere costs a group the walk up to its own corner and no more.
+    fn forget_stale_extents(&mut self) {
+        let touched = std::mem::take(&mut self.effects.touched);
+        if self.effects.groups.is_empty() {
+            return;
+        }
+        if faults::active(Fault::WalkEverySubtree) {
+            for state in self.effects.nodes.values_mut() {
+                state.extent = None;
+            }
+            return;
+        }
+        for tag in touched {
+            let mut current = tag;
+            loop {
+                if self.effects.groups.contains(&current)
+                    && let Some(state) = self.effects.nodes.get_mut(&current)
+                {
+                    state.extent = None;
+                }
+                match self
+                    .mounted
+                    .nodes
+                    .get(&current)
+                    .and_then(|node| node.paint_parent)
+                {
+                    Some(crate::diff::Parent::Node(parent)) => current = parent,
+                    _ => break,
+                }
+            }
         }
     }
 
-    fn refresh_backdrop_rect(&mut self, tag: u32, transform: &Transform2D, target: (i32, i32)) {
+    fn refresh_backdrop_rect(
+        &mut self,
+        tag: u32,
+        transform: &Transform2D,
+        target: (i32, i32),
+        renderer: RendererKind,
+    ) {
         let viewport = self.viewport_box();
         let visible = self
             .mounted
@@ -1136,10 +1423,10 @@ impl ReactUiRoot {
             _ => None,
         };
         let mut rs = server();
-        // Where the level read sits on the target depends on the region the chain is generated for.
+        // Where the level read sits on the target depends on the region the chain is generated for (on Compatibility).
         let chain = region
             .zip(state.backdrop_plan)
-            .map(|(region, plan)| ChainUniforms::of(region, plan.level));
+            .map(|(region, plan)| ChainUniforms::of(region, plan.level, renderer, target));
         if let (Some(chain), Some(slot)) = (chain, state.backdrop_material)
             && state.backdrop_chain != Some(chain)
         {
@@ -1170,19 +1457,33 @@ impl ReactUiRoot {
         }
     }
 
-    fn refresh_group_rect(&mut self, tag: u32, transform: &Transform2D, target: (i32, i32)) {
-        let Some(bounds_local) = self.subtree_bounds(tag) else {
+    fn refresh_group_rect(
+        &mut self,
+        tag: u32,
+        transform: &Transform2D,
+        target: (i32, i32),
+        renderer: RendererKind,
+    ) {
+        let Some((rect, _)) = self.mounted.absolute_geometry(tag, self.viewport_box()) else {
             return;
         };
-        let Some(frame_origin) = self
+        let Some(extent) = self.group_extent(tag) else {
+            return;
+        };
+        let Some(location) = self
             .mounted
-            .absolute_geometry(tag, self.viewport_box())
-            .map(|(rect, _)| {
-                let location = self.mounted.nodes[&tag].geometry.location;
-                Vector2::new(rect.x - location.x, rect.y - location.y)
-            })
+            .nodes
+            .get(&tag)
+            .map(|node| node.geometry.location)
         else {
             return;
+        };
+        let frame_origin = Vector2::new(rect.x - location.x, rect.y - location.y);
+        let bounds_local = BoxRect {
+            x: rect.x + extent.x,
+            y: rect.y + extent.y,
+            width: extent.width,
+            height: extent.height,
         };
         let Some(state) = self.effects.nodes.get_mut(&tag) else {
             return;
@@ -1234,11 +1535,11 @@ impl ReactUiRoot {
         let chains = (
             state
                 .group_plan
-                .map(|plan| ChainUniforms::of(engine_region, plan.level)),
+                .map(|plan| ChainUniforms::of(engine_region, plan.level, renderer, target)),
             state
                 .group_shadow
                 .and_then(|(_, plan)| plan)
-                .map(|plan| ChainUniforms::of(engine_region, plan.level)),
+                .map(|plan| ChainUniforms::of(engine_region, plan.level, renderer, target)),
         );
         if let Some(slot) = state.group_material
             && state.group_chain != Some(chains)
@@ -1252,35 +1553,58 @@ impl ReactUiRoot {
             }
             state.group_chain = Some(chains);
         }
-        // The rectangles in the group's frame, the region biased so truncation keeps its aligned integers.
+        // The rectangles in the group's frame. The region the mipmaps are made for is the one already cut to the target,
+        // biased so the engine's truncation (toward zero) keeps its integers: a negative origin truncates to the next
+        // integer up, which made the engine's region a pixel larger than the one the maps were computed for.
         let inverse = transform.affine_inverse();
-        let local = |rect: PixelRect, bias: f32| {
-            Rect2::new(
-                inverse * Vector2::new(rect.x as f32 + bias, rect.y as f32 + bias) - frame_origin,
-                inverse
-                    .basis_xform(Vector2::new(
-                        rect.width as f32 + bias,
-                        rect.height as f32 + bias,
-                    ))
-                    .abs(),
-            )
+        let marked = if faults::active(Fault::TruncatedBias) {
+            union_pixels(region, draw)
+        } else {
+            engine_region
         };
-        let rects = (local(draw, 0.0), local(region, REGION_BIAS_PX));
+        // A pixel of the region that is on the target, for the Compatibility probe to be drawn at.
+        let probe = (!engine_region.is_empty()).then(|| {
+            inverse * Vector2::new(engine_region.x as f32 + 0.5, engine_region.y as f32 + 0.5)
+                - frame_origin
+        });
+        let rects = (
+            local_rect(&inverse, draw, 0.0, frame_origin),
+            local_rect(&inverse, marked, REGION_BIAS_PX, frame_origin),
+            probe,
+        );
         if state.bounds != Some(rects) {
             if let Some(node) = self.mounted.nodes.get_mut(&tag) {
-                node.render.set_group_rects(rects.0, rects.1);
+                node.render.set_group_rects(rects.0, rects.1, rects.2);
             }
             state.bounds = Some(rects);
             self.effects.stats.copy_rect_updates += 1;
         }
     }
 
-    /// The root-local rectangle of an element's own box and everything painted below it: a superset
+    /// The extent of a group's subtree, relative to its own corner: kept until something inside changes.
+    fn group_extent(&mut self, tag: u32) -> Option<BoxRect> {
+        if let Some(extent) = self.effects.nodes.get(&tag).and_then(|state| state.extent) {
+            return Some(extent);
+        }
+        let extent = self.subtree_extent(tag)?;
+        self.effects.stats.subtree_walks += 1;
+        if let Some(state) = self.effects.nodes.get_mut(&tag) {
+            state.extent = Some(extent);
+        }
+        Some(extent)
+    }
+
+    /// The rectangle of an element's own box and everything painted below it, relative to the box's corner: a superset
     /// of the rectangle the engine will make the group's region from.
-    fn subtree_bounds(&self, tag: u32) -> Option<BoxRect> {
-        let (rect, _) = self.mounted.absolute_geometry(tag, self.viewport_box())?;
-        let mut bounds = rect;
-        let mut stack: Vec<(u32, Vector2)> = vec![(tag, Vector2::new(rect.x, rect.y))];
+    fn subtree_extent(&self, tag: u32) -> Option<BoxRect> {
+        let node = self.mounted.nodes.get(&tag)?;
+        let mut bounds = BoxRect {
+            x: 0.0,
+            y: 0.0,
+            width: node.geometry.size.x,
+            height: node.geometry.size.y,
+        };
+        let mut stack: Vec<(u32, Vector2)> = vec![(tag, Vector2::ZERO)];
         while let Some((current, origin)) = stack.pop() {
             let node = self.mounted.nodes.get(&current)?;
             let content = origin
@@ -1322,21 +1646,24 @@ impl ReactUiRoot {
         Some(bounds)
     }
 
-    /// The elements to sync again: an effect appeared or went, so each of the others may now sit
-    /// inside a filter group, or no longer.
-    pub(crate) fn take_effect_resyncs(&mut self) -> Vec<u32> {
-        std::mem::take(&mut self.effects.resync)
-            .into_iter()
-            .collect()
-    }
-
     /// Drop everything the effects keep for a deleted element.
     pub(crate) fn forget_effects(&mut self, tag: u32) {
+        let was_group = self.effects.groups.contains(&tag);
+        let was_empty = self.effects.is_empty();
         self.forget_effect_state(tag);
+        self.effects.blocked.remove(&tag);
+        self.effects.touched.remove(&tag);
         self.effects
             .reported
             .retain(|(node, ancestor)| *node != tag && *ancestor != tag);
-        self.effects.reported_clamps.remove(&tag);
+        if was_group {
+            // What the group held back may be drawn now.
+            let blocked: Vec<u32> = self.effects.blocked.iter().copied().collect();
+            self.effects.resync.extend(blocked);
+        }
+        if was_empty != self.effects.is_empty() {
+            self.update_process();
+        }
     }
 
     /// What the snapshot says about an element's effects, or `None` if it has none.
@@ -1348,6 +1675,7 @@ impl ReactUiRoot {
                     "achievedPx": plan.achieved_px, "clamped": plan.clamped})
             })
         };
+        let render = &self.mounted.nodes.get(&tag)?.render;
         Some(json!({
             "backdrop": self.effects.backdrops.contains(&tag).then(|| json!({
                 "plan": describe(&state.backdrop_plan),
@@ -1357,7 +1685,10 @@ impl ReactUiRoot {
             "filter": self.effects.groups.contains(&tag).then(|| json!({
                 "plan": describe(&state.group_plan),
                 "kind": state.group_material.map(|slot| format!("{:?}", slot.kind)),
+                "probe": render.has_probe(),
+                "culled": render.group_hidden(),
             })),
+            "layout": render.layout_name(),
         }))
     }
 
@@ -1369,11 +1700,24 @@ impl ReactUiRoot {
             .values()
             .filter(|state| state.region.is_some())
             .count();
+        let probes = self
+            .effects
+            .groups
+            .iter()
+            .filter(|tag| {
+                self.mounted
+                    .nodes
+                    .get(tag)
+                    .is_some_and(|node| node.render.has_probe())
+            })
+            .count();
         json!({"backdrops": self.effects.backdrops.len(), "groups": self.effects.groups.len(),
+            "blocked": self.effects.blocked.len(),
             "copiesEnabled": copies, "itemsCreated": stats.items_created,
             "materialsCreated": stats.materials_created, "shadersCreated": stats.shaders_created,
             "materialUpdates": stats.material_updates, "copyRectUpdates": stats.copy_rect_updates,
-            "primer": self.effects.primer.is_some()})
+            "subtreeWalks": stats.subtree_walks, "probes": probes,
+            "refreshes": stats.refreshes, "refreshMicros": stats.refresh_micros})
     }
 }
 
@@ -1400,7 +1744,8 @@ fn union(a: BoxRect, b: BoxRect) -> BoxRect {
 }
 
 /// The group's region: the content's area grown by the plan's reach and aligned to its level, not cut
-/// to the target (the engine cuts it; cutting here would misalign the region it generates).
+/// to the target (the engine cuts it; the part past the target's origin is cut before the engine is told, see
+/// `REGION_BIAS_PX`).
 fn copy_region_unclipped(area: PixelRect, plan: &BlurPlan) -> PixelRect {
     let huge = i32::MAX / 4;
     let region = copy_region(area, plan, (huge, huge));
@@ -1436,4 +1781,190 @@ fn set_blur_params(rs: &mut Gd<RenderingServer>, material: Rid, prefix: &str, bl
         &format!("{prefix}inv_two_sigma2"),
         &blur.inv_two_sigma2.to_variant(),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn transform(a: (f32, f32), b: (f32, f32), origin: (f32, f32)) -> Transform2D {
+        Transform2D {
+            a: Vector2::new(a.0, a.1),
+            b: Vector2::new(b.0, b.1),
+            origin: Vector2::new(origin.0, origin.1),
+        }
+    }
+
+    /// `Rect2::operator Rect2i` as the engine does it for a group: position and size each truncated toward zero.
+    fn engine_rect(rect: Rect2) -> PixelRect {
+        PixelRect {
+            x: rect.position.x as i32,
+            y: rect.position.y as i32,
+            width: rect.size.x as i32,
+            height: rect.size.y as i32,
+        }
+    }
+
+    /// What the engine sees of an item with the rectangle `local` in the group's frame: the bounding box of its corners
+    /// through `transform` (`Transform2D::xform(Rect2)`), in target pixels.
+    fn target_rect(transform: &Transform2D, frame_origin: Vector2, local: Rect2) -> Rect2 {
+        let corners = [
+            local.position,
+            local.position + Vector2::new(local.size.x, 0.0),
+            local.position + Vector2::new(0.0, local.size.y),
+            local.position + local.size,
+        ]
+        .map(|corner| *transform * (corner + frame_origin));
+        let min = corners
+            .iter()
+            .fold(Vector2::new(f32::MAX, f32::MAX), |m, c| {
+                Vector2::new(m.x.min(c.x), m.y.min(c.y))
+            });
+        let max = corners
+            .iter()
+            .fold(Vector2::new(f32::MIN, f32::MIN), |m, c| {
+                Vector2::new(m.x.max(c.x), m.y.max(c.y))
+            });
+        Rect2::new(min, max - min)
+    }
+
+    #[test]
+    fn a_biased_region_cut_to_the_target_is_the_integers_the_engine_truncates_it_to() {
+        let frame_origin = Vector2::new(37.5, -12.25);
+        for transform in [
+            transform((1.0, 0.0), (0.0, 1.0), (0.0, 0.0)),
+            transform((1.5, 0.0), (0.0, 1.5), (13.0, 7.0)),
+            transform((2.0, 0.0), (0.0, 2.0), (0.0, 0.0)),
+            transform((4.0 / 3.0, 0.0), (0.0, 4.0 / 3.0), (-5.5, 3.25)),
+        ] {
+            let inverse = transform.affine_inverse();
+            for region in [
+                PixelRect {
+                    x: 0,
+                    y: 0,
+                    width: 1120,
+                    height: 800,
+                },
+                PixelRect {
+                    x: 16,
+                    y: 48,
+                    width: 496,
+                    height: 240,
+                },
+                PixelRect {
+                    x: 0,
+                    y: 3,
+                    width: 97,
+                    height: 1021,
+                },
+                PixelRect {
+                    x: 1055,
+                    y: 733,
+                    width: 65,
+                    height: 67,
+                },
+            ] {
+                let local = local_rect(&inverse, region, REGION_BIAS_PX, frame_origin);
+                let seen = engine_rect(target_rect(&transform, frame_origin, local));
+                assert_eq!(seen, region, "{transform:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_biased_region_with_a_negative_origin_is_a_pixel_too_small_on_the_near_side_so_it_is_cut_first()
+     {
+        // The region of a blurred element near the target's top left starts left of and above 0 and ends inside the target.
+        let identity = transform((1.0, 0.0), (0.0, 1.0), (0.0, 0.0));
+        let inverse = identity.affine_inverse();
+        let uncut = PixelRect {
+            x: -48,
+            y: -32,
+            width: 352,
+            height: 336,
+        };
+        let local = local_rect(&inverse, uncut, REGION_BIAS_PX, Vector2::ZERO);
+        let seen = engine_rect(target_rect(&identity, Vector2::ZERO, local));
+        // -47.75 truncates to -47: the engine's region, once cut to the target, ends a pixel later than the model's.
+        assert_eq!((seen.x, seen.y), (-47, -31));
+        let target = PixelRect {
+            x: 0,
+            y: 0,
+            width: 1120,
+            height: 800,
+        };
+        let engine = seen.intersection(&target);
+        let modelled = uncut.intersection(&target);
+        assert_eq!(
+            (engine.right(), engine.bottom()),
+            (modelled.right() + 1, modelled.bottom() + 1)
+        );
+        // Cut first, the biased rectangle is exactly the region.
+        let local = local_rect(&inverse, modelled, REGION_BIAS_PX, Vector2::ZERO);
+        assert_eq!(
+            engine_rect(target_rect(&identity, Vector2::ZERO, local)),
+            modelled
+        );
+    }
+
+    #[test]
+    fn a_rotated_or_mirrored_root_gets_the_rectangle_that_covers_the_region() {
+        let region = PixelRect {
+            x: 100,
+            y: 40,
+            width: 300,
+            height: 120,
+        };
+        for transform in [
+            // 90 degrees, then mirrored in x, then both axes mirrored, then 30 degrees.
+            transform((0.0, 1.0), (-1.0, 0.0), (500.0, 0.0)),
+            transform((-1.0, 0.0), (0.0, 1.0), (800.0, 0.0)),
+            transform((-1.0, 0.0), (0.0, -1.0), (800.0, 600.0)),
+            transform((0.866_025_4, 0.5), (-0.5, 0.866_025_4), (200.0, 0.0)),
+        ] {
+            let inverse = transform.affine_inverse();
+            let local = local_rect(&inverse, region, 0.0, Vector2::ZERO);
+            // Every corner of the region is inside the rectangle (to rounding) and the rectangle is no larger than the
+            // preimage's bounding box.
+            for corner in [
+                Vector2::new(100.0, 40.0),
+                Vector2::new(400.0, 40.0),
+                Vector2::new(100.0, 160.0),
+                Vector2::new(400.0, 160.0),
+            ] {
+                let at = inverse * corner;
+                assert!(
+                    at.x >= local.position.x - 1e-3
+                        && at.x <= local.position.x + local.size.x + 1e-3
+                        && at.y >= local.position.y - 1e-3
+                        && at.y <= local.position.y + local.size.y + 1e-3,
+                    "{transform:?}: {corner:?} -> {at:?} is outside {local:?}"
+                );
+            }
+            // And back through the transform it covers the region.
+            let covered = target_rect(&transform, Vector2::ZERO, local);
+            assert!(
+                covered.position.x <= 100.0 + 1e-2
+                    && covered.position.y <= 40.0 + 1e-2
+                    && covered.position.x + covered.size.x >= 400.0 - 1e-2
+                    && covered.position.y + covered.size.y >= 160.0 - 1e-2,
+                "{transform:?}: {covered:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn target_rectangles_follow_a_mirrored_root() {
+        let mirrored = transform((-1.0, 0.0), (0.0, 1.0), (800.0, 0.0));
+        let area = to_target(
+            &mirrored,
+            BoxRect {
+                x: 100.0,
+                y: 10.0,
+                width: 200.0,
+                height: 50.0,
+            },
+        );
+        assert_eq!((area.x, area.width), (500, 200));
+    }
 }

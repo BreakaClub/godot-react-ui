@@ -18,8 +18,10 @@
 //!
 //! An element with a `backdrop-filter` has two more items, both children of the box item drawn before
 //! its background (`behind`): a copy of the render target, then the blurred backdrop. An element with a
-//! `filter` has a canvas group between its paint parent and its box item. Both exist only while the
-//! filter does (`filter_render.rs` decides).
+//! `filter` has a canvas group between its paint parent and its box item, inside a bare shell item that also
+//! holds what must be drawn right before the group and outside it: the backdrop of the same element, and on
+//! Compatibility the probe that makes the group's mipmaps readable. Each exists only while the filter does
+//! (`filter_render.rs` decides).
 
 use std::time::Instant;
 
@@ -204,6 +206,9 @@ pub(crate) struct BackdropItems {
 
 /// The canvas group of a `filter`, between the paint parent and the box item.
 pub(crate) struct GroupItems {
+    /// The bare item that takes the box item's place in the paint parent: its `behind` children (the element's backdrop,
+    /// the probe) are drawn, outside the group, right before the wrapper. It has no transform of its own.
+    pub(crate) shell: Rid,
     /// The group: draws its children into the back buffer, then composites with the material. It draws its
     /// own rectangle, which is the area the composite covers: a group with no commands of its own
     /// (`fit_empty`) is `clear()`ed by the culler every frame, and `clear()` drops the item's clip owner
@@ -212,11 +217,25 @@ pub(crate) struct GroupItems {
     /// An invisible child whose rectangle, with the wrapper's own, sets the region the renderer generates
     /// mipmaps for; the caller aligns it (see `blur::copy_region`).
     pub(crate) bounds: Rid,
+    /// Compatibility only: a one pixel copy and a one pixel draw with a mip-reading material, before the group.
+    probe: Option<ProbeItems>,
 }
 
-/// Draw index of the copy item and of the backdrop item among the box item's `behind` children.
+/// See [`GroupItems::probe`].
+struct ProbeItems {
+    copy: Rid,
+    draw: Rid,
+}
+
+/// Draw index of the copy item and of the backdrop item among the box item's (or the shell's) `behind` children, then of
+/// the probe's pair. The wrapper is the shell's one child that is not `behind`.
 const COPY_DRAW_INDEX: i32 = 0;
 const BACKDROP_DRAW_INDEX: i32 = 1;
+const PROBE_COPY_DRAW_INDEX: i32 = 2;
+const PROBE_DRAW_INDEX: i32 = 3;
+/// The engine does not draw an item whose accumulated modulate alpha is below this (`renderer_canvas_cull.cpp`, `_cull_canvas_item`).
+/// Its box item is then culled, but a group around it is not: it still clears the back buffer and composites nothing.
+const OPACITY_CULLED_BELOW: f32 = 0.007;
 
 /// The canvas items of one mounted element, plus what they currently show.
 pub(crate) struct RenderNode {
@@ -437,11 +456,50 @@ impl RenderNode {
         true
     }
 
-    /// The item that sits in the paint parent: the group of a `filter`, else the box item.
+    /// The item that sits in the paint parent: the shell of a `filter`'s group, else the box item.
     fn outer_item(&self) -> Rid {
         self.group
             .as_ref()
-            .map_or(self.box_item, |group| group.wrapper)
+            .map_or(self.box_item, |group| group.shell)
+    }
+
+    /// Where the backdrop's items hang: below the box item, so they are behind its background, unless the element has a
+    /// group, which would then hold them (`canvas_group_owner` ignores a screen read inside a group). Then they are on the
+    /// shell, outside the group, and carry what the box item would have given them: its place and its opacity.
+    fn backdrop_parent(&self) -> Rid {
+        match &self.group {
+            Some(group) if !faults::active(Fault::BackdropInWrapper) => group.shell,
+            _ => self.box_item,
+        }
+    }
+
+    /// Whether the backdrop's items are on the shell.
+    fn backdrop_on_shell(&self) -> bool {
+        self.group.is_some() && self.backdrop_parent() != self.box_item
+    }
+
+    /// Put the backdrop's items where [`Self::backdrop_parent`] says, with the place and the opacity of the element if
+    /// they are not below the box item.
+    fn arrange_backdrop(&mut self) {
+        let Some(items) = &self.backdrop else {
+            return;
+        };
+        let on_shell = self.backdrop_on_shell();
+        let parent = self.backdrop_parent();
+        let mut rs = server();
+        for item in [items.copy, items.draw] {
+            rs.canvas_item_set_parent(item, parent);
+            rs.canvas_item_set_draw_behind_parent(item, true);
+        }
+        rs.canvas_item_set_draw_index(items.copy, COPY_DRAW_INDEX);
+        rs.canvas_item_set_draw_index(items.draw, BACKDROP_DRAW_INDEX);
+        let (location, opacity) = if on_shell {
+            (self.location, self.opacity)
+        } else {
+            (Vector2::ZERO, 1.0)
+        };
+        rs.canvas_item_set_transform(items.draw, Transform2D::from_angle_origin(0.0, location));
+        rs.canvas_item_set_modulate(items.draw, Color::from_rgba(1.0, 1.0, 1.0, opacity));
     }
 
     /// Attach under `parent` (a parent element's content item or a layer item).
@@ -467,12 +525,9 @@ impl RenderNode {
             let mut rs = server();
             let copy = rs.canvas_item_create();
             let draw = rs.canvas_item_create();
-            for (item, index) in [(copy, COPY_DRAW_INDEX), (draw, BACKDROP_DRAW_INDEX)] {
-                rs.canvas_item_set_parent(item, self.box_item);
-                rs.canvas_item_set_draw_behind_parent(item, true);
-                rs.canvas_item_set_draw_index(item, index);
-            }
             self.backdrop = Some(BackdropItems { copy, draw });
+            drop(rs);
+            self.arrange_backdrop();
         }
         self.backdrop
             .as_ref()
@@ -491,11 +546,13 @@ impl RenderNode {
     }
 
     /// Give the element the canvas group of its `filter`, in the box item's place under the paint
-    /// parent. The group adds no margin of its own (`clear_margin`/`fit_margin` 0); `set_group_rects`
-    /// says what it covers.
-    pub(crate) fn ensure_group(&mut self, blur_mipmaps: bool) -> &GroupItems {
+    /// parent, and keep its mode and its probe as `blur_mipmaps` and `probe` say. The group adds no
+    /// margin of its own (`clear_margin`/`fit_margin` 0); `set_group_rects` says what it covers. `probe` is the material of
+    /// the Compatibility probe, or `None` where none is needed.
+    pub(crate) fn ensure_group(&mut self, blur_mipmaps: bool, probe: Option<Rid>) -> &GroupItems {
         if self.group.is_none() {
             let mut rs = server();
+            let shell = rs.canvas_item_create();
             let wrapper = rs.canvas_item_create();
             let bounds = rs.canvas_item_create();
             rs.canvas_item_set_parent(bounds, wrapper);
@@ -504,19 +561,61 @@ impl RenderNode {
                 Rect2::new(Vector2::ZERO, Vector2::ONE),
                 Color::TRANSPARENT_BLACK,
             );
-            rs.canvas_item_set_parent(wrapper, self.parent);
-            rs.canvas_item_set_draw_index(wrapper, self.draw_index);
+            rs.canvas_item_set_parent(wrapper, shell);
+            rs.canvas_item_set_parent(shell, self.parent);
+            rs.canvas_item_set_draw_index(shell, self.draw_index);
             rs.canvas_item_set_parent(self.box_item, wrapper);
-            self.group = Some(GroupItems { wrapper, bounds });
+            rs.canvas_item_set_visible(
+                shell,
+                self.opacity >= OPACITY_CULLED_BELOW || faults::active(Fault::VisibleAtZeroOpacity),
+            );
+            self.group = Some(GroupItems {
+                shell,
+                wrapper,
+                bounds,
+                probe: None,
+            });
+            drop(rs);
+            // The backdrop, if there is one, leaves the box item for the shell.
+            self.arrange_backdrop();
+        }
+        // The probe follows the mode.
+        let group = self.group.as_mut().expect("the group was just made");
+        match (probe, group.probe.is_some()) {
+            (Some(material), false) => {
+                let mut rs = server();
+                let copy = rs.canvas_item_create();
+                let draw = rs.canvas_item_create();
+                for (item, index) in [(copy, PROBE_COPY_DRAW_INDEX), (draw, PROBE_DRAW_INDEX)] {
+                    rs.canvas_item_set_parent(item, group.shell);
+                    rs.canvas_item_set_draw_behind_parent(item, true);
+                    rs.canvas_item_set_draw_index(item, index);
+                }
+                rs.canvas_item_set_copy_to_backbuffer(
+                    copy,
+                    true,
+                    Rect2::new(Vector2::ZERO, Vector2::ONE),
+                );
+                rs.canvas_item_add_rect(
+                    draw,
+                    Rect2::new(Vector2::ZERO, Vector2::ONE),
+                    Color::WHITE,
+                );
+                rs.canvas_item_set_material(draw, material);
+                group.probe = Some(ProbeItems { copy, draw });
+            }
+            (None, true) => {
+                if let Some(old) = group.probe.take() {
+                    let mut rs = server();
+                    rs.free_rid(old.copy);
+                    rs.free_rid(old.draw);
+                }
+            }
+            _ => {}
         }
         // The mode is asserted each time: `blur_mipmaps` follows the shader kind.
-        let wrapper = self
-            .group
-            .as_ref()
-            .expect("the group was just made")
-            .wrapper;
         server()
-            .canvas_item_set_canvas_group_mode_ex(wrapper, CanvasGroupMode::TRANSPARENT)
+            .canvas_item_set_canvas_group_mode_ex(group.wrapper, CanvasGroupMode::TRANSPARENT)
             .clear_margin(0.0)
             .fit_empty(faults::active(Fault::FitEmptyGroup))
             .fit_margin(0.0)
@@ -525,10 +624,38 @@ impl RenderNode {
         self.group.as_ref().expect("the group was just made")
     }
 
+    /// Whether the group has a Compatibility probe.
+    pub(crate) fn has_probe(&self) -> bool {
+        self.group
+            .as_ref()
+            .is_some_and(|group| group.probe.is_some())
+    }
+
+    /// Whether the group is not drawn because the element's own opacity is too low for the engine to draw anything of it.
+    pub(crate) fn group_hidden(&self) -> bool {
+        self.group.is_some() && !self.group_visible()
+    }
+
+    fn group_visible(&self) -> bool {
+        self.opacity >= OPACITY_CULLED_BELOW || faults::active(Fault::VisibleAtZeroOpacity)
+    }
+
+    /// How the element's effect items hang, for the snapshot.
+    pub(crate) fn layout_name(&self) -> &'static str {
+        match (&self.group, &self.backdrop) {
+            (None, None) => "plain",
+            (None, Some(_)) => "backdrop",
+            (Some(_), None) => "group",
+            (Some(_), Some(_)) if self.backdrop_on_shell() => "both",
+            (Some(_), Some(_)) => "both-in-wrapper",
+        }
+    }
+
     /// The rectangle the group's composite covers (`draw`, which also clips to the ancestors: see
     /// [`GroupItems::wrapper`]) and the larger rectangle its mipmaps are generated for (`region`), both in
-    /// the group's frame. Does nothing without a group.
-    pub(crate) fn set_group_rects(&mut self, draw: Rect2, region: Rect2) {
+    /// the group's frame, and the pixel the probe is drawn at (`None`: the probe is not drawn, the group is off the target).
+    /// Does nothing without a group.
+    pub(crate) fn set_group_rects(&mut self, draw: Rect2, region: Rect2, probe: Option<Vector2>) {
         let Some(group) = &self.group else {
             return;
         };
@@ -544,6 +671,15 @@ impl RenderNode {
         rs.canvas_item_set_custom_rect_ex(group.bounds, true)
             .rect(region)
             .done();
+        if let Some(items) = &group.probe {
+            // The engine draws an item only if its rectangle meets the viewport: the probe is placed on a pixel the group
+            // covers on the target, and hidden with the group when there is none.
+            rs.canvas_item_set_visible(items.copy, probe.is_some());
+            rs.canvas_item_set_visible(items.draw, probe.is_some());
+            if let Some(at) = probe {
+                rs.canvas_item_set_transform(items.draw, Transform2D::from_angle_origin(0.0, at));
+            }
+        }
     }
 
     /// Take the group away, putting the box item back in its place. Returns whether there was one.
@@ -554,8 +690,16 @@ impl RenderNode {
         let mut rs = server();
         rs.canvas_item_set_parent(self.box_item, self.parent);
         rs.canvas_item_set_draw_index(self.box_item, self.draw_index);
+        if let Some(probe) = group.probe {
+            rs.free_rid(probe.copy);
+            rs.free_rid(probe.draw);
+        }
         rs.free_rid(group.bounds);
         rs.free_rid(group.wrapper);
+        // The backdrop goes back below the box item before the shell it hung on is freed.
+        drop(rs);
+        self.arrange_backdrop();
+        server().free_rid(group.shell);
         true
     }
 
@@ -569,6 +713,14 @@ impl RenderNode {
             self.box_item,
             Transform2D::from_angle_origin(0.0, location),
         );
+        if self.backdrop_on_shell()
+            && let Some(items) = &self.backdrop
+        {
+            server().canvas_item_set_transform(
+                items.draw,
+                Transform2D::from_angle_origin(0.0, location),
+            );
+        }
         true
     }
 
@@ -578,7 +730,20 @@ impl RenderNode {
             return;
         }
         self.opacity = opacity;
-        server().canvas_item_set_modulate(self.box_item, Color::from_rgba(1.0, 1.0, 1.0, opacity));
+        let mut rs = server();
+        rs.canvas_item_set_modulate(self.box_item, Color::from_rgba(1.0, 1.0, 1.0, opacity));
+        if self.backdrop_on_shell()
+            && let Some(items) = &self.backdrop
+        {
+            rs.canvas_item_set_modulate(items.draw, Color::from_rgba(1.0, 1.0, 1.0, opacity));
+        }
+        if let Some(group) = &self.group {
+            // At an opacity the engine draws nothing at, a group would still clear the back buffer and generate its mipmaps.
+            rs.canvas_item_set_visible(
+                group.shell,
+                self.opacity >= OPACITY_CULLED_BELOW || faults::active(Fault::VisibleAtZeroOpacity),
+            );
+        }
     }
 
     /// Re-record the box when `key` differs from what it last drew. Returns true if it did.
@@ -848,15 +1013,18 @@ impl ReactUiRoot {
             let (boxed, contented) = self.paint_node(tag);
             self.stats.box_records += u64::from(boxed);
             self.stats.content_records += u64::from(contented);
+            if contented && !faults::active(Fault::TextUnnoticed) {
+                // The text was set to the content's width, so its size may be new: a filtered element that contains it
+                // measures its subtree again.
+                self.effects.note_changed(tag);
+            }
             self.stats.content_records += u64::from(self.paint_text_input(tag));
             // The scrollbars' look (`scrollbar-width`, `scrollbar-color`) is a paint input too.
             self.paint_scroll_overlay(tag);
             self.sync_effects(tag);
         }
         // An effect appearing or going makes the others check whether they sit inside a filter group.
-        for tag in self.take_effect_resyncs() {
-            self.sync_effects(tag);
-        }
+        self.settle_effect_resyncs();
         self.refresh_effect_rects();
         changed |= self.update_focus_ring();
         if changed {

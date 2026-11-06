@@ -195,9 +195,10 @@ impl ReactUiRoot {
         }
         for tag in tags {
             self.scroll_changed(*tag);
+            // What is scrolled under a frosted panel moves it relative to the render target, and a filtered element that
+            // contains the container measures its subtree again.
+            self.effects.note_changed(*tag);
         }
-        // What is scrolled under a frosted panel moves it relative to the render target.
-        self.effects.mark_stale();
         self.refresh_effect_rects();
         // A held pointer that is dragging something froze the hover; the drag looks under it again
         // (`DragInput::Refresh`) when the next frame comes.

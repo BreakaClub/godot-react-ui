@@ -775,7 +775,9 @@ fn matching_paren(text: &str, open: usize) -> Option<usize> {
 }
 
 fn parse_function(name: &str, arguments: &str) -> Result<FilterFunction, String> {
-    let arguments = arguments.trim();
+    // Units, keywords and colour names are ASCII case-insensitive in CSS (`4PX`, `90DEG`, `Currentcolor`), as the name is.
+    let lowered = arguments.trim().to_ascii_lowercase();
+    let arguments = lowered.as_str();
     let amount = |default: f32| -> Result<f32, String> {
         if arguments.is_empty() {
             Ok(default)
@@ -1061,6 +1063,51 @@ mod tests {
             vec![FilterFunction::Grayscale(1.0)],
             "clamped to 1"
         );
+    }
+
+    #[test]
+    fn units_and_keywords_are_case_insensitive_as_in_css() {
+        assert_eq!(list("blur(4PX)").0, vec![FilterFunction::Blur(4.0)]);
+        assert_eq!(list("Blur( 4Px )").0, vec![FilterFunction::Blur(4.0)]);
+        assert_eq!(
+            list("hue-rotate(90DEG)").0,
+            vec![FilterFunction::HueRotate(90.0)]
+        );
+        assert_eq!(
+            list("HUE-ROTATE(0.25TURN)").0,
+            vec![FilterFunction::HueRotate(90.0)]
+        );
+        assert_eq!(
+            list("hue-rotate(200GRAD)").0,
+            vec![FilterFunction::HueRotate(180.0)]
+        );
+        close(
+            &[match list("hue-rotate(3.14159265RAD)").0[0] {
+                FilterFunction::HueRotate(degrees) => degrees,
+                other => panic!("{other:?}"),
+            }],
+            &[180.0],
+        );
+        assert_eq!(
+            list("brightness(110%)").0,
+            vec![FilterFunction::Brightness(1.1)]
+        );
+        let FilterFunction::DropShadow(shadow) = list("drop-shadow(2PX 3Px 4px CURRENTCOLOR)").0[0]
+        else {
+            panic!("a drop shadow");
+        };
+        assert_eq!(
+            (shadow.x, shadow.y, shadow.blur, shadow.color),
+            (2.0, 3.0, 4.0, None)
+        );
+        let FilterFunction::DropShadow(shadow) =
+            list("drop-shadow(0 4PX 8PX RGB(0 0 0 / 50%))").0[0]
+        else {
+            panic!("a drop shadow");
+        };
+        close(&shadow.color.unwrap(), &[0.0, 0.0, 0.0, 0.5]);
+        assert!(FilterList::parse("blur(4 px)").is_err());
+        assert!(FilterList::parse("blur(4EM)").is_err());
     }
 
     #[test]

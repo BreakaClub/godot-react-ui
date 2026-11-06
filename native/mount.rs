@@ -1024,6 +1024,8 @@ impl ReactUiRoot {
                     if let Some(node) = self.mounted.nodes.get_mut(&tag) {
                         node.paint_children = list;
                     }
+                    // What a filtered element paints changed: it measures its subtree again.
+                    self.effects.note_changed(tag);
                 }
             }
             self.hit_stale = true;
@@ -1047,6 +1049,7 @@ impl ReactUiRoot {
         }
         node.paint_parent = painter;
         self.hit_stale = true;
+        self.effects.note_changed(tag);
     }
 
     /// Rebuild a node's text paragraph from its props and computed style. Returns whether the text
@@ -1164,7 +1167,7 @@ impl ReactUiRoot {
         }
         node.geometry = geometry;
         self.hit_stale = true;
-        self.effects.mark_stale();
+        self.effects.note_changed(tag);
         node.render.set_location(geometry.location);
         let shape_changed = !previous.laid_out
             || previous.size != geometry.size

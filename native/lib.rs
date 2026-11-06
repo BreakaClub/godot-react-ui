@@ -365,10 +365,7 @@ impl IControl for ReactUiRoot {
             ControlNotification::WM_WINDOW_FOCUS_IN => self.text_input_window_focus(true),
             // The engine freed the root's element, and ours with it.
             ControlNotification::ACCESSIBILITY_INVALIDATE => self.forget_accessibility_elements(),
-            ControlNotification::TRANSFORM_CHANGED => {
-                self.effects.mark_stale();
-                self.refresh_effect_rects();
-            }
+            ControlNotification::TRANSFORM_CHANGED => self.refresh_effect_rects(),
             ControlNotification::PREDELETE => {
                 self.release_accessibility_elements();
                 self.mounted.nodes.clear();
@@ -453,6 +450,10 @@ impl IControl for ReactUiRoot {
     }
 
     fn process(&mut self, delta: f64) {
+        // A frame is asked for while an effect exists, to follow a viewport transform nothing tells the root about.
+        if self.effects_want_frames() {
+            self.refresh_effect_rects();
+        }
         // Frames come for motion, for a flick that is coasting, for a finger that is panning, or for a
         // drag (a touch waiting out its hold, edge auto-scroll, a scroll to look at again), any
         // combination of them (`update_process`); each advances only if it has work, so a flick does

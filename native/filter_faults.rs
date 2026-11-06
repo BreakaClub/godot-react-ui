@@ -14,6 +14,8 @@
 pub(crate) const FAULT_ENV: &str = "GODOT_REACT_FILTER_FAULT";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+// Two faults are only read inside code that exists in the faults build.
+#[cfg_attr(not(feature = "filter-faults"), allow(dead_code))]
 pub(crate) enum Fault {
     /// The backdrop's copy is asked of the item that draws the blur, not a separate item before it
     /// (stacked panels then read stale mip levels, D40 b).
@@ -43,6 +45,36 @@ pub(crate) enum Fault {
     /// A drop-shadow's offset and reach are not part of the area the composite draws, so it is cut at
     /// the element's box.
     ShadowBoxOnly,
+    /// Every renderer places the level's texels by the copy region, as only Compatibility does. On Mobile and Forward+ the
+    /// engine normalises by the whole target, so on a target that does not halve exactly the blur lands in the wrong place.
+    RegionChain,
+    /// The Compatibility mipmap primer is one pair of items under the first layer's root, once for the tree, as it was.
+    /// A mip-less backdrop drawn after it and before a group clears the flag it set.
+    RootPrimer,
+    /// An element's backdrop is drawn inside its own filter group (a child of the box item, below the wrapper).
+    BackdropInWrapper,
+    /// What an element's effect kept (material, shape, copy rectangle) is kept when its canvas items go, and the next
+    /// items get none of it.
+    KeepEffectState,
+    /// An element held back by a filter group is forgotten, so nothing looks at it again when the group goes.
+    BlockedForgotten,
+    /// The group's mipmap region is biased uncut, so a negative origin truncates the engine's region a pixel too far.
+    TruncatedBias,
+    /// A rectangle in the group's frame is the transformed corner and the size's absolute value, not the covering box.
+    CornerRect,
+    /// The root reads the viewport's transform only when something else makes it look (no frame while an effect exists).
+    StaleViewport,
+    /// Every group walks its whole subtree again whenever anything changes anywhere.
+    WalkEverySubtree,
+    /// A filtered element with an opacity of 0 keeps its group visible and pays for it.
+    VisibleAtZeroOpacity,
+    /// Changed text does not tell the groups above it to measure again.
+    TextUnnoticed,
+    /// Forward+ is planned with the dual filter's variance (the model before it was measured).
+    DualFilterOnForwardPlus,
+    /// A root that is back in the tree keeps the transform its plans were made for, so an effect that was committed while
+    /// it was outside is never planned.
+    KeepTransformOutOfTree,
 }
 
 #[cfg(feature = "filter-faults")]
@@ -59,6 +91,19 @@ impl Fault {
             Fault::DoubleModulate => "double-modulate",
             Fault::ShadowBoxOnly => "shadow-box-only",
             Fault::SingleBorderDraw => "single-border-draw",
+            Fault::RegionChain => "region-chain",
+            Fault::RootPrimer => "root-primer",
+            Fault::BackdropInWrapper => "backdrop-in-wrapper",
+            Fault::KeepEffectState => "keep-effect-state",
+            Fault::BlockedForgotten => "blocked-forgotten",
+            Fault::TruncatedBias => "truncated-bias",
+            Fault::CornerRect => "corner-rect",
+            Fault::StaleViewport => "stale-viewport",
+            Fault::WalkEverySubtree => "walk-every-subtree",
+            Fault::VisibleAtZeroOpacity => "visible-at-zero-opacity",
+            Fault::TextUnnoticed => "text-unnoticed",
+            Fault::DualFilterOnForwardPlus => "dual-filter-on-forward-plus",
+            Fault::KeepTransformOutOfTree => "keep-transform-out-of-tree",
         }
     }
 }

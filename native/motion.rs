@@ -742,7 +742,8 @@ impl ReactUiRoot {
         let active = (self.motion_active()
             || self.scrolling.wants_frames()
             || self.drag_wants_frames()
-            || self.text_input_wants_frames())
+            || self.text_input_wants_frames()
+            || self.effects_want_frames())
             && inside;
         let listening = self.drag_in_progress() && inside;
         self.base_mut().set_process(active);

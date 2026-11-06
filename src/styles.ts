@@ -306,18 +306,18 @@ function parseArbitraryAmount(value: string): number | undefined {
 
 /** `[6px]` or `[0]`, in CSS pixels. */
 function parseArbitraryLength(value: string): number | undefined {
-  const match = /^\[(\d*\.?\d+)(px)?\]$/.exec(value);
+  const match = /^\[(\d*\.?\d+)(px)?\]$/i.exec(value);
   if (match?.[1] === undefined) return undefined;
   const amount = Number(match[1]);
-  return match[2] === 'px' || amount === 0 ? amount : undefined;
+  return match[2] !== undefined || amount === 0 ? amount : undefined;
 }
 
 /** `[3deg]`, `[0.25turn]`, `[1rad]`, `[100grad]` or `[0]`, in degrees. */
 function parseArbitraryAngle(value: string): number | undefined {
-  const match = /^\[(-?\d*\.?\d+)(deg|turn|rad|grad)?\]$/.exec(value);
+  const match = /^\[(-?\d*\.?\d+)(deg|turn|rad|grad)?\]$/i.exec(value);
   if (match?.[1] === undefined) return undefined;
   const amount = Number(match[1]);
-  switch (match[2]) {
+  switch (match[2]?.toLowerCase()) {
     case 'deg': return amount;
     case 'turn': return amount * DEGREES_PER_TURN;
     case 'rad': return amount * DEGREES_PER_RADIAN;
@@ -336,8 +336,8 @@ function parseArbitraryShadow(value: string): { x: number; y: number; blur: numb
   let token = '';
   const flush = (): boolean => {
     if (token === '') return true;
-    const length = /^(-?\d*\.?\d+)(px)?$/.exec(token);
-    if (length?.[1] !== undefined && (length[2] === 'px' || Number(length[1]) === 0)) {
+    const length = /^(-?\d*\.?\d+)(px)?$/i.exec(token);
+    if (length?.[1] !== undefined && (length[2] !== undefined || Number(length[1]) === 0)) {
       lengths.push(Number(length[1]));
     } else if (color === undefined) {
       color = token.replaceAll('_', ' ');
