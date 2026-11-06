@@ -13,7 +13,7 @@ import { useControllableState } from './use-controllable-state';
 export type SliderOrientation = 'horizontal' | 'vertical';
 
 export interface SliderRootProps extends PartProps {
-  /** The value; with `defaultValue` unset, a defined `value` makes the slider controlled. */
+  /** The value. Defining it makes the slider controlled: it shows `value` and the parent decides each change. */
   value?: number;
   /** The starting value of an uncontrolled slider. Defaults to `min`. */
   defaultValue?: number;
