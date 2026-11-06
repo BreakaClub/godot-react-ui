@@ -11,7 +11,7 @@ D37) with scroll accessibility (D38) and the scrolling Select list (D39). Phase 
 D42). Phase I9 (`400bea3`; D43). The freshness guard (`941334b`). Phase I7 with the kit `TextField`, `TextInput` accessibility and
 world-space typing, which finishes I8, I10's `TextInput` part and I11 (`539e787`; D44). HiDPI (`6c6abd7`, hardened in `5b7faba`; D45). Verifier
 integrity (D46). Scroll bar elements, which finish I10 (D47). `TextInput` fixes (D48). Phase V1, filters and frosted glass (`abdc077`; D40, D49). Input fixes (D50).
-Filter fixes (`6a7815c`; D51). Every phase is done. Now: final acceptance (its results go in the progress log's "Final acceptance" section).
+Filter fixes (`6a7815c`; D51). Every phase is done, and final acceptance passed (progress log, "Final acceptance").
 
 v1 of this plan (`7f0a96c`) was rejected because it built every interaction feature on the
 prototype's commit path, which re-walks and re-sends the whole tree on every change. v2 replaces
@@ -439,8 +439,8 @@ not a reason to wait.
 - **D41 (I6)**: text selection. Decisions S1 to S18 are in `docs/tracks/text-selection.md`, which is part of this log. Those that bind later
   phases: arbitration is thumb, then (I9) a draggable, then selection, and a press that is not prevented and starts no selection clears
   the current one (S2); the root keeps key focus while a selection exists, even a collapsed one, and JS `clearSelection()` does not
-  release it (S3); `InputMap` matches a key to an action only on the same device, so a verifier testing a `ui_*` action needs
-  `bindVerifierKeys` from `demo/src/verifier-input.ts` (S11); the root event is `DocumentSelectionChange`, wire name `selectionchange`
+  release it (S3); `InputMap` matches a key to an action only on the same device, which I6's verifier first worked around (S11) and the
+  final cleanup removed: document selection and text inputs now share one `as_keyboard_event`; the root event is `DocumentSelectionChange`, wire name `selectionchange`
   with target 0, so `SelectionChange` stays free for I7's element event (S8). Coordinator check after rebasing onto I5: unit, lint and
   type gates, plus the `selection` and `inputs` verifier sections.
 - **D42 (coordinator, stock engine)**: every build, run and verify script takes `--engine=stock` or `GODOT_REACT_ENGINE=stock`; `breaka` stays

@@ -2135,15 +2135,37 @@ Built on the `filter-fixes` branch from `4ea0bd8` after an independent read of P
 
 ## Final acceptance
 
-**Placeholder for the coordinator.** Nothing below is a result yet: fill it in from the full regression run of plan 0.4.1, on a clean build, and leave this note until then.
+7 November 2026. Host: Apple M1 Max, macOS, 49 % memory free, swap about 11 GB of 12 GB. Other agents had finished; a person may have been using the machine.
 
-- Date, commit, host state (`memory_pressure`, `vm.swapusage`).
-- Clean build: `pnpm build:native`, `pnpm build`, `pnpm build:web`.
-- Unit and static: `cargo test --locked`, `cargo clippy --locked --all-targets`, `cargo fmt --check`, `pnpm test`, `pnpm test:types` on both engine profiles.
-- Native verifiers, both viewports: `pnpm verify`, `verify:motion`, `verify:interaction` (every default section), `verify:world`, `verify:text-layout`, `verify:a11y` (its "not verified" exit on Breaka's engine is expected).
-- Web verifiers: `pnpm verify:web`, `verify:motion:web`, `verify:interaction:web`, `node scripts/verify-world-web.mjs`.
-- Renderer and engine runs, if any: `--renderer=mobile`, `--renderer=forward_plus`, `--engine=stock`.
-- Re-runs and disturbances: which windows were re-run under D22 and D46, with the first failure's text.
-- Where the F0 and F4 measurements stand side by side: "Phase F4", "F4 criteria, measured, beside the F0 baseline" above (F0's own tables are in "Phase F0", section 4).
+**Full run on `ac4a8ac`, from clean build output** (`target/{release,debug,web,stock,probe}`, the installed library and both Web exports removed first; `demo/.godot` kept). Each gate once, 05:29 to 06:37, no run re-run under D22 or D46.
 
-**Results:** not yet recorded.
+| Gate | Breaka engine | Stock engine |
+| --- | --- | --- |
+| `cargo test --locked` (once) | 623 passed | |
+| Clippy, default, `probe`, `filter-faults` (once) | 0 warnings | |
+| `cargo fmt --check` (once) | clean | |
+| `pnpm test` (once) | 420 passed | |
+| `pnpm test:types` | clean | clean |
+| `verify` | passed | passed |
+| `verify:motion` | passed | passed |
+| `verify:interaction`, every default section, both viewports | passed | passed |
+| `verify:world` | passed | passed |
+| `verify:text-layout` (probe build) | passed | passed |
+| `verify:a11y` | Godot-side checks passed, exit 2: no AccessKit in this engine, platform tree not verified | passed against the real macOS tree; platform focus not checked, 7 recorded engine gaps |
+| `filters,glass` on `--renderer=mobile`, both viewports | passed | not run |
+| `filters,glass` on `--renderer=forward_plus`, both viewports | passed | not run |
+| `filters-faults --faults --no-retry` (negative controls) | passed | not run |
+| `verify:web` | passed, 261 assertions | passed, 261 assertions |
+| `verify:motion:web` | passed, 433 assertions | passed, 433 assertions |
+| `verify:interaction:web`, all sections with touch | passed | passed, with the recorded touch-cancel gap |
+| `verify-world-web` | passed, 96 assertions | passed, 96 assertions |
+
+**After the final cleanup, on `8007b0d` plus one test string:** `cargo test` 625 passed, Clippy clean, fmt clean, `pnpm test` 467 passed, `test:types` clean on both profiles, stock `verify:a11y`, and Breaka's `verify`, `verify:motion`, `verify:interaction`, `verify:world` and `verify:web` all passed. `verify-world-web` passed on both engines. `verify:interaction:web` first failed on Breaka at "focus() on an element that cannot take focus throws": the cleanup had reworded that error and the Web check still expected the old text, a stale check, not a product fault. With the string corrected it passed on both engines, as did stock `verify:web`.
+
+**Not re-run after the cleanup:** `verify:text-layout`, `verify:motion:web`, the renderer runs and the faults section. Stock's `verify`, `verify:motion`, `verify:interaction` and `verify:world`. Their last pass is the full run above; the cleanup changed scripts, messages, key device handling and the root's rectangle, not those paths' rendering or motion.
+
+**Regression found by this process:** the batch regression on `4ea0bd8` found the stock Web preset without `html/experimental_virtual_keyboard`; fixed in `92c2b18`, with a test keeping the presets in step.
+
+**F0 and F4 side by side:** "Phase F4", "F4 criteria, measured, beside the F0 baseline" above; F0's own tables are in "Phase F0", section 4.
+
+**Not verified by any run:** native IME and VoiceOver by hand; platform focus and text actions through a real adapter; Safari and real mobile devices; a low-end GPU's filter cost; Windows and Linux. The README's limits list the rest.
