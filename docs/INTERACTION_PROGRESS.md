@@ -2039,3 +2039,11 @@ Built on the `verifier-integrity` branch from an independent review of the tooli
 - **Not verified:** whether headless Chrome reaches the OS pasteboard. A check would write to it, so the Web verifiers swap `navigator.clipboard` and assume it does.
 
 **Palette (`6d470b0`):** all 22 Tailwind v3 colours, generated from tailwindcss 3.4.17's own data; the 55 existing values were checked against it and did not change. `pnpm test` 371 passed.
+
+## Scroll bar elements, finishing I10 (D47)
+
+Built on the `scroll-bars` branch; the evidence and negative controls are in `docs/tracks/scroll-bars.md`.
+
+- **Agent's gates, rebased onto `67aeea9`:** `cargo test` 570 passed, Clippy clean, fmt clean, `test:types` clean on both profiles, `pnpm test` 407 passed, stock `verify:a11y` (real tree, geometry residual 0.000 pt, marked partial because platform focus is unchecked), and `verify:interaction --only=scroll` in both viewports (2305 checks each).
+- **Real tree against stock `ScrollContainer` and `TextEdit`:** same placement, with orientation and a reachable range where stock reports the content size. The Messages bar reads 0, 40, then 251 of 251. A text area's bar leaves the tree when its text shrinks to fit and returns when it grows.
+- **Not verified:** VoiceOver by hand; a reversed axis and `scrollbar-width: none` in the real tree.
