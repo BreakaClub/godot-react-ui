@@ -202,7 +202,7 @@ by hand.
 
 ## Rebase onto 6c6abd7 and fit-up to Phase I9
 
-`git rebase main` (rerere on) replayed the 18 commits of this branch; main is Phase I9 (drag and drop), the stock engine profile and the
+`git rebase main` (rerere on) replayed this branch's commits (19 at the time); main is Phase I9 (drag and drop), the stock engine profile and the
 freshness guard. Conflicts and how they were decided (both sides' intent kept):
 - **Events (`native/events.rs`, `src/events.ts`, `src/native.ts`, `src/renderer.ts`, `tests/recording-host.ts`):** both families of events
   (the text input's `beforeinput`, `input`, `selectionchange`, `compositionstart|update|end` and I9's `drag*`) are in every union, table and
@@ -315,9 +315,9 @@ In JS (`tests/text-input.test.ts`): a command ignored as stale remembered as app
 native, each fail a test. Not mutation-tested: the Web multi-line scenario and the touch text area (they exercise existing
 behaviour in a real browser), the world-space typing steps, and the clipboard verifier's copy, cut and undo-of-paste lines.
 
-## Gates
+## Gates before the rebase
 
-Run once each on the final tree, which has `5aef575` (HiDPI font oversampling, another session's commit on this branch) and
+Run once each on the tree before the rebase onto `6c6abd7`, which has `5aef575` (HiDPI font oversampling, another session's commit on this branch) and
 the two small commits after it in the build. Native runs used `/Applications/Godot48.app`, `--audio-driver Dummy`, an isolated
 window; no run was disturbed, and none was re-run.
 
@@ -347,7 +347,38 @@ Native IME was not injected (it cannot be): the Web IME was driven with `Input.i
 and the native path (`NOTIFICATION_OS_IME_UPDATE`) is the same code that ran there. **A manual check with a macOS Japanese or
 Pinyin input source was not done.**
 
-## Merge notes
+## Gates after the rebase onto 6c6abd7
+
+Each run once, on the tree with the fit-up and the real-tree work (`d7e4546`, `94e70f3` and before), `5aef575` reduced to its text
+input part (reworded as `4cc5fda`; the tree is identical to the one the gates ran on). Default profile unless noted.
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked` | 541 passed |
+| `cargo clippy --locked --all-targets` | 0 warnings |
+| `rustup run stable cargo fmt --check` | clean |
+| `pnpm test:types`, and `--engine=stock` | clean on both profiles |
+| `pnpm test` | 370 passed |
+| `pnpm verify:interaction` | passed, both viewports, all ten sections (`events` to `selection`, `drag`, `forms`). Landscape's first attempt failed in the drag section ("A target that does not prevent dragover: nothing accepted") with six window focus losses in its log, and D22 re-ran it: the second attempt passed. Portrait passed (one focus loss) |
+| `pnpm verify` | passed, both viewports |
+| `pnpm verify:world` | passed, both viewports (portrait saw one focus loss and passed) |
+| `pnpm verify:motion` | passed, both viewports |
+| `pnpm verify:interaction --engine=stock --only=forms` | passed, both viewports (one and two focus losses; passed) |
+| `pnpm verify:a11y --engine=stock` | passed (`GODOT_REACT_A11Y_VERIFY_PASSED`) after the double line break was fixed; the first reading, a diagnostic window of the lab before the fix, is the one that found it. Gaps noted: the text area's `AXValue`, the read-only field, and main's group, mixed and scroll ones. Platform focus was not checked (the window is not key) |
+| `pnpm build:web`, then `pnpm verify:interaction:web` on port 8102 (free; my server, stopped afterwards) | passed: 1100 assertions, 121 captures, every section at all four viewports and the touch page, including `drag` and `forms` |
+
+**The freshness guard, end to end on the Web path.** `build:web` built the side module and the export; `serve-web.mjs` served it and
+`verify:interaction:web` ran against it with no refusal, so the guard accepts a genuine export. With one byte appended to
+`native/text_input_godot/web_clipboard.rs` (restored byte for byte afterwards) `verify-interaction-web.mjs` refused before any browser
+opened: "The Web export artifacts/web-debug is stale: it was built from different sources than the working tree (changed:
+native/text_input_godot/web_clipboard.rs). Run `pnpm build:web --engine=breaka` first." Switching profiles needed the library rebuilt each
+time (`build:native --engine=stock`, then back to the default before the Web export, which loads the extension in the editor); the guard
+never refused a build it should have accepted.
+
+Stock Web and `verify-world-web` were not run again (nothing in the rebase or the fit-up changed a Web path other than the drag and
+forms scenarios, which ran in the default Web gate above).
+
+## Merge notes (written before the second rebase; the ones that still apply)
 
 - `main` moved (I9, the stock engine profile, a freshness guard) after this branch was rebased onto `710adc3`. Expect
   conflicts in `native/lib.rs`, `native/events.rs`, `native/props.rs`, `native/pointer_input.rs`, `native/keyboard_input.rs`,
@@ -366,8 +397,9 @@ Pinyin input source was not done.**
 
 ## Not done
 
-- A manual native IME check (above).
-- The platform accessibility tree for text inputs (no engine with AccessKit), and `aria-labelledby` / `aria-describedby`
+- A manual native IME check (above), and VoiceOver by hand. Platform focus, and the actions on a text field through the real adapter
+  (the dump tool performs none), are not checked either ("The real accessibility tree").
+- `aria-labelledby` / `aria-describedby`
   (native has no relationship props, T15).
 - The IME window and the on-screen keyboard are placed from the root's own screen transform, which is wrong for a root on a quad
   in a `SubViewport` (world-space section).
