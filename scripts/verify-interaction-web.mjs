@@ -26,7 +26,7 @@ const TOTAL_TIMEOUT_MS = 600_000;
 const POLL_MS = 50;
 // `--only=<section>[,<section>]` runs just those sections (plan 0.4.1); the names are the native verifier's, and `touch`
 // is this verifier's touch page. An unknown name is an error: a typo must not skip a section.
-const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard', 'touch'];
+const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard', 'scroll', 'touch'];
 const requestedSections = process.argv.filter((argument) => argument.startsWith('--only='))
   .flatMap((argument) => argument.slice('--only='.length).split(','));
 for (const name of requestedSections) {
@@ -44,6 +44,9 @@ const KEY_SPECIAL = 1 << 22;
 const KEY_W = 'W'.charCodeAt(0);
 const KEY_TAB = KEY_SPECIAL | 0x02;
 const KEY_ENTER = KEY_SPECIAL | 0x05;
+const KEY_HOME = KEY_SPECIAL | 0x0d;
+const KEY_END = KEY_SPECIAL | 0x0e;
+const KEY_PAGEDOWN = KEY_SPECIAL | 0x14;
 // Godot's Control.CursorShape values.
 const CURSOR_ARROW = 0;
 const CURSOR_POINTING_HAND = 2;
@@ -208,20 +211,37 @@ async function click(testID) {
   checkBrowserErrors();
 }
 
+/** Every node below a scroll container: what it holds reaches past it and the window by design. */
+function scrolledContent(data) {
+  const byId = new Map(data.nodes.map((node) => [node.id, node]));
+  const content = new Set();
+  const collect = (id) => {
+    for (const child of byId.get(id)?.children ?? []) {
+      content.add(child);
+      collect(child);
+    }
+  };
+  for (const node of data.nodes) if (node.scroll !== null) collect(node.id);
+  return content;
+}
+
 function assertGeometry(data) {
   const byId = new Map(data.nodes.map((node) => [node.id, node]));
+  const content = scrolledContent(data);
   let visibleCount = 0;
   for (const node of data.nodes) {
     const rect = node.rect;
     assert.ok(Object.values(rect).every(Number.isFinite), `Node ${node.id} has nonfinite geometry`);
     assert.ok(rect.width >= 0 && rect.height >= 0, `Node ${node.id} has negative dimensions`);
-    if (rect.width === 0 || rect.height === 0) continue;
+    if (rect.width === 0 || rect.height === 0 || content.has(node.id)) continue;
     visibleCount += 1;
     assert.ok(rect.x >= -GEOMETRY_TOLERANCE && rect.y >= -GEOMETRY_TOLERANCE,
       `Node ${node.id} escapes top/left: ${JSON.stringify(rect)}`);
     assert.ok(rect.x + rect.width <= data.width + GEOMETRY_TOLERANCE &&
       rect.y + rect.height <= data.height + GEOMETRY_TOLERANCE,
     `Node ${node.id} escapes viewport ${data.width}x${data.height}: ${JSON.stringify(rect)}`);
+    // What a scroll container holds may reach past it; that is what scrolling is for.
+    if (node.scroll !== null) continue;
     const children = node.children.map((id) => {
       const child = byId.get(id);
       assert.ok(child, `Node ${node.id} references missing child ${id}`);
@@ -1268,6 +1288,212 @@ async function runTouchPointersScenario() {
   await demo('grabSurfaceFocus');
 }
 
+
+/**
+ * Godot's Web build turns a DOM wheel delta of `d` pixels into `0.03 * d` ticks (`DisplayServerWeb::_mouse_wheel_callback`,
+ * `MOUSE_WHEEL_PIXEL_FACTOR`). A CDP wheel notch of `WHEEL_TICK_PIXELS` arrives as that many CSS pixels at device pixel ratio 1
+ * and as half as many at 2 (Chrome divides the physical delta by the ratio; measured: `deltaY` 100 and 50).
+ */
+const WHEEL_PIXEL_FACTOR = 0.03;
+const notchTicks = () => WHEEL_TICK_PIXELS / page.viewport().deviceScaleFactor * WHEEL_PIXEL_FACTOR;
+/** A wheel tick scrolls a container's client size divided by this (`SCROLL_PAGE_DIVISOR`, native/scroll.rs). */
+const SCROLL_PAGE_DIVISOR = 8;
+/** The overlay scrollbar margin (native/scroll.rs `SCROLLBAR_MARGIN_PX`). */
+const SCROLLBAR_MARGIN = 2;
+const SCROLL_TOLERANCE = 0.05;
+const THUMB_DRAG_PX = 30;
+/** A touch swipe: the finger moves this far per step (beyond the 8 px slop at the first), once per `frames()`. */
+const SWIPE_STEP_PX = 15;
+const SWIPE_STEPS = 6;
+const MIN_COAST_PX = 30;
+const COAST_POLL_MS = 150;
+const COAST_DEADLINE_MS = 6_000;
+/** More Tab presses than the lab's list has rows in view, so a loop that reaches it is a bug. */
+const MAX_REVEAL_TABS = 12;
+
+async function scrollOf(testID) {
+  const { scroll } = await find(testID);
+  assert.ok(scroll, `${testID} is a scroll container`);
+  return scroll;
+}
+
+const nearly = (actual, expected, tolerance = SCROLL_TOLERANCE) => Math.abs(actual - expected) <= tolerance;
+
+/**
+ * Plan I5, mouse half: wheel, keys, the scrollbar thumb, chaining and clicks in scrolled content in real Chrome, at both
+ * device pixel ratios. Mirrors the native `scroll` section; the wheel differs because the Web build scales a notch.
+ */
+async function runScrollScenario() {
+  await demo('showLab', 'scroll');
+  await waitUntil('the scroll lab mounts', () => nodeExists('scroll-lab'));
+  await page.mouse.move(1, 1);
+  await frames();
+  const list = await scrollOf('scroll-list');
+  check('A tall list has room to scroll and starts at the top', list.maxScrollTop > 0 && list.scrollTop === 0, list);
+  const tick = list.clientHeight / SCROLL_PAGE_DIVISOR;
+  await capture('22-scroll-lab');
+
+  // Wheel: a notch is three ticks here, each a page / 8; the game never sees a notch that scrolled.
+  const gameBefore = (await counts()).unhandledWheels;
+  await wheelAt(await centerOf('scroll-list'), 0, WHEEL_TICK_PIXELS);
+  await waitUntil('one wheel notch scrolls its ticks', async () => nearly((await scrollOf('scroll-list')).scrollTop, notchTicks() * tick));
+  check('A wheel notch scrolls the list by its ticks of a page / 8', true, { scrollTop: (await scrollOf('scroll-list')).scrollTop, tick, ticks: notchTicks() });
+  check('A notch a list scrolled for is not the game\'s', (await counts()).unhandledWheels === gameBefore, await counts());
+  await expectTextWhere('list-status', 'JS hears the scroll', (value) => value.startsWith(`top ${Math.round(notchTicks() * tick)},`));
+  await wheelAt(await centerOf('scroll-title'), 0, WHEEL_TICK_PIXELS);
+  await expectCounts('A notch over UI that does not scroll reaches the game', (seen) => seen.unhandledWheels > gameBefore);
+
+  // The scrollbar thumb, dragged with the real mouse, even with the pointer off the bar.
+  const before = await scrollOf('scroll-list');
+  const thumb = before.thumbs?.y;
+  check('The list has a vertical thumb', Boolean(thumb), before.thumbs);
+  const travel = before.clientHeight - 2 * SCROLLBAR_MARGIN - thumb.height;
+  // Chrome reports a mouse position in whole CSS pixels, so the press and the moves are on whole pixels here: the drag
+  // then measures exactly THUMB_DRAG_PX of travel, wherever on the thumb it was pressed.
+  const centre = await pagePoint(thumb.x + thumb.width / 2, thumb.y + thumb.height / 2);
+  const grab = { x: Math.round(centre.x), y: Math.round(centre.y) };
+  const wrapBefore = await text('list-status');
+  await page.mouse.move(grab.x, grab.y);
+  await frames();
+  await page.mouse.down();
+  await frames();
+  await page.mouse.move(grab.x - 100, grab.y + THUMB_DRAG_PX / 2);
+  await page.mouse.move(grab.x - 100, grab.y + THUMB_DRAG_PX);
+  await frames();
+  const expected = Math.min(before.maxScrollTop, (before.scrollTop / before.maxScrollTop * travel + THUMB_DRAG_PX) / travel * before.maxScrollTop);
+  await waitUntil('the thumb drag scrolls', async () => nearly((await scrollOf('scroll-list')).scrollTop, expected, 0.5));
+  check('Dragging the thumb moves the content by the pointer\'s share of the track', true, { expected, scrollTop: (await scrollOf('scroll-list')).scrollTop });
+  await page.mouse.up();
+  await frames();
+  check('Letting go of a thumb clicks nothing', (await text('list-status')).replace(/top \d+/, '') === wrapBefore.replace(/top \d+/, ''), await text('list-status'));
+  await page.mouse.move(1, 1);
+  await frames();
+
+  // Clicks in scrolled content reach the row under the pointer.
+  await click('list-top');
+  await wheelAt(await centerOf('scroll-list'), 0, WHEEL_TICK_PIXELS);
+  await waitUntil('the list scrolled', async () => (await scrollOf('scroll-list')).scrollTop > 0);
+  await click('list-row-3');
+  await expectTextWhere('list-status', 'A click at a scrolled row\'s place reaches that row', (value) => value.includes('clicked row 3'));
+
+  // Keys: the focused button's container takes Page Down, Home and End.
+  await click('list-top');
+  await click('list-row-1');
+  await focusCanvas();
+  await pressKey('PageDown');
+  await waitUntil('Page Down scrolls a page', async () => nearly((await scrollOf('scroll-list')).scrollTop, (await scrollOf('scroll-list')).clientHeight));
+  await pressKey('End');
+  await waitUntil('End goes to the bottom', async () => { const state = await scrollOf('scroll-list'); return nearly(state.scrollTop, state.maxScrollTop); });
+  await pressKey('Home');
+  await waitUntil('Home goes to the top', async () => (await scrollOf('scroll-list')).scrollTop === 0);
+  const keysToGame = (await counts()).unhandledKeys;
+  check('Keys that scrolled are not the game\'s', [KEY_PAGEDOWN, KEY_HOME, KEY_END].every((key) => keysToGame[key] === undefined), keysToGame);
+  // Tab to a button below the fold shows it.
+  for (let step = 0; step < MAX_REVEAL_TABS && (await scrollOf('scroll-list')).scrollTop === 0; step += 1) await pressKey('Tab');
+  const focusedNow = await focusedId();
+  const revealed = await scrollOf('scroll-list');
+  check('Tabbing to a row below the fold scrolled the list', revealed.scrollTop > 0, revealed);
+  const focusedRow = (await snapshot()).nodes.find((node) => node.id === focusedNow);
+  const listRect = (await find('scroll-list')).rect;
+  check('And the row Tab focused is in view', Boolean(focusedRow)
+    && focusedRow.rect.y >= listRect.y - GEOMETRY_TOLERANCE && focusedRow.rect.y + focusedRow.rect.height <= listRect.y + listRect.height + GEOMETRY_TOLERANCE, { focusedRow: focusedRow?.rect, listRect });
+  await capture('25-scroll-tab-reveals');
+
+  // Chaining: the inner list first, then the outer one; contain keeps the rest from it and from the game.
+  const inner = await scrollOf('chain-inner');
+  const notches = Math.ceil(inner.maxScrollTop / (notchTicks() * inner.clientHeight / SCROLL_PAGE_DIVISOR)) + 1;
+  for (let notch = 0; notch < notches; notch += 1) await wheelAt(await centerOf('chain-inner'), 0, WHEEL_TICK_PIXELS);
+  await waitUntil('the inner list reaches its end and the outer one takes the rest', async () => {
+    const [innerNow, outerNow] = await Promise.all([scrollOf('chain-inner'), scrollOf('chain-outer')]);
+    return nearly(innerNow.scrollTop, innerNow.maxScrollTop) && outerNow.scrollTop > 0;
+  });
+  check('A nested list chains to its outer list', true, { inner: await scrollOf('chain-inner'), outer: await scrollOf('chain-outer') });
+  const containGame = (await counts()).unhandledWheels;
+  for (let notch = 0; notch < notches + 2; notch += 1) await wheelAt(await centerOf('contain-inner'), 0, WHEEL_TICK_PIXELS);
+  await waitUntil('the contained inner list reaches its end', async () => { const state = await scrollOf('contain-inner'); return nearly(state.scrollTop, state.maxScrollTop); });
+  check('overscroll-contain keeps the rest from the outer list', (await scrollOf('contain-outer')).scrollTop === 0, await scrollOf('contain-outer'));
+  check('And from the game', (await counts()).unhandledWheels === containGame, await counts());
+  await capture('26-scroll-chained');
+
+  await page.mouse.move(1, 1);
+  await frames();
+  await demo('restoreDemo');
+  await waitUntil('the demo returns', () => nodeExists('app'));
+  await demo('grabSurfaceFocus');
+}
+
+/**
+ * Plan I5, touch half (the touch page): a swipe over a button scrolls the list, cancels the pointer and does not click;
+ * the content coasts after the finger lifts; a swipe on a `touch-none` element is pointer events.
+ */
+async function runTouchScrollScenario() {
+  await demo('showLab', 'scroll');
+  await waitUntil('the scroll lab mounts on touch', () => nodeExists('scroll-lab'));
+  await page.mouse.move(1, 1);
+  await frames();
+  const cdp = await page.createCDPSession();
+  const touchAt = async (type, point) => {
+    await cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x: point.x, y: point.y, id: 1 }] });
+    await frames();
+  };
+  const list = await find('touch-list');
+  const start = await pagePoint(list.rect.x + list.rect.width / 2, list.rect.y + list.rect.height - 20);
+  const clicksOf = async () => Number(/clicks (\d+)$/.exec(await text('touch-status'))?.[1]);
+
+  await demo('resetPointerCancels');
+  const cancelsBefore = await demo('pointerCancels');
+  await touchAt('touchStart', start);
+  let finger = start;
+  for (let step = 1; step <= SWIPE_STEPS; step += 1) {
+    finger = { x: start.x, y: start.y - step * SWIPE_STEP_PX };
+    await touchAt('touchMove', finger);
+  }
+  // The finger lifts while it is still moving: the release velocity is sampled over the last frames, and a finger that rested
+  // for over a tenth of a second flings nothing (native/scroll.rs `MOMENTUM_SAMPLE_INTERVAL_S`), so nothing is awaited before it.
+  await touchAt('touchEnd', finger);
+  await waitUntil('the swipe scrolls the list', async () => (await scrollOf('touch-list')).scrollTop > 0);
+  check('A swipe starting on a button pans the list', (await scrollOf('touch-list')).scrollTop > 0, await scrollOf('touch-list'));
+  check('The pointer was cancelled when the pan began', (await demo('pointerCancels')) === cancelsBefore + 1, await demo('pointerCancels'));
+  check('No click follows a pan', (await clicksOf()) === 0, await text('touch-status'));
+  // The content keeps going after the finger lifted and comes to rest on its own, further than the finger took it (the
+  // first step is the slop, which is not scrolled).
+  const fingerScroll = (SWIPE_STEPS - 1) * SWIPE_STEP_PX;
+  const deadline = Date.now() + COAST_DEADLINE_MS;
+  let last = Number.NaN;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, COAST_POLL_MS));
+    const now = (await scrollOf('touch-list')).scrollTop;
+    if (now === last) break;
+    last = now;
+  }
+  const rested = (await scrollOf('touch-list')).scrollTop;
+  check('The content coasts after the finger lifts and comes to rest by itself', rested > fingerScroll + MIN_COAST_PX && rested === last, { fingerScroll, rested });
+  check('A pan leaves no pointer down', (await snapshot()).pointers.every((entry) => !entry.down), (await snapshot()).pointers);
+  await capture('28-scroll-touch-pan');
+
+  // A tap still clicks; touch-none keeps the finger's events.
+  await click('touch-top');
+  const tapPoint = await pagePoint(list.rect.x + list.rect.width / 2, list.rect.y + list.rect.height - 40);
+  await page.touchscreen.tap(tapPoint.x, tapPoint.y);
+  await waitUntil('a tap clicks the row under it', async () => (await clicksOf()) === 1);
+  check('A tap on a button in a scroll container clicks it', true, await text('touch-status'));
+  const pad = await centerOf('touch-pad');
+  const padPoint = await pagePoint(pad.x, pad.y);
+  const topBefore = (await scrollOf('touch-list')).scrollTop;
+  await touchAt('touchStart', padPoint);
+  for (let step = 1; step <= 4; step += 1) await touchAt('touchMove', { x: padPoint.x, y: padPoint.y + 4 * step });
+  await touchAt('touchEnd', padPoint);
+  await expectTextWhere('touch-status', 'The pad gets pointermove instead of the list panning', (value) => /moves [1-9]\d*, cancels 0/.test(value));
+  check('touch-action: none keeps a touch from panning', (await scrollOf('touch-list')).scrollTop === topBefore, await scrollOf('touch-list'));
+  await cdp.detach();
+
+  await page.mouse.move(1, 1);
+  await frames();
+  await demo('restoreDemo');
+  await waitUntil('the demo returns on touch', () => nodeExists('app'));
+  await demo('grabSurfaceFocus');
+}
+
 async function runEventsScenario(viewport) {
   await click('tab-interaction');
   await waitUntil('interaction lab mounts', () => nodeExists('interaction-lab'));
@@ -1390,6 +1616,7 @@ async function runWorkflow(viewport) {
   if (wanted('cooperation')) await runCooperationScenario();
   if (wanted('pointers')) await runPointersScenario();
   if (wanted('keyboard')) await runKeyboardScenario();
+  if (wanted('scroll')) await runScrollScenario();
 
   // This page keeps running across viewports (the native verifier gets a fresh process for each),
   // so leave a fresh root: the lab's log and click counters must not leak into the next viewport.
@@ -1425,6 +1652,7 @@ async function runTouchWorkflow() {
   check('A prevented touch tap does not take focus', (await focusedId()) === normal);
   await capture('01-touch-interaction');
   await runTouchPointersScenario();
+  await runTouchScrollScenario();
 }
 
 try {
