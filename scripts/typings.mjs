@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { scrubOpenScripts } from './editor-session.mjs';
 
 // The GodotJS declarations the `stock` engine profile typechecks against (docs/tracks/stock-engine.md).
 //
@@ -69,6 +70,8 @@ export function generateStockTypings(engine) {
   mkdirSync(bin, {recursive: true});
   cpSync(paths.library, resolve(bin, engine.libraryName), {force: true});
   rmSync(resolve(paths.stage, 'typings'), {recursive: true, force: true});
+  // The staged project carries the demo's editor layout; an editor must not open its TypeScript (scripts/editor-session.mjs).
+  scrubOpenScripts(paths.stage);
   const result = spawnSync(engine.godot, ['--headless', '--audio-driver', 'Dummy', '--editor', '--generate-types', '--path', paths.stage], {
     cwd: root, stdio: 'inherit', timeout: GENERATE_TIMEOUT_MS,
   });

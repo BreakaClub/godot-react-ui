@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
+import { scrubOpenScripts } from './editor-session.mjs';
 import { argsWithoutEngine, selectEngine } from './engine.mjs';
 import { generateStockTypings } from './typings.mjs';
 
@@ -19,6 +20,8 @@ if (build.status !== 0) process.exit(build.status ?? 1);
 if (engine.name === 'stock') {
   generateStockTypings(engine);
 } else {
+  // The editor rewrites a TypeScript file it has open (scripts/editor-session.mjs).
+  scrubOpenScripts(resolve(root, 'demo'));
   const result = spawnSync(godot, ['--headless', '--audio-driver', 'Dummy', '--editor', '--generate-types', '--path', resolve(root, 'demo')], {cwd:root, stdio:'inherit', timeout:120_000});
   if (result.error) throw result.error;
   if (result.status !== 0) process.exit(result.status ?? 1);

@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 import { context } from 'esbuild';
+import { scrubOpenScripts } from './editor-session.mjs';
 import { selectEngine } from './engine.mjs';
 
 const root = resolve(import.meta.dirname, '..');
@@ -10,6 +11,9 @@ const godot = engine.godot;
 // current sources. Not policed afterwards: the running editor has its library mapped and a rebuild is a restart
 // (docs/tracks/freshness.md, F9).
 engine.prepareNative();
+// An interactive editor restores the scripts of the last session, and Godot's script editor rewrites a TypeScript file it has open.
+// Open TypeScript in an external editor (README).
+scrubOpenScripts(resolve(root, 'demo'));
 const builder = await context({
   absWorkingDir: root, bundle: true, platform: 'neutral', target: 'es2022', format: 'cjs', sourcemap:true,
   entryPoints: ['demo/src/main.ts', 'demo/src/verify.ts', 'demo/src/verify-motion.ts', 'demo/src/app.tsx'], outdir: 'demo/.godot/GodotJS/src',
