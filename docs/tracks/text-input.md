@@ -265,9 +265,10 @@ Pinyin input source was not done.**
 - `main` moved (I9, the stock engine profile, a freshness guard) after this branch was rebased onto `710adc3`. Expect
   conflicts in `native/lib.rs`, `native/events.rs`, `native/props.rs`, `native/pointer_input.rs`, `native/keyboard_input.rs`,
   `native/render_tree.rs`, `native/PROTOCOL.md`, `src/events.ts`, `src/native.ts`, `src/index.ts`, `demo/src/labs.tsx`,
-  `demo/src/verify-interaction.ts`, `scripts/verify-interaction-web.mjs` and `tests/recording-host.ts`. Where I9's drag adds a
-  pointer path next to `text_input_pointer_down`, a press on a text input must still not start a drag unless the input is
-  `draggable` (the `draggable` argument already carries the thumb and capture rules). `typings`: regenerate with
+  `demo/src/verify-interaction.ts`, `scripts/verify-interaction-web.mjs` and `tests/recording-host.ts`. A press on a text input places the
+  caret and may start a selection drag in it (`text_input_pointer_down`, after the thumb and capture arbitration); I9's
+  draggable-element step sits between those and selection in plan 3.12, so a `draggable` ancestor of a text input needs the
+  input to keep its press, as an HTML `<input>` does. I did not touch that. `typings`: regenerate with
   `pnpm build:native` and the Godot `--generate-types` step; restore `demo/typings/jsb.*.bundle.d.ts` if only line endings changed.
 - The freshness guard will refuse old stamps once; `pnpm build:native` clears it.
 - `demo/src/main.ts` is whitespace-modified in this worktree (a whole-file re-indent, `git diff -w` is empty). It is not mine
