@@ -1,6 +1,19 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { test } from 'node:test';
 import { argsWithoutEngine, selectEngine, selectEngineName } from '../scripts/engine.mjs';
+
+test('the Web export presets of both profiles differ only in their name, path and templates', () => {
+  // A setting turned on in one preset alone makes one engine's Web build behave differently for no engine reason.
+  const presets = readFileSync(resolve(import.meta.dirname, '../demo/export_presets.cfg'), 'utf8')
+    .split(/^\[preset\.\d+\]$/m).slice(1)
+    .map(preset => preset.split('\n')
+      .filter(line => line.includes('=') && !/^(name|export_path|custom_template\/\w+)=/.test(line))
+      .sort());
+  assert.equal(presets.length, 2);
+  assert.deepEqual(presets[1], presets[0]);
+});
 
 // The engine profile mechanism every script shares (scripts/engine.mjs, docs/tracks/stock-engine.md): one flag, one
 // variable, one default. These tests pass their own argv and environment, so nothing here touches the process's.
