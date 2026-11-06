@@ -4,18 +4,29 @@
 
 use std::collections::BTreeSet;
 
-use godot::classes::InputEventKey;
+use godot::classes::{InputEvent, InputEventKey};
 use godot::global::Key;
 use godot::prelude::*;
 
 use crate::commit::ValidatedCommit;
 use crate::events::{EventPayload, KeyData, Modifiers};
-use crate::focus::{Modality, is_focusable, next_tab_stop, tab_stops};
+use crate::focus::{Modality, is_focusable, next_tab_stop, refusal_reason, tab_stops};
 use crate::keymap::{dom_code, dom_key, is_modifier_key};
 use crate::pointer::ButtonTree;
 use crate::props::Kind;
 use crate::scroll::ScrollKey;
 use crate::{ROOT_TARGET, ReactUiRoot, modifiers_of};
+
+/// `key` as the keyboard's own event, which is the one an `InputMap` action can match. An action binds a key to a
+/// device: every `InputEventKey` is made with the keyboard's (`input_event.cpp:670`), and `InputMap::_find_event`
+/// ignores a binding unless the event's device is its own (`input_map.cpp:152`). A key that arrives from another
+/// device (an event a `SubViewport` was given, one a host or a verifier injected) is the same key for copying,
+/// selecting and editing, so every place that asks which action a key is matches this copy (D44 T3).
+pub(crate) fn as_keyboard_event(key: &Gd<InputEventKey>) -> Gd<InputEventKey> {
+    let mut copy = key.duplicate_resource();
+    copy.set_device(InputEvent::DEVICE_ID_KEYBOARD);
+    copy
+}
 
 /// What JS asks of `focus_node` for the keyboard focus look: follow the input modality, never, always.
 const FOCUS_VISIBLE_BY_MODALITY: i64 = -1;
@@ -34,7 +45,8 @@ enum KeyRelease {
     Unrelated,
     /// The press ends and the button is clicked.
     Click,
-    /// The press ends and JS prevented the `keyup`, which keeps the click.
+    /// The press ends and JS prevented the `keyup`, so there is no click: a browser does not click a button whose key
+    /// release was prevented either.
     EndsWithoutClick,
 }
 
@@ -106,7 +118,7 @@ impl ReactUiRoot {
             prevented || self.key_down_default(key, keycode, echo, modifiers)
         } else {
             // The key that pressed a button is up whatever JS made of its `keyup`; preventing it only
-            // keeps the click. So the release is always handled, and a prevented one is consumed anyway.
+            // withholds the click. So the release is always handled, and a prevented one is consumed anyway.
             let released = self.key_up_default(keycode, prevented);
             prevented || released
         };
@@ -180,7 +192,7 @@ impl ReactUiRoot {
     }
 
     /// Releasing the key that pressed a button ends the press and clicks the button, unless JS
-    /// `prevented` the `keyup`, which keeps the click only: the press is over either way. No pointer
+    /// `prevented` the `keyup`, which withholds the click and nothing else: the press is over either way. No pointer
     /// events are made up: the `click` has pointer 0, no pointer type and no click count. Returns whether
     /// the key was the one that pressed a button.
     fn key_up_default(&mut self, keycode: Key, prevented: bool) -> bool {
@@ -240,11 +252,7 @@ impl ReactUiRoot {
             return Err(format!("node {tag} is not mounted"));
         }
         if !is_focusable(&self.mounted, tag) {
-            let reason = if self.mounted.is_disabled(tag) {
-                "it or an ancestor is disabled"
-            } else {
-                "it is not a button and has no tabIndex"
-            };
+            let reason = refusal_reason(self.mounted.is_disabled(tag));
             return Err(format!("node {tag} cannot take focus: {reason}"));
         }
         self.focus_element(tag, visible);
@@ -311,7 +319,7 @@ mod tests {
     }
 
     #[test]
-    fn a_prevented_keyup_still_ends_the_press_but_keeps_the_click() {
+    fn a_prevented_keyup_still_ends_the_press_but_withholds_the_click() {
         assert_eq!(
             key_release(Some(Key::ENTER), Key::ENTER, true),
             KeyRelease::EndsWithoutClick,

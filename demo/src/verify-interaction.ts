@@ -10,7 +10,7 @@ import type { FiltersLabProps } from './filters-lab';
 import type { LabName } from './labs';
 import type { PassthroughCounts } from './main';
 import { verifyHidpi } from './verify-hidpi';
-import { assertionTally, bindVerifierKeys, parseVerifierEvent, verifierClipboard } from './verifier-input';
+import { assertionTally, parseVerifierEvent, verifierClipboard } from './verifier-input';
 import { measureFilterCost, verifyFilterFaults, verifyFilterSizes, verifyFilters } from './verify-filters';
 import { GLASS_FAULT_CONTROLS, verifyGlass } from './verify-glass';
 import { verifyTextInput } from './verify-text-input';
@@ -46,6 +46,8 @@ export interface InteractionInspection extends DemoInspection {
   resetPassthrough(): void;
   cursorShapeAt(x: number, y: number): Control.CursorShape;
   surfaceHasFocus(): boolean;
+  /** The rectangle the root handle's `getRect()` reports: a native query for node 0, the root. */
+  rootRect(): LayoutRect | undefined;
   /** Whether the root asks for `process()` frames and for `_input` (native's one decision, `update_process`). */
   surfaceProcessing(): boolean;
   surfaceProcessingInput(): boolean;
@@ -1055,7 +1057,7 @@ async function verifyKeyboard(owner: Node, api: InteractionInspection, capture: 
   assert(get(api, 'kb-activate').style.backgroundColor === ACTIVATE_REST_COLOR, 'and the style returns to rest');
 
   // A parent prevents the keyup: the key is up all the same, so the press ends (the style returns to rest, nothing is
-  // left pressed) though the click is kept.
+  // left pressed) though the click is withheld, as in browsers.
   await tabTo('kb-vetoed');
   keyEvent({ keycode: Key.KeySpace, unicode: 32 }, true);
   await settle();
@@ -1063,7 +1065,7 @@ async function verifyKeyboard(owner: Node, api: InteractionInspection, capture: 
     `Space presses the button: ${get(api, 'kb-vetoed').style.backgroundColor}`);
   keyEvent({ keycode: Key.KeySpace, unicode: 32 }, false);
   await settle();
-  assert(text(api, 'kb-veto-status') === 'clicks 0', `A prevented keyup keeps the click: ${text(api, 'kb-veto-status')}`);
+  assert(text(api, 'kb-veto-status') === 'clicks 0', `A prevented keyup withholds the click: ${text(api, 'kb-veto-status')}`);
   assert(get(api, 'kb-vetoed').style.backgroundColor === ACTIVATE_REST_COLOR && api.snapshot().pressed === null,
     `but the press is over: ${get(api, 'kb-vetoed').style.backgroundColor}, pressed ${api.snapshot().pressed}`);
 
@@ -1089,7 +1091,7 @@ async function verifyKeyboard(owner: Node, api: InteractionInspection, capture: 
   await click(api, 'kb-focus-card-visible');
   assert(focusedTestID() === 'kb-card' && api.snapshot().focusVisible && ringOn('kb-card'), 'focus({ focusVisible: true }) shows the ring');
   await click(api, 'kb-focus-bad');
-  assert(/focus failed: node \d+ cannot take focus: it is not a button and has no tabIndex/.test(text(api, 'kb-focus-status')),
+  assert(/focus failed: node \d+ cannot take focus: it is not a button or text input and has no tabIndex/.test(text(api, 'kb-focus-status')),
     `focus() on an element that cannot take focus throws: ${text(api, 'kb-focus-status')}`);
 
   move(FAR_CORNER);
@@ -1110,6 +1112,12 @@ async function verifyEvents(
   const focused = () => api.snapshot().focused;
 
   await settle();
+  // The root is node 0, not a mounted element; its handle's `getRect()` (a native query) reports the rectangle the snapshot gives it.
+  const rootRect = api.rootRect();
+  const snapshotRoot = api.snapshot().nodes.find(node => node.id === 0)?.rect;
+  assert(rootRect !== undefined && snapshotRoot !== undefined && rootRect.x === snapshotRoot.x && rootRect.y === snapshotRoot.y
+    && rootRect.width === snapshotRoot.width && rootRect.height === snapshotRoot.height && rootRect.width > 0 && rootRect.height > 0,
+  `The root handle's getRect() is the root's rectangle: ${JSON.stringify(rootRect)} against ${JSON.stringify(snapshotRoot)}`);
   await click(api, 'tab-interaction');
   assert(api.find('interaction-lab'), 'The Interaction tab mounts its lab');
   await capture('01-interaction');
@@ -2669,19 +2677,10 @@ function glyphArea(rect: LayoutRect): LayoutRect {
  * prevented `pointerdown`, and text with no `select-text` start nothing and clear what was selected. The root
  * takes key focus with a selection and gives it back when the selection goes; Cmd/Ctrl+C copies and Cmd/Ctrl+A
  * selects all; a change of the text, or removal, of what is selected clears it; the highlight is drawn under the
- * text and scrolls and clips with its list.
+ * text and scrolls and clips with its list. The keys are injected from the verifier's own device and still copy and select all:
+ * the root matches those `InputMap` actions as the keyboard's, whatever device a key came from (D44 T3).
  */
 async function verifySelection(owner: Node, api: InteractionInspection, capture: (name: string) => Promise<void>): Promise<void> {
-  // The keys that copy and select all are `InputMap` actions, which match only a real keyboard's events.
-  const unbindKeys = bindVerifierKeys(['ui_copy', 'ui_text_select_all']);
-  try {
-    await verifySelectionGestures(owner, api, capture);
-  } finally {
-    unbindKeys();
-  }
-}
-
-async function verifySelectionGestures(owner: Node, api: InteractionInspection, capture: (name: string) => Promise<void>): Promise<void> {
   const left = MouseButton.MouseButtonLeft;
   const commandIsMeta = OS.hasFeature('macos');
   api.showLab('hud');

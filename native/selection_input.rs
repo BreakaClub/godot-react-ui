@@ -29,6 +29,7 @@ use serde_json::{Value, json};
 
 use crate::computed_style::{ComputedStyle, StyleChange, StyleTree};
 use crate::geometry::BoxRect;
+use crate::keyboard_input::as_keyboard_event;
 use crate::mount::NodeGeometry;
 use crate::paint::parse_color;
 use crate::pointer::MOUSE_POINTER_ID;
@@ -623,6 +624,7 @@ impl ReactUiRoot {
         if echo {
             return false;
         }
+        let key = as_keyboard_event(key);
         if key.is_action_ex("ui_copy").exact_match(true).done() {
             return self.copy_selection();
         }

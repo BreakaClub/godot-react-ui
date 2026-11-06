@@ -56,6 +56,17 @@ pub(crate) fn is_focusable<T: FocusTree>(tree: &T, tag: u32) -> bool {
     nearest_focusable(tree, tag) == Some(tag)
 }
 
+/// Why `focus()` refuses an element that is mounted and not [`is_focusable`], for the error it throws. It names everything
+/// that does take focus (`takes_focus`: a button, a text input, an element with a `tabIndex`), so a `TextInput` that is
+/// refused only for being disabled is not told it is not a control.
+pub(crate) fn refusal_reason(disabled: bool) -> &'static str {
+    if disabled {
+        "it or an ancestor is disabled"
+    } else {
+        "it is not a button or text input and has no tabIndex"
+    }
+}
+
 /// Whether Tab stops on `tag`: focusable and not `tabIndex` `-1`. Visibility is the caller's.
 pub(crate) fn is_tabbable<T: FocusTree>(tree: &T, tag: u32) -> bool {
     is_focusable(tree, tag) && tree.tab_index_of(tag) != Some(-1)
@@ -117,6 +128,15 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::*;
+
+    #[test]
+    fn the_refusal_names_everything_that_does_take_focus() {
+        let enabled = refusal_reason(false);
+        for taker in ["button", "text input", "tabIndex"] {
+            assert!(enabled.contains(taker), "{enabled:?} does not name {taker}");
+        }
+        assert!(refusal_reason(true).contains("disabled"));
+    }
 
     struct Node {
         kind: Kind,

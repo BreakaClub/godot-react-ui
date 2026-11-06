@@ -6,6 +6,7 @@ import {
 } from 'godot';
 import { createClassBinder } from 'godot.annotations';
 import { createRoot, readActivity, takeNativeProfile, type ReactRoot } from '../../src';
+import { readNodeRect } from '../../src/native';
 import { App, getDemoLifecycle } from './app';
 import { setLabOwner } from './interaction-lab';
 import { labElement, type LabName } from './labs';
@@ -165,6 +166,7 @@ export default class Main extends Node {
       }),
       /** Whether the root holds Godot key focus. */
       surfaceHasFocus: () => this.requireSurface().hasFocus(),
+      rootRect: () => readNodeRect(this.requireSurface(), 0),
       /** Whether the root asks for `process()` frames and for `_input` (native's one decision, `update_process`). */
       surfaceProcessing: () => this.requireSurface().isProcessing(),
       surfaceProcessingInput: () => this.requireSurface().isProcessingInput(),

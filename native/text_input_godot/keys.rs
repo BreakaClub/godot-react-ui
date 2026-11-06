@@ -13,9 +13,10 @@
 
 use std::cell::OnceCell;
 
-use godot::classes::{InputEvent, InputEventKey, InputMap};
+use godot::classes::{InputEventKey, InputMap};
 use godot::prelude::*;
 
+use crate::keyboard_input::as_keyboard_event;
 use crate::text_input::{Direction, EditCommand, EditConfig};
 
 /// What a key press can be in a text input.
@@ -192,12 +193,9 @@ impl TextActionTable {
     /// The first action `key` is, for an input that is multi-line or not. Enter is a line break in
     /// the one and a submit in the other.
     pub(crate) fn action_of(&self, key: &Gd<InputEventKey>, multiline: bool) -> Option<TextAction> {
-        // An `InputMap` action binds a key to a device: every `InputEventKey` is made with the keyboard's
-        // (`input_event.cpp:670`), and `InputMap::_find_event` ignores a binding unless the event's device is
-        // its own (`input_map.cpp:152`). A key that arrives from another device (an event a `SubViewport` was
-        // given, one a host injected) is the same key for editing, so it is matched as the keyboard's.
-        let mut as_keyboard = key.duplicate_resource();
-        as_keyboard.set_device(InputEvent::DEVICE_ID_KEYBOARD);
+        // A key from another device is the same key for editing, so it is matched as the keyboard's
+        // (`as_keyboard_event` says why; the document selection does the same).
+        let as_keyboard = as_keyboard_event(key);
         let mut without_shift = as_keyboard.duplicate_resource();
         without_shift.set_shift_pressed(false);
         for entry in self.entries() {

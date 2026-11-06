@@ -140,10 +140,11 @@ impl ReactUiRoot {
         })
     }
 
-    /// The root-local rectangle of one node as JSON, or `null` if it is not mounted.
+    /// The root-local rectangle of one node as JSON (node 0 is the root: the viewport, as the snapshot reports it), or `null` if
+    /// it is not mounted.
     pub(crate) fn node_rect_json(&self, tag: u32) -> Value {
-        match self.mounted.absolute_geometry(tag, self.viewport_box()) {
-            Some((rect, _)) => json!(rect),
+        match crate::stacking::rect_of(&self.mounted, tag, self.viewport_box()) {
+            Some(rect) => json!(rect),
             None => Value::Null,
         }
     }

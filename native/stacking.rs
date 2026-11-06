@@ -28,6 +28,8 @@ use std::collections::BTreeSet;
 
 use godot::prelude::Vector2;
 
+use crate::ROOT_TARGET;
+
 use crate::diff::Parent;
 use crate::geometry::{BoxRect, intersect_clip, intersects};
 use crate::props::PositionSpec;
@@ -225,6 +227,16 @@ pub(crate) enum ScrollMode {
     /// viewport's, are ignored from the outermost scroll container inwards, but that container must
     /// itself be on screen; clips below it still apply.
     Reachable,
+}
+
+/// The root-local rectangle `get_node_rect` (and so a handle's `getRect()`) reports for `tag`: `viewport` for the root itself
+/// (`ROOT_TARGET`, which stands for the main layer's root and is no mounted node; the snapshot reports the same rectangle for
+/// it), where a mounted node is drawn, and `None` for any other tag.
+pub(crate) fn rect_of<T: PaintTree>(tree: &T, tag: u32, viewport: BoxRect) -> Option<BoxRect> {
+    if tag == ROOT_TARGET {
+        return Some(viewport);
+    }
+    absolute_geometry(tree, tag, viewport, ScrollMode::Drawn).map(|(rect, _)| rect)
 }
 
 /// The root-local rectangle of `tag` and the clip its paint ancestors impose on it (starting from
@@ -696,6 +708,19 @@ mod tests {
         assert_eq!(paint_parent(&tree, 2), None);
         assert!(absolute_geometry(&tree, 2, VIEWPORT, ScrollMode::Drawn).is_none());
         assert!(absolute_geometry(&tree, 99, VIEWPORT, ScrollMode::Drawn).is_none());
+    }
+
+    #[test]
+    fn the_root_has_the_viewport_for_a_rectangle_and_an_unknown_tag_has_none() {
+        let mut tree = TestTree::new();
+        tree.add(TOP, 1, Relative, (5.0, 6.0), (10.0, 20.0));
+        tree.settle();
+        let fields = |rect: BoxRect| (rect.x, rect.y, rect.width, rect.height);
+        let root = rect_of(&tree, ROOT_TARGET, VIEWPORT).expect("the root has a rectangle");
+        assert_eq!(fields(root), fields(VIEWPORT));
+        let node = rect_of(&tree, 1, VIEWPORT).expect("a mounted node has a rectangle");
+        assert_eq!(fields(node), (5.0, 6.0, 10.0, 20.0));
+        assert!(rect_of(&tree, 99, VIEWPORT).is_none());
     }
 
     // ---- Scroll containers ------------------------------------------------------------------------
