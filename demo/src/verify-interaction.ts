@@ -1439,6 +1439,12 @@ const SELECT_GAP_PX = 4;
 const SELECT_MARGIN_PX = 8;
 /** A probe this far inside the list's left edge is on its border and padding, where no item is. */
 const SELECT_PADDING_PROBE_PX = 2;
+/** The long list's length (`LONG_LIST_LENGTH` in inputs-lab.tsx). */
+const LONG_LIST_COUNT = 40;
+/** How close a revealed item's edge is to the edge of the list it was scrolled to, in pixels. */
+const SCROLL_TOLERANCE_PX = 0.5;
+/** The list's border (`border`), which its client area, the part that scrolls, starts inside. */
+const SELECT_BORDER_PX = 1;
 /** A disabled subtree is drawn at half opacity (`disabled:opacity-50`). */
 const DISABLED_OPACITY = 0.5;
 const INDIGO_600 = '#4f46e5';
@@ -1528,7 +1534,7 @@ async function verifyInputs(owner: Node, api: InteractionInspection, capture: (n
   // ---- Rest: the state, the tab stops (the radio group has mounted over two commits) ------------------------------
   assert(JSON.stringify(state()) === JSON.stringify(INPUTS_INITIAL), `The lab starts from its initial state: ${text(api, 'inputs-json')}`);
   const stops = tabStops(api, 'inputs-');
-  assert(stops.join(',') === 'inputs-checkbox,inputs-switch,inputs-radio-medium,inputs-radio-reverse,inputs-slider-thumb,inputs-fruit,inputs-next,inputs-shipping',
+  assert(stops.join(',') === 'inputs-checkbox,inputs-switch,inputs-radio-medium,inputs-radio-reverse,inputs-slider-thumb,inputs-fruit,inputs-next,inputs-long,inputs-shipping',
     `One radio item is a tab stop (the selected one), locked controls and the disabled item are none: ${stops.join(',')}`);
   for (const size of ['small', 'large']) {
     assert(nodeOf(`inputs-radio-${size}`).props.tabIndex === -1, `The unselected ${size} item is not a tab stop`);
@@ -1767,6 +1773,88 @@ async function verifyInputs(owner: Node, api: InteractionInspection, capture: (n
   assert(state().fruit === 'date' && !api.find('inputs-fruit-list') && focusedTestID() === 'inputs-fruit',
     `Pressing an item chooses it, closes the list and refocuses the trigger: ${text(api, 'inputs-json')}`);
 
+  // ---- A list too long for the room: capped to it, and scrolled by the keys, the wheel and its thumb ----------------
+  const longTrigger = rectOf('inputs-long');
+  const rootHeight = api.snapshot().height;
+  await click(api, 'inputs-long');
+  const longList = (): NativeSnapshotNode => nodeOf('inputs-long-list');
+  const longState = (): NativeScrollState => {
+    const scroll = longList().scroll;
+    assert(scroll, 'The open list is a scroll container');
+    return scroll;
+  };
+  const clientTop = (): number => longList().rect.y + SELECT_BORDER_PX;
+  const clientBottom = (): number => clientTop() + longState().clientHeight;
+  const itemId = (position: number): string => `inputs-long-item-option-${position}`;
+  const room = rootHeight - (longTrigger.y + longTrigger.height) - SELECT_GAP_PX - SELECT_MARGIN_PX;
+  assert(near(longList().rect.height, room, GEOMETRY_TOLERANCE),
+    `A list taller than the room under its trigger is capped to that room: ${longList().rect.height} for ${room}`);
+  assert(near(longList().rect.y, longTrigger.y + longTrigger.height + SELECT_GAP_PX, GEOMETRY_TOLERANCE),
+    `and still opens under the trigger: ${JSON.stringify(longList().rect)} under ${JSON.stringify(longTrigger)}`);
+  assert(longState().scrollTop === 0 && longState().maxScrollTop > 0 && longState().thumbs?.y !== null,
+    `The rest of the items are scrolled out of view, with a scrollbar for them: ${JSON.stringify(longState())}`);
+  assert(focusedTestID() === itemId(1), `Opening focuses the first item: ${focusedTestID()}`);
+
+  // Arrow keys move focus down the list, and focus brings the item into view by the least scrolling that shows it.
+  const itemHeight = rectOf(itemId(1)).height;
+  const itemStep = rectOf(itemId(2)).y - rectOf(itemId(1)).y;
+  const shown = Math.floor((clientBottom() - rectOf(itemId(1)).y - itemHeight) / itemStep) + 1;
+  for (let press = 0; press < shown; press++) await tap(KEY_DOWN);
+  assert(focusedTestID() === itemId(shown + 1), `${shown} ArrowDowns reach the first item that was out of view: ${focusedTestID()}`);
+  assert(longState().scrollTop > 0 && near(rectOf(itemId(shown + 1)).y + itemHeight, clientBottom(), SCROLL_TOLERANCE_PX),
+    `The list scrolled just far enough to show it, flush with the bottom edge: ${JSON.stringify(rectOf(itemId(shown + 1)))} in ${clientBottom()}`);
+  await tap({ keycode: Key.KeyEnd });
+  assert(focusedTestID() === itemId(LONG_LIST_COUNT), `End goes to the last item: ${focusedTestID()}`);
+  assert(near(rectOf(itemId(LONG_LIST_COUNT)).y + itemHeight, clientBottom(), SCROLL_TOLERANCE_PX),
+    `and the list scrolls it into view: ${JSON.stringify(rectOf(itemId(LONG_LIST_COUNT)))} in ${clientBottom()}`);
+
+  // The wheel scrolls the list a step, and a wheel at its end stays in it instead of reaching the game.
+  const listCentre = (): Vector2 => centerOf(longList().rect);
+  const longTick = longState().clientHeight / SCROLL_PAGE_DIVISOR;
+  let longTop = longState().scrollTop;
+  await wheel(listCentre(), MouseButton.MouseButtonWheelUp);
+  assert(near(longState().scrollTop, longTop - longTick), `One tick of the wheel scrolls it a step: ${longTop} -> ${longState().scrollTop}`);
+  await wheel(listCentre(), MouseButton.MouseButtonWheelDown);
+  await wheel(listCentre(), MouseButton.MouseButtonWheelDown);
+  assert(near(longState().scrollTop, longState().maxScrollTop), `and it can go on down to the end: ${longState().scrollTop} of ${longState().maxScrollTop}`);
+  const gameWheels = counts(api).unhandledWheels;
+  await wheel(listCentre(), MouseButton.MouseButtonWheelDown);
+  assert(counts(api).unhandledWheels === gameWheels, 'A tick at the end of the list is contained: the game does not get it');
+  assert(api.find('inputs-long-list') !== undefined, 'and the wheel leaves the list open');
+
+  // Back at the top, the thumb drags the content, and letting go of it chooses nothing.
+  await tap({ keycode: Key.KeyHome });
+  assert(focusedTestID() === itemId(1) && near(rectOf(itemId(1)).y, clientTop(), SCROLL_TOLERANCE_PX),
+    `Home goes to the first item and shows it at the top edge: ${focusedTestID()} ${JSON.stringify(rectOf(itemId(1)))} in ${clientTop()}`);
+  const startTop = longState().scrollTop;
+  const longGrip = longState().thumbs?.y;
+  assert(longGrip, 'The list has a thumb to grab');
+  const longTravel = (longState().clientHeight - 2 * SCROLLBAR_MARGIN) - longGrip.height;
+  const grabLong = centerOf(longGrip);
+  move(grabLong);
+  await settle();
+  pointer(grabLong, true);
+  await settle();
+  move(new Vector2(grabLong.x, grabLong.y + THUMB_DRAG_PX));
+  await settle();
+  assert(near(longState().scrollTop - startTop, THUMB_DRAG_PX / longTravel * longState().maxScrollTop, 0.5),
+    `Dragging the list's thumb moves the content with it: ${startTop} -> ${longState().scrollTop}`);
+  pointer(new Vector2(grabLong.x, grabLong.y + THUMB_DRAG_PX), false);
+  await settle();
+  assert(api.find('inputs-long-list') !== undefined && text(api, 'inputs-long-value') === 'Pick an option',
+    `Letting go of the thumb neither closes the list nor chooses an item: ${text(api, 'inputs-long-value')}`);
+  await capture('27-inputs-select-long', overflowing);
+
+  // A press on an item that was scrolled into view chooses it.
+  const visibleItem = api.snapshot().nodes.find(node => /^inputs-long-item-option-\d+$/.test(String(node.props.testID))
+    && node.rect.y >= clientTop() && node.rect.y + node.rect.height <= clientBottom());
+  assert(visibleItem, 'An item is in view after the scroll');
+  const chosenId = String(visibleItem.props.testID);
+  await click(api, chosenId);
+  assert(!api.find('inputs-long-list') && text(api, 'inputs-long-value') === `Option ${chosenId.slice(chosenId.lastIndexOf('-') + 1)}`,
+    `Pressing a scrolled item chooses that item and closes the list: ${text(api, 'inputs-long-value')} for ${chosenId}`);
+  assert(focusedTestID() === 'inputs-long', `and focuses the trigger: ${focusedTestID()}`);
+
   // ---- Select near the bottom of the window: the list flips above its trigger ---------------------------------------
   const shippingRect = rectOf('inputs-shipping');
   await click(api, 'inputs-shipping');
@@ -1808,7 +1896,7 @@ async function verifyInputs(owner: Node, api: InteractionInspection, capture: (n
   const finalState = state();
   assert(finalState.subscribe && finalState.notifications && finalState.size === 'large' && finalState.fruit === 'date'
     && finalState.shipping === null && finalState.volume === 25, `The final state: ${text(api, 'inputs-json')}`);
-  await capture('27-inputs-final', overflowing);
+  await capture('28-inputs-final', overflowing);
   move(FAR_CORNER);
   await settle();
   api.restoreDemo();
@@ -1924,7 +2012,7 @@ async function verifyScrolling(owner: Node, api: InteractionInspection, capture:
   assert(reversed.scrollTop === 0 && reversed.maxScrollTop === 0 && reversed.minScrollTop < 0
     && near(reversed.scrollHeight, reversed.clientHeight - reversed.minScrollTop),
   `A column-reverse list starts at zero with its range below it: ${JSON.stringify(reversed)}`);
-  await capture('28-scroll-lab');
+  await capture('29-scroll-lab');
 
   // ---- Wheel: a tick is a page divided by eight; what nothing can take goes on to the game --------------------------
   const listCentre = () => centerOf(rectOf('scroll-list'));
@@ -1969,7 +2057,7 @@ async function verifyScrolling(owner: Node, api: InteractionInspection, capture:
   assert(paintIs(image, edge(quietRect.y + 8), QUIET_ROW_FILL), `Row 1 shows in the list where it straddles the edge: ${describePaint(image, edge(quietRect.y + 8))}`);
   assert(paintIs(image, edge(quietRect.y + quietRect.height + 2), PAGE_FILL), `A row past the bottom edge does not draw below the list: ${describePaint(image, edge(quietRect.y + quietRect.height + 2))}`);
   assert(paintIs(image, edge(quietRect.y + quietRect.height - 6), QUIET_ROW_FILL), 'And the part of it inside the list shows');
-  await capture('29-scroll-clipped');
+  await capture('30-scroll-clipped');
 
   // ---- Scrollbars ---------------------------------------------------------------------------------------------------
   const quiet = scrollOf('quiet-list');
@@ -2015,7 +2103,7 @@ async function verifyScrolling(owner: Node, api: InteractionInspection, capture:
   await click(api, targetRow);
   assert(text(api, 'list-status').includes('clicked row 3'), `A click at a scrolled row's place reaches that row: ${text(api, 'list-status')}`);
   assert(text(api, 'list-status') !== statusBefore && /wrap clicks 1$/.test(text(api, 'list-status')), 'And bubbles to its ancestors');
-  await capture('30-scroll-list-scrolled');
+  await capture('31-scroll-list-scrolled');
 
   // ---- Thumb dragging ------------------------------------------------------------------------------------------------
   await click(api, 'list-top');
@@ -2122,7 +2210,7 @@ async function verifyScrolling(owner: Node, api: InteractionInspection, capture:
   }
   assert(top('scroll-list') > 0, 'Tabbing past the last row in view scrolled the list to show the next');
   assert(api.snapshot().focusVisible, 'It is a keyboard focus');
-  await capture('31-scroll-tab-reveals');
+  await capture('32-scroll-tab-reveals');
   for (let step = 0; step < reached; step++) await keyPress(Key.KeyTab, true);
   assert(api.snapshot().focused === get(api, 'list-row-0').id && visible('list-row-0'), 'Shift+Tab back to row 0 shows it');
 
@@ -2207,7 +2295,7 @@ async function verifyScrolling(owner: Node, api: InteractionInspection, capture:
     await wheel(point(), scrollingDown);
     assert(near(top('chain-outer'), spill + tickY('chain-outer')) && near(top('chain-inner'), innerMax), 'chain: then the outer list takes the ticks');
     assert(unhandled() === gameBefore, 'chain: and the game gets none of them');
-    await capture('32-scroll-chained');
+    await capture('33-scroll-chained');
     // The inner list scrolls out of view as the outer one moves, so the rest of the ticks aim at the outer list.
     const outerMax = scrollOf('chain-outer').maxScrollTop;
     const outerPoint = () => centerOf(rectOf('chain-outer'));
@@ -2221,7 +2309,7 @@ async function verifyScrolling(owner: Node, api: InteractionInspection, capture:
     for (let tick = 0; tick < SEVERAL_TICKS; tick++) await wheel(point(), scrollingDown);
     assert(top('contain-outer') === 0 && near(top('contain-inner'), innerMax), 'contain: overscroll-contain keeps the scroll the inner list cannot take from the outer one');
     assert(unhandled() === gameBefore, 'contain: and from the game');
-    await capture('33-scroll-contained');
+    await capture('34-scroll-contained');
   }
 
   // ---- Touch: a pan scrolls, cancels the pointer, coasts; touch-none keeps the pointer events --------------------------
@@ -2255,7 +2343,7 @@ async function verifyScrolling(owner: Node, api: InteractionInspection, capture:
   touchDrag(FIRST_TOUCH, new Vector2(start.x, pannedTo + 5), new Vector2(0, 5));
   await settle();
   assert(near(top('touch-list'), 15), `And back when the finger returns: ${top('touch-list')}`);
-  await capture('34-scroll-touch-pan');
+  await capture('35-scroll-touch-pan');
   touch(FIRST_TOUCH, new Vector2(start.x, pannedTo + 5), false);
   await settle();
   assert(touchStatus().endsWith('clicks 1'), `No click follows a pan: ${touchStatus()}`);

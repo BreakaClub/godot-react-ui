@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import type { UIRoot } from '../src';
-import type { LayoutRect, NativeKeyEvent, NativePointerEvent, NativePointerType } from '../src/native';
+import type { LayoutRect, NativeKeyEvent, NativePointerEvent, NativePointerType, NativeScrollState } from '../src/native';
 import { RecordingHost } from './recording-host';
 
 /** The keys that press a focused button (native/keyboard_input.rs `is_activation_key`), as DOM `key`s. */
@@ -44,6 +44,11 @@ export class KitHost extends RecordingHost {
    * not run here, and an overlay measures itself in the commit that creates it.
    */
   readonly rectsByTestID = new Map<string, LayoutRect>();
+  /**
+   * The state `getScrollState()` answers for the element with a `testID`, ahead of its mounting, for the
+   * same reason (a scroll container's size is layout's). An element with none is not a scroll container.
+   */
+  readonly scrollStatesByTestID = new Map<string, NativeScrollState>();
   private readonly awaitedKeys = new Map<number, NativeKeyEvent>();
   private activation: { readonly key: string; readonly tag: number } | undefined;
 
@@ -61,6 +66,14 @@ export class KitHost extends RecordingHost {
     const preset = typeof testID === 'string' ? this.rectsByTestID.get(testID) : undefined;
     if (preset === undefined) return super.getNodeRect(tag);
     this.calls.push('getNodeRect');
+    return JSON.stringify(preset);
+  }
+
+  override getScrollState(tag: number): string {
+    const testID = this.nodes.get(tag)?.props.testID;
+    const preset = typeof testID === 'string' ? this.scrollStatesByTestID.get(testID) : undefined;
+    if (preset === undefined) return super.getScrollState(tag);
+    this.calls.push('getScrollState');
     return JSON.stringify(preset);
   }
 

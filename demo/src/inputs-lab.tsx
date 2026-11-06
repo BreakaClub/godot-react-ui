@@ -36,6 +36,12 @@ const FRUITS: readonly Choice[] = [
   { value: 'date', label: 'Date' },
 ];
 
+/** Far more items than the room under the select holds, so its list has to scroll. */
+const LONG_LIST_LENGTH = 40;
+const LONG_LIST: readonly Choice[] = Array.from({ length: LONG_LIST_LENGTH }, (_, index) => ({
+  value: `option-${index + 1}`, label: `Option ${index + 1}`,
+}));
+
 const SHIPPING: readonly Choice[] = [
   { value: 'post', label: 'Post' },
   { value: 'courier', label: 'Courier' },
@@ -73,12 +79,15 @@ function ChoiceSelect(props: {
 /**
  * Phase I8: the input kit (Checkbox, Switch, RadioGroup, Slider, Select) bound to one state object, whose JSON is the
  * readout the verifier parses. Locked copies show the `disabled` look; Reverse reorders the radio items, which the
- * group must follow; the first select sits mid-page and the second at the bottom, where its list has to flip.
+ * group must follow; the first select sits mid-page and the second at the bottom, where its list has to flip. The third has
+ * forty items, more than fit under it: its list is capped to the room and scrolls.
  */
 export function InputsLab() {
   const [state, setState] = useState<InputsState>(INITIAL_STATE);
   const [reversed, setReversed] = useState(false);
   const [nextClicks, setNextClicks] = useState(0);
+  // Its own state: the readout is the lab's, and a long list adds nothing to what it proves.
+  const [option, setOption] = useState<string | null>(null);
   const patch = (change: Partial<InputsState>) => setState(current => ({ ...current, ...change }));
   const sizes = reversed ? [...SIZES].reverse() : SIZES;
 
@@ -127,6 +136,7 @@ export function InputsLab() {
       <View className="flex-row items-center gap-3">
         <ChoiceSelect id="fruit" value={state.fruit} placeholder="Pick a fruit" choices={FRUITS} onChange={fruit => patch({ fruit })} />
         <Button testID="inputs-next" className={labButton} onClick={() => setNextClicks(value => value + 1)}>{`Next ${nextClicks}`}</Button>
+        <ChoiceSelect id="long" value={option} placeholder="Pick an option" choices={LONG_LIST} onChange={setOption} />
       </View>
 
       <View className="rounded-lg bg-slate-900 p-3">

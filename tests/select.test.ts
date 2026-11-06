@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test, { mock } from 'node:test';
 import { createElement as h, createRef, useState, type ReactNode } from 'react';
-import { Select, type UIHandle } from '../src';
+import { Select, type NativeScrollState, type UIHandle } from '../src';
 import { edgeEnabled, stepEnabled, typeAheadMatch, TYPE_AHEAD_RESET_MS } from '../src/kit/listbox';
 import { placePopover } from '../src/kit/popover-position';
 import { KitHost } from './kit-host';
@@ -153,12 +153,13 @@ test('placePopover opens under the anchor with the left edges aligned', () => {
   const placement = placePopover({
     anchor: { x: 100, y: 100, width: 120, height: 30 }, content: { width: 90, height: 200 }, viewport: VIEWPORT, gap: GAP, padding: PADDING,
   });
-  assert.deepEqual(placement, { left: 100, top: 134, side: 'bottom' });
+  assert.deepEqual(placement, { left: 100, top: 134, side: 'bottom', maxHeight: 800 - 130 - GAP - PADDING });
 });
 
 test('placePopover flips above when it does not fit below and there is more room above', () => {
   const input = { content: { width: 90, height: 200 }, viewport: VIEWPORT, gap: GAP, padding: PADDING };
-  assert.deepEqual(placePopover({ ...input, anchor: { x: 100, y: 700, width: 120, height: 30 } }), { left: 100, top: 496, side: 'top' });
+  assert.deepEqual(placePopover({ ...input, anchor: { x: 100, y: 700, width: 120, height: 30 } }),
+    { left: 100, top: 496, side: 'top', maxHeight: 700 - GAP - PADDING });
   // Just fits below: stays below.
   const bottom = VIEWPORT.height - PADDING - 200;
   assert.equal(placePopover({ ...input, anchor: { x: 100, y: bottom - GAP - 30, width: 120, height: 30 } }).side, 'bottom');
@@ -166,12 +167,27 @@ test('placePopover flips above when it does not fit below and there is more room
     'a pixel less room below flips it, there being more above');
 });
 
-test('placePopover stays below when neither side has room but below has more', () => {
-  const placement = placePopover({
-    anchor: { x: 100, y: 100, width: 120, height: 30 }, content: { width: 90, height: 900 }, viewport: VIEWPORT, gap: GAP, padding: PADDING,
+test('placePopover limits a popover taller than the room on its side to that room, on the side with more', () => {
+  const tall = { content: { width: 90, height: 900 }, viewport: VIEWPORT, gap: GAP, padding: PADDING };
+  const below = placePopover({ ...tall, anchor: { x: 100, y: 100, width: 120, height: 30 } });
+  assert.equal(below.side, 'bottom', 'more room below than above');
+  assert.equal(below.maxHeight, 658, 'the room under the anchor, less the gap and the padding');
+  assert.equal(below.top, 134, 'it still opens under the anchor: it is made to fit, not pushed up the window');
+  const above = placePopover({ ...tall, anchor: { x: 100, y: 600, width: 120, height: 30 } });
+  assert.equal(above.side, 'top', 'more room above than below');
+  assert.equal(above.maxHeight, 588);
+  assert.equal(above.top, PADDING, 'its capped height reaches the padding at the top edge, and no further');
+});
+
+test('placePopover gives a popover that fits the room as it is, and never a negative height', () => {
+  const fits = placePopover({
+    anchor: { x: 100, y: 100, width: 120, height: 30 }, content: { width: 90, height: 200 }, viewport: VIEWPORT, gap: GAP, padding: PADDING,
   });
-  assert.equal(placement.side, 'bottom', 'more room below than above');
-  assert.equal(placement.top, PADDING, 'a popover taller than the viewport is pinned to the top edge and overflows the bottom');
+  assert.ok(fits.maxHeight > 200, 'a cap above the natural height changes nothing');
+  const cramped = placePopover({
+    anchor: { x: 100, y: 10, width: 120, height: 20 }, content: { width: 90, height: 200 }, viewport: { width: 1000, height: 40 }, gap: GAP, padding: PADDING,
+  });
+  assert.equal(cramped.maxHeight, 0, 'a viewport with no room on either side has no room, not a negative one');
 });
 
 test('placePopover clamps horizontally into the viewport', () => {
@@ -368,21 +384,36 @@ test('Select: pressing a disabled item is the list\'s press, so focus stays in t
   m.root.unmount();
 });
 
-test('Select: a pointer entering an item focuses it without a ring, and a disabled item takes nothing', () => {
+test('Select: a pointer moving over an item focuses it without a ring, and a disabled item takes nothing', () => {
   const m = mount(fruitSelect({ root: { defaultValue: 'apple' } }));
   click(m, 'trigger');
-  m.host.event(m.tag('item-blueberry'), 'pointerenter');
+  m.host.event(m.tag('item-blueberry'), 'pointermove');
   m.root.dispatchEvents();
   assert.equal(focusedTestID(m), 'item-blueberry');
   assert.equal(m.host.focusRequests.at(-1)?.focusVisible, 0, 'focus() with focusVisible false: the highlight, not the keyboard ring');
   const requests = m.host.focusRequests.length;
-  m.host.event(m.tag('item-cherry'), 'pointerenter');
+  m.host.event(m.tag('item-cherry'), 'pointermove');
   m.root.dispatchEvents();
   assert.equal(m.host.focusRequests.length, requests, 'a disabled item is not asked to focus');
   assert.equal(focusedTestID(m), 'item-blueberry');
   click(m, 'item-cherry');
   assert.ok(m.has('list'), 'and it cannot be chosen: the list stays open');
   assert.equal(m.host.focused, m.tag('item-blueberry'));
+  m.root.unmount();
+});
+
+test('Select: a pointer that is only over an item, or a finger, does not take focus from where the keys put it', () => {
+  const m = mount(fruitSelect({ root: { defaultValue: 'apple' } }));
+  click(m, 'trigger');
+  const requests = m.host.focusRequests.length;
+  // The list scrolls under a pointer that rests on it: the pointer enters another item without moving.
+  m.host.event(m.tag('item-blueberry'), 'pointerenter');
+  m.root.dispatchEvents();
+  assert.equal(m.host.focusRequests.length, requests, 'entering an item takes no focus');
+  assert.equal(focusedTestID(m), 'item-apple');
+  m.host.event(m.tag('item-blueberry'), 'pointermove', { pointerType: 'touch' });
+  m.root.dispatchEvents();
+  assert.equal(m.host.focusRequests.length, requests, 'and a finger moving over an item takes none');
   m.root.unmount();
 });
 
@@ -743,6 +774,67 @@ test('Select flips above the trigger when there is not room below, and honours s
   click(low, 'trigger');
   assert.equal(low.style('list').left, 1024 - 20 - 300, 'kept 20 px inside the right edge of the 1024 px root');
   low.root.unmount();
+});
+
+/** The state of a list laid out `box` tall, with a 1 px border, whose items need `natural` of height. */
+function listScroll(box: number, natural: number, thumbs: NativeScrollState['thumbs'] = null): NativeScrollState {
+  const border = 2;
+  return {
+    scrollLeft: 0, scrollTop: 0, scrollWidth: 88, scrollHeight: natural - border, clientWidth: 88, clientHeight: box - border,
+    minScrollLeft: 0, maxScrollLeft: 0, minScrollTop: 0, maxScrollTop: natural - box, thumbs,
+  };
+}
+
+test('Select caps a list taller than the room below to that room, and it scrolls', () => {
+  const m = mount(fruitSelect());
+  m.host.rectsByTestID.set('trigger', TRIGGER_RECT);
+  m.host.rectsByTestID.set('list', { x: 0, y: 0, width: 90, height: 900 });
+  m.host.scrollStatesByTestID.set('list', listScroll(900, 900));
+  click(m, 'trigger');
+  assert.equal(m.style('list').maxHeight, 768 - 130 - 4 - 8, 'the 768 px root below the trigger, less the gap and the padding');
+  assert.equal(m.style('list').top, 134, 'under the trigger, not pushed up the window');
+  assert.equal(m.style('list').overflowY, 'auto', 'and it scrolls what the cap leaves out');
+  m.root.unmount();
+});
+
+test('Select caps a list that opens above to the room above', () => {
+  const m = mount(fruitSelect());
+  m.host.rectsByTestID.set('trigger', { x: 100, y: 600, width: 120, height: 30 });
+  m.host.rectsByTestID.set('list', { x: 0, y: 0, width: 90, height: 900 });
+  m.host.scrollStatesByTestID.set('list', listScroll(900, 900));
+  click(m, 'trigger');
+  assert.equal(m.style('list').maxHeight, 600 - 4 - 8);
+  assert.equal(m.style('list').top, 8, 'its capped height ends 4 px above the trigger and starts at the padding');
+  m.root.unmount();
+});
+
+test('Select places a capped list for its items\' height, not for the height it was capped to', () => {
+  const m = mount(fruitSelect());
+  // The list was capped to 200 by an earlier placement, and its items need 400: with 226 px below it
+  // does not fit, and 488 px above it does. Placed for its box (200) it would stay below.
+  m.host.rectsByTestID.set('trigger', { x: 100, y: 500, width: 120, height: 30 });
+  m.host.rectsByTestID.set('list', { x: 0, y: 0, width: 90, height: 200 });
+  m.host.scrollStatesByTestID.set('list', listScroll(200, 400));
+  click(m, 'trigger');
+  assert.equal(m.style('list').top, 500 - 4 - 400, 'above the trigger, for a list of 400');
+  assert.equal(m.style('list').maxHeight, 500 - 4 - 8);
+  m.root.unmount();
+});
+
+test('Select: a press on a scrollbar thumb is left to native to drag, and every other press on the list is prevented', () => {
+  const m = mount(fruitSelect());
+  m.host.rectsByTestID.set('trigger', TRIGGER_RECT);
+  m.host.rectsByTestID.set('list', { x: 0, y: 0, width: 90, height: 300 });
+  m.host.scrollStatesByTestID.set('list', listScroll(300, 900, { x: null, y: { x: 80, y: 140, width: 6, height: 100 } }));
+  click(m, 'trigger');
+  const pressedAt = (x: number, y: number): boolean => {
+    m.host.pointer(m.root, 'pointerdown', { x, y }, { over: m.tag('list') });
+    return m.host.wasPrevented(m.host.resolutions.at(-1)?.seq ?? -1);
+  };
+  assert.equal(pressedAt(82, 150), false, 'on the thumb: not prevented, so native starts the drag');
+  assert.equal(pressedAt(82, 300), true, 'on the track below the thumb, which is the list\'s padding to a press');
+  assert.equal(pressedAt(5, 5), true, 'elsewhere on the list');
+  m.root.unmount();
 });
 
 test('Select closes when the root is resized while it is open, and watches the root only while open', () => {
