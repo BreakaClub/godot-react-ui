@@ -1,6 +1,6 @@
 # Fabric renderer and interaction plan
 
-Status: plan v2.10, 6 November 2026. Done: Phase 0 (`9f4a02c`), Phase 1 (`0d11607`), Phase F0
+Status: plan v2.11, 7 November 2026. Done: Phase 0 (`9f4a02c`), Phase 1 (`0d11607`), Phase F0
 (`4f7dd0d`), Phase F1 (`ce99bea`), Phase F2 (`578b461`), Phase F3 (`07a8344`), Phase F4 (`e60f6e5`;
 its numbers and decisions D7 to D10 are in the progress log and the decision log below), Phase I1
 (`edf6081`; decisions D11 to D13), Phase I2 (`fd11f41`; decisions D14 to D16), Phase I3 (`dec1f5d`; decisions D17 to
@@ -11,7 +11,7 @@ D37) with scroll accessibility (D38) and the scrolling Select list (D39). Phase 
 D42). Phase I9 (`400bea3`; D43). The freshness guard (`941334b`). Phase I7 with the kit `TextField`, `TextInput` accessibility and
 world-space typing, which finishes I8, I10's `TextInput` part and I11 (`539e787`; D44). HiDPI (`6c6abd7`, hardened in `5b7faba`; D45). Verifier
 integrity (D46). Scroll bar elements, which finish I10 (D47). `TextInput` fixes (D48). Phase V1, filters and frosted glass (`abdc077`; D40, D49). Input fixes (D50).
-Filter fixes (`6a7815c`; D51). Now: final acceptance.
+Filter fixes (`6a7815c`; D51). Every phase is done. Now: final acceptance (its results go in the progress log's "Final acceptance" section).
 
 v1 of this plan (`7f0a96c`) was rejected because it built every interaction feature on the
 prototype's commit path, which re-walks and re-sends the whole tree on every change. v2 replaces
@@ -142,10 +142,10 @@ not a reason to wait.
   others out of reach; a page also leaves every existing capture untouched (the 94 pre-I1 pairs compare
   unchanged, progress log). I3 to I4 use the same registry.
 - **D15 (I2)**: choices the plan did not make, each DOM's. (a) Only the primary `pointerdown` is cancelable:
-  nothing native follows another button, so there is nothing to prevent. (b) Click target: a pointer an element
+  nothing native follows another button, so there is nothing to prevent. (b) Click target (**the second half replaced by D50**): a pointer an element
   captured clicks that element if the press began inside it (the usual `setPointerCapture(currentTarget)` pattern,
-  whose press target is a child, would otherwise never click); otherwise press and release must reach the same
-  element or two parts of one enabled button, as before. (c) A touch's events are `pointerup`, `pointerleave`,
+  whose press target is a child, would otherwise never click); otherwise, as built here, press and release had to reach the same
+  element or two parts of one enabled button. D50: the click goes to the nearest common inclusive ancestor of the two targets. (c) A touch's events are `pointerup`, `pointerleave`,
   then `click` (browsers fire the compatibility click after the boundary events); `pointerenter` has no related
   element, so JS enters the whole path. (d) `detail` is the click count of the press on `click`, `auxclick`
   and `dblclick`, and 0 on `pointerdown`/`up`/`move` and `contextmenu`; `dblclick` follows the second `click`
@@ -225,7 +225,7 @@ not a reason to wait.
   `godot_application.mm:59`, whose first line is unconditional and which runs a three-step activation hack for an unbundled
   process), and nothing in `main.cpp` or the project settings turns that off; `open -g` cannot either. A brief focus
   interruption when a window launches is accepted.
-- **D22 (Task 0)**: a verifier run that sees interference is disturbed, and only such a run is run again. The isolation of D21
+- **D22 (Task 0, narrowed by D46)**: a verifier run that sees interference is disturbed, and only such a run is run again. The isolation of D21
   cannot make a run immune to a person working at the window, so `VerifierInputIsolation` logs a `GODOT_REACT_RUN_DISTURBED`
   line, as it happens, for input from another device, a focus-out the verifier did not send, and a mouse crossing of the
   window, after `STARTUP_SETTLE_MS` (the activation steps and a focus flicker 70 and 190 ms after `_ready` are in the engine's
@@ -283,8 +283,9 @@ not a reason to wait.
   `selection`, `text_input`), the scroll and drag core (`docs/tracks/scroll-drag-core.md`: `scroll`, `drag`,
   `src/data-transfer.ts`), the world-space recipe (`docs/tracks/world-space.md`, I11 part 1), and kit part 1
   (`docs/tracks/kit.md`: Checkbox, Switch, RadioGroup, Slider); later also `text-layout.md`, `accessibility.md`,
-  `select-anchor.md`, `headless-kit-evaluation.md`, and, as they land, `stock-engine.md`, `text-selection.md`, `text-input.md`,
-  `drag-and-drop.md` and `filters.md`. Each notes file is part of this decision log; the
+  `select-anchor.md`, `headless-kit-evaluation.md`, and, as they landed, `stock-engine.md`, `text-selection.md`, `text-input.md`,
+  `drag-and-drop.md` and `filters.md`; and, from the review and hardening tracks, `freshness.md`, `hidpi.md` (D45), `verifier-integrity.md` (D46),
+  `scroll-bars.md` (D47), `text-input-fixes.md` (D48), `input-fixes.md` (D50) and `filter-fixes.md` (D51). Each notes file is part of this decision log; the
   integrating phases must read the relevant one first. Highlights that change plan text: paste is a request
   followed by `PasteText` so `beforeinput` sees the data; secure inputs treat the whole text as one word; End on a
   soft-wrapped line goes before its last character (no caret affinity); keyboard scroll steps are page/8 for arrows
@@ -584,7 +585,9 @@ relevant here are:
   and regenerate typings, and commit the regenerated `demo/typings/*.d.ts` and `demo/gen/**` with
   `.uid` files. `pnpm gen:types` runs `pnpm build` (which typechecks) first, so it cannot pass while
   TypeScript already uses the new API. In that case run the Godot step directly after
-  `pnpm build:native`: `$GODOT --headless --audio-driver Dummy --editor --generate-types --path demo`.
+  `pnpm build:native`: `$GODOT --headless --audio-driver Dummy --editor --generate-types --path demo` (this bypasses the freshness
+  guard and the scrub of TypeScript from the editor's saved layout, which `pnpm gen:types` does first; scrub by hand or restore `demo/src/main.ts` if
+  Godot converted its indentation).
 - **Do not rewrite working code** that this plan does not ask you to change. The motion behaviour
   (transitions, intrinsic `0 ↔ auto` sizing) must keep passing `pnpm verify:motion` and
   `pnpm verify:motion:web` with unchanged assertions, even though Phase F3 moves the code that drives it.
@@ -613,23 +616,32 @@ pnpm build                           # typecheck + bundle (verify scripts also r
 pnpm verify                          # native baseline workflow, 2 viewports
 pnpm verify:motion                   # native motion workflow, 2 viewports
 pnpm verify:interaction              # native interaction workflow (Phase 1 onwards)
+pnpm verify:world                    # world-space panel (native)
+pnpm verify:text-layout              # text layout probe (needs the probe build: pnpm build:native --probe)
+pnpm verify:a11y                     # accessibility lab; exit 2 "not verified" on Breaka's engine (no AccessKit)
 ```
 
-Web (see `docs/WEB.md` for toolchain requirements). Serve on a port you have checked is free and
-point every Web verifier at it; the verifiers will happily test a stale server:
+Every build, run and verify script takes `--engine=stock` (or `GODOT_REACT_ENGINE=stock`; README, "Engine profiles"). The verify
+scripts refuse an installed build that predates the sources (the freshness guard, `docs/tracks/freshness.md`). Options of
+`scripts/verify.mjs`: `--only=<section>[,<section>]` (interaction only), `--renderer=gl_compatibility|mobile|forward_plus`,
+`--viewport=WxH`, `--faults` (with `--only=filters-faults`, on the library `pnpm build:native --faults` makes) and `--no-retry` (negative
+controls). A failed window is run again only after a disturbance (D22, D46).
+
+Web (see `docs/WEB.md` for toolchain requirements). The Web verifiers serve the export themselves, on a free port that only they
+know, and refuse an export that is older than the sources (D46); run them with no server and no port:
 
 ```sh
 pnpm build:web
-lsof -nP -iTCP:8097 -sTCP:LISTEN                            # must print nothing
-PORT=8097 pnpm demo:web                                     # in the background
-GODOT_REACT_WEB_URL=http://127.0.0.1:8097 pnpm verify:web   # same variable for every Web verifier
-GODOT_REACT_WEB_URL=http://127.0.0.1:8097 pnpm verify:motion:web
-GODOT_REACT_WEB_URL=http://127.0.0.1:8097 pnpm verify:interaction:web
+pnpm verify:web
+pnpm verify:motion:web
+pnpm verify:interaction:web
+node scripts/verify-world-web.mjs
 ```
 
-Stop your server when the Web run (0.4.1) is done. Bound every wait and check the process and its log if
-something stalls. `artifacts/web-verification/failure.png` is never cleared by the verifier; judge a
-run by its report and log.
+`GODOT_REACT_WEB_URL` names a server you started instead: the verifier fetches every file of the export's receipt from it and
+refuses unless each is byte for byte the export it checked. Bound every wait and check the process and its log if
+something stalls. The Web verifiers do not clear old evidence (`artifacts/web-verification/failure.png` stays from an earlier failure);
+judge a run by its report and log.
 
 #### 0.4.1 Verification tiers (D20)
 
@@ -641,38 +653,40 @@ suites before calling work done):
   `pnpm exec tsx --test tests/<file>.test.ts`) and `pnpm test:types`.
 - **When a task is done**: `pnpm build:native` if native changed, then `pnpm build`; then the new or
   changed verifier sections natively, in one viewport (landscape) unless the change depends on the
-  viewport. If `verify:interaction` cannot run one section yet, add a section filter (for example
-  `--only=<name>`, passed through `scripts/verify.mjs`, and the same flag in `verify-interaction-web.mjs`).
+  viewport. A section filter exists: `--only=<name>[,<name>]`, passed through `scripts/verify.mjs`, and the same
+  flag in `verify-interaction-web.mjs` (the sections are listed in the README).
 - **When a phase is done, before its commit** (this is what a phase's **Gate** means, "native gate"):
-  `cargo test`, `pnpm test`, `pnpm test:types`, Clippy; `pnpm verify:interaction` (every section, both
-  viewports) and `pnpm verify`. `pnpm verify:motion` only if the phase touched `motion.rs`,
+  `cargo test`, `pnpm test`, `pnpm test:types`, Clippy; `pnpm verify:interaction` (every default section, both
+  viewports; `filters-sizes`, `filters-cost` and `filters-faults` are opt-in) and `pnpm verify`. `pnpm verify:motion` only if the phase touched `motion.rs`,
   `style_engine.rs`, `computed_style.rs`, the layout or geometry code in `mount.rs`, or `render_tree.rs`.
   **Web only if the phase changed Web-specific behaviour** (touch, DPR, IME or virtual keyboard,
   clipboard, browser input): then `pnpm build:web` and `verify:interaction:web` alone ("Web gate").
 - **End of each batch** (after I3, then every two or three phases) **and before final acceptance**: the
-  full regression run, `pnpm build:web` and all six verifiers (`verify`, `verify:motion`,
-  `verify:interaction`, `verify:web`, `verify:motion:web`, `verify:interaction:web`).
+  full regression run, `pnpm build:web` and every verifier: the six named here (`verify`, `verify:motion`,
+  `verify:interaction`, `verify:web`, `verify:motion:web`, `verify:interaction:web`) and, since they exist, `verify:world`,
+  `verify:text-layout`, `verify:a11y` and `node scripts/verify-world-web.mjs`.
 
 Baselines: at `7f0a96c`, `cargo test` 19, `pnpm test` 13, Clippy 0 warnings, `verify:web` 249
 assertions, `verify:motion:web` 433 assertions (`docs/INTERACTION_PROGRESS.md`).
 
 ---
 
-## 1. Where the code is today
+## 1. Where the code was when v2 began
 
+This section is the history v2 started from; the commit path it describes was replaced in Phase F3 (the current one is 3.3 to 3.9 and `native/PROTOCOL.md`).
 One Godot `Control`, `ReactUiRoot`, owns the whole React tree; React elements are not Godot nodes.
 
-**Commit path (what v2 replaces).** `src/renderer.ts` is a mutation-mode `react-reconciler` host.
-On every commit its `flush()` walks the **entire** JS host tree, re-resolves every node's class names,
-`JSON.stringify`s every node's style to diff it against a `committed` map, and sends one JSON batch
+**Commit path (what v2 replaced).** `src/renderer.ts` was a mutation-mode `react-reconciler` host.
+On every commit its `flush()` walked the **entire** JS host tree, re-resolved every node's class names,
+`JSON.stringify`d every node's style to diff it against a `committed` map, and sent one JSON batch
 (`create`, `style` with the full resolved style, `text`, `children` with full child lists, `remove`)
-through `applyBatch`. `flush()` also runs after every frame that delivered input events, because
-`hover:`/`active:`/`focus:` variants and inheritance are resolved in JS. Native `apply_batch`
-(`native/lib.rs`) clones the whole `Model` to validate the batch, then `sync_model` loops over every
-node rebuilding Taffy styles to compare them, re-syncs the whole Stylo document, and `draw()`
-re-records every element's canvas items on any redraw.
+through `applyBatch`. `flush()` also ran after every frame that delivered input events, because
+`hover:`/`active:`/`focus:` variants and inheritance were resolved in JS. Native `apply_batch`
+(`native/lib.rs`) cloned the whole `Model` to validate the batch, then `sync_model` looped over every
+node rebuilding Taffy styles to compare them, re-synced the whole Stylo document, and `draw()`
+re-recorded every element's canvas items on any redraw.
 
-Measured (existing Web benchmark, DPR 1, 2,000 boxes, every cell updated, median per update):
+Measured then (existing Web benchmark, DPR 1, 2,000 boxes, every cell updated, median per update):
 
 | Stage | Time |
 | --- | --- |
@@ -684,18 +698,18 @@ Measured (existing Web benchmark, DPR 1, 2,000 boxes, every cell updated, median
 | Native draw (re-records every element; 244 of 2,003 visible) | 17 ms |
 | React reconcile total | 45 ms |
 
-JSON is not the main cost; whole-tree work on both sides is. At 50 nodes the flush is about 1.2 ms.
-A one-node change in a large tree still pays the full-tree walks on both sides (by code inspection;
-Phase F0 measures it).
+JSON was not the main cost; whole-tree work on both sides was. At 50 nodes the flush was about 1.2 ms.
+A one-node change in a large tree paid the full-tree walks on both sides (by code inspection;
+Phase F0 measured it: `docs/INTERACTION_PROGRESS.md`).
 
-**Input.** Phase 1 (uncommitted) adds synchronous event dispatch: native queues events and emits an
+**Input.** Phase 1 (`0d11607`) added synchronous event dispatch: native queues events and emits an
 `events_ready` signal from inside `gui_input`; JS drains, dispatches capture/bubble with
 `preventDefault`, and resolves cancelable events before the signal returns. Measured JS time per
-synchronous dispatch is about 1–3 ms p95 on native macOS (up to 3.04 ms for a handler that sets
+synchronous dispatch was about 1–3 ms p95 on native macOS (up to 3.04 ms for a handler that sets
 state; Phase 1 gate run).
 
-The README's "Current limits" section lists the remaining feature gaps (scrolling, text input,
-selection, drag and drop, accessibility, positioning).
+At that point the README's "Current limits" section listed the feature gaps (scrolling, text input,
+selection, drag and drop, accessibility, positioning); all are built now, and it lists what remains.
 
 ---
 
@@ -705,7 +719,10 @@ selection, drag and drop, accessibility, positioning).
 
 1. **Commit cost proportional to what changed.** No JS or native step walks the whole tree on a
    commit. React clones only changed host nodes; native diffs only changed subtrees (shared subtrees
-   are skipped by pointer identity); the mounting layer updates only touched nodes.
+   are skipped by pointer identity); the mounting layer updates only touched nodes. As built, the whole-tree
+   work that remains is recorded where it arises: intrinsic-size transitions clone the Taffy tree to measure an endpoint (section 8), a commit that
+   changes a child list while a text selection exists builds a document of the selectable text, the accessibility update is a whole-tree
+   walk because Godot asks for one (3.21), and `get_snapshot` is diagnostics. React itself still walks a parent's children when one child changes (D8).
 2. **No React work for visual state.** Hover, active, focus, focus-visible, focus-within, disabled
    variants and responsive breakpoints are resolved natively. Moving the mouse over 2,000 nodes or
    resizing across a breakpoint causes zero React commits and zero JS→native prop calls.
@@ -715,7 +732,8 @@ selection, drag and drop, accessibility, positioning).
 4. **One GDExtension call per commit carrying only what changed.** Render makes no native calls. At
    commit, `commit(layer, payload)` (exposed to JS automatically by GodotJS) receives the created
    nodes, the per-node prop diffs and the changed child lists, and nothing else (decision D2).
-5. **No regressions.** Every existing verifier passes with unchanged assertions.
+5. **No regressions.** Every existing verifier passes with unchanged assertions, apart from the recorded exceptions: the field-name updates of
+   Phase F3 and the one assertion D17 inverted (a mouse press focuses without the ring).
 
 ### 2.2 Goals — part B: interaction
 
@@ -730,20 +748,21 @@ selection, drag and drop, accessibility, positioning).
 5. **Positioning and overlays**: `position` (`relative|absolute|fixed`), insets, `zIndex`, an
    overlay layer for popovers and dialogs.
 6. **Scroll containers**: per-axis `overflow: scroll|auto`, wheel/trackpad/touch/keyboard scrolling,
-   chaining, overlay scrollbars, `onScroll`, programmatic scrolling, scroll-into-view.
+   chaining, overlay scrollbars, `onScroll`, programmatic scrolling, scroll-into-view. (Built; scrollbar track clicks are not.)
 7. **Text selection** with `user-select: text`, opt-in.
 8. **Text input**: `<TextInput>` single and multi-line, owned natively, with caret, selection, IME,
-   Web/mobile virtual keyboard, clipboard, undo/redo, React Native's controlled-input protocol.
+   Web/mobile virtual keyboard, clipboard, undo/redo, React Native's controlled-input protocol. (Built; native IME has not been checked by hand.)
 9. **Component kit** from primitives: Checkbox, Switch, RadioGroup, Slider, Select, TextField,
-   ScrollView.
+   ScrollView. (Built; hand-built, D28.)
 10. **HTML-style drag and drop** inside a root, with a usable result when a drag ends outside the UI.
-11. **Accessibility** through Godot's `AccessibilityServer` sub-elements.
-12. **World-space UI**: a verified recipe for a root inside a `SubViewport` on a 3D quad.
-13. **Filters and frosted glass**: `filter` and `backdrop-filter` with blur and the CSS colour functions (Phase V1, D40).
+11. **Accessibility** through Godot's `AccessibilityServer` sub-elements. (Built, with scroll bar elements; the macOS tree was read on the `stock` engine
+    profile only, Breaka's engine has no accessibility driver, and VoiceOver was not run by hand.)
+12. **World-space UI**: a verified recipe for a root inside a `SubViewport` on a 3D quad (`docs/WORLD_SPACE.md`, with its limits; the anchored label is verified natively only).
+13. **Filters and frosted glass**: `filter` and `backdrop-filter` with blur and the CSS colour functions (Phase V1, D40, D49, D51; limits in the README).
 
 ### 2.3 Non-goals
 
-Write these into the README limits when the plan is complete; do not half-implement them:
+Write these into the README limits when the plan is complete (done: README, "Current limits", opens with them); do not half-implement them:
 
 - A JSI-style binding that bypasses GodotJS's ordinary method marshalling. Revisit only if Phase F4
   measurements show the GDExtension call boundary is the bottleneck.
@@ -757,6 +776,15 @@ Write these into the README limits when the plan is complete; do not half-implem
 - Animated programmatic scrolling, overscroll bounce, `position: sticky`, transforms, rounded clip
   masks, native list virtualization.
 - Pen-specific pointer data (pen input is reported as `mouse`).
+
+**Left out in the build, beyond these non-goals** (each is recorded in the decision log or a track note, and the README lists them with the
+non-goals): scrollbar track clicks (D34); drag and drop with files or `setDragImage`, and a glass drag ghost (D49); word-granularity dragging after a
+double click in document selection, caret affinity, highlighting a selected line break and auto-scroll while selecting (D41); `aria-labelledby` and
+`aria-describedby` (D44 T15); the `Select` press-drag-release, groups and `item-aligned` (select-anchor track), and `ScrollView` pull to refresh and snap
+points; images, general `@keyframes`, custom materials, Grid track placement, and the Tailwind utilities `styles.ts` rejects (D49: box shadows, font and text
+utilities, gradients, per-side borders, `ring`, auto margins, transition classes, transforms, among others); that both overflow axes clip together (D30).
+Recorded as not verified: native IME by hand, VoiceOver by hand, the platform accessibility tree on Breaka's engine (it has no driver) and on Windows, Linux and the Web, Safari and
+mobile devices, the release Web preset, and a transparent render target under a filter.
 
 ---
 
@@ -1060,7 +1088,10 @@ Rules (all **must**):
 
 1. Only input-origin entry points emit `events_ready`: `gui_input`, `OS_IME_UPDATE`, `_set_text`,
    accessibility action callbacks. Calls from JS (`commit`, commands) and lifecycle
-   notifications queue events for the next emit or for the owner's per-frame `dispatchEvents()`.
+   notifications queue events for the next emit or for the owner's per-frame `dispatchEvents()`. As built, the Web paste
+   answer is an entry point too, and there is one exception: a touch held long enough to start a drag and a scroll
+   under a stationary pointer are looked at in `process()`, because a held finger sends no input, and their cancelable
+   `dragstart` and `dragover` are answered synchronously like any other (D43, I9-2 and I9-3).
 2. `dispatch_depth` guards nesting: input arriving while JS is inside a dispatch is queued with
    `cancelable: false`.
 3. After the emit, everything computed before it is stale: look nodes up again and skip the default
@@ -1089,8 +1120,10 @@ Rules (all **must**):
   behaviour (the demo) call `surface.grabFocus()` after mounting. The root's focus mode is `FOCUS_CLICK`
   (D11), so Godot's own Tab navigation never gives it focus.
 - Godot grants key focus to the root on every left press that reaches it, before JS runs (D11). After a
-  primary press, whatever JS decided, the root holds key focus only if an element is focused: pressing a
-  non-focusable element (and not starting a selection) clears element focus and releases Godot focus.
+  primary press, whatever JS decided, the root holds key focus only if an element is focused or a selection
+  exists: pressing a non-focusable element (and not starting a selection) clears element focus and releases Godot focus.
+  Key focus is also handed back whenever no element or selection needs it, including when a commit removes the focused
+  element, after `blur()` and when Tab finds nothing (D50); a commit that removed no focus leaves an owner's `grabFocus()` alone.
 - Tab and Shift+Tab are consumed only if focus moved; Enter and Space only if they pressed or released a
   focused enabled button; a wheel tick or pan only if JS prevented it.
 - `viewportX`/`viewportY` are `get_global_transform_with_canvas()` applied to the root-local position.
@@ -1109,8 +1142,10 @@ Rules (all **must**):
   1, 2, 4, 8, 16 mapped explicitly from Godot's `MouseButtonMask` bits 1, 2, 4, 128, 256
   (`native/pointer.rs`, Phase 1).
 - **Clicks**: `click` for the primary button and touch, `auxclick`, `contextmenu` on right press,
-  `dblclick` after the second `click`; `detail` counted natively (Appendix A). The shared-button rule
-  (padding and label of one enabled button activate it) stays.
+  `dblclick` after the second `click`; `detail` counted natively (Appendix A). A `click` goes to the nearest common
+  inclusive ancestor of the press and release targets, mouse and touch alike (D50, replacing D15(b) and the earlier
+  shared-button rule); two parts of one enabled button (padding and label) still click the button, and a release on a
+  disabled element or over nothing clicks nothing.
 - **Hover**: only the mouse sets the `hover` state; touch dispatches enter/leave on down/up but never
   sets `hover` (no sticky hover).
 - **Enter/leave**: one native `pointerleave` (target old, `relatedTarget` new) and one `pointerenter`
@@ -1120,8 +1155,9 @@ Rules (all **must**):
   move/up/cancel; touch pointers are implicitly captured to their `pointerdown` target.
 - **Cancel**: `pointercancel` when a touch pan becomes a scroll, a drag starts, the OS cancels the touch,
   or the root leaves the tree; no `click` follows.
-- **Gesture arbitration** after an un-prevented primary `pointerdown`: (1) JS took capture → none;
-  (2) mouse on a scrollbar thumb → thumb drag; (3) inside a `draggable` element: mouse beyond
+- **Gesture arbitration** after an un-prevented primary `pointerdown`: (1) JS took capture → none (a touch pan and a
+  thumb drag honour it as well, D50);
+  (2) mouse on a scrollbar thumb → thumb drag; (3) inside a `draggable` element (a text input never is a source, D44 T23): mouse beyond
   `Viewport.get_drag_threshold()` or touch held `TOUCH_DRAG_HOLD_MS` within `TOUCH_SLOP_PX` → drag and
   drop; (4) touch beyond `TOUCH_SLOP_PX` where the computed `touchAction` allows panning that axis and
   a scroll container can scroll that way → pan (`pointercancel` to JS); (5) mouse on selectable text →
@@ -1207,7 +1243,8 @@ Rules (all **must**):
 - `userSelect: none|text`, inherited, default `none`. Selection starts only on `Text` nodes outside
   `Button`s. Model: anchor and focus `(tag, offset)` in document order. Mouse: click collapses, double
   click selects a word, triple click the node's text, drag extends, Shift+click extends. Starting a
-  selection grabs Godot focus for the root. `ui_copy` copies (nodes joined by `\n`),
+  selection grabs Godot focus for the root. In a text input a triple click selects all of its text (a text area
+  too: `LineEdit`'s rule, not a line; D44 T14). `ui_copy` copies (nodes joined by `\n`),
   `ui_text_select_all` selects all selectable text. A text change in the range clears the selection.
   `selectionchange` to root listeners; `root.getSelection()` queries native. `selectionColor`.
 
@@ -1248,11 +1285,15 @@ Rules (all **must**):
   (`scene/main/viewport.cpp:2856-2868`), then synthetic RIGHT presses place the caret
   (`platform/web/display_server_web.cpp:801-823`). `ReactUiRoot` implements `_set_text` as an
   `insertReplacementText` edit with the caret at 0, like `LineEdit::_set_text`
-  (`line_edit.cpp:2126-2142`). On Web, IME and virtual keyboard are mutually exclusive and depend on
+  (`line_edit.cpp:2126-2142`). As built, the root also writes the hidden element's value and selection through
+  `JavaScriptBridge` (the engine sets it once and every key sends its whole value back; D48). On Web, IME and virtual keyboard are mutually exclusive and depend on
   `html/experimental_virtual_keyboard` and touch support (`display_server_web.cpp:1227-1231`,
   `library_godot_display.js:39-41`).
-- **Clipboard** through `DisplayServer`; copy/cut disabled for `secure`. Web `clipboard_get` returns a
-  cached value refreshed asynchronously (`display_server_web.cpp:1037-1039`); Phase I7 investigates.
+- **Clipboard** through `native/clipboard.rs` (`DisplayServer`'s, or process memory in a verifier run, D46); copy/cut
+  disabled for `secure`. Web `clipboard_get` returns the text the previous call read
+  (`display_server_web.cpp:1037-1039`) and the engine prevents every keydown, so no `paste` event fires: the root
+  reads `navigator.clipboard.readText()` through `JavaScriptBridge` and pastes when the browser answers (D44, I7C's
+  investigation). The engine is unchanged, so any other caller of `clipboard_get` on Web is still stale.
 - **Undo/redo**: per-input snapshots, `UNDO_LIMIT`, coalesced consecutive `insertText`.
 
 ### 3.19 Drag and drop
@@ -1265,6 +1306,9 @@ root-local and viewport coordinates and `endedOutsideRoot`. Escape or root exit 
 in JS with HTML protection modes. Cursor shapes while dragging. Ghost: `dragPreview: 'native' | 'none'`;
 the native ghost re-records the source's box/content commands into the top-most item, translucent,
 following the pointer. Edge auto-scroll.
+
+As built (D43, decisions I9-1 to I9-16 in `docs/tracks/drag-and-drop.md`): the ghost is a copy tree taken before the `dragstart` handlers run, and a
+filtered source's ghost is unfiltered (D49); a text input is never a source (D44 T23).
 
 Godot `Control` interop is a non-goal: Godot calls `_can_drop_data` on `&self` synchronously during
 routing, where a JS decision cannot be made without a mutable re-entrant borrow. `endedOutsideRoot`
@@ -1281,7 +1325,9 @@ Follow `ItemList` (`scene/gui/item_list.cpp:1315-1365`, `get_focused_accessibili
 `item_list.cpp:1236`): on `NOTIFICATION_ACCESSIBILITY_UPDATE`, ensure one sub-element per exposed node
 under the nearest exposed ancestor's element; set role, name, bounds, flags, values, actions bound to
 the node's tag. Exposed: `Button`, `TextInput`, `Text` with text, scroll containers, explicit `role`.
-`ariaHidden` removes a subtree. Free on `Delete`; forget all on `ACCESSIBILITY_INVALIDATE`;
+`ariaHidden` removes a subtree. As built (D38, D42, D47): a scroll container with no `role` is `SCROLL_VIEW`
+and carries its scroll state and actions, and each scrollable axis has a scroll bar element after the content;
+there is no `aria-labelledby` or `aria-describedby` (D44 T15). Free on `Delete`; forget all on `ACCESSIBILITY_INVALIDATE`;
 `queue_accessibility_update()` after commits, focus and geometry changes. The update is a whole-tree
 walk by design (Godot asks for it).
 
@@ -1299,7 +1345,7 @@ Built only from `View`, `Text`, `Button`, `TextInput`, events, focus, capture, `
 transitions. No transforms, images or icon fonts: checkmarks are filled inner boxes; switch thumbs move
 by transitioning a spacer's `width`.
 
-### 3.24 Module layout (target)
+### 3.24 Module layout (as built)
 
 Rust (`native/`). Inherent `impl ReactUiRoot` blocks may live in any module. Child-module items used
 elsewhere need `pub(crate)` (never `pub`). All `#[func]`/`#[signal]` declarations stay in the primary
@@ -1317,6 +1363,9 @@ elsewhere need `pub(crate)` (never `pub`). All `#[func]`/`#[signal]` declaration
 | `events.rs`, `pointer.rs` | Phase 1 event queue, wire types, pointer helpers | yes |
 | `focus.rs`, `keymap.rs`, `scroll.rs`, `text_offsets.rs`, `selection.rs`, `text_input.rs`, `drag.rs` | interaction logic | yes |
 | `text_layout.rs`, `text_input_godot.rs`, `accessibility.rs` | Godot glue | no |
+| `accessibility_model.rs`, `pan.rs`, `stacking.rs`, `filter.rs`, `blur.rs`, `text_offsets.rs` | Godot-free models: exposed nodes and roles, touch pan, paint parents, filter lists, the mip-chain blur model | yes |
+| `pointer_input.rs`, `pointer_state.rs`, `keyboard_input.rs`, `scroll_input.rs`, `selection_input.rs`, `drag_input.rs`, `drag_ghost.rs`, `clipboard.rs` | the input glue of each feature, the drag ghost, the clipboard (`DisplayServer`'s or the verifier's in-memory one) | no |
+| `filter_render.rs`, `filter_faults.rs` (feature `filter-faults`), `snapshot.rs`, `probe.rs` and `text_layout_probe.rs` (feature `probe`) | filter effects and their negative controls, the diagnostics snapshot, the build-time probes | no |
 | `motion.rs`, `style_engine.rs`, `layout.rs`, `paint.rs`, `geometry.rs`, `profile.rs` | existing, adapted to tags | mixed |
 
 TypeScript (`src/`): `native.ts` (host interface, payload types, validating parsers), `renderer.ts`
@@ -1365,6 +1414,7 @@ A diff is the same shape with any field optionally `null` (reset).
 | `ariaChecked` | `true\|false\|"mixed"` | I10 |
 | `ariaValueMin`, `ariaValueMax`, `ariaValueNow` | finite number | I10 |
 | `ariaLive` | `off\|polite\|assertive` | I10 |
+| `ariaOrientation` | `horizontal\|vertical` | I10 |
 
 `StyleLayers = { layers: [{ minWidth?: number, states?: ("hover"|"active"|"focus"|"focusVisible"|"focusWithin"|"disabled")[], style: StyleSpec }] }`.
 `StyleSpec` is today's style property set (`native/protocol.rs`) in longhand form, minus `disabled`
@@ -1385,6 +1435,7 @@ A diff is the same shape with any field optionally `null` (reset).
 | `userSelect` | `none\|text` | yes | I6 | `select-none`, `select-text` |
 | `selectionColor` | hex | yes | I6 | `selection-[#hex]` |
 | `caretColor`, `placeholderColor` | hex | yes | I7 | `caret-*`, `placeholder-*` |
+| `filter`, `backdropFilter` (CSS filter text) with `filterParts`, `backdropFilterParts` (one field per function, set by the utilities) | `blur`, `brightness`, `contrast`, `grayscale`, `hue-rotate`, `invert`, `opacity`, `saturate`, `sepia`, and `drop-shadow` on `filter` only | no | V1 | `blur-md`, `brightness-110`, `drop-shadow-lg`, `backdrop-blur-lg`, `backdrop-saturate-150`, `filter-none`, `backdrop-filter-none` |
 
 Variants in `styles.ts`: `sm: md: lg: xl: 2xl:` (unchanged thresholds), `hover:`, `active:`, `focus:`,
 `focus-visible:`, `focus-within:`, `disabled:`, and combinations.
@@ -1405,7 +1456,8 @@ ancestor; empty for target `0`) and `relatedPath` on enter and leave events. Eve
 | `keydown`, `keyup` | `key`, `code`, `repeat`, `isComposing`, modifiers | yes | **yes** | `onKeyDown(Capture)`, `onKeyUp(Capture)` | 3.14, Appendix C | I3 |
 | `focus`, `blur` | `relatedTarget`, `focusVisible` | yes (React semantics) | no | `onFocus`, `onBlur` | — | 1, I3 |
 | `scroll` | `scrollLeft/Top/Width/Height`, `clientWidth/Height` | no | no | `onScroll` | — | I5 |
-| `selectionchange` | `selectionStart`, `selectionEnd` (inputs) | no | no | `onSelectionChange` | — | I6, I7 |
+| `selectionchange` | root (target 0): none; a text input: `selectionStart`, `selectionEnd`. One wire name, told apart by the target (D44) | no | no | root `addEventListener('selectionchange')`; `onSelectionChange` | — | I6, I7 |
+| `accessibilityaction` | `action` (`increment\|decrement\|setValue`), `value` | yes | no | `onAccessibilityAction` | — | I10 |
 | `beforeinput` | `inputType`, `data` | yes | **yes** | `onBeforeInput` | apply edit | I7 |
 | `input` | `inputType`, `data`, `value`, `selectionStart`, `selectionEnd`, `eventCount` | yes | no | `onInput`, `onChange` | — | I7 |
 | `compositionstart/update/end` | `data` | yes | no | `onCompositionStart/Update/End` | — | I7 |
@@ -1414,8 +1466,8 @@ ancestor; empty for target `0`) and `relatedPath` on enter and leave events. Eve
 | `dragenter`, `dragleave` | P + `sessionId` | yes | no | `onDragEnter`, `onDragLeave` | — | I9 |
 | `dragover`, `drop` | P + `sessionId` | yes | **yes** | `onDragOver`, `onDrop` | prevented ⇒ accept/complete | I9 |
 
-`inputType`: `insertText`, `insertLineBreak`, `insertFromPaste`, `insertReplacementText`,
-`insertCompositionText`, `deleteContentBackward`, `deleteContentForward`, `deleteWordBackward`,
+`inputType` (as emitted; `insertCompositionText` is not: the preedit never enters the value):
+`insertText`, `insertLineBreak`, `insertFromPaste`, `insertReplacementText`, `deleteContentBackward`, `deleteContentForward`, `deleteWordBackward`,
 `deleteWordForward`, `deleteSoftLineBackward`, `deleteSoftLineForward`, `deleteByCut`, `historyUndo`,
 `historyRedo`.
 
@@ -1433,9 +1485,12 @@ Event methods (Phase 1): `#[signal] events_ready()`, `drain_events() -> GString`
 | `focus_node(tag, focus_visible: i32 /* -1 modality, 0, 1 */)`, `blur_node(tag)` | I3 |
 | `scroll_to(tag, left, top)`, `scroll_by(tag, dx, dy)`, `scroll_into_view(tag)` (each returns an error string or empty), `get_scroll_state(tag) -> GString` (JSON: `scrollLeft/Top/Width/Height`, `clientWidth/Height`, `min/maxScrollLeft`, `min/maxScrollTop`, `thumbs: {x, y}` root-local rectangles or null; `null` for a node that is not a scroll container) | I5 |
 | `get_selection()`, `clear_selection()` | I6 |
-| `set_text_and_selection(tag, event_count, value, start, end)` (`start`/`end` −1 = caret at end), `get_text_input_state(tag)` | I7 |
-| `_set_text(text, emit_signal)` (Godot VK hook) | I7 |
-| `_on_accessibility_action(data, tag, action)` (callback target) | I10 |
+| `set_text_and_selection(tag, event_count, value, start, end)` (`start`/`end` −1 = caret at end), `set_text_selection(tag, start, end, backward)`, `get_text_input_state(tag)` | I7 |
+| `_set_text(text, emit_signal)` (Godot VK hook), `_on_web_clipboard_text(arguments)`, `_on_web_clipboard_refused(arguments)` (Web paste callbacks) | I7 |
+| `_on_accessibility_action(data, tag, action)`, `_on_accessibility_scroll_bar_action(data, tag, axis, action)` (callback targets), `get_text_line_elements(tag) -> Array<Rid>` | I10 |
+| `get_activity()`, `set_profiling(enabled)`, `take_profile()` (diagnostics), static `isolate_clipboard(isolated)`, `clipboard_text()`, `set_clipboard_text(text)` (verifier clipboard, D46) | F0 to F4, D46 |
+
+`native/PROTOCOL.md` is the exact, current list of the surface (it also names the probe classes of the `probe` feature).
 
 `IControl` overrides: `has_point` (I1), `get_cursor_shape` (I1), `get_focused_accessibility_element`
 (I10).
@@ -1447,10 +1502,10 @@ Event methods (Phase 1): `#[signal] events_ready()`, `drain_events() -> GString`
 `hovered`, `focused`, `pressed`, `clockMs`, `transitions`), where `style` is now the node's
 **computed** style (so `disabled`, a prop since F3, is read from `props`), and adds `props`, `layer`,
 `focusVisible` and the commit counters in `stats` (`commits` (= `batches`), `nodesCreated`,
-`nodesUpdated` (native cannot count JS clones), `nodesDeleted`, `mutations`, `boxRecords`,
+`nodesUpdated` (native cannot count JS clones), `nodesRestyled`, `nodesDeleted`, `mutations`, `boxRecords`,
 `contentRecords`); `paintIndex`, `documentIndex`, `pointers`, per-node `scroll`, `selection`,
 per-input `textInput` and `drag` arrive with their phases. As built in I5, every node has `scroll` (the `get_scroll_state` object, or
-`null`) and `stats` adds `scrollUpdates` and `overlayRecords`; the rects of what a scroll container paints include its offset. Node `0` stands for the main layer's root. If an existing
+`null`) and `stats` adds `scrollUpdates` and `overlayRecords`; the rects of what a scroll container paints include its offset. Later additions: top-level `modality`, `drag` and `oversampling`, and per-node `effects` (the filter plan, V1). Node `0` stands for the main layer's root. If an existing
 verifier reads a field whose meaning must change, update the verifier only to read the equivalent
 field and record why.
 
@@ -1468,9 +1523,9 @@ updated, a commit.
 
 ### Phase 0 — Baseline and module split — done (`9f4a02c`)
 
-### Phase 1 — Event pipeline (finish and land)
+### Phase 1 — Event pipeline — done (`0d11607`)
 
-The implementation is in the working tree (uncommitted). Its native parts (`native/events.rs`,
+Landed in `0d11607`. Its native parts (`native/events.rs`,
 `native/pointer.rs` additions, the signal and re-entrancy handling in `native/lib.rs`) and its JS
 dispatch (`src/events.ts`, tests) carry over to v2 unchanged in behaviour; Phase F3 rebases the JS
 side on native paths.
@@ -1531,7 +1586,7 @@ The original tasks are kept below as the record of what was measured.
 state; `cargo test` and `pnpm test` unchanged; the probe is off in default builds (check the
 default `.dylib` and `.wasm` sizes are unchanged).
 
-### Phase F1 — Props, commit validation and differ (Godot-free)
+### Phase F1 — Props, commit validation and differ (Godot-free) — done (`ce99bea`)
 
 **Files**: `native/props.rs` (from `native/protocol.rs`), `native/commit.rs`, `native/diff.rs`,
 `native/computed_style.rs`, `native/lib.rs` (module declarations only), Rust tests.
@@ -1558,7 +1613,7 @@ default `.dylib` and `.wasm` sizes are unchanged).
 
 **Gate**: `cargo test`, Clippy. (No runtime change yet; `protocol.rs` may remain until F3 deletes it.)
 
-### Phase F2 — JS style compiler, native-prop table and commit walk
+### Phase F2 — JS style compiler, native-prop table and commit walk — done (`578b461`)
 
 **Files**: `src/styles.ts`, `src/types.ts`, `src/props.ts` (new), `src/commit.ts` (new),
 `tests/styles.test.ts`, `tests/props.test.ts` (new), `tests/commit.test.ts` (new).
@@ -1577,7 +1632,7 @@ default `.dylib` and `.wasm` sizes are unchanged).
 
 **Gate**: `pnpm test:types`, `pnpm test`.
 
-### Phase F3 — Commit API, mounting layer, render tree, persistent renderer
+### Phase F3 — Commit API, mounting layer, render tree, persistent renderer — done (`07a8344`, decisions D3 to D7)
 
 The cut-over. Old and new paths do not coexist; the phase ends with the old path deleted and every
 existing verifier green.
@@ -1618,7 +1673,7 @@ verifiers, typings.
 `verify:web`, `verify:motion:web`, `verify:interaction`, `verify:interaction:web` (field-name updates
 only, each recorded). Settled PNGs inspected against the Phase 1 captures.
 
-### Phase F4 — Performance acceptance
+### Phase F4 — Performance acceptance — done (`e60f6e5`, decisions D8 to D10)
 
 **Files**: benchmark fixture and runner, `docs/INTERACTION_PROGRESS.md`, README performance paragraph.
 
@@ -1643,7 +1698,7 @@ fix is not local.
 
 **Gate**: all criteria met and recorded; native and Web gates still green (gated, as written, with every verifier).
 
-### Phase I1 — Godot co-operation
+### Phase I1 — Godot co-operation — done (`edf6081`, decisions D11 to D13)
 
 **Files**: `native/lib.rs`, `native/mount.rs`, `native/props.rs`, `native/computed_style.rs`,
 `native/events.rs`, `src/types.ts`, `src/styles.ts`, `src/events.ts`, `src/native.ts`, tests,
@@ -1674,7 +1729,7 @@ fix is not local.
 
 **Gate**: native gate and Web gate.
 
-### Phase I2 — Pointer model, touch, capture
+### Phase I2 — Pointer model, touch, capture — done (`fd11f41`, decisions D14 to D16)
 
 **Files**: `native/lib.rs`, `native/pointer.rs`, `native/mount.rs`, `native/events.rs`, `src/*`
 (events, native, handle), tests, demo, verifiers.
@@ -1696,7 +1751,7 @@ fix is not local.
 
 **Gate**: native gate and Web gate.
 
-### Phase I3 — Focus and keyboard
+### Phase I3 — Focus and keyboard — done (`dec1f5d`, decisions D17 to D19)
 
 **Files**: `native/props.rs`, `native/lib.rs`, `native/focus.rs`, `native/keymap.rs`,
 `native/events.rs`, `native/computed_style.rs`, `src/props.ts`, `src/events.ts`, `src/components.tsx`,
@@ -1718,7 +1773,7 @@ fix is not local.
 
 **Gate**: native gate; Web gate (browser keyboard input changed).
 
-### Phase I4 — Positioning, z-order, overlays
+### Phase I4 — Positioning, z-order, overlays — done (`5018fee`, decisions D23 to D26)
 
 **Files**: `native/props.rs`, `native/mount.rs`, `native/render_tree.rs`, `src/types.ts`,
 `src/styles.ts`, `src/components.tsx`, tests, demo, verifiers. As built: also `native/stacking.rs` (new, Godot-free),
@@ -1745,7 +1800,7 @@ there is no Web gate): the progress log, Phase I4. Plan problems found: the task
 in the plan; the verifiers' geometry check rejected every out-of-flow element (a child outside its parent, overlapping
 siblings), so `verify-interaction.ts` skips out-of-flow elements in it.
 
-### Phase I5 — Scroll containers — built on the `scroll` branch (decisions D30 to D37)
+### Phase I5 — Scroll containers — done (`5858a54`, decisions D30 to D39)
 
 **Files**: `native/scroll.rs`, `native/mount.rs`, `native/render_tree.rs`, `native/props.rs`,
 `native/lib.rs`, `native/events.rs`, `src/*`, `src/kit/ScrollView.tsx`, tests, demo, verifiers. As built: also
@@ -1854,7 +1909,24 @@ and scrolls.
 
 **Gate**: native gate after each of I7A to I7D; Web gate after I7D.
 
-### Phase I8 — Component kit
+**As built (D44, D48; decisions T1 to T27 in `docs/tracks/text-input.md`, fixes in `docs/tracks/text-input-fixes.md`).** I7A to I7D landed as
+one phase with the kit `TextField`, `TextInput` accessibility and world-space typing. Where the text above differs from the code:
+one `selectionchange` wire name has two shapes, told apart by target 0 (T1); key actions match across devices in the product (T3); the
+engine's IME start drops the last queued raw key (T7); a triple click selects all of a text area's text, `LineEdit`'s rule, not a line
+(T14); there is no `aria-labelledby` or `aria-describedby` because native rejects unknown props (T15); a `TextInput` is always a text field,
+its `role` can only remove it, and its text is exposed as line elements (T17, T18); a text input keeps its press inside any draggable (T23); its
+own press runs only when no thumb was grabbed (T25). **I7B's native IME check was not done**: native IME cannot be injected, so it was
+verified on the buffer and, on the Web, with `Input.imeSetComposition`; a manual check with a macOS Japanese or Pinyin input source remains
+unverified. **I7C's Web paste investigation**: `clipboard_get()` on Web returns what the previous call read and the engine prevents every
+keydown, so no `paste` event fires; the root reads `navigator.clipboard.readText()` through `JavaScriptBridge` and pastes when the browser
+answers. The engine is unchanged, so any other caller of `clipboard_get` on Web is still stale. D48 added: an empty paste is no paste, an
+unfinished composition commits on blur one frame later, and the root writes the Web soft keyboard's hidden element. The IME window is
+misplaced for a root on a world-space quad. Engine behaviour left as it is: after a Web composition ended by a focus move `ime_started` stays
+set and raw keys are dropped until one more composition commits (the fix belongs in the engine), the Right presses of two keys in one frame add up,
+and the caret after JS puts an edit back mid-text is off until the next key. `setTextAndSelection` clears undo, and a length-changing
+transform moves the caret to the end, as browsers with React do.
+
+### Phase I8 — Component kit — done (`55b4b0a`, `610e177`, `c3988cd`; decisions D28, D39, D44)
 
 **Files**: `src/kit/*.tsx`, `src/index.ts`, `tests/kit.test.ts`, demo, verifiers. No native changes; if
 a component turns out to need one, add it in the relevant native module and record why in the
@@ -1875,6 +1947,11 @@ behaviour. Tests with the fake host; an "Inputs" demo section bound to one state
 by mouse, keyboard and (Web) touch.
 
 **Gate**: native gate; Web gate only if the phase changed Web-specific behaviour.
+
+**As built.** `Checkbox`, `Switch`, `RadioGroup` and `Slider` (part 1, hand-built, D28), `Select` (with the `compareDocumentOrder` and `useRootSize` queries; its list scrolls, D39),
+`ScrollView` (D36) and `TextField` (D44). `Select` leaves out Radix's press-drag-release, item groups and separators and
+`position="item-aligned"`; `ScrollView` has no virtualisation, pull to refresh or snap points. The controls have the Inputs lab and the native
+`inputs` verifier section; the Web verifier has no `inputs` section, so touch on them is not exercised by a verifier.
 
 ### Phase I9 — Drag and drop — done (`400bea3`, decision D43)
 
@@ -1899,7 +1976,16 @@ by mouse, keyboard and (Web) touch.
 
 **Gate**: native gate; Web gate (touch drags are Web-specific).
 
-### Phase I10 — Accessibility
+**As built (D43, D50; decisions I9-1 to I9-16 in `docs/tracks/drag-and-drop.md`).** Where the text above differs from the code: the touch hold starts a
+drag from `process()` because a held finger sends no input, the one exception to 3.10 rule 1 (I9-2); a scroll under a stationary pointer is
+looked at again on the next frame, so a JS `scrollTo` never emits cancelable events (I9-3); Escape arrives through `input()`, enabled only
+during a drag, because the root usually has no key focus then (I9-4); the ghost is a copy tree taken before the `dragstart` handlers run
+(I9-6), and a filtered source's ghost is unfiltered (D49); a prevented `dragover` or `drop` with no `dropEffect` is rejected in
+`resolve_event` (I9-8); text inside a draggable starts no selection, and a press there that never becomes a drag clicks and clears the current
+selection (I9-15). D50: a drag whose source was removed before `dragstart` is refused, a window focus loss ends a drag that Escape had cancelled
+with the button still down, and the hover stays frozen for a whole drag.
+
+### Phase I10 — Accessibility — done (`e95e653`, finished by `b062df3`; decisions D38, D42, D44, D47)
 
 **Files**: `native/accessibility.rs`, `native/props.rs`, `native/lib.rs`, `src/props.ts`,
 `src/components.tsx`, `src/kit/*`, `scripts/ax-dump.swift`, demo, docs.
@@ -1919,7 +2005,14 @@ by mouse, keyboard and (Web) touch.
 
 **Gate**: native gate (including the AX dump); Web gate (browser accessibility is Web-specific).
 
-### Phase I11 — World-space UI recipe
+**As built.** Task 4 (the macOS tree) could not be done on Breaka's engine, which has no accessibility driver: `pnpm verify:a11y` runs the
+Godot-side half there and ends exit 2, "not verified". The tree was read on the `stock` engine profile (AccessKit; D42) and `verify:a11y --engine=stock`
+passes, with the gaps it cannot convey recorded as `GODOT_REACT_A11Y_GAP` (a group or radio-group element, a mixed checkbox, a text area's
+value, a read-only field, a scroll view's position and actions). `DisplayServer.hasFeature(FEATURE_ACCESSIBILITY_SCREEN_READER)` was recorded on native macOS only (false on Breaka's engine);
+the Web is not claimed. **VoiceOver was not run by hand**, and platform focus, Windows and Linux trees were not checked. `TextInput` accessibility
+landed with I7 (D44), scroll containers with I5 (D38), and each scrollable axis's scroll bar element finished the phase (D47).
+
+### Phase I11 — World-space UI recipe — done (`61b6ac6`, `036ced6`, `2a1ca4e`; decision D44)
 
 **Files**: `demo/src/world-panel.ts` (+ `.uid`), `demo/src/main.ts`, `demo/src/verify-world.ts`,
 `scripts/verify.mjs`, `package.json` (`verify:world`), `docs/WORLD_SPACE.md`. No native changes.
@@ -1936,7 +2029,12 @@ by mouse, keyboard and (Web) touch.
 
 **Gate**: native gate (including `verify:world`); Web gate only if the phase changed Web-specific behaviour.
 
-### Phase V1 — Filters and frosted glass — done (`abdc077`, decisions D40, D49)
+**As built.** The Files list is now `demo/src/world-main.ts`, `world-panel.tsx`, `world-geometry.ts`, `world-label.tsx`, `verify-world.ts`, `scripts/verify-world.mjs`,
+`verify-world-web.mjs` and `scene-launcher.ts` (Web cannot take a scene path, so an autoload starts `world.tscn` from `--scene`); `main.ts` and
+`verify.mjs` were not edited. The anchored label is verified natively only; typing into the world `TextInput` natively and in Chrome (I7). The recipe's limits
+(no occlusion, one quad per owner, gestures and joypad not forwarded, cursor shape not applied, the IME window) are in `docs/WORLD_SPACE.md`.
+
+### Phase V1 — Filters and frosted glass — done (`abdc077`, fixed by `6476bed`; decisions D40, D49, D51)
 
 Read D40 first. **Files**: `native/props.rs`, `computed_style.rs`, `render_tree.rs`, `motion.rs`, a new native filter module and its
 shaders, `src/types.ts`, `src/styles.ts`, a demo lab, a verifier section.
@@ -1962,11 +2060,21 @@ shaders, `src/types.ts`, `src/styles.ts`, a demo lab, a verifier section.
 **Gate**: native gate; Web gate (Web uses the Compatibility renderer, which is the renderer most players get); one lab run on a
 `RenderingDevice` renderer. The track notes record the measured GPU cost per panel, because this is the expensive part of the feature.
 
+**As built (D49, D51; `docs/tracks/filters.md` and `docs/tracks/filter-fixes.md`).** A backdrop is a copy item plus a draw item behind the box; a
+filter is a canvas group inside a shell item that also holds the element's backdrop, so one element can carry both (unlike CSS, its `filter` does not apply to its
+backdrop's result). Compatibility, Mobile and Forward+ each have a measured model of the engine's mip chain, and a rendering method none of them names draws
+nothing and logs one error. The gate's Web run is Compatibility only; the RenderingDevice renderers were run natively with `--renderer=`. Limits are in the README
+("Filters and frosted glass") and D49 and D51; a transparent render target (a `SubViewport` with `transparent_bg`) was not measured.
+
 ### Final acceptance
 
 All gates pass from a clean build, and the full regression run of 0.4.1 (every native and Web verifier) passes; README limits list exactly 2.3 plus anything recorded as not done;
 `native/PROTOCOL.md` documents the v2 native API; `docs/MOTION_ARCHITECTURE.md` matches the new data
 flow; the progress log has every gate's evidence and the F0/F4 measurements side by side.
+
+State at the end of the build: the documents above were brought into line with the code on 7 November 2026 (README "Current limits" is the 2.3 non-goals plus the recorded
+not-done and not-verified items; `native/PROTOCOL.md` lists every `#[func]`; the F0 and F4 tables stand side by side in the progress log's Phase F4 section). The
+gates' evidence is not in yet: the full regression run is recorded in the progress log's "Final acceptance" section when it is done.
 
 ---
 
@@ -1977,8 +2085,8 @@ flow; the progress log has every gate's evidence and the F0/F4 measurements side
   renderer, events, styles, props and kit tests against a fake host that implements the 4.1 API in JS
   and records calls (so tests can assert that a hover or an unrelated commit makes no native calls).
 - **Native runtime**: real Godot input via `Input.parseInputEvent` (it buffers until the next
-  iteration; settle frames before asserting). Touch: `InputEventScreenTouch`/`ScreenDrag` with
-  `device = 0`.
+  iteration; settle frames before asserting). Touch: `InputEventScreenTouch`/`ScreenDrag`, every verifier event stamped with
+  `VERIFIER_DEVICE_ID` (D21; `demo/src/verifier-input.ts`).
 - **Web runtime**: real Chrome input through Puppeteer and CDP (`Input.dispatchTouchEvent`,
   `Input.imeSetComposition`, `Input.insertText`) at DPR 1 and 2, landscape and portrait, plus a touch
   page.
@@ -2088,11 +2196,14 @@ drift.
 | `focus:` semantics change (ancestors → `focus-within:`) | F3 records every affected demo/verifier usage |
 | Intrinsic-size transitions clone the whole Taffy tree per endpoint measurement (`motion.rs` `measure_endpoint`) | Out of scope; recorded as the one remaining whole-tree commit-path cost; revisit with evidence |
 | Canvas-item child clipping or draw-index ordering behaves differently than 3.8 assumes | 7.4 requires checking before building on it |
-| Web paste is stale | I7C investigation, no fix without causal evidence |
-| Native IME and VoiceOver cannot be automated | manual evidence or an explicit "not verified" |
-| Taffy absolute `location` semantics | I4 task 1 measures first |
+| Web paste is stale | Resolved in I7 (D44): the root reads the browser's clipboard itself; `clipboard_get` on Web stays stale for other callers |
+| Native IME and VoiceOver cannot be automated | Not done by hand; recorded as "not verified" (README "Current limits"). The Web IME is driven through CDP |
+| Taffy absolute `location` semantics | Measured in I4 task 1 (D23) |
+| Filters cost GPU time per panel | Measured on Compatibility and Mobile (`docs/tracks/filters.md`); shaders compile on first use, nothing warms them up automatically |
+| Web engine bug after an IME composition ended by a focus move (`ime_started` stays set) | Open: the fix belongs in the engine (D48), not worked around here |
+| Breaka's engine has no accessibility driver | The macOS tree was read on the `stock` profile (D42); Breaka's engine ends `verify:a11y` "not verified" |
 
-Open questions (defaults in brackets): Tab at the last element leaves the root instead of wrapping?
+Open questions (defaults in brackets, all three as built): Tab at the last element leaves the root instead of wrapping?
 [wrap]. Default `userSelect` at the root? [`none`]. `Button` defaults to `cursor: pointer`? [no].
 
 ---
