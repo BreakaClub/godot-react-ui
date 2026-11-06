@@ -401,6 +401,9 @@ async function runWorkflow(viewport) {
   await expectText('world-echo', 'Hello, Hi there', 'React follows the typing');
   check('A key the field consumed never reaches the game', (await counts()).gameKeys === 0, await counts());
   await capture('06-typing');
+  // The page runs on across viewports, so the field is left as it was found.
+  for (let count = 0; count < 'Hi there'.length; count += 1) await page.keyboard.press('Backspace');
+  await waitUntil('Backspace empties the field', async () => (await nameState()).value === '');
   await click(await elementPoint('world-title'));
   check('Clicking the title releases key focus from the field', !(await world('surfaceHasFocus')));
   await moveTo(OFF_QUAD);

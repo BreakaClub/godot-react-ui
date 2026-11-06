@@ -197,6 +197,92 @@ never reads the clipboard; a refused read pastes nothing and says so; pasting wo
 control:** with the engine's `clipboard_get` on every platform, the scenario fails at "The first paste after the
 clipboard changed inserts the new text".
 
-## Owed
+## Negative controls
 
-The gates and merge notes.
+Each was a single run with the fix removed; the assertion that failed is quoted. Native `forms` section unless noted.
+
+| Change made | Fails at |
+| --- | --- |
+| The vertical movement forgets its desired column (`desired_x` cleared on every command) | "And up again returns to the column it began in, which the short line could not hold" |
+| A single-line input keeps line breaks in text it is given | "A paste replaces the selection and drops the line breaks" |
+| A text area is not a scroll container (wheel and scroll state) | "form-notes has a scroll state" |
+| Web: the root pastes through the engine's `clipboard_get` | "The first paste after the clipboard changed inserts the new text" |
+| Web: the IME and keyboard calls do not hold the base guard | the `bind_mut` panic, at Tab out of a field with the IME element focused ("Browser/runtime errors") |
+| Kit `TextField`: the label's press does nothing (Inputs section) | "A press on the label focuses the input: none" |
+| Kit `TextField`: six mutants, each by `tests/text-field.test.ts` | the test of that behaviour |
+| Accessibility model: six mutants (a text input not exposed, multiline as one line, read-only editable, no placeholder name, a line owning its end, text not part of the props), each by `accessibility_model` tests | the test of that behaviour |
+| Accessibility: replace-selected-text replaces the whole text (Godot-side half of `verify:a11y`) | "A replace-selected-text action replaces the selection" |
+
+From the single-line core (I7A), also native `forms` runs with the fix removed:
+
+| Change made | Fails at |
+| --- | --- |
+| Keys are matched to `InputMap` actions without normalising the device | "Home puts the caret at the start and scrolls back" (the verifier's device matches no action) |
+| A drag does not extend the selection | "Dragging across the first words selects them" |
+| A press that focuses a `selectTextOnFocus` field collapses the selection | "A press that focuses a selectTextOnFocus field selects all of it" |
+| An empty line's caret keeps the ligature marker | "An empty field's caret has no marker" |
+| An unfocused input paints its selection | "An unfocused field does not paint its selection" |
+| A single-line input is laid out at its box's width (the paragraph clips it) | "The text before the caret is drawn after it scrolled" |
+
+In JS (`tests/text-input.test.ts`): a command ignored as stale remembered as applied, and a change of `defaultValue` sent to
+native, each fail a test. Not mutation-tested: the Web multi-line scenario and the touch text area (they exercise existing
+behaviour in a real browser), the world-space typing steps, and the clipboard verifier's copy, cut and undo-of-paste lines.
+
+## Gates
+
+Run once each on the final tree, which has `5aef575` (HiDPI font oversampling, another session's commit on this branch) and
+the two small commits after it in the build. Native runs used `/Applications/Godot48.app`, `--audio-driver Dummy`, an isolated
+window; no run was disturbed, and none was re-run.
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked` | 534 passed |
+| `cargo clippy --locked --all-targets` | 0 warnings (one in `5aef575`, an `as f32` on a value that is already `f32`, removed in `ea0527e`) |
+| `rustup run stable cargo fmt --check` | clean (`ea0527e` also reflows a `ContentKey` in `render_tree.rs` that `5aef575` left unformatted) |
+| `pnpm test:types` | clean |
+| `pnpm test` | 325 passed |
+| `pnpm verify:interaction` | passed, both viewports, all nine sections (`forms` 38.8 s) |
+| `pnpm verify` | passed, both viewports |
+| `pnpm verify:world` | passed, both viewports, with the typing steps |
+| `pnpm verify:motion` | passed, both viewports |
+| `pnpm verify:a11y` | the Godot-side half passed (`GODOT_REACT_A11Y_NATIVE_PASSED`, text actions included); the platform tree is not verified (`GODOT_REACT_A11Y_UNSUPPORTED`, exit 2): the engine has no accessibility driver |
+| `pnpm build:web` | succeeds (Breaka's threaded template, nightly `build-std`) |
+| `pnpm verify:interaction:web` | passed: 965 assertions, 108 captures, every section at all four viewports and the touch page |
+| `node scripts/verify-world-web.mjs` | passed: 94 assertions. First run failed in the second viewport: the page runs on across viewports and the field kept `Hi there`, so the step now empties it; the next launch timed out starting Chrome before any step ran; the third run passed |
+
+Captures inspected (all under `artifacts/`, not committed): `native-interaction/{landscape,portrait}/forms-01` to `forms-13`
+(placeholder and caret, scrolled text, Shift selection, drag selection, emoji, bullets, paste, the text area scrolled, the page
+scrolled by the wheel), `native-interaction/landscape/29-inputs-text-field-error.png`, `native-world/landscape/06a-typing.png`,
+`web-interaction-verification/landscape/forms-02-ime-preedit-landscape.png`, `forms-04-paste.png`, `forms-05-text-area.png`,
+`web-interaction-verification/touch/forms-03-touch-keyboard.png`, `web-world-verification/landscape/06-typing.png`.
+
+Native IME was not injected (it cannot be): the Web IME was driven with `Input.imeSetComposition` and `Input.insertText`,
+and the native path (`NOTIFICATION_OS_IME_UPDATE`) is the same code that ran there. **A manual check with a macOS Japanese or
+Pinyin input source was not done.**
+
+## Merge notes
+
+- `main` moved (I9, the stock engine profile, a freshness guard) after this branch was rebased onto `710adc3`. Expect
+  conflicts in `native/lib.rs`, `native/events.rs`, `native/props.rs`, `native/pointer_input.rs`, `native/keyboard_input.rs`,
+  `native/render_tree.rs`, `native/PROTOCOL.md`, `src/events.ts`, `src/native.ts`, `src/index.ts`, `demo/src/labs.tsx`,
+  `demo/src/verify-interaction.ts`, `scripts/verify-interaction-web.mjs` and `tests/recording-host.ts`. Where I9's drag adds a
+  pointer path next to `text_input_pointer_down`, a press on a text input must still not start a drag unless the input is
+  `draggable` (the `draggable` argument already carries the thumb and capture rules). `typings`: regenerate with
+  `pnpm build:native` and the Godot `--generate-types` step; restore `demo/typings/jsb.*.bundle.d.ts` if only line endings changed.
+- The freshness guard will refuse old stamps once; `pnpm build:native` clears it.
+- `demo/src/main.ts` is whitespace-modified in this worktree (a whole-file re-indent, `git diff -w` is empty). It is not mine
+  and is not committed; discard or keep it as you see fit.
+- A `TextInput` is a tab stop and takes `disabled`; `tabStops()` in `verify-interaction.ts` counts it. Another phase that adds a
+  focusable element to a lab the Inputs section tab-orders must list it there too.
+- The installed `libgodot_react_ui.dylib` is the default (non-probe) build.
+
+## Not done
+
+- A manual native IME check (above).
+- The platform accessibility tree for text inputs (no engine with AccessKit), and `aria-labelledby` / `aria-describedby`
+  (native has no relationship props, T15).
+- The IME window and the on-screen keyboard are placed from the root's own screen transform, which is wrong for a root on a quad
+  in a `SubViewport` (world-space section).
+- A triple click selects all of a text area's text, not a line (T14).
+- The Web `clipboard_get` is still stale for every other consumer of it (an engine design, see the investigation); only the
+  root's paste no longer uses it.
