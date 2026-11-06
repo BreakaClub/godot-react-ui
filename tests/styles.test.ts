@@ -224,6 +224,32 @@ test('every Tailwind v3 colour and shade compiles', () => {
   assert.throws(() => compileStyle('bg-sky-55'), /Unsupported utility class "bg-sky-55"/);
 });
 
+test('colour utilities take Tailwind\'s opacity modifier and compile to an 8 digit hex', () => {
+  const style = (className: string) => layersOf(className)[0]?.style;
+  assert.deepEqual(style('bg-white/20'), { backgroundColor: '#ffffff33' });
+  assert.deepEqual(style('bg-black/50'), { backgroundColor: '#00000080' });
+  assert.deepEqual(style('border-white/30'), { borderColor: '#ffffff4d' });
+  assert.deepEqual(style('text-slate-900/70'), { color: '#0f172ab3' });
+  assert.deepEqual(style('bg-[#f0a]/40'), { backgroundColor: '#ff00aa66' });
+  assert.deepEqual(style('bg-[#ec4899]/[0.25]'), { backgroundColor: '#ec489940' });
+  assert.deepEqual(style('bg-white/[37%]'), { backgroundColor: '#ffffff5e' });
+  assert.deepEqual(style('bg-white/0'), { backgroundColor: '#ffffff00' });
+  assert.deepEqual(style('bg-white/100'), { backgroundColor: '#ffffffff' });
+  // A modifier composes with a state, and the state's colour keeps its own.
+  assert.deepEqual(layersOf('bg-white/20 hover:bg-white/40'), [
+    { style: { backgroundColor: '#ffffff33' } },
+    { states: ['hover'], style: { backgroundColor: '#ffffff66' } },
+  ]);
+  // A colour that already has alpha, an out of range amount and a stray slash are not colours.
+  for (const utility of ['bg-white/101', 'bg-white/20/30', 'bg-transparent/50', 'bg-[#1234]/50', 'bg-[#ffffff80]/50', 'bg-white/', 'bg-/20', 'bg-white/[1.5]', 'bg-white/x', 'bg-nope/20']) {
+    assert.throws(() => compileStyle(utility), /Unsupported/, utility);
+  }
+  // The modifier works on every colour of the palette, not only the ones the test above names.
+  for (const name of ['slate', 'gray', 'zinc', 'neutral', 'stone', 'red', 'orange', 'amber', 'yellow', 'lime', 'green', 'emerald', 'teal', 'cyan', 'sky', 'blue', 'indigo', 'violet', 'purple', 'fuchsia', 'pink', 'rose']) {
+    assert.match(String(style(`bg-${name}-500/50`)?.backgroundColor), /^#[0-9a-f]{6}80$/u, `bg-${name}-500/50`);
+  }
+});
+
 test('selection utilities compile to the longhands native reads', () => {
   const style = (className: string) => layersOf(className)[0]?.style;
   assert.deepEqual(style('select-none'), { userSelect: 'none' });

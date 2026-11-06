@@ -259,11 +259,37 @@ function parseZIndex(value: string, negative: boolean): number | undefined {
   return negative && parsed !== 0 ? -parsed : parsed;
 }
 
+/** The largest value of an alpha byte, and how many hex digits a colour channel takes. */
+const ALPHA_BYTE_MAX = 255;
+const CHANNEL_DIGITS = 2;
+
+/**
+ * Tailwind's opacity modifier: a colour with `/50` (a percentage, 0 to 100) or `/[0.37]` or `/[37%]` after it, as
+ * `bg-white/20` and `border-white/30`. The colour must be opaque (a name, or a 3 or 6 digit arbitrary value); the result is
+ * the 8 digit hex native reads.
+ */
+function withOpacityModifier(color: HexColor, modifier: string): HexColor | undefined {
+  const percent = /^\d+$/.test(modifier) && Number(modifier) <= PERCENT ? Number(modifier) / PERCENT : undefined;
+  const alpha = percent ?? parseArbitraryAmount(modifier);
+  if (alpha === undefined || alpha > 1) return undefined;
+  const digits = color.slice(1);
+  const opaque = digits.length === 3 ? [...digits].map(digit => digit + digit).join('') : digits;
+  if (opaque.length !== 6) return undefined;
+  const byte = Math.round(alpha * ALPHA_BYTE_MAX).toString(16).padStart(CHANNEL_DIGITS, '0');
+  return `#${opaque}${byte}`;
+}
+
 function parseColor(value: string): HexColor | undefined {
   const named = lookup(colors, value);
   if (named !== undefined) return named;
   const arbitrary = /^\[#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})\]$/.exec(value);
   if (arbitrary?.[1] !== undefined) return `#${arbitrary[1]}`;
+  // `name/20`, `[#ff0000]/50`: the modifier follows the last slash, and no colour contains one.
+  const slash = value.lastIndexOf('/');
+  if (slash > 0) {
+    const base = parseColor(value.slice(0, slash));
+    return base === undefined ? undefined : withOpacityModifier(base, value.slice(slash + 1));
+  }
   return undefined;
 }
 
