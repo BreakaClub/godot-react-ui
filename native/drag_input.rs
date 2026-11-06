@@ -402,16 +402,12 @@ impl ReactUiRoot {
             .into_iter()
             .filter_map(|tag| {
                 let node = self.mounted.nodes.get(&tag)?;
-                let (rect, _) = self.mounted.absolute_geometry(tag, viewport)?;
+                // The edge bands are in the container's own frame, so is the velocity it scrolls at.
+                let in_frame = self.mounted.to_local(tag, viewport, to_vector(position))?;
                 let client = node.geometry.padding_box();
-                let visible = Rect::new(
-                    rect.x + client.x,
-                    rect.y + client.y,
-                    client.width,
-                    client.height,
-                );
+                let visible = Rect::new(client.x, client.y, client.width, client.height);
                 let velocity = autoscroll_velocity(
-                    position,
+                    to_scroll(in_frame),
                     visible,
                     &node.geometry.scroll_ranges,
                     node.scroll.offset,

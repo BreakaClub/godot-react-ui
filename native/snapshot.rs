@@ -1,6 +1,5 @@
 //! Diagnostics: the whole mounted tree as JSON, and single-node queries. Whole-tree by design (plan
 //! section 4.5); nothing on a commit path calls this.
-use godot::prelude::*;
 use serde_json::{Value, json};
 
 use crate::ReactUiRoot;
@@ -8,6 +7,7 @@ use crate::commit::LAYER_COUNT;
 use crate::focus::Modality;
 use crate::geometry::{BoxRect, intersect_clip};
 use crate::pointer_state::PointerKind;
+use crate::transform::Affine2;
 
 /// A computed style as JSON without the properties nothing set.
 fn style_json(style: &crate::computed_style::ComputedStyle) -> Value {
@@ -46,21 +46,27 @@ impl ReactUiRoot {
             .map(|(index, tag)| (tag, index))
             .collect();
         for layer in 0..LAYER_COUNT {
-            let mut stack: Vec<(u32, usize, Vector2, Option<BoxRect>)> = self.mounted.paint_roots
+            let mut stack: Vec<(u32, usize, Affine2, Option<BoxRect>)> = self.mounted.paint_roots
                 [layer]
                 .iter()
                 .enumerate()
-                .map(|(index, tag)| (*tag, index, Vector2::ZERO, Some(viewport)))
+                .map(|(index, tag)| (*tag, index, Affine2::IDENTITY, Some(viewport)))
                 .collect();
-            while let Some((tag, paint_index, parent_origin, inherited_clip)) = stack.pop() {
+            while let Some((tag, paint_index, parent_frame, inherited_clip)) = stack.pop() {
                 let node = &self.mounted.nodes[&tag];
-                let origin = parent_origin + node.geometry.location;
-                let rect = BoxRect {
-                    x: origin.x,
-                    y: origin.y,
+                // The element's own frame in the root: its transform, then its location in the parent's frame.
+                let frame = node
+                    .transform
+                    .map_or(Affine2::IDENTITY, |transform| transform.placement.affine)
+                    .then(&Affine2::translation(node.geometry.location))
+                    .then(&parent_frame);
+                // The bounding box of what is drawn, as `getBoundingClientRect()` reports it.
+                let rect = frame.bounds_of(BoxRect {
+                    x: 0.0,
+                    y: 0.0,
                     width: node.geometry.size.x,
                     height: node.geometry.size.y,
-                };
+                });
                 let as_node = |parent: Option<crate::diff::Parent>| match parent {
                     Some(crate::diff::Parent::Node(parent)) => Some(parent),
                     Some(crate::diff::Parent::Layer(0)) => Some(0),
@@ -76,29 +82,26 @@ impl ReactUiRoot {
                     "style": style_json(&node.computed),
                     "props": node.props,
                     "rect": rect, "clipRect": inherited_clip,
+                    "transform": node.transform.map(|transform| transform.placement.affine.to_array()),
                     "presentation": self.presentation_json(tag),
                     "scroll": self.scroll_state_json(tag),
                     "textInput": self.text_input_snapshot_json(tag),
                     "effects": self.effects_json(tag),
                 }));
                 let content_clip = if node.clips_content() {
-                    let local = node.geometry.padding_box();
                     intersect_clip(
                         inherited_clip,
-                        Some(BoxRect {
-                            x: origin.x + local.x,
-                            y: origin.y + local.y,
-                            width: local.width,
-                            height: local.height,
-                        }),
+                        Some(frame.bounds_of(node.geometry.padding_box())),
                     )
                 } else {
                     inherited_clip
                 };
                 // What a scroll container paints is shifted by its scroll offset; its own box is not.
-                let content_origin = origin - crate::scroll_input::to_vector(node.scroll.offset);
+                let content_frame =
+                    Affine2::translation(-crate::scroll_input::to_vector(node.scroll.offset))
+                        .then(&frame);
                 for (index, child) in node.paint_children.iter().enumerate() {
-                    stack.push((*child, index, content_origin, content_clip));
+                    stack.push((*child, index, content_frame, content_clip));
                 }
             }
         }

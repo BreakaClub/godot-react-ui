@@ -1,3 +1,4 @@
+import { transformUtility } from './utilities/transform';
 import type {
   CompiledStyle, Cursor, Dimension, FilterParts, HexColor, Inset, LonghandStyle, PseudoState, Style, StyleLayer, StyleProp,
 } from './types';
@@ -294,7 +295,7 @@ function parseColor(value: string): HexColor | undefined {
 }
 
 /** What a class sets: a style, and for filter utilities the one function they set (see `FilterParts`). */
-type UtilityStyle = Style & Pick<LonghandStyle, 'filterParts' | 'backdropFilterParts'>;
+type UtilityStyle = Style & Pick<LonghandStyle, 'filterParts' | 'backdropFilterParts' | 'transformParts'>;
 
 /** A number, or a percentage as a fraction, inside `[...]`. */
 function parseArbitraryAmount(value: string): number | undefined {
@@ -446,6 +447,9 @@ function utilityStyle(utility: string): UtilityStyle | undefined {
   const filtered = filterUtility(utility);
   if (filtered !== undefined) return filtered;
 
+  const transformed = transformUtility(utility);
+  if (transformed !== undefined) return transformed;
+
   const spacing = /^(p|px|py|pt|pr|pb|pl|m|mx|my|mt|mr|mb|ml|gap-x|gap-y|gap)-(.+)$/.exec(utility);
   if (spacing?.[1] !== undefined && spacing[2] !== undefined) {
     const value = parsePixels(spacing[2]);
@@ -591,7 +595,8 @@ function isStyleArray(style: StyleProp): style is readonly StyleProp[] {
 /** Expand shorthands into the longhands native understands, in the order they enter a layer. */
 function mergeLonghands(target: LonghandStyle, source: Readonly<UtilityStyle>): void {
   const {
-    padding, margin, gap, overflow, inset, transition, filter, filterParts, backdropFilter, backdropFilterParts, ...properties
+    padding, margin, gap, overflow, inset, transition, filter, filterParts, backdropFilter, backdropFilterParts,
+    transform, transformParts, ...properties
   } = source;
   if (padding !== undefined) {
     target.paddingTop = padding;
@@ -636,6 +641,15 @@ function mergeLonghands(target: LonghandStyle, source: Readonly<UtilityStyle>): 
   if (backdropFilterParts !== undefined) {
     delete target.backdropFilter;
     target.backdropFilterParts = { ...target.backdropFilterParts, ...backdropFilterParts };
+  }
+  // A transform list replaces what utilities set before it; a value set after it takes back the composed list.
+  if (transform !== undefined) {
+    target.transform = transform;
+    delete target.transformParts;
+  }
+  if (transformParts !== undefined) {
+    delete target.transform;
+    target.transformParts = { ...target.transformParts, ...transformParts };
   }
   // The compiled style is interned and frozen, so it must not share objects with the caller's style.
   if (transition !== undefined) target.transition = { ...transition, properties: [...transition.properties] };

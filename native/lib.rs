@@ -46,6 +46,8 @@ mod text_layout;
 mod text_layout_probe;
 // UTF-16 offsets against code point indices: text selection sends them to JS, text inputs both ways.
 mod text_offsets;
+mod transform;
+mod transform_state;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Instant;

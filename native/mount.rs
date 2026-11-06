@@ -30,6 +30,7 @@ use crate::scroll_input::to_vector;
 use crate::stacking::{self, Frame, PaintTree, ScrollFrame, ScrollMode, Stacking, StackingTree};
 use crate::text_input::EditConfig;
 use crate::text_input_godot::TextInputState;
+use crate::transform::{Affine2, NodeTransform};
 use crate::{CORNER_DETAIL, ReactUiRoot};
 
 /// The four sides of a box edge, as Taffy resolves them.
@@ -131,6 +132,9 @@ pub(crate) struct MountedNode {
     pub(crate) uses_states: PseudoStates,
     /// A text input's text, selection, history and shaping; `Some` exactly for `Kind::TextInput`.
     pub(crate) text_input: Option<TextInputState>,
+    /// The element's transform evaluated for its border box (the sampled one while it animates), or
+    /// `None` for one without a transform or whose transform does nothing: nothing is computed for those.
+    pub(crate) transform: Option<NodeTransform>,
 }
 
 #[derive(Default)]
@@ -263,6 +267,7 @@ impl PaintTree for Mounted {
             clip: node.clips_content().then(|| node.geometry.padding_box()),
             pointer_target: node.computed.is_pointer_target(),
             scroll: node.scroll_frame(),
+            placement: node.transform.map(|transform| transform.placement),
         })
     }
 }
@@ -317,6 +322,30 @@ impl Mounted {
         viewport: BoxRect,
     ) -> Option<(BoxRect, Option<BoxRect>)> {
         stacking::absolute_geometry(self, tag, viewport, ScrollMode::Drawn)
+    }
+
+    /// The map from `tag`'s own frame (the corner of its border box is the origin) to the root, where it is drawn
+    /// now, or `None` if it is not mounted. A point of the root goes into the element's frame through the
+    /// inverse; a point of the element's goes to the root through the map.
+    pub(crate) fn absolute_affine(&self, tag: u32, viewport: BoxRect) -> Option<Affine2> {
+        stacking::absolute_affine(self, tag, viewport).map(|(affine, _)| affine)
+    }
+
+    /// The map from the frame `tag`'s paint parent locates its children in (scrolled) to the root.
+    pub(crate) fn absolute_parent_affine(&self, tag: u32, viewport: BoxRect) -> Option<Affine2> {
+        stacking::absolute_parent_affine(self, tag, viewport)
+    }
+
+    /// `point` (root-local) in the frame of `tag` (the corner of its border box is the origin): where an element's
+    /// own coordinates, a text layout's for one, meet a pointer. `None` if `tag` is not mounted or is drawn with a
+    /// matrix that has no inverse.
+    pub(crate) fn to_local(&self, tag: u32, viewport: BoxRect, point: Vector2) -> Option<Vector2> {
+        Some(self.absolute_affine(tag, viewport)?.inverse()?.apply(point))
+    }
+
+    /// `point`, in the frame of `tag`, in the root.
+    pub(crate) fn to_root(&self, tag: u32, viewport: BoxRect, point: Vector2) -> Option<Vector2> {
+        Some(self.absolute_affine(tag, viewport)?.apply(point))
     }
 
     /// Whether `tag` has an area an event could reach, now or by scrolling: Tab stops and keeping
@@ -852,6 +881,7 @@ impl ReactUiRoot {
                     props.default_value.as_deref().unwrap_or(""),
                 )
             }),
+            transform: None,
         };
         self.mounted.breakpoints.register(tag, props.style.as_ref());
         self.mounted
@@ -1174,6 +1204,8 @@ impl ReactUiRoot {
             || previous.border != geometry.border
             || previous.padding != geometry.padding;
         if shape_changed {
+            // Percentages in a transform, and its origin, are of the border box.
+            self.refresh_transform(tag);
             self.paint_dirty.insert(tag);
             // A text input's lines are wrapped to its box: new lines, new text elements.
             self.discard_text_accessibility(tag);

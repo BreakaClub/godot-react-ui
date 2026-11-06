@@ -807,6 +807,7 @@ mod tests {
             ranges: ScrollRanges::NONE,
             offset: Vec2::ZERO,
             overscroll: OverscrollBehavior::Auto,
+            frame: None,
         };
         let cases = [
             (Axis::Y, ScrollBarAction::Increment, ScrollKey::ArrowDown),

@@ -366,11 +366,11 @@ impl ReactUiRoot {
                 layout.text_len()
             ));
         }
-        let (rect, _) = self
+        // The text is laid out in the element's own frame: a rotated paragraph is hit where it is drawn.
+        let local = self
             .mounted
-            .absolute_geometry(tag, self.viewport_box())
-            .ok_or_else(|| format!("node {tag} has no geometry"))?;
-        let local = position - Vector2::new(rect.x, rect.y);
+            .to_local(tag, self.viewport_box(), position)
+            .ok_or_else(|| format!("node {tag} has no geometry, or a matrix with no inverse"))?;
         let offset = layout
             .hit_test(local)
             .map_err(|error| format!("node {tag}: {error}"))?;

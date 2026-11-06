@@ -3,7 +3,7 @@ export type Dimension = number | 'auto' | `${number}%`;
 export type Alignment = 'start' | 'end' | 'center' | 'stretch' | 'baseline' | 'flex-start' | 'flex-end';
 export type Justification = 'start' | 'end' | 'center' | 'space-between' | 'space-around' | 'space-evenly' | 'flex-start' | 'flex-end';
 export type HexColor = `#${string}`;
-export type TransitionProperty = 'width' | 'height' | 'opacity' | 'backgroundColor' | 'filter' | 'backdropFilter';
+export type TransitionProperty = 'width' | 'height' | 'opacity' | 'backgroundColor' | 'filter' | 'backdropFilter' | 'transform';
 /**
  * `scroll` and `auto` make the axis scroll. They behave the same: the scrollbars overlay the content,
  * take no layout space, and a bar is drawn only while there is something to scroll to.
@@ -130,6 +130,35 @@ export interface Style {
    * rounded border box: frosted glass. There is no `drop-shadow()` here.
    */
   backdropFilter?: string;
+  /**
+   * A CSS transform list: `translate()`, `translateX|Y|Z()`, `translate3d()`, `rotate()`, `rotateX|Y|Z()`, `rotate3d()`,
+   * `scale()`, `scaleX|Y|Z()`, `scale3d()`, `skew()`, `skewX|Y()`, `matrix()` and `matrix3d()`, or `none`. Percentages are of
+   * the element's own border box and lengths are px, rem (16px) or an absolute unit. Layout ignores it: the
+   * element is drawn transformed where layout put it, and hit tests, `getRect()` (the bounding box, as
+   * `getBoundingClientRect()`), the focus ring and text selection follow. It animates through `transition`
+   * (`properties: ['transform']`). 3D functions without perspective are drawn orthographically (`transform-style:
+   * flat`). `perspective()` and a `matrix3d()` with a projective row are refused: perspective is not
+   * implemented yet. It replaces whatever transform utility classes set, where `-translate-x-1/2 hover:scale-105`
+   * composes.
+   */
+  transform?: string;
+  /** CSS `transform-origin` (`center`, `top left`, `10px 50%`): the point the transform is about. The middle by default. */
+  transformOrigin?: string;
+}
+
+/** The values Tailwind's separate transform utilities set; each merges on its own across variants. */
+export interface TransformParts {
+  /** A CSS length or percentage (`16px`, `-50%`). */
+  translateX?: string;
+  translateY?: string;
+  /** A CSS angle (`45deg`). */
+  rotate?: string;
+  skewX?: string;
+  skewY?: string;
+  scaleX?: number;
+  scaleY?: number;
+  /** `transform-gpu`: the list starts with `translate3d(x, y, 0)`. */
+  gpu?: boolean;
 }
 
 /** The functions Tailwind's separate filter utilities set; each merges on its own across variants. */
@@ -158,6 +187,8 @@ export type LonghandStyle = Omit<Style, 'padding' | 'margin' | 'gap' | 'overflow
   /** What filter utilities (`blur-sm`, `hover:brightness-110`) set, per function (see `FilterParts`). */
   filterParts?: FilterParts;
   backdropFilterParts?: FilterParts;
+  /** What transform utilities (`-translate-x-1/2`, `hover:scale-105`) set, per value (see `TransformParts`). */
+  transformParts?: TransformParts;
 };
 
 export type StyleProp = Style | readonly StyleProp[] | false | null | undefined;

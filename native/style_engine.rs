@@ -15,6 +15,7 @@ use crate::diff::Parent;
 use crate::filter::{DropShadow, FilterFunction, FilterList, Rgba};
 use crate::paint::parse_color;
 use crate::props::{Dimension, DisplaySpec, Easing, StyleSpec, TransitionProperty, TransitionSpec};
+use crate::transform::ComputedTransformValue;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum DimensionAxis {
@@ -115,6 +116,9 @@ pub struct SampledStyle {
     /// function and a missing function from its identity), with every shadow colour concrete.
     pub filter: FilterList,
     pub backdrop_filter: FilterList,
+    /// The sampled `transform`: Stylo's computed list, which mid-transition may hold an interpolated matrix of
+    /// two lists that did not match. It is evaluated against the element's box ([`crate::transform::evaluate`]).
+    pub transform: ComputedTransformValue,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -127,6 +131,8 @@ struct AppliedStyle {
     /// colour.
     filter: String,
     backdrop_filter: String,
+    /// The resolved list as CSS text (`none` for no transform).
+    transform: String,
     hidden: bool,
     transition: Option<TransitionSpec>,
 }
@@ -172,6 +178,7 @@ impl AppliedStyle {
                 .backdrop_filter_list()
                 .resolve_current_color(current_color(style))
                 .to_css(),
+            transform: style.transform_list().css().to_string(),
             hidden: style.display == Some(DisplaySpec::None),
             transition: style.transition.clone(),
         }
@@ -421,6 +428,9 @@ impl StyleEngine {
         if previous.is_none_or(|previous| previous.backdrop_filter != next.backdrop_filter) {
             mutator.set_style_property(native_id, "backdrop-filter", &next.backdrop_filter);
         }
+        if previous.is_none_or(|previous| previous.transform != next.transform) {
+            mutator.set_style_property(native_id, "transform", &next.transform);
+        }
         if previous.is_none_or(|previous| previous.hidden != next.hidden) {
             mutator.set_style_property(
                 native_id,
@@ -492,6 +502,7 @@ impl StyleEngine {
             background_color: *background.raw_components(),
             filter: sampled_filters(&effects.filter.0, &current_color)?,
             backdrop_filter: sampled_filters(&effects.backdrop_filter.0, &current_color)?,
+            transform: computed.get_box().transform.clone(),
         })
     }
 }
@@ -576,6 +587,7 @@ fn transition_properties(
             TransitionProperty::BackgroundColor => "background-color",
             TransitionProperty::Filter => "filter",
             TransitionProperty::BackdropFilter => "backdrop-filter",
+            TransitionProperty::Transform => "transform",
         })
         .collect();
     if properties.is_empty() {

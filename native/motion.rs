@@ -43,6 +43,8 @@ pub(crate) enum MotionValue {
     Color(String),
     /// A filter list as CSS text.
     Filter(String),
+    /// The matrix (CSS `matrix(a, b, c, d, e, f)`, about the origin) the transform presents or is heading to.
+    Transform([f32; 6]),
 }
 
 #[derive(Serialize)]
@@ -344,6 +346,11 @@ impl ReactUiRoot {
         if shaping_changed && has_text && rebuilt.insert(tag) {
             self.refresh_paragraph(tag);
         }
+        if change.previous.as_ref().is_none_or(|previous| {
+            crate::transform_state::transform_changed(previous, &self.mounted.nodes[&tag].computed)
+        }) {
+            self.refresh_transform(tag);
+        }
     }
 
     /// The changed nodes Stylo must hear about. Stylo only animates a node whose style has a
@@ -449,10 +456,14 @@ impl ReactUiRoot {
     /// Apply the sampled size, colour and opacity of the motion nodes to Taffy and the paint
     /// resources. Only a motion node is ever presented differently from its computed style.
     pub(crate) fn apply_presentation(&mut self) {
+        let mut transformed = Vec::new();
         for (tag, value) in &self.sampled {
             let Some(node) = self.mounted.nodes.get_mut(tag) else {
                 continue;
             };
+            if node.transform.is_some() || !value.transform.0.is_empty() {
+                transformed.push(*tag);
+            }
             let mut style = node
                 .computed
                 .taffy_style()
@@ -473,6 +484,10 @@ impl ReactUiRoot {
                 self.layout_dirty.insert(*tag);
             }
             self.paint_dirty.insert(*tag);
+        }
+        // The sample of a transform moves the element's canvas item and nothing else.
+        for tag in transformed {
+            self.refresh_transform(tag);
         }
     }
 
@@ -516,6 +531,9 @@ impl ReactUiRoot {
                     .map(|v| v.backdrop_filter.to_css())
                     .unwrap_or_else(|| resolved_backdrop_filter(&node.computed).to_css()),
             ),
+            TransitionProperty::Transform => {
+                MotionValue::Transform(self.transform_numbers(tag, true))
+            }
         }
     }
 
@@ -552,6 +570,9 @@ impl ReactUiRoot {
             TransitionProperty::Filter => MotionValue::Filter(resolved_filter(style).to_css()),
             TransitionProperty::BackdropFilter => {
                 MotionValue::Filter(resolved_backdrop_filter(style).to_css())
+            }
+            TransitionProperty::Transform => {
+                MotionValue::Transform(self.transform_numbers(tag, false))
             }
         }
     }
@@ -785,7 +806,8 @@ fn property_axis(property: TransitionProperty) -> Option<DimensionAxis> {
         TransitionProperty::Opacity
         | TransitionProperty::BackgroundColor
         | TransitionProperty::Filter
-        | TransitionProperty::BackdropFilter => None,
+        | TransitionProperty::BackdropFilter
+        | TransitionProperty::Transform => None,
     }
 }
 fn dimension_value(style: &StyleSpec, axis: DimensionAxis) -> Dimension {
@@ -822,6 +844,7 @@ fn property_changed(old: &StyleSpec, new: &StyleSpec, property: TransitionProper
         TransitionProperty::BackdropFilter => {
             resolved_backdrop_filter(old) != resolved_backdrop_filter(new)
         }
+        TransitionProperty::Transform => crate::transform_state::transform_changed(old, new),
     }
 }
 

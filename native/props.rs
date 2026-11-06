@@ -17,6 +17,7 @@ use taffy::style::{
 use taffy::style_helpers::{auto, fr, length, minmax};
 
 use crate::filter::{FilterKind, FilterList, FilterParts};
+use crate::transform::{TransformList, TransformOriginSpec, TransformParts};
 
 /// The `tabIndex` values the plan allows (3.13): `0` in the tab order, `-1` focusable only.
 pub const TAB_INDICES: [i32; 2] = [0, -1];
@@ -118,6 +119,9 @@ pub enum TransitionProperty {
     /// Interpolated per function, a missing function from its identity (CSS Filter Effects).
     Filter,
     BackdropFilter,
+    /// Interpolated by Stylo: function by function when the lists match, else by decomposing the matrices
+    /// (CSS Transforms 1). Sampled natively on the clock; nothing is re-recorded per frame.
+    Transform,
 }
 
 #[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq)]
@@ -519,6 +523,37 @@ pub struct StyleSpec {
     /// As `filter`, for what is behind the element. Drawn only for a visible element.
     pub backdrop_filter: Option<FilterList>,
     pub backdrop_filter_parts: Option<FilterParts>,
+    /// An explicit `transform` (CSS text on the wire, like `filter`): it replaces what the utilities composed,
+    /// and a utility set in a later layer takes the property back to the composed list.
+    pub transform: Option<TransformList>,
+    /// The values Tailwind's separate utilities set (`-translate-x-1/2`, `hover:scale-105`); each merges on
+    /// its own across layers. See [`merge_transform`].
+    pub transform_parts: Option<TransformParts>,
+    /// CSS `transform-origin` (text on the wire): where the transform is about, in the border box. The middle
+    /// when nothing set one.
+    pub transform_origin: Option<TransformOriginSpec>,
+}
+
+/// Merge one layer's `transform` and `transform_parts` over the values so far, as [`merge_filter`] does
+/// for filters: an explicit list replaces the property and forgets the values utilities set before it, and
+/// a value set after it takes the property back to the composed list. This is what the Tailwind classes do
+/// in CSS (each utility sets its own variable and `transform`), so `-translate-x-1/2 hover:scale-105`
+/// keeps the translate on hover and `style={{transform}}` replaces both.
+fn merge_transform(
+    list: &mut Option<TransformList>,
+    parts: &mut Option<TransformParts>,
+    other_list: &Option<TransformList>,
+    other_parts: &Option<TransformParts>,
+) {
+    if let Some(other_list) = other_list {
+        *list = Some(other_list.clone());
+        *parts = None;
+    } else if let Some(other_parts) = other_parts {
+        *list = None;
+        parts
+            .get_or_insert_with(TransformParts::default)
+            .merge(other_parts);
+    }
 }
 
 /// Merge one layer's `filter` and `filter_parts` over the values so far. An explicit list replaces the
@@ -677,6 +712,8 @@ impl StyleSpec {
                     filter_parts,
                     backdrop_filter,
                     backdrop_filter_parts,
+                    transform,
+                    transform_parts,
                 } = other;
                 $(
                     if $field.is_some() {
@@ -689,6 +726,12 @@ impl StyleSpec {
                     &mut self.backdrop_filter_parts,
                     backdrop_filter,
                     backdrop_filter_parts,
+                );
+                merge_transform(
+                    &mut self.transform,
+                    &mut self.transform_parts,
+                    transform,
+                    transform_parts,
                 );
             }};
         }
@@ -747,6 +790,7 @@ impl StyleSpec {
             bottom,
             left,
             z_index,
+            transform_origin,
         );
     }
 
@@ -832,6 +876,11 @@ impl StyleSpec {
                     .validate(kind)
                     .map_err(|error| format!("{name}: {error}"))?;
             }
+        }
+        if let Some(parts) = &self.transform_parts {
+            parts
+                .to_list()
+                .map_err(|error| format!("transform: {error}"))?;
         }
         if self.font_size.is_some_and(|value| value <= 0) {
             return Err("fontSize must be a positive integer".into());
@@ -1423,7 +1472,7 @@ mod tests {
     #[test]
     fn rejects_invalid_transition_shapes_and_timings() {
         for json in [
-            r#"{"transition":{"properties":["transform"],"durationMs":100}}"#,
+            r#"{"transition":{"properties":["translate"],"durationMs":100}}"#,
             r#"{"transition":{"properties":["width"],"durationMs":100,"easing":"spring"}}"#,
             r#"{"transition":{"properties":["width"],"durationMs":100,"repeat":2}}"#,
             r#"{"interpolateSize":"always"}"#,

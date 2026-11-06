@@ -18,6 +18,7 @@ use crate::geometry::BoxRect;
 use crate::mount::Mounted;
 use crate::render_tree::{ContentKey, GHOST_DRAW_INDEX, RenderNode, RootItem};
 use crate::text_input_godot::GhostText;
+use crate::transform::{Affine2, Placement};
 
 /// How opaque the ghost is (plan Appendix A: a browser-like ghost), multiplied into whatever
 /// opacity the copied elements already have.
@@ -53,6 +54,19 @@ impl DragGhost {
         if rect.width <= 0.0 || rect.height <= 0.0 {
             return None;
         }
+        // Where the source is drawn, when that is more than a move (its own transform or an ancestor's): the copy is
+        // drawn through the same map, so a rotated card is dragged rotated, with its bounding box's corner at the
+        // ghost's origin.
+        let source_placement = mounted
+            .absolute_affine(source, viewport)
+            .filter(|affine| !affine.is_translation())
+            .map(|affine| {
+                let affine = affine.then(&Affine2::translation(-Vector2::new(rect.x, rect.y)));
+                Placement {
+                    affine,
+                    inverse: affine.inverse(),
+                }
+            });
         let root = RootItem::new(canvas_parent, GHOST_DRAW_INDEX);
         root.set_visible(false);
         root.set_opacity(DRAG_GHOST_OPACITY);
@@ -67,8 +81,11 @@ impl DragGhost {
             let mut copy = RenderNode::new();
             copy.attach(parent);
             // The source sits at the ghost's origin; the item's own position places the whole copy.
-            if !is_source {
+            if is_source {
+                copy.set_placement(source_placement);
+            } else {
                 copy.set_location(recorded.location);
+                copy.set_placement(recorded.placement);
             }
             copy.set_draw_index(i32::try_from(rank).expect("a paint list fits an i32 draw index"));
             copy.set_opacity(recorded.opacity);

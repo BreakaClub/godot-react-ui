@@ -537,7 +537,7 @@ impl ReactUiRoot {
     /// What the text input draws as the caret, in root-local pixels, for diagnostics: the rectangle
     /// of its primary caret, or `null` while it cannot be laid out.
     pub(crate) fn text_input_caret_json(&self, tag: u32) -> Value {
-        let Some((rect, _)) = self.mounted.absolute_geometry(tag, self.viewport_box()) else {
+        let Some(affine) = self.mounted.absolute_affine(tag, self.viewport_box()) else {
             return Value::Null;
         };
         let Some(state) = self.text_state(tag) else {
@@ -553,9 +553,15 @@ impl ReactUiRoot {
         let scroll = self.mounted.nodes.get(&tag).map_or(Vector2::ZERO, |node| {
             crate::scroll_input::to_vector(node.scroll.offset)
         });
+        // Root-local, and the bounding box of the caret when the field is turned.
+        let drawn = affine.bounds_of(crate::geometry::BoxRect {
+            x: caret.x - scroll.x,
+            y: caret.top - scroll.y,
+            width: super::CARET_WIDTH_PX,
+            height: caret.height,
+        });
         json!({
-            "x": rect.x + caret.x - scroll.x, "y": rect.y + caret.top - scroll.y,
-            "width": super::CARET_WIDTH_PX, "height": caret.height,
+            "x": drawn.x, "y": drawn.y, "width": drawn.width, "height": drawn.height,
         })
     }
 }

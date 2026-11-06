@@ -18,6 +18,7 @@ use serde_json::{Value, json};
 
 use crate::diff::Parent;
 use crate::events::ScrollData;
+use crate::geometry::BoxRect;
 use crate::paint::parse_color;
 use crate::pan::PanGesture;
 use crate::props::{OverscrollBehaviorSpec, TouchActionSpec};
@@ -28,6 +29,7 @@ use crate::scroll::{
     TouchAction, Vec2, dominant_axis, momentum_step, pan_owner, scroll_chain, scroll_key,
     scroll_reveal_delta,
 };
+use crate::transform::Affine2;
 use crate::{ReactUiRoot, event_time_ms};
 
 pub(crate) fn to_scroll(value: Vector2) -> Vec2 {
@@ -125,7 +127,15 @@ impl ReactUiRoot {
             ranges: node.geometry.scroll_ranges,
             offset: node.scroll.offset,
             overscroll: overscroll_of(node.computed.overscroll_behavior),
+            frame: self.scroll_frame_of(tag),
         })
+    }
+
+    /// How the container's own axes are turned on screen: the linear part of the map that draws it, when it is
+    /// more than a move. An input is in the screen's axes and is taken in the container's.
+    fn scroll_frame_of(&self, tag: u32) -> Option<crate::transform::Linear2> {
+        let affine = self.mounted.absolute_affine(tag, self.viewport_box())?;
+        (!affine.is_translation()).then_some(affine.linear)
     }
 
     /// The containers of `scroll_path(start)` with their links, innermost first.
@@ -500,6 +510,10 @@ impl ReactUiRoot {
             return false;
         };
         let velocity = pan.gesture.release();
+        // The finger moved on screen; the container coasts in its own axes.
+        let velocity = self
+            .scroll_link(owner)
+            .map_or(velocity, |link| link.localize_pixels(velocity));
         if velocity != Vec2::ZERO
             && let Some(node) = self.mounted.nodes.get_mut(&owner)
         {
@@ -562,9 +576,10 @@ impl ReactUiRoot {
     /// The scrollbar thumb of container `tag` at `point` (root-local), if there is one.
     fn thumb_at(&self, tag: u32, point: Vector2) -> Option<(Scrollbar, Vec2)> {
         let node = self.mounted.nodes.get(&tag)?;
-        let (rect, _) = self.mounted.absolute_geometry(tag, self.viewport_box())?;
+        // The thumbs are in the container's own frame; a pointer on a turned container is mapped back into it.
+        let in_frame = self.mounted.to_local(tag, self.viewport_box(), point)?;
         let client = node.geometry.padding_box();
-        let local = Vec2::new(point.x - rect.x - client.x, point.y - rect.y - client.y);
+        let local = Vec2::new(in_frame.x - client.x, in_frame.y - client.y);
         let bars = node.scrollbars();
         [bars.x, bars.y]
             .into_iter()
@@ -610,14 +625,14 @@ impl ReactUiRoot {
             self.scrolling.thumb = None;
             return false;
         };
-        let Some((rect, _)) = self.mounted.absolute_geometry(tag, self.viewport_box()) else {
+        let Some(in_frame) = self
+            .mounted
+            .to_local(tag, self.viewport_box(), self.pointer)
+        else {
             return true;
         };
         let client = node.geometry.padding_box();
-        let local = Vec2::new(
-            self.pointer.x - rect.x - client.x,
-            self.pointer.y - rect.y - client.y,
-        );
+        let local = Vec2::new(in_frame.x - client.x, in_frame.y - client.y);
         let along = grab.drag.offset_at(local);
         let mut target = node.scroll.offset;
         target.set(axis, along);
@@ -708,13 +723,9 @@ impl ReactUiRoot {
             return false;
         };
         // The element's rectangle in the frame its paint parent's children are located in (the
-        // parent's border box, not scrolled).
-        let mut rect = Rect::new(
-            node.geometry.location.x,
-            node.geometry.location.y,
-            node.geometry.size.x,
-            node.geometry.size.y,
-        );
+        // parent's border box, not scrolled): the box round it when it is transformed.
+        let drawn = frame_box(node);
+        let mut rect = Rect::new(drawn.x, drawn.y, drawn.width, drawn.height);
         let mut current = node.paint_parent;
         let mut moved = Vec::new();
         while let Some(Parent::Node(container_tag)) = current {
@@ -749,7 +760,26 @@ impl ReactUiRoot {
             let Some(container) = self.mounted.nodes.get(&container_tag) else {
                 break;
             };
-            rect.origin = rect.origin - offset + to_scroll(container.geometry.location);
+            rect = match container.transform {
+                // A turned container: the box round the rectangle where its own transform puts it.
+                Some(transform) => {
+                    let inside = Affine2::translation(Vector2::new(-offset.x, -offset.y))
+                        .then(&transform.placement.affine)
+                        .then(&Affine2::translation(container.geometry.location))
+                        .bounds_of(BoxRect {
+                            x: rect.origin.x,
+                            y: rect.origin.y,
+                            width: rect.size.x,
+                            height: rect.size.y,
+                        });
+                    Rect::new(inside.x, inside.y, inside.width, inside.height)
+                }
+                None => {
+                    let mut moved = rect;
+                    moved.origin = rect.origin - offset + to_scroll(container.geometry.location);
+                    moved
+                }
+            };
             current = container.paint_parent;
         }
         let any = !moved.is_empty();
@@ -770,16 +800,21 @@ impl ReactUiRoot {
         // The scrollbar thumbs as drawn, root-local, for the verifiers (null when hidden or unattached).
         let thumbs = self
             .mounted
-            .absolute_geometry(tag, self.viewport_box())
-            .map(|(rect, _)| {
+            .absolute_affine(tag, self.viewport_box())
+            .map(|affine| {
                 let client = node.geometry.padding_box();
                 let bars = node.scrollbars();
+                // The bounding box of what is drawn when the container is turned.
                 let thumb = |bar: Option<Scrollbar>| {
                     bar.map(|bar| {
+                        let drawn = affine.bounds_of(BoxRect {
+                            x: client.x + bar.thumb.origin.x,
+                            y: client.y + bar.thumb.origin.y,
+                            width: bar.thumb.size.x,
+                            height: bar.thumb.size.y,
+                        });
                         json!({
-                            "x": rect.x + client.x + bar.thumb.origin.x,
-                            "y": rect.y + client.y + bar.thumb.origin.y,
-                            "width": bar.thumb.size.x, "height": bar.thumb.size.y,
+                            "x": drawn.x, "y": drawn.y, "width": drawn.width, "height": drawn.height,
                         })
                     })
                 };
@@ -788,16 +823,20 @@ impl ReactUiRoot {
         // The tracks of every axis that scrolls, drawn or not (`scrollbar-width: none` hides the drawing only).
         let tracks = self
             .mounted
-            .absolute_geometry(tag, self.viewport_box())
-            .map(|(rect, _)| {
+            .absolute_affine(tag, self.viewport_box())
+            .map(|affine| {
                 let client = node.geometry.padding_box();
                 let layout = node.scrollbar_layout();
                 let track = |bar: Option<Scrollbar>| {
                     bar.map(|bar| {
+                        let drawn = affine.bounds_of(BoxRect {
+                            x: client.x + bar.track.origin.x,
+                            y: client.y + bar.track.origin.y,
+                            width: bar.track.size.x,
+                            height: bar.track.size.y,
+                        });
                         json!({
-                            "x": rect.x + client.x + bar.track.origin.x,
-                            "y": rect.y + client.y + bar.track.origin.y,
-                            "width": bar.track.size.x, "height": bar.track.size.y,
+                            "x": drawn.x, "y": drawn.y, "width": drawn.width, "height": drawn.height,
                         })
                     })
                 };
@@ -811,6 +850,29 @@ impl ReactUiRoot {
             "minScrollTop": ranges.y.min(), "maxScrollTop": ranges.y.max(),
             "thumbs": thumbs, "tracks": tracks,
         })
+    }
+}
+
+/// The box of an element in the frame of its paint parent (not scrolled): its border box located, and, when it has a
+/// transform, the bounding box of where the transform draws it.
+fn frame_box(node: &crate::mount::MountedNode) -> BoxRect {
+    let located = BoxRect {
+        x: node.geometry.location.x,
+        y: node.geometry.location.y,
+        width: node.geometry.size.x,
+        height: node.geometry.size.y,
+    };
+    match node.transform {
+        Some(transform) => transform
+            .placement
+            .affine
+            .then(&Affine2::translation(node.geometry.location))
+            .bounds_of(BoxRect {
+                x: 0.0,
+                y: 0.0,
+                ..located
+            }),
+        None => located,
     }
 }
 

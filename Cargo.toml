@@ -28,6 +28,8 @@ blitz-traits = { git = "https://github.com/DioxusLabs/blitz", rev = "3f85506dcf2
 style = { package = "stylo", git = "https://github.com/servo/stylo", rev = "2dca34592ced37c6aa01733e94206a767194cf9d" }
 # `backdrop-filter` is behind a static pref that is off by default (preferences.toml); the style engine turns it on.
 stylo_static_prefs = { git = "https://github.com/servo/stylo", rev = "2dca34592ced37c6aa01733e94206a767194cf9d" }
+# The 3D transform types Stylo's computed transform functions take and return (the revision above uses 0.22).
+euclid = "0.22"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

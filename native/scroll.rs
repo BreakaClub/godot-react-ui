@@ -39,6 +39,8 @@
 
 use std::ops::{Add, Sub};
 
+use crate::transform::Linear2;
+
 /// `ScrollBar::PAGE_DIVISOR` (`scene/gui/scroll_bar.h:116`): a wheel tick scrolls a page divided by
 /// this, and a keyboard arrow step is the same ("item" unit, `scroll_container.cpp:451-478`).
 pub(crate) const SCROLL_PAGE_DIVISOR: f32 = 8.0;
@@ -394,6 +396,63 @@ pub(crate) struct ScrollLink {
     pub(crate) ranges: ScrollRanges,
     pub(crate) offset: Vec2,
     pub(crate) overscroll: OverscrollBehavior,
+    /// How the container's own axes are turned on screen (the linear part of the map that draws it), when a
+    /// transform turns, scales or skews it. An input is in screen axes and is taken in the container's: a
+    /// wheel down over a container turned a quarter scrolls it along its own x. `None` for the usual container,
+    /// which takes the input as it is.
+    pub(crate) frame: Option<Linear2>,
+}
+
+impl ScrollLink {
+    /// `amount`, in screen axes, in the container's own. Pixels map through the inverse exactly (a finger drags
+    /// the content one to one whatever the scale); ticks are a fraction of the container's page, so only their
+    /// direction maps: the columns of the map are made unit length first.
+    fn localize(&self, input: ScrollInput, amount: Vec2) -> Vec2 {
+        let Some(frame) = self.frame else {
+            return amount;
+        };
+        let frame = match input {
+            ScrollInput::Pixels(_) => frame,
+            ScrollInput::Ticks(_) => unit_columns(frame),
+        };
+        frame.inverse().map_or(amount, |inverse| {
+            let mapped = inverse.apply(godot::prelude::Vector2::new(amount.x, amount.y));
+            Vec2::new(mapped.x, mapped.y)
+        })
+    }
+
+    /// A velocity or distance in screen pixels, in the container's own axes.
+    pub(crate) fn localize_pixels(&self, amount: Vec2) -> Vec2 {
+        self.localize(ScrollInput::Pixels(amount), amount)
+    }
+
+    /// The inverse of [`Self::localize`].
+    fn globalize(&self, input: ScrollInput, amount: Vec2) -> Vec2 {
+        let Some(frame) = self.frame else {
+            return amount;
+        };
+        let frame = match input {
+            ScrollInput::Pixels(_) => frame,
+            ScrollInput::Ticks(_) => unit_columns(frame),
+        };
+        let mapped = frame.apply(godot::prelude::Vector2::new(amount.x, amount.y));
+        Vec2::new(mapped.x, mapped.y)
+    }
+}
+
+/// `frame` with each column scaled to unit length, which is its direction without its scale.
+fn unit_columns(frame: Linear2) -> Linear2 {
+    let x = frame.a.hypot(frame.b);
+    let y = frame.c.hypot(frame.d);
+    if x == 0.0 || y == 0.0 {
+        return frame;
+    }
+    Linear2 {
+        a: frame.a / x,
+        b: frame.b / x,
+        c: frame.c / y,
+        d: frame.d / y,
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -426,8 +485,10 @@ pub(crate) fn scroll_chain(links: &mut [ScrollLink], input: ScrollInput) -> Chai
         if remaining == Vec2::ZERO {
             break;
         }
+        // The container takes the input in its own axes, and what it leaves goes on in the screen's.
+        let mut local = link.localize(input, remaining);
         for axis in AXES {
-            let request = remaining.get(axis);
+            let request = local.get(axis);
             let unit = input.pixels_per_unit(link.client, axis);
             // An empty client scrolls nothing: everything passes on.
             if request == 0.0 || unit <= 0.0 {
@@ -439,7 +500,7 @@ pub(crate) fn scroll_chain(links: &mut [ScrollLink], input: ScrollInput) -> Chai
             link.offset.set(axis, to);
             moved_by[index].set(axis, to - from);
             // Compare instead of subtracting so a fully consumed input leaves exactly zero.
-            remaining.set(
+            local.set(
                 axis,
                 if to == wanted {
                     0.0
@@ -448,6 +509,7 @@ pub(crate) fn scroll_chain(links: &mut [ScrollLink], input: ScrollInput) -> Chai
                 },
             );
         }
+        remaining = link.globalize(input, local);
         if link.overscroll == OverscrollBehavior::Contain && remaining != Vec2::ZERO {
             stopped_by = Some(index);
             break;
@@ -1011,6 +1073,7 @@ mod tests {
             ranges,
             offset,
             overscroll: OverscrollBehavior::Auto,
+            frame: None,
         }
     }
 

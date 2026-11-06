@@ -186,16 +186,17 @@ impl ReactUiRoot {
     /// The offset of the text input `tag`'s display text at the root-local `point`: the nearest
     /// grapheme boundary on the line the point is on (`TextLayout::hit_test`).
     pub(crate) fn text_offset_at(&self, tag: u32, point: Vector2) -> Result<usize, TextInputError> {
-        let (rect, _) = self
+        // The text is laid out in the element's own frame, so a pointer on a rotated field is mapped back into it.
+        let local = self
             .mounted
-            .absolute_geometry(tag, self.viewport_box())
+            .to_local(tag, self.viewport_box(), point)
             .ok_or(TextInputError::NotShaped)?;
         let scrolled = self
             .mounted
             .nodes
             .get(&tag)
             .map_or(Vector2::ZERO, |node| to_vector(node.scroll.offset));
-        let local = point - Vector2::new(rect.x, rect.y) + scrolled;
+        let local = local + scrolled;
         Ok(self.display_layout(tag)?.hit_test(local)?)
     }
 }

@@ -408,15 +408,18 @@ impl ReactUiRoot {
         let state = node.text_input.as_ref().ok_or(TextInputError::NotShaped)?;
         let layout = self.display_layout(tag)?;
         let caret = layout.caret(state.caret_display_offset(), state.input_direction)?;
-        let (rect, _) = self
-            .mounted
-            .absolute_geometry(tag, self.viewport_box())
-            .ok_or(TextInputError::NotShaped)?;
         let scrolled = to_vector(node.scroll.offset);
-        Ok(Vector2::new(
-            rect.x + caret.x - scrolled.x,
-            rect.y + caret.top + caret.height / 2.0 - scrolled.y,
-        ))
+        // The caret is in the field's own frame; the IME window is placed in the root's.
+        self.mounted
+            .to_root(
+                tag,
+                self.viewport_box(),
+                Vector2::new(
+                    caret.x - scrolled.x,
+                    caret.top + caret.height / 2.0 - scrolled.y,
+                ),
+            )
+            .ok_or(TextInputError::NotShaped)
     }
 }
 

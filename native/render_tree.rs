@@ -37,6 +37,7 @@ use crate::paint::parse_color;
 use crate::profile::{Sample, micros};
 use crate::props::Kind;
 use crate::selection_input::{highlight_paint, highlight_rects};
+use crate::transform::{Affine2, Placement};
 
 /// The overlay scrollbar thumb colour when no `scrollbar-color` is set: slate-500 at 60 % (plan
 /// Appendix A). A paint constant, so it lives with the painting rather than in `scroll.rs`.
@@ -192,6 +193,8 @@ pub(crate) struct Recorded {
     pub(crate) content_key: Option<ContentKey>,
     /// A scroll container's offset; `None` for an element that does not scroll.
     pub(crate) scroll_offset: Option<Vector2>,
+    /// The element's transform, if it has one that does something.
+    pub(crate) placement: Option<Placement>,
 }
 
 /// The two items of a `backdrop-filter`, children of the box item that draw before its background.
@@ -254,6 +257,10 @@ pub(crate) struct RenderNode {
     /// Text inputs only: the items the text and the caret are drawn in, under the scroll item.
     edit_items: Option<EditItems>,
     location: Vector2,
+    /// The element's transform (`transform.rs`): the box item draws at `location` plus this.
+    placement: Option<Placement>,
+    /// Whether the box item (or the shell of its group) is hidden because the matrix has no inverse.
+    transform_hidden: bool,
     scroll_offset: Vector2,
     opacity: f32,
     clip: Option<Rect2>,
@@ -292,6 +299,8 @@ impl RenderNode {
             overlay_item: None,
             edit_items: None,
             location: Vector2::ZERO,
+            placement: None,
+            transform_hidden: false,
             scroll_offset: Vector2::ZERO,
             opacity: 1.0,
             clip: None,
@@ -312,6 +321,29 @@ impl RenderNode {
             box_key: self.box_key,
             content_key: self.content_key,
             scroll_offset: self.scroll_item.map(|_| self.scroll_offset),
+            placement: self.placement,
+        }
+    }
+
+    /// What the box item (and the backdrop's draw item, where it hangs on the shell) is transformed by:
+    /// the element's own map, then its location.
+    fn item_transform(&self) -> Transform2D {
+        self.placement
+            .map_or(Affine2::IDENTITY, |placement| placement.affine)
+            .then(&Affine2::translation(self.location))
+            .to_godot()
+    }
+
+    /// Draw or hide the outermost item: hidden by an opacity the engine draws nothing at (a group only), or
+    /// by a matrix with no inverse (an element edge on or scaled to nothing), which the engine would invert.
+    fn refresh_visibility(&self) {
+        let mut rs = server();
+        match &self.group {
+            Some(group) => rs.canvas_item_set_visible(
+                group.shell,
+                self.group_visible() && !self.transform_hidden,
+            ),
+            None => rs.canvas_item_set_visible(self.box_item, !self.transform_hidden),
         }
     }
 
@@ -493,12 +525,12 @@ impl RenderNode {
         }
         rs.canvas_item_set_draw_index(items.copy, COPY_DRAW_INDEX);
         rs.canvas_item_set_draw_index(items.draw, BACKDROP_DRAW_INDEX);
-        let (location, opacity) = if on_shell {
-            (self.location, self.opacity)
+        let (transform, opacity) = if on_shell {
+            (self.item_transform(), self.opacity)
         } else {
-            (Vector2::ZERO, 1.0)
+            (Transform2D::IDENTITY, 1.0)
         };
-        rs.canvas_item_set_transform(items.draw, Transform2D::from_angle_origin(0.0, location));
+        rs.canvas_item_set_transform(items.draw, transform);
         rs.canvas_item_set_modulate(items.draw, Color::from_rgba(1.0, 1.0, 1.0, opacity));
     }
 
@@ -565,10 +597,6 @@ impl RenderNode {
             rs.canvas_item_set_parent(shell, self.parent);
             rs.canvas_item_set_draw_index(shell, self.draw_index);
             rs.canvas_item_set_parent(self.box_item, wrapper);
-            rs.canvas_item_set_visible(
-                shell,
-                self.opacity >= OPACITY_CULLED_BELOW || faults::active(Fault::VisibleAtZeroOpacity),
-            );
             self.group = Some(GroupItems {
                 shell,
                 wrapper,
@@ -576,6 +604,7 @@ impl RenderNode {
                 probe: None,
             });
             drop(rs);
+            self.refresh_visibility();
             // The backdrop, if there is one, leaves the box item for the shell.
             self.arrange_backdrop();
         }
@@ -690,6 +719,7 @@ impl RenderNode {
         let mut rs = server();
         rs.canvas_item_set_parent(self.box_item, self.parent);
         rs.canvas_item_set_draw_index(self.box_item, self.draw_index);
+        rs.canvas_item_set_visible(self.box_item, !self.transform_hidden);
         if let Some(probe) = group.probe {
             rs.free_rid(probe.copy);
             rs.free_rid(probe.draw);
@@ -709,19 +739,37 @@ impl RenderNode {
             return false;
         }
         self.location = location;
-        server().canvas_item_set_transform(
-            self.box_item,
-            Transform2D::from_angle_origin(0.0, location),
-        );
+        self.apply_item_transform();
+        true
+    }
+
+    /// Set the element's transform (`None`: it has none). Returns true when it changed. A move of an animated
+    /// element is this one call: nothing is re-recorded.
+    pub(crate) fn set_placement(&mut self, placement: Option<Placement>) -> bool {
+        if self.placement == placement {
+            return false;
+        }
+        self.placement = placement;
+        self.apply_item_transform();
+        let hidden = placement.is_some_and(|placement| placement.inverse.is_none());
+        if hidden != self.transform_hidden {
+            self.transform_hidden = hidden;
+            self.refresh_visibility();
+        }
+        true
+    }
+
+    /// Put the box item (and the backdrop's draw item, where it hangs on the shell) where `location` and
+    /// `placement` say.
+    fn apply_item_transform(&self) {
+        let transform = self.item_transform();
+        let mut rs = server();
+        rs.canvas_item_set_transform(self.box_item, transform);
         if self.backdrop_on_shell()
             && let Some(items) = &self.backdrop
         {
-            server().canvas_item_set_transform(
-                items.draw,
-                Transform2D::from_angle_origin(0.0, location),
-            );
+            rs.canvas_item_set_transform(items.draw, transform);
         }
-        true
     }
 
     /// Opacity multiplies into every descendant through the canvas item's inherited modulate.
@@ -737,12 +785,10 @@ impl RenderNode {
         {
             rs.canvas_item_set_modulate(items.draw, Color::from_rgba(1.0, 1.0, 1.0, opacity));
         }
-        if let Some(group) = &self.group {
-            // At an opacity the engine draws nothing at, a group would still clear the back buffer and generate its mipmaps.
-            rs.canvas_item_set_visible(
-                group.shell,
-                self.opacity >= OPACITY_CULLED_BELOW || faults::active(Fault::VisibleAtZeroOpacity),
-            );
+        drop(rs);
+        // At an opacity the engine draws nothing at, a group would still clear the back buffer and generate its mipmaps.
+        if self.group.is_some() {
+            self.refresh_visibility();
         }
     }
 
@@ -903,20 +949,36 @@ impl RootItem {
         Self { item }
     }
 
-    /// Draw `style` over `rect`, clipped to `clip` (both in the item's coordinates).
+    /// Draw `style` over `rect`, clipped to `clip` (both in the item's coordinates). With `transform`, `rect` is in
+    /// the frame it maps from and the picture is drawn through it, still under the item's clip: the item's
+    /// coordinates are the root's, and an element's ring turns with the element.
     pub(crate) fn draw_clipped(
         &self,
         style: &mut Gd<StyleBoxFlat>,
         rect: Rect2,
         clip: Option<Rect2>,
+        transform: Option<Affine2>,
     ) {
         let mut rs = server();
         rs.canvas_item_clear(self.item);
+        // The clip bounds what is drawn; without one the item's rectangle is the drawing's, in the item's frame.
+        let drawn = transform.map_or(rect, |transform| {
+            let bounds = transform.bounds_of(crate::geometry::BoxRect {
+                x: rect.position.x,
+                y: rect.position.y,
+                width: rect.size.x,
+                height: rect.size.y,
+            });
+            bounds.godot_rect()
+        });
         rs.canvas_item_set_custom_rect_ex(self.item, true)
-            .rect(clip.unwrap_or(rect))
+            .rect(clip.unwrap_or(drawn))
             .done();
         // `clear` resets the clip flag.
         rs.canvas_item_set_clip(self.item, clip.is_some());
+        if let Some(transform) = transform {
+            rs.canvas_item_add_set_transform(self.item, transform.to_godot());
+        }
         style.draw(self.item, rect);
     }
 
@@ -1136,8 +1198,22 @@ impl ReactUiRoot {
             let node = self.mounted.nodes.get(&tag)?;
             let (rect, clip) = self.mounted.absolute_geometry(tag, viewport)?;
             let radius = node.computed.border_radius.unwrap_or(0.0) as i32;
+            // Under a rotation, scale or skew the ring is the border box in the element's own frame, drawn
+            // through the map that draws the element, so it turns with it; the clip stays the bounding box
+            // the engine clips to.
+            let (rect, transform) = match self.mounted.absolute_affine(tag, viewport) {
+                Some(affine) if !affine.is_translation() => (
+                    Rect2::new(
+                        Vector2::ZERO,
+                        Vector2::new(rect_size(node)[0], rect_size(node)[1]),
+                    ),
+                    Some(affine),
+                ),
+                _ => (rect.godot_rect(), None),
+            };
             Some(RingKey {
-                rect: rect.godot_rect(),
+                rect,
+                transform,
                 clip: clip.map(BoxRect::godot_rect),
                 radius,
                 oversampling: if radius > 0 {
@@ -1158,7 +1234,7 @@ impl ReactUiRoot {
             Some(key) => {
                 ring.set_corner_radius_all(key.radius);
                 ring.set_aa_size(key.oversampling.feather());
-                item.draw_clipped(ring, key.rect, key.clip);
+                item.draw_clipped(ring, key.rect, key.clip, key.transform);
             }
             None => item.clear(),
         }
@@ -1166,10 +1242,16 @@ impl ReactUiRoot {
     }
 }
 
+fn rect_size(node: &crate::mount::MountedNode) -> [f32; 2] {
+    [node.geometry.size.x, node.geometry.size.y]
+}
+
 /// What the focus ring last drew.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct RingKey {
     rect: Rect2,
+    /// How the element is drawn when that is more than a move: `rect` is then its border box in its own frame.
+    transform: Option<Affine2>,
     clip: Option<Rect2>,
     radius: i32,
     /// Only a rounded ring is antialiased, as for `BoxKey`.

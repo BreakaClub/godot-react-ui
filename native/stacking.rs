@@ -19,6 +19,16 @@
 //! Siblings of one paint parent are painted in ascending (`zIndex`, document order), where `zIndex`
 //! defaults to 0 and applies to every element, as in React Native.
 //!
+//! A transformed element (`transform.rs`) is drawn through its [`Placement`]: its local frame, the border box
+//! corner at the origin, is mapped by the matrix (about the element's `transform-origin`) and then located.
+//! Hit testing maps the point back through the inverse, so a rotated element is hit where it is drawn and a
+//! singular matrix (`scale(0)`) is hit nowhere, with everything inside it. `absolute_geometry` reports the
+//! bounding box of what is drawn, as `getBoundingClientRect()` does; [`absolute_affine`] reports the map itself
+//! for what needs to turn a root-local point into one of the element's. Clips stay axis aligned (the
+//! engine's `canvas_item_set_clip` takes the bounding box of the transformed rectangle), so an `overflow`
+//! clip under a rotation is the bounding box of the rotated clip rectangle here as in the drawing; hit testing
+//! is exact because it clips in the element's own frame.
+//!
 //! A scroll container shifts what it paints: its paint children are located in its frame less its
 //! scroll offset (the `scroll` canvas item's transform, plan 3.8). Because that follows the paint
 //! parent, an absolute element scrolls with a positioned scroll container that is its containing
@@ -33,6 +43,7 @@ use crate::ROOT_TARGET;
 use crate::diff::Parent;
 use crate::geometry::{BoxRect, intersect_clip, intersects};
 use crate::props::PositionSpec;
+use crate::transform::{Affine2, Placement};
 
 /// What the stacking rules read from one element's computed style.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -161,6 +172,9 @@ pub(crate) struct Frame {
     pub(crate) pointer_target: bool,
     /// Set for a scroll container.
     pub(crate) scroll: Option<ScrollFrame>,
+    /// Set for an element with a transform that does something: where its local frame is drawn relative
+    /// to `location`.
+    pub(crate) placement: Option<Placement>,
 }
 
 /// The paint tree and the geometry of its elements.
@@ -189,7 +203,11 @@ pub(crate) fn hit_test<T: PaintTree>(tree: &T, point: Vector2) -> Option<u32> {
 
 fn hit_node<T: PaintTree>(tree: &T, tag: u32, point_in_parent: Vector2) -> Option<u32> {
     let frame = tree.frame(tag)?;
-    let local = point_in_parent - frame.location;
+    let mut local = point_in_parent - frame.location;
+    if let Some(placement) = frame.placement {
+        // A matrix with no inverse draws nothing, so nothing in it is hit.
+        local = placement.inverse?.apply(local);
+    }
     let scrolled = frame.scroll.map_or(Vector2::ZERO, |scroll| scroll.offset);
     if let Some(scroll) = frame.scroll
         && frame.pointer_target
@@ -239,14 +257,74 @@ pub(crate) fn rect_of<T: PaintTree>(tree: &T, tag: u32, viewport: BoxRect) -> Op
     absolute_geometry(tree, tag, viewport, ScrollMode::Drawn).map(|(rect, _)| rect)
 }
 
-/// The root-local rectangle of `tag` and the clip its paint ancestors impose on it (starting from
-/// `viewport`), or `None` if `tag` is not attached. Cost proportional to depth. See [`ScrollMode`].
-pub(crate) fn absolute_geometry<T: PaintTree>(
+/// Where a frame is in the root: while no element above has a transform it is a translation, and the
+/// walk does only the additions it always did; the first placement turns it into an affine map.
+#[derive(Clone, Copy)]
+enum Chain {
+    Translated(Vector2),
+    Mapped(Affine2),
+}
+
+impl Chain {
+    /// The frame of an element located at `location` in this frame, with its `placement`.
+    fn enter(self, location: Vector2, placement: Option<Placement>) -> Chain {
+        match (self, placement) {
+            (Chain::Translated(origin), None) => Chain::Translated(origin + location),
+            (parent, placement) => {
+                let own = placement.map_or(Affine2::IDENTITY, |placement| placement.affine);
+                Chain::Mapped(
+                    own.then(&Affine2::translation(location))
+                        .then(&parent.affine()),
+                )
+            }
+        }
+    }
+
+    /// The frame its paint children are located in when the element is scrolled by `offset`.
+    fn scrolled(self, offset: Vector2) -> Chain {
+        match self {
+            Chain::Translated(origin) => Chain::Translated(origin - offset),
+            Chain::Mapped(affine) => Chain::Mapped(Affine2::translation(-offset).then(&affine)),
+        }
+    }
+
+    fn affine(self) -> Affine2 {
+        match self {
+            Chain::Translated(origin) => Affine2::translation(origin),
+            Chain::Mapped(affine) => affine,
+        }
+    }
+
+    /// The root-local bounding box of `rect`, given in this frame.
+    fn bounds_of(self, rect: BoxRect) -> BoxRect {
+        match self {
+            Chain::Translated(origin) => BoxRect {
+                x: origin.x + rect.x,
+                y: origin.y + rect.y,
+                ..rect
+            },
+            Chain::Mapped(affine) => affine.bounds_of(rect),
+        }
+    }
+}
+
+/// Where `tag` is drawn: the map from its own frame (border box corner at the origin) to the root, its size,
+/// and the clip its paint ancestors impose, or `None` if `tag` is not attached. Cost proportional to depth.
+/// See [`ScrollMode`].
+struct AbsoluteFrame {
+    chain: Chain,
+    /// The frame its paint parent's children are located in (the parent's border box, scrolled).
+    parent: Chain,
+    size: Vector2,
+    clip: Option<BoxRect>,
+}
+
+fn absolute_frame<T: PaintTree>(
     tree: &T,
     tag: u32,
     viewport: BoxRect,
     mode: ScrollMode,
-) -> Option<(BoxRect, Option<BoxRect>)> {
+) -> Option<AbsoluteFrame> {
     let mut path = vec![tag];
     loop {
         match tree.paint_parent(*path.last()?)? {
@@ -255,53 +333,92 @@ pub(crate) fn absolute_geometry<T: PaintTree>(
         }
     }
     path.reverse();
-    let mut origin = Vector2::ZERO;
+    let mut frame_of_parent = Chain::Translated(Vector2::ZERO);
     let mut clip = Some(viewport);
     for (position, current) in path.iter().enumerate() {
         let frame = tree.frame(*current)?;
-        origin += frame.location;
+        let own = frame_of_parent.enter(frame.location, frame.placement);
         if position + 1 == path.len() {
-            let rect = BoxRect {
-                x: origin.x,
-                y: origin.y,
-                width: frame.size.x,
-                height: frame.size.y,
-            };
-            return Some((rect, clip));
+            return Some(AbsoluteFrame {
+                chain: own,
+                parent: frame_of_parent,
+                size: frame.size,
+                clip,
+            });
         }
+        let border_box = BoxRect {
+            x: 0.0,
+            y: 0.0,
+            width: frame.size.x,
+            height: frame.size.y,
+        };
         if mode == ScrollMode::Reachable && frame.scroll.is_some() {
             // From here inwards scrolling decides what is in view. The container has to be in view
             // itself; an empty clip says it is not.
-            let container = BoxRect {
-                x: origin.x,
-                y: origin.y,
-                width: frame.size.x,
-                height: frame.size.y,
-            };
+            let container = own.bounds_of(border_box);
             if clip.is_some_and(|clip| !intersects(container, clip)) {
-                return Some((container, Some(NOWHERE)));
+                return Some(AbsoluteFrame {
+                    chain: own,
+                    parent: frame_of_parent,
+                    size: frame.size,
+                    clip: Some(NOWHERE),
+                });
             }
             clip = None;
+            frame_of_parent = own;
             continue;
         }
         if let Some(local) = frame.clip {
-            clip = intersect_clip(
-                clip,
-                Some(BoxRect {
-                    x: origin.x + local.x,
-                    y: origin.y + local.y,
-                    width: local.width,
-                    height: local.height,
-                }),
-            );
+            clip = intersect_clip(clip, Some(own.bounds_of(local)));
         }
-        if mode == ScrollMode::Drawn
-            && let Some(scroll) = frame.scroll
-        {
-            origin -= scroll.offset;
-        }
+        frame_of_parent = match (mode, frame.scroll) {
+            (ScrollMode::Drawn, Some(scroll)) => own.scrolled(scroll.offset),
+            _ => own,
+        };
     }
     None
+}
+
+/// The root-local rectangle of `tag` and the clip its paint ancestors impose on it (starting from
+/// `viewport`), or `None` if `tag` is not attached. The rectangle is the bounding box of what is drawn:
+/// a rotated element reports the box round it, as `getBoundingClientRect()` does. Cost proportional to
+/// depth. See [`ScrollMode`].
+pub(crate) fn absolute_geometry<T: PaintTree>(
+    tree: &T,
+    tag: u32,
+    viewport: BoxRect,
+    mode: ScrollMode,
+) -> Option<(BoxRect, Option<BoxRect>)> {
+    let found = absolute_frame(tree, tag, viewport, mode)?;
+    let rect = found.chain.bounds_of(BoxRect {
+        x: 0.0,
+        y: 0.0,
+        width: found.size.x,
+        height: found.size.y,
+    });
+    Some((rect, found.clip))
+}
+
+/// The map from the frame `tag`'s paint parent locates its children in to the root: what an item that is a
+/// sibling of `tag`'s (a filter's group) is in. `None` if `tag` is not attached.
+pub(crate) fn absolute_parent_affine<T: PaintTree>(
+    tree: &T,
+    tag: u32,
+    viewport: BoxRect,
+) -> Option<Affine2> {
+    absolute_frame(tree, tag, viewport, ScrollMode::Drawn).map(|found| found.parent.affine())
+}
+
+/// The map from `tag`'s own frame (the corner of its border box is the origin) to the root, where it is
+/// drawn now, with its size: what a caller needs to turn a root-local point into one of the element's
+/// (`inverse`), or one of the element's into the root's. `None` if `tag` is not attached.
+pub(crate) fn absolute_affine<T: PaintTree>(
+    tree: &T,
+    tag: u32,
+    viewport: BoxRect,
+) -> Option<(Affine2, Vector2)> {
+    let found = absolute_frame(tree, tag, viewport, ScrollMode::Drawn)?;
+    Some((found.chain.affine(), found.size))
 }
 
 /// A clip nothing intersects.
@@ -339,6 +456,7 @@ mod tests {
         paint_parent: Option<Parent>,
         paint_children: Vec<u32>,
         scroll: Option<ScrollFrame>,
+        placement: Option<Placement>,
     }
 
     /// A tree built the way React would, then settled the way the mounting layer settles it.
@@ -382,6 +500,7 @@ mod tests {
                     paint_parent: None,
                     paint_children: Vec::new(),
                     scroll: None,
+                    placement: None,
                 },
             );
             match parent {
@@ -489,6 +608,7 @@ mod tests {
                 }),
                 pointer_target: node.pointer_target,
                 scroll: node.scroll,
+                placement: node.placement,
             })
         }
     }

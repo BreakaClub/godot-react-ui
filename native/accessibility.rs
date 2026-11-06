@@ -97,7 +97,11 @@ fn axis_scrolls(node: &MountedNode, axis: Axis) -> bool {
 /// its scroll bar's track lies. `rect` is the container's root-local border box; the track is laid out
 /// in its padding box, whether or not the bar is drawn (`scrollbar-width: none` hides the drawing, not
 /// the axis).
-fn scroll_axis(node: &MountedNode, rect: BoxRect, axis: Axis) -> Option<AxScrollAxis> {
+fn scroll_axis(
+    node: &MountedNode,
+    affine: crate::transform::Affine2,
+    axis: Axis,
+) -> Option<AxScrollAxis> {
     if !axis_scrolls(node, axis) {
         return None;
     }
@@ -109,15 +113,22 @@ fn scroll_axis(node: &MountedNode, rect: BoxRect, axis: Axis) -> Option<AxScroll
     }
     .expect("an axis that scrolls has a scroll bar layout (scroll::scrollbars lays out every scrollable axis)");
     let client = node.geometry.padding_box();
+    // The track is in the container's own frame; assistive technology gets the box round where it is drawn.
+    let track = affine.bounds_of(BoxRect {
+        x: client.x + bar.track.origin.x,
+        y: client.y + bar.track.origin.y,
+        width: bar.track.size.x,
+        height: bar.track.size.y,
+    });
     Some(AxScrollAxis {
         position: f64::from(node.scroll.offset.get(axis)),
         min: f64::from(range.min()),
         max: f64::from(range.max()),
         track: AxBounds {
-            x: rect.x + client.x + bar.track.origin.x,
-            y: rect.y + client.y + bar.track.origin.y,
-            width: bar.track.size.x,
-            height: bar.track.size.y,
+            x: track.x,
+            y: track.y,
+            width: track.width,
+            height: track.height,
         },
     })
 }
@@ -133,6 +144,7 @@ impl AxSource for Mounted {
         // located in its paint parent's frame, not its tree parent's. The viewport only seeds the
         // clip, which is not used here.
         let (rect, _) = self.absolute_geometry(tag, BoxRect::default())?;
+        let affine = self.absolute_affine(tag, BoxRect::default())?;
         Some(AxNode {
             kind: node.kind,
             props: &node.props,
@@ -144,8 +156,8 @@ impl AxSource for Mounted {
             display_none: node.computed.display == Some(DisplaySpec::None),
             clips_children: node.clips_content(),
             scroll: node.is_scroll_container().then(|| AxScroll {
-                x: scroll_axis(node, rect, Axis::X),
-                y: scroll_axis(node, rect, Axis::Y),
+                x: scroll_axis(node, affine, Axis::X),
+                y: scroll_axis(node, affine, Axis::Y),
             }),
             in_scrollable: self.in_scrollable_container(tag),
             text_field: node

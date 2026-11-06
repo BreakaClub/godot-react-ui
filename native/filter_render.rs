@@ -32,6 +32,7 @@ use crate::motion::{resolved_backdrop_filter, resolved_filter};
 use crate::profile::micros;
 use crate::render_tree::Oversampling;
 use crate::style_engine::current_color;
+use crate::transform::Affine2;
 
 /// The pieces the four shaders share.
 const SHADER_HEADER: &str = "shader_type canvas_item;\nrender_mode unshaded;\n";
@@ -779,6 +780,14 @@ fn to_target(transform: &Transform2D, rect: BoxRect) -> PixelRect {
     }
 }
 
+/// Whether `map` takes a rectangle on the axes to one on the axes: no rotation or skew other than quarter turns.
+fn axis_aligned(map: crate::transform::Linear2) -> bool {
+    const AXIS_TOLERANCE: f32 = 1e-4;
+    let straight = map.b.abs() <= AXIS_TOLERANCE && map.c.abs() <= AXIS_TOLERANCE;
+    let quarter = map.a.abs() <= AXIS_TOLERANCE && map.d.abs() <= AXIS_TOLERANCE;
+    straight || quarter
+}
+
 /// `rect` (render-target pixels, biased by `bias` at its corner and again in its size) in the group's frame: the bounding
 /// box of the four corners, so a root that is rotated or mirrored gets the rectangle that covers it, not the one the
 /// transformed corner and the absolute size would make.
@@ -976,6 +985,16 @@ impl ReactUiRoot {
             }
             current = parent;
         }
+    }
+
+    /// One line per element: a filter inside something turned or skewed is not drawn.
+    fn report_turned_frame(&mut self, tag: u32) {
+        if !self.effects.reported.insert((tag, tag)) {
+            return;
+        }
+        godot_error!(
+            "ReactUiRoot: node {tag} has a filter inside an element that a transform rotates or skews. Godot's canvas groups are drawn on the screen's axes and the blur's texel maps assume the group's rectangle is one, so {tag}'s filter is not drawn. Put the filter on the element that is turned, or turn only a translate or a scale above it. (A backdrop-filter is not affected.)"
+        );
     }
 
     fn report_nesting(&mut self, tag: u32, ancestor: u32, filter: bool, backdrop: bool) {
@@ -1485,27 +1504,31 @@ impl ReactUiRoot {
         target: (i32, i32),
         renderer: RendererKind,
     ) {
-        let Some((rect, _)) = self.mounted.absolute_geometry(tag, self.viewport_box()) else {
+        let viewport = self.viewport_box();
+        let (Some(affine), Some(parent)) = (
+            self.mounted.absolute_affine(tag, viewport),
+            self.mounted.absolute_parent_affine(tag, viewport),
+        ) else {
             return;
         };
         let Some(extent) = self.group_extent(tag) else {
             return;
         };
-        let Some(location) = self
-            .mounted
-            .nodes
-            .get(&tag)
-            .map(|node| node.geometry.location)
-        else {
+        // The group is a sibling of the element, in the frame its paint parent locates children in. That frame may be
+        // moved and scaled by an ancestor's transform, and the rectangles the engine makes mipmaps for stay exact;
+        // turned or skewed they would not (the engine takes the bounding box of the rotated rectangle, which is not
+        // the region the shader's texel maps were made for), so a group below a rotation is not drawn.
+        if !axis_aligned(parent.linear) {
+            self.report_turned_frame(tag);
             return;
+        }
+        let frame_origin = if parent.is_translation() {
+            Vector2::new(parent.e, parent.f)
+        } else {
+            Vector2::ZERO
         };
-        let frame_origin = Vector2::new(rect.x - location.x, rect.y - location.y);
-        let bounds_local = BoxRect {
-            x: rect.x + extent.x,
-            y: rect.y + extent.y,
-            width: extent.width,
-            height: extent.height,
-        };
+        // Where the element's subtree is drawn, in the root: its own transform included, as a box round it.
+        let bounds_local = affine.bounds_of(extent);
         let Some(state) = self.effects.nodes.get_mut(&tag) else {
             return;
         };
@@ -1572,7 +1595,16 @@ impl ReactUiRoot {
         // The rectangles in the group's frame. The region the mipmaps are made for is the one already cut to the target,
         // biased so the engine's truncation (toward zero) keeps its integers: a negative origin truncates to the next
         // integer up, which made the engine's region a pixel larger than the one the maps were computed for.
-        let inverse = transform.affine_inverse();
+        let inverse = if parent.is_translation() {
+            transform.affine_inverse()
+        } else {
+            // The parent's frame maps the root's pixels by more than a move: undo that too.
+            parent
+                .inverse()
+                .map_or(transform.affine_inverse(), |frame| {
+                    frame.to_godot() * transform.affine_inverse()
+                })
+        };
         let marked = if faults::active(Fault::TruncatedBias) {
             union_pixels(region, draw)
         } else {
@@ -1610,8 +1642,9 @@ impl ReactUiRoot {
         Some(extent)
     }
 
-    /// The rectangle of an element's own box and everything painted below it, relative to the box's corner: a superset
-    /// of the rectangle the engine will make the group's region from.
+    /// The rectangle of an element's own box and everything painted below it, in the element's own frame (relative to the
+    /// box's corner, before its own transform): a superset of the rectangle the engine will make the group's region from.
+    /// A transformed descendant counts as the box round where its transform draws it.
     fn subtree_extent(&self, tag: u32) -> Option<BoxRect> {
         let node = self.mounted.nodes.get(&tag)?;
         let mut bounds = BoxRect {
@@ -1620,42 +1653,47 @@ impl ReactUiRoot {
             width: node.geometry.size.x,
             height: node.geometry.size.y,
         };
-        let mut stack: Vec<(u32, Vector2)> = vec![(tag, Vector2::ZERO)];
-        while let Some((current, origin)) = stack.pop() {
+        // Each element with the map from its own frame to the extent's.
+        let mut stack: Vec<(u32, Affine2)> = vec![(tag, Affine2::IDENTITY)];
+        while let Some((current, frame)) = stack.pop() {
             let node = self.mounted.nodes.get(&current)?;
-            let content = origin
-                - if node.is_scroll_container() {
-                    crate::scroll_input::to_vector(node.scroll.offset)
-                } else {
-                    Vector2::ZERO
-                };
+            let content = if node.is_scroll_container() {
+                Affine2::translation(-crate::scroll_input::to_vector(node.scroll.offset))
+                    .then(&frame)
+            } else {
+                frame
+            };
             for child in &node.paint_children {
                 let Some(child_node) = self.mounted.nodes.get(child) else {
                     continue;
                 };
-                let position = content + child_node.geometry.location;
+                let child_frame = child_node
+                    .transform
+                    .map_or(Affine2::IDENTITY, |transform| transform.placement.affine)
+                    .then(&Affine2::translation(child_node.geometry.location))
+                    .then(&content);
                 bounds = union(
                     bounds,
-                    BoxRect {
-                        x: position.x,
-                        y: position.y,
+                    child_frame.bounds_of(BoxRect {
+                        x: 0.0,
+                        y: 0.0,
                         width: child_node.geometry.size.x,
                         height: child_node.geometry.size.y,
-                    },
+                    }),
                 );
-                stack.push((*child, position));
+                stack.push((*child, child_frame));
             }
             if let Some(paragraph) = node.visual.paragraph.as_ref() {
                 let size = paragraph.get_size();
-                let text = origin + node.geometry.content_origin();
+                let text = node.geometry.content_origin();
                 bounds = union(
                     bounds,
-                    BoxRect {
+                    frame.bounds_of(BoxRect {
                         x: text.x,
                         y: text.y,
                         width: size.x,
                         height: size.y,
-                    },
+                    }),
                 );
             }
         }
