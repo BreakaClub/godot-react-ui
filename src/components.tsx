@@ -1,7 +1,7 @@
-import { Children, createElement, forwardRef, useContext, type ReactNode } from 'react';
+import { Children, createElement, forwardRef, useCallback, useContext, useSyncExternalStore, type ReactNode } from 'react';
 import type { UIAccessibilityActionEvent, UIFocusEvent, UIKeyboardEvent, UIPointerEvent, UIWheelEvent } from './events';
 import type { LayoutRect } from './native';
-import { createOverlayPortal, OverlayContext } from './renderer';
+import { createOverlayPortal, OverlayContext, readRootSize, watchRootSize, type RootSize } from './renderer';
 import type { StyleProp, UIAriaProps } from './types';
 
 export interface UIHandle {
@@ -9,6 +9,15 @@ export interface UIHandle {
   readonly testID: string | undefined;
   /** The element's root-local rectangle, from a native query, or `undefined` once it is gone. */
   getRect(): LayoutRect | undefined;
+  /**
+   * Where this element stands against `other` in document order, the pre-order of the whole tree with the
+   * main layer first and the overlay layer after it (the order Tab follows and the snapshot's
+   * `documentIndex` reports): negative if this element comes first, positive if `other` does, and 0 for
+   * the same element. Use it to put the parts a compound component registered in the order they are
+   * shown, after an item was inserted in the middle or a keyed list was reordered. It reads the committed
+   * tree and makes no native call. Throws if either element is gone or belongs to another root.
+   */
+  compareDocumentOrder(other: UIHandle): number;
   /**
    * Route `pointerId`'s `pointermove`, `pointerup` and `pointercancel` (and its `click`) to this element
    * wherever the pointer is, until the pointer goes up or is cancelled, or the element is removed. Only a
@@ -134,4 +143,19 @@ export function Portal({ children }: { children?: ReactNode }): ReactNode {
   const overlay = useContext(OverlayContext);
   if (overlay === null) throw new Error('<Portal> must be rendered inside a root created by createRoot');
   return createOverlayPortal(children, overlay);
+}
+
+/**
+ * The size of the root this component is rendered in, in logical pixels: what a popover needs to flip or
+ * clamp to the viewport. It follows the root's `Control` size, so the component renders again when the
+ * owner resizes the root (`dispatchEvents` finds the change, which owners call once per frame).
+ * Breakpoints are native and need no JS; this is for placing things in JS.
+ */
+export function useRootSize(): RootSize {
+  const overlay = useContext(OverlayContext);
+  if (overlay === null) throw new Error('useRootSize() must be used inside a root created by createRoot');
+  // React subscribes again whenever the subscribe function changes, so these are stable for the root.
+  const subscribe = useCallback((listener: () => void) => watchRootSize(overlay, listener), [overlay]);
+  const read = useCallback(() => readRootSize(overlay), [overlay]);
+  return useSyncExternalStore(subscribe, read);
 }

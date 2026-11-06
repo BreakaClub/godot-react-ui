@@ -2,6 +2,11 @@ export { Checkbox } from './checkbox';
 export type { CheckboxProps, CheckedState } from './checkbox';
 export { RadioGroup } from './radio-group';
 export type { RadioGroupItemProps, RadioGroupRootProps, RadioOrientation } from './radio-group';
+export { Select } from './select';
+export type {
+  SelectContentProps, SelectIconProps, SelectItemIndicatorProps, SelectItemProps, SelectItemTextProps, SelectRootProps,
+  SelectTriggerProps, SelectValueProps,
+} from './select';
 export { Slider } from './slider';
 export type { SliderOrientation, SliderRangeProps, SliderRootProps, SliderThumbProps, SliderTrackProps } from './slider';
 export { Switch } from './switch';

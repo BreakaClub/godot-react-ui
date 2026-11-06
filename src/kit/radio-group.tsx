@@ -5,6 +5,7 @@ import {
 import { Button, View, type UIHandle } from '../components';
 import type { UIKeyboardEvent } from '../events';
 import type { StyleProp, UIAriaProps } from '../types';
+import { inDocumentOrder, useInDocumentOrder } from './collection';
 import { hasShortcutModifier, Key } from './keys';
 import { joinClassNames, useComposedRef, type PartProps } from './parts';
 import { useControllableState } from './use-controllable-state';
@@ -133,11 +134,14 @@ const RadioGroupRoot = forwardRef<UIHandle, RadioGroupRootProps>(function RadioG
     setEntries((current) => (current.some((entry) => entry.id === id) ? current.filter((entry) => entry.id !== id) : current));
   }, []);
 
+  // The first enabled item is the first one *shown*, which is not the first one that mounted once an
+  // item was inserted in the middle or the list was reordered.
+  const ordered = useInDocumentOrder(entries, (entry) => entry.handle.current);
   const tabStopId = useMemo(() => {
     if (disabled) return null;
-    const enabled = entries.filter((entry) => !entry.disabled);
+    const enabled = ordered.filter((entry) => !entry.disabled);
     return (enabled.find((entry) => entry.value === selected) ?? enabled[0])?.id ?? null;
-  }, [entries, selected, disabled]);
+  }, [ordered, selected, disabled]);
   const context = useMemo(
     (): RadioGroupContext => ({ value: selected, select, disabled, orientation, entries, tabStopId, upsert, remove }),
     [selected, select, disabled, orientation, entries, tabStopId, upsert, remove],
@@ -169,8 +173,8 @@ RadioGroupRoot.displayName = 'RadioGroup.Root';
  * `click`; Enter does not (the Authoring Practices give a radio group no Enter), so its default is
  * prevented.
  *
- * Items are walked in the order they mounted. An item inserted into the middle of a mounted group is
- * placed last in that order.
+ * Items are walked in document order (`UIHandle.compareDocumentOrder`), so an item inserted into the
+ * middle of a mounted group, or a keyed reorder, is walked where it is shown.
  */
 const RadioGroupItem = forwardRef<UIHandle, RadioGroupItemProps>(function RadioGroupItem(props, ref) {
   const {
@@ -204,7 +208,8 @@ const RadioGroupItem = forwardRef<UIHandle, RadioGroupItemProps>(function RadioG
     const direction = arrowDirection(event.key, group.orientation);
     if (direction === undefined) return;
     event.preventDefault();
-    const entries = group.entries.map((entry) => ({ ...entry, disabled: entry.disabled || group.disabled }));
+    const entries = inDocumentOrder(group.entries, (entry) => entry.handle.current)
+      .map((entry) => ({ ...entry, disabled: entry.disabled || group.disabled }));
     const from = entries.findIndex((entry) => entry.id === id);
     if (from === -1) throw new Error(`RadioGroup.Item "${value}" handled a key before it registered with its group`);
     const targetIndex = adjacentEnabledIndex(entries, from, direction);

@@ -61,7 +61,7 @@ export function node(id: number, kind: 'view' | 'text' | 'button'): NativeSnapsh
 
 /** One call across the native boundary, for tests that assert what did and did not cross. */
 export type NativeCall =
-  | 'commit' | 'takeCommitDeletions' | 'drainEvents' | 'getSnapshot' | 'getNodeRect' | 'findByTestId' | 'resolveEvent'
+  | 'commit' | 'takeCommitDeletions' | 'drainEvents' | 'getSnapshot' | 'getNodeRect' | 'getSize' | 'findByTestId' | 'resolveEvent'
   | 'setPointerCapture' | 'releasePointerCapture' | 'hasPointerCapture' | 'focusNode' | 'blurNode';
 
 /**
@@ -95,6 +95,8 @@ export class RecordingHost implements NativeHost {
   /** Every `focusNode` and `blurNode` request: tag and the focusVisible argument (undefined for blur). */
   readonly focusRequests: Array<{ tag: number; focusVisible: number | undefined }> = [];
   focused: number | null = null;
+  /** What the root's `Control` reports as its size; a test changes it with `resize` to resize the root. */
+  private currentSize = { x: 1024, y: 768 };
   /** Extra events appended to every drain, for storm tests. */
   produceEvents: (() => NativeEvent[]) | undefined;
   private nextSeq = 1;
@@ -232,6 +234,17 @@ export class RecordingHost implements NativeHost {
     return JSON.stringify(this.nodes.get(tag)?.rect ?? null);
   }
 
+  /** A read of the root's size crosses the boundary like any other property of the Godot object. */
+  get size(): { readonly x: number; readonly y: number } {
+    this.calls.push('getSize');
+    return { x: this.currentSize.x, y: this.currentSize.y };
+  }
+
+  /** The owner resizing the root's `Control`. */
+  resize(width: number, height: number): void {
+    this.currentSize = { x: width, y: height };
+  }
+
   findByTestId(testId: string): number {
     this.calls.push('findByTestId');
     const tags = [...this.nodes.values()].filter((entry) => entry.props.testID === testId).map((entry) => entry.id);
@@ -243,7 +256,7 @@ export class RecordingHost implements NativeHost {
     const snapshot: NativeSnapshot = {
       clockMs: 0, transitions: [],
       nodes: [...this.nodes.values()],
-      width: 1024, height: 768, hovered: null, focused: this.focused, pressed: null, focusVisible: false, modality: 'keyboard', pointers: [],
+      width: this.currentSize.x, height: this.currentSize.y, hovered: null, focused: this.focused, pressed: null, focusVisible: false, modality: 'keyboard', pointers: [],
       stats: {
         batches: this.commits.length, nodeCount: this.nodes.size - 1, layoutPasses: 0, paintPasses: 0, layoutMicros: 0,
         nodesCreated: 0, nodesUpdated: 0, nodesDeleted: 0, nodesRestyled: 0, mutations: 0, boxRecords: 0, contentRecords: 0,

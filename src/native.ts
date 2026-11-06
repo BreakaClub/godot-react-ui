@@ -23,6 +23,12 @@ export interface NativeHost {
   getSnapshot(): string;
   /** The root-local rectangle of a node as JSON, or `null`. */
   getNodeRect(tag: number): string;
+  /**
+   * The root's size in logical pixels. The host is a `ReactUiRoot`, a `Control`, so this is `Control.size`
+   * (`get_size()`), the very value native lays out in and resolves breakpoints against (`sync_viewport`).
+   * Read on demand: the renderer makes no call until something asks for the size.
+   */
+  readonly size: { readonly x: number; readonly y: number };
   /** The tag of the first node created with `testId`, or -1. */
   findByTestId(testId: string): number;
   /**

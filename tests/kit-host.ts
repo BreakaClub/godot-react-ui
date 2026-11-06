@@ -39,6 +39,11 @@ export interface PointerInit {
  *   cancelled ends its capture.
  */
 export class KitHost extends RecordingHost {
+  /**
+   * The rectangle `getRect()` answers for the element with a `testID`, ahead of its mounting: layout does
+   * not run here, and an overlay measures itself in the commit that creates it.
+   */
+  readonly rectsByTestID = new Map<string, LayoutRect>();
   private readonly awaitedKeys = new Map<number, NativeKeyEvent>();
   private activation: { readonly key: string; readonly tag: number } | undefined;
 
@@ -49,6 +54,14 @@ export class KitHost extends RecordingHost {
     if (problem !== undefined) return problem;
     this.focused = tag;
     return '';
+  }
+
+  override getNodeRect(tag: number): string {
+    const testID = this.nodes.get(tag)?.props.testID;
+    const preset = typeof testID === 'string' ? this.rectsByTestID.get(testID) : undefined;
+    if (preset === undefined) return super.getNodeRect(tag);
+    this.calls.push('getNodeRect');
+    return JSON.stringify(preset);
   }
 
   /** Why `tag` cannot take focus, or `undefined` if it can. */

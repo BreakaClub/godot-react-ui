@@ -69,10 +69,24 @@ interface RootState {
   failure: Error | undefined;
   /** True while `dispatchEvents` drains native events; a nested call returns at once. */
   dispatching: boolean;
+  /**
+   * Every mounted element's place in document order, built on first use after a commit that changed the
+   * tree's structure and dropped by the next one (`documentIndices`).
+   */
+  documentOrder: ReadonlyMap<number, number> | undefined;
+  /** The root's size as last read, or `undefined` until something asks for it (`readRootSize`). */
+  size: RootSize | undefined;
+  readonly sizeListeners: Set<() => void>;
   readonly listeners: RootListeners;
   /** Handle for the layer root, the target of events addressed to root listeners only. */
   readonly handle: UIHandle;
   unsubscribe: (() => void) | undefined;
+}
+
+/** The root's size in logical pixels: the `Control`'s size, which native lays out in and resolves breakpoints against. */
+export interface RootSize {
+  readonly width: number;
+  readonly height: number;
 }
 
 export interface RootOptions {
@@ -146,20 +160,99 @@ function focusMethods(host: NativeHost, tag: number): Pick<UIHandle, 'focus' | '
   };
 }
 
+/**
+ * Every mounted element's place in document order: the pre-order of the whole tree, the main layer
+ * first and then the overlay layer. It is the order native uses for Tab and reports as
+ * `documentIndex` in the snapshot (`MountedTree::document_order`), computed here from the committed
+ * instances so a query makes no native call. Built on the first query after a commit that changed
+ * the tree's structure, which is the only thing that can change it.
+ */
+function documentIndices(root: RootState): ReadonlyMap<number, number> {
+  if (root.documentOrder !== undefined) return root.documentOrder;
+  const order = new Map<number, number>();
+  const pending: Instance[] = [];
+  for (const container of [root.main, root.overlay]) {
+    if (container === undefined) continue;
+    // The stack pops the next element to visit, so a layer's top-level elements are pushed last first.
+    for (let index = container.rootTags.length - 1; index >= 0; index -= 1) {
+      const top = root.committed.get(container.rootTags[index] ?? LAYER_ROOT_TAG);
+      if (top !== undefined) pending.push(top);
+    }
+    for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
+      order.set(next.tag, order.size);
+      for (let index = next.children.length - 1; index >= 0; index -= 1) {
+        const child = next.children[index];
+        if (child !== undefined) pending.push(child);
+      }
+    }
+  }
+  root.documentOrder = order;
+  return order;
+}
+
+/** `handle`'s place in document order; throws for an element that is gone or that another root owns. */
+function documentIndexOf(root: RootState, handle: UIHandle): number {
+  const index = root.handles.get(handle.id) === handle ? documentIndices(root).get(handle.id) : undefined;
+  if (index === undefined) throw new Error(`compareDocumentOrder: element ${handle.id} is not mounted in this root`);
+  return index;
+}
+
 /** The public handle of a tag; created on first use and stable across clones. */
 function handleFor(root: RootState, tag: number): UIHandle {
   let handle = root.handles.get(tag);
   if (handle === undefined) {
-    handle = {
+    const own: UIHandle = handle = {
       id: tag,
       get testID() { return root.committed.get(tag)?.props.testID; },
       getRect() { return readNodeRect(root.host, tag); },
+      compareDocumentOrder(other) { return documentIndexOf(root, own) - documentIndexOf(root, other); },
       ...captureMethods(root.host, tag),
       ...focusMethods(root.host, tag),
     };
     root.handles.set(tag, handle);
   }
   return handle;
+}
+
+function finiteSize(value: number, axis: string): number {
+  if (!Number.isFinite(value) || value < 0) throw new Error(`Native root ${axis} is not a finite, non-negative size: ${value}`);
+  return value;
+}
+
+/**
+ * Read the size from native and adopt it. Returns whether it changed. Listeners are told only when
+ * `notify` is set: a read made while rendering (`readRootSize`) must not run React callbacks.
+ */
+function syncRootSize(root: RootState, notify: boolean): boolean {
+  const native = root.host.size;
+  const width = finiteSize(native.x, 'width');
+  const height = finiteSize(native.y, 'height');
+  const known = root.size;
+  if (known !== undefined && known.width === width && known.height === height) return false;
+  root.size = { width, height };
+  if (notify) for (const listener of [...root.sizeListeners]) listener();
+  return true;
+}
+
+/**
+ * The root's size. With nobody watching it is read from native on every call (nothing is told when it
+ * changes, so a cached value could be stale); while a watcher exists `dispatchEvents` keeps it current
+ * and notifies, so the cache is returned as is and the value is stable between changes.
+ */
+export function readRootSize(container: Container): RootSize {
+  const root = container.root;
+  if (root.size === undefined || root.sizeListeners.size === 0) syncRootSize(root, false);
+  if (root.size === undefined) throw new Error('UI internal error: the root size was read but not set');
+  return root.size;
+}
+
+/** Call `listener` after `dispatchEvents` finds that the root's size changed. Returns the remover. */
+export function watchRootSize(container: Container, listener: () => void): () => void {
+  const root = container.root;
+  root.sizeListeners.add(listener);
+  // The size may have changed between the render that read it and this subscription.
+  syncRootSize(root, true);
+  return () => { root.sizeListeners.delete(listener); };
 }
 
 /** The first failure fails the caller once the current operation finishes; later ones are reported. */
@@ -191,6 +284,8 @@ function replaceContainerChildren(container: Container, children: Instance[]): v
     }
     container.rootTags = built.rootTags;
     if (payload !== undefined) {
+      // Only a payload changes the tree's structure; a handler-only change moves no element.
+      root.documentOrder = undefined;
       for (const tag of readDeletions(root.host)) {
         root.committed.delete(tag);
         root.handles.delete(tag);
@@ -383,10 +478,12 @@ export function createRoot(host: NativeHost, options: RootOptions): UIRoot {
     main: { get root() { return state; }, layer: MAIN_LAYER, rootTags: [] },
     overlay: undefined, unmounted: false, failure: undefined,
     dispatching: false, listeners: new RootListeners(), unsubscribe: undefined,
+    documentOrder: undefined, size: undefined, sizeListeners: new Set(),
     handle: {
       id: LAYER_ROOT_TAG,
       testID: undefined,
       getRect() { return readNodeRect(host, LAYER_ROOT_TAG); },
+      compareDocumentOrder() { throw new Error('compareDocumentOrder: the root is not an element and has no place in document order'); },
       ...captureMethods(host, LAYER_ROOT_TAG),
       ...focusMethods(host, LAYER_ROOT_TAG),
     },
@@ -465,6 +562,9 @@ export function createRoot(host: NativeHost, options: RootOptions): UIRoot {
       const started = state.profiler.start();
       let processed = 0;
       try {
+        // Owners call this once per frame, so this is where a change of the root's size is found. Only
+        // a watcher (`useRootSize`) makes it cost a native call.
+        const resized = state.sizeListeners.size > 0 && syncRootSize(state, true);
         let drained = false;
         for (let round = 0; round < MAX_EVENT_DRAIN_ROUNDS && !drained; round += 1) {
           const events = readEvents(host);
@@ -477,7 +577,7 @@ export function createRoot(host: NativeHost, options: RootOptions): UIRoot {
         if (!drained) {
           throw new Error(`UI event drain still produced events after ${MAX_EVENT_DRAIN_ROUNDS} rounds`);
         }
-        if (processed !== 0) reconciler.flushSyncWork();
+        if (processed !== 0 || resized) reconciler.flushSyncWork();
       } finally {
         state.dispatching = false;
       }

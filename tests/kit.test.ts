@@ -692,6 +692,42 @@ test('RadioGroup follows its items: a removed item leaves the walk and the tab s
   m.root.unmount();
 });
 
+test('RadioGroup walks the items where they are shown: an item inserted in the middle, then a keyed reorder', () => {
+  const m = mount(radioGroup([{ value: 'a' }, { value: 'c' }]));
+  m.root.render(radioGroup(ABC));
+  focus(m, 'a');
+  m.host.pressKey(m.root, 'ArrowDown');
+  assert.deepEqual(selectedValues(m), ['b'], 'b was inserted between a and c, so it is next, not last');
+  m.host.pressKey(m.root, 'ArrowDown');
+  assert.deepEqual(selectedValues(m), ['c']);
+
+  m.root.render(radioGroup([{ value: 'c' }, { value: 'a' }, { value: 'b' }]));
+  focus(m, 'c');
+  m.host.pressKey(m.root, 'ArrowDown');
+  assert.deepEqual(selectedValues(m), ['a'], 'after the reorder a follows c');
+  m.host.pressKey(m.root, 'ArrowDown');
+  assert.deepEqual(selectedValues(m), ['b']);
+  m.host.pressKey(m.root, 'ArrowDown');
+  assert.deepEqual(selectedValues(m), ['c'], 'and the end wraps to the item shown first');
+  m.root.unmount();
+});
+
+test('RadioGroup with nothing selected makes the item shown first the tab stop, also after a reorder', () => {
+  const m = mount(radioGroup());
+  assert.deepEqual(tabIndexes(m), [0, -1, -1]);
+  m.root.render(radioGroup([{ value: 'c' }, { value: 'a' }, { value: 'b' }]));
+  assert.deepEqual(tabIndexes(m), [-1, -1, 0], 'c is shown first now');
+  m.root.render(radioGroup([{ value: 'c', disabled: true }, { value: 'a' }, { value: 'b' }]));
+  assert.deepEqual(tabIndexes(m), [0, -1, -1], 'with c disabled the first enabled one shown is a');
+  m.root.unmount();
+});
+
+test('RadioGroup that mounts in the order it is shown renders no more than it did before document order', () => {
+  const m = mount(radioGroup());
+  assert.equal(m.host.commits.length, 2, 'the elements, then the tab stop the items registered');
+  m.root.unmount();
+});
+
 test('RadioGroup changing an item\'s disabled prop changes the walk and the tab stop', () => {
   const m = mount(radioGroup());
   m.root.render(radioGroup([{ value: 'a', disabled: true }, { value: 'b' }, { value: 'c' }]));

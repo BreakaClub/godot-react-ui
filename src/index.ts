@@ -1,9 +1,10 @@
-export { View, Text, Button, Portal } from './components';
+export { View, Text, Button, Portal, useRootSize } from './components';
 export type { UIProps, UIHandle } from './components';
-export { Checkbox, RadioGroup, Slider, Switch } from './kit';
+export { Checkbox, RadioGroup, Select, Slider, Switch } from './kit';
 export type {
-  CheckboxProps, CheckedState, PartProps, RadioGroupItemProps, RadioGroupRootProps, RadioOrientation, SliderOrientation,
-  SliderRangeProps, SliderRootProps, SliderThumbProps, SliderTrackProps, SwitchProps,
+  CheckboxProps, CheckedState, PartProps, RadioGroupItemProps, RadioGroupRootProps, RadioOrientation, SelectContentProps,
+  SelectIconProps, SelectItemIndicatorProps, SelectItemProps, SelectItemTextProps, SelectRootProps, SelectTriggerProps,
+  SelectValueProps, SliderOrientation, SliderRangeProps, SliderRootProps, SliderThumbProps, SliderTrackProps, SwitchProps,
 } from './kit';
 export { EventPhase } from './events';
 export type {
@@ -11,7 +12,7 @@ export type {
   UIPointerEvent, UISyntheticEvent, UIWheelEvent,
 } from './events';
 export { createRoot } from './renderer';
-export type { RootOptions, UIRoot } from './renderer';
+export type { RootOptions, RootSize, UIRoot } from './renderer';
 export type { UIRoot as ReactRoot } from './renderer';
 export { StyleSheet, compileStyle } from './styles';
 export type {
