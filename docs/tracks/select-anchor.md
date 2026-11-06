@@ -1,16 +1,17 @@
 # Track: Select (Phase I8, part 2) and the anchored label (Phase I11, part 2)
 
-Branch `select-anchor`, based on `5b31cdf`. Notes and report for the coordinator; `docs/INTERACTION_PLAN.md` and
+Branch `select-anchor`, rebased onto main `69eb30b` (accessibility, Phase I10); it was based on `5b31cdf`. See "Integration with main". Notes and report for the coordinator; `docs/INTERACTION_PLAN.md` and
 `docs/INTERACTION_PROGRESS.md` are not edited here. Two independent pieces: the kit `Select` with the renderer
 queries it needed, and a 2D label that follows a moving 3D node. No Rust changed (so no dylib, typings or `gen/`
 change); the installed dylib is the default release build.
 
 | What | Where | Commit |
 | --- | --- | --- |
-| Document-order and root-size queries, `Select`, RadioGroup on document order, tests | `src/renderer.ts`, `src/components.tsx`, `src/native.ts`, `src/index.ts`, `src/kit/{select.tsx,collection.ts,listbox.ts,popover-position.ts,keys.ts,radio-group.tsx,index.ts}`, `tests/{select,overlay-queries,kit,kit-host,prop-tree,recording-host,renderer}.test.ts` (and helpers) | `4b63507` |
-| Inputs lab, `inputs` verifier section; Select closes on resize, disabled items stay in the list | `demo/src/{inputs-lab.tsx,labs.tsx,main.ts,verify-interaction.ts}`, `src/kit/select.tsx`, `tests/select.test.ts` | `652975c` |
-| Anchored label, `verify:world` section, recipe | `demo/src/{world-label.tsx,world-main.ts,verify-world.ts}`, `docs/WORLD_SPACE.md`, `scripts/verify-world-web.mjs` | `973bc36` |
-| These notes and the last verifier edits | `docs/tracks/select-anchor.md`, `demo/src/verify-interaction.ts` | the commit after `973bc36` |
+| Document-order and root-size queries, `Select`, RadioGroup on document order, tests | `src/renderer.ts`, `src/components.tsx`, `src/native.ts`, `src/index.ts`, `src/kit/{select.tsx,collection.ts,listbox.ts,popover-position.ts,keys.ts,radio-group.tsx,index.ts}`, `tests/{select,overlay-queries,kit,kit-host,recording-host,renderer}.test.ts` (and helpers) | `610e177` (was `4b63507`) |
+| Inputs lab, `inputs` verifier section; Select closes on resize, disabled items stay in the list | `demo/src/{inputs-lab.tsx,labs.tsx,main.ts,verify-interaction.ts}`, `src/kit/select.tsx`, `tests/select.test.ts` | `c5807bb` (was `652975c`) |
+| Anchored label, `verify:world` section, recipe | `demo/src/{world-label.tsx,world-main.ts,verify-world.ts}`, `docs/WORLD_SPACE.md`, `scripts/verify-world-web.mjs` | `036ced6` (was `973bc36`) |
+| These notes and the last verifier edits | `docs/tracks/select-anchor.md`, `demo/src/verify-interaction.ts` | `4be8e19` (was `584e4ca`) |
+| The integration with main: this section, the corrected I10 notes | `docs/tracks/select-anchor.md` | the commit after `4be8e19` |
 
 ## APIs
 
@@ -105,7 +106,7 @@ tested, and `b`, `b` natively). Closing by any user path (item, Escape, Tab, bac
    `pointerdown` default for the hit, which clears focus, so JS cannot prevent it. Negative control: with `disabled`
    passed to native the `inputs` section fails with "Pressing the disabled item leaves focus in the list ...: none".
    This departs from kit decision 4 ("a disabled element gets `disabled` on the parts that need `disabled:` styles"): the
-   dimming is a class (`opacity-50 cursor-not-allowed`) here. I10 must map `aria-disabled` to the disabled flag on its own.
+   dimming is a class (`opacity-50 cursor-not-allowed`) here. I10 had to map `aria-disabled` to the disabled flag on its own, and now does (see "Integration with main").
 9. **A resize while the list is open closes it** (Radix does the same), instead of placing it again. First built the
    other way, and the native run showed why that fails: after the root shrinks, layout runs before JS can place the list
    again, and `layout.rs` drops the focus of an element that is no longer visible for input
@@ -123,10 +124,10 @@ tested, and `b`, `b` natively). Closing by any user path (item, Escape, Tab, bac
 12. **Not done, deliberately:** Radix's press-drag-release (open on `pointerdown`, choose on `pointerup` over an item), item
     groups and separators, `position="item-aligned"`, and touch verification (Web only; the clicks are the same
     events). `aria-haspopup`, `aria-controls` are not typed (I10).
-13. **Tests: a prop-tree portal and inert handle.** `tests/prop-tree.ts` now gives refs a real `compareDocumentOrder` over
-    the tree being rendered and records what a portal rendered (`portalNodes`), so the ARIA output of the open list can be
-    read; its `getRect`, `focus` and `blur` are inert, and everything else is tested against `KitHost` (which gains
-    `rectsByTestID` for rectangles layout would have produced).
+13. **Tests: `KitHost` with `rectsByTestID`.** Everything is tested against `KitHost`, which gains `rectsByTestID` for
+    rectangles layout would have produced. (This branch first extended `tests/prop-tree.ts` with a portal recorder and an
+    inert handle so the open list's ARIA output could be read; accessibility made `role` and `aria-*` real native props, main
+    deleted `prop-tree.ts`, and the tests now read the props the fake host recorded. See "Integration with main".)
 14. **Anchored label: a second root, rendered by the owner each frame.** `render()` is synchronous, so the label and the
     node are always in the same frame (a store and `useSyncExternalStore` would commit on a microtask). The node is placed
     from panel pixels with `quadPixelToLocal` (the inverse mapping, "where it fits") and is a child of the quad, so on the
@@ -258,16 +259,78 @@ Inspected PNGs (every one looked at):
   `useControllableState`. An editable combobox is TextInput plus this listbox: `OpenContent`'s placement, backdrop and
   the pure helpers (`placePopover`, `stepEnabled`, `typeAheadMatch`) are reusable, but the open list is not factored out
   of `Select` yet (do it when the second user exists). Type-ahead there is the input's text, not a buffer.
-- **I10:** the kit sets `role="combobox"` with `aria-expanded` on the trigger, `role="listbox"` on the list and
-  `role="option"` with `aria-selected` and `aria-disabled` on items, all JS-only today. Needed natively: those three roles,
-  `aria-expanded`, `aria-selected`, and `aria-disabled` mapped to the disabled flag independently of the native `disabled`
-  prop (decision 8). `aria-haspopup` and `aria-controls` are not typed; focus is on the option itself, so
+- **I10 (done on main, checked here):** the kit sets `role="combobox"` with `aria-expanded` on the trigger, `role="listbox"`
+  on the list and `role="option"` with `aria-selected` and `aria-disabled` on items. All of it is native since I10 (below).
+  `aria-haspopup` and `aria-controls` are not typed; focus is on the option itself, so
   `aria-activedescendant` is not needed. The options are in the overlay layer: the accessibility parent of the list is the
   nearest exposed ancestor in the overlay layer, i.e. the root's element.
 - **I5 (scroll):** `Select.Content` needs `overflow-y: auto` and a `max-height` for long lists, and native's minimal
   scroll-into-view on keyboard focus. Until then a long list is clipped by the window. Resizing then closes the list as
   now.
 - **Event for the root size**, if `scroll`'s event plumbing lands: replace the read in `dispatchEvents` (decision 1).
+
+## Integration with main
+
+Rebased onto main `69eb30b` (accessibility, I10). Four commits, two conflicts, no change to Rust, so the dylib, typings and
+`gen/` are untouched.
+
+**Conflicts**
+
+- `src/components.tsx` (import lines): both sides' imports kept. Main added `UIAccessibilityActionEvent` (the event type
+  for `onAccessibilityAction`); this branch added `useCallback` and `useSyncExternalStore` (for `useRootSize`).
+- `tests/prop-tree.ts` (main deleted it, this branch modified it): deleted, on main's terms. Nothing else imported it.
+  `tests/select.test.ts` was the only user, for the two ARIA tests, which now read `role` and `aria*` from the props the
+  fake host recorded (`host.nodes.get(tag).props`, through `mount(...).props(testID)`), the way main's kit tests do
+  (`ariaPropsOf`). The names are the native camelCase ones (`ariaExpanded`, `ariaSelected`, `ariaLabel`), not the JSX ones.
+  That also meant the tests no longer need `captureOverlay()` or a second reconciler: `KitHost` mounts the open list in
+  the real overlay layer.
+- A second pass of the same file in the `652975c` rebase: the branch's `aria-disabled: false` expectation, which assumed
+  every `aria-disabled` is sent, became "absent when false" (`src/props.ts` sends the booleans whose default is false only
+  when true), and the disabled Cherry is asserted with `ariaDisabled: true`.
+- Later commits (`src/renderer.ts`, `src/native.ts`, `tests/recording-host.ts`, `demo/src/*`) merged without conflicts and
+  nothing in them needed resolving by hand; both features run (the `inputs` section and `verify:world`'s label section
+  pass beside main's accessibility changes).
+
+**Props against native.** `native/props.rs` `PropsSpec` rejects unknown keys, so a key it did not know would fail the
+whole commit. Everything `Select`, the Inputs lab and the anchored label send (searched in `src/kit/select.tsx`,
+`demo/src/inputs-lab.tsx`, `demo/src/world-*.ts*`):
+
+| Prop sent | Value | Native field | Accepted |
+| --- | --- | --- | --- |
+| `role` | `combobox` (trigger), `listbox` (list), `option` (item) | `RoleSpec::ComboBox`, `ListBox`, `Option` | yes, and in `every_role_name_parses_and_round_trips` |
+| `aria-expanded` | `true`/`false` on the trigger | `ariaExpanded` | yes, `false` is kept (absent means not applicable) |
+| `aria-selected` | `true`/`false` on items | `ariaSelected` | yes, `false` is kept |
+| `aria-disabled` | `true` on a disabled item (absent otherwise) | `ariaDisabled` | yes |
+| `aria-label`, `aria-description` | the caller's, on the trigger, list and items | `ariaLabel`, `ariaDescription` | yes |
+| the slider's and radio group's | `aria-valuenow` and the rest, `aria-orientation`, `aria-checked` | the I10 fields | yes (kit, unchanged by this branch) |
+
+All are accepted and all are mapped by `nativeProps` in `src/props.ts`, so **nothing was added and nothing was kept
+JS-only**: no new field, mapping or role was needed. `aria-disabled` already becomes the accessibility disabled flag
+independently of the native `disabled` prop: `native/accessibility_model.rs` computes `disabled = parent_disabled ||
+real_disabled || aria_disabled`, `native/accessibility.rs` sets `AccessibilityFlags::DISABLED` from it, an `aria-disabled`
+element is offered no `click` but stays focusable (`real_disabled` is separate), and the model has a test for exactly that
+(`actions_follow_the_role_and_the_disabled_state`). A combobox is a role that activates and its children are presentational
+(accessibility decision 3), so the item reads as one option named by its `Select.ItemText`. The native proof is the `inputs`
+section: it opens the list, chooses, and closes it, sending every one of these props through the real commit, and passed
+with the rebased tree. Not typed and not sent, as before: `aria-haspopup`, `aria-controls`, `aria-activedescendant`.
+
+**Gates on the rebased tree** (each run once, windowed, `--audio-driver Dummy`):
+
+| Gate | Result |
+| --- | --- |
+| `cargo test --locked` | 473 passed |
+| `cargo clippy --locked --all-targets` | 0 warnings |
+| `rustup run stable cargo fmt --check` | clean |
+| `pnpm test:types` | clean |
+| `pnpm test` | 278 passed |
+| `pnpm build:native` | built and installed |
+| `pnpm verify:interaction` | passed, both viewports; the landscape window lost OS focus once and passed (`GODOT_REACT_RUN_DISTURBED`, reported by the runner); sections `events, cooperation, pointers, keyboard, positioning, inputs` |
+| `pnpm verify` | passed, both viewports |
+| `pnpm verify:world` | passed, both viewports |
+| `pnpm verify:a11y` | exit 2, "not verified": Godot48 has no AccessKit, the Godot-side checks passed (`GODOT_REACT_A11Y_NATIVE_PASSED`) |
+
+The `lws_socket_bind ... port 9229` lines in the logs are the GodotJS debugger finding its port taken by another process
+(not mine); the runs are unaffected.
 
 ## Environment
 
