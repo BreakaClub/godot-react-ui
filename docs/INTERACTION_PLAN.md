@@ -1,13 +1,14 @@
 # Fabric renderer and interaction plan
 
-Status: plan v2.8, 6 November 2026. Done: Phase 0 (`9f4a02c`), Phase 1 (`0d11607`), Phase F0
+Status: plan v2.9, 6 November 2026. Done: Phase 0 (`9f4a02c`), Phase 1 (`0d11607`), Phase F0
 (`4f7dd0d`), Phase F1 (`ce99bea`), Phase F2 (`578b461`), Phase F3 (`07a8344`), Phase F4 (`e60f6e5`;
 its numbers and decisions D7 to D10 are in the progress log and the decision log below), Phase I1
 (`edf6081`; decisions D11 to D13), Phase I2 (`fd11f41`; decisions D14 to D16), Phase I3 (`dec1f5d`; decisions D17 to
 D19); decision D20 sets the verification tiers; decisions D21 and D22 isolate the native verifiers from real input
 (Task 0). Phase I4 (`5018fee`; decisions D23 to D26). Parallel tracks on main (D27): text engine, scroll and drag core,
-world-space part 1, kit part 1; kit approach D28; test-input rules D29. In progress in worktrees: text layout,
-accessibility (I10 minus scroll and TextInput). Next on the main line: Phase I5.
+world-space part 1, kit part 1; kit approach D28; test-input rules D29. Phase I5 (scroll containers; decisions D30 to D37)
+is built on the `scroll` branch and waits for the coordinator's merge. In progress in worktrees: text layout,
+accessibility (I10 minus scroll and TextInput). Next on the main line after the merge: Phase I6.
 
 v1 of this plan (`7f0a96c`) was rejected because it built every interaction feature on the
 prototype's commit path, which re-walks and re-sends the whole tree on every change. v2 replaces
@@ -297,6 +298,83 @@ not a reason to wait.
   needs it, re-run only by D22's interference rule. Windowed runs are allowed; a brief focus change at launch is
   acceptable, minutes of back-to-back windows are not. A deliberate-noise "proof" during Task 0 hijacked Ben's
   machine; its tools were deleted and never entered the repository.
+
+- **D30 (I5)**: which axes scroll, and where the range comes from. An axis scrolls only when its own `overflow` is `scroll` or
+  `auto`; the other axis of a scroll container is clipped (the one padding-box clip, as for `hidden`) but does not move, so
+  `overflow-y-auto` alone makes a vertical scroller. `auto` and `scroll` behave the same (the bars overlay the content and a bar
+  is drawn only while there is something to scroll to). Taffy has no `auto`: both map to `Overflow::Scroll` with the style's
+  `scrollbar_width` left at its default of zero, which lays out exactly as `Hidden` (evidence: the Rust test
+  `props::tests::scroll_and_auto_overflow_lay_out_like_hidden_and_report_a_scroll_range`, content 150 x 400 in a 100 x 100
+  container gives a range of (50, 300) for all three). The range is Taffy's `Layout::scroll_width()` / `scroll_height()`, a
+  non-negative magnitude, with the axis' `scrollable_overflow_rect.is_reversed()` flag (`flex-col-reverse` gives a negative
+  range, `props::tests::a_column_reverse_scroll_container_reports_a_reversed_vertical_range`). The ranges are part of a node's
+  stored geometry, so any visit that sees them change re-clamps the offset and redraws the bars; a re-clamp that moves the
+  content is a scroll like any other (it queues a `scroll` event).
+- **D31 (I5)**: scrolling is a paint-tree property. A scroll container's paint children (its children, plus the out-of-flow
+  descendants it is the containing block of, D23) attach to a `scroll` item under its `content` item whose transform is
+  minus the offset; hit testing adds the offset when it descends and `absolute_geometry` subtracts it (the snapshot's rects,
+  `getRect()`, the focus ring and clicks all follow). An absolute element therefore scrolls with a positioned scroller that
+  is its containing block and not with a static one in between (`stacking::tests::an_absolute_box_scrolls_with_a_positioned_scroller...`).
+  The scroll and overlay items exist only while the node is a scroll container (`RenderNode::make_scroller`); the paint
+  children are re-attached when it becomes or stops being one. Input reachability is a separate question from where
+  something is drawn: Tab stops, `autoFocus` and "does focus survive a layout" ask `ScrollMode::Reachable`
+  (`stacking::absolute_geometry`), which ignores scroll offsets and the clips of scroll containers (and the viewport) from the
+  outermost scroller inwards, as long as that scroller is itself in view. With the drawn rectangle, Tab skipped every button
+  scrolled out of its list, and a focused button lost focus when it scrolled out of view.
+- **D32 (I5)**: how scroll input is taken. Wheel and pan gestures *chain event by event* (no latching): the containers on the
+  paint path from the element under the pointer, innermost first, each take what they can and the remainder spills to the next
+  (`scroll::scroll_chain`); a container with nothing to scroll on either axis is not on the path at all (it neither moves nor,
+  whatever its `overscroll-behavior`, keeps the scroll from the container behind it). The event is consumed when a container
+  moved **or a `contain` container kept what it could not take**, so a contained scroll reaches neither the outer container nor
+  the game; with nothing able to take it the event goes on to `_unhandled_input` (plan 3.11). The wheel's `factor` is
+  normalised with `scroll::wheel_factor` before `pointer::wheel_ticks`. Shift swaps the wheel's axes, not a pan gesture's.
+  Keys scroll only from the focused element (with none, keys are the game's): the first container on its path that the key
+  moves takes it (a container at its limit hands the key outwards), Space on a focused enabled `Button` presses it rather than
+  scrolling, a chord with Ctrl, Alt or Meta never scrolls, and a key that moved nothing is not consumed. Keyboard focus
+  from Tab, `focus()` and `autoFocus` scrolls the element into view (`reveal_node`, the least scrolling of each container,
+  innermost first); focus from a press does not. `TextInput` (I7) must be excluded from key scrolling when it exists.
+- **D33 (I5)**: touch pans. The arbitration of plan 3.12 rule 4 runs once, at the first movement beyond `TOUCH_SLOP_PX`
+  (`pan::PanGesture`, which wraps `scroll::pan_owner`), after an un-prevented primary `pointerdown`; a touch that is declined
+  stays pointer events until it lifts, and one that pans **latches** to its owner (what the owner cannot take is dropped; it
+  does not chain mid-gesture), cancels the pointer (`pointercancel`, no `click`), and applies the finger's movement from where
+  the slop was crossed (the slop itself is not scrolled, as Android and Chrome do). A container with `overscroll-behavior:
+  contain` ends the candidate path and owns a pan it cannot move, so the container behind it stays put. A press that explicitly
+  captured the pointer, or whose `pointerdown` was prevented, is not a pan (the kit Slider does both and says `touch-none`).
+  The release velocity is sampled while the finger is down and the content coasts after it lifts, per `ScrollContainer`'s
+  deceleration; a new touch stops every coasting container, and that touch does not click (a tap that stops a fling does not
+  in browsers). Evidence: `verify:interaction --only=scroll` (the touch part) and the Web touch page.
+- **D34 (I5)**: scrollbars. Overlay thumbs live in an `overlay` item under the box item, drawn after the content and not
+  scrolled. Only a thumb takes a pointer (hit before the content it covers); the track is not a hit area, so page-by-click is
+  not implemented (the plan asks for thumb dragging only). A primary press on a thumb, after an un-prevented `pointerdown`
+  (which still reaches JS with the container as target), starts a drag that moves the content one to one with the pointer
+  (`scroll::ThumbDrag`) wherever the pointer goes; the drag ends with the button's release (which does not click), a pointer
+  cancel, or the container going away. It does not read the motion's button mask, which synthetic input need not set (the
+  first verifier run failed on exactly that: the verifier's motion events carry no mask).
+- **D35 (I5)**: one `process()` decision. `update_process()` (motion.rs) is the only place that turns processing on or off: native
+  motion is running, a flick is coasting, or a finger is panning (its release velocity is sampled per frame), and the root is
+  in the tree. `pause_process()` is the one exception, for `EXIT_TREE` (`is_inside_tree()` is still true while that notification
+  is delivered, so the decision cannot be made then). `process()` ticks motion only if motion is active and scrolling only if it
+  wants frames, so a flick neither advances the animation clock nor counts an animation frame.
+- **D36 (I5)**: JS surface. `scroll` is not cancelable, does not bubble and has no capture handler (`onScroll`); native
+  coalesces the pending `scroll` of one container into one event (`EventQueue::push_scroll`). The handle gets
+  `scrollTo({left?, top?})` (an omitted axis keeps its offset, read from `getScrollState()`), `scrollBy`, `scrollIntoView()` and
+  `getScrollState()`; scrolling a node that is not a scroll container is an error that says so (as `focus()`, D19e: a scroll that
+  does nothing would hide a bug), `scrollIntoView` on any mounted element is fine. `getScrollState()` also reports the range of
+  each offset and where the thumbs are drawn, and the snapshot carries the same per node (`scroll`). The kit `ScrollView` is
+  an outer scroll container and an inner content element that cannot shrink and grows into a short view (React Native's content
+  container); it is a tab stop by default (`focusable={false}` turns that off) so keyboard users can scroll it; `horizontal`
+  chooses the axis; `className` takes `overscroll-contain`, `scrollbar-none` and `scrollbar-[#hex]`. The kit Slider's root says
+  `touch-none`. The Interaction tab's body is a `ScrollView` (its content fits at the verifier sizes, so no bar shows).
+- **D37 (I5)**: platform facts for the Web gate. Godot's Web build turns a DOM wheel delta of `d` CSS pixels into `0.03 * d` ticks
+  (`DisplayServerWeb::_mouse_wheel_callback`, `MOUSE_WHEEL_PIXEL_FACTOR`, `platform/web/display_server_web.cpp:681`), so a notch of 100 pixels
+  scrolls three ticks of page / 8. The Web verifier scrolls with real Chrome input through CDP (`Input.dispatchMouseEvent`
+  and, on the touch page, `Input.dispatchTouchEvent`) at both device pixel ratios; a CDP wheel notch of 100 arrives as `deltaY` 100 at ratio 1
+  and 50 at ratio 2 (measured; Chrome divides the physical delta by the ratio), so it computes the ticks from the ratio. Chrome reports mouse
+  positions in whole CSS pixels, so the thumb drag uses whole pixels. A flick is only a flick if the finger is still moving when it
+  lifts (`MOMENTUM_SAMPLE_INTERVAL_S`: a finger that rested for over 0.1 s flings nothing), so the verifier releases right after the last move.
+  The geometry checks of both verifiers skip what a scroll container holds (it reaches past the container and the window by design); they
+  still check the container and its siblings. Found on the way: the Web export had been failing since Task 0 added `demo/src/verifier-input.ts`
+  without an entry point of its own (`failed to include module: res://.godot/GodotJS/src/verifier-input.js`); `scripts/build.mjs` builds it now.
 
 The plan is written so an implementer can execute it phase by phase without re-deciding the
 architecture. Where it says **must**, it is a contract. Where it says *suggested*, use judgement and
@@ -941,27 +1019,34 @@ Rules (all **must**):
 
 ### 3.16 Scroll containers
 
-- Wire longhands `overflowX`, `overflowY`: `visible|hidden|scroll|auto` (the authoring shorthand
-  `overflow` is expanded by the compiler). Taffy gets `Overflow::Scroll` for `scroll|auto` with
-  `scrollbar_width = 0.0` (overlay scrollbars; zero width behaves like `Hidden` for layout,
-  `…/src/style/mod.rs:467-470`).
-- Range from Taffy: `Layout::scroll_width()` / `scroll_height()` (`…/src/tree/layout.rs:799,814`);
-  reversed axes (`scrollable_overflow_rect.is_reversed()`) use `-range..=0`. Offsets are per-tag
-  native state, re-clamped after layout; changing one updates the `scroll` item's transform and the
-  hit-test offset, nothing else.
-- Wheel scrolls `client size / SCROLL_PAGE_DIVISOR × factor`; pan gestures `client size × delta /
-  SCROLL_PAGE_DIVISOR`, mirroring `ScrollContainer` (`scene/gui/scroll_container.cpp:190-226,311-318`,
-  `ScrollBar::PAGE_DIVISOR = 8`, `scene/gui/scroll_bar.h:116`). Shift+wheel scrolls horizontally.
-- Chaining to the next scrollable ancestor unless `overscrollBehavior: 'contain'`; unconsumed and
-  unprevented wheel is not accepted.
-- Touch pan per 3.12 rule 4 with momentum mirroring `ScrollContainer`'s `drag_touching_deaccel`
-  (`scroll_container.cpp:569-610`).
-- Keyboard scrolling of the focused element's nearest scroll container (arrows, Page, Home/End,
-  Space) as the `keydown` default action, except inside text inputs (`scroll_container.cpp:450-480`).
-- Overlay scrollbar thumbs in the `overlay` item, `scrollbarWidth: auto|none`, `scrollbarColor`,
-  mouse thumb dragging.
-- `scroll` events (non-bubbling, coalesced per container per frame), `scrollTo`, `scrollBy`,
-  `scrollIntoView` commands, and minimal scroll-into-view on keyboard or programmatic focus.
+- Wire longhands `overflowX`, `overflowY`: `visible|hidden|scroll|auto` (the authoring shorthand `overflow` is expanded by
+  the compiler). Taffy gets `Overflow::Scroll` for `scroll|auto` with `scrollbar_width = 0.0` (overlay scrollbars; zero
+  width behaves like `Hidden` for layout, `…/src/style/mod.rs:467-470`). An axis scrolls only when its own overflow is
+  `scroll|auto`; a container that clips on either axis clips both (D30).
+- Range from Taffy: `Layout::scroll_width()` / `scroll_height()` (`…/src/tree/layout.rs:799,814`) with the axis'
+  `scrollable_overflow_rect.is_reversed()` flag (the magnitude is unsigned), so a reversed axis has the range `-range..=0`.
+  Offsets are per-tag native state (`MountedNode::scroll`), re-clamped whenever the stored geometry (which holds the ranges)
+  changes, and changing one updates the `scroll` item's transform, the hit-test offset and the scrollbar overlay, queues a
+  coalesced `scroll` event and re-finds what is under a stationary mouse; nothing else (no Taffy, no computed style, no
+  React, no re-record of boxes or content; the snapshot's `scrollUpdates` and `overlayRecords` are what change).
+- Wheel scrolls `client size / SCROLL_PAGE_DIVISOR` per tick; pan gestures `client size × delta / SCROLL_PAGE_DIVISOR`,
+  mirroring `ScrollContainer` (`scene/gui/scroll_container.cpp:190-226,311-318`, `ScrollBar::PAGE_DIVISOR = 8`,
+  `scene/gui/scroll_bar.h:116`). Shift+wheel scrolls horizontally. Godot's wheel `factor` of 0 means 1 (`wheel_factor`).
+- Chaining (D32): the scroll containers on the paint path from the element under the pointer, innermost first, take what they
+  can and pass the remainder on, unless `overscrollBehavior: 'contain'` ends the chain; the event is consumed when a container
+  moved or a `contain` container kept the rest, and otherwise reaches `_unhandled_input`.
+- Touch pan per 3.12 rule 4, decided once at the first movement beyond the slop and latched to its owner (D33), with momentum
+  mirroring `ScrollContainer`'s `drag_touching_deaccel` (`scroll_container.cpp:569-610`); a new touch stops it and does not click.
+- Keyboard scrolling of the focused element's nearest scroll container that the key can move (arrows a page / 8, Page keys a
+  page, Home and End to the physical ends, Space and Shift+Space a page) as the `keydown` default action, except with Ctrl,
+  Alt or Meta and (from I7) inside text inputs. `ScrollContainer` handles no keys itself, so the steps follow its accessibility
+  scroll actions (`scroll_container.cpp:450-480`; the track note S3).
+- Overlay scrollbar thumbs in the `overlay` item, `scrollbarWidth: auto|none`, `scrollbarColor` (inherited), mouse thumb
+  dragging (D34).
+- `scroll` events (non-bubbling, coalesced per container), `scrollTo`, `scrollBy`, `scrollIntoView` and `getScrollState`
+  commands (D36), and scroll-into-view on keyboard or programmatic focus (D32). Tab stops and focus use the reachable
+  geometry, not the drawn one (D31).
+- One `process()` decision covers motion, coasting flicks and panning fingers (D35).
 
 ### 3.17 Text model and selection
 
@@ -1198,7 +1283,7 @@ Event methods (Phase 1): `#[signal] events_ready()`, `drain_events() -> GString`
 | `get_snapshot() -> GString` (diagnostics; whole-tree by design) | F3 |
 | `set_pointer_capture(tag, pointer_id)`, `release_pointer_capture(tag, pointer_id)`, `has_pointer_capture(tag, pointer_id)` | I2 |
 | `focus_node(tag, focus_visible: i32 /* -1 modality, 0, 1 */)`, `blur_node(tag)` | I3 |
-| `scroll_to(tag, left, top)`, `scroll_by(tag, dx, dy)`, `scroll_into_view(tag)`, `get_scroll_state(tag)` | I5 |
+| `scroll_to(tag, left, top)`, `scroll_by(tag, dx, dy)`, `scroll_into_view(tag)` (each returns an error string or empty), `get_scroll_state(tag) -> GString` (JSON: `scrollLeft/Top/Width/Height`, `clientWidth/Height`, `min/maxScrollLeft`, `min/maxScrollTop`, `thumbs: {x, y}` root-local rectangles or null; `null` for a node that is not a scroll container) | I5 |
 | `get_selection()`, `clear_selection()` | I6 |
 | `set_text_and_selection(tag, event_count, value, start, end)` (`start`/`end` −1 = caret at end), `get_text_input_state(tag)` | I7 |
 | `_set_text(text, emit_signal)` (Godot VK hook) | I7 |
@@ -1216,7 +1301,8 @@ Event methods (Phase 1): `#[signal] events_ready()`, `drain_events() -> GString`
 `focusVisible` and the commit counters in `stats` (`commits` (= `batches`), `nodesCreated`,
 `nodesUpdated` (native cannot count JS clones), `nodesDeleted`, `mutations`, `boxRecords`,
 `contentRecords`); `paintIndex`, `documentIndex`, `pointers`, per-node `scroll`, `selection`,
-per-input `textInput` and `drag` arrive with their phases. Node `0` stands for the main layer's root. If an existing
+per-input `textInput` and `drag` arrive with their phases. As built in I5, every node has `scroll` (the `get_scroll_state` object, or
+`null`) and `stats` adds `scrollUpdates` and `overlayRecords`; the rects of what a scroll container paints include its offset. Node `0` stands for the main layer's root. If an existing
 verifier reads a field whose meaning must change, update the verifier only to read the equivalent
 field and record why.
 
@@ -1511,25 +1597,31 @@ there is no Web gate): the progress log, Phase I4. Plan problems found: the task
 in the plan; the verifiers' geometry check rejected every out-of-flow element (a child outside its parent, overlapping
 siblings), so `verify-interaction.ts` skips out-of-flow elements in it.
 
-### Phase I5 — Scroll containers
+### Phase I5 — Scroll containers — built on the `scroll` branch (decisions D30 to D37)
 
 **Files**: `native/scroll.rs`, `native/mount.rs`, `native/render_tree.rs`, `native/props.rs`,
-`native/lib.rs`, `native/events.rs`, `src/*`, `src/kit/ScrollView.tsx`, tests, demo, verifiers.
+`native/lib.rs`, `native/events.rs`, `src/*`, `src/kit/ScrollView.tsx`, tests, demo, verifiers. As built: also
+`native/pan.rs` and `native/scroll_input.rs` (new), `native/stacking.rs`, `native/computed_style.rs`, `native/keyboard_input.rs`,
+`native/pointer_input.rs`, `native/motion.rs`, `native/snapshot.rs`, `src/kit/scroll-view.tsx` (the file name the kit uses),
+`src/kit/slider.tsx`, `src/types.ts`, `src/styles.ts`, `src/native.ts`, `src/events.ts`, `src/components.tsx`, `src/renderer.ts`,
+`tests/recording-host.ts`, the style fixture, `demo/src/scroll-lab.tsx`, `demo/src/labs.tsx`, `demo/src/interaction-lab.tsx`,
+`demo/src/main.ts`, `scripts/verify-interaction-web.mjs`, `native/PROTOCOL.md` and the README.
 
 1. `overflowX/Y: scroll|auto`, `overscrollBehavior`, `scrollbarWidth`, `scrollbarColor`,
    `touchAction`.
 2. `scroll.rs` (pure): range/clamp incl. reversed axes, wheel/pan conversion, chaining with
-   `contain`, momentum step, thumb geometry and thumb drag; tests.
-3. Offsets as per-tag state → `scroll` item transform and hit-test offset; re-clamp after layout;
-   coalesced `scroll` events. Scrolling must not touch Taffy, computed styles or React.
+   `contain`, momentum step, thumb geometry and thumb drag; tests. (Landed with the scroll and drag core; `pan.rs` adds the
+   touch-pan gesture on top of it.)
+3. Offsets as per-tag state → `scroll` item transform and hit-test offset; re-clamp after layout; coalesced `scroll`
+   events. Scrolling must not touch Taffy, computed styles or React.
 4. Wheel default action and accept rule; keyboard scrolling; touch pan with `pointercancel` and
    momentum through one `process()` activity decision that also covers motion (replacing scattered
    `set_process` calls).
 5. Overlay scrollbars with mouse dragging.
 6. `scroll_to`, `scroll_by`, `scroll_into_view`, `get_scroll_state`; focus scroll-into-view.
 7. `ScrollView` kit component.
-8. **Demo**: the interaction tab body becomes a vertical `ScrollView`; a horizontal carousel; a nested
-   list (chaining); an `overscroll-contain` list.
+8. **Demo**: the interaction tab body becomes a vertical `ScrollView` (D36); a horizontal carousel; a nested
+   list (chaining); an `overscroll-contain` list; all on a page of their own, `showLab('scroll')` (D14).
 9. **Verify**: inner list scrolls then chains; `contain` stops chaining; wheel over non-scrollable UI
    reaches `_unhandled_input`; PageDown scrolls; Tab to an offscreen button scrolls it into view; thumb
    drag; clicks hit scrolled content; clipping pixel check; snapshot counters show no React commit and
@@ -1537,6 +1629,12 @@ siblings), so `verify-interaction.ts` skips out-of-flow elements in it.
    the pressed item's click; `touch-none` element gets `pointermove` instead.
 
 **Gate**: native gate; Web gate (wheel, touch and DPR scrolling are Web-specific).
+Done as built: the progress log, Phase I5. Plan problems found: the Files list omitted `pan.rs`, `scroll_input.rs`, `stacking.rs`
+(offsets in hit testing and geometry), `computed_style.rs` (`scrollbarColor` is inherited), `keyboard_input.rs`, `pointer_input.rs`,
+`snapshot.rs` and the kit's `ScrollView` file name; Taffy has no `Overflow::Auto` (D30); a container's clip is one rectangle for
+both axes, so `overflow-x-auto` alone clips vertically too; Tab stops and "does focus survive a layout" needed a geometry that
+ignores scrolling (D31); the plan did not say whether a contained scroll is consumed (D32) or whether a touch pan chains
+mid-gesture (D33); the verifiers' geometry checks treated what a scroll container holds as escaping its parent and the window.
 
 ### Phase I6 — Text layout and selection
 
@@ -1833,13 +1931,14 @@ Open questions (defaults in brackets): Tab at the last element leaves the root i
 | `MOUSE_POINTER_ID` / `KEYBOARD_POINTER_ID` / `TOUCH_POINTER_ID_BASE` | 1 / 0 / 2 | Chrome uses 1 for the mouse |
 | `CLICK_COUNT_INTERVAL_MS` | 500 | Common OS double-click default; Godot exposes no interval API |
 | `CLICK_COUNT_SLOP_PX` | 4 | Logical px between clicks of one sequence |
-| `TOUCH_SLOP_PX` | 8 | Android touch slop (8 dp); Godot's default scroll deadzone is 0 |
+| `TOUCH_SLOP_PX` | 8 | Android touch slop (8 dp); Godot's default scroll deadzone is 0; `native/scroll.rs` (`drag.rs` imports it) |
 | `TOUCH_DRAG_HOLD_MS` | 500 | Mobile long-press-to-drag; tune with evidence |
-| `SCROLL_PAGE_DIVISOR` | 8 | `ScrollBar::PAGE_DIVISOR` (`scene/gui/scroll_bar.h:116`) |
-| `MOMENTUM_*` | mirror | `ScrollContainer` `drag_touching_deaccel` (`scroll_container.cpp:569-610`) |
-| `SCROLLBAR_THICKNESS_PX` / `SCROLLBAR_MARGIN_PX` / `SCROLLBAR_MIN_THUMB_PX` | 6 / 2 / 24 | Overlay thumb |
-| `DEFAULT_SCROLLBAR_COLOR` | `#64748b99` | slate-500 at 60 % |
-| `AUTOSCROLL_EDGE_PX` / `AUTOSCROLL_SPEED_PX_PER_SECOND` | 32 / 600 | Drag auto-scroll; tune with evidence |
+| `SCROLL_PAGE_DIVISOR` | 8 | `ScrollBar::PAGE_DIVISOR` (`scene/gui/scroll_bar.h:116`); `native/scroll.rs` |
+| `MOMENTUM_DECELERATION_PX_PER_S2` / `MOMENTUM_SAMPLE_INTERVAL_S` | 1000 / 0.1 | `ScrollContainer` `drag_touching_deaccel` (`scroll_container.cpp:569-610`); `native/scroll.rs` |
+| `SCROLLBAR_THICKNESS_PX` / `SCROLLBAR_MARGIN_PX` / `SCROLLBAR_MIN_THUMB_PX` | 6 / 2 / 24 | Overlay thumb; `native/scroll.rs` |
+| `SCROLLBAR_THUMB_RADIUS_PX` | 3 | Half the thickness: round thumb ends; `native/render_tree.rs` |
+| `DEFAULT_SCROLLBAR_COLOR` | `#64748b99` | slate-500 at 60 %; a paint constant, so `native/render_tree.rs` |
+| `AUTOSCROLL_EDGE_PX` / `AUTOSCROLL_SPEED_PX_PER_SECOND` | 32 / 600 | Drag auto-scroll; tune with evidence; `native/scroll.rs`, integrated by I9 |
 | `DEFAULT_SELECTION_COLOR` | `#3b82f659` | blue-500 at 35 % |
 | `DEFAULT_PLACEHOLDER_ALPHA` | 0.5 | Placeholder = text colour at half alpha |
 | `CARET_WIDTH_PX` | 1 | Godot default `caret_width`; confirm in the default theme |

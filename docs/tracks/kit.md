@@ -215,3 +215,16 @@ their pattern matched twice, and were not re-run.
   actions should call the same `valueForKey` / `snapToStep` logic (`src/kit/slider-math.ts` is pure). When the
   props become native, `tests/kit.test.ts` ARIA output tests can read the snapshot and `prop-tree.ts` can go.
   The "ARIA is not sent" tests must then be changed to assert the new native fields instead.
+
+## Part 2: ScrollView (Phase I5)
+
+`ScrollView` (`src/kit/scroll-view.tsx`, exported from `src/index.ts`) is the scroll container the kit builds from `View`: an outer
+`View` (`overflow-y-auto`, or `overflow-x-auto` with `horizontal`; the caller gives it its size) around a content `View` that cannot
+shrink and grows into a short view (`shrink-0 grow`, React Native's content container; a flex item with `flex-shrink: 1` would shrink to
+the container and leave nothing to scroll). Props: `horizontal`, `focusable` (default true: the container is a `tabIndex={0}` stop so
+keyboard users can scroll it; native scrolls the focused element's nearest container), `testID`, `className`/`style` (applied after the
+defaults, so `overscroll-contain`, `scrollbar-none` and `scrollbar-[#hex]` go there), `contentClassName`/`contentStyle`, the `aria-*`
+props, and `onScroll`, `onWheel`, `onWheelCapture`, `onKeyDown`, `onKeyDownCapture` and `onClick`, passed to the outer element. `ref` is
+the outer element's handle, which has `scrollTo`, `scrollBy`, `scrollIntoView` and `getScrollState`. The Slider's root now says `touch-none`
+(the note above asked for it). Tests: `tests/kit.test.ts` (four, against the fake host); native behaviour is in the scroll lab
+(`demo/src/scroll-lab.tsx`) and its verifier section. Not done: virtualisation, pull to refresh, snap points.

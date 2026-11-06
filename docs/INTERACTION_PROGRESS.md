@@ -1703,3 +1703,168 @@ system; its control reverts that handler.
 - The verifiers' geometry check treated every out-of-flow element as a defect (a child outside its parent, overlapping
   siblings); `verify-interaction.ts` now skips them.
 - The Taffy defect above (D24) is not in the plan.
+
+## Phase I5 - Scroll containers
+
+Date: 6 November 2026, on the `scroll` worktree branch (based on `5b31cdf`; not merged, not pushed). macOS (Apple M1 Max), release
+dylib for native, debug Web template with Chrome for Web. Host while gating: 42-45 % free, swap 8.0-8.6 GB of 9.2 GB used (the same
+heavily swapped host as I1 to I4; other agents were building and running Godot windows at the same time). Decisions D30 to D37 are in the
+plan's decision log with their evidence. The integration notes of the scroll and drag core (`docs/tracks/scroll-drag-core.md`) were taken
+as requirements; what they left open is decided there and in the decision log.
+
+### What changed, by file
+
+| File | Change |
+| --- | --- |
+| `native/props.rs`, `native/computed_style.rs` | `OverflowSpec` gains `scroll` and `auto` (`scrolls()`, `clips()`), `overscrollBehavior`, `scrollbarWidth`, `scrollbarColor` (inherited) and `touchAction` as `StyleSpec` fields (merge, validation, tests); `scroll|auto` map to Taffy's `Overflow::Scroll` with the default zero `scrollbar_width`; three Taffy tests record the facts D30 rests on |
+| `native/pan.rs` (new, Godot-free) | `PanGesture`: one touch from going down to the first movement beyond the slop (arbitrated once, via `scroll::pan_owner`), latched pan with the slop not scrolled and the `touch-action` axes masked, release velocity. 5 tests |
+| `native/scroll_input.rs` (new) | The glue: per-container offsets moved by wheel chains, keys, touch pans, thumb drags, momentum and the commands; `scrolled()` finishes every scroll (item transform, overlay, coalesced event, hover, focus ring); `reveal_node` (scroll into view); `sync_scroll_container` (scroll and overlay items follow `overflow`); `settle_scroll` (re-clamp); `scroll_state_json` |
+| `native/mount.rs` | `MountedNode::scroll` (`ScrollState`), `NodeGeometry::scroll_ranges` (Taffy's range and reversed flag, masked by the axes that scroll), `clips_content` for every non-`visible` overflow, `Frame::scroll` (offset and thumb rectangles), `visible_for_input` asks the reachable geometry; geometry settles the scroll container whose ranges or size changed |
+| `native/stacking.rs` | `ScrollFrame`, the offset in hit testing and `absolute_geometry`, thumbs hit before the content they cover, `ScrollMode::{Drawn, Reachable}`. 6 new tests |
+| `native/render_tree.rs` | `RenderNode`'s lazy `scroll` and `overlay` items (`make_scroller`, `set_scroll_offset`, `record_overlay`), the overlay drawn with `DEFAULT_SCROLLBAR_COLOR`, the overlay repainted with the node's other paint |
+| `native/events.rs` | `scroll` payload (`ScrollData`) and `EventQueue::push_scroll`, which coalesces the waiting event of a container. 2 tests |
+| `native/pointer_input.rs`, `native/keyboard_input.rs` | wheel default action and consume rule (`wheel_factor`, Shift swaps the wheel's axes), thumb press, drag and release (no click), touch pan start, move, end and cancel, the fling-stopping touch; key scrolling (Space on a button still presses it, Ctrl/Alt/Meta never scroll), Tab/`focus()`/`autoFocus` reveal their element |
+| `native/motion.rs`, `native/lib.rs` | one `update_process()` for motion, flicks and panning fingers, `pause_process()` for `EXIT_TREE` (D35); `process()` ticks only what has work; `scroll_to`, `scroll_by`, `scroll_into_view`, `get_scroll_state`; `Stats::{scroll_updates, overlay_records}`; the `allow(dead_code)` on `mod scroll` is gone (three items keep a commented item-level one for I9 and I10) |
+| `native/scroll.rs`, `native/snapshot.rs` | `Default` for the range types; every node reports `scroll` and what a scroll container paints is shifted by its offset |
+| `src/types.ts`, `src/styles.ts`, `src/native.ts`, `src/events.ts`, `src/components.tsx`, `src/renderer.ts`, `src/index.ts` | the style types and the utilities `overflow-scroll/auto` (and `-x-`, `-y-`), `overscroll-*`, `scrollbar-*`, `touch-*`; `scroll` events and `onScroll`; the host's four scroll methods and the handle's `scrollTo`, `scrollBy`, `scrollIntoView`, `getScrollState`; the snapshot's `scroll` and counters |
+| `src/kit/scroll-view.tsx`, `src/kit/slider.tsx`, `src/kit/index.ts` | `ScrollView` (D36); the Slider's root says `touch-none` |
+| `tests/*` | the fake host's scroll API and events; styles, events, handle and kit tests; the style fixture (the Rust tests parse it) |
+| `demo/src/scroll-lab.tsx` (new), `labs.tsx`, `interaction-lab.tsx`, `main.ts`, `verify-interaction.ts`, `scripts/verify-interaction-web.mjs` | the lab (`showLab('scroll')`), the Interaction tab as a `ScrollView`, a wheel counter on the demo API, the native `scroll` section and the Web mouse and touch scroll scenarios; both verifiers' geometry checks skip what a scroll container holds |
+| `demo/typings/godot7.gen.d.ts`, `demo/gen/godot/src/verifier-input.ts.gen.ts` | the four new methods; the generated file Task 0 left out |
+| `native/PROTOCOL.md`, `README.md`, `docs/*` | scrolling, D30 to D37, plan 3.16 / 4.4 / 4.5 / Appendix A and the I5 task text, the scroll-drag-core and kit notes |
+
+### Gate
+
+All commands on the final tree, in this order, exit 0 (logs in `/tmp/i5-gate/`):
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked` | **416 passed** (400 before: 3 `props`, 2 `events`, 6 `stacking`, 5 `pan`; the existing `props` test that rejected `overflowX: scroll` and `overflowY: auto` moved to the accepted values) |
+| `cargo clippy --locked --all-targets -- -D warnings`, also `--features probe` | 0 warnings |
+| `rustup run stable rustfmt --edition 2024 --check native/lib.rs` | clean |
+| `pnpm test:types` / `pnpm test` | clean / **201 passed** (193 before: 1 style, 3 event and handle, 4 kit) |
+| `pnpm build:native` | ok (default build, no probe feature) |
+| `pnpm gen:types` | the Godot step run directly after `pnpm build:native` and `pnpm build` (the typings had to exist for `pnpm build` to typecheck): only `demo/typings/godot7.gen.d.ts` changed (the four `#[func]`s) and `verifier-input.ts.gen.ts` appeared, the generated file for a Task 0 source that no commit had included. The first run happened before `pnpm build` and wrote degraded `demo/gen` files (modules not compiled yet, so every script typed as `GObject`); they were regenerated correctly by a second run after the build |
+| `pnpm verify:interaction` (both viewports) | exit 0, all six sections: events, cooperation, pointers, keyboard, positioning, scroll (**113** assertions in the scroll section; 28 captures per viewport); the existing assertions unchanged |
+| `pnpm verify` / `pnpm verify:motion` | exit 0 / exit 0 (the latter because `mount.rs` and `render_tree.rs` changed) |
+| `pnpm build:web` | ok on the second try (Wasm 6,850,089 bytes; I3: 6,737,867): the first failed in the export step, `failed to include module: res://.godot/GodotJS/src/verifier-input.js`, a defect from Task 0 (the Web export needs a compiled module for every demo script, and `scripts/build.mjs` never built `verifier-input.ts` as an entry point; no Web gate had run since). Fixed in `scripts/build.mjs`; the second run was `node scripts/build-web.mjs --export-only` over the Wasm the first run had built |
+| `pnpm verify:interaction:web` (port 8099, my own `PORT=8099 node scripts/serve-web.mjs --debug`, stopped afterwards) | passed: **691 assertions** (610 at I3), 79 captures (66 at I3), 164 assertions per viewport at both device pixel ratios and orientations, 31 on the touch page. Three earlier runs of the new scenarios failed for the verifier's own reasons, each diagnosed from its log before the next run: the thumb drag used a fractional pixel (Chrome reports mouse positions in whole CSS pixels), the wheel notch scrolled half as many ticks at ratio 2 (Chrome delivers `deltaY` 50 for a CDP notch of 100 there; measured with a probe), and the flick was released more than 0.1 s after its last movement (`MOMENTUM_SAMPLE_INTERVAL_S`), which flings nothing by design |
+
+Interference (D22): one landscape window of the final `verify:interaction` run and the portrait one logged `window-focus-loss`
+disturbances (`GODOT_REACT_RUN_DISTURBED`, one and five); both passed, so nothing was re-run (a pass is a pass). No other run
+logged one.
+
+### Rasters
+
+Every settled native capture of the final run against the main checkout's last captures: **112 of 112 identical** (`native`,
+`native-motion` and the 18 pre-I4 and I4 captures of `native-interaction`, both viewports). In particular the Interaction tab, now a
+`ScrollView`, is pixel-identical to its capture before (`01-interaction`): its content fits, so no bar shows. The new captures were
+inspected, both viewports: `22-scroll-lab` (the seven sections at rest: thumbs at the right edges, none on the carousel, the rose
+thumb on the touch list, the reversed list at its end with its thumb at the bottom), `23-scroll-clipped` (the quiet list scrolled four steps: rows
+straddling its top and bottom edges are cut at them and nothing draws above or below), `24-scroll-list-scrolled` (the clicked row in its
+scrolled place, with the hover and the click readout), `25-scroll-tab-reveals` (Tab brought row 3 into view: the keyboard ring around it,
+fully inside the list, `top 22`), `26-scroll-chained` (the inner list at its end and the outer one scrolled on) and `27-scroll-contained` (the
+inner list at its end and the outer one at 0), `28-scroll-touch-pan` (the touch list panned 15 px, `clicks 1` from the earlier tap only).
+`22-scroll-lab` in portrait fits the 600 x 900 window in three rows; it did not at the first section width (the first portrait run failed `Node 460 escapes bottom`, a real layout defect of the lab, fixed by narrowing the sections). The Web captures were inspected too (`retina-landscape/26-scroll-chained`, `touch/28-scroll-touch-pan`: crisp thumbs and clipping at ratio 2; the touch list coasted past 12 rows).
+
+### Negative controls
+
+Godot-free: each mutant below was applied alone with `cargo test --locked` and the file restored from a copy afterwards.
+
+| Mutant | Failing test |
+| --- | --- |
+| hit testing ignores the scroll offset | `a_pointer_reaches_the_row_that_the_scroll_offset_put_under_it`, `a_scrollbar_thumb_is_hit_before_...`, `an_absolute_box_scrolls_with_a_positioned_scroller_...` |
+| drawn geometry ignores the scroll offset | `drawn_geometry_follows_the_scroll_...`, `nested_scrollers_add_their_offsets`, `an_absolute_box_scrolls_...` |
+| the reachable geometry keeps the scrollers' clips | `reachable_geometry_ignores_scrolling_but_not_what_hides_an_element_for_good` |
+| thumbs are not hit | `a_scrollbar_thumb_is_hit_before_the_content_it_covers` |
+| `scroll` events are not coalesced | `scroll_events_coalesce_per_container_and_only_while_waiting` |
+| the slop is scrolled too | `a_pan_scrolls_opposite_to_the_finger_...`, `release_velocity_is_what_the_last_frames_saw_...` |
+| `pan-y` does not mask the horizontal axis | survived at first (the test had no `pan-x` case); `a_pan_scrolls_opposite_...` now has one and the mutant fails it |
+| `scroll` and `auto` map to Taffy's `Hidden` | `scroll_and_auto_overflow_lay_out_like_hidden_and_report_a_scroll_range` |
+
+Integration (the fix reverted alone, `pnpm build:native`, one landscape window of `verify:interaction --only=scroll`, the source restored
+and compared afterwards):
+
+| Reverted | Failing assertion |
+| --- | --- |
+| a `contain` container's kept scroll is not consumed | `contain: and from the game` |
+| no re-clamp after layout | `Layout re-clamps the offset to the new range: 1070 of 190` |
+| Tab stops and focus retention use the drawn geometry | `Arrow Down a page / 8: 142` (the focused row scrolled out of view lost focus, so the key found nothing to scroll) |
+| the tap that stops a fling clicks | `The tap that stops it does not click: ... clicks 2` |
+| the scrollbar overlay is not repainted with the node's other paint | `And the thumb is no longer drawn: #e11d48 at 186,419` (a real defect found by reading the code after the first gate run, then fixed) |
+| no hover refresh after a scroll | `A scroll under a mouse that did not move hands the hover to the row now under it, with no React in between: quiet-row-1`; the first version of the assertion passed with the refresh removed (the lab's `onScroll` caused a commit that re-found the hover, and the wheel helper moves the mouse before every tick), so the check was moved to the quiet list, which has no handlers, and to a key scroll |
+
+### Verification added
+
+Native (`verify:interaction --only=scroll`, both viewports; Web mirrors the mouse and touch halves, below):
+
+- ranges: a tall list has `maxScrollTop > 0`, its client area is its padding box, `scrollHeight` is the client height plus the range; a
+  `column-reverse` list has a negative range; only scroll containers have scroll state;
+- wheel: one tick is the client height / 8 and is consumed, JS hears the `scroll`, the same tick at the top with nothing behind the list
+  and one over UI that does not scroll reach `_unhandled_input`; Shift+wheel, horizontal ticks and a prevented (Ctrl) wheel; a pan gesture
+  scrolls page / 8 per delivery and is consumed;
+- scrolling touches nothing else: three ticks over a list with no handlers leave `batches`, `layoutPasses`, `paintPasses`, `nodesCreated`,
+  `nodesUpdated`, `nodesDeleted`, `nodesRestyled`, `mutations`, `boxRecords` and `contentRecords` unchanged, move `scrollUpdates` by exactly
+  three and `overlayRecords` up, and move a row by exactly the offset;
+- clipping pixels: rows straddling the top and bottom edges draw inside the list and not above or below it;
+- scrollbars: thumb width, edge, length and position follow the formulas of `scroll.rs`; the default thumb is slate-500 at 60 % (a
+  blended pixel), `scrollbar-[#e11d48]` colours it exactly, `scrollbar-none` hides it on a list that scrolls, and changing it with no scroll
+  repaints it; the thumb drags the content by the pointer's share of the track with the pointer off the bar, lets go on release and clicks nothing;
+- hit testing and hover: after four ticks the hover is on the row now under the stationary pointer; a click at a scrolled row's place
+  reaches it and bubbles; a key scroll under a mouse that did not move (quiet list, no React) hands the hover on;
+- keyboard: Page Down, arrows, End, Home, Space and Shift+Space on a container, Space on a focused button presses it and does not scroll,
+  Ctrl chords do not scroll, a key that scrolled is not the game's, Tab to a row below the fold scrolls it into view (the ring is a keyboard
+  focus and the row is fully inside the list) and Shift+Tab back, `scrollIntoView` and `scrollTo({ top: 0 })` through the handle;
+- re-clamping: the content shrinks under a list scrolled to its bottom; the offset follows and JS hears it;
+- chaining: while the inner list can scroll the outer one stays, the overshooting tick spills its remainder (checked to the pixel), then the
+  outer list takes the ticks and the game gets none, and with both at the end the tick reaches the game; `overscroll-contain` keeps the
+  rest from the outer list and from the game;
+- touch (device 0 with the engine's emulation on): a tap clicks a button in a scroll container; a movement inside the slop is still a tap;
+  beyond it the pan starts, `pointercancel` is sent once, the slop is not scrolled, the content follows the finger and back, and no
+  `click` follows; `touch-none` keeps `pointermove` and the list does not pan; a flick coasts after the finger lifts and comes to rest on
+  its own, further than the finger went, and then asks for no more frames; a touch on the coasting content stops it and does not click.
+
+### Choices the plan left open
+
+- D30 to D37 list them: which axes scroll and the Taffy mapping, the paint-tree and reachability rules, how wheel, key and touch input are
+  taken and consumed (including contain), the scrollbar rules, the one `process()` decision, the JS surface and the Web wheel scale.
+- **A page of its own for the demo** (D14): the plan said the Interaction tab becomes a vertical `ScrollView` and gets the carousel and the
+  lists; the tab's body is a `ScrollView` now (no pixel changed), and the lists live on the `scroll` lab page, because the tab's fixed
+  body could not hold them without pushing the existing captures.
+- **Both viewports for the section.** The runner starts both windows for any `--only`; the section passed in both after the layout fix.
+
+### Engine findings
+
+- `is_inside_tree()` is still true while `NOTIFICATION_EXIT_TREE` is delivered (`scene/main/node.cpp` `_propagate_exit_tree` notifies at
+  line 431, and clears `data.tree` at line 455), so the root's `process()` decision cannot be made from there: `pause_process()` (D35).
+- Godot's Web display server turns a DOM wheel notch of 100 pixels into 3 ticks (`MOUSE_WHEEL_PIXEL_FACTOR` 0.03,
+  `platform/web/display_server_web.cpp:681`, D37).
+- On the Web touch page a swipe leaves a `mouse` pointer record at the finger's last position and hovers the row under it (visible in
+  `touch/28-scroll-touch-pan`). Chrome sent only pointer and touch events (probe: one `pointerdown`, `touchstart`, three
+  `pointermove` and `touchmove`, one `pointerup` and `touchend`, no `mouse*`), so the cause is Godot's accumulated input
+  merging the touch's emulated motion into the buffered real mouse motion of the verifier's own `page.mouse.move(1, 1)` (the
+  mechanism D21 found; the native verifiers turn accumulation off). It needs a real mouse and a touch on one device; no assertion
+  depends on it and it is not changed here.
+- Chrome reports mouse positions in whole CSS pixels and divides a CDP wheel notch by the device pixel ratio (`deltaY` 100 at ratio 1, 50
+  at 2); a Web verifier that scrolls must account for both (D37).
+- `InputEventMouseMotion` from `Input.parseInputEvent` carries no button mask unless the script sets it, so a drag that reads the mask
+  to decide the button is still down fails under synthetic input (the first thumb-drag run); native does not read it (D34).
+
+### Plan problems found
+
+- Listed with the phase in the plan: files, Taffy's missing `auto`, one clip for both axes, reachable geometry for Tab and focus, contain
+  and latching, and the verifiers' geometry checks.
+- The scroll and drag core's S2/S3 notes needed no change; its claim "I5 can latch by remembering the first link that moved" was not taken
+  for wheel and pan gestures (D32) and was taken for touch pans (D33).
+- Plan 3.16's "re-clamped after layout" needed a rule for where the ranges live: they are part of the stored geometry (D30).
+
+### What is left for the next phases
+
+- **I9 (drag and drop)**: drag auto-scroll through `scrolled(&tags)` and the `update_process()` decision; `autoscroll_velocity` is built and
+  unused (its `allow(dead_code)` goes then); `begin_touch_pan` must come after the drag arbitration of 3.12 rule 3; `DragMachine::Refresh`
+  after each scroll under a stationary pointer. Details in the scroll-drag-core notes.
+- **I10 (accessibility)**: scroll containers' offsets and ranges are in `Mounted` and `get_scroll_state`; the AX scroll actions call
+  `scroll_by_checked`, `scroll_to_checked` and `scroll_into_view_checked` (`ticks_to_pixels` is for their line and page steps).
+- **I7**: text inputs must be excluded from key scrolling in `key_down_default`.
+- Not done, by plan or choice: scrollbar track clicks (paging), animated programmatic scrolling, overscroll bounce, `position: sticky`,
+  fading scrollbars, native list virtualization.

@@ -68,7 +68,7 @@ so JS drops its instances and public handles.
 JS compiles `className` and `style` once per distinct input into ordered **layers** (`src/styles.ts`;
 shorthands `padding`, `margin`, `gap`, `overflow` and `inset` are expanded to longhands there). Native resolves
 a node's **computed style**: its parent's inherited properties (`color`, `fontSize`, `textAlign`,
-`interpolateSize`, `pointerEvents`, `cursor`), then every layer whose conditions hold, in order. A layer applies when the root's
+`interpolateSize`, `pointerEvents`, `cursor`, `scrollbarColor`), then every layer whose conditions hold, in order. A layer applies when the root's
 logical width is at least its `minWidth` and every listed state holds: `hover` and `active` apply to the
 target and its ancestors; `focus` and `focusVisible` to the focused element only; `focusWithin` to it
 and its ancestors; `disabled` to a node whose own `disabled` prop is true. Hover, press, focus and
@@ -85,10 +85,11 @@ marginTop/Right/Bottom/Left (finite) numeric pixels; alignItems/alignSelf
 `start|end|center|space-between|space-around|space-evenly|flex-start|flex-end`; gridTemplateColumns a
 positive integer (equal fractional columns); backgroundColor/color/borderColor
 `#RGB|#RGBA|#RRGGBB|#RRGGBBAA`; fontSize a positive integer; borderRadius/borderWidth nonnegative
-pixels; opacity 0..1; textAlign `left|center|right`; pointerEvents `auto|none` and cursor
+pixels; opacity 0..1; textAlign `left|center|right`; overscrollBehavior `auto|contain`, scrollbarWidth `auto|none`,
+scrollbarColor (a hex colour, inherited) and touchAction `auto|none|pan-x|pan-y` (see "Scrolling" below); pointerEvents `auto|none` and cursor
 `default|pointer|text|move|grab|grabbing|not-allowed|crosshair|wait|progress|help|ew-resize|ns-resize|nesw-resize|nwse-resize`
-(both inherited; see "Godot co-operation" below); transition, interpolateSize and overflowX/overflowY
-`visible|hidden` as described below. `position` is `static|relative|absolute|fixed` (not inherited; `sticky` is
+(both inherited; see "Godot co-operation" below); transition and interpolateSize as described below; overflowX/overflowY
+`visible|hidden|scroll|auto` ("Scrolling" below). `position` is `static|relative|absolute|fixed` (not inherited; `sticky` is
 rejected), `top`/`right`/`bottom`/`left` are finite numbers (negative allowed), percentage strings (negative
 allowed) or `"auto"`, and `zIndex` is a 32-bit integer; see "Positioning and stacking" below. Unsupported properties fail explicitly. Default is a flex column,
 transparent background, white 16px text, no spacing, normal flex shrinking. Text is shaped and wrapped
@@ -103,13 +104,16 @@ whose size changed) are compared with the stored geometry; a changed location mo
 
 Each element owns two retained canvas items mirroring the view hierarchy (`native/render_tree.rs`): a
 **box** item (transform = location in its parent, modulate alpha = opacity, draws background and border)
-with a **content** item below it (clips to the padding box when `overflow` is `hidden`, draws text, and
-parents the child boxes). Sibling order is the child-list order. Layer 0 and layer 1 each have a root
+with a **content** item below it (clips to the padding box when `overflow` is not `visible`, draws text, and
+parents the child boxes). A scroll container has two more items: a **scroll** item under the content item
+(transform = minus the scroll offset; the child boxes parent to it instead) and an **overlay** item under the box
+item, drawn after the content, for the scrollbar thumbs. Sibling order is the child-list order. Layer 0 and layer 1 each have a root
 item; the focus ring is a top-most item above both. Only an element whose own visuals or size changed
 re-records; an idle frame records nothing.
 
 Native hit testing descends the **paint tree** in reverse paint order, the overlay layer first, and hands a
-point to a clipping element's paint children only inside its padding box. An element whose computed `pointerEvents` is `none` is never
+point to a clipping element's paint children only inside its padding box, plus the scroll offset for a scroll container
+(and a scrollbar thumb of a container is hit before the content it covers). An element whose computed `pointerEvents` is `none` is never
 the hit, but its children are still tested (CSS semantics). The root clips drawing and input to its own
 rectangle. Enabled buttons participate in Tab/Shift-Tab focus (document order) and Enter/Space activation.
 
@@ -163,14 +167,48 @@ The root is one `Control` among the game's own (plan 3.11), so it passes on what
 - **Keys.** Tab and Shift+Tab are consumed only if element focus moved. Enter and Space are consumed only when
   they press or release a focused enabled button. Every other key is left for `_unhandled_input`.
 - **Wheel.** `force_pass_scroll_events` is set. A wheel tick (`WHEEL_UP|DOWN|LEFT|RIGHT` press; the release Godot
-  sends with it is not a tick) and a trackpad pan gesture each queue a cancelable `wheel` at the pointer. The event
-  is consumed only if JS calls `preventDefault()` (scrolling is added by Phase I5); otherwise it continues to
-  `_unhandled_input`.
+  sends with it is not a tick; a `factor` of 0 means 1) and a trackpad pan gesture each queue a cancelable `wheel`
+  at the pointer. The event is consumed only if JS calls `preventDefault()`, or its default action (scrolling, below)
+  took it; otherwise it continues to `_unhandled_input`.
 
 A click targets the deepest element when press and release hit the same enabled element; when their
 deepest hits differ but share the same enabled button ancestor (for example button padding and its
 label), the click targets that button. Crossing to another button or releasing outside the pressed
 button does not activate it. Disabled buttons and descendants of disabled ancestors cannot activate.
+
+## Scrolling
+
+An element whose `overflowX` or `overflowY` is `scroll` or `auto` is a **scroll container** (`native/scroll_input.rs`,
+Godot-free math in `native/scroll.rs` and `native/pan.rs`). Only an axis with its own `scroll|auto` scrolls, and a container
+that clips on one axis clips on both. `scroll` and `auto` behave alike: the scrollbars overlay the content and take no layout
+space. The range of an axis is Taffy's `scroll_width()` / `scroll_height()` and its reversed flag, so a `flex-col-reverse`
+container's offsets run from minus its overflow to zero. The offset is native per-tag state, applied as the `scroll` item's
+transform and as the hit-test and geometry offset, and re-clamped after layout.
+
+- **Wheel and pan gestures** chain: the containers around the element under the pointer (paint ancestors, innermost first, those
+  with something to scroll) each take `client size / 8` per tick (a pan gesture: `client size * delta / 8`; Shift swaps the
+  wheel's axes) and pass the rest outwards; `overscrollBehavior: contain` ends the chain. The event is consumed when a container
+  moved or a `contain` container kept the rest; otherwise it reaches `_unhandled_input`. JS may prevent it first.
+- **Keys** scroll the focused element's nearest container that the key can move: arrows a page / 8, Page Up/Down a page, Home
+  and End the ends, Space and Shift+Space a page (Space on a focused enabled button presses it). Not with Ctrl, Alt or Meta,
+  and a key that moved nothing is not consumed. Keyboard focus (Tab, `focus()`, `autoFocus`) scrolls the element into view.
+- **Touch**: after an un-prevented primary `pointerdown`, a finger that moves beyond 8 px starts a pan if `touchAction`
+  (intersected from the touched element outwards) allows the axis and a container can move that way; the pointer is cancelled
+  (`pointercancel`, no `click`), the owner follows the finger (latched to it, from where the slop was crossed) and coasts when
+  the finger lifts. A touch that cannot pan stays pointer events. A touch that lands on a coasting container stops it and
+  does not click.
+- **Scrollbars**: thumbs are drawn in the overlay item (`scrollbarWidth: none` hides them, `scrollbarColor` colours them; default
+  `#64748b99`) and are the only part that takes a pointer; dragging one moves the content with the mouse (no click follows).
+- **Events**: `scroll` (`scrollLeft`, `scrollTop`, `scrollWidth`, `scrollHeight`, `clientWidth`, `clientHeight`; target only,
+  not cancelable) is queued whenever an offset changes (input, command, flick or layout re-clamp), one per container while it
+  waits for JS. Scrolling never commits, lays out, restyles or re-records boxes or content: `get_snapshot().stats` shows
+  `scrollUpdates` and `overlayRecords` and nothing else changing.
+- **Commands**: `scroll_to(tag, left, top)`, `scroll_by(tag, dx, dy)` and `scroll_into_view(tag)` return an error string (empty
+  for success; a node that is not a scroll container, or a non-finite number, is an error) and end any flick;
+  `get_scroll_state(tag)` returns the container's state as JSON (the event's fields, `minScrollLeft`, `maxScrollLeft`,
+  `minScrollTop`, `maxScrollTop` and the drawn `thumbs`) or `null`. `get_snapshot()` gives every node a `scroll` field with the same.
+- **Frames**: `process()` runs only while native motion is running, a flick is coasting or a finger is panning
+  (`update_process()` is the one decision).
 
 ## Queries
 
@@ -315,9 +353,10 @@ Godot's `Input` dispatches every `InputEventGesture` twice (once explicitly and 
 `core/input/input.cpp:995-1003` and `:1046-1048`), so a pan gesture, real or parsed, reaches JS as two `wheel` events
 with the same deltas, exactly as it reaches Godot's own `ScrollContainer`. Native does not filter this.
 
-Limits: no scrolling, text input/IME, text selection, accessibility tree, images, rich inline text, rounded clip
+Limits: no text input/IME, text selection, accessibility tree, images, rich inline text, rounded clip
 masks, `position: sticky`, CSS stacking contexts (`zIndex` orders siblings of one paint parent), a public CSS stylesheet/selector API, arbitrary keyframe animations, or custom native
-materials. Both overflow axes clip together (`hidden` on either clips the padding box). Native drawing uses owned
+materials. Both overflow axes clip together (`hidden`, `scroll` or `auto` on either clips the padding box). Not scrolling: scrollbar
+track clicks (paging), animated programmatic scrolling, overscroll bounce, `position: sticky`. Native drawing uses owned
 CanvasItem RIDs with cached resources and one Control for the whole React tree.
 
 ## Native CSS motion and clipping

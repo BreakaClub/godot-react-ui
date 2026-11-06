@@ -270,3 +270,31 @@ Facts taken from the HTML spec's "Drag and drop" section (fetched; the page's su
 7. Remove both `allow(dead_code)` attributes in `lib.rs` when the modules are used, and
    `DEFAULT_SCROLLBAR_COLOR` (`#64748b99`, Appendix A) still needs defining where the scrollbar is
    painted: it is a paint constant, so it is not in `scroll.rs`.
+
+## Integration in Phase I5 (what changed against the notes above)
+
+Written by the I5 implementer; decisions D30 to D37 in `docs/INTERACTION_PLAN.md` have the evidence.
+
+- `scroll.rs` is used as written: `ScrollRange::new(magnitude, reversed)` takes Taffy's `scroll_width()` / `scroll_height()` with
+  `is_reversed()`; `wheel_factor` runs before `pointer::wheel_ticks`; the scrollbars are container-local rectangles (the overlay
+  item draws them at the padding box's origin, hit testing adds the same origin); the module-level `allow(dead_code)` is gone. Three
+  items keep an item-level `#[cfg_attr(not(test), allow(dead_code))]` with a comment naming their consumer: `AUTOSCROLL_EDGE_PX`,
+  `AUTOSCROLL_SPEED_PX_PER_SECOND` and `autoscroll_velocity` (I9), and `ticks_to_pixels` (I10's scroll actions, one container).
+  `ScrollRanges` and `ScrollRange` gained `Default` (none).
+- Open points decided: **wheel and pan gestures chain per event, no latching** (S4's "I5 can latch" was not taken: wheel ticks are
+  small, and the spill-over is what the plan's verification expects); **touch pans latch to the owner** chosen once at the first
+  movement beyond the slop (`pan.rs`), the slop is not scrolled, and a `contain` container owns a pan it cannot move; **a container
+  with nothing to scroll is not on the chain** (`overscroll-behavior` does nothing on it); **a contained scroll is consumed** (the
+  event is accepted although nothing moved, so it does not reach the game); **a touch that stops a fling does not click**; **only the
+  thumb takes a pointer** (`ScrollbarHit::TrackBefore/After` are classified and unused: no paging by track click). S2 (no hidden-bar
+  fallback) and S3 (key steps) hold as written.
+- New for I9: `reveal_node` (`scroll_input.rs`) is the `scrollIntoView` walk over the paint parents, and `scrolled(&tags)` is the single
+  place that finishes a scroll (item transform, overlay, coalesced event, hover, ring): drag auto-scroll and `DragMachine::Refresh`
+  should end there. `update_process()` already takes `ScrollInputState::wants_frames()`; add a running drag with a non-zero
+  `autoscroll_velocity` and `DragMachine::next_deadline_ms()` to it. A pan latched to its owner is `TouchPan` in
+  `ScrollInputState::pans`; the drag arbitration (plan 3.12 rule 3) must run before `begin_touch_pan` registers one.
+- New for I10: `Mounted` has each container's ranges (`geometry.scroll_ranges`) and offset (`scroll`); `scroll_by_checked`,
+  `scroll_to_checked` and `scroll_into_view_checked` are what the AX scroll actions call (`ticks_to_pixels` is for a single container's
+  line and page steps); the snapshot and `get_scroll_state` give `scrollLeft`... and the drawn thumbs for the AX value.
+- New for I7: text inputs must be excluded from key scrolling in `key_down_default` (arrows, Home, End, Page keys and Space belong to
+  the editor); and a multi-line `TextInput` is itself a scroll container whose wheel chains like any other.
