@@ -13,6 +13,7 @@ import puppeteer from 'puppeteer-core';
 import { selectEngine } from './engine.mjs';
 import { isolateBrowserClipboard } from './web-clipboard.mjs';
 import { startVerificationServer } from './web-verify.mjs';
+import { runFiltersScenario } from './verify-filters-web.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const engine = selectEngine();
@@ -37,7 +38,7 @@ const TOTAL_TIMEOUT_MS = 1_200_000;
 const POLL_MS = 50;
 // `--only=<section>[,<section>]` runs just those sections (plan 0.4.1); the names are the native verifier's, and `touch`
 // is this verifier's touch page. An unknown name is an error: a typo must not skip a section.
-const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard', 'scroll', 'selection', 'drag', 'forms', 'hidpi', 'touch'];
+const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard', 'scroll', 'selection', 'drag', 'forms', 'hidpi', 'filters', 'touch'];
 const requestedSections = process.argv.filter((argument) => argument.startsWith('--only='))
   .flatMap((argument) => argument.slice('--only='.length).split(','));
 for (const name of requestedSections) {
@@ -296,7 +297,8 @@ function assertGeometry(data) {
     { visibleCount, nativeNodeCount: data.stats.nodeCount, width: data.width, height: data.height });
 }
 
-async function capture(name) {
+/** Save the canvas and the snapshot; `geometry: false` skips the gate that rejects overlapping siblings (the filters lab overlaps on purpose). */
+async function capture(name, { geometry = true } = {}) {
   await frames();
   checkBrowserErrors();
   const data = await snapshot();
@@ -312,7 +314,7 @@ async function capture(name) {
   await canvas.dispose();
   report.captures.push({ viewport: activeViewport, name, png, json });
   console.log(`GODOT_REACT_WEB_CAPTURE ${png}`);
-  assertGeometry(data);
+  if (geometry) assertGeometry(data);
 }
 
 let currentPackObserver = null;
@@ -2855,6 +2857,9 @@ async function runWorkflow(viewport) {
   if (wanted('drag')) await section('drag', runDragScenario);
   if (wanted('forms')) await section('forms', () => runFormsScenario(viewport));
   if (wanted('hidpi')) await section('hidpi', () => runHidpiScenario(viewport));
+  if (wanted('filters')) {
+    await section('filters', () => runFiltersScenario({ demo, page, frames, snapshot, find, check, capture, decodePng, moveTo, centerOf, actionTimeoutMs: ACTION_TIMEOUT_MS }));
+  }
 
   // This page keeps running across viewports (the native verifier gets a fresh process for each),
   // so leave a fresh root: the lab's log and click counters must not leak into the next viewport.
