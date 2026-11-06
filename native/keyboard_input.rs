@@ -27,6 +27,25 @@ fn is_activation_key(keycode: Key) -> bool {
     keycode == Key::ENTER || keycode == Key::KP_ENTER || keycode == Key::SPACE
 }
 
+/// What the release of `keycode` does to a button a key is pressing (`activation_key`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum KeyRelease {
+    /// Some other key: the press goes on.
+    Unrelated,
+    /// The press ends and the button is clicked.
+    Click,
+    /// The press ends and JS prevented the `keyup`, which keeps the click.
+    EndsWithoutClick,
+}
+
+fn key_release(activation_key: Option<Key>, keycode: Key, prevented: bool) -> KeyRelease {
+    match (activation_key == Some(keycode), prevented) {
+        (false, _) => KeyRelease::Unrelated,
+        (true, false) => KeyRelease::Click,
+        (true, true) => KeyRelease::EndsWithoutClick,
+    }
+}
+
 /// The keys that scroll the focused element's scroll container (plan 3.16).
 fn scroll_key_of(keycode: Key) -> Option<ScrollKey> {
     match keycode {
@@ -83,12 +102,14 @@ impl ReactUiRoot {
         if !self.base().is_inside_tree() {
             return;
         }
-        let consumed = prevented
-            || if pressed {
-                self.key_down_default(key, keycode, echo, modifiers)
-            } else {
-                self.key_up_default(keycode)
-            };
+        let consumed = if pressed {
+            prevented || self.key_down_default(key, keycode, echo, modifiers)
+        } else {
+            // The key that pressed a button is up whatever JS made of its `keyup`; preventing it only
+            // keeps the click. So the release is always handled, and a prevented one is consumed anyway.
+            let released = self.key_up_default(keycode, prevented);
+            prevented || released
+        };
         if consumed {
             self.base_mut().accept_event();
         }
@@ -158,17 +179,21 @@ impl ReactUiRoot {
         }
     }
 
-    /// Releasing the key that pressed a button clicks it. No pointer events are made up: the
-    /// `click` has pointer 0, no pointer type and no click count.
-    fn key_up_default(&mut self, keycode: Key) -> bool {
-        if self.activation_key != Some(keycode) {
+    /// Releasing the key that pressed a button ends the press and clicks the button, unless JS
+    /// `prevented` the `keyup`, which keeps the click only: the press is over either way. No pointer
+    /// events are made up: the `click` has pointer 0, no pointer type and no click count. Returns whether
+    /// the key was the one that pressed a button.
+    fn key_up_default(&mut self, keycode: Key, prevented: bool) -> bool {
+        let release = key_release(self.activation_key, keycode, prevented);
+        if release == KeyRelease::Unrelated {
             return false;
         }
         self.activation_key = None;
         let pressed = self.pressed.take();
         self.pressed_by_keyboard = false;
-        if let Some(id) =
-            pressed.filter(|id| self.focused == Some(*id) && self.mounted.nodes.contains_key(id))
+        if release == KeyRelease::Click
+            && let Some(id) = pressed
+                .filter(|id| self.focused == Some(*id) && self.mounted.nodes.contains_key(id))
         {
             let data = self.synthetic_pointer_data(0, 0);
             self.queue(id, EventPayload::Click(data));
@@ -270,5 +295,40 @@ impl ReactUiRoot {
         if let Some(tag) = first {
             self.focus_element(tag, self.modality == Modality::Keyboard);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_key_that_pressed_a_button_ends_the_press_and_clicks() {
+        assert_eq!(
+            key_release(Some(Key::SPACE), Key::SPACE, false),
+            KeyRelease::Click
+        );
+    }
+
+    #[test]
+    fn a_prevented_keyup_still_ends_the_press_but_keeps_the_click() {
+        assert_eq!(
+            key_release(Some(Key::ENTER), Key::ENTER, true),
+            KeyRelease::EndsWithoutClick,
+            "the button must not stay pressed because JS prevented the keyup"
+        );
+    }
+
+    #[test]
+    fn another_key_or_no_press_leaves_things_alone() {
+        assert_eq!(
+            key_release(Some(Key::SPACE), Key::ENTER, false),
+            KeyRelease::Unrelated
+        );
+        assert_eq!(
+            key_release(Some(Key::SPACE), Key::ENTER, true),
+            KeyRelease::Unrelated
+        );
+        assert_eq!(key_release(None, Key::SPACE, false), KeyRelease::Unrelated);
     }
 }

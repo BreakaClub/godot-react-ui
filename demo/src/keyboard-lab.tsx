@@ -59,6 +59,7 @@ export function KeyboardLab() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [focusStatus, setFocusStatus] = useState('not tried');
   const [swapped, setSwapped] = useState(false);
+  const [vetoClicks, setVetoClicks] = useState(0);
   const card = useRef<UIHandle>(null);
   const plainView = useRef<UIHandle>(null);
   const opener = useRef<UIHandle>(null);
@@ -89,6 +90,18 @@ export function KeyboardLab() {
       <Text testID="kb-activate-status" className="text-xs text-slate-600">
         {`clicks ${activation.clicks}, pointerdowns ${activation.pointerDowns}, last click ${activation.last}`}
       </Text>
+
+      {/* A parent that prevents every keyup: the button's press must still end with its key, though it does not click. */}
+      <View className="flex-row items-center gap-2" onKeyUp={(event: UIKeyboardEvent) => event.preventDefault()}>
+        <Button
+          testID="kb-vetoed"
+          className="rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white px-3 py-2 text-sm"
+          onClick={() => setVetoClicks(value => value + 1)}
+        >
+          Keyup prevented
+        </Button>
+        <Text testID="kb-veto-status" className="text-xs text-slate-600">{`clicks ${vetoClicks}`}</Text>
+      </View>
 
       {/* Two keyed buttons that trade places: Tab follows the document, not the order they were created in. */}
       <View className="flex-row flex-wrap gap-2">

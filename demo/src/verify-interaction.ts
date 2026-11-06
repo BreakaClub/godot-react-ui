@@ -1041,6 +1041,19 @@ async function verifyKeyboard(owner: Node, api: InteractionInspection, capture: 
   assert(activate() === 'clicks 2, pointerdowns 0, last click type "" id 0 d0', `Releasing Space clicks once: ${activate()}`);
   assert(get(api, 'kb-activate').style.backgroundColor === ACTIVATE_REST_COLOR, 'and the style returns to rest');
 
+  // A parent prevents the keyup: the key is up all the same, so the press ends (the style returns to rest, nothing is
+  // left pressed) though the click is kept.
+  await tabTo('kb-vetoed');
+  keyEvent({ keycode: Key.KeySpace, unicode: 32 }, true);
+  await settle();
+  assert(get(api, 'kb-vetoed').style.backgroundColor === ACTIVATE_ACTIVE_COLOR && api.snapshot().pressed === get(api, 'kb-vetoed').id,
+    `Space presses the button: ${get(api, 'kb-vetoed').style.backgroundColor}`);
+  keyEvent({ keycode: Key.KeySpace, unicode: 32 }, false);
+  await settle();
+  assert(text(api, 'kb-veto-status') === 'clicks 0', `A prevented keyup keeps the click: ${text(api, 'kb-veto-status')}`);
+  assert(get(api, 'kb-vetoed').style.backgroundColor === ACTIVATE_REST_COLOR && api.snapshot().pressed === null,
+    `but the press is over: ${get(api, 'kb-vetoed').style.backgroundColor}, pressed ${api.snapshot().pressed}`);
+
   // A focus trap in JS: Tab wraps inside the dialog, Escape closes it and gives focus back.
   await click(api, 'kb-open');
   assert(focusedTestID() === 'dlg-ok', `autoFocus focuses the dialog's first button when it mounts: ${focusedTestID()}`);
