@@ -145,7 +145,7 @@ function TouchSection() {
           <Button key={index} testID={`touch-row-${index}`} className={row} onClick={() => setClicks(current => current + 1)}>{`Touch ${index}`}</Button>
         ))}
       </ScrollView>
-      <View className="flex-row gap-1">
+      <View className="flex-row flex-wrap gap-1">
         <Button testID="touch-top" className={labButton} onClick={() => list.current?.scrollTo({ top: 0 })}>Top</Button>
         <Button testID="touch-bars" className={labButton} onClick={() => setBars(current => !current)}>{bars ? 'Hide bar' : 'Show bar'}</Button>
         {!vanished && <Button testID="touch-vanish" className={labButton} onPointerDown={() => setVanished(true)}>Vanish</Button>}
