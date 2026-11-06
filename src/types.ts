@@ -25,6 +25,8 @@ export type Position = 'static' | 'relative' | 'absolute' | 'fixed';
 export type Inset = number | 'auto' | `${number}%`;
 /** `none` stops an element itself being the target of a pointer; its children still can be. */
 export type PointerEvents = 'auto' | 'none';
+/** `text` lets the pointer select an element's text (and, inherited, the text below it); the default is `none`. */
+export type UserSelect = 'none' | 'text';
 export type Cursor =
   | 'default' | 'pointer' | 'text' | 'move' | 'grab' | 'grabbing' | 'not-allowed' | 'crosshair'
   | 'wait' | 'progress' | 'help' | 'ew-resize' | 'ns-resize' | 'nesw-resize' | 'nwse-resize';
@@ -89,6 +91,13 @@ export interface Style {
   pointerEvents?: PointerEvents;
   /** Inherited. */
   cursor?: Cursor;
+  /**
+   * Inherited. `text` lets the mouse select the text of `Text` elements (click, double click, triple click, drag,
+   * Shift+click) and copy it; the default is `none`. Text inside a `Button` is never selectable.
+   */
+  userSelect?: UserSelect;
+  /** Inherited. The colour of the selection highlight (`#RRGGBBAA` for a translucent one). */
+  selectionColor?: HexColor;
   position?: Position;
   /** Offsets from the containing block's edges for `relative`, `absolute` and `fixed` elements. */
   top?: Inset;

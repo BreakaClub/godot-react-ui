@@ -24,10 +24,13 @@ use crate::commit::LAYER_COUNT;
 use crate::geometry::BoxRect;
 use crate::paint::parse_color;
 use crate::profile::{Sample, micros};
+use crate::selection_input::{highlight_paint, highlight_rects};
 
 /// The overlay scrollbar thumb colour when no `scrollbar-color` is set: slate-500 at 60 % (plan
 /// Appendix A). A paint constant, so it lives with the painting rather than in `scroll.rs`.
 pub(crate) const DEFAULT_SCROLLBAR_COLOR: &str = "#64748b99";
+/// The selection highlight colour when no `selection-color` is set: blue-500 at 35 % (plan Appendix A).
+pub(crate) const DEFAULT_SELECTION_COLOR: &str = "#3b82f659";
 /// A thumb's ends are round: half its thickness.
 pub(crate) const SCROLLBAR_THUMB_RADIUS_PX: i32 =
     (crate::scroll::SCROLLBAR_THICKNESS_PX / 2.0) as i32;
@@ -50,13 +53,24 @@ pub(crate) struct BoxKey {
     pub radius: i32,
 }
 
-/// What a content item last drew. `generation` changes whenever the text paragraph is rebuilt.
+/// The highlight a content item draws under its text: code points `start..end` (never empty) in `color`
+/// (plan 3.17).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct SelectionPaint {
+    pub start: usize,
+    pub end: usize,
+    pub color: Color,
+}
+
+/// What a content item last drew. `generation` changes whenever the text paragraph is rebuilt; the
+/// selection is part of the key so that selecting re-records the item (plan 3.8).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct ContentKey {
     pub generation: u64,
     pub color: Color,
     pub content_width: f32,
     pub origin: Vector2,
+    pub selection: Option<SelectionPaint>,
 }
 
 /// What a scroll container's overlay last drew: its scrollbar thumbs (horizontal, vertical) in the
@@ -286,12 +300,15 @@ impl RenderNode {
         }
     }
 
-    /// Re-record the content (text) when `key` differs from what it last drew. Returns true if it
-    /// did. The clip is asserted again afterwards.
+    /// Re-record the content (the selection highlight, then the text over it) when `key` differs from
+    /// what it last drew. Returns true if it did. `highlight` gives the rectangles of the key's
+    /// selection, in this item's coordinates, and is only called when there is a selection to draw. The
+    /// clip is asserted again afterwards.
     pub(crate) fn record_content(
         &mut self,
         key: ContentKey,
         paragraph: Option<&mut Gd<TextParagraph>>,
+        highlight: impl FnOnce(&Gd<TextParagraph>, SelectionPaint) -> Vec<Rect2>,
     ) -> bool {
         if self.content_key == Some(key) {
             return false;
@@ -299,6 +316,13 @@ impl RenderNode {
         server().canvas_item_clear(self.content_item);
         if let Some(paragraph) = paragraph {
             paragraph.set_width(key.content_width);
+            if let Some(selection) = key.selection {
+                crate::selection_input::draw_highlight(
+                    self.content_item,
+                    &highlight(paragraph, selection),
+                    selection.color,
+                );
+            }
             paragraph
                 .draw_ex(self.content_item, key.origin)
                 .color(key.color)
@@ -428,6 +452,8 @@ impl ReactUiRoot {
             .sampled
             .get(&tag)
             .map(|sampled| (sampled.opacity, sampled.background_color));
+        let highlight = self.selecting.highlight_of(tag);
+        let font = self.font.clone();
         let Some(node) = self.mounted.nodes.get_mut(&tag) else {
             return (false, false);
         };
@@ -464,8 +490,33 @@ impl ReactUiRoot {
                     color: parse_color(style.color.as_deref(), Color::WHITE),
                     content_width: node.geometry.content_width(),
                     origin: node.geometry.content_origin(),
+                    selection: highlight.map(|range| highlight_paint(style, range)),
                 };
-                node.render.record_content(key, Some(paragraph))
+                let geometry = node.geometry;
+                let computed = &node.computed;
+                node.render
+                    .record_content(key, Some(paragraph), |paragraph, selection| {
+                        let Some(font) = font.as_ref() else {
+                            godot_error!(
+                                "ReactUiRoot: node {tag} has a selection but the root has no font"
+                            );
+                            return Vec::new();
+                        };
+                        highlight_rects(
+                            font,
+                            paragraph,
+                            &geometry,
+                            computed,
+                            selection.start,
+                            selection.end,
+                        )
+                        .unwrap_or_else(|error| {
+                            godot_error!(
+                                "ReactUiRoot: cannot place the selection of node {tag}: {error}"
+                            );
+                            Vec::new()
+                        })
+                    })
             }
             None => node.render.clear_content(),
         };

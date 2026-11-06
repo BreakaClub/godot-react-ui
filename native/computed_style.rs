@@ -12,7 +12,7 @@ use std::ops::{Bound, Deref};
 
 use crate::props::{
     CursorSpec, DisplaySpec, InterpolateSize, PointerEventsSpec, PseudoState, StyleLayer,
-    StyleLayers, StyleSpec, TextAlignSpec,
+    StyleLayers, StyleSpec, TextAlignSpec, UserSelectSpec,
 };
 
 /// The pseudo-states that hold for one node, as a small bit set.
@@ -79,8 +79,8 @@ impl Deref for ComputedStyle {
 }
 
 /// The properties a node passes on to its children: `color`, `fontSize`, `textAlign`,
-/// `interpolateSize`, `pointerEvents`, `cursor` and `scrollbarColor` (plan 3.6). Later phases add the
-/// text and selection properties.
+/// `interpolateSize`, `pointerEvents`, `cursor`, `scrollbarColor`, `userSelect` and `selectionColor`
+/// (plan 3.6). Later phases add the text input properties.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct InheritedStyle {
     pub color: Option<String>,
@@ -90,6 +90,8 @@ pub struct InheritedStyle {
     pub pointer_events: Option<PointerEventsSpec>,
     pub cursor: Option<CursorSpec>,
     pub scrollbar_color: Option<String>,
+    pub user_select: Option<UserSelectSpec>,
+    pub selection_color: Option<String>,
 }
 
 impl ComputedStyle {
@@ -102,6 +104,8 @@ impl ComputedStyle {
             pointer_events: self.0.pointer_events,
             cursor: self.0.cursor,
             scrollbar_color: self.0.scrollbar_color.clone(),
+            user_select: self.0.user_select,
+            selection_color: self.0.selection_color.clone(),
         }
     }
 
@@ -109,11 +113,6 @@ impl ComputedStyle {
     /// removes the element: its children are tested on their own computed value.
     pub fn is_pointer_target(&self) -> bool {
         self.0.pointer_events != Some(PointerEventsSpec::None)
-    }
-
-    /// The cursor shown over this element; `default` when nothing set one.
-    pub fn cursor_or_default(&self) -> CursorSpec {
-        self.0.cursor.unwrap_or(CursorSpec::Default)
     }
 }
 
@@ -142,6 +141,8 @@ pub fn resolve(
         pointer_events: inherited.pointer_events,
         cursor: inherited.cursor,
         scrollbar_color: inherited.scrollbar_color.clone(),
+        user_select: inherited.user_select,
+        selection_color: inherited.selection_color.clone(),
         ..StyleSpec::default()
     };
     if let Some(layers) = layers {
@@ -511,6 +512,8 @@ mod tests {
             pointer_events: Some(PointerEventsSpec::None),
             cursor: Some(CursorSpec::Pointer),
             scrollbar_color: Some("#64748b99".into()),
+            user_select: Some(UserSelectSpec::Text),
+            selection_color: Some("#3b82f659".into()),
         };
         let none = StyleLayers::default();
         let child = resolve(Some(&none), false, &inherited, &conditions(WIDE, &[]));
@@ -521,19 +524,24 @@ mod tests {
         assert_eq!(child.pointer_events, Some(PointerEventsSpec::None));
         assert_eq!(child.cursor, Some(CursorSpec::Pointer));
         assert_eq!(child.scrollbar_color.as_deref(), Some("#64748b99"));
+        assert_eq!(child.user_select, Some(UserSelectSpec::Text));
+        assert_eq!(child.selection_color.as_deref(), Some("#3b82f659"));
         let own = layers(
-            r##"{"layers":[{"style":{"color":"#000","fontSize":12,"scrollbarColor":"#f00"}}]}"##,
+            r##"{"layers":[{"style":{"color":"#000","fontSize":12,"scrollbarColor":"#f00",
+                "userSelect":"none","selectionColor":"#0f0"}}]}"##,
         );
         let overridden = resolve(Some(&own), false, &inherited, &conditions(WIDE, &[]));
         assert_eq!(overridden.color.as_deref(), Some("#000"));
         assert_eq!(overridden.font_size, Some(12));
         assert_eq!(overridden.scrollbar_color.as_deref(), Some("#f00"));
+        assert_eq!(overridden.user_select, Some(UserSelectSpec::None));
+        assert_eq!(overridden.selection_color.as_deref(), Some("#0f0"));
         assert_eq!(overridden.text_align, Some(TextAlignSpec::Center));
         // A child may take pointer events back inside an element that has none.
         let auto = layers(r#"{"layers":[{"style":{"pointerEvents":"auto","cursor":"text"}}]}"#);
         let reclaimed = resolve(Some(&auto), false, &inherited, &conditions(WIDE, &[]));
         assert!(reclaimed.is_pointer_target());
-        assert_eq!(reclaimed.cursor_or_default(), CursorSpec::Text);
+        assert_eq!(reclaimed.cursor, Some(CursorSpec::Text));
         assert!(
             !child.is_pointer_target(),
             "the inherited value applies unless overridden"
@@ -545,8 +553,9 @@ mod tests {
                 &InheritedStyle::default(),
                 &conditions(WIDE, &[])
             )
-            .cursor_or_default(),
-            CursorSpec::Default
+            .cursor,
+            None,
+            "nothing set one: the root decides (`default`, or `text` over selectable text)"
         );
         // Layout and paint properties are not inherited, nor are the scroll behaviours: a scroll
         // container's `overscroll-behavior`, `scrollbar-width` and `touch-action` are its own.

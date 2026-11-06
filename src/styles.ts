@@ -60,6 +60,7 @@ const CURSORS: readonly Cursor[] = [
 const STATIC_UTILITIES: Readonly<Record<string, Style>> = {
   ...Object.fromEntries(CURSORS.map((cursor): [string, Style] => [`cursor-${cursor}`, { cursor }])),
   'pointer-events-auto': { pointerEvents: 'auto' }, 'pointer-events-none': { pointerEvents: 'none' },
+  'select-none': { userSelect: 'none' }, 'select-text': { userSelect: 'text' },
   static: { position: 'static' }, relative: { position: 'relative' },
   absolute: { position: 'absolute' }, fixed: { position: 'fixed' },
   'overflow-hidden': { overflow: 'hidden' }, 'overflow-visible': { overflow: 'visible' },
@@ -252,6 +253,10 @@ function utilityStyle(utility: string): Style | undefined {
   if (utility.startsWith('scrollbar-')) {
     const color = parseColor(utility.slice('scrollbar-'.length));
     if (color !== undefined) return { scrollbarColor: color };
+  }
+  if (utility.startsWith('selection-')) {
+    const color = parseColor(utility.slice('selection-'.length));
+    if (color !== undefined) return { selectionColor: color };
   }
 
   for (const prefix of ['bg-', 'text-', 'border-']) {

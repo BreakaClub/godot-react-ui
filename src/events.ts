@@ -119,9 +119,18 @@ export interface UIAccessibilityActionEvent extends UISyntheticEvent<'accessibil
   readonly value: number | undefined;
 }
 
+/**
+ * The document's text selection changed (a click, a drag, Shift+click, select all, `clearSelection()`, or the text
+ * it covered changed). It is addressed to the root's listeners, does not bubble and cannot be cancelled, and carries
+ * nothing: read `root.getSelection()` (or `useTextSelection()`). Native coalesces the changes of one delivery.
+ */
+export type UISelectionChangeEvent = UISyntheticEvent<'selectionchange'>;
+
 /** Kept so handler types written against the first event model still compile. */
 export type UIEvent = UIPointerEvent;
-export type UIAnyEvent = UIPointerEvent | UIWheelEvent | UIScrollEvent | UIKeyboardEvent | UIFocusEvent | UIAccessibilityActionEvent;
+export type UIAnyEvent =
+  | UIPointerEvent | UIWheelEvent | UIScrollEvent | UIKeyboardEvent | UIFocusEvent | UIAccessibilityActionEvent
+  | UISelectionChangeEvent;
 
 export interface UIEventMap {
   pointerdown: UIPointerEvent;
@@ -141,6 +150,7 @@ export interface UIEventMap {
   focus: UIFocusEvent;
   blur: UIFocusEvent;
   accessibilityaction: UIAccessibilityActionEvent;
+  selectionchange: UISelectionChangeEvent;
 }
 
 class SyntheticEvent<Type extends NativeEventType> implements UISyntheticEvent<Type> {
@@ -318,6 +328,10 @@ function isScrollEvent(event: UIAnyEvent): event is UIScrollEvent {
   return event.type === 'scroll';
 }
 
+function isSelectionChangeEvent(event: UIAnyEvent): event is UISelectionChangeEvent {
+  return event.type === 'selectionchange';
+}
+
 /** One entry per native event type: whether it bubbles and which prop receives each phase. */
 interface EventSpec {
   readonly bubbles: boolean;
@@ -337,7 +351,7 @@ function pointerSpec(
       if (handler === undefined) return;
       if (
         isFocusEvent(event) || isWheelEvent(event) || isKeyboardEvent(event) || isScrollEvent(event)
-        || isAccessibilityActionEvent(event)
+        || isAccessibilityActionEvent(event) || isSelectionChangeEvent(event)
       ) {
         throw new Error(`UI internal error: ${event.type} reached a pointer event handler`);
       }
@@ -426,6 +440,12 @@ function accessibilityActionSpec(bubble: (props: UIProps) => Handler<UIAccessibi
   };
 }
 
+/**
+ * `selectionchange` is the document's: addressed to the root's listeners, so no element has a handler for it. (A
+ * `TextInput`'s own selection, Phase I7, is its element's event and gets a prop.)
+ */
+const SELECTION_CHANGE_SPEC: EventSpec = { bubbles: false, invoke() {} };
+
 /** The only place that knows which prop names which event. Completeness is checked by `Record`. */
 const EVENT_TABLE: Record<NativeEventType, EventSpec> = {
   pointerdown: pointerSpec(true, (p) => p.onPointerDown, (p) => p.onPointerDownCapture),
@@ -445,6 +465,7 @@ const EVENT_TABLE: Record<NativeEventType, EventSpec> = {
   focus: focusSpec((p) => p.onFocus),
   blur: focusSpec((p) => p.onBlur),
   accessibilityaction: accessibilityActionSpec((p) => p.onAccessibilityAction),
+  selectionchange: SELECTION_CHANGE_SPEC,
 };
 
 /** `event` is a `type` event: this is the runtime check behind the typed listener registration. */
@@ -493,7 +514,8 @@ export const NOT_DISPATCHED: DispatchResult = Object.freeze({ defaultPrevented: 
 
 function createEvent(
   native: NativeEvent, target: UIHandle, related: UIHandle | null, bubbles: boolean,
-): PointerEventImpl | WheelEventImpl | ScrollEventImpl | KeyboardEventImpl | FocusEventImpl | AccessibilityActionEventImpl {
+): PointerEventImpl | WheelEventImpl | ScrollEventImpl | KeyboardEventImpl | FocusEventImpl | AccessibilityActionEventImpl
+  | SyntheticEvent<'selectionchange'> {
   switch (native.type) {
     case 'pointerdown': case 'pointermove': case 'pointerup':
     case 'pointerenter': case 'pointerleave': case 'pointercancel': case 'click': case 'dblclick':
@@ -509,6 +531,8 @@ function createEvent(
       return new FocusEventImpl(native, target, related, bubbles);
     case 'accessibilityaction':
       return new AccessibilityActionEventImpl(native, target, bubbles);
+    case 'selectionchange':
+      return new SyntheticEvent(native.type, target, bubbles, native.cancelable, native.timeStamp);
   }
 }
 

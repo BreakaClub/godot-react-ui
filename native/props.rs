@@ -215,6 +215,15 @@ pub enum PointerEventsSpec {
     None,
 }
 
+/// CSS `user-select`, the subset plan 4.2 lists: `text` lets the pointer select the text of an element
+/// and of the elements below it that do not say otherwise; the default, `none`, does not (plan 3.17).
+#[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum UserSelectSpec {
+    None,
+    Text,
+}
+
 /// CSS `cursor`, the subset plan 4.2 lists; `pointer.rs` maps each to a Godot `CursorShape`.
 #[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -465,6 +474,11 @@ pub struct StyleSpec {
     pub touch_action: Option<TouchActionSpec>,
     pub pointer_events: Option<PointerEventsSpec>,
     pub cursor: Option<CursorSpec>,
+    /// Inherited. Whether the pointer can select an element's text; `none` when nothing set it.
+    pub user_select: Option<UserSelectSpec>,
+    /// Inherited. The selection highlight's colour; selected text paints
+    /// [`DEFAULT_SELECTION_COLOR`](crate::render_tree::DEFAULT_SELECTION_COLOR) when nothing set one.
+    pub selection_color: Option<String>,
     pub position: Option<PositionSpec>,
     pub top: Option<Inset>,
     pub right: Option<Inset>,
@@ -656,6 +670,8 @@ impl StyleSpec {
             touch_action,
             pointer_events,
             cursor,
+            user_select,
+            selection_color,
             position,
             top,
             right,
@@ -735,6 +751,7 @@ impl StyleSpec {
             ("color", &self.color),
             ("borderColor", &self.border_color),
             ("scrollbarColor", &self.scrollbar_color),
+            ("selectionColor", &self.selection_color),
         ] {
             if let Some(value) = value {
                 let Some(hex) = value.strip_prefix('#') else {
@@ -1093,7 +1110,7 @@ mod tests {
         "transition":{"properties":["width"],"durationMs":10},"interpolateSize":"allow-keywords",
         "overflowX":"hidden","overflowY":"hidden","pointerEvents":"none","cursor":"ew-resize",
         "overscrollBehavior":"contain","scrollbarWidth":"none","scrollbarColor":"#64748b99",
-        "touchAction":"pan-y",
+        "touchAction":"pan-y","userSelect":"text","selectionColor":"#3b82f659",
         "position":"absolute","top":1,"right":"10%","bottom":-2,"left":"auto","zIndex":-3
     }"##;
 
@@ -1323,6 +1340,33 @@ mod tests {
         assert!(layout.scrollable_overflow_rect.is_reversed().y);
         assert!(!layout.scrollable_overflow_rect.is_reversed().x);
         assert_eq!(layout.scroll_height(), 300.0);
+    }
+
+    #[test]
+    fn user_select_and_selection_color_parse_and_validate() {
+        for (json, expected) in [
+            ("none", UserSelectSpec::None),
+            ("text", UserSelectSpec::Text),
+        ] {
+            let parsed = style(&format!(r#"{{"userSelect":"{json}"}}"#));
+            assert_eq!(parsed.user_select, Some(expected), "{json}");
+        }
+        for json in [
+            r#"{"userSelect":"all"}"#,
+            r#"{"userSelect":"auto"}"#,
+            r#"{"userSelect":"Text"}"#,
+        ] {
+            assert!(serde_json::from_str::<StyleSpec>(json).is_err(), "{json}");
+        }
+        style(r##"{"selectionColor":"#3b82f659"}"##)
+            .validate()
+            .unwrap();
+        assert!(style(r#"{"selectionColor":"blue"}"#).validate().is_err());
+        assert!(
+            style(r##"{"selectionColor":"#12345"}"##)
+                .validate()
+                .is_err()
+        );
     }
 
     #[test]

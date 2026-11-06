@@ -222,6 +222,33 @@
     }
   },
   {
+    "className": "select-text selection-[#3b82f659] hover:select-none md:selection-rose-400",
+    "compiled": {
+      "layers": [
+        {
+          "style": {
+            "selectionColor": "#3b82f659",
+            "userSelect": "text"
+          }
+        },
+        {
+          "states": [
+            "hover"
+          ],
+          "style": {
+            "userSelect": "none"
+          }
+        },
+        {
+          "minWidth": 768,
+          "style": {
+            "selectionColor": "#fb7185"
+          }
+        }
+      ]
+    }
+  },
+  {
     "className": "overflow-hidden shrink-0",
     "style": [
       {

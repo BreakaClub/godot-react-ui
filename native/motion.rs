@@ -155,6 +155,7 @@ impl ReactUiRoot {
     /// a node's computed style (hover/focus, resize) ends here.
     pub(crate) fn publish_style_changes(&mut self, changes: &[StyleChange]) {
         self.publish(changes, false);
+        self.settle_selection();
         self.note_accessibility_restyle(changes);
     }
 
@@ -170,6 +171,7 @@ impl ReactUiRoot {
             return;
         }
         self.stats.nodes_restyled += changes.len() as u64;
+        self.note_selection_restyle(changes);
         self.sync_gained_transitions(changes);
         let mut changed = Vec::new();
         let mut intrinsic_changes = Vec::new();

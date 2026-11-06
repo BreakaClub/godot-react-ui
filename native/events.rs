@@ -152,6 +152,12 @@ pub enum EventPayload {
     Focus(FocusData),
     Blur(FocusData),
     AccessibilityAction(AccessibilityActionData),
+    /// The text selection of the document changed (plan 3.17). Addressed to the root listeners
+    /// (target 0, empty path), not cancelable, no payload: JS asks the root for `getSelection()`.
+    /// Coalesced while waiting (`EventQueue::push_selection_change`). `TextInput` selection changes
+    /// (Phase I7) go to their input and carry the input's offsets.
+    #[serde(rename = "selectionchange")]
+    DocumentSelectionChange,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -256,6 +262,28 @@ impl EventQueue {
             path,
             Vec::new(),
             EventPayload::Scroll(data),
+            time_stamp,
+            false,
+        )
+    }
+
+    /// Queue a `selectionchange` for the root's listeners. One still waiting for JS is updated in place:
+    /// JS reads the selection when it looks, so a drag that moved the focus fifty times costs one event
+    /// per delivery.
+    pub fn push_selection_change(&mut self, time_stamp: f64) -> EventSeq {
+        if let Some(pending) = self
+            .queued
+            .iter_mut()
+            .find(|event| matches!(event.payload, EventPayload::DocumentSelectionChange))
+        {
+            pending.time_stamp = time_stamp;
+            return pending.seq;
+        }
+        self.enqueue(
+            0,
+            Vec::new(),
+            Vec::new(),
+            EventPayload::DocumentSelectionChange,
             time_stamp,
             false,
         )
@@ -688,6 +716,24 @@ mod tests {
         // Once delivered, the next step is a new event.
         let later = queue.push_scroll(4, vec![4], scroll_data(40.0), STAMP + 3.0);
         assert!(later > other);
+        assert_eq!(queue.drain().len(), 1);
+    }
+
+    #[test]
+    fn a_selection_change_goes_to_the_root_and_coalesces_while_waiting() {
+        let mut queue = EventQueue::new();
+        let first = queue.push_selection_change(STAMP);
+        queue.push(9, vec![9], EventPayload::Click(pointer()), STAMP);
+        assert_eq!(queue.push_selection_change(STAMP + 1.0), first);
+        let drained = queue.drain();
+        assert_eq!(drained.len(), 2, "one selectionchange, plus the click");
+        assert_eq!(
+            wire(&drained[0]),
+            json!({"seq": first, "target": 0, "path": [], "cancelable": false,
+                   "timeStamp": STAMP + 1.0, "type": "selectionchange"})
+        );
+        // Once delivered, the next change is a new event.
+        assert!(queue.push_selection_change(STAMP + 2.0) > first);
         assert_eq!(queue.drain().len(), 1);
     }
 

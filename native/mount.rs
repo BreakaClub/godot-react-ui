@@ -335,13 +335,20 @@ impl Mounted {
     }
 
     /// The cursor to show at `point`: the computed `cursor` of the element a pointer there would
-    /// reach, or `default` over nothing.
-    pub(crate) fn cursor_at(&self, point: Vector2) -> CursorSpec {
-        self.hit_test(point)
-            .and_then(|tag| self.nodes.get(&tag))
-            .map_or(CursorSpec::Default, |node| {
-                node.computed.cursor_or_default()
-            })
+    /// reach; `unset(tag)` if nothing set one for it (`default`, or `text` over selectable text, plan
+    /// 3.20); `default` over nothing.
+    pub(crate) fn cursor_at(
+        &self,
+        point: Vector2,
+        unset: impl FnOnce(u32) -> CursorSpec,
+    ) -> CursorSpec {
+        let Some(tag) = self.hit_test(point) else {
+            return CursorSpec::Default;
+        };
+        self.nodes
+            .get(&tag)
+            .and_then(|node| node.computed.cursor)
+            .unwrap_or_else(|| unset(tag))
     }
 
     /// Every element in document order (pre-order, main layer first). Whole-tree by design: Tab
@@ -594,6 +601,7 @@ impl ReactUiRoot {
         }
         self.settle_structure(&touched);
         self.publish_commit(&dry_run.changes, !touched.is_empty());
+        self.settle_selection();
         self.refresh_interaction();
         self.apply_auto_focus(&validated);
         // What is exposed may have changed in any way a commit can change the tree; pruning is a
@@ -804,6 +812,7 @@ impl ReactUiRoot {
             .index_test_id(tag, previous.test_id.as_deref(), props.test_id.as_deref());
         if previous.text != props.text {
             self.pending_text.insert(tag);
+            self.selection_node_changed(tag);
         }
         self.paint_dirty.insert(tag);
     }
@@ -829,6 +838,7 @@ impl ReactUiRoot {
         self.paint_reeval.remove(&tag);
         self.mounted.out_of_flow.remove(&tag);
         self.forget_scroll(tag);
+        self.selection_node_changed(tag);
         self.paint_dirty_parents.remove(&Parent::Node(tag));
         if let Some(painter) = node.paint_parent {
             self.paint_dirty_parents.insert(painter);

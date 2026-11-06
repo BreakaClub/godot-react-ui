@@ -4,7 +4,7 @@ import type { CommitPayload } from '../src/commit';
 import type {
   NativeAccessibilityAction, NativeAccessibilityActionEvent, NativeEvent, NativeEventType, NativeFocusEventType,
   NativeHost, NativeKeyEvent, NativePointerEvent, NativePointerEventType, NativeScrollEvent, NativeScrollState,
-  NativeSnapshot, NativeSnapshotNode, NativeWheelEvent, PackedTags,
+  NativeSelection, NativeSelectionChangeEvent, NativeSnapshot, NativeSnapshotNode, NativeWheelEvent, PackedTags,
 } from '../src/native';
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -64,7 +64,7 @@ export function node(id: number, kind: 'view' | 'text' | 'button'): NativeSnapsh
 export type NativeCall =
   | 'commit' | 'takeCommitDeletions' | 'drainEvents' | 'getSnapshot' | 'getNodeRect' | 'getSize' | 'findByTestId' | 'resolveEvent'
   | 'setPointerCapture' | 'releasePointerCapture' | 'hasPointerCapture' | 'focusNode' | 'blurNode'
-  | 'scrollTo' | 'scrollBy' | 'scrollIntoView' | 'getScrollState';
+  | 'scrollTo' | 'scrollBy' | 'scrollIntoView' | 'getScrollState' | 'getSelection' | 'clearSelection';
 
 /**
  * A fake native host that implements the commit API in JavaScript: it applies each payload to a
@@ -103,6 +103,8 @@ export class RecordingHost implements NativeHost {
   readonly scrollStates = new Map<number, NativeScrollState>();
   /** Every `scrollTo`, `scrollBy` and `scrollIntoView` request, in order. */
   readonly scrollRequests: Array<{ method: 'scrollTo' | 'scrollBy' | 'scrollIntoView'; tag: number; x?: number; y?: number }> = [];
+  /** The text selection `getSelection` reports (native decides what is selected; the test says what it is). */
+  selection: NativeSelection | undefined;
   /** Extra events appended to every drain, for storm tests. */
   produceEvents: (() => NativeEvent[]) | undefined;
   private nextSeq = 1;
@@ -258,6 +260,16 @@ export class RecordingHost implements NativeHost {
     return JSON.stringify(this.scrollStates.get(tag) ?? null);
   }
 
+  getSelection(): string {
+    this.calls.push('getSelection');
+    return JSON.stringify(this.selection ?? null);
+  }
+
+  clearSelection(): void {
+    this.calls.push('clearSelection');
+    this.selection = undefined;
+  }
+
   getNodeRect(tag: number): string {
     this.calls.push('getNodeRect');
     return JSON.stringify(this.nodes.get(tag)?.rect ?? null);
@@ -319,7 +331,8 @@ export class RecordingHost implements NativeHost {
         : type === 'scroll' ? this.scrollEvent(target)
           : type === 'keydown' || type === 'keyup' ? this.keyEvent(target, type)
             : type === 'accessibilityaction' ? this.accessibilityActionEvent(target, 'increment')
-              : this.pointerEvent(target, type, overrides);
+              : type === 'selectionchange' ? this.selectionChangeEvent()
+                : this.pointerEvent(target, type, overrides);
     this.events.push(event);
     return event;
   }
@@ -372,6 +385,11 @@ export class RecordingHost implements NativeHost {
       seq: this.nextSeq++, target, path: this.pathOf(target), cancelable: false, timeStamp: 1.5,
       type: 'accessibilityaction', action, value,
     };
+  }
+
+  /** The document's selection changed: addressed to the root (target 0, no path), never cancelable. */
+  selectionChangeEvent(): NativeSelectionChangeEvent {
+    return { seq: this.nextSeq++, target: 0, path: [], cancelable: false, timeStamp: 1.5, type: 'selectionchange' };
   }
 
   /** A key press or release; a `keydown` is cancelable, as native awaits JS's answer. */

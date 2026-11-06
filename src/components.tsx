@@ -1,7 +1,9 @@
 import { Children, createElement, forwardRef, useCallback, useContext, useSyncExternalStore, type ReactNode } from 'react';
 import type { UIAccessibilityActionEvent, UIFocusEvent, UIKeyboardEvent, UIPointerEvent, UIScrollEvent, UIWheelEvent } from './events';
 import type { LayoutRect, NativeScrollState } from './native';
-import { createOverlayPortal, OverlayContext, readRootSize, watchRootSize, type RootSize } from './renderer';
+import {
+  createOverlayPortal, OverlayContext, readRootSize, readTextSelection, watchRootSize, watchTextSelection, type RootSize,
+} from './renderer';
 import type { StyleProp, UIAriaProps } from './types';
 
 export interface UIHandle {
@@ -52,6 +54,26 @@ export interface UIHandle {
   scrollIntoView(): void;
   /** A scroll container's position, size and range, or `undefined` for an element that is not one. */
   getScrollState(): NativeScrollState | undefined;
+}
+
+/** One end of the text selection: a `Text` element and an offset into its text. */
+export interface UISelectionPoint {
+  readonly node: UIHandle;
+  /** UTF-16 code units from the start of the element's text, so `text.slice(0, offset)` is what precedes it. */
+  readonly offset: number;
+}
+
+/**
+ * The document's text selection (`userSelect: text`): where it started and where it ends, which may be before the
+ * start when it was dragged backwards. `text` is what copying it would put on the clipboard: the text of each
+ * selected element, joined by newlines; elements with `userSelect: none` between the ends contribute nothing.
+ */
+export interface UISelection {
+  readonly anchor: UISelectionPoint;
+  readonly focus: UISelectionPoint;
+  /** A click: the ends are the same place. */
+  readonly isCollapsed: boolean;
+  readonly text: string;
 }
 
 export interface UIProps extends UIAriaProps {
@@ -177,5 +199,17 @@ export function useRootSize(): RootSize {
   // React subscribes again whenever the subscribe function changes, so these are stable for the root.
   const subscribe = useCallback((listener: () => void) => watchRootSize(overlay, listener), [overlay]);
   const read = useCallback(() => readRootSize(overlay), [overlay]);
+  return useSyncExternalStore(subscribe, read);
+}
+
+/**
+ * The document's text selection, as a hook: the component renders again when it changes (`selectionchange`). Nothing
+ * selected, or the selection a commit cleared, is `undefined`. The value is the same object until the next change.
+ */
+export function useTextSelection(): UISelection | undefined {
+  const overlay = useContext(OverlayContext);
+  if (overlay === null) throw new Error('useTextSelection() must be used inside a root created by createRoot');
+  const subscribe = useCallback((listener: () => void) => watchTextSelection(overlay, listener), [overlay]);
+  const read = useCallback(() => readTextSelection(overlay), [overlay]);
   return useSyncExternalStore(subscribe, read);
 }

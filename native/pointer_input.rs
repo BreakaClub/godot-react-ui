@@ -50,6 +50,8 @@ impl ReactUiRoot {
             self.pointer,
             self.pointer_buttons,
         );
+        // A text selection being dragged out follows the pointer (plan 3.12 rule 5).
+        self.selection_drag_moved(hit);
         // A captured pointer's moves belong to the capturing element wherever the pointer is.
         if let Some(target) = self.pointers.target_for(MOUSE_POINTER_ID, hit) {
             let data = self.mouse_pointer_data(DOM_BUTTON_NONE, 0, None);
@@ -182,11 +184,18 @@ impl ReactUiRoot {
             }
         }
         if primary {
-            self.run_pointerdown_default(hit, prevented);
-            // An un-prevented press on a scrollbar thumb starts dragging it (plan 3.12 rule 2).
-            if !prevented {
-                self.begin_thumb_drag(hit, self.pointer);
-            }
+            // Gesture arbitration after an un-prevented `pointerdown` (plan 3.12): a pointer JS captured
+            // is its element's (rule 1), then a press on a scrollbar thumb drags the thumb (rule 2),
+            // then, once drag and drop exists (Phase I9, rule 3), a draggable element; selectable text
+            // starts a selection (rule 5).
+            let grabbed_thumb = !prevented && self.begin_thumb_drag(hit, self.pointer);
+            let selecting = !prevented
+                && self.begin_selection_press(
+                    hit,
+                    detail,
+                    !grabbed_thumb && !self.mouse_is_captured(),
+                );
+            self.run_pointerdown_default(hit, prevented, selecting);
         }
         true
     }
@@ -213,6 +222,9 @@ impl ReactUiRoot {
         }
         // Letting go of a scrollbar thumb is not a click on the container.
         let dragged_thumb = primary && self.end_thumb_drag();
+        if primary {
+            self.end_selection_drag();
+        }
         if let Some(press) = press
             && !dragged_thumb
             && let Some(target) = self.click_target(press.target, hit, capture)
@@ -301,7 +313,8 @@ impl ReactUiRoot {
             }
             self.begin_touch_pan(id, target, position, prevented);
         }
-        self.run_pointerdown_default(hit, prevented);
+        // A touch starts no text selection (touch selection handles are a non-goal, plan 2.3).
+        self.run_pointerdown_default(hit, prevented, false);
         true
     }
 
@@ -437,6 +450,7 @@ impl ReactUiRoot {
             self.pressed = None;
             self.pressed_by_keyboard = false;
             self.end_thumb_drag();
+            self.end_selection_drag();
         }
         self.refresh_interaction();
     }
@@ -449,13 +463,20 @@ impl ReactUiRoot {
         }
         self.end_all_touch_pans();
         self.end_thumb_drag();
+        self.end_selection_drag();
     }
 
     /// The default action of a primary `pointerdown`, mouse or touch: the nearest enabled button
-    /// takes focus, and pressing anything else clears element focus. Skipped if JS prevented the
+    /// takes focus, and pressing anything else clears element focus. A press that did not start (or
+    /// extend) a text selection, `keeps_selection`, clears the current one. Skipped if JS prevented the
     /// event or removed the element it was handling (plan 3.3 rule 3). Whatever JS decided, the
-    /// root then holds key focus only if an element is focused.
-    fn run_pointerdown_default(&mut self, hit: Option<u32>, prevented: bool) {
+    /// root then holds key focus only if an element is focused or a selection is.
+    fn run_pointerdown_default(
+        &mut self,
+        hit: Option<u32>,
+        prevented: bool,
+        keeps_selection: bool,
+    ) {
         let target_removed = hit.is_some_and(|id| !self.mounted.nodes.contains_key(&id));
         if !prevented && !target_removed {
             let focus = hit.and_then(|id| nearest_focusable(&self.mounted, id));
@@ -463,16 +484,20 @@ impl ReactUiRoot {
                 self.base_mut().grab_focus();
             }
             self.set_focus(focus, false);
+            if !keeps_selection {
+                self.clear_selection_command();
+            }
         }
         self.release_key_focus_without_element();
     }
 
-    /// The root holds Godot key focus only for a focused element (or an owner that asked for it
-    /// with `grabFocus()`, until the next press). Godot grants focus to a focusable Control for
-    /// every left press that reaches it, before any handler runs (`viewport.cpp:1976-1990`), so a
-    /// press that leaves no element focused hands it back: keys then go to the game (plan 3.11).
+    /// The root holds Godot key focus only for a focused element, a text selection (which needs the
+    /// keys that copy and select all), or an owner that asked for it with `grabFocus()` (until the
+    /// next press). Godot grants focus to a focusable Control for every left press that reaches it,
+    /// before any handler runs (`viewport.cpp:1976-1990`), so a press that leaves no element focused
+    /// and no selection hands it back: keys then go to the game (plan 3.11).
     pub(crate) fn release_key_focus_without_element(&mut self) {
-        if self.focused.is_none() && self.base().has_focus() {
+        if self.focused.is_none() && !self.selection_holds_key_focus() && self.base().has_focus() {
             self.base_mut().release_focus();
         }
     }

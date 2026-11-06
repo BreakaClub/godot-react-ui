@@ -5,14 +5,14 @@ import {
   DiscreteEventPriority, NoEventPriority,
 } from 'react-reconciler/constants';
 import { buildCommit, type CommitNode } from './commit';
-import type { UIHandle, UIProps } from './components';
+import type { UIHandle, UIProps, UISelection } from './components';
 import {
   dispatchEvent, exclusiveAncestry, NOT_DISPATCHED, RootListeners,
   type DispatchResult, type PathNode, type UIEventMap,
 } from './events';
 import {
   checkCapture, checkFocus, checkScroll, commitPayload, findTag, readDeletions, readEvents, readNodeRect, readScrollState,
-  readSnapshot, resolveEvent,
+  readSelection, readSnapshot, resolveEvent,
   type NativeEvent, type NativeEventType, type NativeHost, type NativePointerEvent,
   type NativeSnapshot, type NativeSnapshotNode,
 } from './native';
@@ -77,6 +77,11 @@ interface RootState {
   documentOrder: ReadonlyMap<number, number> | undefined;
   /** The root's size as last read, or `undefined` until something asks for it (`readRootSize`). */
   size: RootSize | undefined;
+  /**
+   * The text selection as last read from native, wrapped so that "nothing selected" can be cached too. Dropped when
+   * a `selectionchange` arrives or JS clears the selection; `readTextSelection` fills it.
+   */
+  selectionCache: { readonly value: UISelection | undefined } | undefined;
   readonly sizeListeners: Set<() => void>;
   readonly listeners: RootListeners;
   /** Handle for the layer root, the target of events addressed to root listeners only. */
@@ -117,6 +122,13 @@ export interface UIRoot {
   dispatchEvents(): void;
   /** Listen on the root itself, after elements' bubble phase. Returns the remover. */
   addEventListener<K extends NativeEventType>(type: K, listener: (event: UIEventMap[K]) => void): () => void;
+  /**
+   * The document's text selection (elements with `userSelect: text`), or `undefined` when nothing is selected. It
+   * reads native, so the answer is the selection as of now; listen for `selectionchange` to know when it moved.
+   */
+  getSelection(): UISelection | undefined;
+  /** Clears the text selection (`selectionchange` follows if there was one). Does not touch keyboard focus. */
+  clearSelection(): void;
   getSnapshot(): NativeSnapshot;
   /** The first element created with this `testID`, from a native query. */
   findByTestID(testID: string): NativeSnapshotNode | undefined;
@@ -230,6 +242,34 @@ function handleFor(root: RootState, tag: number): UIHandle {
     root.handles.set(tag, handle);
   }
   return handle;
+}
+
+/** The selection native holds now, with its ends as the handles of the elements. */
+function currentSelection(root: RootState): UISelection | undefined {
+  const selection = readSelection(root.host);
+  if (selection === undefined) return undefined;
+  return {
+    anchor: { node: handleFor(root, selection.anchor.tag), offset: selection.anchor.offset },
+    focus: { node: handleFor(root, selection.focus.tag), offset: selection.focus.offset },
+    isCollapsed: selection.isCollapsed,
+    text: selection.text,
+  };
+}
+
+/**
+ * The text selection for `useTextSelection`: the same object until the selection changes, which a hook needs
+ * (`useSyncExternalStore` compares snapshots by identity). Read from native when first asked and again after each
+ * `selectionchange`.
+ */
+export function readTextSelection(container: Container): UISelection | undefined {
+  const root = container.root;
+  root.selectionCache ??= { value: currentSelection(root) };
+  return root.selectionCache.value;
+}
+
+/** Call `listener` after each `selectionchange`, once the cached selection is dropped. Returns the remover. */
+export function watchTextSelection(container: Container, listener: () => void): () => void {
+  return container.root.listeners.add('selectionchange', listener);
 }
 
 function finiteSize(value: number, axis: string): number {
@@ -496,7 +536,7 @@ export function createRoot(host: NativeHost, options: RootOptions): UIRoot {
     main: { get root() { return state; }, layer: MAIN_LAYER, rootTags: [] },
     overlay: undefined, unmounted: false, failure: undefined,
     dispatching: false, listeners: new RootListeners(), unsubscribe: undefined,
-    documentOrder: undefined, size: undefined, sizeListeners: new Set(),
+    documentOrder: undefined, size: undefined, sizeListeners: new Set(), selectionCache: undefined,
     handle: {
       id: LAYER_ROOT_TAG,
       testID: undefined,
@@ -528,6 +568,8 @@ export function createRoot(host: NativeHost, options: RootOptions): UIRoot {
   }
 
   function processEvent(native: NativeEvent): void {
+    // Whoever listens for the change reads the selection again.
+    if (native.type === 'selectionchange') state.selectionCache = undefined;
     const previousPriority = updatePriority;
     updatePriority = isContinuous(native) ? ContinuousEventPriority : DiscreteEventPriority;
     let result: DispatchResult;
@@ -605,6 +647,14 @@ export function createRoot(host: NativeHost, options: RootOptions): UIRoot {
     },
     addEventListener(type, listener) {
       return state.listeners.add(type, listener);
+    },
+    getSelection() {
+      return currentSelection(state);
+    },
+    clearSelection() {
+      host.clearSelection();
+      // The `selectionchange` this causes is on its way, but a reader that comes first must not see the old one.
+      state.selectionCache = undefined;
     },
     getSnapshot: () => readSnapshot(host),
     setProfiling(enabled) { state.profiler.enabled = enabled; },

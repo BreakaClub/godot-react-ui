@@ -197,6 +197,7 @@ test('compiled styles match the native contract fixture, which the Rust tests pa
     { className: 'relative absolute fixed top-4 -left-2 right-1/2 bottom-auto inset-x-0 z-10 -z-5 md:static' },
     { className: 'overflow-y-auto overflow-x-scroll overscroll-contain scrollbar-none scrollbar-[#64748b99] touch-pan-y' },
     { className: 'overflow-auto overscroll-auto scrollbar-auto scrollbar-slate-400 touch-none' },
+    { className: 'select-text selection-[#3b82f659] hover:select-none md:selection-rose-400' },
     {
       className: 'overflow-hidden shrink-0',
       style: [{ height: 'auto', padding: 4, interpolateSize: 'allow-keywords', transition: {
@@ -206,6 +207,21 @@ test('compiled styles match the native contract fixture, which the Rust tests pa
   ];
   const fixture = inputs.map((input) => ({ ...input, compiled: compileStyle(input.className, input.style) }));
   checkFixture('compiled-styles.json', fixture);
+});
+
+test('selection utilities compile to the longhands native reads', () => {
+  const style = (className: string) => layersOf(className)[0]?.style;
+  assert.deepEqual(style('select-none'), { userSelect: 'none' });
+  assert.deepEqual(style('select-text'), { userSelect: 'text' });
+  assert.deepEqual(style('selection-[#3b82f659]'), { selectionColor: '#3b82f659' });
+  assert.deepEqual(style('selection-rose-400'), { selectionColor: '#fb7185' });
+  // Later classes win, and conditions apply like any other utility.
+  assert.deepEqual(layersOf('select-text hover:select-none'), [
+    { style: { userSelect: 'text' } }, { states: ['hover'], style: { userSelect: 'none' } },
+  ]);
+  assert.deepEqual(layersOf('', { userSelect: 'text', selectionColor: '#0f0' })[0]?.style, { userSelect: 'text', selectionColor: '#0f0' });
+  assert.throws(() => compileStyle('select-all'), /Unsupported utility class "select-all"/);
+  assert.throws(() => compileStyle('selection-nope'), /Unsupported utility class "selection-nope"/);
 });
 
 test('scroll utilities compile to the longhands native reads', () => {

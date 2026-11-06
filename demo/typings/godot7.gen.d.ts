@@ -1208,6 +1208,8 @@ declare module "godot" {
         scroll_by: "scrollBy";
         scroll_into_view: "scrollIntoView";
         get_scroll_state: "getScrollState";
+        get_selection: "getSelection";
+        clear_selection: "clearSelection";
         get_node_rect: "getNodeRect";
         find_by_test_id: "findByTestId";
         drain_events: "drainEvents";
@@ -1233,6 +1235,8 @@ declare module "godot" {
         scrollBy(tag: int64, dx: float64, dy: float64): string
         scrollIntoView(tag: int64): string
         getScrollState(tag: int64): string
+        getSelection(): string
+        clearSelection(): any
         getNodeRect(tag: int64): string
         findByTestId(testId: string): int64
         drainEvents(): string

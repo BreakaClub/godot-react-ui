@@ -85,7 +85,7 @@ impl ReactUiRoot {
         }
         let consumed = prevented
             || if pressed {
-                self.key_down_default(keycode, echo, modifiers)
+                self.key_down_default(key, keycode, echo, modifiers)
             } else {
                 self.key_up_default(keycode)
             };
@@ -94,9 +94,21 @@ impl ReactUiRoot {
         }
     }
 
-    /// Tab moves focus; Enter and Space press a focused button; the scrolling keys scroll the focused
-    /// element's scroll container. Returns whether native acted.
-    fn key_down_default(&mut self, keycode: Key, echo: bool, modifiers: Modifiers) -> bool {
+    /// Copy and select all act on the document's text selection; Tab moves focus; Enter and Space
+    /// press a focused button; the scrolling keys scroll the focused element's scroll container.
+    /// Returns whether native acted.
+    fn key_down_default(
+        &mut self,
+        key: &Gd<InputEventKey>,
+        keycode: Key,
+        echo: bool,
+        modifiers: Modifiers,
+    ) -> bool {
+        // The keys that copy the document's text selection and select all of it (`ui_copy`,
+        // `ui_text_select_all`); a chord, so none of the keys below take it.
+        if self.run_selection_key(key, echo) {
+            return true;
+        }
         if keycode == Key::TAB {
             // Ctrl, Alt and Meta with Tab belong to the platform and the game.
             if modifiers.ctrl_key || modifiers.alt_key || modifiers.meta_key {

@@ -1,5 +1,5 @@
-export { View, Text, Button, Portal, useRootSize } from './components';
-export type { UIProps, UIHandle } from './components';
+export { View, Text, Button, Portal, useRootSize, useTextSelection } from './components';
+export type { UIProps, UIHandle, UISelection, UISelectionPoint } from './components';
 export { Checkbox, RadioGroup, ScrollView, Select, Slider, Switch } from './kit';
 export type {
   CheckboxProps, CheckedState, PartProps, RadioGroupItemProps, RadioGroupRootProps, RadioOrientation, ScrollViewProps,
@@ -10,7 +10,7 @@ export type {
 export { EventPhase } from './events';
 export type {
   EventPhaseValue, UIAccessibilityActionEvent, UIAnyEvent, UIEvent, UIEventMap, UIFocusEvent, UIKeyboardEvent, UIMouseFields,
-  UIPointerEvent, UIScrollEvent, UISyntheticEvent, UIWheelEvent,
+  UIPointerEvent, UIScrollEvent, UISelectionChangeEvent, UISyntheticEvent, UIWheelEvent,
 } from './events';
 export { createRoot } from './renderer';
 export type { RootOptions, RootSize, UIRoot } from './renderer';
@@ -18,10 +18,10 @@ export type { UIRoot as ReactRoot } from './renderer';
 export { StyleSheet, compileStyle } from './styles';
 export type {
   CompiledStyle, Cursor, LonghandStyle, Overflow, OverscrollBehavior, PointerEvents, PseudoState, ScrollbarWidth, Style,
-  StyleLayer, StyleProp, TouchAction, Transition, TransitionProperty, UIAriaProps, UIRole,
+  StyleLayer, StyleProp, TouchAction, Transition, TransitionProperty, UIAriaProps, UIRole, UserSelect,
 } from './types';
 export type { RendererProfile, ProfileSample } from './profile';
 export { readActivity, takeNativeProfile } from './native';
 export type { NativeActivity, NativeDiagnosticsHost, NativeProfile, NativeTransition } from './native';
-export type { NativeHost, NativeScrollState, NativeSnapshot, NativeSnapshotNode, LayoutRect } from './native';
+export type { NativeHost, NativeScrollState, NativeSelection, NativeSnapshot, NativeSnapshotNode, LayoutRect } from './native';
 export type { NativeEvent, NativeEventType, NativePointerType } from './native';

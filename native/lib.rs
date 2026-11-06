@@ -27,23 +27,24 @@ mod props;
 mod render_tree;
 mod scroll;
 mod scroll_input;
-// Integrated in Phase I6 (text selection); remove the attribute then.
-#[cfg_attr(not(test), allow(dead_code))]
 mod selection;
+mod selection_input;
 mod snapshot;
 mod stacking;
 mod style_engine;
 // Integrated in Phase I7 (TextInput); remove the attribute then.
 #[cfg_attr(not(test), allow(dead_code))]
 mod text_input;
-// Caret, hit-test and selection geometry over Godot's `TextParagraph`. Until Phase I6 (text selection)
-// and I7 (TextInput) integrate it, only the `probe` build calls the half that talks to the text server
-// (the unit tests use a fake paragraph); remove the attribute then.
+// Caret, hit-test and selection geometry over Godot's `TextParagraph`. Text selection (Phase I6) uses
+// the hit test, word, line and selection-run queries; the carets, line layout and edit-buffer adapters
+// are for TextInput (Phase I7), which removes this attribute.
 #[cfg_attr(not(feature = "probe"), allow(dead_code))]
 mod text_layout;
 #[cfg(feature = "probe")]
 mod text_layout_probe;
-// Integrated in Phase I6 (text selection) and I7 (TextInput); remove the attribute then.
+// Text selection (Phase I6) converts the code point offsets it sends to JS with `code_point_to_utf16`;
+// the JS-to-native direction is for `TextInput` (Phase I7, `setSelectionRange`, `setTextAndSelection`),
+// which removes this attribute.
 #[cfg_attr(not(test), allow(dead_code))]
 mod text_offsets;
 
@@ -84,6 +85,7 @@ use profile::{Profiler, micros};
 use props::{PseudoState, TransitionProperty};
 use render_tree::{RingKey, RootItem};
 use scroll_input::ScrollInputState;
+use selection_input::SelectionState;
 use style_engine::{DimensionAxis, DimensionOverrides, SampledStyle, StyleEngine};
 
 const DEFAULT_FONT_SIZE: i32 = 16;
@@ -148,6 +150,9 @@ pub struct ReactUiRoot {
     scrollbar_style: Option<Gd<StyleBoxFlat>>,
     /// Coasting flicks, panning fingers and the scrollbar thumb being dragged (`scroll_input.rs`).
     scrolling: ScrollInputState,
+    /// The document's text selection, the gesture that is extending it and what each node paints of
+    /// it (`selection_input.rs`).
+    selecting: SelectionState,
     /// Nodes whose layout inputs changed since the last geometry pass.
     layout_dirty: BTreeSet<u32>,
     /// Nodes whose canvas items may need re-recording.
@@ -229,6 +234,7 @@ impl IControl for ReactUiRoot {
             ring_drawn: None,
             scrollbar_style: None,
             scrolling: ScrollInputState::default(),
+            selecting: SelectionState::default(),
             layout_dirty: BTreeSet::new(),
             paint_dirty: BTreeSet::new(),
             paint_reeval: BTreeSet::new(),
@@ -422,7 +428,11 @@ impl IControl for ReactUiRoot {
     }
 
     fn get_cursor_shape(&self, at_position: Vector2) -> i32 {
-        cursor_shape(self.mounted.cursor_at(at_position)).ord()
+        cursor_shape(
+            self.mounted
+                .cursor_at(at_position, |tag| self.unset_cursor_of(tag)),
+        )
+        .ord()
     }
 
     /// Which accessibility element holds assistive focus while the root has key focus.
@@ -608,6 +618,20 @@ impl ReactUiRoot {
             Err(_) => serde_json::Value::Null,
         };
         json.to_string().as_str().into()
+    }
+
+    /// The document's text selection as JSON, or `null` for none: `{"anchor": {"tag", "offset"},
+    /// "focus": {"tag", "offset"}, "isCollapsed", "text"}`, offsets in UTF-16 code units (plan 3.17).
+    #[func]
+    fn get_selection(&mut self) -> GString {
+        self.selection_json().to_string().as_str().into()
+    }
+
+    /// Drop the document's text selection (queues `selectionchange` if there was one). Does not touch
+    /// Godot key focus: the owner may have asked for it.
+    #[func]
+    fn clear_selection(&mut self) {
+        self.clear_selection_command();
     }
 
     /// The root-local rectangle of a node as JSON, or `null` if no such node is mounted.

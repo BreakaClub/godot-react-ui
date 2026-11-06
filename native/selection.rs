@@ -12,9 +12,9 @@
 //!   mounted tree), each with its length in code points and whether `userSelect` lets it be selected.
 //!   Nodes with `userSelect: none` belong in the list, because a range that spans them has to skip
 //!   them. Build a `Document` when a gesture starts and rebuild it when the tree changes; it is a
-//!   snapshot, and [`Document::new`] rejects a repeated tag.
-//!   [`Document::selectable_start_after`] and [`Document::selectable_end_before`] snap a pointer that
-//!   is over a `userSelect: none` node (or between nodes) to the nearest selectable position.
+//!   snapshot, and [`Document::new`] rejects a repeated tag. [`Document::node`] and
+//!   [`Document::selectable_nodes`] read it back; a pointer that is not over selectable text is placed
+//!   by geometry (`selection_input::drag_target`), not by the document.
 //! - [`SelectionPoint`]: `(tag, offset)`. An endpoint must be in a selectable node and within its
 //!   length.
 //! - [`TextSelection`]: the model. Every mutator validates its arguments before changing anything,
@@ -162,6 +162,18 @@ impl Document {
         Ok(Self { nodes, positions })
     }
 
+    /// The node `tag` in the document, or `None` if the document does not list it.
+    pub(crate) fn node(&self, tag: u32) -> Option<&SelectableNode> {
+        self.positions
+            .get(&tag)
+            .map(|position| &self.nodes[*position])
+    }
+
+    /// The nodes a selection may start, end and extend in, in document order.
+    pub(crate) fn selectable_nodes(&self) -> impl Iterator<Item = &SelectableNode> {
+        self.nodes.iter().filter(|node| node.selectable)
+    }
+
     fn position(&self, tag: u32) -> Result<usize, SelectionError> {
         self.positions
             .get(&tag)
@@ -185,39 +197,6 @@ impl Document {
             });
         }
         Ok(position)
-    }
-
-    /// The start of the first selectable node after `tag` in document order, or `None` if there is
-    /// none. `tag` itself need not be selectable.
-    pub(crate) fn selectable_start_after(
-        &self,
-        tag: u32,
-    ) -> Result<Option<SelectionPoint>, SelectionError> {
-        let position = self.position(tag)?;
-        Ok(self.nodes[position + 1..]
-            .iter()
-            .find(|node| node.selectable)
-            .map(|node| SelectionPoint {
-                tag: node.tag,
-                offset: 0,
-            }))
-    }
-
-    /// The end of the last selectable node before `tag` in document order, or `None` if there is
-    /// none. `tag` itself need not be selectable.
-    pub(crate) fn selectable_end_before(
-        &self,
-        tag: u32,
-    ) -> Result<Option<SelectionPoint>, SelectionError> {
-        let position = self.position(tag)?;
-        Ok(self.nodes[..position]
-            .iter()
-            .rev()
-            .find(|node| node.selectable)
-            .map(|node| SelectionPoint {
-                tag: node.tag,
-                offset: node.len,
-            }))
     }
 
     /// The tags of the selectable nodes from `first` to `last` (document positions), inclusive.
@@ -591,6 +570,15 @@ mod tests {
             node(ALPHA, ALPHA_TEXT, true),
         ]);
         assert_eq!(result.unwrap_err(), SelectionError::DuplicateNode(ALPHA));
+    }
+
+    #[test]
+    fn a_document_answers_for_its_nodes_and_lists_the_selectable_ones_in_order() {
+        let document = document();
+        assert_eq!(document.node(BETA), Some(&node(BETA, BETA_TEXT, false)));
+        assert_eq!(document.node(UNKNOWN), None);
+        let selectable: Vec<u32> = document.selectable_nodes().map(|node| node.tag).collect();
+        assert_eq!(selectable, vec![ALPHA, GAMMA, DELTA]);
     }
 
     #[test]
@@ -1037,31 +1025,6 @@ mod tests {
         assert_eq!(
             selection.ranges(&gone),
             Err(SelectionError::UnknownNode(ALPHA))
-        );
-    }
-
-    #[test]
-    fn snapping_finds_the_nearest_selectable_position_around_a_node() {
-        let document = document();
-        assert_eq!(
-            document.selectable_start_after(BETA),
-            Ok(Some(at(GAMMA, 0)))
-        );
-        assert_eq!(document.selectable_end_before(BETA), Ok(Some(at(ALPHA, 9))));
-        // A selectable node snaps to its neighbours, not itself.
-        assert_eq!(
-            document.selectable_start_after(ALPHA),
-            Ok(Some(at(GAMMA, 0)))
-        );
-        assert_eq!(document.selectable_start_after(DELTA), Ok(None));
-        assert_eq!(document.selectable_end_before(ALPHA), Ok(None));
-        assert_eq!(
-            document.selectable_start_after(UNKNOWN),
-            Err(SelectionError::UnknownNode(UNKNOWN))
-        );
-        assert_eq!(
-            document.selectable_end_before(UNKNOWN),
-            Err(SelectionError::UnknownNode(UNKNOWN))
         );
     }
 

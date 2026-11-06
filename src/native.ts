@@ -61,6 +61,13 @@ export interface NativeHost {
   /** A scroll container's state as JSON (`NativeScrollState`), or `null` for anything else. */
   getScrollState(tag: number): string;
   /**
+   * The document's text selection as JSON (`NativeSelection`), or `null` when nothing is selected. Offsets are in
+   * UTF-16 code units, the unit JS counts string positions in.
+   */
+  getSelection(): string;
+  /** Drop the document's text selection. Native queues `selectionchange` if there was one. */
+  clearSelection(): void;
+  /**
    * Answer the one event native is awaiting (`cancelable: true`). An empty string means success.
    * `dropEffect` is '' (not set), 'none', 'copy', 'move' or 'link'.
    */
@@ -119,9 +126,10 @@ export type NativeScrollEventType = 'scroll';
 export type NativeFocusEventType = 'focus' | 'blur';
 export type NativeKeyEventType = 'keydown' | 'keyup';
 export type NativeAccessibilityEventType = 'accessibilityaction';
+export type NativeSelectionEventType = 'selectionchange';
 export type NativeEventType =
   | NativePointerEventType | NativeWheelEventType | NativeScrollEventType | NativeKeyEventType | NativeFocusEventType
-  | NativeAccessibilityEventType;
+  | NativeAccessibilityEventType | NativeSelectionEventType;
 
 /** '' is synthetic keyboard activation, as in browsers. */
 export type NativePointerType = 'mouse' | 'touch' | '';
@@ -228,8 +236,34 @@ export interface NativeScrollEvent extends NativeEventBase {
   clientHeight: number;
 }
 
+/**
+ * The document's text selection changed. Addressed to the root's listeners (target 0), not cancelable, and carries
+ * nothing: ask the root for `getSelection()`. Native coalesces the changes of one delivery into one event.
+ */
+export interface NativeSelectionChangeEvent extends NativeEventBase {
+  type: NativeSelectionEventType;
+}
+
 export type NativeEvent =
-  | NativePointerEvent | NativeWheelEvent | NativeScrollEvent | NativeKeyEvent | NativeFocusEvent | NativeAccessibilityActionEvent;
+  | NativePointerEvent | NativeWheelEvent | NativeScrollEvent | NativeKeyEvent | NativeFocusEvent | NativeAccessibilityActionEvent
+  | NativeSelectionChangeEvent;
+
+/** One end of the selection: a `Text` element and a UTF-16 offset into its text. */
+export interface NativeSelectionPoint {
+  tag: number;
+  offset: number;
+}
+
+/**
+ * The document's text selection (plan 3.17): where it started (`anchor`) and where it ends (`focus`, which may come
+ * before the anchor), and the text copying it would produce (the selected nodes' text joined by `\n`).
+ */
+export interface NativeSelection {
+  anchor: NativeSelectionPoint;
+  focus: NativeSelectionPoint;
+  isCollapsed: boolean;
+  text: string;
+}
 
 /**
  * A scroll container's position and range. The offsets of a reversed axis (`flex-col-reverse`) are zero or
@@ -393,7 +427,7 @@ function eventType(value: unknown): NativeEventType {
     case 'pointerdown': case 'pointerup': case 'pointermove': case 'pointerenter':
     case 'pointerleave': case 'pointercancel': case 'click': case 'dblclick': case 'auxclick':
     case 'contextmenu': case 'wheel': case 'scroll': case 'keydown': case 'keyup': case 'focus': case 'blur':
-    case 'accessibilityaction':
+    case 'accessibilityaction': case 'selectionchange':
       return value;
     default:
       throw new Error(`Invalid native event type: ${String(value)}`);
@@ -508,6 +542,8 @@ function nativeEvent(entry: unknown): NativeEvent {
         ...base, type, action: accessibilityAction(event.action),
         value: event.value === null ? null : number(event.value, 'event.value'),
       };
+    case 'selectionchange':
+      return { ...base, type };
   }
 }
 
@@ -722,6 +758,24 @@ export function checkScroll(error: string, method: string): void {
 export function readScrollState(host: NativeHost, tag: number): NativeScrollState | undefined {
   const value: unknown = JSON.parse(host.getScrollState(tag));
   return value === null ? undefined : scrollState(value, 'scroll state');
+}
+
+function selectionPoint(value: unknown, label: string): NativeSelectionPoint {
+  const point = record(value, label);
+  return { tag: id(point.tag, `${label}.tag`), offset: nonnegativeInteger(point.offset, `${label}.offset`) };
+}
+
+/** The document's text selection, or `undefined` when nothing is selected. */
+export function readSelection(host: NativeHost): NativeSelection | undefined {
+  const value: unknown = JSON.parse(host.getSelection());
+  if (value === null) return undefined;
+  const selection = record(value, 'selection');
+  return {
+    anchor: selectionPoint(selection.anchor, 'selection.anchor'),
+    focus: selectionPoint(selection.focus, 'selection.focus'),
+    isCollapsed: boolean(selection.isCollapsed, 'selection.isCollapsed'),
+    text: string(selection.text, 'selection.text'),
+  };
 }
 
 /** The tags the commit that just succeeded deleted. */
