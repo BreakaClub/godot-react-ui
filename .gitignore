@@ -5,3 +5,4 @@ demo/.godot/
 demo/addons/godot-react-ui/bin/
 artifacts/
 .DS_Store
+demo/gen/godot/addons/godot-react-ui/bin/

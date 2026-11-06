@@ -2008,3 +2008,15 @@ Built on the `freshness` branch; decisions F1 to F10 are in `docs/tracks/freshne
 - **Coordinator's check after rebasing onto `2f6d368` (I9):** `pnpm test` 343 passed, `test:types` clean on both profiles, both libraries rebuilt.
 - **Not verified end to end:** the Web guard, because no Web build was run. The next Web gate exercises it.
 - **After this merge:** each checkout needs one `pnpm build:native`, and `pnpm build:web` where it exports, because older stamps have no digest and are refused once.
+
+## Phase I7: TextInput, TextField, accessibility and world-space typing (`539e787`, D44)
+
+Built on the `text-input` branch, rebased by its own agent onto `6c6abd7` (I9, stock engine, freshness guard, HiDPI for plain text). The full report, decisions T1 to T27 and negative controls are in `docs/tracks/text-input.md`.
+
+- **Agent's gates after that rebase:** `cargo test` 541 passed, Clippy clean, fmt clean, `test:types` clean on both profiles, `pnpm test` 370 passed, `verify:interaction` (ten sections, both viewports), `verify`, `verify:world`, `verify:motion`, stock `verify:interaction --only=forms`, stock `verify:a11y`, and `verify:interaction:web` (1100 assertions, 121 captures). The first landscape interaction attempt failed in the drag section after six window focus losses and passed on its D22 re-run; another agent's windows were running at the time. That failure was not diagnosed further, so the batch regression should watch that section.
+- **Real accessibility tree, first reading:** matches stock `LineEdit` and `TextEdit` on role, attributes and settable attributes. One defect found and fixed: each line break in a text area was counted twice (13 characters for 12). Gaps, each shown by the stock control: a text area has no `AXValue`, and read-only is not conveyed.
+- **Freshness guard, Web path:** accepted a genuine export end to end, and refused a one-byte source change before any browser opened.
+- **Inspected by the coordinator:** `forms-12-text-area-scrolled.png`: fields, bullets, placeholder, caret, multi-line scroll and the JSON readout look right.
+- **Not verified:** native IME by hand, VoiceOver by hand, platform focus, and the text actions through the real adapter. Not re-run: stock Web and `verify-world-web` after the rebase; they wait for the batch regression.
+
+**Tooling nuisances to resolve:** running Godot's type generation rewrites the indentation of `demo/src/main.ts` (whitespace only, cause not yet found; it must not be committed), and generates `demo/gen/godot/addons/godot-react-ui/bin/react_ui.build.json.gen.ts` for the freshness stamp, now ignored.

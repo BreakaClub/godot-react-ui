@@ -8,8 +8,9 @@ D19); decision D20 sets the verification tiers; decisions D21 and D22 isolate th
 (Task 0). Phase I4 (`5018fee`; decisions D23 to D26). Parallel tracks on main (D27): text engine, scroll and drag core,
 world-space part 1, kit part 1; kit approach D28; test-input rules D29. Phase I5 (`5858a54`; scroll containers, decisions D30 to
 D37) with scroll accessibility (D38) and the scrolling Select list (D39). Phase I6 (`1071e8d`; D41). The stock engine profile (`64e674c`;
-D42). Phase I9 (`400bea3`; D43). Still open from I10: `TextInput` (I7) and scroll bar elements (D42). In parallel tracks now: Phase I7
-with the kit `TextField`, Phase V1 (filters and frosted glass, D40), and a freshness guard for installed builds.
+D42). Phase I9 (`400bea3`; D43). The freshness guard (`941334b`). Phase I7 with the kit `TextField`, `TextInput` accessibility and
+world-space typing, which finishes I8, I10's `TextInput` part and I11 (`539e787`; D44). Still open from I10: scroll bar elements (D42). In
+parallel tracks now: Phase V1 (filters and frosted glass, D40), HiDPI hardening, scroll bar elements, and an independent code review.
 
 v1 of this plan (`7f0a96c`) was rejected because it built every interaction feature on the
 prototype's commit path, which re-walks and re-sends the whole tree on every change. v2 replaces
@@ -455,6 +456,16 @@ not a reason to wait.
   through `input()`, enabled only during a drag, because the root usually has no key focus then (I9-4); the ghost is a copy tree taken
   before `dragstart` handlers run (I9-6); a prevented `dragover` or `drop` with no `dropEffect` is rejected in `resolve_event` (I9-8); text
   inside a draggable starts no selection, and a press there that never becomes a drag clicks and clears the current selection (I9-15).
+- **D44 (I7)**: `TextInput`. Decisions T1 to T27 are in `docs/tracks/text-input.md`, which is part of this log. Those that change plan text or
+  bind later work: one `selectionchange` wire name with two shapes, told apart by target 0 (T1); key actions match across devices in
+  the product, so a verifier's own device reaches them (T3); the engine's IME start drops the last queued raw key (T7); a triple click
+  selects all of a text area, `LineEdit`'s rule, not a line (T14); no `aria-labelledby` or `aria-describedby`, because native rejects
+  unknown props, so `TextField` sets `aria-label` and `aria-description` (T15); a `TextInput` is always a text field, its `role` can only
+  remove it from the tree, and its text is line elements, as `LineEdit` and `TextEdit` do (T17, T18); a text input keeps its press inside
+  any draggable (T23); the ghost shows its text and no caret (T24); its own press runs only when no thumb was grabbed (T25). Web paste:
+  `clipboard_get()` on Web returns what the previous call read and the engine prevents every keydown, so no `paste` event fires; the root
+  reads `navigator.clipboard.readText()` through `JavaScriptBridge` and pastes when the browser answers. The engine is unchanged, so
+  anything else calling `clipboard_get` on Web is still stale. Known limit: the IME window is misplaced for a root on a world-space quad.
 
 The plan is written so an implementer can execute it phase by phase without re-deciding the
 architecture. Where it says **must**, it is a contract. Where it says *suggested*, use judgement and
@@ -1735,7 +1746,7 @@ mid-gesture (D33); the verifiers' geometry checks treated what a scroll containe
 
 **Gate**: native gate (including `verify:motion` if it touches the layout or style code 0.4.1 names); Web gate only if the phase changed Web-specific behaviour.
 
-### Phase I7 — TextInput
+### Phase I7 — TextInput — done (`539e787`, decision D44)
 
 Four commits (I7A–I7D), each with its own native gate; the Web gate after I7D (IME and the virtual keyboard
 are Web-specific), and after I7B if it changed Web-relevant code.
