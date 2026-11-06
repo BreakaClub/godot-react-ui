@@ -139,7 +139,14 @@ async function measureEdge(owner: Node, api: FiltersInspection, props: FiltersLa
   const span = Math.min(Math.ceil(4 * plan.achievedPx + 40), Math.floor(half - 6), props.target === 'filter' ? Math.floor(half - 3 * plan.achievedPx) : Infinity);
   // A 10 to 90 width needs the profile to reach a standard deviation and a quarter on each side.
   if (span < 1.5 * plan.achievedPx) return undefined;
-  const profile = row(image, y, centre - span, centre + span);
+  let profile = row(image, y, centre - span, centre + span);
+  if (props.target === 'filter') {
+    // The panel's own top and bottom fade its blurred content into the page by a constant fraction along this row, which is
+    // a gain and an offset on the edge: the two plateaus at the ends give them back.
+    const low = profile[0] ?? 0;
+    const high = profile[profile.length - 1] ?? 1;
+    profile = normalise(profile, low, high);
+  }
   let worst = 0;
   let worstAt = 0;
   profile.forEach((value, index) => {
@@ -321,35 +328,37 @@ function window(owner: Node): Window {
 
 // ---- Shape: rounded corners, translucent fill and border over the blur ---------------------------------------------------
 
-async function verifyShape(owner: Node, api: FiltersInspection, capture: FiltersCapture): Promise<void> {
+async function verifyShape(owner: Node, api: FiltersInspection, capture: FiltersCapture, label = 'filters-shape'): Promise<void> {
   api.showFilters({ scene: 'edge', target: 'backdrop', radius: 8, shape: true });
   await settleFrames();
   const image = grab(owner);
+  const ratio = pixelRatio(image, api);
   const { rect } = node(api, 'panel');
   const left = rect.x;
   const top = rect.y;
   const right = rect.x + rect.width;
   const bottom = rect.y + rect.height;
-  // Just outside each rounded corner, inside its bounding box: the stripes, untouched. Eleven pixels from the corner point
-  // along the diagonal is twelve pixels beyond a 32 px arc, the panel's own AA is not near it.
+  /** The red channel at a point given in CSS pixels. */
+  const at = (x: number, y: number): number => channelAt(image, x * ratio, y * ratio);
+  // Just outside each rounded corner, inside its bounding box: the stripes, untouched. A point one CSS pixel in from the corner
+  // along the diagonal is twelve pixels beyond a 32 px arc.
   for (const [x, y] of [[left + 1, top + 1], [right - 2, top + 1], [left + 1, bottom - 2], [right - 2, bottom - 2]] as const) {
-    assert(near(channelAt(image, x, y), stripe(x), 0.02),
-      `Pixel (${x},${y}) is outside the rounded corner, so it is the stripe ${stripe(x)}: ${channelAt(image, x, y)}`);
+    assert(near(at(x, y), stripe(x), 0.02), `Pixel (${x},${y}) is outside the rounded corner, so it is the stripe ${stripe(x)}: ${at(x, y)}`);
   }
   // Inside the arc, and everywhere in the body: the stripes are blurred to grey and the translucent white (20 %) is over it.
-  const inside = (x: number, y: number): number => channelAt(image, x, y);
   for (const [x, y] of [[left + SHAPE_RADIUS + 4, top + SHAPE_RADIUS + 4], [rect.x + rect.width / 2, rect.y + rect.height / 2], [right - SHAPE_RADIUS - 5, bottom - SHAPE_RADIUS - 5]] as const) {
-    assert(near(inside(x, y), 0.6, 0.05), `Pixel (${x},${y}) is the blurred stripes (0.5) under 20% white (0.6): ${inside(x, y)}`);
+    assert(near(at(x, y), 0.6, 0.05), `Pixel (${x},${y}) is the blurred stripes (0.5) under 20% white (0.6): ${at(x, y)}`);
   }
-  const body = columnProfile(image, left + 200, top + 40, top + 40 + 4 * STRIPE_PX * 2).concat(rowProfile(image, top + 100, left + 100, left + 100 + 4 * STRIPE_PX * 2));
+  const body = columnProfile(image, (left + 100) * ratio, (top + 40) * ratio, (top + 40 + 4 * STRIPE_PX * 2) * ratio)
+    .concat(rowProfile(image, (top + 100) * ratio, (left + 100) * ratio, (left + 100 + 4 * STRIPE_PX * 2) * ratio));
   assert(Math.max(...body) - Math.min(...body) < 0.03, 'The stripes do not show through the panel: they are blurred away');
   // The border is drawn over the blur.
-  const border = image.getPixel(Math.floor(left + 1), Math.floor(top + 150));
+  const border = image.getPixel(Math.floor((left + 0.5) * ratio), Math.floor((top + 90) * ratio));
   assert(border.r > 0.8 && border.g < 0.25 && border.b < 0.25, `The 2 px border is red over the panel: ${border.toHtml(false)}`);
   // Along a straight side: the stripe above the panel is pure, the pixel just inside is blurred.
-  assert(near(channelAt(image, left + 100, top - 1), stripe(left + 100), 0.02), 'The pixel above the top side is untouched');
-  assert(near(inside(left + 100, top + 3), 0.6, 0.05), 'The pixel just inside the top side is blurred');
-  await capture('filters-shape');
+  assert(near(at(left + 100, top - 1), stripe(left + 100), 0.02), 'The pixel above the top side is untouched');
+  assert(near(at(left + 100, top + 3), 0.6, 0.05), 'The pixel just inside the top side is blurred');
+  await capture(label);
 }
 
 // ---- Stacked panels: the second sees the first, blurred, not stale levels ------------------------------------------------
@@ -518,7 +527,7 @@ async function verifyLiveUpdates(owner: Node, api: FiltersInspection, capture: F
 }
 
 /** The root itself moving, scaling, and the window's own content scale (device pixel ratio two). */
-async function verifyRootTransforms(owner: Node, api: FiltersInspection): Promise<void> {
+async function verifyRootTransforms(owner: Node, api: FiltersInspection, capture: FiltersCapture): Promise<void> {
   const radius = 8;
   const measureAt = async (label: string, expectSigma: (ratio: number) => number, centreFor: (ratio: number, width: number) => number, rowFor: (ratio: number) => number): Promise<void> => {
     api.showFilters({ scene: 'edge', target: 'backdrop', radius });
@@ -546,7 +555,7 @@ async function verifyRootTransforms(owner: Node, api: FiltersInspection): Promis
   const dpr2 = grab(owner);
   assert(dpr2.getWidth() / api.snapshot().width === 2, 'The render is at device pixel ratio two');
   for (const target of ['backdrop', 'filter'] as const) {
-    for (const asked of [4, 12, 40]) {
+    for (const asked of [2, 4, 8, 12, 16, 24, 40]) {
       const measured = await measureEdge(owner, api, { scene: 'edge', target, radius: asked });
       if (measured === undefined) {
         // The window is 300 logical pixels wide here: a 40 px blur at twice the scale has no room for an edge profile.
@@ -555,7 +564,10 @@ async function verifyRootTransforms(owner: Node, api: FiltersInspection): Promis
       }
       checkEdge(`${target} blur ${asked}px at device pixel ratio two`, asked * 2, measured);
     }
+    await measureEdge(owner, api, { scene: 'edge', target, radius: 12 });
+    await capture(`filters-dpr2-edge-${target}`);
   }
+  await verifyShape(owner, api, capture, 'filters-dpr2-shape');
   win.contentScaleFactor = 1;
   await frames(4);
 }
@@ -795,24 +807,26 @@ async function verifySubtree(owner: Node, api: FiltersInspection, capture: Filte
 }
 
 async function verifyDropShadow(owner: Node, api: FiltersInspection, capture: FiltersCapture): Promise<void> {
-  const values = ['drop-shadow(6px 6px 0px #000000)', 'drop-shadow(0px 0px 8px #000000)', 'blur(2px) drop-shadow(6px 0px 4px #ff0000) invert(0)'];
+  // The hard shadow's cell is last, so nothing's halo is in the way of its probes.
+  const values = ['drop-shadow(0px 0px 8px #000000)', 'blur(2px) drop-shadow(6px 0px 4px #ff0000) invert(0)', 'drop-shadow(6px 6px 0px #000000)'];
   api.showFilters({ scene: 'colour', target: 'filter', values });
   await settleFrames();
   const image = grab(owner);
   const ratio = pixelRatio(image, api);
-  const hard = node(api, 'colour-0').rect;
+  await capture('filters-drop-shadow');
+  const hard = node(api, 'colour-2').rect;
   const rightOfCard = channelAt(image, (hard.x + hard.width + 3) * ratio, (hard.y + 20) * ratio);
   assert(near(rightOfCard, 0, 0.02), `A hard drop-shadow(6px 6px) is black 3px right of the card: ${rightOfCard.toFixed(3)}`);
-  assert(near(channelAt(image, (hard.x + hard.width + 9) * ratio, (hard.y + 20) * ratio), PAGE_GREY[0], 0.01), 'and ends 6px from it');
+  const past = channelAt(image, (hard.x + hard.width + 9) * ratio, (hard.y + 20) * ratio);
+  assert(near(past, PAGE_GREY[0], 0.01), `and ends 6px from it: ${past.toFixed(3)} against ${PAGE_GREY[0].toFixed(3)} at ${hard.x + hard.width + 9},${hard.y + 20}`);
   assert(near(channelAt(image, (hard.x + 20) * ratio, (hard.y + hard.height + 3) * ratio), 0, 0.02), 'Below the card too');
   assert(near(channelAt(image, (hard.x + 20) * ratio, (hard.y - 3) * ratio), PAGE_GREY[0], 0.01), 'and not above it');
-  const soft = node(api, 'colour-1').rect;
+  const soft = node(api, 'colour-0').rect;
   const soft3 = channelAt(image, (soft.x - 3) * ratio, (soft.y + 28) * ratio);
   assert(soft3 < PAGE_GREY[0] - 0.1 && soft3 > 0.02, `A blurred shadow is a soft dark halo around the card: ${soft3.toFixed(3)}`);
-  const red = node(api, 'colour-2').rect;
+  const red = node(api, 'colour-1').rect;
   const redShadow = image.getPixel(Math.floor((red.x + red.width + 5) * ratio), Math.floor((red.y + 28) * ratio));
   assert(redShadow.r > PAGE_GREY[0] + 0.05 && redShadow.g < PAGE_GREY[1] - 0.02, `A red shadow after a blur reddens the page beside the card: ${redShadow.toHtml(false)}`);
-  await capture('filters-drop-shadow');
 }
 
 // ---- A filter inside a filter, and a backdrop inside one, cannot be drawn: one error each -------------------------------
@@ -880,7 +894,7 @@ export async function verifyFilters(owner: Node, api: FiltersInspection, capture
   await verifyStacking(owner, api, capture);
   await verifyUnderneath(owner, api, capture);
   await verifyLiveUpdates(owner, api, capture);
-  await verifyRootTransforms(owner, api);
+  await verifyRootTransforms(owner, api, capture);
   await verifyNativeState(owner, api, capture);
   await verifyTransitions(owner, api);
   await verifySubtree(owner, api, capture);

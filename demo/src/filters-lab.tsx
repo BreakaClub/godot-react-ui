@@ -31,10 +31,10 @@ export interface FiltersLabProps {
   offset?: number;
 }
 
-/** The lab's panel: left and right 40 px of the window are left uncovered, and it is 300 px tall. */
+/** The lab's panel: left and right 40 px of the window are left uncovered, and it is 180 px tall, so it fits a 400 px window (device pixel ratio two). */
 export const PANEL_INSET = 40;
-export const PANEL_TOP = 200;
-export const PANEL_HEIGHT = 300;
+export const PANEL_TOP = 100;
+export const PANEL_HEIGHT = 180;
 /** The corner radius the shape variant uses. */
 export const SHAPE_RADIUS = 32;
 /** Width of one stripe in the stripes fixture. */
@@ -70,7 +70,7 @@ function Stripes() {
   );
 }
 
-const PANEL_CLASS = 'absolute left-[40px] right-[40px] top-[200px] h-[300px]';
+const PANEL_CLASS = 'absolute left-[40px] right-[40px] top-[100px] h-[180px]';
 
 function EdgeScene({ radius = 8, target = 'backdrop', shape = false }: FiltersLabProps) {
   const filter = `blur(${radius}px)`;
@@ -80,7 +80,7 @@ function EdgeScene({ radius = 8, target = 'backdrop', shape = false }: FiltersLa
     // the page behind it is flat mid-grey.
     return (
       <View className="absolute inset-0 bg-slate-500">
-        <View testID="panel" className="absolute left-0 right-0 top-[200px] h-[300px] flex-row" style={{ filter }}>
+        <View testID="panel" className="absolute left-0 right-0 top-[100px] h-[180px] flex-row" style={{ filter }}>
           <View className="flex-1 bg-black" />
           <View className="flex-1 bg-white" />
         </View>
@@ -222,11 +222,11 @@ function ColourScene({ values = [], target = 'filter' }: FiltersLabProps) {
   );
 }
 
-/** A transparent root over whatever Godot draws behind it, with a frosted panel across the middle. */
+/** A transparent root over whatever Godot draws behind it, with a frosted panel across the middle third of the window (where the 3D box is). */
 function GodotScene({ radius = 12 }: FiltersLabProps) {
   return (
     <View className="absolute inset-0">
-      <View testID="panel" className={PANEL_CLASS} style={{ backdropFilter: `blur(${radius}px)` }} />
+      <View testID="panel" className="absolute left-[40px] right-[40px] top-1/3 h-1/3" style={{ backdropFilter: `blur(${radius}px)` }} />
     </View>
   );
 }
