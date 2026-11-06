@@ -1,5 +1,10 @@
 export { View, Text, Button, Portal } from './components';
 export type { UIProps, UIHandle } from './components';
+export { Checkbox, RadioGroup, Slider, Switch } from './kit';
+export type {
+  CheckboxProps, CheckedState, PartProps, RadioGroupItemProps, RadioGroupRootProps, RadioOrientation, SliderOrientation,
+  SliderRangeProps, SliderRootProps, SliderThumbProps, SliderTrackProps, SwitchProps,
+} from './kit';
 export { EventPhase } from './events';
 export type {
   EventPhaseValue, UIAnyEvent, UIEvent, UIEventMap, UIFocusEvent, UIKeyboardEvent, UIMouseFields, UIPointerEvent, UISyntheticEvent,
@@ -11,7 +16,7 @@ export type { UIRoot as ReactRoot } from './renderer';
 export { StyleSheet, compileStyle } from './styles';
 export type {
   CompiledStyle, Cursor, LonghandStyle, PointerEvents, PseudoState, Style, StyleLayer, StyleProp, Transition,
-  TransitionProperty,
+  TransitionProperty, UIAriaProps, UIRole,
 } from './types';
 export type { RendererProfile, ProfileSample } from './profile';
 export { readActivity, takeNativeProfile } from './native';

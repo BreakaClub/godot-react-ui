@@ -93,3 +93,41 @@ export interface StyleLayer {
 export interface CompiledStyle {
   readonly layers: readonly StyleLayer[];
 }
+
+/**
+ * The `role` values the accessibility tree understands (plan Appendix D). `Button`, `TextInput` and
+ * `Text` have implicit roles. JavaScript-only until Phase I10 sends it to native.
+ */
+export type UIRole =
+  | 'button' | 'checkbox' | 'switch' | 'radio' | 'radiogroup' | 'group' | 'slider' | 'progressbar'
+  | 'textbox' | 'text' | 'link' | 'list' | 'listitem' | 'listbox' | 'option' | 'combobox'
+  | 'menu' | 'menuitem' | 'menuitemcheckbox' | 'menuitemradio' | 'tablist' | 'tab' | 'tabpanel'
+  | 'dialog' | 'img' | 'region' | 'tooltip' | 'none' | 'presentation';
+
+/**
+ * `role` and the `aria-*` props of plan section 4.2, plus `aria-orientation` (which section 4.2 has
+ * no native field for yet). They are JavaScript-only: `nativeProps` drops them and native's
+ * `PropsSpec` rejects unknown keys, so they stay out of `NATIVE_PROP_KEYS` until Phase I10 adds the
+ * native fields and maps them.
+ */
+export interface UIAriaProps {
+  role?: UIRole;
+  'aria-label'?: string;
+  'aria-description'?: string;
+  'aria-valuetext'?: string;
+  'aria-placeholder'?: string;
+  'aria-hidden'?: boolean;
+  'aria-disabled'?: boolean;
+  'aria-expanded'?: boolean;
+  'aria-selected'?: boolean;
+  'aria-readonly'?: boolean;
+  'aria-required'?: boolean;
+  'aria-modal'?: boolean;
+  /** `'mixed'` is the third state of a checkbox. */
+  'aria-checked'?: boolean | 'mixed';
+  'aria-valuemin'?: number;
+  'aria-valuemax'?: number;
+  'aria-valuenow'?: number;
+  'aria-live'?: 'off' | 'polite' | 'assertive';
+  'aria-orientation'?: 'horizontal' | 'vertical';
+}

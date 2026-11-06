@@ -2,7 +2,7 @@ import { Children, createElement, forwardRef, useContext, type ReactNode } from 
 import type { UIFocusEvent, UIKeyboardEvent, UIPointerEvent, UIWheelEvent } from './events';
 import type { LayoutRect } from './native';
 import { createOverlayPortal, OverlayContext } from './renderer';
-import type { StyleProp } from './types';
+import type { StyleProp, UIAriaProps } from './types';
 
 export interface UIHandle {
   readonly id: number;
@@ -30,7 +30,7 @@ export interface UIHandle {
   blur(): void;
 }
 
-export interface UIProps {
+export interface UIProps extends UIAriaProps {
   children?: ReactNode;
   className?: string;
   style?: StyleProp;
