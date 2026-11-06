@@ -80,8 +80,8 @@ S5. **Typings are per profile; the tracked ones stay Breaka's.** `demo/typings` 
 and are what `pnpm test:types` checks by default. The stock editor writes different ones, so committing them would break the
 default profile, and committing both would be about 12 MB of generated text (5.9 MB each) for files nobody edits. What differs (diff of a stock generation against the tracked set):
 `jsb.release`, `GodotJS.setScriptHotReload` and `replaceModuleSource` exist only in Breaka's GodotJS (the project uses none of
-them); 1,101 classes are declared against 1,067, the 34 extra being Breaka's engine's (`GodotJSObjectDBSnapshot`, `Line3D`,
-`Trail3D`, the `Physics*Result*` classes, ...) with `TextServerFallback` the only class stock has alone; the scene wrappers in
+them); 1,101 classes are declared against 1,067: 35 are Breaka's engine's alone (`GodotJSObjectDBSnapshot`, `Line3D`, `Trail3D`,
+the `Physics*Result*` classes, ...) and `TextServerFallback` is the only one stock has alone; the scene wrappers in
 `gen/` map `res://src/main.ts` to `Script` in stock and to `Main` in Breaka's; the stock `godot.annotations` declares a
 syntactically invalid `export function export(...)` (a reserved word), after which `tsc` reports two syntax errors and skips
 every semantic diagnostic; and the stock files use CRLF line endings. So `stock`:
