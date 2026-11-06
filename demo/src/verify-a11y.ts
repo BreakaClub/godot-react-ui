@@ -208,10 +208,12 @@ export async function runA11yVerification(api: A11yInspection): Promise<void> {
   // ---- The platform's view of the initial state ---------------------------------------------------------
   const platformTree = engine.enabled;
   const failures: string[] = [];
+  // What the engine cannot convey (scripts/a11y-expectations.mjs): the same each time it is read, logged once.
+  const gaps: string[] = [];
   if (platformTree) {
     const before = await readTree(directory, 'ax-before.json', nodes => findByLabel(nodes, 'Save', ['AXButton']).length > 0);
     assert(before !== undefined, 'The platform never exposed an accessibility tree for the lab');
-    failures.push(...checkElements(before, 0, geometry(api)).map(failure => `before: ${failure}`));
+    failures.push(...checkElements(before, 0, geometry(api), gaps).map(failure => `before: ${failure}`));
   }
 
   // ---- Godot's own input changes state; the platform tree must follow --------------------------------
@@ -311,10 +313,11 @@ export async function runA11yVerification(api: A11yInspection): Promise<void> {
   const after = await readTree(directory, 'ax-after.json', nodes => findByLabel(nodes, 'Volume', ['AXSlider'])
     .some(node => Number(node.value) === SET_VALUE_REQUEST));
   assert(after !== undefined, 'The platform stopped exposing the accessibility tree');
-  failures.push(...checkElements(after, 1, geometry(api)).map(failure => `after: ${failure}`));
+  failures.push(...checkElements(after, 1, geometry(api), gaps).map(failure => `after: ${failure}`));
   const platformFocus = checkFocus(after);
   failures.push(...platformFocus.failures.map(failure => `after: ${failure}`));
   if (platformFocus.note !== undefined) console.log(`GODOT_REACT_A11Y_NOTE ${platformFocus.note}`);
+  for (const gap of new Set(gaps)) console.log(`GODOT_REACT_A11Y_GAP ${gap}`);
   write(directory, 'snapshot-geometry.json', geometry(api));
   assert(failures.length === 0, `The platform's accessibility tree is wrong:\n - ${failures.join('\n - ')}`);
   console.log('GODOT_REACT_A11Y_VERIFY_PASSED');

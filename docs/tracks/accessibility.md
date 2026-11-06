@@ -4,6 +4,11 @@ Branch `accessibility`, rebased onto main `a98df16` (positioning, the shared ver
 `docs/INTERACTION_PROGRESS.md` are not edited here. This is plan I10 tasks 1 and 2 plus the verification of task 4,
 for everything except `TextInput` (I7); scroll containers (I5) were added on the `scroll` branch (D38).
 
+**Update (stock-engine track, 6 November 2026): the platform tree has since been read, on a stock Godot 4.7.2 built with
+AccessKit, and `verify:a11y` passes against it (`docs/tracks/stock-engine.md`, S7 to S9). The two expectations that failed
+were the group "Size" and the mixed checkbox, which this engine cannot convey; the lab's verifier also stopped making its
+window unfocusable, which empties the tree. The paragraph below is the state before that.**
+
 **Headline: the platform's accessibility tree could not be read, because no engine that can run this project has an
 accessibility driver.** `/Applications/Godot48.app` (27 Oct) was built without AccessKit:
 `AccessibilityServer.is_supported()` is false, `DisplayServer.has_feature(FEATURE_ACCESSIBILITY_SCREEN_READER)` is false,

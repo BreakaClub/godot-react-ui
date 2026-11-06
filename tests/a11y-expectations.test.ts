@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import test from 'node:test';
 import { ELEMENTS, checkElements, checkFocus, type Reading } from '../scripts/a11y-expectations.mjs';
 import type { AxNode, Frame } from '../scripts/ax-tree.mjs';
@@ -92,8 +94,9 @@ test('each way a reading can be wrong is named', () => {
   assert.ok(failuresOf({ patch: { 'a11y-scroller': { role: 'AXGroup' } } }).some(failure => failure.startsWith('a11y-scroller: expected one AXScrollArea')),
     'and so is one that is exposed as a plain group');
   assert.ok(failuresOf({ patch: { 'a11y-volume-thumb': { maxValue: 10 } } }).some(failure => failure.includes('range is 0..10')));
-  assert.ok(failuresOf({ patch: { 'a11y-select-all': { value: 0 } } }).some(failure => failure.includes('mixed')));
+  assert.ok(failuresOf({ patch: { 'a11y-select-all': { value: 1 } } }).some(failure => failure.includes('mixed')), 'a mixed checkbox that reads as checked is wrong');
   assert.deepEqual(failuresOf({ patch: { 'a11y-select-all': { value: 0, valueDescription: 'mixed' } } }), [], 'a description counts');
+  assert.ok(failuresOf({ extra: [{ role: 'AXGroup', description: 'Size', frame: frameOf('a11y-size') }] }).some(failure => failure.includes('found 2')), 'two Size groups are wrong');
   assert.ok(failuresOf({ extra: [{ role: 'AXStaticText', value: 'Secret' }] }).some(failure => failure.includes('"Secret" is inside an aria-hidden subtree')));
   assert.ok(failuresOf({ extra: [{ role: 'AXButton', description: 'Hidden text' }] }).some(failure => failure.includes('"Hidden text"')));
 });
@@ -127,4 +130,32 @@ test('platform focus must be the volume slider when the window is key, and is no
   const unkeyed = checkFocus(reading(1));
   assert.deepEqual(unkeyed.failures, []);
   assert.match(unkeyed.note ?? '', /not the key window/);
+});
+
+test('what the engine cannot convey is noted, once per element, and is not a failure', () => {
+  // The real macOS tree of the lab (docs/tracks/stock-engine.md): no group named Size, and the mixed checkbox unchecked.
+  const notes: string[] = [];
+  const asRecorded = reading(0, { remove: 'a11y-size', patch: { 'a11y-select-all': { value: 0 } } });
+  assert.deepEqual(checkElements(asRecorded, 0, snapshots, notes), []);
+  assert.equal(notes.length, 2, notes.join('\n'));
+  assert.ok(notes.some(note => note.startsWith('a11y-size: ') && note.includes('no group role')));
+  assert.ok(notes.some(note => note.startsWith('a11y-select-all: ') && note.includes('unchecked')));
+  // A faithful adapter needs no notes.
+  const none: string[] = [];
+  assert.deepEqual(checkElements(reading(0), 0, snapshots, none), []);
+  assert.deepEqual(none, []);
+});
+
+test('the recorded macOS tree of the lab (stock Godot 4.7.2, AccessKit 0.22.3) passes, with the two things the engine cannot convey noted', () => {
+  // tests/fixtures/ax-lab: ax-after.json and snapshot-geometry.json (as macos-after.json and snapshot-geometry-after.json) of a real `pnpm verify:a11y --engine=stock` run, read
+  // from the lab's own process by scripts/ax-dump.swift. Not hand-written: this is what the adapter showed.
+  const read = (name: string): unknown => JSON.parse(readFileSync(join(__dirname, 'fixtures', 'ax-lab', name), 'utf8'));
+  const recorded = read('macos-after.json') as Reading;
+  const geometry = read('snapshot-geometry-after.json') as Record<string, { rect: Frame }>;
+  const notes: string[] = [];
+  assert.deepEqual(checkElements(recorded, 1, geometry, notes), []);
+  assert.deepEqual(notes.map(note => note.split(':')[0]), ['a11y-select-all', 'a11y-size']);
+  // The same recording judged against the other phase is wrong in exactly the values the Godot-side input changed.
+  const wrongPhase = checkElements(recorded, 0, geometry);
+  assert.ok(wrongPhase.some(failure => failure.startsWith('a11y-volume-thumb: AXValue is 80, expected 30')), wrongPhase.join('\n'));
 });

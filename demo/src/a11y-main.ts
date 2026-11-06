@@ -28,7 +28,8 @@ export default class A11yMain extends Node {
     if (injectsOwnInput(userArgs)) {
       const window = this.getWindow();
       if (!window) throw new Error('A verifier run requires its owning Window');
-      this.isolation = VerifierInputIsolation.begin(window);
+      // The window stays focusable: the flags that make it unfocusable also leave the platform tree empty.
+      this.isolation = VerifierInputIsolation.begin(window, { restrictWindow: false });
     }
     this.mount();
     const api = {

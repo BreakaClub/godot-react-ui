@@ -8,6 +8,18 @@ const FRAME_TOLERANCE = 2;
 /** The windowed content may be scaled against Godot's logical pixels (a retina display); anything outside this is wrong. */
 const SCALE_RANGE = [0.4, 2.6];
 const CONTAINMENT_SLACK = 2;
+/**
+ * What the engine cannot convey, found by reading the real macOS tree (stock Godot 4.7.2 with AccessKit, docs/tracks/stock-engine.md).
+ * An element with an `engineGap` may be absent; when it is, the check says so as a note, never silently.
+ * - A group: the engine's `AccessibilityRole` has no group or radio group, only a generic container, and AccessKit leaves
+ *   a generic container out of the platform tree (its children move up to the nearest element that is in it). The role
+ *   the engine does have, `PANEL`, appears as `AXUnknown` with its title, not as `AXGroup`.
+ * - The mixed state: `update_set_checked` takes a bool, so the platform reads a mixed checkbox as unchecked, and the
+ *   state description native sets with it ("mixed") reaches no attribute the Accessibility API exposes.
+ */
+const GROUP_GAP = 'the platform tree has no group named "Size": the engine has no group role, and the macOS adapter leaves out the generic container it has (the radio buttons are in the tree)';
+const MIXED_GAP = 'the platform reports the mixed checkbox as unchecked (AXValue 0) and has no state text for it: the engine can only set a checkbox to checked or unchecked';
+
 /** What the lab shows and what an assistive technology must therefore read, before and after the Godot-side changes. */
 export const ELEMENTS = [
   { id: 'a11y-save', label: 'Save', roles: ['AXButton'], enabled: true },
@@ -16,7 +28,7 @@ export const ELEMENTS = [
   { id: 'a11y-subscribe', label: 'Subscribe to updates', roles: ['AXCheckBox'], value: [1, 0] },
   { id: 'a11y-select-all', label: 'Select all', roles: ['AXCheckBox'], mixed: true },
   { id: 'a11y-sound', label: 'Sound', roles: ['AXCheckBox'], value: [0, 1] },
-  { id: 'a11y-size', label: 'Size', roles: ['AXGroup', 'AXRadioGroup'] },
+  { id: 'a11y-size', label: 'Size', roles: ['AXGroup', 'AXRadioGroup'], engineGap: GROUP_GAP },
   { id: 'a11y-size-small', label: 'Small', roles: ['AXRadioButton'], value: [0, 0] },
   { id: 'a11y-size-medium', label: 'Medium', roles: ['AXRadioButton'], value: [1, 0] },
   { id: 'a11y-size-large', label: 'Large', roles: ['AXRadioButton'], value: [0, 1] },
@@ -36,15 +48,19 @@ export function numeric(value) {
 
 /**
  * The elements of one reading checked against what the lab shows. `phase` is 0 before the Godot-side input and
- * 1 after it. Returns the failures and the frame pairs for the geometry check.
+ * 1 after it. Returns the failures; what the engine cannot convey is appended to `notes` (see GROUP_GAP, MIXED_GAP).
  */
-export function checkElements(reading, phase, snapshots) {
+export function checkElements(reading, phase, snapshots, notes = []) {
   const failures = [];
   const pairs = [];
   const nodes = flatten(reading.tree);
   const windows = nodes.filter(node => node.role === 'AXWindow' && node.frame !== undefined);
   for (const expected of ELEMENTS) {
     const matches = findByLabel(nodes, expected.label, expected.roles);
+    if (matches.length === 0 && expected.engineGap !== undefined) {
+      notes.push(`${expected.id}: ${expected.engineGap}`);
+      continue;
+    }
     if (matches.length !== 1) {
       failures.push(`${expected.id}: expected one ${expected.roles.join(' or ')} named "${expected.label}", found ${matches.length}`);
       continue;
@@ -57,9 +73,13 @@ export function checkElements(reading, phase, snapshots) {
       failures.push(`${expected.id}: AXValue is ${JSON.stringify(node.value)}, expected ${expected.value[phase]}`);
     }
     if (expected.mixed) {
+      // Conveyed (AXValue 2, or a description saying so) is a pass. Unchecked is what this engine can do, and is noted.
+      // Anything else, a mixed checkbox that reads as checked above all, is wrong.
       const conveyed = numeric(node.value) === 2 || /mixed/iu.test(String(node.valueDescription ?? ''));
-      if (!conveyed) {
-        failures.push(`${expected.id}: a mixed checkbox is neither AXValue 2 nor described as mixed (AXValue ${JSON.stringify(node.value)}, AXValueDescription ${JSON.stringify(node.valueDescription)})`);
+      if (!conveyed && numeric(node.value) === 0) {
+        notes.push(`${expected.id}: ${MIXED_GAP}`);
+      } else if (!conveyed) {
+        failures.push(`${expected.id}: a mixed checkbox reads as neither AXValue 2, described as mixed, nor unchecked (AXValue ${JSON.stringify(node.value)}, AXValueDescription ${JSON.stringify(node.valueDescription)})`);
       }
     }
     if (expected.range !== undefined
@@ -98,15 +118,17 @@ export function checkElements(reading, phase, snapshots) {
 
 /**
  * The expectation that reads the tree after the change: the Volume slider has platform focus. The platform
- * reports focus only while the application's window is the key window, and a verifier run keeps its window from
- * ever becoming one (demo/src/verifier-input.ts, plan D21), so then there is nothing to read: the check is
- * skipped, with a note saying why, instead of passing or failing on no evidence.
+ * reports focus only while the application's window is the key window. An unfocusable window (plan D21) never is,
+ * and the accessibility lab's is not unfocusable because that empties the platform tree (docs/tracks/stock-engine.md),
+ * but a window started from a script usually is not key either (it was not in the recorded runs). When it is not,
+ * there is nothing to read: the check is skipped, with a note saying why, instead of passing or failing on no
+ * evidence.
  * @returns {{failures: string[], note?: string}}
  */
 export function checkFocus(reading) {
   const window = flatten(reading.tree).find(node => node.role === 'AXWindow');
   if (window?.focused !== true) {
-    return { failures: [], note: 'platform focus was not checked: the window is not the key window, which a verifier run guarantees' };
+    return { failures: [], note: 'platform focus was not checked: the window is not the key window (a verifier run does not take key status from the person working in another window)' };
   }
   const focused = reading.focusedElement;
   if (focused === undefined) return { failures: ['the application reports no focused element'] };

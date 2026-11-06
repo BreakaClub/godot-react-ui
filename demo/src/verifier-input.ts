@@ -104,17 +104,26 @@ export class VerifierInputIsolation {
   /** Notifications the verifier sends itself (D6's focus-out, a window mouse exit) that are not the window system's. */
   private readonly simulated = new Map<number, number>();
 
-  private constructor(window: Window) {
-    window.unfocusable = true;
-    window.mousePassthrough = true;
+  private constructor(window: Window, restrictWindow: boolean) {
+    if (restrictWindow) {
+      window.unfocusable = true;
+      window.mousePassthrough = true;
+    }
     Input.useAccumulatedInput = false;
     console.log('GODOT_REACT_INPUT_ISOLATED', JSON.stringify({
       unfocusable: window.unfocusable, mousePassthrough: window.mousePassthrough, accumulatedInput: Input.useAccumulatedInput,
     }));
   }
 
-  static begin(window: Window): VerifierInputIsolation {
-    return new VerifierInputIsolation(window);
+  /**
+   * Isolate `window`. `restrictWindow: false` keeps everything but the two window flags: the device filter, the
+   * disturbance reports and unaccumulated input. The accessibility verifier needs that: with `unfocusable` and
+   * `mousePassthrough` set the platform's accessibility tree has the window and nothing under it, with them
+   * unset it has the whole lab (docs/tracks/stock-engine.md, "The accessibility tree"). A window that can take
+   * key status receives real keys and mouse moves like any other; they are rejected by device and reported.
+   */
+  static begin(window: Window, { restrictWindow = true }: { restrictWindow?: boolean } = {}): VerifierInputIsolation {
+    return new VerifierInputIsolation(window, restrictWindow);
   }
 
   /**
