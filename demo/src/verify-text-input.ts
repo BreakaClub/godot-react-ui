@@ -190,6 +190,13 @@ async function pressAction(action: string, shift = false, times = 1): Promise<vo
  */
 async function waitForCaretOn(api: InteractionInspection, testID: string): Promise<void> {
   const MAX_FRAMES = 400;
+  // The caret is drawn only while the OS window has focus, and a window the OS takes focus from while the run is
+  // under way (a disturbance, which the run reports) hears of its loss and never of its return, as the verifier's
+  // window cannot become the key window. A tap of Shift, a key that types nothing and moves nothing, tells the root
+  // the window is the one receiving input.
+  keyEvent({ keycode: Key.KeyShift }, true);
+  keyEvent({ keycode: Key.KeyShift }, false);
+  await settle();
   let seenOff = false;
   for (let step = 0; step < MAX_FRAMES; step++) {
     const visible = input(api, testID).caretVisible;

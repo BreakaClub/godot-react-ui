@@ -189,6 +189,10 @@ test('a command made stale by typing is ignored, and the edit that made it stale
   root.render(h(App, { value: 'from the app' }));
   assert.equal(host.textCommands.at(-1)?.result, 'stale', 'native ignored it');
   assert.equal(state.value, 'typed');
+  // An ignored command is not remembered as applied: the next render tries again.
+  const attempts = host.textCommands.length;
+  root.render(h(App, { value: 'from the app' }));
+  assert.equal(host.textCommands.length, attempts + 1, 'a command native ignored is sent again by the next render');
   // The typing's own `input` event then tells JS the count, and the app's value is sent again.
   host.type(root, '!');
   const applied = host.textCommands.at(-1);
