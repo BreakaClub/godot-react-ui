@@ -1207,6 +1207,7 @@ declare module "godot" {
         focus_node: "focusNode";
         blur_node: "blurNode";
         _on_accessibility_action: "_onAccessibilityAction";
+        _on_accessibility_scroll_bar_action: "_onAccessibilityScrollBarAction";
         scroll_to: "scrollTo";
         scroll_by: "scrollBy";
         scroll_into_view: "scrollIntoView";
@@ -1243,6 +1244,7 @@ declare module "godot" {
         focusNode(tag: int64, focusVisible: int64): string
         blurNode(tag: int64): string
         _onAccessibilityAction(data: any, tag: int64, action: int64): any
+        _onAccessibilityScrollBarAction(data: any, tag: int64, axis: int64, action: int64): any
         scrollTo(tag: int64, left: float64, top: float64): string
         scrollBy(tag: int64, dx: float64, dy: float64): string
         scrollIntoView(tag: int64): string
