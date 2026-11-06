@@ -1604,3 +1604,102 @@ D21 and D22. The mechanisms, against the evidence:
 | `scripts/native-run.mjs` (new), `native-run.d.mts`, `scripts/verify.mjs`, `tests/native-run.test.ts` (new) | D22: one launch-and-judge function every native verify script uses, and its policy tested with a stand-in for Godot (6 tests, no window) |
 
 The existing assertions of the three verifiers are unchanged.
+
+### Gate (Task 0 and Phase I4, on the tree rebased onto the world-space, text-engine, scroll/drag-core and kit merges)
+
+One normal run of each native verifier, in this order, each exiting 0 on its first and only run, with the isolation line
+`GODOT_REACT_INPUT_ISOLATED {"unfocusable":true,"mousePassthrough":true,"accumulatedInput":false}` in every window's log
+and no `GODOT_REACT_RUN_DISTURBED` line in any:
+
+| Command | Result |
+| --- | --- |
+| `pnpm test:types` / `pnpm test` | clean / **193 passed** (78 on this branch before the other tracks merged: 71 at I3, 6 `native-run`, 1 positioning styles) |
+| `cargo test --locked` | **400 passed** (the merged tracks' tests and this phase's: 7 `stacking`, 4 in `props`, 1 in `layout`) |
+| `cargo clippy --locked --all-targets -- -D warnings`, also `--features probe` | 0 warnings |
+| `rustup run stable rustfmt --edition 2024 --check native/lib.rs` | clean |
+| `pnpm build:native` | ok (default build; the probe was never installed) |
+| `pnpm verify:interaction` (both viewports) | exit 0, sections events, cooperation, pointers, keyboard, positioning; the existing assertions unchanged, plus the D6 block and the positioning section |
+| `pnpm verify` | exit 0 |
+| `pnpm verify:motion` | exit 0 (run because `mount.rs`, `layout.rs` and `motion.rs` changed) |
+| `pnpm verify:world` | exit 0, with the world verifier now on the shared isolation |
+
+No Web gate: nothing Web-specific changed (D20). `scripts/verify-interaction-web.mjs` gained `--only` (syntax checked,
+not run).
+
+During development (not statistics): `pnpm verify:interaction --only=positioning` was run twice. The first run failed
+for a reason the section could not name, a Taffy panic when the popover closed (D24), which is the negative control of
+that fix; the second, after the fix, passed in both viewports.
+
+### Rasters
+
+Every settled native capture of the gate against the main checkout's last captures: `native` 26 of 26 identical;
+`native-motion` identical except the 23 mid-transition captures (sampled at wall-clock offsets, as before; all settled
+ones identical); `native-interaction` identical except `05-enter-leave`, `06-self-removed` and `07-reattached`, which print
+the engine frame number (206 and 100 differing pixels in the 15 x 34 and 8 x 34 box that reads `down frame=N`), and the four
+new ones. I4 changed no pixel of the existing demo. The new captures were inspected, both viewports: `18-positioning-stacking`
+(B over A, C behind both), `19-positioning-raised` (A over B after `Raise A`), `20-positioning-clipping` (the red box
+clipped in the relative cell, whole past the static hidden parent, the fixed box in the window's corner) and
+`21-positioning-popover` (the popover under the Menu button, extending below the card and over the later button, unclipped).
+
+### Negative controls
+
+Each new regression assertion was checked to fail without its fix (the fix reverted alone, `pnpm build:native`,
+`pnpm verify:interaction --only=positioning`; the source restored from a copy and compared afterwards):
+
+| Reverted | Failing assertion |
+| --- | --- |
+| absolute and fixed elements are painted by their tree parent | `Node 106 escapes right: {"x":1360,"y":1030,...}` (the fixed box located in its cell; the section's own clipping assertions follow it) |
+| `zIndex` ignored (document order only) | `C, though last in the document, is behind B for z-index -10: #f59e0b at 149,160` |
+| the overlay layer is hit-tested after the main layer | `And a pointer there reaches the popover` |
+| leaf output without the positioning area (D24) | the first section run's Taffy panic; and `layout::tests::a_container_that_loses_its_last_out_of_flow_child_lays_out_again` fails with `invalid SlotMap key used` |
+| the window's focus-out no longer cancels the press in flight (D6, `lib.rs`) | `Focus loss clears the pressed element: 191` (`--only=pointers`) |
+| (Rust) paint parent, order and hit rules | the seven `stacking` tests; `props` tests for the Taffy location rule |
+
+The D6 block exercises the handler F3 added, now with the notification delivered by the verifier instead of the window
+system; its control reverts that handler.
+
+### What changed, by file
+
+| File | Change |
+| --- | --- |
+| `native/props.rs` | `PositionSpec`, `Inset`, `zIndex` and the four insets as `StyleSpec` fields (merge, validation, Taffy mapping, `sticky` and non-integer `zIndex` rejected); the Taffy evidence tests (location rule, root and fixed, the stale hoisted list) |
+| `native/stacking.rs` (new, Godot-free) | `paint_parent`, `painted_by` (sort by `zIndex`, then document key), `hit_test`, `absolute_geometry` over two traits; 7 tests |
+| `native/mount.rs` | `paint_parent`, `paint_children`, `paint_roots`, `out_of_flow`; the traits over `Mounted`; `hit_test` and `absolute_geometry` delegate; `settle_paint_structure` and `move_paint_item`; geometry compares the out-of-flow nodes; delete and remove keep the paint lists honest |
+| `native/layout.rs`, `native/motion.rs`, `native/lib.rs`, `native/snapshot.rs` | the positioning area workaround (D24) and its test; a changed `position` or `zIndex` re-examines the node; the settle call before geometry; the snapshot's `paintParent`, `paintIndex`, `documentIndex` |
+| `src/types.ts`, `src/styles.ts`, `src/native.ts` | `Position`, `Inset`, `zIndex`; the `inset` shorthand; the utilities `static`, `relative`, `absolute`, `fixed`, `top-*`, `right-*`, `bottom-*`, `left-*`, `inset-*`, `inset-x-*`, `inset-y-*` (negative and fractional values), `z-*`, `-z-*`, `z-[n]`; the snapshot parser |
+| `tests/styles.test.ts`, `tests/fixtures/compiled-styles.json`, `tests/recording-host.ts` | the utilities and their rejections; the cross-language fixture case; the fake host's snapshot fields |
+| `demo/src/positioning-lab.tsx` (new), `labs.tsx` | the lab: stacking boxes with a toggle, three clipping cells with a fixed box, a card with a Menu button, a `Portal` popover anchored with `getRect()`, a backdrop, a later button under it |
+| `demo/src/verify-interaction.ts` | `verifyPositioning`; the geometry check skips out-of-flow nodes; `--only` |
+| `scripts/verify-interaction-web.mjs` | `--only` |
+| `native/PROTOCOL.md`, `README.md`, `docs/INTERACTION_PLAN.md` | positioning and stacking, the snapshot fields, the limits, D21 to D26 |
+
+### Choices the plan left open
+
+- D23 to D26 list them: the paint-parent model, the Taffy workaround, the loops over the out-of-flow nodes, portal
+  event paths and Tab order.
+- **`zIndex` applies to every element** (the plan said React Native's semantics); `z-auto` is 0; values beyond an `i32`
+  are rejected by the style compiler.
+- **`inset` is a shorthand** expanded by the compiler (as `padding`), and `insetX`/`insetY` are not styles: the utilities
+  `inset-x-*` and `inset-y-*` set the longhands.
+- **The overlay layer root is an ordinary flex container**, so an in-flow `Portal` child stacks like any root child;
+  popovers use `absolute`.
+- **A new demo page, not the Interaction tab** (D14): `showLab('positioning')`.
+- **No Web section for positioning.** The behaviour is not Web-specific (D20) and the Web page needs its own pixel decoding;
+  `--only` exists there for the next phase that needs it.
+
+### Engine findings
+
+- Taffy (`fca167c`): a node keeps the list of out-of-flow boxes it contained when it loses every child (D24, with a
+  test that fails when Taffy fixes it).
+- The same Taffy gives an absolute element's `location` relative to its containing block's border box, and a fixed one's
+  relative to the root; the plan's "evidence first" task is recorded as D23's tests.
+
+### Plan problems found
+
+- The Files list omitted `native/stacking.rs`, `layout.rs`, `motion.rs`, `snapshot.rs`, `lib.rs`, `src/native.ts` and the
+  tests; `render_tree.rs` and `components.tsx` needed no change (the overlay layer and `Portal` already existed).
+- Plan 3.8 says an absolute element attaches to its containing block's "item"; it is the `content` item (clipped to the
+  padding box when the block clips), which the text now says.
+- The verifiers' geometry check treated every out-of-flow element as a defect (a child outside its parent, overlapping
+  siblings); `verify-interaction.ts` now skips them.
+- The Taffy defect above (D24) is not in the plan.
