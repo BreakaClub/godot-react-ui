@@ -78,8 +78,10 @@ const PRIMARY_BUTTON = 0;
  */
 const FLEX_GROW_PERCENT = 100;
 
-const ROOT_HORIZONTAL_CLASS = 'flex-row items-center h-6';
-const ROOT_VERTICAL_CLASS = 'flex-col items-center w-6';
+// `touch-none`: a finger on a slider drags the thumb and never pans a scroll container behind it (the press
+// also captures the pointer, which keeps the pan away; the style says it at the element too).
+const ROOT_HORIZONTAL_CLASS = 'flex-row items-center h-6 touch-none';
+const ROOT_VERTICAL_CLASS = 'flex-col items-center w-6 touch-none';
 const TRACK_HORIZONTAL_CLASS = 'flex-1 flex-row items-center h-1.5 rounded-full bg-slate-300';
 const TRACK_VERTICAL_CLASS = 'flex-1 flex-col-reverse items-center w-1.5 rounded-full bg-slate-300';
 const RANGE_CLASS = 'self-stretch rounded-full bg-indigo-600';

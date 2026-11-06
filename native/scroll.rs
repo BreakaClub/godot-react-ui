@@ -61,8 +61,11 @@ pub(crate) const SCROLLBAR_MARGIN_PX: f32 = 2.0;
 pub(crate) const SCROLLBAR_MIN_THUMB_PX: f32 = 24.0;
 
 /// Drag auto-scroll (plan Appendix A; tune with evidence): within this many pixels of a container's
-/// edge the container scrolls, ramping linearly up to the full speed at the edge itself.
+/// edge the container scrolls, ramping linearly up to the full speed at the edge itself. Phase I9
+/// (drag and drop) integrates it; remove the `allow` then.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) const AUTOSCROLL_EDGE_PX: f32 = 32.0;
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) const AUTOSCROLL_SPEED_PX_PER_SECOND: f32 = 600.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -164,7 +167,7 @@ impl Rect {
 /// (`row-reverse` / `column-reverse`, where content starts at the far edge) allows
 /// `-magnitude..=0` (plan 3.16). Positive deltas always move the offset towards `max`, so wheel down
 /// and right are positive for both.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct ScrollRange {
     min: f32,
     max: f32,
@@ -243,6 +246,12 @@ pub(crate) struct ScrollRanges {
     pub(crate) y: ScrollRange,
 }
 
+impl Default for ScrollRanges {
+    fn default() -> Self {
+        Self::NONE
+    }
+}
+
 impl ScrollRanges {
     pub(crate) const NONE: Self = Self {
         x: ScrollRange::NONE,
@@ -318,7 +327,10 @@ pub(crate) fn wheel_factor(raw: f32) -> f32 {
 
 /// The pixels `ticks` wheel ticks scroll a container with client size `client`: a page divided by
 /// [`SCROLL_PAGE_DIVISOR`] per tick on each axis (`scroll_container.cpp:190-226`; a trackpad pan's
-/// `page * delta / PAGE_DIVISOR` is the same, `:311-318`).
+/// `page * delta / PAGE_DIVISOR` is the same, `:311-318`). The renderer scrolls through
+/// [`scroll_chain`], which does this per container; this is for a caller with a single container
+/// (the accessibility scroll actions, Phase I10).
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn ticks_to_pixels(ticks: Vec2, client: Vec2) -> Vec2 {
     Vec2::new(
         ticks.x * (client.x / SCROLL_PAGE_DIVISOR),
@@ -902,6 +914,8 @@ impl ThumbDrag {
 /// edge the speed ramps linearly from zero at that distance to [`AUTOSCROLL_SPEED_PX_PER_SECOND`] at
 /// the edge, towards that edge. An axis that cannot move that way stays zero. (`ScrollContainer`
 /// scrolls in proportion to the depth into its border as well, `scroll_container.cpp:544-566`.)
+/// Phase I9 integrates it; remove the `allow` then.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn autoscroll_velocity(
     pointer: Vec2,
     viewport: Rect,

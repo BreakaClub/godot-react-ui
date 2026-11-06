@@ -3,8 +3,8 @@ import { createRoot, type RootOptions, type UIRoot } from '../src';
 import type { CommitPayload } from '../src/commit';
 import type {
   NativeAccessibilityAction, NativeAccessibilityActionEvent, NativeEvent, NativeEventType, NativeFocusEventType,
-  NativeHost, NativeKeyEvent, NativePointerEvent, NativePointerEventType, NativeSnapshot, NativeSnapshotNode,
-  NativeWheelEvent, PackedTags,
+  NativeHost, NativeKeyEvent, NativePointerEvent, NativePointerEventType, NativeScrollEvent, NativeScrollState,
+  NativeSnapshot, NativeSnapshotNode, NativeWheelEvent, PackedTags,
 } from '../src/native';
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -53,6 +53,7 @@ function parsePayload(value: unknown): CommitPayload {
 export function node(id: number, kind: 'view' | 'text' | 'button'): NativeSnapshotNode {
   return {
     id, kind, layer: 0, text: '', parent: null, children: [], paintParent: null, paintIndex: 0, documentIndex: 0, style: {}, props: {},
+    scroll: null,
     rect: { x: 0, y: 0, width: 100, height: 40 },
     clipRect: null,
     presentation: {width: 100, height: 40, widthIsAuto: false, heightIsAuto: false, opacity: 1, backgroundColor: '#00000000'},
@@ -62,7 +63,8 @@ export function node(id: number, kind: 'view' | 'text' | 'button'): NativeSnapsh
 /** One call across the native boundary, for tests that assert what did and did not cross. */
 export type NativeCall =
   | 'commit' | 'takeCommitDeletions' | 'drainEvents' | 'getSnapshot' | 'getNodeRect' | 'getSize' | 'findByTestId' | 'resolveEvent'
-  | 'setPointerCapture' | 'releasePointerCapture' | 'hasPointerCapture' | 'focusNode' | 'blurNode';
+  | 'setPointerCapture' | 'releasePointerCapture' | 'hasPointerCapture' | 'focusNode' | 'blurNode'
+  | 'scrollTo' | 'scrollBy' | 'scrollIntoView' | 'getScrollState';
 
 /**
  * A fake native host that implements the commit API in JavaScript: it applies each payload to a
@@ -97,6 +99,10 @@ export class RecordingHost implements NativeHost {
   focused: number | null = null;
   /** What the root's `Control` reports as its size; a test changes it with `resize` to resize the root. */
   private currentSize = { x: 1024, y: 768 };
+  /** The scroll containers the fake knows (native decides which elements are one; the test is told). */
+  readonly scrollStates = new Map<number, NativeScrollState>();
+  /** Every `scrollTo`, `scrollBy` and `scrollIntoView` request, in order. */
+  readonly scrollRequests: Array<{ method: 'scrollTo' | 'scrollBy' | 'scrollIntoView'; tag: number; x?: number; y?: number }> = [];
   /** Extra events appended to every drain, for storm tests. */
   produceEvents: (() => NativeEvent[]) | undefined;
   private nextSeq = 1;
@@ -229,6 +235,29 @@ export class RecordingHost implements NativeHost {
     return '';
   }
 
+  scrollTo(tag: number, left: number, top: number): string {
+    this.calls.push('scrollTo');
+    this.scrollRequests.push({ method: 'scrollTo', tag, x: left, y: top });
+    return this.scrollStates.has(tag) ? '' : `node ${tag} is not a scroll container`;
+  }
+
+  scrollBy(tag: number, dx: number, dy: number): string {
+    this.calls.push('scrollBy');
+    this.scrollRequests.push({ method: 'scrollBy', tag, x: dx, y: dy });
+    return this.scrollStates.has(tag) ? '' : `node ${tag} is not a scroll container`;
+  }
+
+  scrollIntoView(tag: number): string {
+    this.calls.push('scrollIntoView');
+    this.scrollRequests.push({ method: 'scrollIntoView', tag });
+    return this.nodes.has(tag) ? '' : `node ${tag} is not mounted`;
+  }
+
+  getScrollState(tag: number): string {
+    this.calls.push('getScrollState');
+    return JSON.stringify(this.scrollStates.get(tag) ?? null);
+  }
+
   getNodeRect(tag: number): string {
     this.calls.push('getNodeRect');
     return JSON.stringify(this.nodes.get(tag)?.rect ?? null);
@@ -260,6 +289,7 @@ export class RecordingHost implements NativeHost {
       stats: {
         batches: this.commits.length, nodeCount: this.nodes.size - 1, layoutPasses: 0, paintPasses: 0, layoutMicros: 0,
         nodesCreated: 0, nodesUpdated: 0, nodesDeleted: 0, nodesRestyled: 0, mutations: 0, boxRecords: 0, contentRecords: 0,
+        scrollUpdates: 0, overlayRecords: 0,
       },
     };
     return JSON.stringify(snapshot);
@@ -286,11 +316,21 @@ export class RecordingHost implements NativeHost {
     const event = isFocusType(type)
       ? this.focusEvent(target, type)
       : type === 'wheel' ? this.wheelEvent(target)
-        : type === 'keydown' || type === 'keyup' ? this.keyEvent(target, type)
-          : type === 'accessibilityaction' ? this.accessibilityActionEvent(target, 'increment')
-            : this.pointerEvent(target, type, overrides);
+        : type === 'scroll' ? this.scrollEvent(target)
+          : type === 'keydown' || type === 'keyup' ? this.keyEvent(target, type)
+            : type === 'accessibilityaction' ? this.accessibilityActionEvent(target, 'increment')
+              : this.pointerEvent(target, type, overrides);
     this.events.push(event);
     return event;
+  }
+
+  /** A `scroll` event: never cancelable, as native does not wait for JS's answer. */
+  scrollEvent(target: number, overrides: Partial<NativeScrollEvent> = {}): NativeScrollEvent {
+    return {
+      seq: this.nextSeq++, target, path: this.pathOf(target), cancelable: false, timeStamp: 1.5, type: 'scroll',
+      scrollLeft: 0, scrollTop: 120, scrollWidth: 300, scrollHeight: 900, clientWidth: 300, clientHeight: 400,
+      ...overrides,
+    };
   }
 
   /** A wheel tick or pan; cancelable like the native one (native awaits JS's answer). */

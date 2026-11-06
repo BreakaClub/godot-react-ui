@@ -28,7 +28,7 @@ impl ReactUiRoot {
         let viewport = self.viewport_box();
         let mut nodes = vec![json!({
             "id": 0, "kind": "view", "text": "", "parent": null, "layer": 0,
-            "children": self.mounted.roots[0], "style": {}, "props": {},
+            "children": self.mounted.roots[0], "style": {}, "props": {}, "scroll": null,
             "paintParent": null, "paintIndex": 0, "documentIndex": -1,
             "rect": viewport, "clipRect": viewport,
             "presentation": {
@@ -76,6 +76,7 @@ impl ReactUiRoot {
                     "props": node.props,
                     "rect": rect, "clipRect": inherited_clip,
                     "presentation": self.presentation_json(tag),
+                    "scroll": self.scroll_state_json(tag),
                 }));
                 let content_clip = if node.clips_content() {
                     let local = node.geometry.padding_box();
@@ -91,8 +92,10 @@ impl ReactUiRoot {
                 } else {
                     inherited_clip
                 };
+                // What a scroll container paints is shifted by its scroll offset; its own box is not.
+                let content_origin = origin - crate::scroll_input::to_vector(node.scroll.offset);
                 for (index, child) in node.paint_children.iter().enumerate() {
-                    stack.push((*child, index, origin, content_clip));
+                    stack.push((*child, index, content_origin, content_clip));
                 }
             }
         }

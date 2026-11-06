@@ -188,6 +188,40 @@
     }
   },
   {
+    "className": "overflow-y-auto overflow-x-scroll overscroll-contain scrollbar-none scrollbar-[#64748b99] touch-pan-y",
+    "compiled": {
+      "layers": [
+        {
+          "style": {
+            "overflowX": "scroll",
+            "overflowY": "auto",
+            "overscrollBehavior": "contain",
+            "scrollbarColor": "#64748b99",
+            "scrollbarWidth": "none",
+            "touchAction": "pan-y"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "className": "overflow-auto overscroll-auto scrollbar-auto scrollbar-slate-400 touch-none",
+    "compiled": {
+      "layers": [
+        {
+          "style": {
+            "overflowX": "auto",
+            "overflowY": "auto",
+            "overscrollBehavior": "auto",
+            "scrollbarColor": "#94a3b8",
+            "scrollbarWidth": "auto",
+            "touchAction": "none"
+          }
+        }
+      ]
+    }
+  },
+  {
     "className": "overflow-hidden shrink-0",
     "style": [
       {

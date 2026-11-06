@@ -47,6 +47,8 @@ export default class Main extends Node {
   /** A full-window Control behind the React root: the "game" the HUD sits over. */
   private backdrop: ColorRect | null = null;
   private pointerCancels = 0;
+  /** `wheel` events that reached the root's own listener (every wheel tick or pan JS was shown). */
+  private wheelEvents = 0;
   private rootKeys: string[] = [];
   private passthrough: PassthroughCounts = { backdropPresses: 0, unhandledPresses: 0, unhandledWheels: 0, unhandledPans: 0, unhandledKeys: {} };
   /** Set only in a run that injects its own input (a verifier or the probe); a normal run takes real input. */
@@ -94,6 +96,8 @@ export default class Main extends Node {
       /** `pointercancel`s the root's own listener saw since the last reset. */
       pointerCancels: () => this.pointerCancels,
       resetPointerCancels: () => { this.pointerCancels = 0; },
+      /** `wheel` events (ticks and pans) the root's own listener saw: how many times JS was asked about one. */
+      wheelEvents: () => this.wheelEvents,
       passthrough: (): PassthroughCounts => ({ ...this.passthrough, unhandledKeys: { ...this.passthrough.unhandledKeys } }),
       resetPassthrough: () => { this.passthrough = { backdropPresses: 0, unhandledPresses: 0, unhandledWheels: 0, unhandledPans: 0, unhandledKeys: {} }; },
       /** The cursor Godot would show with the pointer at (x, y), through the root's `_get_cursor_shape`. */
@@ -267,6 +271,7 @@ export default class Main extends Node {
     });
     this.renderer = renderer;
     renderer.addEventListener('pointercancel', () => { this.pointerCancels += 1; });
+    renderer.addEventListener('wheel', () => { this.wheelEvents += 1; });
     renderer.addEventListener('keydown', event => {
       if (event.target.id === 0) this.rootKeys.push(event.key);
     });

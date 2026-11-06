@@ -14,6 +14,7 @@ use crate::focus::{Modality, is_focusable, next_tab_stop, tab_stops};
 use crate::keymap::{dom_code, dom_key, is_modifier_key};
 use crate::pointer::ButtonTree;
 use crate::props::Kind;
+use crate::scroll::ScrollKey;
 use crate::{ROOT_TARGET, ReactUiRoot, modifiers_of};
 
 /// What JS asks of `focus_node` for the keyboard focus look: follow the input modality, never, always.
@@ -24,6 +25,22 @@ const FOCUS_VISIBLE_ALWAYS: i64 = 1;
 /// The keys that press a focused button.
 fn is_activation_key(keycode: Key) -> bool {
     keycode == Key::ENTER || keycode == Key::KP_ENTER || keycode == Key::SPACE
+}
+
+/// The keys that scroll the focused element's scroll container (plan 3.16).
+fn scroll_key_of(keycode: Key) -> Option<ScrollKey> {
+    match keycode {
+        Key::UP => Some(ScrollKey::ArrowUp),
+        Key::DOWN => Some(ScrollKey::ArrowDown),
+        Key::LEFT => Some(ScrollKey::ArrowLeft),
+        Key::RIGHT => Some(ScrollKey::ArrowRight),
+        Key::PAGEUP => Some(ScrollKey::PageUp),
+        Key::PAGEDOWN => Some(ScrollKey::PageDown),
+        Key::HOME => Some(ScrollKey::Home),
+        Key::END => Some(ScrollKey::End),
+        Key::SPACE => Some(ScrollKey::Space),
+        _ => None,
+    }
 }
 
 impl ReactUiRoot {
@@ -77,7 +94,8 @@ impl ReactUiRoot {
         }
     }
 
-    /// Tab moves focus; Enter and Space press a focused button. Returns whether native acted.
+    /// Tab moves focus; Enter and Space press a focused button; the scrolling keys scroll the focused
+    /// element's scroll container. Returns whether native acted.
     fn key_down_default(&mut self, keycode: Key, echo: bool, modifiers: Modifiers) -> bool {
         if keycode == Key::TAB {
             // Ctrl, Alt and Meta with Tab belong to the platform and the game.
@@ -86,23 +104,41 @@ impl ReactUiRoot {
             }
             return self.advance_focus(modifiers.shift_key);
         }
-        if !is_activation_key(keycode) {
-            return false;
+        if is_activation_key(keycode) {
+            if echo && self.activation_key.is_some() {
+                // The repeats of a held key belong to the press it started.
+                return true;
+            }
+            let pressable = self.focused.filter(|id| {
+                self.mounted.kind_of(*id) == Some(Kind::Button) && !self.mounted.is_disabled(*id)
+            });
+            if let Some(id) = pressable {
+                if echo {
+                    return false;
+                }
+                self.pressed = Some(id);
+                self.pressed_by_keyboard = true;
+                self.activation_key = Some(keycode);
+                self.refresh_interaction();
+                return true;
+            }
+            // Space on anything that is not a button to press scrolls, like the other keys below.
         }
-        if echo {
-            // The repeats of a held key belong to the press it started.
-            return self.activation_key.is_some();
-        }
-        let Some(id) = self.focused.filter(|id| {
-            self.mounted.kind_of(*id) == Some(Kind::Button) && !self.mounted.is_disabled(*id)
-        }) else {
+        // Scrolling belongs to the focused element: with none, keys are the game's (plan 3.11). A
+        // chord with Ctrl, Alt or Meta is a shortcut for the platform or the game.
+        let Some(scroll_key) = scroll_key_of(keycode) else {
             return false;
         };
-        self.pressed = Some(id);
-        self.pressed_by_keyboard = true;
-        self.activation_key = Some(keycode);
-        self.refresh_interaction();
-        true
+        if modifiers.ctrl_key || modifiers.alt_key || modifiers.meta_key {
+            return false;
+        }
+        match self
+            .focused
+            .filter(|tag| self.mounted.nodes.contains_key(tag))
+        {
+            Some(focused) => self.scroll_by_key(focused, scroll_key, modifiers.shift_key),
+            None => false,
+        }
     }
 
     /// Releasing the key that pressed a button clicks it. No pointer events are made up: the
@@ -134,6 +170,10 @@ impl ReactUiRoot {
             self.mounted.visible_for_input(tag, viewport)
         });
         let next = next_tab_stop(&order, &stops, self.focused, backwards);
+        // Tab to something scrolled out of view brings it into view (plan 3.16).
+        if let Some(next) = next {
+            self.reveal_node(next);
+        }
         self.set_focus(next, true);
         self.focused != before
     }
@@ -185,6 +225,8 @@ impl ReactUiRoot {
         if self.base().is_inside_tree() {
             self.base_mut().grab_focus();
         }
+        // Programmatic and automatic focus bring the element into view, as `focus()` does in browsers.
+        self.reveal_node(tag);
         self.set_focus(Some(tag), visible);
     }
 

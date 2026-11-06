@@ -195,6 +195,8 @@ test('compiled styles match the native contract fixture, which the Rust tests pa
     { className: 'md:hover:bg-indigo-100 w-[50%] h-[123px] max-w-xl text-[23px] text-center bg-[#1234] rounded-[9px] w-1/2' },
     { className: 'pointer-events-none hover:cursor-pointer cursor-ew-resize pointer-events-auto' },
     { className: 'relative absolute fixed top-4 -left-2 right-1/2 bottom-auto inset-x-0 z-10 -z-5 md:static' },
+    { className: 'overflow-y-auto overflow-x-scroll overscroll-contain scrollbar-none scrollbar-[#64748b99] touch-pan-y' },
+    { className: 'overflow-auto overscroll-auto scrollbar-auto scrollbar-slate-400 touch-none' },
     {
       className: 'overflow-hidden shrink-0',
       style: [{ height: 'auto', padding: 4, interpolateSize: 'allow-keywords', transition: {
@@ -204,4 +206,35 @@ test('compiled styles match the native contract fixture, which the Rust tests pa
   ];
   const fixture = inputs.map((input) => ({ ...input, compiled: compileStyle(input.className, input.style) }));
   checkFixture('compiled-styles.json', fixture);
+});
+
+test('scroll utilities compile to the longhands native reads', () => {
+  const style = (className: string) => layersOf(className)[0]?.style;
+  assert.deepEqual(style('overflow-scroll'), { overflowX: 'scroll', overflowY: 'scroll' });
+  assert.deepEqual(style('overflow-auto'), { overflowX: 'auto', overflowY: 'auto' });
+  assert.deepEqual(style('overflow-x-auto overflow-y-hidden'), { overflowX: 'auto', overflowY: 'hidden' });
+  assert.deepEqual(style('overflow-x-scroll'), { overflowX: 'scroll' });
+  assert.deepEqual(style('overflow-y-scroll'), { overflowY: 'scroll' });
+  assert.deepEqual(style('overflow-hidden overflow-y-auto'), { overflowX: 'hidden', overflowY: 'auto' });
+  assert.deepEqual(style('overscroll-contain'), { overscrollBehavior: 'contain' });
+  assert.deepEqual(style('overscroll-auto'), { overscrollBehavior: 'auto' });
+  assert.deepEqual(style('scrollbar-none'), { scrollbarWidth: 'none' });
+  assert.deepEqual(style('scrollbar-auto'), { scrollbarWidth: 'auto' });
+  assert.deepEqual(style('scrollbar-[#64748b99]'), { scrollbarColor: '#64748b99' });
+  assert.deepEqual(style('scrollbar-slate-500'), { scrollbarColor: '#64748b' });
+  for (const [token, action] of [
+    ['touch-auto', 'auto'], ['touch-none', 'none'], ['touch-pan-x', 'pan-x'], ['touch-pan-y', 'pan-y'],
+  ] as const) {
+    assert.deepEqual(style(token), { touchAction: action });
+  }
+  // Conditions apply to them like any other utility.
+  assert.deepEqual(layersOf('md:overflow-y-auto'), [{ minWidth: 768, style: { overflowY: 'auto' } }]);
+  assert.deepEqual(layersOf('', { overflow: 'scroll', overscrollBehavior: 'contain', touchAction: 'pan-x' })[0]?.style, {
+    overflowX: 'scroll', overflowY: 'scroll', overscrollBehavior: 'contain', touchAction: 'pan-x',
+  });
+  // And an unknown one still throws, so a typo cannot hide.
+  assert.throws(() => compileStyle('overflow-clip'), /Unsupported utility class "overflow-clip"/);
+  assert.throws(() => compileStyle('overscroll-none'), /Unsupported utility class "overscroll-none"/);
+  assert.throws(() => compileStyle('scrollbar-thin'), /Unsupported utility class "scrollbar-thin"/);
+  assert.throws(() => compileStyle('touch-manipulation'), /Unsupported utility class "touch-manipulation"/);
 });

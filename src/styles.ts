@@ -63,8 +63,15 @@ const STATIC_UTILITIES: Readonly<Record<string, Style>> = {
   static: { position: 'static' }, relative: { position: 'relative' },
   absolute: { position: 'absolute' }, fixed: { position: 'fixed' },
   'overflow-hidden': { overflow: 'hidden' }, 'overflow-visible': { overflow: 'visible' },
+  'overflow-scroll': { overflow: 'scroll' }, 'overflow-auto': { overflow: 'auto' },
   'overflow-x-hidden': { overflowX: 'hidden' }, 'overflow-x-visible': { overflowX: 'visible' },
+  'overflow-x-scroll': { overflowX: 'scroll' }, 'overflow-x-auto': { overflowX: 'auto' },
   'overflow-y-hidden': { overflowY: 'hidden' }, 'overflow-y-visible': { overflowY: 'visible' },
+  'overflow-y-scroll': { overflowY: 'scroll' }, 'overflow-y-auto': { overflowY: 'auto' },
+  'overscroll-auto': { overscrollBehavior: 'auto' }, 'overscroll-contain': { overscrollBehavior: 'contain' },
+  'scrollbar-auto': { scrollbarWidth: 'auto' }, 'scrollbar-none': { scrollbarWidth: 'none' },
+  'touch-auto': { touchAction: 'auto' }, 'touch-none': { touchAction: 'none' },
+  'touch-pan-x': { touchAction: 'pan-x' }, 'touch-pan-y': { touchAction: 'pan-y' },
   flex: { display: 'flex' }, grid: { display: 'grid' }, hidden: { display: 'none' },
   'flex-row': { flexDirection: 'row' }, 'flex-col': { flexDirection: 'column' },
   'flex-row-reverse': { flexDirection: 'row-reverse' },
@@ -240,6 +247,11 @@ function utilityStyle(utility: string): Style | undefined {
   if (utility.startsWith('opacity-')) {
     const value = utility.slice('opacity-'.length);
     if (/^\d+$/.test(value) && Number(value) <= 100) return { opacity: Number(value) / 100 };
+  }
+
+  if (utility.startsWith('scrollbar-')) {
+    const color = parseColor(utility.slice('scrollbar-'.length));
+    if (color !== undefined) return { scrollbarColor: color };
   }
 
   for (const prefix of ['bg-', 'text-', 'border-']) {

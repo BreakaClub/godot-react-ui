@@ -4,7 +4,21 @@ export type Alignment = 'start' | 'end' | 'center' | 'stretch' | 'baseline' | 'f
 export type Justification = 'start' | 'end' | 'center' | 'space-between' | 'space-around' | 'space-evenly' | 'flex-start' | 'flex-end';
 export type HexColor = `#${string}`;
 export type TransitionProperty = 'width' | 'height' | 'opacity' | 'backgroundColor';
-export type Overflow = 'visible' | 'hidden';
+/**
+ * `scroll` and `auto` make the axis scroll. They behave the same: the scrollbars overlay the content,
+ * take no layout space, and a bar is drawn only while there is something to scroll to.
+ */
+export type Overflow = 'visible' | 'hidden' | 'scroll' | 'auto';
+/** `contain` ends scroll chaining at the element: a scroll it cannot take does not reach the container behind it. */
+export type OverscrollBehavior = 'auto' | 'contain';
+/** `none` hides a scroll container's overlay scrollbars; it still scrolls. */
+export type ScrollbarWidth = 'auto' | 'none';
+/**
+ * Which pans a touch that starts on the element may become. `none` leaves the touch to the element's pointer
+ * events; `pan-x` and `pan-y` allow one axis. It is intersected along the path from the touched element to
+ * the scroll container that would pan.
+ */
+export type TouchAction = 'auto' | 'none' | 'pan-x' | 'pan-y';
 /** `fixed` is relative to the layer, `absolute` to the nearest positioned ancestor, `relative` to its own flow position. */
 export type Position = 'static' | 'relative' | 'absolute' | 'fixed';
 /** Pixels or a percentage of the containing block (either may be negative), or `auto`. */
@@ -62,10 +76,15 @@ export interface Style {
   textAlign?: 'left' | 'center' | 'right';
   transition?: Transition;
   interpolateSize?: 'numeric-only' | 'allow-keywords';
-  /** Shorthand for `overflowX` and `overflowY`. */
+  /** Shorthand for `overflowX` and `overflowY`. `scroll` and `auto` make a scroll container. */
   overflow?: Overflow;
   overflowX?: Overflow;
   overflowY?: Overflow;
+  overscrollBehavior?: OverscrollBehavior;
+  scrollbarWidth?: ScrollbarWidth;
+  /** Inherited. The colour of a scroll container's overlay scrollbar thumbs. */
+  scrollbarColor?: HexColor;
+  touchAction?: TouchAction;
   /** Inherited. */
   pointerEvents?: PointerEvents;
   /** Inherited. */

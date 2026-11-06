@@ -23,9 +23,11 @@ use crate::focus::FocusTree;
 use crate::geometry::{BoxRect, intersects};
 use crate::pointer::ButtonTree;
 use crate::profile::{Sample, micros};
-use crate::props::{CursorSpec, Kind, PositionSpec, PropsSpec};
+use crate::props::{CursorSpec, Kind, OverflowSpec, PositionSpec, PropsSpec, ScrollbarWidthSpec};
 use crate::render_tree::RenderNode;
-use crate::stacking::{self, Frame, PaintTree, Stacking, StackingTree};
+use crate::scroll::{self, ScrollRange, ScrollRanges, ScrollState, Scrollbars};
+use crate::scroll_input::to_vector;
+use crate::stacking::{self, Frame, PaintTree, ScrollFrame, ScrollMode, Stacking, StackingTree};
 use crate::{CORNER_DETAIL, ReactUiRoot};
 
 /// The four sides of a box edge, as Taffy resolves them.
@@ -45,6 +47,9 @@ pub(crate) struct NodeGeometry {
     pub(crate) size: Vector2,
     pub(crate) border: Edges,
     pub(crate) padding: Edges,
+    /// How far each scrolling axis can move (`ScrollRange::NONE` for an axis that does not scroll):
+    /// Taffy's `scroll_width()` / `scroll_height()` and whether the axis is reversed (plan 3.16).
+    pub(crate) scroll_ranges: ScrollRanges,
     /// False until the first geometry pass has seen this node.
     pub(crate) laid_out: bool,
 }
@@ -116,6 +121,10 @@ pub(crate) struct MountedNode {
     pub(crate) visual: Visual,
     pub(crate) render: RenderNode,
     pub(crate) geometry: NodeGeometry,
+    /// Where a scroll container is scrolled and how fast it is still coasting. Per tag, so it
+    /// survives the clones React makes, and re-clamped after every layout. Zero for anything that
+    /// is not a scroll container.
+    pub(crate) scroll: ScrollState,
     /// The pseudo-states this node's style layers condition on.
     pub(crate) uses_states: PseudoStates,
 }
@@ -249,6 +258,7 @@ impl PaintTree for Mounted {
             size: node.geometry.size,
             clip: node.clips_content().then(|| node.geometry.padding_box()),
             pointer_target: node.computed.is_pointer_target(),
+            scroll: node.scroll_frame(),
         })
     }
 }
@@ -294,24 +304,28 @@ impl Mounted {
         false
     }
 
-    /// The root-local rectangle of `tag` and the clip its paint ancestors impose on it, or `None` if it
-    /// is not mounted. Computed by walking up the paint parents: cost proportional to depth.
+    /// The root-local rectangle of `tag` as drawn and the clip its paint ancestors impose on it, or
+    /// `None` if it is not mounted. Computed by walking up the paint parents: cost proportional to
+    /// depth. Scrolled content is where its scroll offsets put it.
     pub(crate) fn absolute_geometry(
         &self,
         tag: u32,
         viewport: BoxRect,
     ) -> Option<(BoxRect, Option<BoxRect>)> {
-        stacking::absolute_geometry(self, tag, viewport)
+        stacking::absolute_geometry(self, tag, viewport, ScrollMode::Drawn)
     }
 
-    /// Whether `tag` has a visible area an event could reach.
+    /// Whether `tag` has an area an event could reach, now or by scrolling: Tab stops and keeping
+    /// focus ask this, and an element scrolled out of its container's view still counts
+    /// (`ScrollMode::Reachable`).
     pub(crate) fn visible_for_input(&self, tag: u32, viewport: BoxRect) -> bool {
-        self.absolute_geometry(tag, viewport)
-            .is_some_and(|(rect, clip)| {
+        stacking::absolute_geometry(self, tag, viewport, ScrollMode::Reachable).is_some_and(
+            |(rect, clip)| {
                 rect.width > 0.0
                     && rect.height > 0.0
                     && clip.is_none_or(|clip| intersects(rect, clip))
-            })
+            },
+        )
     }
 
     /// The topmost element at `point` (root-local), descending the paint tree in reverse paint order,
@@ -372,10 +386,73 @@ impl Mounted {
 }
 
 impl MountedNode {
-    /// Whether this element clips its children to its padding box.
+    /// Whether this element clips its children to its padding box: one clip rectangle, so an element
+    /// that clips on one axis clips on both.
     pub(crate) fn clips_content(&self) -> bool {
-        use crate::props::OverflowSpec::Hidden;
-        self.computed.overflow_x == Some(Hidden) || self.computed.overflow_y == Some(Hidden)
+        self.computed.overflow_x.is_some_and(OverflowSpec::clips)
+            || self.computed.overflow_y.is_some_and(OverflowSpec::clips)
+    }
+
+    /// Whether this element is a scroll container: `overflow` is `scroll` or `auto` on an axis.
+    pub(crate) fn is_scroll_container(&self) -> bool {
+        self.computed.overflow_x.is_some_and(OverflowSpec::scrolls)
+            || self.computed.overflow_y.is_some_and(OverflowSpec::scrolls)
+    }
+
+    /// The ranges Taffy's layout allows: the magnitude of each scrolling axis with its reversed flag
+    /// (`Layout::scroll_width()` is unsigned, also for a reversed axis). An axis whose `overflow`
+    /// does not scroll has none, however far its content reaches.
+    fn scroll_ranges_of(&self, layout: &taffy::Layout) -> ScrollRanges {
+        let reversed = layout.scrollable_overflow_rect.is_reversed();
+        let range = |overflow: Option<OverflowSpec>, magnitude: f32, reversed: bool| {
+            if overflow.is_some_and(OverflowSpec::scrolls) {
+                ScrollRange::new(magnitude, reversed)
+            } else {
+                ScrollRange::NONE
+            }
+        };
+        ScrollRanges {
+            x: range(self.computed.overflow_x, layout.scroll_width(), reversed.x),
+            y: range(self.computed.overflow_y, layout.scroll_height(), reversed.y),
+        }
+    }
+
+    /// The overlay scrollbars as they are now, in the client (padding box) area's coordinates; none
+    /// for a container with `scrollbar-width: none` or nothing to scroll.
+    pub(crate) fn scrollbars(&self) -> Scrollbars {
+        if !self.is_scroll_container()
+            || self.computed.scrollbar_width == Some(ScrollbarWidthSpec::None)
+        {
+            return Scrollbars::default();
+        }
+        let client = self.geometry.padding_box();
+        scroll::scrollbars(
+            scroll::Vec2::new(client.width, client.height),
+            &self.geometry.scroll_ranges,
+            self.scroll.offset,
+        )
+    }
+
+    /// What hit testing and geometry need of a scroll container, or `None` for any other element.
+    fn scroll_frame(&self) -> Option<ScrollFrame> {
+        if !self.is_scroll_container() {
+            return None;
+        }
+        let client = self.geometry.padding_box();
+        let origin = Vector2::new(client.x, client.y);
+        let bars = self.scrollbars();
+        let thumb = |bar: Option<scroll::Scrollbar>| {
+            bar.map(|bar| BoxRect {
+                x: origin.x + bar.thumb.origin.x,
+                y: origin.y + bar.thumb.origin.y,
+                width: bar.thumb.size.x,
+                height: bar.thumb.size.y,
+            })
+        };
+        Some(ScrollFrame {
+            offset: to_vector(self.scroll.offset),
+            thumbs: [thumb(bars.x), thumb(bars.y)],
+        })
     }
 }
 
@@ -639,7 +716,7 @@ impl ReactUiRoot {
             Parent::Layer(layer) => (self.layer_roots[layer], self.layer_item(layer)),
             Parent::Node(parent) => {
                 let parent = &self.mounted.nodes[&parent];
-                (parent.layout, parent.render.content_item)
+                (parent.layout, parent.render.child_item())
             }
         };
         let child = self
@@ -693,6 +770,7 @@ impl ReactUiRoot {
             visual: Visual::new(),
             render: RenderNode::new(),
             geometry: NodeGeometry::default(),
+            scroll: ScrollState::default(),
             uses_states: states_used(props.style.as_ref()),
         };
         self.mounted.breakpoints.register(tag, props.style.as_ref());
@@ -750,6 +828,7 @@ impl ReactUiRoot {
         self.paint_dirty.remove(&tag);
         self.paint_reeval.remove(&tag);
         self.mounted.out_of_flow.remove(&tag);
+        self.forget_scroll(tag);
         self.paint_dirty_parents.remove(&Parent::Node(tag));
         if let Some(painter) = node.paint_parent {
             self.paint_dirty_parents.insert(painter);
@@ -858,7 +937,7 @@ impl ReactUiRoot {
     fn move_paint_item(&mut self, tag: u32, painter: Option<Parent>) {
         let item = painter.map(|painter| match painter {
             Parent::Layer(layer) => self.layer_item(layer),
-            Parent::Node(node) => self.mounted.nodes[&node].render.content_item,
+            Parent::Node(node) => self.mounted.nodes[&node].render.child_item(),
         });
         let node = self
             .mounted
@@ -943,6 +1022,9 @@ impl ReactUiRoot {
 
     /// Returns whether the node's children must be compared too.
     fn update_node_geometry(&mut self, tag: u32, dirty_paths: &BTreeSet<u32>) -> bool {
+        // A node that just became (or stopped being) a scroll container gets (or loses) its scroll
+        // item before anything is placed under it.
+        self.sync_scroll_container(tag);
         let node = self
             .mounted
             .nodes
@@ -967,6 +1049,7 @@ impl ReactUiRoot {
                 right: layout.padding.right,
                 bottom: layout.padding.bottom,
             },
+            scroll_ranges: node.scroll_ranges_of(layout),
             laid_out: true,
         };
         let previous = node.geometry;
@@ -983,6 +1066,11 @@ impl ReactUiRoot {
             || previous.padding != geometry.padding;
         if shape_changed {
             self.paint_dirty.insert(tag);
+        }
+        if shape_changed || previous.scroll_ranges != geometry.scroll_ranges {
+            // The client area or the content's reach changed: the offset may no longer be reachable,
+            // and the scrollbars' proportions changed.
+            self.settle_scroll(tag);
         }
         shape_changed || on_dirty_path
     }

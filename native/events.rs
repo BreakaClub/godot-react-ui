@@ -68,6 +68,21 @@ pub struct WheelData {
     pub delta_y: f32,
 }
 
+/// A scroll container's position and size: DOM `scrollLeft`, `scrollTop`, `scrollWidth`,
+/// `scrollHeight`, `clientWidth` and `clientHeight` (plan 4.3). The client size is the padding box,
+/// the scroll size the client size plus the range the content can move; the offsets of a reversed
+/// axis are zero or negative, as in the DOM.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScrollData {
+    pub scroll_left: f32,
+    pub scroll_top: f32,
+    pub scroll_width: f32,
+    pub scroll_height: f32,
+    pub client_width: f32,
+    pub client_height: f32,
+}
+
 /// A key press or release (plan 3.14): `key` and `code` follow the DOM (`keymap.rs`), `repeat` is
 /// true for the echoes Godot sends while a key is held.
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -129,6 +144,9 @@ pub enum EventPayload {
     /// The secondary button was pressed.
     ContextMenu(PointerData),
     Wheel(WheelData),
+    /// A scroll container moved. Not cancelable and not bubbling; coalesced per container
+    /// (`EventQueue::push_scroll`).
+    Scroll(ScrollData),
     KeyDown(KeyData),
     KeyUp(KeyData),
     Focus(FocusData),
@@ -214,6 +232,33 @@ impl EventQueue {
         time_stamp: f64,
     ) -> EventSeq {
         self.enqueue(target, path, Vec::new(), payload, time_stamp, false)
+    }
+
+    /// Queue a `scroll` event for container `target`. A `scroll` still waiting for JS is updated in
+    /// place instead (it keeps its place and sequence number): JS sees where the container is when it
+    /// looks, once, not every step on the way (plan 3.16, "coalesced per container per frame").
+    pub fn push_scroll(
+        &mut self,
+        target: u32,
+        path: Vec<u32>,
+        data: ScrollData,
+        time_stamp: f64,
+    ) -> EventSeq {
+        if let Some(pending) = self.queued.iter_mut().find(|event| {
+            event.target == target && matches!(event.payload, EventPayload::Scroll(_))
+        }) {
+            pending.payload = EventPayload::Scroll(data);
+            pending.time_stamp = time_stamp;
+            return pending.seq;
+        }
+        self.enqueue(
+            target,
+            path,
+            Vec::new(),
+            EventPayload::Scroll(data),
+            time_stamp,
+            false,
+        )
     }
 
     /// Queue an enter or leave event that also names the path of the element on the other side.
@@ -592,6 +637,58 @@ mod tests {
             events[4].get("relatedPath").is_none(),
             "only crossing events name the other side's path"
         );
+    }
+
+    fn scroll_data(top: f32) -> ScrollData {
+        ScrollData {
+            scroll_left: 0.0,
+            scroll_top: top,
+            scroll_width: 300.0,
+            scroll_height: 900.0,
+            client_width: 300.0,
+            client_height: 400.0,
+        }
+    }
+
+    #[test]
+    fn a_scroll_event_has_the_documented_wire_shape() {
+        let mut queue = EventQueue::new();
+        queue.push_scroll(4, vec![4, 1], scroll_data(120.0), STAMP);
+        let event = wire(&queue.drain()[0]);
+        assert_eq!(
+            event,
+            json!({"seq": 1, "target": 4, "path": [4, 1], "cancelable": false, "timeStamp": STAMP,
+                   "type": "scroll", "scrollLeft": 0.0, "scrollTop": 120.0, "scrollWidth": 300.0,
+                   "scrollHeight": 900.0, "clientWidth": 300.0, "clientHeight": 400.0})
+        );
+    }
+
+    #[test]
+    fn scroll_events_coalesce_per_container_and_only_while_waiting() {
+        let mut queue = EventQueue::new();
+        let first = queue.push_scroll(4, vec![4], scroll_data(10.0), STAMP);
+        queue.push(9, vec![9], EventPayload::Click(pointer()), STAMP);
+        let other = queue.push_scroll(5, vec![5], scroll_data(7.0), STAMP);
+        // Two more steps of container 4 replace the waiting event in place.
+        assert_eq!(
+            queue.push_scroll(4, vec![4], scroll_data(20.0), STAMP + 1.0),
+            first
+        );
+        assert_eq!(
+            queue.push_scroll(4, vec![4], scroll_data(30.0), STAMP + 2.0),
+            first
+        );
+        let drained = queue.drain();
+        assert_eq!(drained.len(), 3, "one scroll per container, plus the click");
+        assert_eq!(drained[0].seq, first);
+        assert_eq!(drained[0].payload, EventPayload::Scroll(scroll_data(30.0)));
+        assert_eq!(drained[0].time_stamp, STAMP + 2.0);
+        assert!(matches!(drained[1].payload, EventPayload::Click(_)));
+        assert_eq!(drained[2].seq, other);
+        // Once delivered, the next step is a new event.
+        let later = queue.push_scroll(4, vec![4], scroll_data(40.0), STAMP + 3.0);
+        assert!(later > other);
+        assert_eq!(queue.drain().len(), 1);
     }
 
     #[test]

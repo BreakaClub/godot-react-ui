@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createElement as h } from 'react';
 import {
-  View, type UIAccessibilityActionEvent, type UIFocusEvent, type UIKeyboardEvent, type UIPointerEvent, type UIWheelEvent,
+  View, type UIAccessibilityActionEvent, type UIFocusEvent, type UIKeyboardEvent, type UIPointerEvent, type UIScrollEvent,
+  type UIWheelEvent,
 } from '../src';
 import { EventPhase, exclusiveAncestry } from '../src/events';
 import { createTestRoot, RecordingHost } from './recording-host';
@@ -633,6 +634,84 @@ test('handles focus and blur through native, which says why it refuses', () => {
   cardHandle.blur();
   assert.equal(host.focused, null);
   assert.throws(() => plainHandle.focus(), /focus failed: node \d+ cannot take focus/);
+  root.unmount();
+});
+
+test('scroll events reach the container only: no bubbling, no capture, not cancelable, DOM-named fields', () => {
+  const host = new RecordingHost();
+  const { root } = createTestRoot(host);
+  const seen: UIScrollEvent[] = [];
+  const log: string[] = [];
+  root.render(h(View, { testID: 'outer', onScroll: () => log.push('outer') },
+    h(View, { testID: 'list', onScroll: (event: UIScrollEvent) => { seen.push(event); log.push('list'); } },
+      h(View, { testID: 'row', onScroll: () => log.push('row') }))));
+  root.addEventListener('scroll', () => log.push('root'));
+  host.events.push(host.scrollEvent(requireNode(root, 'list'), { scrollTop: 150, scrollHeight: 900 }));
+  root.dispatchEvents();
+  assert.deepEqual(log, ['list'], 'an ancestor, a descendant and root listeners hear nothing');
+  const [event] = seen;
+  assert.ok(event);
+  assert.equal(event.type, 'scroll');
+  assert.equal(event.bubbles, false);
+  assert.equal(event.cancelable, false);
+  assert.deepEqual(
+    [event.scrollLeft, event.scrollTop, event.scrollWidth, event.scrollHeight, event.clientWidth, event.clientHeight],
+    [0, 150, 300, 900, 300, 400],
+  );
+  assert.equal(event.target.testID, 'list');
+  assert.equal(event.currentTarget.testID, 'list');
+  assert.deepEqual(host.resolutions, [], 'native does not wait for an answer to a scroll event');
+  root.unmount();
+});
+
+test('a malformed scroll event is rejected at the boundary', () => {
+  const host = new RecordingHost();
+  const { root } = createTestRoot(host);
+  root.render(h(View, { testID: 'list' }));
+  const list = requireNode(root, 'list');
+  const { scrollTop: _omitted, ...incomplete } = host.scrollEvent(list);
+  host.drainEvents = () => JSON.stringify([incomplete]);
+  assert.throws(() => root.dispatchEvents(), /Invalid native event\.scrollTop/);
+  root.unmount();
+});
+
+test('scroll handles ask native, fill an omitted axis from the current state and report why native refuses', () => {
+  const host = new RecordingHost();
+  const { root } = createTestRoot(host);
+  const handles: { scrollTo(p: { left?: number; top?: number }): void; scrollBy(d: { left?: number; top?: number }): void;
+    scrollIntoView(): void; getScrollState(): unknown }[] = [];
+  const collect = (event: UIPointerEvent) => { handles.push(event.currentTarget); };
+  root.render(h(View, null,
+    h(View, { testID: 'list', onPointerDown: collect }),
+    h(View, { testID: 'plain', onPointerDown: collect })));
+  const list = requireNode(root, 'list');
+  const plain = requireNode(root, 'plain');
+  host.scrollStates.set(list, {
+    scrollLeft: 7, scrollTop: 40, scrollWidth: 300, scrollHeight: 900, clientWidth: 300, clientHeight: 400,
+    minScrollLeft: 0, maxScrollLeft: 0, minScrollTop: 0, maxScrollTop: 500, thumbs: null,
+  });
+  host.event(list, 'pointerdown');
+  host.event(plain, 'pointerdown');
+  root.dispatchEvents();
+  const [listHandle, plainHandle] = handles;
+  assert.ok(listHandle && plainHandle);
+
+  listHandle.scrollTo({ top: 200 });
+  listHandle.scrollTo({ left: 3, top: 9 });
+  listHandle.scrollBy({ top: 25 });
+  listHandle.scrollIntoView();
+  assert.deepEqual(host.scrollRequests, [
+    { method: 'scrollTo', tag: list, x: 7, y: 200 },
+    { method: 'scrollTo', tag: list, x: 3, y: 9 },
+    { method: 'scrollBy', tag: list, x: 0, y: 25 },
+    { method: 'scrollIntoView', tag: list },
+  ], 'an axis left out keeps the offset it has; a missing delta is zero');
+  assert.equal(listHandle.getScrollState() !== undefined, true);
+  assert.deepEqual(listHandle.getScrollState(), host.scrollStates.get(list));
+  assert.equal(plainHandle.getScrollState(), undefined, 'an element that is not a scroll container has no state');
+  assert.throws(() => plainHandle.scrollTo({ top: 1 }), /scrollTo failed: node \d+ is not a scroll container/);
+  assert.throws(() => plainHandle.scrollBy({ top: 1 }), /scrollBy failed: node \d+ is not a scroll container/);
+  plainHandle.scrollIntoView();
   root.unmount();
 });
 

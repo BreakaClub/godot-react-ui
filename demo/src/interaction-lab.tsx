@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { Button, Text, View, type UIPointerEvent } from 'godot-react-ui';
+import { Button, ScrollView, Text, View, type UIPointerEvent } from 'godot-react-ui';
 
 /**
  * What the lab's buttons may ask of their Godot owner from inside a pointer handler. The owner sets
@@ -27,7 +27,7 @@ function requireOwner(): LabOwner {
   return owner;
 }
 
-/** The tab body keeps this height so later sections can scroll inside it. */
+/** The tab body keeps this height and scrolls what does not fit in it (it does fit at the verifiers' sizes, so no scrollbar shows). */
 const LAB_HEIGHT = 'h-[520px]';
 const LOG_LIMIT = 8;
 
@@ -167,10 +167,10 @@ function ReentrancyPanel() {
   );
 }
 
-/** First section of the interaction lab; later phases add sections that scroll inside this body. */
+/** The interaction lab: a vertical scroll view, so sections added to it scroll inside this body (Phase I5). */
 export function InteractionLab() {
   return (
-    <View testID="interaction-lab" className={`${LAB_HEIGHT} gap-3`}>
+    <ScrollView testID="interaction-lab" className={LAB_HEIGHT} contentClassName="gap-3">
       <View className="gap-1">
         <Text className="text-2xl text-slate-900">Interaction, in order.</Text>
         <Text className="text-sm text-slate-500">Native dispatches input to React synchronously, so a handler can change what native does next.</Text>
@@ -182,6 +182,6 @@ export function InteractionLab() {
           <ReentrancyPanel />
         </View>
       </View>
-    </View>
+    </ScrollView>
   );
 }

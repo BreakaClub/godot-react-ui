@@ -11,7 +11,8 @@ import {
   type DispatchResult, type PathNode, type UIEventMap,
 } from './events';
 import {
-  checkCapture, checkFocus, commitPayload, findTag, readDeletions, readEvents, readNodeRect, readSnapshot, resolveEvent,
+  checkCapture, checkFocus, checkScroll, commitPayload, findTag, readDeletions, readEvents, readNodeRect, readScrollState,
+  readSnapshot, resolveEvent,
   type NativeEvent, type NativeEventType, type NativeHost, type NativePointerEvent,
   type NativeSnapshot, type NativeSnapshotNode,
 } from './native';
@@ -197,6 +198,22 @@ function documentIndexOf(root: RootState, handle: UIHandle): number {
   return index;
 }
 
+/** The scroll methods of the handle of `tag`, which native validates. */
+function scrollMethods(host: NativeHost, tag: number): Pick<UIHandle, 'scrollTo' | 'scrollBy' | 'scrollIntoView' | 'getScrollState'> {
+  return {
+    scrollTo(position) {
+      // An axis left out keeps its offset, so native always gets both.
+      const current = position.left === undefined || position.top === undefined ? readScrollState(host, tag) : undefined;
+      const left = position.left ?? current?.scrollLeft ?? 0;
+      const top = position.top ?? current?.scrollTop ?? 0;
+      checkScroll(host.scrollTo(tag, left, top), 'scrollTo');
+    },
+    scrollBy(delta) { checkScroll(host.scrollBy(tag, delta.left ?? 0, delta.top ?? 0), 'scrollBy'); },
+    scrollIntoView() { checkScroll(host.scrollIntoView(tag), 'scrollIntoView'); },
+    getScrollState() { return readScrollState(host, tag); },
+  };
+}
+
 /** The public handle of a tag; created on first use and stable across clones. */
 function handleFor(root: RootState, tag: number): UIHandle {
   let handle = root.handles.get(tag);
@@ -208,6 +225,7 @@ function handleFor(root: RootState, tag: number): UIHandle {
       compareDocumentOrder(other) { return documentIndexOf(root, own) - documentIndexOf(root, other); },
       ...captureMethods(root.host, tag),
       ...focusMethods(root.host, tag),
+      ...scrollMethods(root.host, tag),
     };
     root.handles.set(tag, handle);
   }
@@ -486,6 +504,7 @@ export function createRoot(host: NativeHost, options: RootOptions): UIRoot {
       compareDocumentOrder() { throw new Error('compareDocumentOrder: the root is not an element and has no place in document order'); },
       ...captureMethods(host, LAYER_ROOT_TAG),
       ...focusMethods(host, LAYER_ROOT_TAG),
+      ...scrollMethods(host, LAYER_ROOT_TAG),
     },
   };
   const onUncaughtError = (error: Error) => {

@@ -16,10 +16,19 @@ use crate::pointer::{
     MOUSE_POINTER_ID, dom_button_of, shared_button_target, wheel_ticks,
 };
 use crate::pointer_state::{Capture, PointerKind, Press, touch_pointer_id};
+use crate::scroll::{ScrollInput, Vec2, wheel_factor};
 use crate::{ROOT_TARGET, ReactUiRoot, event_time_ms, modifiers_of};
 
 /// The click count at which a `dblclick` follows the `click`.
 const DOUBLE_CLICK_DETAIL: u32 = 2;
+
+/// What produced a `wheel` event: a mouse wheel notch, or a trackpad's pan gesture. Both are in wheel
+/// ticks (decision D13); only the wheel's Shift key swaps the axes (`scroll_container.cpp:187`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WheelSource {
+    Wheel,
+    PanGesture,
+}
 
 impl ReactUiRoot {
     pub(crate) fn handle_mouse_motion(&mut self, motion: &Gd<InputEventMouseMotion>) {
@@ -28,6 +37,11 @@ impl ReactUiRoot {
             motion.get_button_mask(),
             modifiers_of(motion),
         );
+        // A scrollbar thumb being dragged owns the mouse: the content follows, and neither the hover
+        // nor JS hears of the movement.
+        if self.thumb_drag_moved() {
+            return;
+        }
         let hit = self.mounted.hit_test(self.pointer);
         self.update_hover(hit);
         self.pointers.moved(
@@ -45,8 +59,9 @@ impl ReactUiRoot {
 
     /// A press or release of any mouse button, or a wheel tick.
     pub(crate) fn handle_mouse_button(&mut self, button: &Gd<InputEventMouseButton>) {
+        // A platform that reports no factor means one notch (`scroll::wheel_factor`).
         if let Some((delta_x, delta_y)) =
-            wheel_ticks(button.get_button_index(), button.get_factor())
+            wheel_ticks(button.get_button_index(), wheel_factor(button.get_factor()))
         {
             // Godot sends a press and a release for every wheel tick; the tick is the press.
             if button.is_pressed() {
@@ -55,7 +70,7 @@ impl ReactUiRoot {
                     button.get_button_mask(),
                     modifiers_of(button),
                 );
-                self.dispatch_wheel(delta_x, delta_y);
+                self.dispatch_wheel(delta_x, delta_y, WheelSource::Wheel);
             }
             return;
         }
@@ -84,13 +99,14 @@ impl ReactUiRoot {
     pub(crate) fn handle_pan(&mut self, pan: &Gd<InputEventPanGesture>) {
         self.track_position(pan.get_position(), modifiers_of(pan));
         let delta = pan.get_delta();
-        self.dispatch_wheel(delta.x, delta.y);
+        self.dispatch_wheel(delta.x, delta.y, WheelSource::PanGesture);
     }
 
-    /// Hand a wheel tick or pan at the tracked pointer position to JS as a cancelable `wheel`.
-    /// Nothing scrolls natively before Phase I5, so the event is consumed only when JS prevents it;
-    /// otherwise it goes on to the game's `_unhandled_input` (plan 3.11).
-    fn dispatch_wheel(&mut self, delta_x: f32, delta_y: f32) {
+    /// Hand a wheel tick or pan at the tracked pointer position to JS as a cancelable `wheel`. Unless
+    /// JS prevents it, its default action scrolls the scroll containers around the element under the
+    /// pointer, chaining outwards (plan 3.16). The event is consumed when JS prevented it or something
+    /// scrolled; otherwise it goes on to the game's `_unhandled_input` (plan 3.11).
+    fn dispatch_wheel(&mut self, delta_x: f32, delta_y: f32, source: WheelSource) {
         let hit = self.mounted.hit_test(self.pointer);
         self.update_hover(hit);
         let pointer = self.mouse_pointer_data(DOM_BUTTON_NONE, 0, None);
@@ -102,7 +118,20 @@ impl ReactUiRoot {
         let prevented = self
             .dispatch_cancelable(hit.unwrap_or(ROOT_TARGET), EventPayload::Wheel(wheel))
             .default_prevented;
-        if prevented && self.base().is_inside_tree() {
+        // JS may have changed the tree, or left it: nothing computed before is trusted (plan 3.3).
+        if !self.base().is_inside_tree() {
+            return;
+        }
+        let scrolled = !prevented && {
+            let ticks = Vec2::new(delta_x, delta_y);
+            let input = match source {
+                WheelSource::Wheel => ScrollInput::wheel(ticks, self.pointer_modifiers.shift_key),
+                WheelSource::PanGesture => ScrollInput::pan(ticks),
+            };
+            let target = self.mounted.hit_test(self.pointer);
+            self.scroll_chain_from(target, input)
+        };
+        if (prevented || scrolled) && self.base().is_inside_tree() {
             self.base_mut().accept_event();
         }
     }
@@ -154,6 +183,10 @@ impl ReactUiRoot {
         }
         if primary {
             self.run_pointerdown_default(hit, prevented);
+            // An un-prevented press on a scrollbar thumb starts dragging it (plan 3.12 rule 2).
+            if !prevented {
+                self.begin_thumb_drag(hit, self.pointer);
+            }
         }
         true
     }
@@ -178,7 +211,10 @@ impl ReactUiRoot {
             let data = self.mouse_pointer_data(button, 0, None);
             self.queue(target, EventPayload::PointerUp(data));
         }
+        // Letting go of a scrollbar thumb is not a click on the container.
+        let dragged_thumb = primary && self.end_thumb_drag();
         if let Some(press) = press
+            && !dragged_thumb
             && let Some(target) = self.click_target(press.target, hit, capture)
         {
             let data = self.mouse_pointer_data(button, press.detail, None);
@@ -263,6 +299,7 @@ impl ReactUiRoot {
             if !self.base().is_inside_tree() {
                 return false;
             }
+            self.begin_touch_pan(id, target, position, prevented);
         }
         self.run_pointerdown_default(hit, prevented);
         true
@@ -282,7 +319,9 @@ impl ReactUiRoot {
             self.queue(target, EventPayload::PointerUp(up));
         }
         self.leave_touch(id, position, press.target);
-        if let Some(target) = self.click_target(press.target, hit, capture) {
+        // A tap that stopped a coasting flick only stopped it.
+        let stopped_a_fling = self.touch_stopped_a_fling(id);
+        if !stopped_a_fling && let Some(target) = self.click_target(press.target, hit, capture) {
             let data = self.touch_pointer_data(position, id, DOM_BUTTON_PRIMARY, 0, press.detail);
             self.queue(target, EventPayload::Click(data));
             if press.detail == DOUBLE_CLICK_DETAIL {
@@ -324,8 +363,11 @@ impl ReactUiRoot {
                 return;
             }
         } else if touch.is_canceled() {
+            self.touch_pan_cancelled(id);
             self.cancel_pointer(id);
-        } else {
+        } else if !self.touch_pan_ended(id) {
+            // A finger that was panning has no pointer left to release (it was cancelled when the
+            // pan began), and its flick, if any, is under way.
             self.release_touch(id, position);
         }
         self.base_mut().accept_event();
@@ -337,6 +379,11 @@ impl ReactUiRoot {
         let Some(id) = touch_pointer_id(drag.get_index()) else {
             return;
         };
+        // A touch that has become a pan scrolls its container and sends the element no more events.
+        if self.touch_pan_moved(id, drag.get_position()) {
+            self.base_mut().accept_event();
+            return;
+        }
         if !self.pointers.get(id).is_some_and(|record| record.is_down()) {
             // A touch native never took.
             return;
@@ -389,15 +436,19 @@ impl ReactUiRoot {
         if kind == PointerKind::Mouse {
             self.pressed = None;
             self.pressed_by_keyboard = false;
+            self.end_thumb_drag();
         }
         self.refresh_interaction();
     }
 
-    /// Cancel every pointer that is down (the root left the scene tree, or the window lost focus).
+    /// Cancel every pointer that is down (the root left the scene tree, or the window lost focus), and
+    /// every pan of a finger that already stopped being one.
     pub(crate) fn cancel_all_pointers(&mut self) {
         for id in self.pointers.active_ids() {
             self.cancel_pointer(id);
         }
+        self.end_all_touch_pans();
+        self.end_thumb_drag();
     }
 
     /// The default action of a primary `pointerdown`, mouse or touch: the nearest enabled button

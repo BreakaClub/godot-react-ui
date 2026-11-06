@@ -4,7 +4,7 @@ import {
   MouseButtonMask, Node, OS, ProjectSettings, RenderingServer, Vector2,
 } from 'godot';
 import type { NativeActivity, RendererProfile } from '../../src';
-import type { LayoutRect, NativeSnapshot, NativeSnapshotNode } from '../../src/native';
+import type { LayoutRect, NativeScrollState, NativeSnapshot, NativeSnapshotNode } from '../../src/native';
 import type { LabName } from './labs';
 import type { PassthroughCounts } from './main';
 import { parseVerifierEvent } from './verifier-input';
@@ -18,6 +18,8 @@ export interface InteractionInspection extends DemoInspection {
   /** Render a page in place of the app: the pass-through HUD, the pointer lab. */
   showLab(name: LabName): void;
   pointerCancels(): number;
+  /** How many `wheel` events (ticks and pans) JS has been shown. */
+  wheelEvents(): number;
   rootKeys(): string[];
   resetRootKeys(): void;
   resetPointerCancels(): void;
@@ -221,7 +223,7 @@ function move(position: Vector2): void {
   parseVerifierEvent(event);
 }
 
-async function wheel(position: Vector2, button: MouseButton): Promise<void> {
+async function wheel(position: Vector2, button: MouseButton, modifiers: { shift?: boolean; ctrl?: boolean } = {}): Promise<void> {
   move(position);
   await settle();
   // A real wheel tick is a press followed at once by a release.
@@ -231,6 +233,8 @@ async function wheel(position: Vector2, button: MouseButton): Promise<void> {
     event.globalPosition = position;
     event.buttonIndex = button;
     event.pressed = pressed;
+    event.shiftPressed = modifiers.shift === true;
+    event.ctrlPressed = modifiers.ctrl === true;
     parseVerifierEvent(event);
   }
   await settle();
@@ -276,17 +280,33 @@ function isOutOfFlow(node: NativeSnapshotNode): boolean {
   return node.style.position === 'absolute' || node.style.position === 'fixed';
 }
 
+/** The ids of every node below a scroll container: its content reaches past it and the window by design. */
+function scrolledContent(snapshot: NativeSnapshot): Set<number> {
+  const content = new Set<number>();
+  const collect = (id: number): void => {
+    for (const child of snapshot.nodes.find(candidate => candidate.id === id)?.children ?? []) {
+      content.add(child);
+      collect(child);
+    }
+  };
+  for (const node of snapshot.nodes) if (node.scroll !== null) collect(node.id);
+  return content;
+}
+
 /**
  * Measures actual Taffy output, including sibling separation and viewport clipping. `overflowing` are elements
  * that are meant to extend beyond their parent (a slider's thumb is taller than its track).
  */
 function geometry(snapshot: NativeSnapshot, overflowing: ReadonlySet<number> = new Set()): void {
+  const content = scrolledContent(snapshot);
   for (const node of snapshot.nodes) {
     const r = node.rect;
-    if (r.width === 0 || r.height === 0) continue;
+    if (r.width === 0 || r.height === 0 || content.has(node.id)) continue;
     assert(r.x >= -GEOMETRY_TOLERANCE && r.y >= -GEOMETRY_TOLERANCE, `Node ${node.id} escapes top/left`);
     assert(r.x + r.width <= snapshot.width + GEOMETRY_TOLERANCE, `Node ${node.id} escapes right: ${JSON.stringify(r)}`);
     assert(r.y + r.height <= snapshot.height + GEOMETRY_TOLERANCE, `Node ${node.id} escapes bottom: ${JSON.stringify(r)}`);
+    // What a scroll container holds may reach past it; that is what scrolling is for.
+    if (node.scroll !== null) continue;
     const children = node.children.map(id => snapshot.nodes.find(candidate => candidate.id === id));
     for (let i = 0; i < children.length; i++) {
       const first = children[i];
@@ -1797,8 +1817,498 @@ async function verifyInputs(owner: Node, api: InteractionInspection, capture: (n
   await settle();
 }
 
+/** A wheel tick scrolls a container's client size divided by this (`SCROLL_PAGE_DIVISOR` in native/scroll.rs). */
+const SCROLL_PAGE_DIVISOR = 8;
+/** The overlay scrollbar's geometry (native/scroll.rs `SCROLLBAR_*`, plan Appendix A). */
+const SCROLLBAR_THICKNESS = 6;
+const SCROLLBAR_MARGIN = 2;
+const SCROLLBAR_MIN_THUMB = 24;
+/** The default thumb (`#64748b99`) over the white a list's right padding is: 0.4 * white + 0.6 * slate-500. */
+const DEFAULT_THUMB_ON_WHITE = '#a2acb9';
+/** The touch list's `scrollbar-[#e11d48]`, opaque, so it shows as itself. */
+const CUSTOM_THUMB = '#e11d48';
+/** A quiet list row (amber-100). */
+const QUIET_ROW_FILL = '#fef3c7';
+/** An offset is a float, and the reading a rounded one in places: this is the slack allowed either way. */
+const SCROLL_TOLERANCE = 0.01;
+/** Wheel ticks the lab's lists are scrolled by in one go. */
+const SEVERAL_TICKS = 3;
+/** How far a finger moves, and how often, in the flick, and how far the content must at least coast afterwards. */
+const TOUCH_SLOP_PX = 8;
+const FLING_STEP_PX = 15;
+const FLING_STEPS = 6;
+const MIN_COAST_PX = 30;
+const COAST_POLL_MS = 100;
+const COAST_DEADLINE_MS = 5000;
+/** How far the thumb is dragged, and how far sideways the mouse strays while it is held. */
+const THUMB_DRAG_PX = 30;
+const THUMB_STRAY_PX = 100;
+/** More Tab presses than the lab's list has rows in view, so a loop that reaches it is a bug. */
+const MAX_REVEAL_TABS = 12;
+/** A wheel tick over a list that the verifier expects to reach the game, as the counter sees it. */
+const ONE_TICK = 1;
+
+function near(actual: number, expected: number, tolerance = SCROLL_TOLERANCE): boolean {
+  return Math.abs(actual - expected) <= tolerance;
+}
+
+/** Wait for `count` process frames, without the 100 ms `settle` waits (a flick must be released within one). */
+async function frames(count: number): Promise<void> {
+  const start = Engine.getProcessFrames();
+  while (Engine.getProcessFrames() - start < count) await new Promise(resolve => setTimeout(resolve, FRAME_POLL_MS));
+}
+
+/** How much of the last tick that reaches `max` is left over beyond it (in ticks of `tick` pixels). */
+function ticksRemainder(max: number, tick: number): number {
+  const ticks = max / tick;
+  return Math.ceil(ticks) - ticks;
+}
+
+/**
+ * Plan I5: scroll containers. Wheel, trackpad pan, keys, scrollbar thumbs, touch pans with momentum, chaining and
+ * `overscroll-behavior`, clipping, hit testing in scrolled content, re-clamping after layout, the handle's commands,
+ * and the counters that say scrolling touches nothing but the scrolled container.
+ */
+async function verifyScrolling(owner: Node, api: InteractionInspection, capture: (name: string) => Promise<void>): Promise<void> {
+  api.showLab('hud');
+  await settle();
+  api.showLab('scroll');
+  await settle();
+  move(FAR_CORNER);
+  await settle();
+  const scrollOf = (testID: string): NativeScrollState => {
+    const state = get(api, testID).scroll;
+    assert(state, `${testID} is a scroll container`);
+    return state;
+  };
+  const top = (testID: string) => scrollOf(testID).scrollTop;
+  const left = (testID: string) => scrollOf(testID).scrollLeft;
+  const tickY = (testID: string) => scrollOf(testID).clientHeight / SCROLL_PAGE_DIVISOR;
+  const tickX = (testID: string) => scrollOf(testID).clientWidth / SCROLL_PAGE_DIVISOR;
+  const rectOf = (testID: string): LayoutRect => get(api, testID).rect;
+  const stats = () => api.snapshot().stats;
+  const unhandled = () => counts(api).unhandledWheels;
+  const scrollingUp = MouseButton.MouseButtonWheelUp;
+  const scrollingDown = MouseButton.MouseButtonWheelDown;
+  const inside = (inner: LayoutRect, outer: LayoutRect) => inner.x >= outer.x - GEOMETRY_TOLERANCE && inner.y >= outer.y - GEOMETRY_TOLERANCE
+    && inner.x + inner.width <= outer.x + outer.width + GEOMETRY_TOLERANCE && inner.y + inner.height <= outer.y + outer.height + GEOMETRY_TOLERANCE;
+
+  // ---- Ranges: what Taffy says the content reaches, as DOM numbers ---------------------------------------------
+  const initial = scrollOf('scroll-list');
+  const listRect = rectOf('scroll-list');
+  assert(initial.scrollTop === 0 && initial.scrollLeft === 0 && initial.minScrollTop === 0 && initial.maxScrollTop > 0,
+    `A tall list starts at the top with room to scroll down: ${JSON.stringify(initial)}`);
+  assert(near(initial.scrollHeight, initial.clientHeight + initial.maxScrollTop) && near(initial.clientHeight, listRect.height - 2),
+    `The client area is the padding box (the border is 1 px), the scroll height the client height plus the range: ${JSON.stringify(initial)}`);
+  assert(initial.maxScrollLeft === 0 && initial.thumbs?.x === null && initial.thumbs.y !== null,
+    'It scrolls vertically only, so it has only a vertical scrollbar');
+  assert(get(api, 'list-wrap').scroll === null && get(api, 'list-row-0').scroll === null, 'Only a scroll container has scroll state');
+  const reversed = scrollOf('rev-list');
+  assert(reversed.scrollTop === 0 && reversed.maxScrollTop === 0 && reversed.minScrollTop < 0
+    && near(reversed.scrollHeight, reversed.clientHeight - reversed.minScrollTop),
+  `A column-reverse list starts at zero with its range below it: ${JSON.stringify(reversed)}`);
+  await capture('28-scroll-lab');
+
+  // ---- Wheel: a tick is a page divided by eight; what nothing can take goes on to the game --------------------------
+  const listCentre = () => centerOf(rectOf('scroll-list'));
+  let gameWheels = unhandled();
+  await wheel(listCentre(), scrollingDown);
+  assert(near(top('scroll-list'), tickY('scroll-list')), `One wheel tick scrolls the client height / 8: ${top('scroll-list')} != ${tickY('scroll-list')}`);
+  assert(unhandled() === gameWheels, 'A wheel tick a list scrolled for is consumed: the game does not get it');
+  assert(text(api, 'list-status').startsWith(`top ${Math.round(tickY('scroll-list'))},`),
+    `JS hears a scroll event: ${text(api, 'list-status')}`);
+  await wheel(listCentre(), scrollingUp);
+  assert(top('scroll-list') === 0, 'And one up goes back');
+  gameWheels = unhandled();
+  await wheel(listCentre(), scrollingUp);
+  assert(top('scroll-list') === 0 && unhandled() === gameWheels + ONE_TICK,
+    'At the top, a list has nothing to take and no container behind it: the tick goes to the game');
+  gameWheels = unhandled();
+  await wheel(centerOf(rectOf('scroll-title')), scrollingDown);
+  assert(unhandled() === gameWheels + ONE_TICK, 'A tick over UI that does not scroll reaches the game');
+
+  // ---- Scrolling touches nothing else: no commit, layout, restyle, paint pass or re-record -------------------------
+  const quietRect = rectOf('quiet-list');
+  const quietTick = tickY('quiet-list');
+  const rowBefore = rectOf('quiet-row-5');
+  const before = stats();
+  const wheelsBefore = api.wheelEvents();
+  for (let tick = 0; tick < SEVERAL_TICKS; tick++) await wheel(centerOf(quietRect), scrollingDown);
+  const after = stats();
+  assert(near(top('quiet-list'), SEVERAL_TICKS * quietTick), `Three ticks scroll three steps: ${top('quiet-list')}`);
+  assert(api.wheelEvents() - wheelsBefore === SEVERAL_TICKS, 'JS was asked about each tick');
+  for (const counter of ['batches', 'layoutPasses', 'paintPasses', 'nodesCreated', 'nodesUpdated', 'nodesDeleted', 'nodesRestyled', 'mutations', 'boxRecords', 'contentRecords'] as const) {
+    assert(after[counter] === before[counter], `Scrolling leaves ${counter} alone: ${before[counter]} -> ${after[counter]}`);
+  }
+  assert(after.scrollUpdates - before.scrollUpdates === SEVERAL_TICKS, `Each tick moved the container once: ${before.scrollUpdates} -> ${after.scrollUpdates}`);
+  assert(after.overlayRecords > before.overlayRecords, 'Only its scrollbar thumb was redrawn');
+  assert(near(rectOf('quiet-row-5').y, rowBefore.y - SEVERAL_TICKS * quietTick), 'A row moved up by exactly the scroll offset');
+
+  // ---- Clipping: what is scrolled out of view is not drawn outside the container ------------------------------------
+  let image = frameImage(owner);
+  const quietX = quietRect.x + quietRect.width / 2;
+  const edge = (y: number) => new Vector2(quietX, y);
+  assert(paintIs(image, edge(quietRect.y - 2), PAGE_FILL), `A row scrolled past the top edge does not draw above the list: ${describePaint(image, edge(quietRect.y - 2))}`);
+  assert(paintIs(image, edge(quietRect.y + 8), QUIET_ROW_FILL), `Row 1 shows in the list where it straddles the edge: ${describePaint(image, edge(quietRect.y + 8))}`);
+  assert(paintIs(image, edge(quietRect.y + quietRect.height + 2), PAGE_FILL), `A row past the bottom edge does not draw below the list: ${describePaint(image, edge(quietRect.y + quietRect.height + 2))}`);
+  assert(paintIs(image, edge(quietRect.y + quietRect.height - 6), QUIET_ROW_FILL), 'And the part of it inside the list shows');
+  await capture('29-scroll-clipped');
+
+  // ---- Scrollbars ---------------------------------------------------------------------------------------------------
+  const quiet = scrollOf('quiet-list');
+  const thumb = quiet.thumbs?.y;
+  assert(thumb, 'A scrolled list has a vertical thumb');
+  const trackLength = quiet.clientHeight - 2 * SCROLLBAR_MARGIN;
+  const thumbLength = Math.max(SCROLLBAR_MIN_THUMB, trackLength * quiet.clientHeight / quiet.scrollHeight);
+  assert(near(thumb.width, SCROLLBAR_THICKNESS) && near(thumb.height, thumbLength, 0.5)
+    && near(thumb.x + thumb.width, quietRect.x + quietRect.width - 1 - SCROLLBAR_MARGIN),
+  `The thumb is 6 px wide at the right edge and as long as the visible share of the content: ${JSON.stringify(thumb)}`);
+  const travelled = (trackLength - thumbLength) * quiet.scrollTop / quiet.maxScrollTop;
+  assert(near(thumb.y, quietRect.y + 1 + SCROLLBAR_MARGIN + travelled, 0.5), `And as far along the track as the content is scrolled: ${thumb.y}`);
+  const listThumb = scrollOf('scroll-list').thumbs?.y;
+  assert(listThumb, 'The vertical list has a thumb');
+  image = frameImage(owner);
+  assert(paintIs(image, centerOf(listThumb), DEFAULT_THUMB_ON_WHITE), `The default thumb is slate-500 at 60 %: ${describePaint(image, centerOf(listThumb))}`);
+  const touchThumb = scrollOf('touch-list').thumbs?.y;
+  assert(touchThumb, 'The touch list has a thumb');
+  assert(paintIs(image, centerOf(touchThumb), CUSTOM_THUMB), `scrollbar-[#e11d48] colours it: ${describePaint(image, centerOf(touchThumb))}`);
+  const carousel = scrollOf('carousel');
+  assert(carousel.maxScrollLeft > 0 && carousel.thumbs?.x === null && carousel.thumbs.y === null, 'scrollbar-none hides the bars of a list that still scrolls');
+
+  // ---- Clicks and hover go to the content under the pointer, wherever it was scrolled to -----------------------------
+  const hoveredRow = (): string | undefined => {
+    const snapshot = api.snapshot();
+    let current = snapshot.nodes.find(node => node.id === snapshot.hovered);
+    while (current && !/^list-row-/.test(String(current.props.testID))) {
+      const parent: number | null = current.parent;
+      current = snapshot.nodes.find(node => node.id === parent);
+    }
+    return current === undefined ? undefined : String(current.props.testID);
+  };
+  const pointerRow = (): string => {
+    const point = listCentre();
+    const row = api.snapshot().nodes.find(node => /^list-row-\d+$/.test(String(node.props.testID)) && node.rect.y <= point.y && point.y < node.rect.y + node.rect.height);
+    assert(row, 'A row is under the pointer');
+    return String(row.props.testID);
+  };
+  await wheel(listCentre(), scrollingDown);
+  const rowBeforeScroll = hoveredRow();
+  for (let tick = 0; tick < SEVERAL_TICKS; tick++) await wheel(listCentre(), scrollingDown);
+  assert(near(top('scroll-list'), (SEVERAL_TICKS + 1) * tickY('scroll-list')), 'The list scrolled four steps');
+  assert(hoveredRow() === pointerRow(), `After a scroll, the hover is on the row now under the stationary pointer: ${hoveredRow()} != ${pointerRow()}`);
+  assert(hoveredRow() !== rowBeforeScroll, `The pointer is over a different row than before the scroll moved the list: ${rowBeforeScroll}`);
+  const targetRow = 'list-row-3';
+  assert(inside(rectOf(targetRow), listRect), `Row 3 is in view at its scrolled place: ${JSON.stringify(rectOf(targetRow))}`);
+  const statusBefore = text(api, 'list-status');
+  await click(api, targetRow);
+  assert(text(api, 'list-status').includes('clicked row 3'), `A click at a scrolled row's place reaches that row: ${text(api, 'list-status')}`);
+  assert(text(api, 'list-status') !== statusBefore && /wrap clicks 1$/.test(text(api, 'list-status')), 'And bubbles to its ancestors');
+  await capture('30-scroll-list-scrolled');
+
+  // ---- Thumb dragging ------------------------------------------------------------------------------------------------
+  await click(api, 'list-top');
+  assert(top('scroll-list') === 0, 'To top scrolls the list back with scrollTo (a handle command)');
+  const draggable = scrollOf('scroll-list');
+  const grip = draggable.thumbs?.y;
+  assert(grip, 'The list has a thumb to grab');
+  const travel = (draggable.clientHeight - 2 * SCROLLBAR_MARGIN) - grip.height;
+  const statusBeforeDrag = text(api, 'list-status');
+  const grab = centerOf(grip);
+  move(grab);
+  await settle();
+  pointer(grab, true);
+  await settle();
+  move(new Vector2(grab.x - THUMB_STRAY_PX, grab.y + THUMB_DRAG_PX / 2));
+  await settle();
+  move(new Vector2(grab.x - THUMB_STRAY_PX, grab.y + THUMB_DRAG_PX));
+  await settle();
+  assert(near(top('scroll-list'), THUMB_DRAG_PX / travel * draggable.maxScrollTop, 0.5),
+    `Dragging the thumb moves the content by the pointer's share of the track, even with the pointer off the bar: ${top('scroll-list')}`);
+  pointer(new Vector2(grab.x - THUMB_STRAY_PX, grab.y + THUMB_DRAG_PX), false);
+  await settle();
+  const dragged = top('scroll-list');
+  move(new Vector2(grab.x - THUMB_STRAY_PX, grab.y + 2 * THUMB_DRAG_PX));
+  await settle();
+  assert(top('scroll-list') === dragged, 'A released thumb is let go');
+  assert(text(api, 'list-status').replace(/top \d+/, '') === statusBeforeDrag.replace(/top \d+/, ''), 'Letting go of a thumb is not a click on anything');
+  await click(api, 'list-top');
+  move(FAR_CORNER);
+  await settle();
+
+  // ---- Keyboard ------------------------------------------------------------------------------------------------------
+  await click(api, 'list-row-1');
+  assert(api.snapshot().focused === get(api, 'list-row-1').id, 'A click focuses the row button');
+  const page = scrollOf('scroll-list').clientHeight;
+  const line = page / SCROLL_PAGE_DIVISOR;
+  await keyPress(Key.KeyPagedown);
+  assert(near(top('scroll-list'), page), `Page Down scrolls a page: ${top('scroll-list')}`);
+  await keyPress(Key.KeyDown);
+  assert(near(top('scroll-list'), page + line), `Arrow Down a page / 8: ${top('scroll-list')}`);
+  await keyPress(Key.KeyUp);
+  await keyPress(Key.KeyPageup);
+  assert(top('scroll-list') === 0, `Arrow Up and Page Up come back: ${top('scroll-list')}`);
+  await keyPress(Key.KeyEnd);
+  assert(near(top('scroll-list'), scrollOf('scroll-list').maxScrollTop), 'End goes to the bottom');
+  await keyPress(Key.KeyHome);
+  assert(top('scroll-list') === 0, 'Home goes to the top');
+  const keysToGame = counts(api).unhandledKeys;
+  assert(keysToGame[Key.KeyPagedown] === undefined && keysToGame[Key.KeyHome] === undefined, 'A key that scrolled is not the game\'s');
+  await keyPress(Key.KeyTab, true);
+  assert(api.snapshot().focused === get(api, 'list-row-0').id, 'Shift+Tab moves to row 0');
+  await keyPress(Key.KeySpace);
+  assert(text(api, 'list-status').includes('clicked row 0') && top('scroll-list') === 0, 'Space on a focused button presses it and does not scroll');
+
+  // The list itself takes focus, and Space then pages (Shift+Space back).
+  await click(api, 'scroll-title');
+  assert(api.snapshot().focused === null, 'Pressing something that takes no focus clears it');
+  // The press also gave Godot's key focus back; the owner takes it, as a game that wants the keyboard does.
+  api.grabSurfaceFocus();
+  await settle();
+  await keyPress(Key.KeyTab);
+  assert(api.snapshot().focused === get(api, 'scroll-list').id, 'Tab\'s first stop is the first scroll container');
+  await keyPress(Key.KeySpace);
+  assert(near(top('scroll-list'), page), `Space on a scroll container pages down: ${top('scroll-list')}`);
+  await keyPress(Key.KeySpace, true);
+  assert(top('scroll-list') === 0, 'Shift+Space pages back up');
+  keyEvent({ keycode: Key.KeyDown, ctrl: true }, true);
+  await settle();
+  keyEvent({ keycode: Key.KeyDown, ctrl: true }, false);
+  await settle();
+  assert(top('scroll-list') === 0, 'A chord with Ctrl is not a scrolling key');
+
+  // Tab to a button below the fold scrolls it into view, and Shift+Tab back up.
+  await click(api, 'list-row-0');
+  const visible = (testID: string) => inside(rectOf(testID), rectOf('scroll-list'));
+  let reached = 0;
+  for (let step = 0; step < MAX_REVEAL_TABS && top('scroll-list') === 0; step++) {
+    await keyPress(Key.KeyTab);
+    reached += 1;
+    assert(api.snapshot().focused === get(api, `list-row-${reached}`).id, `Tab visits the rows in order: ${reached}`);
+    assert(visible(`list-row-${reached}`), `The focused row is shown: row ${reached}, ${JSON.stringify(rectOf(`list-row-${reached}`))}`);
+  }
+  assert(top('scroll-list') > 0, 'Tabbing past the last row in view scrolled the list to show the next');
+  assert(api.snapshot().focusVisible, 'It is a keyboard focus');
+  await capture('31-scroll-tab-reveals');
+  for (let step = 0; step < reached; step++) await keyPress(Key.KeyTab, true);
+  assert(api.snapshot().focused === get(api, 'list-row-0').id && visible('list-row-0'), 'Shift+Tab back to row 0 shows it');
+
+  // The handle's commands.
+  await click(api, 'list-reveal');
+  assert(visible('list-row-24'), `scrollIntoView shows a row far below the fold: ${JSON.stringify(rectOf('list-row-24'))}`);
+  await click(api, 'list-top');
+  assert(top('scroll-list') === 0, 'scrollTo({ top: 0 }) goes back');
+
+  // ---- Re-clamping: the content shrinks under a scrolled list --------------------------------------------------------
+  await click(api, 'list-row-0');
+  await keyPress(Key.KeyEnd);
+  const tallMax = scrollOf('scroll-list').maxScrollTop;
+  assert(near(top('scroll-list'), tallMax) && tallMax > 0, 'The list is scrolled to the bottom');
+  const updates = stats().scrollUpdates;
+  await click(api, 'list-shrink');
+  const shortened = scrollOf('scroll-list');
+  assert(shortened.maxScrollTop < tallMax && near(shortened.scrollTop, shortened.maxScrollTop),
+    `Layout re-clamps the offset to the new range: ${shortened.scrollTop} of ${shortened.maxScrollTop}`);
+  assert(stats().scrollUpdates > updates && text(api, 'list-status').includes(`top ${Math.round(shortened.scrollTop)},`), 'And JS hears the move');
+  await click(api, 'list-shrink');
+  await click(api, 'list-top');
+
+  // ---- Shift+wheel, horizontal ticks, a prevented wheel --------------------------------------------------------------
+  const carouselCentre = () => centerOf(rectOf('carousel'));
+  gameWheels = unhandled();
+  await wheel(carouselCentre(), scrollingDown, { shift: true });
+  assert(near(left('carousel'), tickX('carousel')) && top('carousel') === 0, `Shift+wheel scrolls sideways: ${left('carousel')}`);
+  await wheel(carouselCentre(), MouseButton.MouseButtonWheelRight);
+  assert(near(left('carousel'), 2 * tickX('carousel')), `A horizontal tick does too: ${left('carousel')}`);
+  await wheel(carouselCentre(), MouseButton.MouseButtonWheelLeft);
+  await wheel(carouselCentre(), MouseButton.MouseButtonWheelLeft);
+  assert(left('carousel') === 0, 'And back');
+  await wheel(carouselCentre(), scrollingDown, { ctrl: true });
+  assert(left('carousel') === 0 && unhandled() === gameWheels, 'A wheel JS prevents scrolls nothing and is not the game\'s');
+  await wheel(carouselCentre(), scrollingDown);
+  assert(left('carousel') === 0 && unhandled() === gameWheels + ONE_TICK, 'A plain vertical tick over a horizontal carousel has nothing to scroll: it reaches the game');
+
+  // ---- Reversed content ----------------------------------------------------------------------------------------------
+  gameWheels = unhandled();
+  await wheel(centerOf(rectOf('rev-list')), scrollingDown);
+  assert(top('rev-list') === 0 && unhandled() === gameWheels + ONE_TICK, 'A column-reverse list starts at its end: down has nowhere to go');
+  const reversedThumbAtRest = scrollOf('rev-list').thumbs?.y;
+  assert(reversedThumbAtRest, 'It has a thumb');
+  await wheel(centerOf(rectOf('rev-list')), scrollingUp);
+  assert(near(top('rev-list'), -tickY('rev-list')), `Up scrolls towards the far content, to a negative offset: ${top('rev-list')}`);
+  const reversedThumb = scrollOf('rev-list').thumbs?.y;
+  assert(reversedThumb && reversedThumb.y < reversedThumbAtRest.y, 'A reversed list\'s thumb starts at the far end of its track and moves up as it scrolls');
+
+  // ---- Trackpad pan gesture -------------------------------------------------------------------------------------------
+  const panWheels = api.wheelEvents();
+  const panBefore = top('scroll-list');
+  gameWheels = unhandled();
+  await pan(listCentre(), new Vector2(0, 1));
+  const panned = api.wheelEvents() - panWheels;
+  assert(panned >= 1 && near(top('scroll-list') - panBefore, panned * tickY('scroll-list')),
+    `A pan gesture scrolls a page / 8 per unit of delta, once per delivery (${panned}): ${top('scroll-list') - panBefore}`);
+  assert(unhandled() === gameWheels, 'A pan a list scrolled for is consumed');
+  await click(api, 'list-top');
+
+  // ---- Chaining and overscroll-behavior ------------------------------------------------------------------------------
+  const toInnerEnd = async (name: 'chain' | 'contain') => {
+    const inner = `${name}-inner`;
+    const outer = `${name}-outer`;
+    const point = () => centerOf(rectOf(inner));
+    const innerMax = scrollOf(inner).maxScrollTop;
+    const innerTick = tickY(inner);
+    assert(innerMax > 0 && scrollOf(outer).maxScrollTop > 0, `${name}: both lists scroll`);
+    const ticksToEnd = Math.ceil(innerMax / innerTick);
+    for (let tick = 0; tick < ticksToEnd - 1; tick++) await wheel(point(), scrollingDown);
+    assert(top(outer) === 0 && top(inner) < innerMax, `${name}: while the inner list can scroll, the outer one stays`);
+    const gameBefore = unhandled();
+    await wheel(point(), scrollingDown);
+    assert(near(top(inner), innerMax), `${name}: the inner list reaches its end`);
+    return { point, innerMax, innerTick, gameBefore };
+  };
+  {
+    const { point, innerMax, innerTick, gameBefore } = await toInnerEnd('chain');
+    const spill = top('chain-outer');
+    assert(spill > 0 && near(spill, ticksRemainder(innerMax, innerTick) * tickY('chain-outer'), 0.05),
+      `chain: the tick that overshoots the inner end spills the rest of itself to the outer list: ${spill}`);
+    await wheel(point(), scrollingDown);
+    assert(near(top('chain-outer'), spill + tickY('chain-outer')) && near(top('chain-inner'), innerMax), 'chain: then the outer list takes the ticks');
+    assert(unhandled() === gameBefore, 'chain: and the game gets none of them');
+    await capture('32-scroll-chained');
+    // The inner list scrolls out of view as the outer one moves, so the rest of the ticks aim at the outer list.
+    const outerMax = scrollOf('chain-outer').maxScrollTop;
+    const outerPoint = () => centerOf(rectOf('chain-outer'));
+    for (let tick = 0; tick < outerMax / tickY('chain-outer') + 2; tick++) await wheel(outerPoint(), scrollingDown);
+    const stuck = unhandled();
+    await wheel(outerPoint(), scrollingDown);
+    assert(near(top('chain-outer'), outerMax) && unhandled() === stuck + ONE_TICK, 'chain: with both at the end the tick reaches the game');
+  }
+  {
+    const { point, innerMax, gameBefore } = await toInnerEnd('contain');
+    for (let tick = 0; tick < SEVERAL_TICKS; tick++) await wheel(point(), scrollingDown);
+    assert(top('contain-outer') === 0 && near(top('contain-inner'), innerMax), 'contain: overscroll-contain keeps the scroll the inner list cannot take from the outer one');
+    assert(unhandled() === gameBefore, 'contain: and from the game');
+    await capture('33-scroll-contained');
+  }
+
+  // ---- Touch: a pan scrolls, cancels the pointer, coasts; touch-none keeps the pointer events --------------------------
+  const touchList = () => rectOf('touch-list');
+  const touchStatus = () => text(api, 'touch-status');
+  const rowAt = (y: number): Vector2 => new Vector2(touchList().x + touchList().width / 2, y);
+  const start = rowAt(touchList().y + touchList().height - 40);
+
+  // A tap on a row clicks it, scroller or not.
+  touch(FIRST_TOUCH, start, true);
+  await settle();
+  touch(FIRST_TOUCH, start, false);
+  await settle();
+  assert(touchStatus().endsWith('clicks 1'), `A tap on a button in a scroll container clicks it: ${touchStatus()}`);
+
+  // A pan: the pointer is cancelled, the content follows the finger from where the slop was crossed, no click follows.
+  api.resetPointerCancels();
+  touch(FIRST_TOUCH, start, true);
+  await settle();
+  touchDrag(FIRST_TOUCH, new Vector2(start.x, start.y - TOUCH_SLOP_PX / 2), new Vector2(0, -TOUCH_SLOP_PX / 2));
+  await settle();
+  assert(top('touch-list') === 0 && api.pointerCancels() === 0, 'Within the slop the touch is still a tap');
+  touchDrag(FIRST_TOUCH, new Vector2(start.x, start.y - TOUCH_SLOP_PX - 4), new Vector2(0, -TOUCH_SLOP_PX / 2 - 4));
+  await settle();
+  assert(api.pointerCancels() === 1, `Beyond the slop the pan starts and the pointer is cancelled: ${api.pointerCancels()}`);
+  assert(top('touch-list') === 0, 'The distance up to the slop is not scrolled');
+  const pannedTo = start.y - TOUCH_SLOP_PX - 24;
+  touchDrag(FIRST_TOUCH, new Vector2(start.x, pannedTo), new Vector2(0, -20));
+  await settle();
+  assert(near(top('touch-list'), 20), `The content follows the finger: ${top('touch-list')}`);
+  touchDrag(FIRST_TOUCH, new Vector2(start.x, pannedTo + 5), new Vector2(0, 5));
+  await settle();
+  assert(near(top('touch-list'), 15), `And back when the finger returns: ${top('touch-list')}`);
+  await capture('34-scroll-touch-pan');
+  touch(FIRST_TOUCH, new Vector2(start.x, pannedTo + 5), false);
+  await settle();
+  assert(touchStatus().endsWith('clicks 1'), `No click follows a pan: ${touchStatus()}`);
+  assert(api.snapshot().pointers.every(record => !record.down), 'The pan left no pointer down');
+  const afterPan = top('touch-list');
+  await settle();
+  assert(top('touch-list') === afterPan, 'A pan whose finger stopped before it lifted does not coast');
+  await click(api, 'touch-top');
+  assert(top('touch-list') === 0, 'The list\'s Top button scrolls it back');
+
+  // touch-none: the pad keeps the finger's events.
+  const pad = centerOf(rectOf('touch-pad'));
+  const scrolledBefore = top('touch-list');
+  api.resetPointerCancels();
+  touch(FIRST_TOUCH, pad, true);
+  await settle();
+  // 16 px in four steps: beyond the slop at the third, where arbitration would hand the touch to the list.
+  for (let step = 1; step <= 4; step++) {
+    touchDrag(FIRST_TOUCH, new Vector2(pad.x, pad.y + 4 * step), new Vector2(0, 4));
+    await settle();
+  }
+  touch(FIRST_TOUCH, new Vector2(pad.x, pad.y + 16), false);
+  await settle();
+  assert(top('touch-list') === scrolledBefore && api.pointerCancels() === 0, 'touch-action: none keeps a touch from panning');
+  assert(/moves [1-9]\d*, cancels 0/.test(touchStatus()) && /down 1/.test(touchStatus()), `The pad gets pointermove instead: ${touchStatus()}`);
+
+  // A flick: the finger is moving at the end, so the content coasts and stops by itself.
+  const flickFrom = rowAt(touchList().y + touchList().height - 20);
+  const flick = async (): Promise<Vector2> => {
+    touch(FIRST_TOUCH, flickFrom, true);
+    await frames(2);
+    let finger = flickFrom;
+    for (let step = 1; step <= FLING_STEPS; step++) {
+      finger = new Vector2(flickFrom.x, flickFrom.y - step * FLING_STEP_PX);
+      touchDrag(FIRST_TOUCH, finger, new Vector2(0, -FLING_STEP_PX));
+      await frames(2);
+    }
+    return finger;
+  };
+  let finger = await flick();
+  touch(FIRST_TOUCH, finger, false);
+  await frames(1);
+  const released = top('touch-list');
+  await frames(6);
+  const coasted = top('touch-list');
+  assert(coasted > released + MIN_COAST_PX, `The content keeps going after the finger lifts: ${released} -> ${coasted}`);
+  assert(coasted <= scrollOf('touch-list').maxScrollTop, 'And stays within its range');
+
+  // A touch that lands on the coasting content stops it, and does not click.
+  const clicksBefore = touchStatus();
+  const landing = rowAt(touchList().y + touchList().height / 2);
+  touch(FIRST_TOUCH, landing, true);
+  await frames(1);
+  const stopped = top('touch-list');
+  await settle();
+  assert(top('touch-list') === stopped, 'A touch stops the coasting content');
+  touch(FIRST_TOUCH, landing, false);
+  await settle();
+  assert(touchStatus().endsWith(clicksBefore.slice(clicksBefore.lastIndexOf('clicks'))), `The tap that stopped it does not click: ${touchStatus()}`);
+
+  // Left alone, the same flick coasts to a stop by itself.
+  await click(api, 'touch-top');
+  finger = await flick();
+  touch(FIRST_TOUCH, finger, false);
+  const deadline = Date.now() + COAST_DEADLINE_MS;
+  let last = Number.NaN;
+  while (Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, COAST_POLL_MS));
+    const now = top('touch-list');
+    if (now === last) break;
+    last = now;
+  }
+  assert(top('touch-list') === last && last > FLING_STEPS * FLING_STEP_PX - TOUCH_SLOP_PX, `A flick comes to rest on its own, further than the finger went: ${last}`);
+  const idle = stats();
+  await settle();
+  assert(stats().scrollUpdates === idle.scrollUpdates, 'A resting container asks for no more frames of scrolling');
+
+  move(FAR_CORNER);
+  await settle();
+  api.restoreDemo();
+  await settle();
+  api.grabSurfaceFocus();
+  await settle();
+}
+
 /** The sections of this verifier, in the order they run (plan 0.4.1: `--only=<name>[,<name>]` runs just those). */
-const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard', 'positioning', 'inputs'] as const;
+const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard', 'positioning', 'inputs', 'scroll'] as const;
 type Section = (typeof SECTIONS)[number];
 
 function isSection(value: string): value is Section {
@@ -1845,6 +2355,7 @@ export async function runInteractionVerification(owner: Node, api: InteractionIn
   if (sections.has('keyboard')) await verifyKeyboard(owner, api, capture);
   if (sections.has('positioning')) await verifyPositioning(owner, api, capture);
   if (sections.has('inputs')) await verifyInputs(owner, api, capture);
+  if (sections.has('scroll')) await verifyScrolling(owner, api, capture);
 
   console.log('GODOT_REACT_INTERACTION_VERIFY_PASSED', JSON.stringify({sections: [...sections], captures, dispatchTiming: timing}));
 }

@@ -49,6 +49,18 @@ export interface NativeHost {
   /** `element.blur()`: nothing happens unless the element holds focus. An empty string means success. */
   blurNode(tag: number): string;
   /**
+   * `element.scrollTo(left, top)`: offsets as `scrollLeft` and `scrollTop` (zero or negative on a reversed
+   * axis), clamped to the range. An empty string means success; anything else says why nothing changed (not
+   * mounted, not a scroll container, not finite).
+   */
+  scrollTo(tag: number, left: number, top: number): string;
+  /** `element.scrollBy(dx, dy)`. An empty string means success. */
+  scrollBy(tag: number, dx: number, dy: number): string;
+  /** Scroll the containers around the element, innermost first, just far enough to show it. An empty string means success. */
+  scrollIntoView(tag: number): string;
+  /** A scroll container's state as JSON (`NativeScrollState`), or `null` for anything else. */
+  getScrollState(tag: number): string;
+  /**
    * Answer the one event native is awaiting (`cancelable: true`). An empty string means success.
    * `dropEffect` is '' (not set), 'none', 'copy', 'move' or 'link'.
    */
@@ -103,11 +115,13 @@ export type NativePointerEventType =
   | 'pointerdown' | 'pointerup' | 'pointermove' | 'pointerenter' | 'pointerleave' | 'pointercancel'
   | 'click' | 'dblclick' | 'auxclick' | 'contextmenu';
 export type NativeWheelEventType = 'wheel';
+export type NativeScrollEventType = 'scroll';
 export type NativeFocusEventType = 'focus' | 'blur';
 export type NativeKeyEventType = 'keydown' | 'keyup';
 export type NativeAccessibilityEventType = 'accessibilityaction';
 export type NativeEventType =
-  | NativePointerEventType | NativeWheelEventType | NativeKeyEventType | NativeFocusEventType | NativeAccessibilityEventType;
+  | NativePointerEventType | NativeWheelEventType | NativeScrollEventType | NativeKeyEventType | NativeFocusEventType
+  | NativeAccessibilityEventType;
 
 /** '' is synthetic keyboard activation, as in browsers. */
 export type NativePointerType = 'mouse' | 'touch' | '';
@@ -199,8 +213,42 @@ export interface NativeAccessibilityActionEvent extends NativeEventBase {
   value: number | null;
 }
 
+/**
+ * A scroll container moved (or was re-clamped by layout). Not cancelable, and coalesced per container: JS
+ * sees where the container is when it looks, not every step. The size fields are the DOM's: the client size
+ * is the padding box, the scroll size is the client size plus the range the content can move.
+ */
+export interface NativeScrollEvent extends NativeEventBase {
+  type: NativeScrollEventType;
+  scrollLeft: number;
+  scrollTop: number;
+  scrollWidth: number;
+  scrollHeight: number;
+  clientWidth: number;
+  clientHeight: number;
+}
+
 export type NativeEvent =
-  | NativePointerEvent | NativeWheelEvent | NativeKeyEvent | NativeFocusEvent | NativeAccessibilityActionEvent;
+  | NativePointerEvent | NativeWheelEvent | NativeScrollEvent | NativeKeyEvent | NativeFocusEvent | NativeAccessibilityActionEvent;
+
+/**
+ * A scroll container's position and range. The offsets of a reversed axis (`flex-col-reverse`) are zero or
+ * negative, as in the DOM, and the range each can take is `min...max`.
+ */
+export interface NativeScrollState {
+  scrollLeft: number;
+  scrollTop: number;
+  scrollWidth: number;
+  scrollHeight: number;
+  clientWidth: number;
+  clientHeight: number;
+  minScrollLeft: number;
+  maxScrollLeft: number;
+  minScrollTop: number;
+  maxScrollTop: number;
+  /** Where the overlay scrollbar thumbs are drawn, root-local; each is `null` when that axis has no bar. */
+  thumbs: { x: LayoutRect | null; y: LayoutRect | null } | null;
+}
 
 export interface LayoutRect {
   x: number;
@@ -232,6 +280,8 @@ export interface NativeSnapshotNode {
   style: Record<string, unknown>;
   /** The native props the node was last given (`style` as compiled layers, `text`, `disabled`, ...). */
   props: Record<string, unknown>;
+  /** Set for a scroll container: where it is scrolled and how far it can go. */
+  scroll: NativeScrollState | null;
 }
 
 export interface NativeSnapshot {
@@ -255,6 +305,9 @@ export interface NativeSnapshot {
     /** Canvas-item command lists re-recorded: boxes (background, border) and contents (text). */
     boxRecords: number;
     contentRecords: number;
+    /** Scroll containers whose offset changed, and scrollbar overlays re-recorded. Scrolling changes these and nothing above. */
+    scrollUpdates: number;
+    overlayRecords: number;
   };
   width: number;
   height: number;
@@ -339,7 +392,7 @@ function eventType(value: unknown): NativeEventType {
   switch (value) {
     case 'pointerdown': case 'pointerup': case 'pointermove': case 'pointerenter':
     case 'pointerleave': case 'pointercancel': case 'click': case 'dblclick': case 'auxclick':
-    case 'contextmenu': case 'wheel': case 'keydown': case 'keyup': case 'focus': case 'blur':
+    case 'contextmenu': case 'wheel': case 'scroll': case 'keydown': case 'keyup': case 'focus': case 'blur':
     case 'accessibilityaction':
       return value;
     default:
@@ -410,6 +463,15 @@ function wheelEvent(base: NativeEventBase, event: Record<string, unknown>): Nati
   };
 }
 
+function scrollEvent(base: NativeEventBase, event: Record<string, unknown>): NativeScrollEvent {
+  return {
+    ...base, type: 'scroll',
+    scrollLeft: number(event.scrollLeft, 'event.scrollLeft'), scrollTop: number(event.scrollTop, 'event.scrollTop'),
+    scrollWidth: number(event.scrollWidth, 'event.scrollWidth'), scrollHeight: number(event.scrollHeight, 'event.scrollHeight'),
+    clientWidth: number(event.clientWidth, 'event.clientWidth'), clientHeight: number(event.clientHeight, 'event.clientHeight'),
+  };
+}
+
 function nativeEvent(entry: unknown): NativeEvent {
   const event = record(entry, 'event');
   const base: NativeEventBase = {
@@ -427,6 +489,8 @@ function nativeEvent(entry: unknown): NativeEvent {
       return pointerEvent(type, base, event);
     case 'wheel':
       return wheelEvent(base, event);
+    case 'scroll':
+      return scrollEvent(base, event);
     case 'keydown': case 'keyup':
       return {
         ...base, type, key: string(event.key, 'event.key'), code: string(event.code, 'event.code'),
@@ -452,6 +516,26 @@ function rect(value: unknown, label: string): LayoutRect {
   return {
     x: number(object.x, `${label}.x`), y: number(object.y, `${label}.y`),
     width: number(object.width, `${label}.width`), height: number(object.height, `${label}.height`),
+  };
+}
+
+function scrollState(value: unknown, label: string): NativeScrollState {
+  const state = record(value, label);
+  return {
+    scrollLeft: number(state.scrollLeft, `${label}.scrollLeft`), scrollTop: number(state.scrollTop, `${label}.scrollTop`),
+    scrollWidth: number(state.scrollWidth, `${label}.scrollWidth`), scrollHeight: number(state.scrollHeight, `${label}.scrollHeight`),
+    clientWidth: number(state.clientWidth, `${label}.clientWidth`), clientHeight: number(state.clientHeight, `${label}.clientHeight`),
+    minScrollLeft: number(state.minScrollLeft, `${label}.minScrollLeft`), maxScrollLeft: number(state.maxScrollLeft, `${label}.maxScrollLeft`),
+    minScrollTop: number(state.minScrollTop, `${label}.minScrollTop`), maxScrollTop: number(state.maxScrollTop, `${label}.maxScrollTop`),
+    thumbs: state.thumbs === null ? null : thumbRects(state.thumbs, `${label}.thumbs`),
+  };
+}
+
+function thumbRects(value: unknown, label: string): { x: LayoutRect | null; y: LayoutRect | null } {
+  const thumbs = record(value, label);
+  return {
+    x: thumbs.x === null ? null : rect(thumbs.x, `${label}.x`),
+    y: thumbs.y === null ? null : rect(thumbs.y, `${label}.y`),
   };
 }
 
@@ -559,6 +643,7 @@ export function readSnapshot(host: NativeHost): NativeSnapshot {
         },
         style: record(node.style, 'node.style'),
         props: record(node.props, 'node.props'),
+        scroll: node.scroll === null ? null : scrollState(node.scroll, 'node.scroll'),
       };
     }),
     stats: {
@@ -574,6 +659,8 @@ export function readSnapshot(host: NativeHost): NativeSnapshot {
       mutations: number(stats.mutations, 'stats.mutations'),
       boxRecords: number(stats.boxRecords, 'stats.boxRecords'),
       contentRecords: number(stats.contentRecords, 'stats.contentRecords'),
+      scrollUpdates: number(stats.scrollUpdates, 'stats.scrollUpdates'),
+      overlayRecords: number(stats.overlayRecords, 'stats.overlayRecords'),
     },
     width: number(snapshot.width, 'snapshot.width'),
     height: number(snapshot.height, 'snapshot.height'),
@@ -624,6 +711,17 @@ export function checkCapture(error: string, method: string): void {
 /** Throw if native refused a focus request (DOM's `focus()` ignores these silently; ours says why). */
 export function checkFocus(error: string, method: string): void {
   if (error !== '') throw new Error(`${method} failed: ${error}`);
+}
+
+/** Throw if native refused a scroll command (DOM's `scrollTo` ignores these silently; ours says why). */
+export function checkScroll(error: string, method: string): void {
+  if (error !== '') throw new Error(`${method} failed: ${error}`);
+}
+
+/** A scroll container's state, or `undefined` for a node that is not one (or is gone). */
+export function readScrollState(host: NativeHost, tag: number): NativeScrollState | undefined {
+  const value: unknown = JSON.parse(host.getScrollState(tag));
+  return value === null ? undefined : scrollState(value, 'scroll state');
 }
 
 /** The tags the commit that just succeeded deleted. */

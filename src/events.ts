@@ -2,7 +2,7 @@ import type { UIHandle, UIProps } from './components';
 import type {
   NativeAccessibilityAction, NativeAccessibilityActionEvent, NativeEvent, NativeEventType, NativeFocusEvent,
   NativeFocusEventType, NativeKeyEvent, NativeKeyEventType, NativeMouseFields, NativePointerEvent,
-  NativePointerEventType, NativePointerType, NativeWheelEvent,
+  NativePointerEventType, NativePointerType, NativeScrollEvent, NativeWheelEvent,
 } from './native';
 
 /** DOM `Event.eventPhase`. */
@@ -65,6 +65,23 @@ export interface UIWheelEvent extends UISyntheticEvent<'wheel'>, UIMouseFields {
   readonly deltaY: number;
 }
 
+/**
+ * A scroll container moved: by the wheel, a touch pan or a flick, the keyboard, a scrollbar, focus, a
+ * command, or layout re-clamping it. It does not bubble and cannot be cancelled. Native coalesces them per
+ * container, so a handler sees where the container is when it runs, not every step on the way. Offsets are
+ * the DOM's: zero or negative on a reversed axis.
+ */
+export interface UIScrollEvent extends UISyntheticEvent<'scroll'> {
+  readonly scrollLeft: number;
+  readonly scrollTop: number;
+  /** The client size plus the range the content can move. */
+  readonly scrollWidth: number;
+  readonly scrollHeight: number;
+  /** The container's padding box. */
+  readonly clientWidth: number;
+  readonly clientHeight: number;
+}
+
 export interface UIFocusEvent extends UISyntheticEvent<NativeFocusEventType> {
   /** The element focus came from (`focus`) or goes to (`blur`), if there is one and it still exists. */
   readonly relatedTarget: UIHandle | null;
@@ -104,7 +121,7 @@ export interface UIAccessibilityActionEvent extends UISyntheticEvent<'accessibil
 
 /** Kept so handler types written against the first event model still compile. */
 export type UIEvent = UIPointerEvent;
-export type UIAnyEvent = UIPointerEvent | UIWheelEvent | UIKeyboardEvent | UIFocusEvent | UIAccessibilityActionEvent;
+export type UIAnyEvent = UIPointerEvent | UIWheelEvent | UIScrollEvent | UIKeyboardEvent | UIFocusEvent | UIAccessibilityActionEvent;
 
 export interface UIEventMap {
   pointerdown: UIPointerEvent;
@@ -118,6 +135,7 @@ export interface UIEventMap {
   auxclick: UIPointerEvent;
   contextmenu: UIPointerEvent;
   wheel: UIWheelEvent;
+  scroll: UIScrollEvent;
   keydown: UIKeyboardEvent;
   keyup: UIKeyboardEvent;
   focus: UIFocusEvent;
@@ -213,6 +231,25 @@ class WheelEventImpl extends MouseEventImpl<'wheel'> implements UIWheelEvent {
   }
 }
 
+class ScrollEventImpl extends SyntheticEvent<'scroll'> implements UIScrollEvent {
+  readonly scrollLeft: number;
+  readonly scrollTop: number;
+  readonly scrollWidth: number;
+  readonly scrollHeight: number;
+  readonly clientWidth: number;
+  readonly clientHeight: number;
+
+  constructor(native: NativeScrollEvent, target: UIHandle, bubbles: boolean) {
+    super(native.type, target, bubbles, native.cancelable, native.timeStamp);
+    this.scrollLeft = native.scrollLeft;
+    this.scrollTop = native.scrollTop;
+    this.scrollWidth = native.scrollWidth;
+    this.scrollHeight = native.scrollHeight;
+    this.clientWidth = native.clientWidth;
+    this.clientHeight = native.clientHeight;
+  }
+}
+
 class FocusEventImpl extends SyntheticEvent<NativeFocusEventType> implements UIFocusEvent {
   readonly relatedTarget: UIHandle | null;
   readonly focusVisible: boolean;
@@ -277,6 +314,10 @@ function isAccessibilityActionEvent(event: UIAnyEvent): event is UIAccessibility
   return event.type === 'accessibilityaction';
 }
 
+function isScrollEvent(event: UIAnyEvent): event is UIScrollEvent {
+  return event.type === 'scroll';
+}
+
 /** One entry per native event type: whether it bubbles and which prop receives each phase. */
 interface EventSpec {
   readonly bubbles: boolean;
@@ -294,7 +335,10 @@ function pointerSpec(
     invoke(props, isCapture, event) {
       const handler = isCapture ? capture?.(props) : bubble(props);
       if (handler === undefined) return;
-      if (isFocusEvent(event) || isWheelEvent(event) || isKeyboardEvent(event) || isAccessibilityActionEvent(event)) {
+      if (
+        isFocusEvent(event) || isWheelEvent(event) || isKeyboardEvent(event) || isScrollEvent(event)
+        || isAccessibilityActionEvent(event)
+      ) {
         throw new Error(`UI internal error: ${event.type} reached a pointer event handler`);
       }
       handler(event);
@@ -313,6 +357,22 @@ function wheelSpec(
       if (handler === undefined) return;
       if (!isWheelEvent(event)) {
         throw new Error(`UI internal error: ${event.type} reached a wheel event handler`);
+      }
+      handler(event);
+    },
+  };
+}
+
+/** `scroll` does not bubble and has no capture handler. */
+function scrollSpec(bubble: (props: UIProps) => Handler<UIScrollEvent>): EventSpec {
+  return {
+    bubbles: false,
+    invoke(props, isCapture, event) {
+      if (isCapture) return;
+      const handler = bubble(props);
+      if (handler === undefined) return;
+      if (!isScrollEvent(event)) {
+        throw new Error(`UI internal error: ${event.type} reached a scroll event handler`);
       }
       handler(event);
     },
@@ -379,6 +439,7 @@ const EVENT_TABLE: Record<NativeEventType, EventSpec> = {
   auxclick: pointerSpec(true, (p) => p.onAuxClick),
   contextmenu: pointerSpec(true, (p) => p.onContextMenu),
   wheel: wheelSpec((p) => p.onWheel, (p) => p.onWheelCapture),
+  scroll: scrollSpec((p) => p.onScroll),
   keydown: keySpec((p) => p.onKeyDown, (p) => p.onKeyDownCapture),
   keyup: keySpec((p) => p.onKeyUp, (p) => p.onKeyUpCapture),
   focus: focusSpec((p) => p.onFocus),
@@ -432,7 +493,7 @@ export const NOT_DISPATCHED: DispatchResult = Object.freeze({ defaultPrevented: 
 
 function createEvent(
   native: NativeEvent, target: UIHandle, related: UIHandle | null, bubbles: boolean,
-): PointerEventImpl | WheelEventImpl | KeyboardEventImpl | FocusEventImpl | AccessibilityActionEventImpl {
+): PointerEventImpl | WheelEventImpl | ScrollEventImpl | KeyboardEventImpl | FocusEventImpl | AccessibilityActionEventImpl {
   switch (native.type) {
     case 'pointerdown': case 'pointermove': case 'pointerup':
     case 'pointerenter': case 'pointerleave': case 'pointercancel': case 'click': case 'dblclick':
@@ -440,6 +501,8 @@ function createEvent(
       return new PointerEventImpl(native, target, related, bubbles);
     case 'wheel':
       return new WheelEventImpl(native, target, bubbles);
+    case 'scroll':
+      return new ScrollEventImpl(native, target, bubbles);
     case 'keydown': case 'keyup':
       return new KeyboardEventImpl(native, target, bubbles);
     case 'focus': case 'blur':

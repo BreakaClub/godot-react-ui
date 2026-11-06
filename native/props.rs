@@ -129,12 +129,57 @@ pub enum InterpolateSize {
     AllowKeywords,
 }
 
-/// `scroll` and `auto` join this enum with the scroll container phase.
+/// CSS `overflow` for one axis. `scroll` and `auto` make the axis a scroll container's; they behave
+/// the same here because the scrollbars overlay the content and take no layout space (plan 3.16), so
+/// a bar is drawn only while there is something to scroll to.
 #[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum OverflowSpec {
     Visible,
     Hidden,
+    Scroll,
+    Auto,
+}
+
+impl OverflowSpec {
+    /// Whether this axis scrolls (the user, a command or focus can move its content).
+    pub(crate) fn scrolls(self) -> bool {
+        matches!(self, OverflowSpec::Scroll | OverflowSpec::Auto)
+    }
+
+    /// Whether content past the padding box is clipped on this axis.
+    pub(crate) fn clips(self) -> bool {
+        self != OverflowSpec::Visible
+    }
+}
+
+/// CSS `overscroll-behavior`: `contain` ends scroll chaining at the element, for wheel, pan gestures
+/// and touch. One value covers both axes (plan 3.16).
+#[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum OverscrollBehaviorSpec {
+    Auto,
+    Contain,
+}
+
+/// CSS `scrollbar-width`: `none` hides the overlay scrollbars of a scroll container (it still scrolls).
+#[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ScrollbarWidthSpec {
+    Auto,
+    None,
+}
+
+/// CSS `touch-action`, the subset plan 4.2 lists: which pans the browser (here, native) may take from
+/// a touch that starts on the element. Each element on the path from the touched one to the scroller
+/// that would pan restricts it further (`scroll::pan_owner`).
+#[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum TouchActionSpec {
+    Auto,
+    None,
+    PanX,
+    PanY,
 }
 
 /// CSS `position`, without `sticky` (a non-goal, plan 2.3). `relative`, `absolute` and `fixed` make
@@ -412,6 +457,12 @@ pub struct StyleSpec {
     pub interpolate_size: Option<InterpolateSize>,
     pub overflow_x: Option<OverflowSpec>,
     pub overflow_y: Option<OverflowSpec>,
+    pub overscroll_behavior: Option<OverscrollBehaviorSpec>,
+    pub scrollbar_width: Option<ScrollbarWidthSpec>,
+    /// Inherited. The overlay scrollbar thumb's colour; a scroll container paints
+    /// [`DEFAULT_SCROLLBAR_COLOR`](crate::render_tree::DEFAULT_SCROLLBAR_COLOR) when nothing set one.
+    pub scrollbar_color: Option<String>,
+    pub touch_action: Option<TouchActionSpec>,
     pub pointer_events: Option<PointerEventsSpec>,
     pub cursor: Option<CursorSpec>,
     pub position: Option<PositionSpec>,
@@ -539,6 +590,10 @@ fn overflow(value: Option<OverflowSpec>) -> Overflow {
     match value.unwrap_or(OverflowSpec::Visible) {
         OverflowSpec::Visible => Overflow::Visible,
         OverflowSpec::Hidden => Overflow::Hidden,
+        // Taffy has no `auto`. `Scroll` reserves a scrollbar's width, and the style's `scrollbar_width`
+        // is zero (its default; we never set it), so it lays out exactly as `Hidden` does, which is what
+        // overlay scrollbars need (taffy `style/mod.rs`, the doc of `Overflow::Scroll`).
+        OverflowSpec::Scroll | OverflowSpec::Auto => Overflow::Scroll,
     }
 }
 
@@ -595,6 +650,10 @@ impl StyleSpec {
             interpolate_size,
             overflow_x,
             overflow_y,
+            overscroll_behavior,
+            scrollbar_width,
+            scrollbar_color,
+            touch_action,
             pointer_events,
             cursor,
             position,
@@ -675,6 +734,7 @@ impl StyleSpec {
             ("backgroundColor", &self.background_color),
             ("color", &self.color),
             ("borderColor", &self.border_color),
+            ("scrollbarColor", &self.scrollbar_color),
         ] {
             if let Some(value) = value {
                 let Some(hex) = value.strip_prefix('#') else {
@@ -1032,6 +1092,8 @@ mod tests {
         "borderRadius":4,"borderWidth":1,"borderColor":"#123","opacity":0.5,"textAlign":"right",
         "transition":{"properties":["width"],"durationMs":10},"interpolateSize":"allow-keywords",
         "overflowX":"hidden","overflowY":"hidden","pointerEvents":"none","cursor":"ew-resize",
+        "overscrollBehavior":"contain","scrollbarWidth":"none","scrollbarColor":"#64748b99",
+        "touchAction":"pan-y",
         "position":"absolute","top":1,"right":"10%","bottom":-2,"left":"auto","zIndex":-3
     }"##;
 
@@ -1107,8 +1169,6 @@ mod tests {
             r#"{"transition":{"properties":["width"],"durationMs":100,"easing":"spring"}}"#,
             r#"{"transition":{"properties":["width"],"durationMs":100,"repeat":2}}"#,
             r#"{"interpolateSize":"always"}"#,
-            r#"{"overflowX":"scroll"}"#,
-            r#"{"overflowY":"auto"}"#,
         ] {
             assert!(serde_json::from_str::<StyleSpec>(json).is_err(), "{json}");
         }
@@ -1132,6 +1192,137 @@ mod tests {
             transition.delay_ms = Some(invalid);
             assert!(transition.validate().is_err());
         }
+    }
+
+    #[test]
+    fn scroll_properties_parse_every_documented_value_and_reject_others() {
+        for (json, expected) in [
+            ("visible", OverflowSpec::Visible),
+            ("hidden", OverflowSpec::Hidden),
+            ("scroll", OverflowSpec::Scroll),
+            ("auto", OverflowSpec::Auto),
+        ] {
+            let parsed = style(&format!(r#"{{"overflowX":"{json}","overflowY":"{json}"}}"#));
+            assert_eq!(parsed.overflow_x, Some(expected));
+            assert_eq!(parsed.overflow_y, Some(expected));
+        }
+        assert!(OverflowSpec::Scroll.scrolls() && OverflowSpec::Auto.scrolls());
+        assert!(!OverflowSpec::Hidden.scrolls() && !OverflowSpec::Visible.scrolls());
+        assert!(
+            OverflowSpec::Hidden.clips()
+                && OverflowSpec::Scroll.clips()
+                && OverflowSpec::Auto.clips()
+        );
+        assert!(!OverflowSpec::Visible.clips());
+        for (json, expected) in [
+            ("auto", OverscrollBehaviorSpec::Auto),
+            ("contain", OverscrollBehaviorSpec::Contain),
+        ] {
+            let parsed = style(&format!(r#"{{"overscrollBehavior":"{json}"}}"#));
+            assert_eq!(parsed.overscroll_behavior, Some(expected));
+        }
+        for (json, expected) in [
+            ("auto", ScrollbarWidthSpec::Auto),
+            ("none", ScrollbarWidthSpec::None),
+        ] {
+            let parsed = style(&format!(r#"{{"scrollbarWidth":"{json}"}}"#));
+            assert_eq!(parsed.scrollbar_width, Some(expected));
+        }
+        for (json, expected) in [
+            ("auto", TouchActionSpec::Auto),
+            ("none", TouchActionSpec::None),
+            ("pan-x", TouchActionSpec::PanX),
+            ("pan-y", TouchActionSpec::PanY),
+        ] {
+            let parsed = style(&format!(r#"{{"touchAction":"{json}"}}"#));
+            assert_eq!(parsed.touch_action, Some(expected));
+        }
+        for json in [
+            r#"{"overflowX":"clip"}"#,
+            r#"{"overscrollBehavior":"none"}"#,
+            r#"{"scrollbarWidth":"thin"}"#,
+            r#"{"touchAction":"manipulation"}"#,
+            r#"{"touchAction":"pan_x"}"#,
+        ] {
+            assert!(serde_json::from_str::<StyleSpec>(json).is_err(), "{json}");
+        }
+        style(r##"{"scrollbarColor":"#64748b99"}"##)
+            .validate()
+            .unwrap();
+        assert!(style(r#"{"scrollbarColor":"slate"}"#).validate().is_err());
+    }
+
+    /// Overlay scrollbars take no layout space: `scroll` and `auto` lay out like `hidden` (the
+    /// content-based automatic minimum size is zero), and the scroll container's Taffy style stays
+    /// a `Scroll` with no scrollbar width. Their range comes from Taffy's own layout.
+    #[test]
+    fn scroll_and_auto_overflow_lay_out_like_hidden_and_report_a_scroll_range() {
+        fn tall_item_layout(overflow: OverflowSpec) -> (f32, f32) {
+            use taffy::prelude::TaffyMaxContent;
+            let mut tree: taffy::TaffyTree<()> = taffy::TaffyTree::new();
+            let content = tree
+                .new_leaf(
+                    style(r#"{"width":150,"height":400,"flexShrink":0}"#)
+                        .taffy_style()
+                        .unwrap(),
+                )
+                .unwrap();
+            let container_style = StyleSpec {
+                width: Some(Dimension::Num(100.0)),
+                height: Some(Dimension::Num(100.0)),
+                overflow_x: Some(overflow),
+                overflow_y: Some(overflow),
+                ..StyleSpec::default()
+            };
+            let container = tree
+                .new_with_children(container_style.taffy_style().unwrap(), &[content])
+                .unwrap();
+            tree.compute_layout(container, Size::MAX_CONTENT).unwrap();
+            let layout = tree.layout(container).unwrap();
+            assert_eq!((layout.size.width, layout.size.height), (100.0, 100.0));
+            (layout.scroll_width(), layout.scroll_height())
+        }
+        for overflow in [
+            OverflowSpec::Hidden,
+            OverflowSpec::Scroll,
+            OverflowSpec::Auto,
+        ] {
+            assert_eq!(tall_item_layout(overflow), (50.0, 300.0), "{overflow:?}");
+        }
+        let scroller = StyleSpec {
+            overflow_y: Some(OverflowSpec::Auto),
+            ..StyleSpec::default()
+        };
+        assert_eq!(scroller.taffy_style().unwrap().overflow.y, Overflow::Scroll);
+        assert_eq!(scroller.taffy_style().unwrap().scrollbar_width, 0.0);
+    }
+
+    /// A reversed main axis puts the content's start at the far edge, which Taffy reports as a
+    /// reversed scrollable overflow with a positive magnitude (what `ScrollRange::new` takes).
+    #[test]
+    fn a_column_reverse_scroll_container_reports_a_reversed_vertical_range() {
+        use taffy::prelude::TaffyMaxContent;
+        let mut tree: taffy::TaffyTree<()> = taffy::TaffyTree::new();
+        let content = tree
+            .new_leaf(
+                style(r#"{"width":50,"height":400,"flexShrink":0}"#)
+                    .taffy_style()
+                    .unwrap(),
+            )
+            .unwrap();
+        let container = tree
+            .new_with_children(
+                style(r#"{"width":100,"height":100,"flexDirection":"column-reverse","overflowY":"auto"}"#)
+                    .taffy_style()
+                    .unwrap(),
+                &[content],
+            )
+            .unwrap();
+        tree.compute_layout(container, Size::MAX_CONTENT).unwrap();
+        let layout = tree.layout(container).unwrap();
+        assert!(layout.scrollable_overflow_rect.is_reversed().y);
+        assert!(!layout.scrollable_overflow_rect.is_reversed().x);
+        assert_eq!(layout.scroll_height(), 300.0);
     }
 
     #[test]

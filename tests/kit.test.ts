@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test, { mock } from 'node:test';
 import { createElement as h, createRef, useState, type ReactNode } from 'react';
 import {
-  Button, Checkbox, RadioGroup, Slider, Switch, Text, View, type CheckedState, type UIHandle, type UIProps,
+  Button, Checkbox, RadioGroup, ScrollView, Slider, Switch, Text, View, type CheckedState, type UIHandle, type UIProps,
+  type UIScrollEvent,
 } from '../src';
 import { adjacentEnabledIndex, arrowDirection } from '../src/kit/radio-group';
 import {
@@ -147,7 +148,8 @@ test('every kit component renders with only native props crossing to native', ()
     h(RadioGroup.Root, { testID: 'group', orientation: 'horizontal', 'aria-label': 'Size' },
       h(RadioGroup.Item, { value: 'a', testID: 'a' }, 'A')),
     h(Slider.Root, { testID: 'slider' },
-      h(Slider.Track, null, h(Slider.Range), h(Slider.Thumb, { 'aria-label': 'Volume' })))));
+      h(Slider.Track, null, h(Slider.Range), h(Slider.Thumb, { 'aria-label': 'Volume' }))),
+    h(ScrollView, { testID: 'scroll', 'aria-label': 'Log' }, h(Text, null, 'line'))));
   const sent = new Set<string>();
   for (const { payload } of m.host.commits) {
     for (const entry of [...payload.created, ...payload.updated]) Object.keys(entry.props).forEach((key) => sent.add(key));
@@ -1373,4 +1375,80 @@ test('Slider\'s thumb sends role slider with its range, value and orientation, a
   }, 'max is the last value on the grid, and a value past it is shown at it');
   m.root.unmount();
   vertical.root.unmount();
+});
+
+// ---------------------------------------------------------------------------------------------------
+// ScrollView
+// ---------------------------------------------------------------------------------------------------
+
+/** The unconditional style layers of a node merged, as `Mounted.style` does. */
+function layersOf(m: Mounted, testID: string): Record<string, unknown> {
+  return m.style(testID);
+}
+
+test('ScrollView is a vertical scroll container whose content cannot shrink and fills a short view', () => {
+  const m = mount(h(ScrollView, { testID: 'scroll', className: 'h-64' }, h(Text, { testID: 'line' }, 'line')));
+  const outer = layersOf(m, 'scroll');
+  assert.equal(outer.overflowY, 'auto');
+  assert.equal(outer.overflowX, undefined, 'only the vertical axis scrolls');
+  assert.equal(outer.flexDirection, 'column');
+  assert.equal(outer.height, 256, 'the size is the caller\'s');
+  assert.equal(m.props('scroll').tabIndex, 0, 'keyboard users can focus it to scroll it');
+  const [contentTag] = m.children('scroll');
+  assert.ok(contentTag !== undefined);
+  assert.deepEqual(m.styleOfTag(contentTag), { flexDirection: 'column', flexShrink: 0, flexGrow: 1 },
+    'content keeps its height (a shrinking item would leave nothing to scroll) and grows into a short view');
+  assert.deepEqual(m.childrenOfTag(contentTag), [m.tag('line')]);
+  m.root.unmount();
+});
+
+test('ScrollView horizontal scrolls the other axis, and the caller\'s classes and styles win', () => {
+  const m = mount(h(ScrollView, {
+    testID: 'scroll', horizontal: true, className: 'w-48 overscroll-contain scrollbar-none', style: { height: 99 },
+    contentClassName: 'gap-2', contentStyle: { padding: 3 },
+  }, h(Text, null, 'a')));
+  const outer = layersOf(m, 'scroll');
+  assert.equal(outer.overflowX, 'auto');
+  assert.equal(outer.overflowY, undefined);
+  assert.equal(outer.flexDirection, 'row');
+  assert.equal(outer.overscrollBehavior, 'contain');
+  assert.equal(outer.scrollbarWidth, 'none');
+  assert.equal(outer.height, 99);
+  const [contentTag] = m.children('scroll');
+  assert.ok(contentTag !== undefined);
+  const content = m.styleOfTag(contentTag);
+  assert.equal(content.flexDirection, 'row');
+  assert.equal(content.flexShrink, 0);
+  assert.equal(content.rowGap, 8);
+  assert.equal(content.paddingLeft, 3);
+  m.root.unmount();
+});
+
+test('ScrollView can leave the tab order, reports onScroll and hands out the scroll container\'s handle', () => {
+  const ref = createRef<UIHandle>();
+  const seen: number[] = [];
+  const m = mount(h(View, null,
+    h(ScrollView, { testID: 'plain', focusable: false }),
+    h(ScrollView, { testID: 'logged', ref, onScroll: (event: UIScrollEvent) => seen.push(event.scrollTop) })));
+  assert.equal(m.props('plain').tabIndex, undefined);
+  assert.equal(ref.current?.id, m.tag('logged'), 'the ref is the outer element, which scrolls');
+  m.host.events.push(m.host.scrollEvent(m.tag('logged'), { scrollTop: 64 }));
+  m.root.dispatchEvents();
+  assert.deepEqual(seen, [64]);
+  m.host.scrollStates.set(m.tag('logged'), {
+    scrollLeft: 0, scrollTop: 64, scrollWidth: 300, scrollHeight: 900, clientWidth: 300, clientHeight: 400,
+    minScrollLeft: 0, maxScrollLeft: 0, minScrollTop: 0, maxScrollTop: 500, thumbs: null,
+  });
+  ref.current?.scrollTo({ top: 100 });
+  assert.deepEqual(m.host.scrollRequests, [{ method: 'scrollTo', tag: m.tag('logged'), x: 0, y: 100 }]);
+  m.root.unmount();
+});
+
+test('Slider.Root says touch-none, so a finger on it never pans the scroll container around it', () => {
+  const m = mount(h(ScrollView, { testID: 'scroll' },
+    h(Slider.Root, { testID: 'horizontal' }, h(Slider.Track, null, h(Slider.Thumb))),
+    h(Slider.Root, { testID: 'vertical', orientation: 'vertical' }, h(Slider.Track, null, h(Slider.Thumb)))));
+  assert.equal(m.style('horizontal').touchAction, 'none');
+  assert.equal(m.style('vertical').touchAction, 'none');
+  m.root.unmount();
 });

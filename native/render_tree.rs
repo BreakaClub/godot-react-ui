@@ -5,7 +5,9 @@
 //! ```text
 //! box      transform = location in the parent; modulate alpha = opacity (inherited by everything
 //!          below); draws the background and border
-//! └─ content   clips to the padding box when the element clips; draws text; child boxes attach here
+//! ├─ content   clips to the padding box when the element clips; draws text; child boxes attach here
+//! │  └─ scroll    scroll containers only: transform = minus the scroll offset; child boxes attach here
+//! └─ overlay   scroll containers only, drawn after the content: the scrollbar thumbs
 //! ```
 //!
 //! A move changes one transform and an opacity change one modulate; only an element whose own
@@ -22,6 +24,16 @@ use crate::commit::LAYER_COUNT;
 use crate::geometry::BoxRect;
 use crate::paint::parse_color;
 use crate::profile::{Sample, micros};
+
+/// The overlay scrollbar thumb colour when no `scrollbar-color` is set: slate-500 at 60 % (plan
+/// Appendix A). A paint constant, so it lives with the painting rather than in `scroll.rs`.
+pub(crate) const DEFAULT_SCROLLBAR_COLOR: &str = "#64748b99";
+/// A thumb's ends are round: half its thickness.
+pub(crate) const SCROLLBAR_THUMB_RADIUS_PX: i32 =
+    (crate::scroll::SCROLLBAR_THICKNESS_PX / 2.0) as i32;
+/// Under a scroll container's box item the overlay draws after the content item, whose index is the
+/// default 0 (siblings of equal index have no defined order).
+const OVERLAY_DRAW_INDEX: i32 = 1;
 
 /// Layer items and the top-most item are siblings under the Control's canvas item and sort by this
 /// index. The overlay layer draws after the main layer; the focus ring above both.
@@ -47,6 +59,14 @@ pub(crate) struct ContentKey {
     pub origin: Vector2,
 }
 
+/// What a scroll container's overlay last drew: its scrollbar thumbs (horizontal, vertical) in the
+/// box's coordinates, and their colour.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct OverlayKey {
+    pub thumbs: [Option<Rect2>; 2],
+    pub color: Color,
+}
+
 fn server() -> Gd<RenderingServer> {
     RenderingServer::singleton()
 }
@@ -55,11 +75,17 @@ fn server() -> Gd<RenderingServer> {
 pub(crate) struct RenderNode {
     pub(crate) box_item: Rid,
     pub(crate) content_item: Rid,
+    /// Scroll containers only: the item child boxes attach to, translated by minus the scroll offset.
+    scroll_item: Option<Rid>,
+    /// Scroll containers only: draws the scrollbar thumbs over the content.
+    overlay_item: Option<Rid>,
     location: Vector2,
+    scroll_offset: Vector2,
     opacity: f32,
     clip: Option<Rect2>,
     box_key: Option<BoxKey>,
     content_key: Option<ContentKey>,
+    overlay_key: Option<OverlayKey>,
 }
 
 impl RenderNode {
@@ -72,12 +98,97 @@ impl RenderNode {
         Self {
             box_item,
             content_item,
+            scroll_item: None,
+            overlay_item: None,
             location: Vector2::ZERO,
+            scroll_offset: Vector2::ZERO,
             opacity: 1.0,
             clip: None,
             box_key: None,
             content_key: None,
+            overlay_key: None,
         }
+    }
+
+    /// The item the element's child boxes attach to: the scroll item of a scroll container, else the
+    /// content item.
+    pub(crate) fn child_item(&self) -> Rid {
+        self.scroll_item.unwrap_or(self.content_item)
+    }
+
+    pub(crate) fn has_scroller(&self) -> bool {
+        self.scroll_item.is_some()
+    }
+
+    /// Give the element its scroll and overlay items (it became a scroll container). The caller moves
+    /// the child boxes under `child_item()`.
+    pub(crate) fn make_scroller(&mut self) {
+        if self.has_scroller() {
+            return;
+        }
+        let mut rs = server();
+        let scroll_item = rs.canvas_item_create();
+        rs.canvas_item_set_parent(scroll_item, self.content_item);
+        let overlay_item = rs.canvas_item_create();
+        rs.canvas_item_set_parent(overlay_item, self.box_item);
+        rs.canvas_item_set_draw_index(overlay_item, OVERLAY_DRAW_INDEX);
+        self.scroll_item = Some(scroll_item);
+        self.overlay_item = Some(overlay_item);
+        self.scroll_offset = Vector2::ZERO;
+        self.overlay_key = None;
+    }
+
+    /// Take the scroll and overlay items away (it stopped being a scroll container). The caller has
+    /// already moved the child boxes under the content item.
+    pub(crate) fn remove_scroller(&mut self) {
+        let mut rs = server();
+        for item in [self.scroll_item.take(), self.overlay_item.take()]
+            .into_iter()
+            .flatten()
+        {
+            rs.free_rid(item);
+        }
+        self.scroll_offset = Vector2::ZERO;
+        self.overlay_key = None;
+    }
+
+    /// Scroll the children: one transform, nothing is re-recorded. Returns true if it changed.
+    pub(crate) fn set_scroll_offset(&mut self, offset: Vector2) -> bool {
+        let Some(scroll_item) = self.scroll_item else {
+            return false;
+        };
+        if self.scroll_offset == offset {
+            return false;
+        }
+        self.scroll_offset = offset;
+        server()
+            .canvas_item_set_transform(scroll_item, Transform2D::from_angle_origin(0.0, -offset));
+        true
+    }
+
+    /// Re-record the scrollbar thumbs when `key` differs from what they last drew (`None`: no bars).
+    /// Returns true if it did.
+    pub(crate) fn record_overlay(
+        &mut self,
+        key: Option<OverlayKey>,
+        style: &mut Gd<StyleBoxFlat>,
+    ) -> bool {
+        let Some(overlay_item) = self.overlay_item else {
+            return false;
+        };
+        if self.overlay_key == key {
+            return false;
+        }
+        let mut rs = server();
+        rs.canvas_item_clear(overlay_item);
+        if let Some(key) = key {
+            style.set_bg_color(key.color);
+            for thumb in key.thumbs.into_iter().flatten() {
+                style.draw(overlay_item, thumb);
+            }
+        }
+        self.overlay_key = key;
+        true
     }
 
     /// Attach under `parent` (a parent element's content item or a layer item).
@@ -215,6 +326,9 @@ impl Drop for RenderNode {
         // RenderingServer::free does not free child RIDs recursively. Every item created here is
         // released explicitly with its owning element.
         let mut rs = server();
+        for item in [self.scroll_item, self.overlay_item].into_iter().flatten() {
+            rs.free_rid(item);
+        }
         rs.free_rid(self.content_item);
         rs.free_rid(self.box_item);
     }
@@ -359,7 +473,7 @@ impl ReactUiRoot {
     /// Draw the focus ring over the focused element, above both layers. It is an inset stroke so
     /// it cannot cover adjacent content, clipped by the element's ancestors. Returns whether it
     /// was redrawn or cleared.
-    fn update_focus_ring(&mut self) -> bool {
+    pub(crate) fn update_focus_ring(&mut self) -> bool {
         let viewport = self.viewport_box();
         // The ring marks a keyboard focus only (plan 3.13): a press focuses without it.
         let target = self.focused.filter(|_| self.focus_visible).and_then(|tag| {

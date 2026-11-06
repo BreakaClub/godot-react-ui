@@ -16,6 +16,7 @@ mod layout;
 mod motion;
 mod mount;
 mod paint;
+mod pan;
 mod pointer;
 mod pointer_input;
 mod pointer_state;
@@ -24,10 +25,8 @@ mod probe;
 mod profile;
 mod props;
 mod render_tree;
-// Godot-free scroll math. Nothing calls it until Phase I5 integrates it (and I9 for drag
-// auto-scroll); remove the `allow(dead_code)` then.
-#[cfg_attr(not(test), allow(dead_code))]
 mod scroll;
+mod scroll_input;
 // Integrated in Phase I6 (text selection); remove the attribute then.
 #[cfg_attr(not(test), allow(dead_code))]
 mod selection;
@@ -84,6 +83,7 @@ use pointer_state::{ClickCounter, PointerTable};
 use profile::{Profiler, micros};
 use props::{PseudoState, TransitionProperty};
 use render_tree::{RingKey, RootItem};
+use scroll_input::ScrollInputState;
 use style_engine::{DimensionAxis, DimensionOverrides, SampledStyle, StyleEngine};
 
 const DEFAULT_FONT_SIZE: i32 = 16;
@@ -125,6 +125,10 @@ struct Stats {
     /// Canvas-item command lists re-recorded: a box (background and border) or a content (text).
     box_records: u64,
     content_records: u64,
+    /// Scroll containers whose offset changed (input, a command, a flick or a layout re-clamp), and
+    /// scrollbar overlays re-recorded. Scrolling changes these and nothing above.
+    scroll_updates: u64,
+    overlay_records: u64,
 }
 
 /// A single Godot Control owns the mounted tree, the native layout tree and all drawing resources.
@@ -140,6 +144,10 @@ pub struct ReactUiRoot {
     ring_item: Option<RootItem>,
     ring: Option<Gd<StyleBoxFlat>>,
     ring_drawn: Option<RingKey>,
+    /// Draws every scroll container's scrollbar thumbs; created with the first one.
+    scrollbar_style: Option<Gd<StyleBoxFlat>>,
+    /// Coasting flicks, panning fingers and the scrollbar thumb being dragged (`scroll_input.rs`).
+    scrolling: ScrollInputState,
     /// Nodes whose layout inputs changed since the last geometry pass.
     layout_dirty: BTreeSet<u32>,
     /// Nodes whose canvas items may need re-recording.
@@ -219,6 +227,8 @@ impl IControl for ReactUiRoot {
             ring_item: None,
             ring: None,
             ring_drawn: None,
+            scrollbar_style: None,
+            scrolling: ScrollInputState::default(),
             layout_dirty: BTreeSet::new(),
             paint_dirty: BTreeSet::new(),
             paint_reeval: BTreeSet::new(),
@@ -265,7 +275,7 @@ impl IControl for ReactUiRoot {
     }
 
     fn ready(&mut self) {
-        self.base_mut().set_process(false);
+        self.update_process();
         self.base_mut().set_mouse_filter(MouseFilter::STOP);
         // Click focus only: Godot's own Tab navigation must never hand the root key focus (plan
         // 3.11). `grab_focus` still works, which is how the owner and a focused element take it.
@@ -378,7 +388,7 @@ impl IControl for ReactUiRoot {
                 self.pressed = None;
                 self.refresh_interaction();
                 self.pointer_known = false;
-                self.base_mut().set_process(false);
+                self.pause_process();
             }
             _ => {}
         }
@@ -392,7 +402,16 @@ impl IControl for ReactUiRoot {
     }
 
     fn process(&mut self, delta: f64) {
-        self.tick_motion(delta);
+        // Frames come for motion, for a flick that is coasting or for a finger that is panning, any
+        // combination of them (`update_process`); each advances only if it has work, so a flick does
+        // not tick the animation clock.
+        if self.motion_active() {
+            self.tick_motion(delta);
+        }
+        if self.scrolling.wants_frames() {
+            self.tick_scroll(delta);
+        }
+        self.update_process();
     }
 
     /// Godot routes a pointer to this Control only where an element would receive it, so empty
@@ -537,6 +556,58 @@ impl ReactUiRoot {
     #[func]
     fn _on_accessibility_action(&mut self, data: Variant, tag: i64, action: i64) {
         self.handle_accessibility_action(&data, tag, action);
+    }
+
+    /// `element.scrollTo(left, top)`: scroll a scroll container to these offsets (as `scrollLeft` and
+    /// `scrollTop`: zero or negative on a reversed axis), clamped to its range. An empty return is
+    /// success; an error says why nothing changed (not mounted, not a scroll container, not finite).
+    #[func]
+    fn scroll_to(&mut self, tag: i64, left: f64, top: f64) -> GString {
+        let result = u32::try_from(tag)
+            .map_err(|_| format!("tag {tag} is not a u32"))
+            .and_then(|tag| self.scroll_to_checked(tag, left, top));
+        match result {
+            Ok(()) => GString::new(),
+            Err(error) => GString::from(&error),
+        }
+    }
+
+    /// `element.scrollBy(dx, dy)`: like `scroll_to`, relative to where the container is.
+    #[func]
+    fn scroll_by(&mut self, tag: i64, dx: f64, dy: f64) -> GString {
+        let result = u32::try_from(tag)
+            .map_err(|_| format!("tag {tag} is not a u32"))
+            .and_then(|tag| self.scroll_by_checked(tag, dx, dy));
+        match result {
+            Ok(()) => GString::new(),
+            Err(error) => GString::from(&error),
+        }
+    }
+
+    /// `element.scrollIntoView()`: scroll the containers around `tag`, innermost first, just far
+    /// enough to show it. An empty return is success (also when nothing needed to move).
+    #[func]
+    fn scroll_into_view(&mut self, tag: i64) -> GString {
+        let result = u32::try_from(tag)
+            .map_err(|_| format!("tag {tag} is not a u32"))
+            .and_then(|tag| self.scroll_into_view_checked(tag));
+        match result {
+            Ok(()) => GString::new(),
+            Err(error) => GString::from(&error),
+        }
+    }
+
+    /// A scroll container's position, size and range as JSON (`scrollLeft`, `scrollTop`,
+    /// `scrollWidth`, `scrollHeight`, `clientWidth`, `clientHeight`, and the `minScrollLeft`,
+    /// `maxScrollLeft`, `minScrollTop`, `maxScrollTop` it can take), or `null` if `tag` is not mounted
+    /// or not a scroll container.
+    #[func]
+    fn get_scroll_state(&self, tag: i64) -> GString {
+        let json = match u32::try_from(tag) {
+            Ok(tag) => self.scroll_state_json(tag),
+            Err(_) => serde_json::Value::Null,
+        };
+        json.to_string().as_str().into()
     }
 
     /// The root-local rectangle of a node as JSON, or `null` if no such node is mounted.

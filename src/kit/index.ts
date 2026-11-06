@@ -2,6 +2,8 @@ export { Checkbox } from './checkbox';
 export type { CheckboxProps, CheckedState } from './checkbox';
 export { RadioGroup } from './radio-group';
 export type { RadioGroupItemProps, RadioGroupRootProps, RadioOrientation } from './radio-group';
+export { ScrollView } from './scroll-view';
+export type { ScrollViewProps } from './scroll-view';
 export { Select } from './select';
 export type {
   SelectContentProps, SelectIconProps, SelectItemIndicatorProps, SelectItemProps, SelectItemTextProps, SelectRootProps,

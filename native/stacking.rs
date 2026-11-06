@@ -18,13 +18,18 @@
 //!
 //! Siblings of one paint parent are painted in ascending (`zIndex`, document order), where `zIndex`
 //! defaults to 0 and applies to every element, as in React Native.
+//!
+//! A scroll container shifts what it paints: its paint children are located in its frame less its
+//! scroll offset (the `scroll` canvas item's transform, plan 3.8). Because that follows the paint
+//! parent, an absolute element scrolls with a positioned scroll container that is its containing
+//! block, and does not scroll with one that is merely between the two (CSS's rule).
 
 use std::collections::BTreeSet;
 
 use godot::prelude::Vector2;
 
 use crate::diff::Parent;
-use crate::geometry::{BoxRect, intersect_clip};
+use crate::geometry::{BoxRect, intersect_clip, intersects};
 use crate::props::PositionSpec;
 
 /// What the stacking rules read from one element's computed style.
@@ -133,6 +138,16 @@ pub(crate) fn painted_by<T: StackingTree>(
     candidates
 }
 
+/// What hit testing and geometry read about a scroll container.
+#[derive(Clone, Copy)]
+pub(crate) struct ScrollFrame {
+    /// How far the paint children are scrolled: their frame is the element's less this.
+    pub(crate) offset: Vector2,
+    /// The overlay scrollbar thumbs (horizontal, vertical) a pointer can grab, in the element's own
+    /// coordinates and not scrolled. A thumb is drawn over the content, so it is hit before it.
+    pub(crate) thumbs: [Option<BoxRect>; 2],
+}
+
 /// What hit testing and geometry read about one element, in the frame of its paint parent.
 #[derive(Clone, Copy)]
 pub(crate) struct Frame {
@@ -142,6 +157,8 @@ pub(crate) struct Frame {
     pub(crate) clip: Option<BoxRect>,
     /// Whether the element itself can be the target of a pointer.
     pub(crate) pointer_target: bool,
+    /// Set for a scroll container.
+    pub(crate) scroll: Option<ScrollFrame>,
 }
 
 /// The paint tree and the geometry of its elements.
@@ -171,9 +188,20 @@ pub(crate) fn hit_test<T: PaintTree>(tree: &T, point: Vector2) -> Option<u32> {
 fn hit_node<T: PaintTree>(tree: &T, tag: u32, point_in_parent: Vector2) -> Option<u32> {
     let frame = tree.frame(tag)?;
     let local = point_in_parent - frame.location;
+    let scrolled = frame.scroll.map_or(Vector2::ZERO, |scroll| scroll.offset);
+    if let Some(scroll) = frame.scroll
+        && frame.pointer_target
+        && scroll
+            .thumbs
+            .iter()
+            .flatten()
+            .any(|thumb| thumb.contains(local))
+    {
+        return Some(tag);
+    }
     if frame.clip.is_none_or(|clip| clip.contains(local)) {
         for child in tree.paint_children(tag).iter().rev() {
-            if let Some(hit) = hit_node(tree, *child, local) {
+            if let Some(hit) = hit_node(tree, *child, local + scrolled) {
                 return Some(hit);
             }
         }
@@ -187,12 +215,25 @@ fn hit_node<T: PaintTree>(tree: &T, tag: u32, point_in_parent: Vector2) -> Optio
     (frame.pointer_target && border_box.contains(local)).then_some(tag)
 }
 
+/// Which position of an element in a scroll container [`absolute_geometry`] reports.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ScrollMode {
+    /// Where the element is drawn: scrolled content has moved, and a scroll container clips it.
+    Drawn,
+    /// Where it would be if scrolling could bring it into view, for deciding whether input could ever
+    /// reach it (Tab stops, keeping focus). Scroll offsets and scroll containers' clips, and the
+    /// viewport's, are ignored from the outermost scroll container inwards, but that container must
+    /// itself be on screen; clips below it still apply.
+    Reachable,
+}
+
 /// The root-local rectangle of `tag` and the clip its paint ancestors impose on it (starting from
-/// `viewport`), or `None` if `tag` is not attached. Cost proportional to depth.
+/// `viewport`), or `None` if `tag` is not attached. Cost proportional to depth. See [`ScrollMode`].
 pub(crate) fn absolute_geometry<T: PaintTree>(
     tree: &T,
     tag: u32,
     viewport: BoxRect,
+    mode: ScrollMode,
 ) -> Option<(BoxRect, Option<BoxRect>)> {
     let mut path = vec![tag];
     loop {
@@ -216,6 +257,21 @@ pub(crate) fn absolute_geometry<T: PaintTree>(
             };
             return Some((rect, clip));
         }
+        if mode == ScrollMode::Reachable && frame.scroll.is_some() {
+            // From here inwards scrolling decides what is in view. The container has to be in view
+            // itself; an empty clip says it is not.
+            let container = BoxRect {
+                x: origin.x,
+                y: origin.y,
+                width: frame.size.x,
+                height: frame.size.y,
+            };
+            if clip.is_some_and(|clip| !intersects(container, clip)) {
+                return Some((container, Some(NOWHERE)));
+            }
+            clip = None;
+            continue;
+        }
         if let Some(local) = frame.clip {
             clip = intersect_clip(
                 clip,
@@ -227,9 +283,22 @@ pub(crate) fn absolute_geometry<T: PaintTree>(
                 }),
             );
         }
+        if mode == ScrollMode::Drawn
+            && let Some(scroll) = frame.scroll
+        {
+            origin -= scroll.offset;
+        }
     }
     None
 }
+
+/// A clip nothing intersects.
+const NOWHERE: BoxRect = BoxRect {
+    x: 0.0,
+    y: 0.0,
+    width: 0.0,
+    height: 0.0,
+};
 
 #[cfg(test)]
 mod tests {
@@ -257,6 +326,7 @@ mod tests {
         children: Vec<u32>,
         paint_parent: Option<Parent>,
         paint_children: Vec<u32>,
+        scroll: Option<ScrollFrame>,
     }
 
     /// A tree built the way React would, then settled the way the mounting layer settles it.
@@ -299,6 +369,7 @@ mod tests {
                     children: Vec::new(),
                     paint_parent: None,
                     paint_children: Vec::new(),
+                    scroll: None,
                 },
             );
             match parent {
@@ -309,6 +380,15 @@ mod tests {
 
         fn clip(&mut self, tag: u32) {
             self.nodes.get_mut(&tag).unwrap().clips = true;
+        }
+
+        /// Make `tag` a scroll container (it clips) scrolled by `offset`, with the given thumbs.
+        fn scrolls(&mut self, tag: u32, offset: (f32, f32), thumbs: [Option<BoxRect>; 2]) {
+            self.clip(tag);
+            self.nodes.get_mut(&tag).unwrap().scroll = Some(ScrollFrame {
+                offset: Vector2::new(offset.0, offset.1),
+                thumbs,
+            });
         }
 
         fn z(&mut self, tag: u32, z_index: i32) {
@@ -396,6 +476,7 @@ mod tests {
                     height: node.size.y,
                 }),
                 pointer_target: node.pointer_target,
+                scroll: node.scroll,
             })
         }
     }
@@ -461,7 +542,7 @@ mod tests {
             Some(3),
             "not clipped by its hidden parent"
         );
-        let (rect, clip) = absolute_geometry(&tree, 3, VIEWPORT).unwrap();
+        let (rect, clip) = absolute_geometry(&tree, 3, VIEWPORT, ScrollMode::Drawn).unwrap();
         assert_eq!(
             (rect.x, rect.y, rect.width, rect.height),
             (120.0, 120.0, 40.0, 40.0)
@@ -501,7 +582,7 @@ mod tests {
             None,
             "the part outside the parent is clipped"
         );
-        let (_, clip) = absolute_geometry(&tree, 2, VIEWPORT).unwrap();
+        let (_, clip) = absolute_geometry(&tree, 2, VIEWPORT, ScrollMode::Drawn).unwrap();
         let clip = clip.unwrap();
         assert_eq!(
             (clip.x, clip.y, clip.width, clip.height),
@@ -520,7 +601,7 @@ mod tests {
         tree.add(Parent::Node(2), 3, Fixed, (300.0, 300.0), (40.0, 40.0));
         tree.settle();
         assert_eq!(tree.hit(310.0, 310.0), Some(3));
-        let (rect, clip) = absolute_geometry(&tree, 3, VIEWPORT).unwrap();
+        let (rect, clip) = absolute_geometry(&tree, 3, VIEWPORT, ScrollMode::Drawn).unwrap();
         assert_eq!((rect.x, rect.y), (300.0, 300.0));
         let clip = clip.unwrap();
         assert_eq!(
@@ -613,7 +694,195 @@ mod tests {
         tree.nodes.get_mut(&2).unwrap().parent = None;
         tree.settle();
         assert_eq!(paint_parent(&tree, 2), None);
-        assert!(absolute_geometry(&tree, 2, VIEWPORT).is_none());
-        assert!(absolute_geometry(&tree, 99, VIEWPORT).is_none());
+        assert!(absolute_geometry(&tree, 2, VIEWPORT, ScrollMode::Drawn).is_none());
+        assert!(absolute_geometry(&tree, 99, VIEWPORT, ScrollMode::Drawn).is_none());
+    }
+
+    // ---- Scroll containers ------------------------------------------------------------------------
+
+    fn drawn(tree: &TestTree, tag: u32) -> (BoxRect, Option<BoxRect>) {
+        absolute_geometry(tree, tag, VIEWPORT, ScrollMode::Drawn).unwrap()
+    }
+
+    fn reachable(tree: &TestTree, tag: u32) -> (BoxRect, Option<BoxRect>) {
+        absolute_geometry(tree, tag, VIEWPORT, ScrollMode::Reachable).unwrap()
+    }
+
+    /// A 100 x 100 scroller at (10, 20) holding a 100 x 400 column of four 100 x 100 rows, scrolled by 150.
+    fn scrolled_column(offset: f32) -> TestTree {
+        let mut tree = TestTree::new();
+        tree.add(TOP, 1, Static, (10.0, 20.0), (100.0, 100.0));
+        tree.scrolls(1, (0.0, offset), [None, None]);
+        for row in 0..4 {
+            tree.add(
+                Parent::Node(1),
+                10 + row,
+                Static,
+                (0.0, row as f32 * 100.0),
+                (100.0, 100.0),
+            );
+        }
+        tree.settle();
+        tree
+    }
+
+    #[test]
+    fn a_pointer_reaches_the_row_that_the_scroll_offset_put_under_it() {
+        let tree = scrolled_column(150.0);
+        // The viewport of the scroller shows content y 150..250: row 11 (100..200) then row 12.
+        assert_eq!(
+            tree.hit(60.0, 20.0 + 10.0),
+            Some(11),
+            "top of the scroller: content y 160"
+        );
+        assert_eq!(
+            tree.hit(60.0, 20.0 + 90.0),
+            Some(12),
+            "bottom: content y 240"
+        );
+        let unscrolled = scrolled_column(0.0);
+        assert_eq!(unscrolled.hit(60.0, 20.0 + 10.0), Some(10));
+        // Outside the scroller's clip nothing scrolled shows through.
+        assert_eq!(tree.hit(60.0, 20.0 + 110.0), None);
+        // Horizontal offsets work the same way.
+        let mut wide = TestTree::new();
+        wide.add(TOP, 1, Static, (0.0, 0.0), (100.0, 50.0));
+        wide.scrolls(1, (120.0, 0.0), [None, None]);
+        wide.add(Parent::Node(1), 2, Static, (0.0, 0.0), (100.0, 50.0));
+        wide.add(Parent::Node(1), 3, Static, (100.0, 0.0), (100.0, 50.0));
+        wide.settle();
+        assert_eq!(
+            wide.hit(10.0, 10.0),
+            Some(3),
+            "content x 130 is in the second page"
+        );
+    }
+
+    #[test]
+    fn drawn_geometry_follows_the_scroll_and_clips_to_the_container() {
+        let tree = scrolled_column(150.0);
+        let (rect, clip) = drawn(&tree, 12);
+        assert_eq!((rect.x, rect.y), (10.0, 20.0 + 200.0 - 150.0));
+        let clip = clip.unwrap();
+        assert_eq!(
+            (clip.x, clip.y, clip.width, clip.height),
+            (10.0, 20.0, 100.0, 100.0),
+            "the scroller's own box does not scroll"
+        );
+        let (scroller, _) = drawn(&tree, 1);
+        assert_eq!((scroller.x, scroller.y), (10.0, 20.0));
+        // A row scrolled out of view has a rect outside its clip.
+        let (rect, clip) = drawn(&tree, 10);
+        assert!(!intersects(rect, clip.unwrap()));
+    }
+
+    #[test]
+    fn nested_scrollers_add_their_offsets() {
+        let mut tree = TestTree::new();
+        tree.add(TOP, 1, Static, (0.0, 0.0), (200.0, 200.0));
+        tree.scrolls(1, (0.0, 30.0), [None, None]);
+        tree.add(Parent::Node(1), 2, Static, (0.0, 100.0), (200.0, 100.0));
+        tree.scrolls(2, (0.0, 20.0), [None, None]);
+        tree.add(Parent::Node(2), 3, Static, (0.0, 40.0), (50.0, 50.0));
+        tree.settle();
+        let (rect, _) = drawn(&tree, 3);
+        assert_eq!(rect.y, 100.0 - 30.0 + 40.0 - 20.0);
+    }
+
+    #[test]
+    fn an_absolute_box_scrolls_with_a_positioned_scroller_that_is_its_containing_block_only() {
+        // A positioned scroller: its absolute child is painted by it, so it scrolls.
+        let mut tree = TestTree::new();
+        tree.add(TOP, 1, Relative, (0.0, 0.0), (100.0, 100.0));
+        tree.scrolls(1, (0.0, 40.0), [None, None]);
+        tree.add(Parent::Node(1), 2, Absolute, (10.0, 60.0), (20.0, 20.0));
+        // A static scroller inside a positioned, non-scrolling block: the absolute child belongs to
+        // the block, so scrolling the static one does not move it.
+        tree.add(TOP, 3, Relative, (200.0, 0.0), (100.0, 100.0));
+        tree.add(Parent::Node(3), 4, Static, (0.0, 0.0), (100.0, 100.0));
+        tree.scrolls(4, (0.0, 40.0), [None, None]);
+        tree.add(Parent::Node(4), 5, Absolute, (10.0, 60.0), (20.0, 20.0));
+        tree.settle();
+        assert_eq!(tree.nodes[&2].paint_parent, Some(Parent::Node(1)));
+        assert_eq!(
+            drawn(&tree, 2).0.y,
+            60.0 - 40.0,
+            "scrolls with its positioned scroller"
+        );
+        assert_eq!(tree.hit(15.0, 25.0), Some(2));
+        assert_eq!(tree.nodes[&5].paint_parent, Some(Parent::Node(3)));
+        assert_eq!(drawn(&tree, 5).0.y, 60.0, "stays with its containing block");
+        assert_eq!(
+            tree.hit(215.0, 65.0),
+            Some(5),
+            "and is not clipped by the static scroller"
+        );
+    }
+
+    #[test]
+    fn a_scrollbar_thumb_is_hit_before_the_content_it_covers() {
+        let mut tree = scrolled_column(0.0);
+        let thumb = BoxRect {
+            x: 92.0,
+            y: 2.0,
+            width: 6.0,
+            height: 40.0,
+        };
+        tree.scrolls(1, (0.0, 0.0), [None, Some(thumb)]);
+        assert_eq!(
+            tree.hit(10.0 + 95.0, 20.0 + 20.0),
+            Some(1),
+            "the thumb is the scroller's"
+        );
+        assert_eq!(
+            tree.hit(10.0 + 85.0, 20.0 + 20.0),
+            Some(10),
+            "left of it is the row"
+        );
+        assert_eq!(tree.hit(10.0 + 95.0, 20.0 + 60.0), Some(10), "below it too");
+        // The thumb does not scroll with the content.
+        tree.scrolls(1, (0.0, 150.0), [None, Some(thumb)]);
+        assert_eq!(tree.hit(10.0 + 95.0, 20.0 + 20.0), Some(1));
+        // A scroller that takes no pointers has no grabbable thumb.
+        tree.nodes.get_mut(&1).unwrap().pointer_target = false;
+        assert_eq!(tree.hit(10.0 + 95.0, 20.0 + 20.0), Some(11));
+    }
+
+    #[test]
+    fn reachable_geometry_ignores_scrolling_but_not_what_hides_an_element_for_good() {
+        // An element 3000 px down a scroller is reachable by scrolling although it is nowhere on screen.
+        let mut tree = scrolled_column(0.0);
+        tree.add(Parent::Node(1), 20, Static, (0.0, 3000.0), (100.0, 100.0));
+        tree.settle();
+        let (rect, clip) = reachable(&tree, 20);
+        assert!(
+            clip.is_none_or(|clip| intersects(rect, clip)),
+            "reachable by scrolling"
+        );
+        let (rect, clip) = drawn(&tree, 20);
+        assert!(
+            !intersects(rect, clip.unwrap()),
+            "but it is not drawn in view"
+        );
+
+        // A clipping box inside the scroller still hides what is beyond it: a collapsed section.
+        tree.add(Parent::Node(1), 21, Static, (0.0, 50.0), (100.0, 0.0));
+        tree.clip(21);
+        tree.add(Parent::Node(21), 22, Static, (0.0, 0.0), (100.0, 30.0));
+        tree.settle();
+        let (rect, clip) = reachable(&tree, 22);
+        assert!(
+            !intersects(rect, clip.unwrap()),
+            "a zero-height clip hides its child"
+        );
+
+        // A scroller that is itself off screen is not reachable inside.
+        let mut away = TestTree::new();
+        away.add(TOP, 1, Static, (900.0, 900.0), (100.0, 100.0));
+        away.scrolls(1, (0.0, 0.0), [None, None]);
+        away.add(Parent::Node(1), 2, Static, (0.0, 0.0), (50.0, 50.0));
+        away.settle();
+        let (rect, clip) = reachable(&away, 2);
+        assert!(!intersects(rect, clip.unwrap()));
     }
 }

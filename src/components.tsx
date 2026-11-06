@@ -1,6 +1,6 @@
 import { Children, createElement, forwardRef, useCallback, useContext, useSyncExternalStore, type ReactNode } from 'react';
-import type { UIAccessibilityActionEvent, UIFocusEvent, UIKeyboardEvent, UIPointerEvent, UIWheelEvent } from './events';
-import type { LayoutRect } from './native';
+import type { UIAccessibilityActionEvent, UIFocusEvent, UIKeyboardEvent, UIPointerEvent, UIScrollEvent, UIWheelEvent } from './events';
+import type { LayoutRect, NativeScrollState } from './native';
 import { createOverlayPortal, OverlayContext, readRootSize, watchRootSize, type RootSize } from './renderer';
 import type { StyleProp, UIAriaProps } from './types';
 
@@ -37,6 +37,21 @@ export interface UIHandle {
   focus(options?: { focusVisible?: boolean }): void;
   /** Takes focus away if this element has it. */
   blur(): void;
+  /**
+   * Scroll a scroll container (`overflow` `scroll` or `auto`) to these offsets, as `scrollLeft` and
+   * `scrollTop` are (zero or negative on a reversed axis), clamped to its range. An axis left out stays where
+   * it is. Throws for an element that is gone or is not a scroll container. Instant, and it ends any flick.
+   */
+  scrollTo(position: { left?: number; top?: number }): void;
+  /** Scroll a scroll container by these distances, clamped. Throws like `scrollTo`. */
+  scrollBy(delta: { left?: number; top?: number }): void;
+  /**
+   * Scroll the scroll containers around this element, innermost first, by the least that shows it (all of
+   * it if it fits). An element in no scroll container is fine and moves nothing.
+   */
+  scrollIntoView(): void;
+  /** A scroll container's position, size and range, or `undefined` for an element that is not one. */
+  getScrollState(): NativeScrollState | undefined;
 }
 
 export interface UIProps extends UIAriaProps {
@@ -72,11 +87,16 @@ export interface UIProps extends UIAriaProps {
   /** The secondary button was pressed. */
   onContextMenu?: (event: UIPointerEvent) => void;
   /**
-   * A wheel tick or trackpad pan. Cancelable: `preventDefault()` keeps it from the game and, from
-   * Phase I5, from native scrolling.
+   * A wheel tick or trackpad pan. Cancelable: `preventDefault()` keeps it from the game and from
+   * native scrolling.
    */
   onWheel?: (event: UIWheelEvent) => void;
   onWheelCapture?: (event: UIWheelEvent) => void;
+  /**
+   * A scroll container moved. Does not bubble and cannot be cancelled; native coalesces the events of a
+   * container, so the handler sees where it is now, not every step.
+   */
+  onScroll?: (event: UIScrollEvent) => void;
   /** Does not bubble: runs for each element the pointer enters, outermost first. */
   onPointerEnter?: (event: UIPointerEvent) => void;
   /** Does not bubble: runs for each element the pointer leaves, deepest first. */
