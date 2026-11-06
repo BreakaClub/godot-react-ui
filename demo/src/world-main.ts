@@ -2,11 +2,12 @@ import { createElement } from 'react';
 import {
   BaseMaterial3D, Callable, Camera3D, Color, DisplayServer, Image, InputEvent, InputEventKey, InputEventMouse,
   InputEventMouseButton, InputEventMouseMotion, InputEventScreenDrag, InputEventScreenTouch, MeshInstance3D,
-  MouseButton, Node, OS, QuadMesh, ReactUiRoot, StandardMaterial3D, SubViewport, Time, Vector2, Vector2I, Vector3,
+  MouseButton, Node, OS, QuadMesh, ReactUiRoot, SphereMesh, StandardMaterial3D, SubViewport, Time, Vector2, Vector2I, Vector3,
 } from 'godot';
 import { createClassBinder } from 'godot.annotations';
 import { createRoot, type NativeSnapshot, type NativeSnapshotNode, type ReactRoot } from '../../src';
 import { intersectQuad, quadPixelToLocal, type QuadHit, type QuadSurface } from './world-geometry';
+import { AnchoredLabel, type Anchor } from './world-label';
 import { WorldPanel } from './world-panel';
 import { runWorldVerification } from './verify-world';
 import { VerifierInputIsolation, injectsOwnInput } from './verifier-input';
@@ -31,6 +32,24 @@ const BACKDROP_SIZE = { x: 9, y: 6 };
 const BACKDROP_Z = -0.8;
 /** Tailwind slate-300. */
 const BACKDROP_COLOR = new Color(0.796, 0.835, 0.882, 1);
+
+/** The node the anchored label follows: a small sphere in front of the quad, with a label above it. */
+const ORBITER_RADIUS = 0.05;
+/**
+ * `#33b2e5`, a blue the label's amber is told apart from. Every channel is well above black: the Compatibility
+ * renderer shades in 8 bits of linear colour, which cannot hold a dark channel (emerald-500's red, 16, came out as 11).
+ */
+const ORBITER_COLOR = new Color(51 / 255, 178 / 255, 229 / 255, 1);
+const ORBITER_TITLE = 'Orbiter';
+/**
+ * Its path, drawn in the panel's own pixels (so the node circles the card's top edge, through the inverse mapping
+ * of `world-geometry.ts`) and lifted off the quad along its normal, in world units.
+ */
+const ORBIT_CENTER_PIXEL = { x: PANEL_WIDTH / 2, y: 36 };
+const ORBIT_RADIUS_PIXEL = { x: 190, y: 28 };
+const ORBIT_HEIGHT = 0.3;
+/** Radians per second. */
+const ORBIT_SPEED = 1.2;
 
 /** Narrowing: `copy` is an instance of exactly the class `original` is. */
 function isSameClass<T extends InputEvent>(copy: InputEvent, original: T): copy is T {
@@ -70,6 +89,22 @@ export interface Point2 {
   y: number;
 }
 
+/** A point in the world: a plain object, so it can leave the realm. */
+export interface Point3 {
+  x: number;
+  y: number;
+  z: number;
+}
+
+/** What the camera makes of the orbiter, by the same call the label is placed with. */
+export interface OrbiterReading {
+  world: Point3;
+  /** `Camera3D.unprojectPosition` of the node's global position. */
+  screen: Point2;
+  /** `Camera3D.isPositionBehind`: then `screen` is mirrored and the label is hidden. */
+  behind: boolean;
+}
+
 /**
  * One Godot node owns the 3D scene, the panel's `SubViewport`, the React root inside it, and the routing
  * of main-viewport input onto the panel. Nothing here needs physics: the camera ray is intersected with the
@@ -97,6 +132,14 @@ export default class WorldMain extends Node {
   private counts: WorldCounts = { gamePresses: 0, gameKeys: 0, panelPointerEvents: 0, pointerInside: false };
   /** Set only in a run that injects its own input (the verifier); a normal run takes real input. */
   private isolation: VerifierInputIsolation | null = null;
+  /** The node in front of the quad that the label follows, a child of the quad so it moves with it. */
+  private orbiter: MeshInstance3D | null = null;
+  private orbitPhase = 0;
+  private orbiting = true;
+  /** The second root, in the main viewport: screen-space UI over the 3D view, one label in it. */
+  private labelSurface: ReactUiRoot | null = null;
+  private labelRenderer: ReactRoot | null = null;
+  private anchor: Anchor = { x: 0, y: 0, visible: false };
 
   override _ready(): void {
     const args = OS.getCmdlineUserArgs();
@@ -110,6 +153,7 @@ export default class WorldMain extends Node {
     this.updateDisplayScale();
     this.buildScene();
     this.mount();
+    this.mountLabel();
     const api = {
       snapshot: (): NativeSnapshot => this.requireRenderer().getSnapshot(),
       find: (testID: string): NativeSnapshotNode | undefined => this.requireRenderer().findByTestID(testID),
@@ -139,6 +183,31 @@ export default class WorldMain extends Node {
       },
       surfaceHasFocus: (): boolean => this.requireSurface().hasFocus(),
       grabSurfaceFocus: () => this.requireSurface().grabFocus(),
+      /** The screen-space root that holds the anchored label (a second root, in the main viewport). */
+      labelSnapshot: (): NativeSnapshot => this.requireLabelRenderer().getSnapshot(),
+      findInLabel: (testID: string): NativeSnapshotNode | undefined => this.requireLabelRenderer().findByTestID(testID),
+      /**
+       * Stop the orbit and put the orbiter at a panel pixel, `height` world units in front of the quad. Height 0 is on
+       * the quad's plane: the same point `screenPointOf` projects.
+       */
+      placeOrbiter: (x: number, y: number, height: number) => {
+        this.orbiting = false;
+        this.placeOrbiterAtPanelPixel(x, y, height);
+        this.updateAnchoredLabel();
+      },
+      /** Stop the orbit and put the orbiter at a world position (behind the camera, say). */
+      placeOrbiterInWorld: (x: number, y: number, z: number) => {
+        this.orbiting = false;
+        this.requireOrbiter().globalPosition = new Vector3(x, y, z);
+        this.updateAnchoredLabel();
+      },
+      resumeOrbit: () => { this.orbiting = true; },
+      /** Where the camera puts the orbiter now, by the call the label uses. */
+      orbiterScreen: (): OrbiterReading => this.readOrbiter(),
+      cameraPosition: (): Point3 => {
+        const position = this.requireCamera().globalPosition;
+        return { x: position.x, y: position.y, z: position.z };
+      },
       /** The panel's own render target, as the quad's material samples it. */
       panelImage: (): Image => {
         const image = this.requirePanelViewport().getTexture()?.getImage();
@@ -205,6 +274,21 @@ export default class WorldMain extends Node {
     quad.rotationDegrees = new Vector3(QUAD_ROTATION_DEGREES.x, QUAD_ROTATION_DEGREES.y, QUAD_ROTATION_DEGREES.z);
     this.addChild(quad);
     this.quad = quad;
+
+    // A child of the quad, so it is placed in the panel's own frame and turns with it.
+    const orbiterMaterial = new StandardMaterial3D();
+    orbiterMaterial.shadingMode = BaseMaterial3D.ShadingMode.ShadingModeUnshaded;
+    orbiterMaterial.albedoColor = ORBITER_COLOR;
+    const orbiterMesh = new SphereMesh();
+    orbiterMesh.radius = ORBITER_RADIUS;
+    orbiterMesh.height = ORBITER_RADIUS * 2;
+    const orbiter = new MeshInstance3D();
+    orbiter.setName('Orbiter');
+    orbiter.mesh = orbiterMesh;
+    orbiter.materialOverride = orbiterMaterial;
+    quad.addChild(orbiter);
+    this.orbiter = orbiter;
+    this.placeOrbiterOnOrbit();
   }
 
   private createBackdrop(): MeshInstance3D {
@@ -260,14 +344,106 @@ export default class WorldMain extends Node {
     this.lastMousePixel = null;
   }
 
-  override _process(): void {
+  override _process(delta: number): void {
     this.updateDisplayScale();
     this.renderer?.dispatchEvents();
+    this.labelRenderer?.dispatchEvents();
+    if (this.orbiting) {
+      this.orbitPhase += delta * ORBIT_SPEED;
+      this.placeOrbiterOnOrbit();
+    }
+    this.fitLabelSurface();
+    this.updateAnchoredLabel();
   }
 
   override _exitTree(): void {
     if (this.renderer) this.unmount();
+    this.unmountLabel();
     Reflect.deleteProperty(globalThis, 'godotReactWorld');
+  }
+
+  // ---- The anchored label -----------------------------------------------------------------------------
+
+  /**
+   * A second React root: a full-window `ReactUiRoot` in the main viewport, over the 3D view, that holds one label.
+   * Everything in it is `pointer-events-none`, so Godot gives every pointer to whatever lies beneath (here the
+   * routing to the quad), and it takes no key focus.
+   */
+  private mountLabel(): void {
+    if (this.labelRenderer) throw new Error('The label root is already mounted');
+    const surface = new ReactUiRoot();
+    surface.setName('LabelSurface');
+    this.addChild(surface);
+    surface.size = this.viewportSize();
+    this.labelSurface = surface;
+    this.labelRenderer = createRoot(surface, {
+      now: () => Time.getTicksUsec() / MICROSECONDS_PER_MILLISECOND,
+      subscribeToEvents: (listener) => {
+        const callable = Callable.create(listener);
+        surface.eventsReady.connect(callable);
+        return () => surface.eventsReady.disconnect(callable);
+      },
+    });
+    this.updateAnchoredLabel(true);
+  }
+
+  private unmountLabel(): void {
+    if (!this.labelRenderer || !this.labelSurface) return;
+    this.labelRenderer.unmount();
+    this.labelRenderer = null;
+    this.labelSurface.queueFree();
+    this.labelSurface = null;
+  }
+
+  private viewportSize(): Vector2 {
+    const viewport = this.getViewport();
+    if (!viewport) throw new Error('World requires a viewport');
+    return viewport.getVisibleRect().size;
+  }
+
+  /** The label root fills the window, like the demo's: it follows the window's size. */
+  private fitLabelSurface(): void {
+    const surface = this.labelSurface;
+    if (surface === null) return;
+    const size = this.viewportSize();
+    if (surface.size.x !== size.x || surface.size.y !== size.y) surface.size = size;
+  }
+
+  /** Put the orbiter on its path: panel pixels turned into the quad's local frame by the inverse mapping. */
+  private placeOrbiterOnOrbit(): void {
+    this.placeOrbiterAtPanelPixel(
+      ORBIT_CENTER_PIXEL.x + ORBIT_RADIUS_PIXEL.x * Math.cos(this.orbitPhase),
+      ORBIT_CENTER_PIXEL.y + ORBIT_RADIUS_PIXEL.y * Math.sin(this.orbitPhase),
+      ORBIT_HEIGHT,
+    );
+  }
+
+  private placeOrbiterAtPanelPixel(x: number, y: number, height: number): void {
+    const local = quadPixelToLocal(this.panel, x, y);
+    this.requireOrbiter().position = new Vector3(local.x, local.y, local.z + height);
+  }
+
+  private readOrbiter(): OrbiterReading {
+    const camera = this.requireCamera();
+    const world = this.requireOrbiter().globalPosition;
+    const screen = camera.unprojectPosition(world);
+    return { world: { x: world.x, y: world.y, z: world.z }, screen: { x: screen.x, y: screen.y }, behind: camera.isPositionBehind(world) };
+  }
+
+  /**
+   * Project the orbiter into the main viewport and give the label the result. A node behind the camera projects to
+   * a mirrored point (`unprojectPosition` does not say), so it hides the label and keeps the last place.
+   */
+  private updateAnchoredLabel(force = false): void {
+    const renderer = this.labelRenderer;
+    if (renderer === null) return;
+    const reading = this.readOrbiter();
+    const next: Anchor = reading.behind
+      ? { x: this.anchor.x, y: this.anchor.y, visible: false }
+      : { x: reading.screen.x, y: reading.screen.y, visible: true };
+    if (!force && next.x === this.anchor.x && next.y === this.anchor.y && next.visible === this.anchor.visible) return;
+    this.anchor = next;
+    renderer.render(createElement(AnchoredLabel, { anchor: next, title: ORBITER_TITLE }));
   }
 
   /** `NOTIFICATION_WM_MOUSE_EXIT` leaves no motion event behind, so tell the panel the pointer is gone. */
@@ -462,5 +638,15 @@ export default class WorldMain extends Node {
   private requireSurface(): ReactUiRoot {
     if (!this.surface) throw new Error('World surface is not mounted');
     return this.surface;
+  }
+
+  private requireOrbiter(): MeshInstance3D {
+    if (!this.orbiter) throw new Error('World orbiter is not built');
+    return this.orbiter;
+  }
+
+  private requireLabelRenderer(): ReactRoot {
+    if (!this.labelRenderer) throw new Error('World label root is not mounted');
+    return this.labelRenderer;
   }
 }

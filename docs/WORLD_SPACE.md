@@ -9,8 +9,8 @@ verified in `demo/world.tscn`; every number below is from that scene.
 
 Verified on macOS (Godot 4.8, Compatibility renderer, `pnpm verify:world`, landscape 1120x800 and
 portrait 600x900) and in real Chrome on Breaka's Web template (`scripts/verify-world-web.mjs`, DPR 1
-and DPR 2, plus a touch page). Not done: typing into a world-space `TextInput` (needs Phase I7) and
-a label anchored to a moving 3D node (needs `position: absolute`, Phase I4).
+and DPR 2, plus a touch page). The anchored label (below) was added after the Web run and is verified natively
+only. Not done: typing into a world-space `TextInput` (needs Phase I7).
 
 | File | Role |
 | --- | --- |
@@ -18,6 +18,7 @@ a label anchored to a moving 3D node (needs `position: absolute`, Phase I4).
 | `demo/src/world-main.ts` | The owner: builds the scene, mounts the root, routes input. |
 | `demo/src/world-geometry.ts` | Ray-quad intersection and the pixel mapping, as plain numbers. |
 | `demo/src/world-panel.tsx` | The React content: a counter and two buttons. |
+| `demo/src/world-label.tsx` | The anchored label: one absolute element of the screen-space root. |
 | `demo/src/verify-world.ts` | Native verifier (`--verify-world`). |
 | `demo/src/scene-launcher.ts` | Web only: starts the scene named by `--scene` (see "Running it"). |
 | `tests/world-geometry.test.ts` | Unit tests of the maths. |
@@ -134,6 +135,52 @@ the title) releases it, after which keys belong to the game again. Godot would d
 when nothing in the `SubViewport` has focus, so the explicit check states the contract rather
 than changing behaviour; it also keeps keys away from `_unhandled_input` handlers a panel might have.
 
+## Anchored 2D UI
+
+A 2D label that follows a 3D node is the opposite recipe: the node is in the world, the UI is ordinary screen-space
+UI. Nothing is routed; the label is placed from where the camera sees the node. `demo/world.tscn` has one: a small
+sphere (`Orbiter`) circling in front of the quad, and a label above it.
+
+```
+World (Node, world-main.ts)
+  ...
+  PanelQuad                 MeshInstance3D
+    Orbiter                 MeshInstance3D, SphereMesh: the node the label follows (a child of the quad)
+  LabelSurface              ReactUiRoot, the size of the window, in the main viewport: the screen-space root
+```
+
+- **A second root.** `LabelSurface` is a `ReactUiRoot` added to the owner like the demo's own root and sized to the
+  window (the owner follows the window's size each frame). It is a separate React root from the panel's: the panel's
+  lives in a `SubViewport` on a quad, this one is drawn over the 3D view. Everything in it is `pointer-events-none`, so
+  `_has_point` is false everywhere and Godot hands every pointer on to the owner's quad routing (plan 3.11); it holds no
+  key focus.
+- **Each frame**, in `_process` after the node moved: `world = orbiter.globalPosition`,
+  `screen = camera.unprojectPosition(world)`, `behind = camera.isPositionBehind(world)`, and the owner renders
+  `<AnchoredLabel anchor={{ x, y, visible: !behind }}/>` when the anchor changed. The label is one `absolute` element
+  of fixed size (`LABEL_WIDTH` x `LABEL_HEIGHT`), `left = x - width / 2` and `top = y - LABEL_GAP - height`: centred over
+  the point and floating above it. The render is synchronous, so the label and the node are always in the same frame.
+- **Behind the camera.** `unprojectPosition` does not say that a point is behind the camera; it returns a mirrored
+  point. A hidden label is `display: none` (it keeps its last place), so it also takes no space and draws nothing.
+- **A node off screen** but in front of the camera projects outside the window; the label is placed there and the
+  window clips it. Clamp the anchor to the window in the component if the label must stay visible.
+- **The inverse mapping.** The orbiter is placed in the quad's own frame from panel pixels with `quadPixelToLocal`
+  (`world-geometry.ts`) and lifted along the quad's normal, so it circles the card's top edge whatever the quad's
+  rotation. At height 0 it is on the plane and projects to the very point `screenPointOf` gives that panel pixel, which
+  is how the verifier ties the two directions together.
+- **Cost.** A moving node commits one small tree per frame (the label's `left` and `top`); a still node commits
+  nothing, since the owner renders only when the anchor changed.
+
+Verified natively in `pnpm verify:world` (`verifyAnchoredLabel`): the label root is a separate root the size of the
+window; on the quad's plane the node projects to `screenPointOf`'s point and the label is centred over it and
+12 px above, to within one pixel (layout rounds to whole pixels), at four panel pixels and heights; the lift changes
+the projection; the raster shows the sphere at the projected point and the label in its colour over the 3D view;
+a click on a button that the label covers reaches the button and not the game (no `pointer-events` to the label);
+a node behind the camera hides the label (`display: none`, zero rectangle) and bringing it back shows it again; and with
+the orbit running the label moves and agrees with the camera's projection of the node's current position whenever it
+is read. PNGs: `artifacts/native-world/<viewport>/09-anchored-label.png`, `10-anchored-label-over-button.png`,
+`11-anchored-label-behind-camera.png`. The other captures are taken with the orbiter parked off to one side, so they
+are unchanged.
+
 ## Resolution and oversampling
 
 - **Panel pixels per screen pixel.** The panel is `480x320`; with the camera at `z = 2.6` and a 50
@@ -165,7 +212,9 @@ than changing behaviour; it also keeps keys away from `_unhandled_input` handler
 - Pan and magnify gestures, joypad and `ui_*` focus navigation are not forwarded; the cursor shape the
   root asks for is not applied to the OS cursor.
 - The panel has no scroll container (Phase I5) and no `TextInput` (I7), so wheel ticks reach only the
-  root's listeners and nothing can be typed. Anchoring a label to a moving node needs I4.
+  root's listeners and nothing can be typed.
+- The anchored label is not clamped to the window, does not avoid the 3D objects in front of its node (it is a 2D
+  overlay), and a label for several nodes would be one `absolute` element each in the same root.
 - Hover and pointer events come from the camera ray only; moving the quad or camera without moving the
   mouse does not re-hit-test until the next motion.
 

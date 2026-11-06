@@ -280,6 +280,9 @@ async function runWorkflow(viewport) {
   check('Logical viewport, CSS size and device-pixel canvas agree', pixelDimensions.devicePixelRatio === viewport.deviceScaleFactor
     && pixelDimensions.cssWidth === viewport.width && pixelDimensions.physicalWidth === viewport.width * viewport.deviceScaleFactor, pixelDimensions);
   await expectText('world-count', '0', 'Initial React state in the world panel');
+  // The orbiting node and its anchored label (plan I11) are verified by the native verifier. Here the node waits off to
+  // one side of the window, so that neither it nor its label is drawn over the quad whose pixels are read below.
+  await world('placeOrbiterInWorld', 6, -3, 0.5);
   await capture('01-world');
 
   // The ray mapping round-trips at this device pixel ratio.

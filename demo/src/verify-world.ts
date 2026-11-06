@@ -5,7 +5,8 @@ import {
 } from 'godot';
 import type { NativeSnapshot, NativeSnapshotNode } from '../../src';
 import { parseVerifierEvent } from './verifier-input';
-import type { Point2, WorldCounts } from './world-main';
+import { LABEL_COLOR, LABEL_GAP, LABEL_HEIGHT, LABEL_WIDTH } from './world-label';
+import type { OrbiterReading, Point2, Point3, WorldCounts } from './world-main';
 
 /** What the world owner exposes (`godotReactWorld`); the verifier and the Web verifier use the same surface. */
 export interface WorldInspection {
@@ -24,6 +25,14 @@ export interface WorldInspection {
   surfaceHasFocus(): boolean;
   grabSurfaceFocus(): void;
   panelImage(): Image;
+  /** The main viewport's screen-space root that holds the anchored label (a second root). */
+  labelSnapshot(): NativeSnapshot;
+  findInLabel(testID: string): NativeSnapshotNode | undefined;
+  placeOrbiter(x: number, y: number, height: number): void;
+  placeOrbiterInWorld(x: number, y: number, z: number): void;
+  resumeOrbit(): void;
+  orbiterScreen(): OrbiterReading;
+  cameraPosition(): Point3;
 }
 
 const SETTLE_MS = 100;
@@ -46,6 +55,24 @@ const PRIMARY_ACTIVE = '#3730a3';
 const SECONDARY_HOVER = '#f1f5f9';
 const BACKDROP = new Color(0.796, 0.835, 0.882, 1);
 const CARD_WHITE = new Color(1, 1, 1, 1);
+/**
+ * Where the orbiter waits while the panel is verified: in front of the camera but far off to one side, so that neither
+ * it nor its label is drawn over the quad (the rest of this verifier reads pixels there).
+ */
+const ORBITER_PARKING = { x: 6, y: -3, z: 0.5 };
+/** The label is laid out in whole pixels, so it is at the projected point to within this much. */
+const LABEL_TOLERANCE_PX = 1;
+/** The orbiter's sphere (`ORBITER_COLOR`), unshaded, so a raster pixel at its centre is this. */
+const ORBITER_HEX = '#33b2e5';
+/** Panel pixels from the quad's top-left corner that the label's probe reads: inside its left cap. */
+const LABEL_PROBE_INSET_PX = 10;
+/** Where the orbiter is put to show the label above the card, in panel pixels, and how far it floats off the quad. */
+const SHOWCASE_PIXEL = new Vector2(300, 30);
+const SHOWCASE_HEIGHT = 0.2;
+/** The orbit runs this long between the two samples that must differ, in settles (100 ms and two frames each). */
+const ORBIT_SAMPLE_SETTLES = 2;
+/** The orbit moves the label at least this far in the time between the two samples (it covers about 20 px per 100 ms). */
+const ORBIT_MIN_MOVE_PX = 3;
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -191,6 +218,132 @@ function style(hexColor: string): Color {
 }
 
 /**
+ * Plan I11, the anchored label: a second root in the main viewport (the screen-space root) holds one label that is
+ * placed every frame with `Camera3D.unprojectPosition()` of a moving 3D node, centred over it and above it, hidden
+ * when the node is behind the camera, and see-through to input.
+ */
+async function verifyAnchoredLabel(owner: Node, api: WorldInspection, capture: (name: string) => Promise<void>): Promise<void> {
+  const labelNode = (testID: string): NativeSnapshotNode => {
+    const node = api.findInLabel(testID);
+    assert(node, `The label root has no ${testID}`);
+    return node;
+  };
+  const labelRect = () => labelNode('anchor-label').rect;
+  const count = () => text(api, 'world-count');
+  const counts = (): WorldCounts => api.counts();
+  const viewportSize = api.viewportSize();
+  const label = api.labelSnapshot();
+  assert(label.width === viewportSize.x && label.height === viewportSize.y,
+    `The label root fills the window: ${label.width}x${label.height} in ${viewportSize.x}x${viewportSize.y}`);
+  assert(api.find('anchor-label') === undefined, 'The label is not in the panel\'s root: it is in the main viewport\'s own');
+  assert(labelNode('anchor-title').text === 'Orbiter', 'The label says what it follows');
+  const expectLabelAt = (screen: Point2, what: string) => {
+    const rect = labelRect();
+    assert(rect.width === LABEL_WIDTH && rect.height === LABEL_HEIGHT, `${what}: the label has its own size: ${JSON.stringify(rect)}`);
+    const centre = rect.x + rect.width / 2;
+    const bottom = rect.y + rect.height + LABEL_GAP;
+    assert(Math.abs(centre - screen.x) <= LABEL_TOLERANCE_PX && Math.abs(bottom - screen.y) <= LABEL_TOLERANCE_PX,
+      `${what}: the label is centred over the projected point ${screen.x.toFixed(2)},${screen.y.toFixed(2)} and ${LABEL_GAP} px above it, `
+      + `not at ${centre},${bottom} (rect ${JSON.stringify(rect)})`);
+  };
+
+  // ---- On the quad's plane the projection is the inverse mapping of the panel pixel the owner already verified ----
+  const add = panelCenter(api, 'world-increment');
+  api.placeOrbiter(add.x, add.y, 0);
+  await settle();
+  const onPlane = api.screenPointOf(add.x, add.y);
+  const read = api.orbiterScreen();
+  assert(!read.behind, 'The orbiter is in front of the camera');
+  assert(Math.abs(read.screen.x - onPlane.x) <= ROUND_TRIP_TOLERANCE_PX && Math.abs(read.screen.y - onPlane.y) <= ROUND_TRIP_TOLERANCE_PX,
+    `A node on the quad's plane projects to where the panel pixel does (screenPointOf ${onPlane.x},${onPlane.y}): ${read.screen.x},${read.screen.y}`);
+  expectLabelAt(read.screen, 'On the plane');
+
+  // ---- Off the plane, at several places: the label follows the camera's own projection ---------------------------------
+  const places: Array<[number, number, number]> = [[60, 30, 0.2], [420, 40, 0.3], [240, 280, 0.1], [240, 160, 0.5]];
+  let previous: Point2 | undefined;
+  for (const [x, y, height] of places) {
+    api.placeOrbiter(x, y, height);
+    await settle();
+    const reading = api.orbiterScreen();
+    assert(!reading.behind, `${x},${y},${height} is in front of the camera`);
+    expectLabelAt(reading.screen, `At panel pixel ${x},${y} lifted ${height}`);
+    if (previous !== undefined) {
+      assert(Math.hypot(reading.screen.x - previous.x, reading.screen.y - previous.y) > LABEL_TOLERANCE_PX, 'The places are not the same point on the screen');
+    }
+    previous = reading.screen;
+  }
+  // The lift moves the node towards the camera along the quad's normal: it projects somewhere else than the plane does.
+  api.placeOrbiter(240, 160, 0);
+  const flat = api.orbiterScreen().screen;
+  api.placeOrbiter(240, 160, 0.5);
+  const lifted = api.orbiterScreen().screen;
+  assert(Math.hypot(flat.x - lifted.x, flat.y - lifted.y) > LABEL_TOLERANCE_PX, 'A node lifted off the plane projects to a different point');
+  await settle();
+
+  // ---- The picture: the sphere is where the projection says, the label is drawn above it -------------------------------
+  api.placeOrbiter(SHOWCASE_PIXEL.x, SHOWCASE_PIXEL.y, SHOWCASE_HEIGHT);
+  await settle();
+  const showcase = api.orbiterScreen();
+  expectLabelAt(showcase.screen, 'Showcase');
+  assert(near(viewportPixel(owner, new Vector2(showcase.screen.x, showcase.screen.y)), style(ORBITER_HEX)),
+    `The orbiter's sphere is drawn at the projected point: ${hex(viewportPixel(owner, new Vector2(showcase.screen.x, showcase.screen.y)))}`);
+  const rect = labelRect();
+  const probe = new Vector2(rect.x + LABEL_PROBE_INSET_PX, rect.y + rect.height / 2);
+  assert(near(viewportPixel(owner, probe), style(LABEL_COLOR)), `The label is drawn over the 3D view in its colour: ${hex(viewportPixel(owner, probe))}`);
+  await capture('09-anchored-label');
+
+  // ---- The label is a 2D element over the 3D view that takes no input: a click through it reaches the panel ------------
+  const addScreen = screenCenter(api, 'world-increment');
+  const below = api.screenPointOf(add.x, add.y + 10);
+  const pixelsPerPanelPixel = (below.y - addScreen.y) / 10;
+  const labelCentreOffset = LABEL_GAP + LABEL_HEIGHT / 2;
+  api.placeOrbiter(add.x, add.y + labelCentreOffset / pixelsPerPanelPixel, 0);
+  await settle();
+  const over = labelRect();
+  assert(addScreen.x >= over.x && addScreen.x < over.x + over.width && addScreen.y >= over.y && addScreen.y < over.y + over.height,
+    `The label covers the Add button's centre ${addScreen.x},${addScreen.y}: ${JSON.stringify(over)}`);
+  assert(near(viewportPixel(owner, new Vector2(over.x + LABEL_PROBE_INSET_PX, over.y + over.height / 2)), style(LABEL_COLOR)), 'and is drawn over it');
+  await capture('10-anchored-label-over-button');
+  api.resetCounts();
+  const countBefore = Number(count());
+  await click(addScreen);
+  assert(Number(count()) === countBefore + 1, `A click on the button under the label reaches the button: ${count()} from ${countBefore}`);
+  assert(counts().gamePresses === 0, 'and is not the game\'s: the label root took nothing');
+  move(OFF_QUAD);
+  await settle();
+  await click(screenCenter(api, 'world-reset'));
+  assert(count() === '0', `Reset brings the counter back: ${count()}`);
+  move(OFF_QUAD);
+  await settle();
+
+  // ---- Behind the camera the label is hidden (unprojectPosition would put it at a mirrored point) -------------------------
+  const camera = api.cameraPosition();
+  api.placeOrbiterInWorld(camera.x, camera.y, camera.z + 1);
+  await settle();
+  assert(api.orbiterScreen().behind, 'The node is behind the camera');
+  assert(labelRect().width === 0 && labelRect().height === 0, `A label for a node behind the camera is not shown: ${JSON.stringify(labelRect())}`);
+  assert(labelNode('anchor-label').style.display === 'none', `It is display: none, not moved: ${String(labelNode('anchor-label').style.display)}`);
+  await capture('11-anchored-label-behind-camera');
+  api.placeOrbiter(SHOWCASE_PIXEL.x, SHOWCASE_PIXEL.y, SHOWCASE_HEIGHT);
+  await settle();
+  expectLabelAt(api.orbiterScreen().screen, 'Back in front of the camera');
+
+  // ---- The orbit: every frame places the label at the node's current projection -----------------------------------------
+  api.resumeOrbit();
+  await settle();
+  const sampleA = { reading: api.orbiterScreen(), rect: labelRect() };
+  for (let step = 0; step < ORBIT_SAMPLE_SETTLES; step++) await settle();
+  const sampleB = { reading: api.orbiterScreen(), rect: labelRect() };
+  const moved = Math.hypot(sampleB.rect.x - sampleA.rect.x, sampleB.rect.y - sampleA.rect.y);
+  assert(moved >= ORBIT_MIN_MOVE_PX, `While the node orbits the label moves with it: ${moved.toFixed(1)} px in ${ORBIT_SAMPLE_SETTLES} settles`);
+  // The node and the label are updated in the same frame, so whenever the verifier looks they agree.
+  expectLabelAt(sampleB.reading.screen, 'During the orbit');
+  assert(!sampleB.reading.behind, 'The orbit stays in front of the camera');
+  api.placeOrbiterInWorld(ORBITER_PARKING.x, ORBITER_PARKING.y, ORBITER_PARKING.z);
+  await settle();
+}
+
+/**
  * Plan I11: a React root in a `SubViewport` shown on a 3D quad, driven by the camera ray. Every input here
  * enters through `Input.parseInputEvent` in the main viewport, at the screen point where the element is
  * drawn, so what is exercised is the whole route: ray, plane, pixel, copy, `pushInput`.
@@ -220,6 +373,8 @@ export async function runWorldVerification(owner: Node, api: WorldInspection): P
   const incrementAt = () => screenCenter(api, 'world-increment');
   const resetAt = () => screenCenter(api, 'world-reset');
 
+  // The orbit and its label are verified last; until then the orbiter waits off to one side of the window.
+  api.placeOrbiterInWorld(ORBITER_PARKING.x, ORBITER_PARKING.y, ORBITER_PARKING.z);
   await settle();
   await settle();
   assert(count() === '0', `Initial React state: ${count()}`);
@@ -436,6 +591,9 @@ export async function runWorldVerification(owner: Node, api: WorldInspection): P
   await settle();
   assert(counts().gamePresses === 1 && counts().panelPointerEvents === 0, `A touch off the quad is the game's: ${JSON.stringify(counts())}`);
   await capture('07-touch');
+
+  // ---- A label in the main viewport that follows a moving 3D node ------------------------------------------------
+  await verifyAnchoredLabel(owner, api, capture);
 
   // ---- Unmount before free, and mount again --------------------------------------------------------
   const viewport = owner.getNodeOrNull('PanelViewport');
