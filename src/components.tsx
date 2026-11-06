@@ -1,11 +1,13 @@
 import { Children, createElement, forwardRef, useCallback, useContext, useSyncExternalStore, type ReactNode } from 'react';
 import type {
-  UIAccessibilityActionEvent, UIDragEndEvent, UIDragEvent, UIFocusEvent, UIKeyboardEvent, UIPointerEvent, UIScrollEvent, UIWheelEvent,
+  UIAccessibilityActionEvent, UIBeforeInputEvent, UICompositionEvent, UIDragEndEvent, UIDragEvent, UIFocusEvent, UIInputEvent,
+  UIKeyboardEvent, UIPointerEvent, UIScrollEvent, UITextSelectionChangeEvent, UIWheelEvent,
 } from './events';
 import type { LayoutRect, NativeScrollState } from './native';
 import {
   createOverlayPortal, OverlayContext, readRootSize, readTextSelection, watchRootSize, watchTextSelection, type RootSize,
 } from './renderer';
+import type { KeyboardType } from './props';
 import type { StyleProp, UIAriaProps } from './types';
 
 export interface UIHandle {
@@ -162,6 +164,70 @@ export interface UIProps extends UIAriaProps {
    * `onFocus` and `onBlur`. Bubbles, and cannot be prevented.
    */
   onAccessibilityAction?: (event: UIAccessibilityActionEvent) => void;
+  /**
+   * A text input below this element is about to make an edit. Cancelable: `preventDefault()` rejects it, and native
+   * waits for the answer. Bubbles.
+   */
+  onBeforeInput?: (event: UIBeforeInputEvent) => void;
+  /** A text input below this element changed its text because of an edit. Bubbles. */
+  onInput?: (event: UIInputEvent) => void;
+  /** A text input's selection moved. Does not bubble: only the input itself hears it. */
+  onSelectionChange?: (event: UITextSelectionChangeEvent) => void;
+  /** An IME composition began, changed or ended in a text input below this element. Bubbles. */
+  onCompositionStart?: (event: UICompositionEvent) => void;
+  onCompositionUpdate?: (event: UICompositionEvent) => void;
+  onCompositionEnd?: (event: UICompositionEvent) => void;
+}
+
+/**
+ * What a `TextInput` element carries beyond {@link UIProps}: the settings native reads. The
+ * `TextInput` component builds these from its own props; only it renders a `textinput` element.
+ */
+export interface TextInputHostProps {
+  /** The text the input starts with. Later changes are ignored: native owns the text (`setTextAndSelection` replaces it). */
+  defaultValue?: string;
+  placeholder?: string;
+  /** A text area: line breaks, wrapping, vertical movement and scrolling. Fixed when the input is created. */
+  multiline?: boolean;
+  /** Focusable and selectable, but its text cannot be edited. */
+  readOnly?: boolean;
+  /** A password: bullets are drawn, and copy, cut and word jumps reveal nothing. */
+  secure?: boolean;
+  /** Select all of the text when the input gains focus. */
+  selectTextOnFocus?: boolean;
+  /** The height of a multi-line input in lines. */
+  rows?: number;
+  /** The most UTF-16 code units the user can type in. Text already longer is kept. */
+  maxLength?: number;
+  /** The on-screen keyboard to ask a touch device for. */
+  keyboardType?: KeyboardType;
+}
+
+/** The props of any element the host renders. */
+export type HostProps = UIProps & TextInputHostProps;
+
+/** The handle of a `TextInput`: an element handle that can also read and move the selection. */
+export interface TextInputHandle extends UIHandle {
+  /** All of the text, as native holds it now. Throws once the element is gone. */
+  readonly value: string;
+  /** UTF-16 offsets into `value`, ordered. */
+  readonly selectionStart: number;
+  readonly selectionEnd: number;
+  readonly selectionDirection: 'forward' | 'backward';
+  /** Select all of the text. Does not touch the undo history. */
+  select(): void;
+  /**
+   * Select `start` to `end` (UTF-16 offsets into `value`, `start <= end`). `'backward'` puts the caret at `start`.
+   * Does not touch the undo history. Throws for an offset past the end or inside a surrogate pair.
+   */
+  setSelectionRange(start: number, end: number, direction?: 'forward' | 'backward' | 'none'): void;
+  /**
+   * React Native's `setTextAndSelection`: replace the text, and the selection (UTF-16 offsets into `value`, the
+   * caret at the end when both are left out), if `eventCount` is the number of `input` events the input has made.
+   * Returns `false`, changing nothing, when it is not: the user typed since JS read the count, and the next `input`
+   * event lets the caller reconcile again. Applying clears the undo history and raises no `input` event.
+   */
+  setTextAndSelection(eventCount: number, value: string, start?: number, end?: number): boolean;
 }
 
 /** A flex-column element by default; Taffy owns its complete layout. */

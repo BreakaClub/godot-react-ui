@@ -320,6 +320,7 @@ impl Line {
     }
 
     /// The line's box: from the left end of its glyphs, its height, as wide as its glyphs.
+    #[cfg_attr(not(feature = "probe"), allow(dead_code))] // Phase I6 (text selection) calls it.
     pub(crate) fn rect(&self) -> Rect2 {
         Rect2::new(
             Vector2::new(self.origin.x, self.top()),
@@ -347,6 +348,7 @@ impl Caret {
     }
 
     /// The middle of the caret's line segment.
+    #[cfg_attr(not(feature = "probe"), allow(dead_code))] // Phase I6 (text selection) calls it.
     pub(crate) fn center(&self) -> Vector2 {
         Vector2::new(self.x, self.top + self.height / 2.0)
     }
@@ -482,15 +484,18 @@ impl<S: ParagraphSource> TextLayout<S> {
     }
 
     /// The paragraph's text length in code points.
+    #[cfg_attr(not(feature = "probe"), allow(dead_code))] // Phase I6 (text selection) calls it.
     pub(crate) fn text_len(&self) -> usize {
         self.text_len
     }
 
     /// Where the paragraph is drawn.
+    #[cfg_attr(not(feature = "probe"), allow(dead_code))] // Phase I6 (text selection) calls it.
     pub(crate) fn origin(&self) -> Vector2 {
         self.origin
     }
 
+    #[cfg_attr(not(feature = "probe"), allow(dead_code))] // Phase I6 (text selection) calls it.
     pub(crate) fn lines(&self) -> &[Line] {
         &self.lines
     }
@@ -704,11 +709,13 @@ impl<S: ParagraphSource> TextLayout<S> {
     // ---- graphemes ----
 
     /// Every grapheme boundary of the text, 0 first and the length last.
+    #[cfg_attr(not(feature = "probe"), allow(dead_code))] // Phase I6 (text selection) calls it.
     pub(crate) fn grapheme_boundaries(&self) -> &[usize] {
         &self.graphemes
     }
 
     /// The largest boundary below `offset`, or `None` at the start.
+    #[cfg_attr(not(feature = "probe"), allow(dead_code))] // Phase I6 (text selection) calls it.
     pub(crate) fn previous_grapheme(
         &self,
         offset: usize,
@@ -721,6 +728,7 @@ impl<S: ParagraphSource> TextLayout<S> {
     }
 
     /// The smallest boundary above `offset`, or `None` at the end.
+    #[cfg_attr(not(feature = "probe"), allow(dead_code))] // Phase I6 (text selection) calls it.
     pub(crate) fn next_grapheme(&self, offset: usize) -> Result<Option<usize>, TextLayoutError> {
         self.check_offset(offset)?;
         let through = self
@@ -731,11 +739,13 @@ impl<S: ParagraphSource> TextLayout<S> {
 
     /// The boundary closest to `offset`; between two it is the lower one
     /// (`TextServer::shaped_text_closest_character_pos`).
+    #[cfg_attr(not(feature = "probe"), allow(dead_code))] // Phase I6 (text selection) calls it.
     pub(crate) fn nearest_grapheme(&self, offset: usize) -> Result<usize, TextLayoutError> {
         self.check_offset(offset)?;
         Ok(self.nearest_boundary(offset))
     }
 
+    #[cfg_attr(not(feature = "probe"), allow(dead_code))] // Phase I6 (text selection) calls it.
     fn nearest_boundary(&self, offset: usize) -> usize {
         let through = self
             .graphemes
@@ -761,6 +771,7 @@ impl<S: ParagraphSource> TextLayout<S> {
 
     /// The first word with `start <= offset <= end`, as `LineEdit` picks one on a double click
     /// (`line_edit.cpp:543-557`); `None` in white space.
+    #[cfg_attr(not(feature = "probe"), allow(dead_code))] // Phase I6 (text selection) calls it.
     pub(crate) fn word_at(&self, offset: usize) -> Result<Option<(usize, usize)>, TextLayoutError> {
         self.check_offset(offset)?;
         Ok(self

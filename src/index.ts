@@ -1,5 +1,10 @@
 export { View, Text, Button, Portal, useRootSize, useTextSelection } from './components';
-export type { UIProps, UIHandle, UISelection, UISelectionPoint } from './components';
+export type {
+  HostProps, TextInputHandle, TextInputHostProps, UIProps, UIHandle, UISelection, UISelectionPoint,
+} from './components';
+export { TextInput, isTextInputHandle } from './text-input';
+export type { TextInputProps } from './text-input';
+export type { KeyboardType } from './props';
 export { Checkbox, RadioGroup, ScrollView, Select, Slider, Switch } from './kit';
 export type {
   CheckboxProps, CheckedState, PartProps, RadioGroupItemProps, RadioGroupRootProps, RadioOrientation, ScrollViewProps,
@@ -9,8 +14,9 @@ export type {
 } from './kit';
 export { EventPhase } from './events';
 export type {
-  EventPhaseValue, UIAccessibilityActionEvent, UIAnyEvent, UIDragEndEvent, UIDragEvent, UIEvent, UIEventMap, UIFocusEvent,
-  UIKeyboardEvent, UIMouseFields, UIPointerEvent, UIScrollEvent, UISelectionChangeEvent, UISyntheticEvent, UIWheelEvent,
+  EventPhaseValue, UIAccessibilityActionEvent, UIAnyEvent, UIBeforeInputEvent, UICompositionEvent, UIDragEndEvent, UIDragEvent,
+  UIEvent, UIEventMap, UIFocusEvent, UIInputEvent, UIKeyboardEvent, UIMouseFields, UIPointerEvent, UIScrollEvent,
+  UISelectionChangeEvent, UISyntheticEvent, UITextSelectionChangeEvent, UIWheelEvent,
 } from './events';
 export { DataTransfer } from './data-transfer';
 export type { DataStoreMode, DropEffect, EffectAllowed } from './data-transfer';
@@ -26,6 +32,7 @@ export type { RendererProfile, ProfileSample } from './profile';
 export { readActivity, takeNativeProfile } from './native';
 export type { NativeActivity, NativeDiagnosticsHost, NativeProfile, NativeTransition } from './native';
 export type {
-  NativeDragState, NativeHost, NativeScrollState, NativeSelection, NativeSnapshot, NativeSnapshotNode, LayoutRect,
+  NativeDragState, NativeHost, NativeScrollState, NativeSelection, NativeSnapshot, NativeSnapshotNode, NativeTextInputSnapshot,
+  NativeTextInputState, LayoutRect,
 } from './native';
 export type { NativeEvent, NativeEventType, NativePointerType } from './native';

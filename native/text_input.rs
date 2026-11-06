@@ -763,6 +763,7 @@ impl EditBuffer {
     }
 
     /// The text's length in UTF-16 code units, `value.length` in JS.
+    #[cfg_attr(not(test), allow(dead_code))] // JS reads the length from the value it is sent.
     pub(crate) fn utf16_length(&self) -> usize {
         utf16_length(self.text.iter().copied())
     }

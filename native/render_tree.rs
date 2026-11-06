@@ -7,6 +7,8 @@
 //!          below); draws the background and border
 //! ├─ content   clips to the padding box when the element clips; draws text; child boxes attach here
 //! │  └─ scroll    scroll containers only: transform = minus the scroll offset; child boxes attach here
+//! │     ├─ text   text inputs only: the selection, the text and the preedit's underline
+//! │     └─ caret  text inputs only: the caret, drawn over the text so that blinking redraws nothing else
 //! └─ overlay   scroll containers only, drawn after the content: the scrollbar thumbs
 //! ```
 //!
@@ -78,6 +80,32 @@ pub(crate) struct ContentKey {
     pub oversampling: u32,
 }
 
+/// What a text input's text item last drew. Equal keys mean the recorded commands are still right.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct EditTextKey {
+    /// Changes whenever the display text is shaped again.
+    pub generation: u64,
+    pub origin: Vector2,
+    pub content_width: f32,
+    /// `HorizontalAlignment::ord()` the paragraph was laid out with.
+    pub alignment: i32,
+    pub color: Color,
+    /// `Some` while the placeholder is drawn instead of the text, in its colour.
+    pub placeholder: Option<Color>,
+    pub selection_color: Color,
+    /// The selected display offsets, when non-empty.
+    pub selection: Option<(usize, usize)>,
+    /// The IME preedit's display offsets and the part of it being converted.
+    pub preedit: Option<((usize, usize), (usize, usize))>,
+}
+
+/// What a text input's caret item last drew: the rectangles, in the scroll item's coordinates.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct CaretKey {
+    pub rects: Vec<Rect2>,
+    pub color: Color,
+}
+
 /// What a scroll container's overlay last drew: its scrollbar thumbs (horizontal, vertical) in the
 /// box's coordinates, and their colour.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -110,6 +138,8 @@ pub(crate) struct RenderNode {
     scroll_item: Option<Rid>,
     /// Scroll containers only: draws the scrollbar thumbs over the content.
     overlay_item: Option<Rid>,
+    /// Text inputs only: the items the text and the caret are drawn in, under the scroll item.
+    edit_items: Option<EditItems>,
     location: Vector2,
     scroll_offset: Vector2,
     opacity: f32,
@@ -117,7 +147,19 @@ pub(crate) struct RenderNode {
     box_key: Option<BoxKey>,
     content_key: Option<ContentKey>,
     overlay_key: Option<OverlayKey>,
+    edit_text_key: Option<EditTextKey>,
+    caret_key: Option<CaretKey>,
 }
+
+/// The two items a text input draws in: the text under the caret, so a blink never redraws the text.
+struct EditItems {
+    text: Rid,
+    caret: Rid,
+}
+
+/// Siblings under the scroll item of a text input draw in ascending index: text, then caret.
+const EDIT_TEXT_DRAW_INDEX: i32 = 0;
+const EDIT_CARET_DRAW_INDEX: i32 = 1;
 
 impl RenderNode {
     /// Two detached items, the content item below the box item.
@@ -131,6 +173,7 @@ impl RenderNode {
             content_item,
             scroll_item: None,
             overlay_item: None,
+            edit_items: None,
             location: Vector2::ZERO,
             scroll_offset: Vector2::ZERO,
             opacity: 1.0,
@@ -138,6 +181,8 @@ impl RenderNode {
             box_key: None,
             content_key: None,
             overlay_key: None,
+            edit_text_key: None,
+            caret_key: None,
         }
     }
 
@@ -181,10 +226,69 @@ impl RenderNode {
         self.overlay_key = None;
     }
 
+    /// Give a text input its text and caret items under the scroll item, which it must have.
+    pub(crate) fn make_edit_items(&mut self) {
+        if self.edit_items.is_some() {
+            return;
+        }
+        let Some(scroll_item) = self.scroll_item else {
+            return;
+        };
+        let mut rs = server();
+        let text = rs.canvas_item_create();
+        rs.canvas_item_set_parent(text, scroll_item);
+        rs.canvas_item_set_draw_index(text, EDIT_TEXT_DRAW_INDEX);
+        let caret = rs.canvas_item_create();
+        rs.canvas_item_set_parent(caret, scroll_item);
+        rs.canvas_item_set_draw_index(caret, EDIT_CARET_DRAW_INDEX);
+        self.edit_items = Some(EditItems { text, caret });
+        self.edit_text_key = None;
+        self.caret_key = None;
+    }
+
+    /// Re-record the text, selection and preedit underline when `key` differs from what they last
+    /// drew; `draw` records into the item. Returns true if it did.
+    pub(crate) fn record_edit_text(&mut self, key: EditTextKey, draw: impl FnOnce(Rid)) -> bool {
+        let Some(items) = &self.edit_items else {
+            return false;
+        };
+        if self.edit_text_key.as_ref() == Some(&key) {
+            return false;
+        }
+        server().canvas_item_clear(items.text);
+        draw(items.text);
+        self.edit_text_key = Some(key);
+        true
+    }
+
+    /// Re-record the caret when `key` differs from what it last drew (`None`: no caret).
+    pub(crate) fn record_edit_caret(
+        &mut self,
+        key: Option<CaretKey>,
+        draw: impl FnOnce(Rid, &CaretKey),
+    ) -> bool {
+        let Some(items) = &self.edit_items else {
+            return false;
+        };
+        if self.caret_key == key {
+            return false;
+        }
+        server().canvas_item_clear(items.caret);
+        if let Some(key) = &key {
+            draw(items.caret, key);
+        }
+        self.caret_key = key;
+        true
+    }
+
     /// Take the scroll and overlay items away (it stopped being a scroll container). The caller has
     /// already moved the child boxes under the content item.
     pub(crate) fn remove_scroller(&mut self) {
         let mut rs = server();
+        if let Some(items) = self.edit_items.take() {
+            rs.free_rid(items.text);
+            rs.free_rid(items.caret);
+        }
         for item in [self.scroll_item.take(), self.overlay_item.take()]
             .into_iter()
             .flatten()
@@ -381,6 +485,10 @@ impl Drop for RenderNode {
         // RenderingServer::free does not free child RIDs recursively. Every item created here is
         // released explicitly with its owning element.
         let mut rs = server();
+        if let Some(items) = self.edit_items.take() {
+            rs.free_rid(items.text);
+            rs.free_rid(items.caret);
+        }
         for item in [self.scroll_item, self.overlay_item].into_iter().flatten() {
             rs.free_rid(item);
         }
@@ -488,6 +596,7 @@ impl ReactUiRoot {
             let (boxed, contented) = self.paint_node(tag);
             self.stats.box_records += u64::from(boxed);
             self.stats.content_records += u64::from(contented);
+            self.stats.content_records += u64::from(self.paint_text_input(tag));
             // The scrollbars' look (`scrollbar-width`, `scrollbar-color`) is a paint input too.
             self.paint_scroll_overlay(tag);
         }
@@ -540,6 +649,10 @@ impl ReactUiRoot {
             radius: style.border_radius.unwrap_or(0.0).round() as i32,
         };
         let boxed = node.render.record_box(box_key, &mut node.visual.background);
+        // A text input draws its own text in the items under its scroll item (`paint_text_input`).
+        if node.kind == Kind::TextInput {
+            return (boxed, false);
+        }
         let contented = match node.visual.paragraph.as_mut() {
             Some(paragraph) => {
                 let key = ContentKey {

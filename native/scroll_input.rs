@@ -251,7 +251,7 @@ impl ReactUiRoot {
         let Some(node) = self.mounted.nodes.get_mut(&tag) else {
             return;
         };
-        let wants = node.is_scroll_container();
+        let wants = node.has_scroll_item();
         if wants == node.render.has_scroller() {
             return;
         }

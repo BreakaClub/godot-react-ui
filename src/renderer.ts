@@ -5,15 +5,16 @@ import {
   DiscreteEventPriority, NoEventPriority,
 } from 'react-reconciler/constants';
 import { buildCommit, type CommitNode } from './commit';
-import type { UIHandle, UIProps, UISelection } from './components';
+import type { HostProps, TextInputHandle, UIHandle, UIProps, UISelection } from './components';
 import { DragSessions, type DragDispatch } from './drag';
+import type { NativeTextInputState } from './native';
 import {
   dispatchEvent, exclusiveAncestry, isNativeDragEvent, NOT_DISPATCHED, RootListeners,
   type DispatchResult, type PathNode, type UIEventMap,
 } from './events';
 import {
   checkCapture, checkFocus, checkScroll, commitPayload, findTag, readDeletions, readEvents, readNodeRect, readScrollState,
-  readSelection, readSnapshot, resolveEvent,
+  readSelection, readSnapshot, readTextInputState, resolveEvent, setTextAndSelection, setTextSelection,
   type NativeDragEndEvent, type NativeDragEvent, type NativeEvent, type NativeEventType, type NativeHost,
   type NativePointerEvent, type NativeSnapshot, type NativeSnapshotNode,
 } from './native';
@@ -42,7 +43,7 @@ const MAX_EVENT_DRAIN_ROUNDS = 64;
 interface Instance extends CommitNode<Instance> {
   readonly root: RootState;
   /** Full React props, handlers included. */
-  readonly props: UIProps;
+  readonly props: HostProps;
   readonly children: Instance[];
 }
 
@@ -139,7 +140,7 @@ export interface UIRoot {
   takeProfile(): RendererProfile;
 }
 
-function createInstance(kind: NativeKind, props: UIProps, container: Container): Instance {
+function createInstance(kind: NativeKind, props: HostProps, container: Container): Instance {
   const root = container.root;
   if (root.nextTag > MAX_TAG) throw new Error('UI root exhausted its u32 tags');
   const tag = root.nextTag++;
@@ -147,7 +148,7 @@ function createInstance(kind: NativeKind, props: UIProps, container: Container):
 }
 
 function cloneInstance(
-  instance: Instance, kind: NativeKind, oldProps: UIProps, newProps: UIProps, keepChildren: boolean, hidden: boolean,
+  instance: Instance, kind: NativeKind, oldProps: HostProps, newProps: HostProps, keepChildren: boolean, hidden: boolean,
 ): Instance {
   return {
     tag: instance.tag, kind, root: instance.root, props: newProps,
@@ -229,8 +230,44 @@ function scrollMethods(host: NativeHost, tag: number): Pick<UIHandle, 'scrollTo'
   };
 }
 
+/** The text state of a text input, which must be mounted. */
+function textState(host: NativeHost, tag: number): NativeTextInputState {
+  const state = readTextInputState(host, tag);
+  if (state === undefined) throw new Error(`Text input ${tag} is not mounted`);
+  return state;
+}
+
+/** The UTF-16 offsets a selection range may have in `value`: whole characters, so no offset inside a surrogate pair. */
+function selectionDirection(direction: 'forward' | 'backward' | 'none' | undefined): boolean {
+  return direction === 'backward';
+}
+
+/** The extra methods of a text input's handle. */
+function textInputMethods(host: NativeHost, tag: number): Omit<TextInputHandle, keyof UIHandle> {
+  return {
+    get value() { return textState(host, tag).value; },
+    get selectionStart() { return textState(host, tag).selectionStart; },
+    get selectionEnd() { return textState(host, tag).selectionEnd; },
+    get selectionDirection() { return textState(host, tag).selectionDirection; },
+    select() {
+      const state = textState(host, tag);
+      setTextSelection(host, tag, 0, state.value.length, false);
+    },
+    setSelectionRange(start, end, direction) { setTextSelection(host, tag, start, end, selectionDirection(direction)); },
+    setTextAndSelection(eventCount, value, start, end) {
+      if ((start === undefined) !== (end === undefined)) {
+        throw new Error('setTextAndSelection needs both a start and an end, or neither');
+      }
+      return setTextAndSelection(host, tag, eventCount, value, start ?? NO_SELECTION, end ?? NO_SELECTION);
+    },
+  };
+}
+
+/** `setTextAndSelection`'s start and end for "the caret at the end of the new text". */
+const NO_SELECTION = -1;
+
 /** The public handle of a tag; created on first use and stable across clones. */
-function handleFor(root: RootState, tag: number): UIHandle {
+function handleFor(root: RootState, tag: number, kind: NativeKind): UIHandle {
   let handle = root.handles.get(tag);
   if (handle === undefined) {
     const own: UIHandle = handle = {
@@ -242,6 +279,8 @@ function handleFor(root: RootState, tag: number): UIHandle {
       ...focusMethods(root.host, tag),
       ...scrollMethods(root.host, tag),
     };
+    // Its value and selection are read when asked for, so they are defined as accessors (a spread would read them).
+    if (kind === 'textinput') Object.defineProperties(own, Object.getOwnPropertyDescriptors(textInputMethods(root.host, tag)));
     root.handles.set(tag, handle);
   }
   return handle;
@@ -373,7 +412,7 @@ let updatePriority: Reconciler.EventPriority = NoEventPriority;
 const transitionContext = createContext(null);
 
 type HostConfig = Reconciler.HostConfig<
-  NativeKind, UIProps, Container, Instance, never, never, never, never,
+  NativeKind, HostProps, Container, Instance, never, never, never, never,
   UIHandle, typeof EMPTY_CONTEXT, Instance[], ReturnType<typeof setTimeout>, -1, null
 >;
 
@@ -391,16 +430,16 @@ const hostConfig = {
   },
   getRootHostContext: () => EMPTY_CONTEXT,
   getChildHostContext: () => EMPTY_CONTEXT,
-  getPublicInstance: (instance: Instance) => handleFor(instance.root, instance.tag),
+  getPublicInstance: (instance: Instance) => handleFor(instance.root, instance.tag, instance.kind),
   // Render makes no native call: instances are plain JS objects, so an abandoned render costs
   // nothing natively (plan 3.9).
-  createInstance: (kind: NativeKind, props: UIProps, container: Container) => createInstance(kind, props, container),
+  createInstance: (kind: NativeKind, props: HostProps, container: Container) => createInstance(kind, props, container),
   createTextInstance(): never {
     throw new Error('Text strings must be rendered within a <Text> component');
   },
   appendInitialChild(parent: Instance, child: Instance) { parent.children.push(child); },
   finalizeInitialChildren: () => false,
-  shouldSetTextContent: (kind: NativeKind, props: UIProps) => kind === 'text' && scalarText(props.children) !== undefined,
+  shouldSetTextContent: (kind: NativeKind, props: HostProps) => kind === 'text' && scalarText(props.children) !== undefined,
   prepareForCommit: () => null,
   resetAfterCommit: () => {},
   preparePortalMount: () => {},
@@ -413,11 +452,11 @@ const hostConfig = {
   prepareScopeUpdate: () => {},
   getInstanceFromScope: () => null,
   detachDeletedInstance: () => {},
-  cloneInstance: (instance: Instance, kind: NativeKind, oldProps: UIProps, newProps: UIProps, keepChildren: boolean) =>
+  cloneInstance: (instance: Instance, kind: NativeKind, oldProps: HostProps, newProps: HostProps, keepChildren: boolean) =>
     cloneInstance(instance, kind, oldProps, newProps, keepChildren, false),
   // A hidden subtree (Suspense showing a fallback) keeps its instance but takes no space; when it is
   // shown again React appends the unhidden instance, which the walk diffs back.
-  cloneHiddenInstance: (instance: Instance, kind: NativeKind, props: UIProps) =>
+  cloneHiddenInstance: (instance: Instance, kind: NativeKind, props: HostProps) =>
     cloneInstance(instance, kind, instance.props, props, true, true),
   cloneHiddenTextInstance(): never {
     throw new Error('Text strings must be rendered within a <Text> component');
@@ -478,7 +517,7 @@ function pathNodes(root: RootState, tags: readonly number[]): PathNode[] {
   const nodes: PathNode[] = [];
   for (const tag of tags) {
     const instance = root.committed.get(tag);
-    if (instance !== undefined) nodes.push({ handle: handleFor(root, tag), props: instance.props });
+    if (instance !== undefined) nodes.push({ handle: handleFor(root, tag, instance.kind), props: instance.props });
   }
   return nodes;
 }
@@ -491,7 +530,7 @@ function dispatchEnterLeave(root: RootState, native: NativePointerEvent): Dispat
   const related = liveInstance(root, native.relatedTarget);
   const crossed = exclusiveAncestry(native.path, native.relatedPath);
   const ordered = native.type === 'pointerenter' ? crossed.reverse() : crossed;
-  const relatedHandle = related === undefined ? null : handleFor(root, related.tag);
+  const relatedHandle = related === undefined ? null : handleFor(root, related.tag, related.kind);
   let result = NOT_DISPATCHED;
   for (const node of pathNodes(root, ordered)) {
     result = dispatchEvent(native, [node], relatedHandle, root);
@@ -545,7 +584,7 @@ function dispatch(root: RootState, native: NativeEvent): DispatchResult {
   if (native.type === 'focus' || native.type === 'blur') {
     // The other side of a focus change, if it still exists.
     const related = liveInstance(root, native.relatedTarget);
-    return dispatchEvent(native, path, related === undefined ? null : handleFor(root, related.tag), root);
+    return dispatchEvent(native, path, related === undefined ? null : handleFor(root, related.tag, related.kind), root);
   }
   if (isClickFamily(native.type) && path.some((node) => node.props.disabled)) return NOT_DISPATCHED;
   return dispatchEvent(native, path, null, root);

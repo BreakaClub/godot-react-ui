@@ -29,6 +29,7 @@ impl ReactUiRoot {
         let mut nodes = vec![json!({
             "id": 0, "kind": "view", "text": "", "parent": null, "layer": 0,
             "children": self.mounted.roots[0], "style": {}, "props": {}, "scroll": null,
+            "textInput": null,
             "paintParent": null, "paintIndex": 0, "documentIndex": -1,
             "rect": viewport, "clipRect": viewport,
             "presentation": {
@@ -77,6 +78,7 @@ impl ReactUiRoot {
                     "rect": rect, "clipRect": inherited_clip,
                     "presentation": self.presentation_json(tag),
                     "scroll": self.scroll_state_json(tag),
+                    "textInput": self.text_input_snapshot_json(tag),
                 }));
                 let content_clip = if node.clips_content() {
                     let local = node.geometry.padding_box();

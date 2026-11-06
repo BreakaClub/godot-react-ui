@@ -31,20 +31,15 @@ mod selection_input;
 mod snapshot;
 mod stacking;
 mod style_engine;
-// Integrated in Phase I7 (TextInput); remove the attribute then.
-#[cfg_attr(not(test), allow(dead_code))]
 mod text_input;
-// Caret, hit-test and selection geometry over Godot's `TextParagraph`. Text selection (Phase I6) uses
-// the hit test, word, line and selection-run queries; the carets, line layout and edit-buffer adapters
-// are for TextInput (Phase I7), which removes this attribute.
-#[cfg_attr(not(feature = "probe"), allow(dead_code))]
+// `<TextInput>` on the mounted tree: key, pointer, IME and virtual keyboard input, painting.
+mod text_input_godot;
+// Caret, hit-test and selection geometry over Godot's `TextParagraph`; text selection (Phase I6) and text
+// inputs (Phase I7) use it. The few items neither calls carry their own `allow(dead_code)`.
 mod text_layout;
 #[cfg(feature = "probe")]
 mod text_layout_probe;
-// Text selection (Phase I6) converts the code point offsets it sends to JS with `code_point_to_utf16`;
-// the JS-to-native direction is for `TextInput` (Phase I7, `setSelectionRange`, `setTextAndSelection`),
-// which removes this attribute.
-#[cfg_attr(not(test), allow(dead_code))]
+// UTF-16 offsets against code point indices: text selection sends them to JS, text inputs both ways.
 mod text_offsets;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -87,6 +82,7 @@ use render_tree::{RingKey, RootItem};
 use scroll_input::ScrollInputState;
 use selection_input::SelectionState;
 use style_engine::{DimensionAxis, DimensionOverrides, SampledStyle, StyleEngine};
+use text_input_godot::TextInputRoot;
 
 const DEFAULT_FONT_SIZE: i32 = 16;
 const MILLISECONDS_PER_SECOND: f64 = 1000.0;
@@ -101,9 +97,13 @@ struct ReactUiExtension;
 #[gdextension]
 unsafe impl ExtensionLibrary for ReactUiExtension {}
 
+/// What Taffy measures a leaf with (the node context of a layout node).
 #[derive(Clone)]
-struct TextContext {
-    paragraph: Gd<TextParagraph>,
+enum TextContext {
+    /// A `Text` node: its shaped paragraph, wrapped to the width Taffy offers.
+    Paragraph(Gd<TextParagraph>),
+    /// A `TextInput`: a size that never depends on its value (plan 3.18), so typing does not lay out.
+    Intrinsic(Vector2),
 }
 
 #[derive(Default, Serialize)]
@@ -201,6 +201,9 @@ pub struct ReactUiRoot {
     stats: Stats,
     /// The accessibility elements this root has made for assistive technologies (plan 3.21).
     accessibility: Accessibility,
+    /// What text inputs share: the selection drag in progress, the window's focus, the `InputMap`
+    /// actions their keys are (`text_input_godot.rs`).
+    text_inputs: TextInputRoot,
     clock_ms: f64,
     profiler: Profiler,
     style_engine: StyleEngine,
@@ -268,6 +271,7 @@ impl IControl for ReactUiRoot {
             clicks: ClickCounter::default(),
             stats: Stats::default(),
             accessibility: Accessibility::default(),
+            text_inputs: TextInputRoot::default(),
             clock_ms: 0.0,
             profiler: Profiler::default(),
             style_engine: StyleEngine::new(),
@@ -338,6 +342,9 @@ impl IControl for ReactUiRoot {
                 self.refresh_intrinsic_targets();
             }
             ControlNotification::ACCESSIBILITY_UPDATE => self.update_accessibility(),
+            // The IME reports a change of its composition to every node (`scene_tree.cpp:922-932`).
+            ControlNotification::OS_IME_UPDATE => self.text_input_ime_update(),
+            ControlNotification::WM_WINDOW_FOCUS_IN => self.text_input_window_focus(true),
             // The engine freed the root's element, and ours with it.
             ControlNotification::ACCESSIBILITY_INVALIDATE => self.forget_accessibility_elements(),
             ControlNotification::PREDELETE => {
@@ -364,6 +371,7 @@ impl IControl for ReactUiRoot {
                 self.refresh_interaction();
             }
             ControlNotification::WM_WINDOW_FOCUS_OUT => {
+                self.text_input_window_focus(false);
                 // The engine drops mouse focus when the window loses OS focus and sends the Control
                 // a synthetic release that never reaches `gui_input` (internal-device events skip
                 // `_gui_input`), so a press that was in flight would stay pressed forever. JS is
@@ -428,6 +436,9 @@ impl IControl for ReactUiRoot {
         }
         if self.drag_wants_frames() {
             self.tick_drag(delta);
+        }
+        if self.text_input_wants_frames() {
+            self.tick_text_input(delta);
         }
         self.update_process();
     }
@@ -666,6 +677,71 @@ impl ReactUiRoot {
     #[func]
     fn clear_selection(&mut self) {
         self.clear_selection_command();
+    }
+
+    /// `setTextAndSelection(eventCount, value, start, end)` on a text input (plan 3.18, 4.4): replace its
+    /// text and selection, unless the user typed since JS read `eventCount`. `start` and `end` are UTF-16
+    /// offsets into `value`, both -1 for the caret at the end. Returns "" when it was applied, "stale"
+    /// when it was ignored for its count, else why nothing changed.
+    #[func]
+    fn set_text_and_selection(
+        &mut self,
+        tag: i64,
+        event_count: i64,
+        value: GString,
+        start: i64,
+        end: i64,
+    ) -> GString {
+        let result = u32::try_from(tag)
+            .map_err(|_| format!("tag {tag} is not a u32"))
+            .and_then(|tag| {
+                self.set_text_and_selection_checked(
+                    tag,
+                    event_count,
+                    &value.to_string(),
+                    start,
+                    end,
+                )
+            });
+        match result {
+            Ok(text_input_godot::TextCommandOutcome::Applied) => GString::new(),
+            Ok(text_input_godot::TextCommandOutcome::Stale) => {
+                GString::from(text_input_godot::STALE_COMMAND)
+            }
+            Err(error) => GString::from(&error),
+        }
+    }
+
+    /// `setSelectionRange(start, end, direction)` on a text input: UTF-16 offsets into its text,
+    /// `backward` putting the caret at `start`. An empty return is success.
+    #[func]
+    fn set_text_selection(&mut self, tag: i64, start: i64, end: i64, backward: bool) -> GString {
+        let result = u32::try_from(tag)
+            .map_err(|_| format!("tag {tag} is not a u32"))
+            .and_then(|tag| self.set_text_selection_checked(tag, start, end, backward));
+        match result {
+            Ok(()) => GString::new(),
+            Err(error) => GString::from(&error),
+        }
+    }
+
+    /// A text input's value, selection (UTF-16), event count and composition as JSON, or `null` for a
+    /// node that is not a mounted text input.
+    #[func]
+    fn get_text_input_state(&self, tag: i64) -> GString {
+        let json = match u32::try_from(tag) {
+            Ok(tag) => self.text_input_state_json(tag),
+            Err(_) => serde_json::Value::Null,
+        };
+        json.to_string().as_str().into()
+    }
+
+    /// The virtual keyboard's hook (`scene/main/viewport.cpp:2856-2868`): the engine calls a method
+    /// of this name on the Control that holds key focus with the keyboard's whole text.
+    #[func]
+    fn _set_text(&mut self, text: GString, _emit_signal: bool) {
+        self.set_text_from_virtual_keyboard(&text.to_string());
+        self.deliver();
     }
 
     /// The root-local rectangle of a node as JSON, or `null` if no such node is mounted.
@@ -1043,6 +1119,7 @@ impl ReactUiRoot {
             self.queue(id, EventPayload::Focus(focus));
         }
         self.refresh_interaction();
+        self.text_input_focus_changed(previous, next);
         // The focus ring is drawn by the paint pass, but focus does not always restyle anything
         // (only elements with a `focus:` class do), and a restyle is what normally leads to a
         // pass. Without this the ring would wait for the next unrelated paint.

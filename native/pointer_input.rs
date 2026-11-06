@@ -48,6 +48,8 @@ impl ReactUiRoot {
         if self.drag_pointer_moved(MOUSE_POINTER_ID, self.pointer) {
             return;
         }
+        // A selection being dragged in a text input follows the pointer; the movement still reaches JS.
+        self.text_input_pointer_move();
         let hit = self.mounted.hit_test(self.pointer);
         self.update_hover(hit);
         self.pointers.moved(
@@ -217,6 +219,18 @@ impl ReactUiRoot {
                     !grabbed_thumb && !draggable && !self.mouse_is_captured(),
                 );
             self.run_pointerdown_default(hit, prevented, selecting);
+            // An un-prevented press in a text input places the caret and may start a selection in it; it
+            // is never a document selection (a text input is not selectable text), so the press has
+            // cleared that one above.
+            if !prevented {
+                self.text_input_pointer_down(
+                    hit,
+                    self.pointer,
+                    detail,
+                    self.pointer_modifiers.shift_key,
+                    !grabbed_thumb && !self.mouse_is_captured(),
+                );
+            }
         }
         true
     }
@@ -245,6 +259,7 @@ impl ReactUiRoot {
         let dragged_thumb = primary && self.end_thumb_drag();
         if primary {
             self.end_selection_drag();
+            self.text_input_pointer_up(hit);
         }
         if let Some(press) = press
             && !dragged_thumb
@@ -342,6 +357,9 @@ impl ReactUiRoot {
         }
         // A touch starts no text selection (touch selection handles are a non-goal, plan 2.3).
         self.run_pointerdown_default(hit, prevented, false);
+        if !prevented {
+            self.text_input_pointer_down(hit, position, detail, false, false);
+        }
         true
     }
 
@@ -359,6 +377,7 @@ impl ReactUiRoot {
             self.queue(target, EventPayload::PointerUp(up));
         }
         self.leave_touch(id, position, press.target);
+        self.text_input_pointer_up(hit);
         // A tap that stopped a coasting flick only stopped it.
         let stopped_a_fling = self.touch_stopped_a_fling(id);
         if !stopped_a_fling && let Some(target) = self.click_target(press.target, hit, capture) {

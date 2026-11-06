@@ -292,10 +292,16 @@ impl ReactUiRoot {
         true
     }
 
-    /// The cursor over element `tag` when nothing set one: `text` over selectable text, else `default`
-    /// (plan 3.20).
+    /// The cursor over element `tag` when nothing set one: `text` over selectable text and text inputs,
+    /// else `default` (plan 3.20).
     pub(crate) fn unset_cursor_of(&self, tag: u32) -> CursorSpec {
-        if self.is_selectable_text(tag) {
+        // A text input shows the text cursor too (plan 3.20).
+        let is_text_input = self
+            .mounted
+            .nodes
+            .get(&tag)
+            .is_some_and(|node| node.kind == Kind::TextInput);
+        if is_text_input || self.is_selectable_text(tag) {
             CursorSpec::Text
         } else {
             CursorSpec::Default

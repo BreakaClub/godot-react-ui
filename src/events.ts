@@ -1,9 +1,11 @@
-import type { UIHandle, UIProps } from './components';
+import type { HostProps, UIHandle, UIProps } from './components';
 import type { DataTransfer, DropEffect } from './data-transfer';
 import type {
-  NativeAccessibilityAction, NativeAccessibilityActionEvent, NativeDragEndEvent, NativeDragEvent, NativeDragEventType,
-  NativeEvent, NativeEventType, NativeFocusEvent, NativeFocusEventType, NativeKeyEvent, NativeKeyEventType,
-  NativeMouseFields, NativePointerEvent, NativePointerEventType, NativePointerType, NativeScrollEvent, NativeWheelEvent,
+  NativeAccessibilityAction, NativeAccessibilityActionEvent, NativeBeforeInputEvent, NativeCompositionEvent,
+  NativeCompositionEventType, NativeDragEndEvent, NativeDragEvent, NativeDragEventType, NativeEvent, NativeEventType,
+  NativeFocusEvent, NativeFocusEventType, NativeInputEvent, NativeInputSelection, NativeInputType, NativeKeyEvent,
+  NativeKeyEventType, NativeMouseFields, NativePointerEvent, NativePointerEventType, NativePointerType, NativeScrollEvent,
+  NativeSelectionChangeEvent, NativeWheelEvent,
 } from './native';
 
 /** DOM `Event.eventPhase`. */
@@ -155,11 +157,49 @@ export interface UIDragEndEvent extends UIDragEvent<'dragend'> {
   readonly endedOutsideRoot: boolean;
 }
 
+/**
+ * A text input is about to make an edit (plan 4.3). Cancelable: `preventDefault()` keeps the edit from being made,
+ * which is how a field rejects a character; native waits for the answer. `inputType` is the DOM's
+ * (`insertText`, `deleteContentBackward`, `insertFromPaste`, `historyUndo`, ...) and `data` the text an insertion carries.
+ */
+export interface UIBeforeInputEvent extends UISyntheticEvent<'beforeinput'> {
+  readonly inputType: NativeInputType;
+  readonly data: string | null;
+}
+
+/**
+ * A text input's text changed because of an edit. `value` is all of its text and the selection is in UTF-16 units.
+ * `eventCount` is how many edits the input has made; the `TextInput` component hands it back with
+ * `setTextAndSelection` so that native can tell the answer to this edit from one to an edit made since.
+ */
+export interface UIInputEvent extends UISyntheticEvent<'input'> {
+  readonly inputType: NativeInputType;
+  readonly data: string | null;
+  readonly value: string;
+  readonly selectionStart: number;
+  readonly selectionEnd: number;
+  readonly eventCount: number;
+}
+
+/**
+ * A text input's selection moved (UTF-16 units, ordered). Does not bubble. It is the document's `selectionchange`
+ * with the input's offsets, so `onSelectionChange` on a text input gets this and the root's listeners the other.
+ */
+export interface UITextSelectionChangeEvent extends UISelectionChangeEvent {
+  readonly selectionStart: number;
+  readonly selectionEnd: number;
+}
+
+/** The IME's composition began, changed (`data` is the preedit now) or ended (the committed text arrives as an `input`). */
+export interface UICompositionEvent extends UISyntheticEvent<NativeCompositionEventType> {
+  readonly data: string;
+}
+
 /** Kept so handler types written against the first event model still compile. */
 export type UIEvent = UIPointerEvent;
 export type UIAnyEvent =
   | UIPointerEvent | UIWheelEvent | UIScrollEvent | UIKeyboardEvent | UIFocusEvent | UIAccessibilityActionEvent
-  | UISelectionChangeEvent
+  | UIBeforeInputEvent | UIInputEvent | UISelectionChangeEvent | UITextSelectionChangeEvent | UICompositionEvent
   | UIDragEvent | UIDragEndEvent;
 
 export interface UIEventMap {
@@ -180,7 +220,12 @@ export interface UIEventMap {
   focus: UIFocusEvent;
   blur: UIFocusEvent;
   accessibilityaction: UIAccessibilityActionEvent;
+  beforeinput: UIBeforeInputEvent;
+  input: UIInputEvent;
   selectionchange: UISelectionChangeEvent;
+  compositionstart: UICompositionEvent;
+  compositionupdate: UICompositionEvent;
+  compositionend: UICompositionEvent;
   dragstart: UIDragEvent<'dragstart'>;
   drag: UIDragEvent<'drag'>;
   dragenter: UIDragEvent<'dragenter'>;
@@ -366,6 +411,57 @@ class AccessibilityActionEventImpl extends SyntheticEvent<'accessibilityaction'>
   }
 }
 
+class BeforeInputEventImpl extends SyntheticEvent<'beforeinput'> implements UIBeforeInputEvent {
+  readonly inputType: NativeInputType;
+  readonly data: string | null;
+
+  constructor(native: NativeBeforeInputEvent, target: UIHandle, bubbles: boolean) {
+    super(native.type, target, bubbles, native.cancelable, native.timeStamp);
+    this.inputType = native.inputType;
+    this.data = native.data;
+  }
+}
+
+class InputEventImpl extends SyntheticEvent<'input'> implements UIInputEvent {
+  readonly inputType: NativeInputType;
+  readonly data: string | null;
+  readonly value: string;
+  readonly selectionStart: number;
+  readonly selectionEnd: number;
+  readonly eventCount: number;
+
+  constructor(native: NativeInputEvent, target: UIHandle, bubbles: boolean) {
+    super(native.type, target, bubbles, native.cancelable, native.timeStamp);
+    this.inputType = native.inputType;
+    this.data = native.data;
+    this.value = native.value;
+    this.selectionStart = native.selectionStart;
+    this.selectionEnd = native.selectionEnd;
+    this.eventCount = native.eventCount;
+  }
+}
+
+/** A text input's `selectionchange`: the document's event with the input's offsets. */
+class TextSelectionChangeEventImpl extends SyntheticEvent<'selectionchange'> implements UITextSelectionChangeEvent {
+  readonly selectionStart: number;
+  readonly selectionEnd: number;
+
+  constructor(native: NativeSelectionChangeEvent, selection: NativeInputSelection, target: UIHandle, bubbles: boolean) {
+    super(native.type, target, bubbles, native.cancelable, native.timeStamp);
+    this.selectionStart = selection.selectionStart;
+    this.selectionEnd = selection.selectionEnd;
+  }
+}
+
+class CompositionEventImpl extends SyntheticEvent<NativeCompositionEventType> implements UICompositionEvent {
+  readonly data: string;
+
+  constructor(native: NativeCompositionEvent, target: UIHandle, bubbles: boolean) {
+    super(native.type, target, bubbles, native.cancelable, native.timeStamp);
+    this.data = native.data;
+  }
+}
+
 type Handler<E> = ((event: E) => void) | undefined;
 
 /** `focus` and `blur` are the only events without pointer data. */
@@ -389,6 +485,14 @@ function isScrollEvent(event: UIAnyEvent): event is UIScrollEvent {
   return event.type === 'scroll';
 }
 
+function isBeforeInputEvent(event: UIAnyEvent): event is UIBeforeInputEvent {
+  return event.type === 'beforeinput';
+}
+
+function isInputEvent(event: UIAnyEvent): event is UIInputEvent {
+  return event.type === 'input';
+}
+
 function isSelectionChangeEvent(event: UIAnyEvent): event is UISelectionChangeEvent {
   return event.type === 'selectionchange';
 }
@@ -404,17 +508,25 @@ export function isNativeDragEvent(native: NativeEvent): native is NativeDragEven
   return DRAG_EVENT_TYPES.includes(native.type);
 }
 
+function isTextSelectionChangeEvent(event: UIAnyEvent): event is UITextSelectionChangeEvent {
+  return event instanceof TextSelectionChangeEventImpl;
+}
+
+function isCompositionEvent(event: UIAnyEvent): event is UICompositionEvent {
+  return event.type === 'compositionstart' || event.type === 'compositionupdate' || event.type === 'compositionend';
+}
+
 /** One entry per native event type: whether it bubbles and which prop receives each phase. */
 interface EventSpec {
   readonly bubbles: boolean;
   /** Call the handler `props` registers for this phase, if any. */
-  invoke(props: UIProps, capture: boolean, event: UIAnyEvent): void;
+  invoke(props: HostProps, capture: boolean, event: UIAnyEvent): void;
 }
 
 function pointerSpec(
   bubbles: boolean,
-  bubble: (props: UIProps) => Handler<UIPointerEvent>,
-  capture?: (props: UIProps) => Handler<UIPointerEvent>,
+  bubble: (props: HostProps) => Handler<UIPointerEvent>,
+  capture?: (props: HostProps) => Handler<UIPointerEvent>,
 ): EventSpec {
   return {
     bubbles,
@@ -423,7 +535,8 @@ function pointerSpec(
       if (handler === undefined) return;
       if (
         isFocusEvent(event) || isWheelEvent(event) || isKeyboardEvent(event) || isScrollEvent(event)
-        || isAccessibilityActionEvent(event) || isSelectionChangeEvent(event) || isDragEvent(event)
+        || isAccessibilityActionEvent(event) || isBeforeInputEvent(event) || isInputEvent(event)
+        || isSelectionChangeEvent(event) || isCompositionEvent(event) || isDragEvent(event)
       ) {
         throw new Error(`UI internal error: ${event.type} reached a pointer event handler`);
       }
@@ -433,8 +546,8 @@ function pointerSpec(
 }
 
 function wheelSpec(
-  bubble: (props: UIProps) => Handler<UIWheelEvent>,
-  capture: (props: UIProps) => Handler<UIWheelEvent>,
+  bubble: (props: HostProps) => Handler<UIWheelEvent>,
+  capture: (props: HostProps) => Handler<UIWheelEvent>,
 ): EventSpec {
   return {
     bubbles: true,
@@ -450,7 +563,7 @@ function wheelSpec(
 }
 
 /** `scroll` does not bubble and has no capture handler. */
-function scrollSpec(bubble: (props: UIProps) => Handler<UIScrollEvent>): EventSpec {
+function scrollSpec(bubble: (props: HostProps) => Handler<UIScrollEvent>): EventSpec {
   return {
     bubbles: false,
     invoke(props, isCapture, event) {
@@ -466,8 +579,8 @@ function scrollSpec(bubble: (props: UIProps) => Handler<UIScrollEvent>): EventSp
 }
 
 function keySpec(
-  bubble: (props: UIProps) => Handler<UIKeyboardEvent>,
-  capture: (props: UIProps) => Handler<UIKeyboardEvent>,
+  bubble: (props: HostProps) => Handler<UIKeyboardEvent>,
+  capture: (props: HostProps) => Handler<UIKeyboardEvent>,
 ): EventSpec {
   return {
     bubbles: true,
@@ -482,7 +595,7 @@ function keySpec(
   };
 }
 
-function focusSpec(bubble: (props: UIProps) => Handler<UIFocusEvent>): EventSpec {
+function focusSpec(bubble: (props: HostProps) => Handler<UIFocusEvent>): EventSpec {
   return {
     bubbles: true,
     invoke(props, isCapture, event) {
@@ -497,7 +610,7 @@ function focusSpec(bubble: (props: UIProps) => Handler<UIFocusEvent>): EventSpec
   };
 }
 
-function accessibilityActionSpec(bubble: (props: UIProps) => Handler<UIAccessibilityActionEvent>): EventSpec {
+function accessibilityActionSpec(bubble: (props: HostProps) => Handler<UIAccessibilityActionEvent>): EventSpec {
   return {
     bubbles: true,
     invoke(props, isCapture, event) {
@@ -512,11 +625,61 @@ function accessibilityActionSpec(bubble: (props: UIProps) => Handler<UIAccessibi
   };
 }
 
+function beforeInputSpec(bubble: (props: HostProps) => Handler<UIBeforeInputEvent>): EventSpec {
+  return {
+    bubbles: true,
+    invoke(props, isCapture, event) {
+      if (isCapture) return;
+      const handler = bubble(props);
+      if (handler === undefined) return;
+      if (!isBeforeInputEvent(event)) throw new Error(`UI internal error: ${event.type} reached a beforeinput handler`);
+      handler(event);
+    },
+  };
+}
+
+function inputSpec(bubble: (props: HostProps) => Handler<UIInputEvent>): EventSpec {
+  return {
+    bubbles: true,
+    invoke(props, isCapture, event) {
+      if (isCapture) return;
+      const handler = bubble(props);
+      if (handler === undefined) return;
+      if (!isInputEvent(event)) throw new Error(`UI internal error: ${event.type} reached an input handler`);
+      handler(event);
+    },
+  };
+}
+
 /**
- * `selectionchange` is the document's: addressed to the root's listeners, so no element has a handler for it. (A
- * `TextInput`'s own selection, Phase I7, is its element's event and gets a prop.)
+ * `selectionchange` does not bubble. The document's is addressed to the root's listeners, so no element has a handler
+ * for it; a `TextInput`'s own selection is its element's event and has `onSelectionChange`.
  */
-const SELECTION_CHANGE_SPEC: EventSpec = { bubbles: false, invoke() {} };
+function selectionChangeSpec(bubble: (props: HostProps) => Handler<UITextSelectionChangeEvent>): EventSpec {
+  return {
+    bubbles: false,
+    invoke(props, isCapture, event) {
+      if (isCapture) return;
+      const handler = bubble(props);
+      if (handler === undefined) return;
+      if (!isTextSelectionChangeEvent(event)) throw new Error(`UI internal error: ${event.type} reached a selectionchange handler`);
+      handler(event);
+    },
+  };
+}
+
+function compositionSpec(bubble: (props: HostProps) => Handler<UICompositionEvent>): EventSpec {
+  return {
+    bubbles: true,
+    invoke(props, isCapture, event) {
+      if (isCapture) return;
+      const handler = bubble(props);
+      if (handler === undefined) return;
+      if (!isCompositionEvent(event)) throw new Error(`UI internal error: ${event.type} reached a composition handler`);
+      handler(event);
+    },
+  };
+}
 
 /** Drag events bubble and have no capture handlers. */
 function dragSpec<K extends NativeDragEventType>(type: K, bubble: (props: UIProps) => Handler<UIEventMap[K]>): EventSpec {
@@ -553,7 +716,12 @@ const EVENT_TABLE: Record<NativeEventType, EventSpec> = {
   focus: focusSpec((p) => p.onFocus),
   blur: focusSpec((p) => p.onBlur),
   accessibilityaction: accessibilityActionSpec((p) => p.onAccessibilityAction),
-  selectionchange: SELECTION_CHANGE_SPEC,
+  beforeinput: beforeInputSpec((p) => p.onBeforeInput),
+  input: inputSpec((p) => p.onInput),
+  selectionchange: selectionChangeSpec((p) => p.onSelectionChange),
+  compositionstart: compositionSpec((p) => p.onCompositionStart),
+  compositionupdate: compositionSpec((p) => p.onCompositionUpdate),
+  compositionend: compositionSpec((p) => p.onCompositionEnd),
   dragstart: dragSpec('dragstart', (p) => p.onDragStart),
   drag: dragSpec('drag', (p) => p.onDrag),
   dragenter: dragSpec('dragenter', (p) => p.onDragEnter),
@@ -591,7 +759,7 @@ export class RootListeners {
 /** What dispatch needs to know about one element on the path from the target to the root. */
 export interface PathNode {
   readonly handle: UIHandle;
-  readonly props: UIProps;
+  readonly props: HostProps;
 }
 
 export interface RootTarget {
@@ -610,7 +778,8 @@ export const NOT_DISPATCHED: DispatchResult = Object.freeze({ defaultPrevented: 
 function createEvent(
   native: NativeEvent, target: UIHandle, related: UIHandle | null, bubbles: boolean, transfer: DataTransfer | undefined,
 ): PointerEventImpl | WheelEventImpl | ScrollEventImpl | KeyboardEventImpl | FocusEventImpl | AccessibilityActionEventImpl
-  | DragEventImpl<NativeDragEventType> | SyntheticEvent<'selectionchange'> {
+  | DragEventImpl<NativeDragEventType> | BeforeInputEventImpl | InputEventImpl | TextSelectionChangeEventImpl
+  | SyntheticEvent<'selectionchange'> | CompositionEventImpl {
   switch (native.type) {
     case 'pointerdown': case 'pointermove': case 'pointerup':
     case 'pointerenter': case 'pointerleave': case 'pointercancel': case 'click': case 'dblclick':
@@ -626,8 +795,16 @@ function createEvent(
       return new FocusEventImpl(native, target, related, bubbles);
     case 'accessibilityaction':
       return new AccessibilityActionEventImpl(native, target, bubbles);
+    case 'beforeinput':
+      return new BeforeInputEventImpl(native, target, bubbles);
+    case 'input':
+      return new InputEventImpl(native, target, bubbles);
     case 'selectionchange':
-      return new SyntheticEvent(native.type, target, bubbles, native.cancelable, native.timeStamp);
+      return native.input === null
+        ? new SyntheticEvent(native.type, target, bubbles, native.cancelable, native.timeStamp)
+        : new TextSelectionChangeEventImpl(native, native.input, target, bubbles);
+    case 'compositionstart': case 'compositionupdate': case 'compositionend':
+      return new CompositionEventImpl(native, target, bubbles);
     case 'dragstart': case 'drag': case 'dragenter': case 'dragleave': case 'dragover': case 'drop':
       if (transfer === undefined) throw new Error(`UI internal error: a ${native.type} event needs a DataTransfer`);
       return new DragEventImpl(native, native.type, target, related, bubbles, transfer);

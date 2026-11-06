@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react';
-import type { UIProps } from './components';
+import type { HostProps } from './components';
 import { compileStyle, styleKey } from './styles';
 import type { CompiledStyle, UIRole } from './types';
 
 /** What kind of native node an element becomes. */
-export type NativeKind = 'view' | 'text' | 'button';
+export type NativeKind = 'view' | 'text' | 'button' | 'textinput';
 
 /**
  * The subset of an element's React props that native needs (plan 3.5). Event handlers and
@@ -51,13 +51,31 @@ export interface NativeProps {
   readonly ariaValueNow?: number;
   readonly ariaLive?: 'off' | 'polite' | 'assertive';
   readonly ariaOrientation?: 'horizontal' | 'vertical';
+  /** `TextInput` only. The text it starts with; later changes are not sent (the buffer owns the text). */
+  readonly defaultValue?: string;
+  readonly placeholder?: string;
+  readonly multiline?: true;
+  readonly readOnly?: true;
+  readonly secure?: true;
+  readonly selectOnFocus?: true;
+  readonly rows?: number;
+  readonly maxLength?: number;
+  readonly keyboardType?: KeyboardType;
 }
+
+/** Which on-screen keyboard a text input asks for (one to one with `DisplayServer.VirtualKeyboardType`). */
+export type KeyboardType = 'default' | 'multiline' | 'number' | 'decimal' | 'phone' | 'email' | 'url' | 'password';
 
 /** The accessibility fields of {@link NativeProps}: each one is a plain value that is compared with `!==`. */
 const ACCESSIBILITY_KEYS = [
   'role', 'ariaLabel', 'ariaDescription', 'ariaValueText', 'ariaPlaceholder', 'ariaHidden', 'ariaDisabled',
   'ariaExpanded', 'ariaSelected', 'ariaReadOnly', 'ariaRequired', 'ariaModal', 'ariaChecked', 'ariaValueMin',
   'ariaValueMax', 'ariaValueNow', 'ariaLive', 'ariaOrientation',
+] as const satisfies readonly (keyof NativeProps)[];
+
+/** The `TextInput` fields of {@link NativeProps} that are compared with `!==` (`defaultValue` is creation-only). */
+const TEXT_INPUT_KEYS = [
+  'placeholder', 'multiline', 'readOnly', 'secure', 'selectOnFocus', 'rows', 'maxLength', 'keyboardType',
 ] as const satisfies readonly (keyof NativeProps)[];
 
 /** The changed keys of a node's native props; `null` resets a key to its default. */
@@ -69,6 +87,7 @@ export type NativePropsDiff = { [K in keyof NativeProps]?: NativeProps[K] | null
  */
 export const NATIVE_PROP_KEYS = [
   'style', 'text', 'disabled', 'hidden', 'testID', 'tabIndex', 'autoFocus', 'draggable', 'dragPreview', ...ACCESSIBILITY_KEYS,
+  'defaultValue', ...TEXT_INPUT_KEYS,
 ] as const satisfies readonly (keyof NativeProps)[];
 
 /** The text a `text` element shows, or `undefined` if its children are not plain strings or numbers. */
@@ -91,7 +110,7 @@ export function scalarText(children: ReactNode): string | undefined {
 
 /** The previous element's props and native props, when a clone can reuse part of its work. */
 export interface PreviousProps {
-  readonly props: UIProps;
+  readonly props: HostProps;
   readonly native: NativeProps;
 }
 
@@ -99,7 +118,7 @@ export interface PreviousProps {
  * Derive the native props of an element. Compiling a style is the one costly step, so a clone whose
  * `className` and `style` props are unchanged reuses the previous compiled style.
  */
-export function nativeProps(kind: NativeKind, props: UIProps, hidden: boolean, previous?: PreviousProps): NativeProps {
+export function nativeProps(kind: NativeKind, props: HostProps, hidden: boolean, previous?: PreviousProps): NativeProps {
   const native: { -readonly [K in keyof NativeProps]: NativeProps[K] } = {};
   if (previous !== undefined && previous.props.className === props.className && previous.props.style === props.style) {
     if (previous.native.style !== undefined) native.style = previous.native.style;
@@ -128,7 +147,40 @@ export function nativeProps(kind: NativeKind, props: UIProps, hidden: boolean, p
     native.dragPreview = props.dragPreview;
   }
   accessibilityProps(props, native);
+  if (kind === 'textinput') textInputProps(props, native);
+  else rejectTextInputProps(kind, props);
   return native;
+}
+
+/** The props only a text input has; a nonnegative `maxLength` and a positive `rows`, as native validates again. */
+function textInputProps(props: HostProps, native: { -readonly [K in keyof NativeProps]: NativeProps[K] }): void {
+  if (props.defaultValue !== undefined) native.defaultValue = props.defaultValue;
+  if (props.placeholder !== undefined) native.placeholder = props.placeholder;
+  if (props.multiline === true) native.multiline = true;
+  if (props.readOnly === true) native.readOnly = true;
+  if (props.secure === true) native.secure = true;
+  if (props.selectTextOnFocus === true) native.selectOnFocus = true;
+  if (props.rows !== undefined) {
+    if (props.multiline !== true) throw new Error('rows is only valid with multiline');
+    if (!Number.isInteger(props.rows) || props.rows < 1) throw new Error(`rows must be a positive integer, not ${String(props.rows)}`);
+    native.rows = props.rows;
+  }
+  if (props.maxLength !== undefined) {
+    if (!Number.isInteger(props.maxLength) || props.maxLength < 0) {
+      throw new Error(`maxLength must be a nonnegative integer, not ${String(props.maxLength)}`);
+    }
+    native.maxLength = props.maxLength;
+  }
+  if (props.keyboardType !== undefined) native.keyboardType = props.keyboardType;
+}
+
+/** A text input prop on any other element is a mistake native would reject; say which prop. */
+function rejectTextInputProps(kind: NativeKind, props: HostProps): void {
+  const names = [
+    'defaultValue', 'placeholder', 'multiline', 'readOnly', 'secure', 'selectTextOnFocus', 'rows', 'maxLength', 'keyboardType',
+  ] as const;
+  const present = names.find((name) => props[name] !== undefined);
+  if (present !== undefined) throw new Error(`${present} is only valid on TextInput, not on a ${kind} element`);
 }
 
 /** `value` if it is a finite number, else a thrown error that names the JSX prop (native validates again). */
@@ -142,7 +194,7 @@ function finiteNumber(value: number | undefined, prop: string): number | undefin
  * camelCase native fields. A boolean whose default is false is sent only when true; `aria-expanded`,
  * `aria-selected` and `aria-checked` send `false` too, because absent means "not applicable".
  */
-function accessibilityProps(props: UIProps, native: { -readonly [K in keyof NativeProps]: NativeProps[K] }): void {
+function accessibilityProps(props: HostProps, native: { -readonly [K in keyof NativeProps]: NativeProps[K] }): void {
   if (props.role !== undefined) native.role = props.role;
   if (props['aria-label'] !== undefined) native.ariaLabel = props['aria-label'];
   if (props['aria-description'] !== undefined) native.ariaDescription = props['aria-description'];
@@ -216,6 +268,9 @@ export function diffNativeProps(previous: NativeProps, next: NativeProps): Nativ
     changed = true;
   }
   for (const key of ACCESSIBILITY_KEYS) {
+    if (diffScalar(diff, previous, next, key)) changed = true;
+  }
+  for (const key of TEXT_INPUT_KEYS) {
     if (diffScalar(diff, previous, next, key)) changed = true;
   }
   return changed ? diff : null;

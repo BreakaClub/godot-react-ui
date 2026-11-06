@@ -152,6 +152,7 @@ test('native boundary rejects invalid data and surfaces failed commits', () => {
     focusNode: () => '', blurNode: () => '',
     scrollTo: () => '', scrollBy: () => '', scrollIntoView: () => '', getScrollState: () => 'null',
     getSelection: () => 'null', clearSelection: () => {},
+    setTextAndSelection: () => '', setTextSelection: () => '', getTextInputState: () => 'null',
   };
   assert.throws(() => createRoot(malformed, { subscribeToEvents: NO_SUBSCRIPTION }), /Invalid native/);
   const host = new RecordingHost();

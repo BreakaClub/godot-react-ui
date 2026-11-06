@@ -87,7 +87,7 @@ export class KitHost extends RecordingHost {
       if (parent === undefined || parent.id === 0) break;
       current = parent;
     }
-    if (target.kind !== 'button' && target.props.tabIndex === undefined) {
+    if (target.kind !== 'button' && target.kind !== 'textinput' && target.props.tabIndex === undefined) {
       return `node ${tag} cannot take focus: it is not a button and has no tabIndex`;
     }
     return undefined;

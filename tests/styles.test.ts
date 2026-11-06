@@ -238,6 +238,11 @@ test('scroll utilities compile to the longhands native reads', () => {
   assert.deepEqual(style('scrollbar-auto'), { scrollbarWidth: 'auto' });
   assert.deepEqual(style('scrollbar-[#64748b99]'), { scrollbarColor: '#64748b99' });
   assert.deepEqual(style('scrollbar-slate-500'), { scrollbarColor: '#64748b' });
+  assert.deepEqual(style('caret-indigo-500'), { caretColor: '#6366f1' });
+  assert.deepEqual(style('caret-[#ff00aa]'), { caretColor: '#ff00aa' });
+  assert.deepEqual(style('placeholder-slate-400'), { placeholderColor: '#94a3b8' });
+  assert.deepEqual(layersOf('focus:caret-rose-500'), [{ states: ['focus'], style: { caretColor: '#f43f5e' } }]);
+  assert.throws(() => style('caret-notacolour'), /Unsupported utility class/);
   for (const [token, action] of [
     ['touch-auto', 'auto'], ['touch-none', 'none'], ['touch-pan-x', 'pan-x'], ['touch-pan-y', 'pan-y'],
   ] as const) {

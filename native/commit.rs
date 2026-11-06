@@ -214,6 +214,7 @@ pub fn validate<M: MountedTree>(
         let merged = previous.with_diff(&node.props);
         merged
             .validate(kind)
+            .and_then(|()| merged.validate_update(previous, kind))
             .map_err(|error| CommitError(format!("node {}: {error}", node.tag)))?;
         updated.push(Update {
             tag: node.tag,
@@ -656,6 +657,43 @@ mod tests {
         }
         let empty: CommitPayload = serde_json::from_str("{}").unwrap();
         assert!(empty.created.is_empty() && empty.updated.is_empty() && empty.children.is_empty());
+    }
+
+    #[test]
+    fn a_text_input_has_no_children_and_cannot_change_its_line_model() {
+        let mut tree = TestTree::default();
+        tree.mount(0, Parent::Layer(0), 1, Kind::TextInput);
+        tree.nodes.get_mut(&1).unwrap().props.multiline = Some(true);
+        let with_child = validate(
+            &payload(
+                r#"{"created":[{"tag":2,"kind":"view","props":{}}],"updated":[],"children":[{"tag":1,"children":[2]},{"tag":0,"children":[1]}]}"#,
+            ),
+            0,
+            &tree,
+        )
+        .unwrap_err();
+        assert!(
+            with_child.0.contains("cannot have children"),
+            "{with_child}"
+        );
+        // An unrelated update is fine; flipping `multiline` is not.
+        assert!(
+            validate(
+                &payload(r#"{"created":[],"updated":[{"tag":1,"props":{"placeholder":"x"}}],"children":[]}"#),
+                0,
+                &tree
+            )
+            .is_ok()
+        );
+        let error = validate(
+            &payload(
+                r#"{"created":[],"updated":[{"tag":1,"props":{"multiline":false}}],"children":[]}"#,
+            ),
+            0,
+            &tree,
+        )
+        .unwrap_err();
+        assert!(error.0.contains("multiline cannot change"), "{}", error.0);
     }
 
     #[test]

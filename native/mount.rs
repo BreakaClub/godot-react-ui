@@ -28,6 +28,8 @@ use crate::render_tree::RenderNode;
 use crate::scroll::{self, ScrollRange, ScrollRanges, ScrollState, Scrollbars};
 use crate::scroll_input::to_vector;
 use crate::stacking::{self, Frame, PaintTree, ScrollFrame, ScrollMode, Stacking, StackingTree};
+use crate::text_input::EditConfig;
+use crate::text_input_godot::TextInputState;
 use crate::{CORNER_DETAIL, ReactUiRoot};
 
 /// The four sides of a box edge, as Taffy resolves them.
@@ -127,6 +129,8 @@ pub(crate) struct MountedNode {
     pub(crate) scroll: ScrollState,
     /// The pseudo-states this node's style layers condition on.
     pub(crate) uses_states: PseudoStates,
+    /// A text input's text, selection, history and shaping; `Some` exactly for `Kind::TextInput`.
+    pub(crate) text_input: Option<TextInputState>,
 }
 
 #[derive(Default)]
@@ -396,20 +400,55 @@ impl MountedNode {
     /// Whether this element clips its children to its padding box: one clip rectangle, so an element
     /// that clips on one axis clips on both.
     pub(crate) fn clips_content(&self) -> bool {
-        self.computed.overflow_x.is_some_and(OverflowSpec::clips)
+        self.kind == Kind::TextInput
+            || self.computed.overflow_x.is_some_and(OverflowSpec::clips)
             || self.computed.overflow_y.is_some_and(OverflowSpec::clips)
     }
 
-    /// Whether this element is a scroll container: `overflow` is `scroll` or `auto` on an axis.
+    /// Whether this element is a scroll container: `overflow` is `scroll` or `auto` on an axis, or it
+    /// is a multi-line text input, whose text scrolls vertically like any container's content (wheel,
+    /// touch pans and thumb dragging reach it; chaining hands what it cannot take to the container
+    /// around it). A single-line input scrolls its text to follow the caret but is not one: a wheel
+    /// over it belongs to whatever scrolls behind it.
     pub(crate) fn is_scroll_container(&self) -> bool {
         self.computed.overflow_x.is_some_and(OverflowSpec::scrolls)
             || self.computed.overflow_y.is_some_and(OverflowSpec::scrolls)
+            || self
+                .text_input
+                .as_ref()
+                .is_some_and(|state| state.buffer.config().multiline)
+    }
+
+    /// Whether this element has a `scroll` item to move its content with: every scroll container,
+    /// and every text input (a single-line input scrolls horizontally to follow its caret).
+    pub(crate) fn has_scroll_item(&self) -> bool {
+        self.kind == Kind::TextInput || self.is_scroll_container()
     }
 
     /// The ranges Taffy's layout allows: the magnitude of each scrolling axis with its reversed flag
     /// (`Layout::scroll_width()` is unsigned, also for a reversed axis). An axis whose `overflow`
     /// does not scroll has none, however far its content reaches.
     fn scroll_ranges_of(&self, layout: &taffy::Layout) -> ScrollRanges {
+        if let Some(state) = &self.text_input {
+            // The text is no layout child, so its reach is its own: the shaped text and the caret.
+            return crate::text_input_godot::scroll_ranges(
+                state,
+                self.computed.text_align,
+                Vector2::new(layout.size.width, layout.size.height),
+                Edges {
+                    left: layout.border.left,
+                    top: layout.border.top,
+                    right: layout.border.right,
+                    bottom: layout.border.bottom,
+                },
+                Edges {
+                    left: layout.padding.left,
+                    top: layout.padding.top,
+                    right: layout.padding.right,
+                    bottom: layout.padding.bottom,
+                },
+            );
+        }
         let reversed = layout.scrollable_overflow_rect.is_reversed();
         let range = |overflow: Option<OverflowSpec>, magnitude: f32, reversed: bool| {
             if overflow.is_some_and(OverflowSpec::scrolls) {
@@ -780,6 +819,17 @@ impl ReactUiRoot {
             geometry: NodeGeometry::default(),
             scroll: ScrollState::default(),
             uses_states: states_used(props.style.as_ref()),
+            text_input: (kind == Kind::TextInput).then(|| {
+                TextInputState::new(
+                    EditConfig {
+                        multiline: props.is_multiline(),
+                        read_only: props.read_only == Some(true),
+                        secure: props.secure == Some(true),
+                        max_length: props.max_length.map(|length| length as usize),
+                    },
+                    props.default_value.as_deref().unwrap_or(""),
+                )
+            }),
         };
         self.mounted.breakpoints.register(tag, props.style.as_ref());
         self.mounted
@@ -789,7 +839,7 @@ impl ReactUiRoot {
         self.style_engine.insert(tag);
         self.layout_dirty.insert(tag);
         self.paint_dirty.insert(tag);
-        if props.text.is_some() {
+        if props.text.is_some() || kind == Kind::TextInput {
             self.pending_text.insert(tag);
         }
     }
@@ -813,6 +863,9 @@ impl ReactUiRoot {
         if previous.text != props.text {
             self.pending_text.insert(tag);
             self.selection_node_changed(tag);
+        }
+        if self.sync_text_input_props(tag, &previous) {
+            self.pending_text.insert(tag);
         }
         self.paint_dirty.insert(tag);
     }
@@ -845,6 +898,14 @@ impl ReactUiRoot {
         }
         self.hit_stale = true;
         // Nothing may keep pointing at a deleted element; JS drops events for tags it no longer has.
+        if self.focused == Some(tag) && node.text_input.is_some() {
+            // Its IME window and on-screen keyboard close with it; the node is gone, so nothing is
+            // left to blur.
+            self.end_platform_text_session();
+        }
+        if self.text_inputs.drag.is_some_and(|drag| drag.tag == tag) {
+            self.text_inputs.drag = None;
+        }
         if self.hovered == Some(tag) {
             self.hovered = None;
         }
@@ -968,6 +1029,14 @@ impl ReactUiRoot {
         let Some(font) = self.font.clone() else {
             return false;
         };
+        if self
+            .mounted
+            .nodes
+            .get(&tag)
+            .is_some_and(|node| node.kind == Kind::TextInput)
+        {
+            return self.refresh_text_input(tag);
+        }
         let Some(node) = self.mounted.nodes.get_mut(&tag) else {
             return false;
         };
@@ -981,7 +1050,7 @@ impl ReactUiRoot {
             .visual
             .paragraph
             .clone()
-            .map(|paragraph| crate::TextContext { paragraph });
+            .map(crate::TextContext::Paragraph);
         let has = context.is_some();
         self.tree
             .set_node_context(node.layout, context)

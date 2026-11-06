@@ -19,21 +19,24 @@ use taffy::style_helpers::{auto, fr, length, minmax};
 /// The `tabIndex` values the plan allows (3.13): `0` in the tab order, `-1` focusable only.
 pub const TAB_INDICES: [i32; 2] = [0, -1];
 
-/// What a node is. `TextInput` joins this enum with the text input phase.
+/// What a node is.
 #[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Kind {
     View,
     Text,
     Button,
+    /// A text field. Its text lives in a native edit buffer, not in props (plan 3.18).
+    TextInput,
 }
 
 impl Kind {
-    /// `Text` carries its string in the `text` prop (React Native's rule), so it has no children.
+    /// `Text` carries its string in the `text` prop (React Native's rule), and a `TextInput` its text
+    /// in its edit buffer, so neither has children.
     pub(crate) fn allows_children(self) -> bool {
         match self {
             Kind::View | Kind::Button => true,
-            Kind::Text => false,
+            Kind::Text | Kind::TextInput => false,
         }
     }
 }
@@ -481,6 +484,11 @@ pub struct StyleSpec {
     /// Inherited. The overlay scrollbar thumb's colour; a scroll container paints
     /// [`DEFAULT_SCROLLBAR_COLOR`](crate::render_tree::DEFAULT_SCROLLBAR_COLOR) when nothing set one.
     pub scrollbar_color: Option<String>,
+    /// Inherited. The colour of a text input's caret; the text colour when nothing set one.
+    pub caret_color: Option<String>,
+    /// Inherited. The colour of a text input's placeholder; the text colour at half alpha when
+    /// nothing set one.
+    pub placeholder_color: Option<String>,
     pub touch_action: Option<TouchActionSpec>,
     pub pointer_events: Option<PointerEventsSpec>,
     pub cursor: Option<CursorSpec>,
@@ -677,6 +685,8 @@ impl StyleSpec {
             overscroll_behavior,
             scrollbar_width,
             scrollbar_color,
+            caret_color,
+            placeholder_color,
             touch_action,
             pointer_events,
             cursor,
@@ -762,6 +772,8 @@ impl StyleSpec {
             ("borderColor", &self.border_color),
             ("scrollbarColor", &self.scrollbar_color),
             ("selectionColor", &self.selection_color),
+            ("caretColor", &self.caret_color),
+            ("placeholderColor", &self.placeholder_color),
         ] {
             if let Some(value) = value {
                 let Some(hex) = value.strip_prefix('#') else {
@@ -866,6 +878,21 @@ impl StyleSpec {
     }
 }
 
+/// `keyboardType`: which on-screen keyboard a text input asks for, one to one with
+/// `DisplayServer.VirtualKeyboardType` (plan 4.2).
+#[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum KeyboardTypeSpec {
+    Default,
+    Multiline,
+    Number,
+    Decimal,
+    Phone,
+    Email,
+    Url,
+    Password,
+}
+
 /// Everything a React element asks of native besides its place in the tree. Every field is
 /// optional; an absent field is the default.
 #[derive(Clone, Debug, Default, DeriveDeserialize, Serialize, PartialEq)]
@@ -910,6 +937,20 @@ pub struct PropsSpec {
     pub aria_value_now: Option<f64>,
     pub aria_live: Option<LiveSpec>,
     pub aria_orientation: Option<OrientationSpec>,
+    /// `TextInput` only (plan 4.2). The text a text input starts with; later changes are ignored, as
+    /// in the DOM (the buffer owns the text, `setTextAndSelection` replaces it).
+    pub default_value: Option<String>,
+    pub placeholder: Option<String>,
+    /// Fixed when the input is created.
+    pub multiline: Option<bool>,
+    pub read_only: Option<bool>,
+    pub secure: Option<bool>,
+    pub select_on_focus: Option<bool>,
+    /// The height of a multi-line input in lines.
+    pub rows: Option<u32>,
+    /// The most UTF-16 code units the user may type into the input.
+    pub max_length: Option<u32>,
+    pub keyboard_type: Option<KeyboardTypeSpec>,
 }
 
 /// A change to one prop inside a commit payload. JSON `null` resets the prop to its default and an
@@ -999,6 +1040,24 @@ pub struct PropsDiff {
     pub aria_live: Patch<LiveSpec>,
     #[serde(default)]
     pub aria_orientation: Patch<OrientationSpec>,
+    #[serde(default)]
+    pub default_value: Patch<String>,
+    #[serde(default)]
+    pub placeholder: Patch<String>,
+    #[serde(default)]
+    pub multiline: Patch<bool>,
+    #[serde(default)]
+    pub read_only: Patch<bool>,
+    #[serde(default)]
+    pub secure: Patch<bool>,
+    #[serde(default)]
+    pub select_on_focus: Patch<bool>,
+    #[serde(default)]
+    pub rows: Patch<u32>,
+    #[serde(default)]
+    pub max_length: Patch<u32>,
+    #[serde(default)]
+    pub keyboard_type: Patch<KeyboardTypeSpec>,
 }
 
 impl PropsSpec {
@@ -1032,6 +1091,15 @@ impl PropsSpec {
             aria_value_now: diff.aria_value_now.apply(&self.aria_value_now),
             aria_live: diff.aria_live.apply(&self.aria_live),
             aria_orientation: diff.aria_orientation.apply(&self.aria_orientation),
+            default_value: diff.default_value.apply(&self.default_value),
+            placeholder: diff.placeholder.apply(&self.placeholder),
+            multiline: diff.multiline.apply(&self.multiline),
+            read_only: diff.read_only.apply(&self.read_only),
+            secure: diff.secure.apply(&self.secure),
+            select_on_focus: diff.select_on_focus.apply(&self.select_on_focus),
+            rows: diff.rows.apply(&self.rows),
+            max_length: diff.max_length.apply(&self.max_length),
+            keyboard_type: diff.keyboard_type.apply(&self.keyboard_type),
         }
     }
 
@@ -1047,7 +1115,52 @@ impl PropsSpec {
         {
             return Err(format!("tabIndex must be 0 or -1, not {index}"));
         }
+        self.validate_text_input(kind)?;
         self.validate_accessibility()
+    }
+
+    /// The text input props belong to `TextInput` nodes, and `rows` to multi-line ones.
+    fn validate_text_input(&self, kind: Kind) -> Result<(), String> {
+        if kind != Kind::TextInput {
+            for (name, present) in [
+                ("defaultValue", self.default_value.is_some()),
+                ("placeholder", self.placeholder.is_some()),
+                ("multiline", self.multiline.is_some()),
+                ("readOnly", self.read_only.is_some()),
+                ("secure", self.secure.is_some()),
+                ("selectOnFocus", self.select_on_focus.is_some()),
+                ("rows", self.rows.is_some()),
+                ("maxLength", self.max_length.is_some()),
+                ("keyboardType", self.keyboard_type.is_some()),
+            ] {
+                if present {
+                    return Err(format!("{name} is only valid on text inputs"));
+                }
+            }
+            return Ok(());
+        }
+        match self.rows {
+            Some(0) => return Err("rows must be a positive integer".into()),
+            Some(_) if !self.is_multiline() => {
+                return Err("rows is only valid with multiline".into());
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// Whether `multiline` is set. It cannot change after the input is created.
+    pub fn is_multiline(&self) -> bool {
+        self.multiline == Some(true)
+    }
+
+    /// `multiline` is fixed at creation (the edit buffer's line model depends on it), so an update that
+    /// changes it is rejected.
+    pub fn validate_update(&self, previous: &PropsSpec, kind: Kind) -> Result<(), String> {
+        if kind == Kind::TextInput && self.is_multiline() != previous.is_multiline() {
+            return Err("multiline cannot change after a text input is created".into());
+        }
+        Ok(())
     }
 
     /// The numeric `aria-value*` props are finite, and a range runs from its minimum up.
@@ -1143,6 +1256,7 @@ mod tests {
         "overflowX":"hidden","overflowY":"hidden","pointerEvents":"none","cursor":"ew-resize",
         "overscrollBehavior":"contain","scrollbarWidth":"none","scrollbarColor":"#64748b99",
         "touchAction":"pan-y","userSelect":"text","selectionColor":"#3b82f659",
+        "caretColor":"#f00","placeholderColor":"#94a3b8",
         "position":"absolute","top":1,"right":"10%","bottom":-2,"left":"auto","zIndex":-3
     }"##;
 
@@ -2051,5 +2165,94 @@ mod tests {
             .is_err()
         );
         assert!(merge_diff(&empty, Kind::View, "not json").is_err());
+    }
+
+    #[test]
+    fn text_input_props_are_valid_on_text_inputs_only() {
+        let empty = PropsSpec::default();
+        let all = r#"{"defaultValue":"abc","placeholder":"p","multiline":true,"readOnly":true,"secure":true,
+            "selectOnFocus":true,"rows":4,"maxLength":12,"keyboardType":"email"}"#;
+        let merged = merge_diff(&empty, Kind::TextInput, all).unwrap();
+        assert_eq!(merged.default_value.as_deref(), Some("abc"));
+        assert_eq!(merged.keyboard_type, Some(KeyboardTypeSpec::Email));
+        assert!(merged.is_multiline());
+        assert_eq!(merged.max_length, Some(12));
+        for field in [
+            r#"{"defaultValue":"x"}"#,
+            r#"{"placeholder":"x"}"#,
+            r#"{"multiline":true}"#,
+            r#"{"readOnly":true}"#,
+            r#"{"secure":true}"#,
+            r#"{"selectOnFocus":true}"#,
+            r#"{"rows":2}"#,
+            r#"{"maxLength":2}"#,
+            r#"{"keyboardType":"url"}"#,
+        ] {
+            for kind in [Kind::View, Kind::Text, Kind::Button] {
+                let error = merge_diff(&empty, kind, field).unwrap_err();
+                assert!(
+                    error.contains("only valid on text inputs"),
+                    "{field}: {error}"
+                );
+            }
+        }
+        // Resets work like any other prop.
+        assert_eq!(
+            merge_diff(&merged, Kind::TextInput, r#"{"placeholder":null}"#)
+                .unwrap()
+                .placeholder,
+            None
+        );
+    }
+
+    #[test]
+    fn rows_must_be_positive_and_need_a_text_area_and_the_keyboard_must_exist() {
+        let empty = PropsSpec::default();
+        assert!(merge_diff(&empty, Kind::TextInput, r#"{"multiline":true,"rows":1}"#).is_ok());
+        assert!(merge_diff(&empty, Kind::TextInput, r#"{"multiline":true,"rows":0}"#).is_err());
+        assert!(merge_diff(&empty, Kind::TextInput, r#"{"rows":3}"#).is_err());
+        assert!(merge_diff(&empty, Kind::TextInput, r#"{"multiline":false,"rows":3}"#).is_err());
+        assert!(merge_diff(&empty, Kind::TextInput, r#"{"maxLength":0}"#).is_ok());
+        assert!(merge_diff(&empty, Kind::TextInput, r#"{"maxLength":-1}"#).is_err());
+        assert!(merge_diff(&empty, Kind::TextInput, r#"{"rows":1.5,"multiline":true}"#).is_err());
+        for name in [
+            "default",
+            "multiline",
+            "number",
+            "decimal",
+            "phone",
+            "email",
+            "url",
+            "password",
+        ] {
+            let json = format!(r#"{{"keyboardType":"{name}"}}"#);
+            assert!(merge_diff(&empty, Kind::TextInput, &json).is_ok(), "{name}");
+        }
+        assert!(merge_diff(&empty, Kind::TextInput, r#"{"keyboardType":"emoji"}"#).is_err());
+    }
+
+    #[test]
+    fn a_text_input_cannot_change_between_single_and_multi_line() {
+        let single = merge_diff(&PropsSpec::default(), Kind::TextInput, "{}").unwrap();
+        let multi = merge_diff(&single, Kind::TextInput, r#"{"multiline":true}"#).unwrap();
+        assert!(multi.validate_update(&single, Kind::TextInput).is_err());
+        assert!(single.validate_update(&multi, Kind::TextInput).is_err());
+        assert!(multi.validate_update(&multi, Kind::TextInput).is_ok());
+        // `multiline: false` and no `multiline` are the same input.
+        let explicit = merge_diff(&single, Kind::TextInput, r#"{"multiline":false}"#).unwrap();
+        assert!(explicit.validate_update(&single, Kind::TextInput).is_ok());
+        // Other kinds have nothing to check.
+        assert!(multi.validate_update(&single, Kind::View).is_ok());
+    }
+
+    #[test]
+    fn caret_and_placeholder_colours_are_hex_colours() {
+        assert!(
+            style(r##"{"caretColor":"#4f46e5","placeholderColor":"#94a3b8"}"##)
+                .validate()
+                .is_ok()
+        );
+        assert!(style(r#"{"caretColor":"indigo"}"#).validate().is_err());
+        assert!(style(r##"{"placeholderColor":"#12"}"##).validate().is_err());
     }
 }

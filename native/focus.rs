@@ -1,7 +1,7 @@
 //! Which elements can take focus and the order Tab visits them (plan section 3.13).
 //!
-//! Focusable: a `Button`, or any element with a `tabIndex` (`0` or `-1`), unless it or an ancestor
-//! is disabled. Tabbable: focusable, and not `tabIndex` `-1`, and visible. Tab order is document
+//! Focusable: a `Button` or a `TextInput`, or any element with a `tabIndex` (`0` or `-1`), unless it or
+//! an ancestor is disabled. Tabbable: focusable, and not `tabIndex` `-1`, and visible. Tab order is document
 //! order (pre-order of the mounted tree), never paint order. Nothing here touches Godot; the mounting
 //! layer implements [`FocusTree`] and says which elements are visible.
 
@@ -26,7 +26,8 @@ pub(crate) trait FocusTree: ButtonTree {
 
 /// Whether an element with no disabled ancestor could take focus: a button, or one with a `tabIndex`.
 fn takes_focus<T: FocusTree>(tree: &T, tag: u32) -> bool {
-    tree.kind_of(tag) == Some(Kind::Button) || tree.tab_index_of(tag).is_some()
+    matches!(tree.kind_of(tag), Some(Kind::Button | Kind::TextInput))
+        || tree.tab_index_of(tag).is_some()
 }
 
 /// `tag` itself or its nearest ancestor that can take focus, which is where a press focuses. `None`

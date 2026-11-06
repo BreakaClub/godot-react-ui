@@ -23,16 +23,21 @@ pub(crate) fn compute_tree(tree: &mut TaffyTree<TextContext>, root: NodeId, size
                 style,
                 |_, _| 0.0,
                 |known, available| {
-                    let Some(context) = context.as_ref() else {
-                        return Size::ZERO;
+                    let measured = match context.as_ref() {
+                        None => return Size::ZERO,
+                        Some(TextContext::Paragraph(paragraph)) => {
+                            let mut paragraph = paragraph.clone();
+                            paragraph.set_width(known.width.unwrap_or(match available.width {
+                                AvailableSpace::Definite(width) => width,
+                                AvailableSpace::MinContent => 0.0,
+                                AvailableSpace::MaxContent => -1.0,
+                            }));
+                            paragraph.get_size()
+                        }
+                        // A text input is the same size whatever it holds and however wide it is
+                        // offered (a long value scrolls, it does not widen the field).
+                        Some(TextContext::Intrinsic(size)) => *size,
                     };
-                    let mut paragraph = context.paragraph.clone();
-                    paragraph.set_width(known.width.unwrap_or(match available.width {
-                        AvailableSpace::Definite(width) => width,
-                        AvailableSpace::MinContent => 0.0,
-                        AvailableSpace::MaxContent => -1.0,
-                    }));
-                    let measured = paragraph.get_size();
                     Size {
                         width: known.width.unwrap_or(measured.x),
                         height: known.height.unwrap_or(measured.y),

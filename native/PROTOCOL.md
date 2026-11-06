@@ -66,11 +66,15 @@ so JS drops its instances and public handles.
 | `autoFocus` | boolean |
 | `draggable` | boolean (any node kind) |
 | `dragPreview` | `native` or `none` (what follows the pointer while the element is dragged; `native` when absent) |
+| `defaultValue`, `placeholder` | string (`textinput` only; `defaultValue` is the starting text, later changes are ignored) |
+| `multiline`, `readOnly`, `secure`, `selectOnFocus` | boolean (`textinput` only; `multiline` cannot change after creation) |
+| `rows`, `maxLength` | positive / nonnegative integer (`textinput` only; `rows` needs `multiline`; `maxLength` in UTF-16 units) |
+| `keyboardType` | `default|multiline|number|decimal|phone|email|url|password` (`textinput` only; one to one with `DisplayServer.VirtualKeyboardType`) |
 
 JS compiles `className` and `style` once per distinct input into ordered **layers** (`src/styles.ts`;
 shorthands `padding`, `margin`, `gap`, `overflow` and `inset` are expanded to longhands there). Native resolves
 a node's **computed style**: its parent's inherited properties (`color`, `fontSize`, `textAlign`,
-`interpolateSize`, `pointerEvents`, `cursor`, `scrollbarColor`, `userSelect`, `selectionColor`), then every layer whose conditions hold, in order. A layer applies when the root's
+`interpolateSize`, `pointerEvents`, `cursor`, `scrollbarColor`, `userSelect`, `selectionColor`, `caretColor`, `placeholderColor`), then every layer whose conditions hold, in order. A layer applies when the root's
 logical width is at least its `minWidth` and every listed state holds: `hover` and `active` apply to the
 target and its ancestors; `focus` and `focusVisible` to the focused element only; `focusWithin` to it
 and its ancestors; `disabled` to a node whose own `disabled` prop is true. Hover, press, focus and
@@ -96,6 +100,10 @@ rejected), `top`/`right`/`bottom`/`left` are finite numbers (negative allowed), 
 allowed) or `"auto"`, and `zIndex` is a 32-bit integer; see "Positioning and stacking" below. Unsupported properties fail explicitly. Default is a flex column,
 transparent background, white 16px text, no spacing, normal flex shrinking. Text is shaped and wrapped
 with Godot `TextParagraph`; there is no JS text measurement callback.
+
+A node's `kind` is `view`, `text`, `button` or `textinput`. A `textinput` has no children and no `text`: its text lives in
+a native edit buffer ("Text input" below). `caretColor` and `placeholderColor` are hex colours (inherited): the caret is drawn
+in the text colour and the placeholder in the text colour at half alpha when they are not set.
 
 ## Mounted tree, geometry, paint
 
@@ -276,6 +284,11 @@ commit path. The model works in code points; every offset that crosses to JS is 
   command lists re-recorded. `nodeCount` excludes node 0. Whole-tree by design: diagnostics only.
 - `get_node_rect(tag: int) -> String`: the root-local rectangle as JSON, or `null`.
 - `find_by_test_id(test_id: String) -> int`: the lowest (first created) tag carrying the `testID`, or -1.
+- `get_text_input_state(tag: int) -> String`: a text input's `{value, selectionStart, selectionEnd, selectionDirection,
+  eventCount, composing, preedit, scrollLeft, scrollTop, caretVisible, inputDirection}` as JSON (offsets in UTF-16
+  units, `eventCount` the number a `set_text_and_selection` must carry), or `null` for anything else. The snapshot's node
+  has the same under `textInput` (or `null`) plus `displayText` (the value with the preedit spliced in, or bullets),
+  `showingPlaceholder` and `caret` (the caret's root-local rectangle).
 
 ## Input events
 
@@ -309,7 +322,7 @@ browser model, not an IPC round trip.
   (`button` -1, `pointerType` `"mouse"`) plus `deltaX,deltaY` in wheel ticks, positive down and right: one per notch
   of a discrete wheel, scaled by Godot's `factor` (or a pan gesture's `delta`) for smooth devices, which is what
   `ScrollContainer` scales by page / 8. It is cancelable. `keydown` and `keyup` carry `key`, `code`, `repeat`,
-  `isComposing` (always false until Phase I7) and the four modifiers; `keydown` is cancelable (see "Focus and
+  `isComposing` (true while a text input is composing) and the four modifiers; `keydown` is cancelable (see "Focus and
   keyboard"). `focus` and `blur` carry `relatedTarget` (the element on the other side of the change, or `null`)
   and `focusVisible` (the new focus, for `focus`; the old one, for `blur`).
   Only a mouse `pointerdown` on an enabled element is cancelable; its default action is focusing the nearest
@@ -326,6 +339,54 @@ browser model, not an IPC round trip.
   key is released (not cancelable). No `pointerdown` or `pointerup` is made up for it.
 - A press in flight when the window loses OS focus is cancelled natively (Godot drops mouse focus and its
   synthetic release never reaches `gui_input`): JS gets `pointercancel`.
+
+## Text input
+
+A `textinput` node (`<TextInput>`, `src/text-input.tsx`) owns an `EditBuffer` (`native/text_input.rs`: text, anchor and
+focus, undo and redo, the IME composition, `maxLength`, read-only and secure modes) in per-tag state
+(`native/text_input_godot/`). Offsets that cross to JS are UTF-16 units (`native/text_offsets.rs`). It measures
+`TEXT_INPUT_DEFAULT_COLUMNS` (20) advances of `0` wide and one line tall (or `rows` lines for a multi-line input) at its
+font size, whatever it holds, so typing never lays out; a long value scrolls.
+
+- **Editing.** An un-prevented `keydown` aimed at a focused text input resolves to an edit command with the project's
+  own `InputMap` actions in `LineEdit`'s order (`ui_copy`, `ui_text_select_all`, `ui_cut`, `ui_text_submit` or
+  `ui_text_newline`, `ui_paste`, `ui_undo`, `ui_redo`, the backspace and delete actions, then the caret movements with
+  Shift removed and extending the selection, `ui_swap_input_direction`), or, with no action, to the typed character
+  (`unicode >= 32`, no Ctrl, Alt or Meta). A key from any device matches as the keyboard's (an `InputMap` binding ignores
+  events from another device). A command the mode forbids (`readOnly`, copy and cut of a `secure` input, a line break in
+  a single-line input, a keyboard command during a composition) never reaches JS. For the others, native sends
+  `beforeinput` (cancelable, awaited), applies the edit unless JS prevented it, sends `input`, and then
+  `selectionchange` if the selection is not where JS last heard it was. Enter in a single-line input is consumed and
+  does nothing natively (JS decides what a submit is). Keys the input has no use for (Escape, function keys) are not
+  consumed, so they reach the game; Tab moves focus; keys never scroll a text input.
+- **Events.** `beforeinput {inputType, data}` (cancelable, bubbles); `input {inputType, data, value, selectionStart,
+  selectionEnd, eventCount}` (bubbles; `value` is all of the text); `selectionchange {selectionStart, selectionEnd}`
+  (does not bubble); `compositionstart|compositionupdate|compositionend {data}`. `inputType` is one of `insertText`,
+  `insertLineBreak`, `insertFromPaste`, `insertReplacementText`, the `delete*` types, `deleteByCut`, `historyUndo`,
+  `historyRedo`. `keydown.isComposing` is true while a composition is in progress.
+- **Controlled values (React Native's protocol).** `set_text_and_selection(tag, event_count, value, start, end) ->
+  String` replaces the text and selection (UTF-16 offsets into `value`, both -1 for the caret at the end) only if
+  `event_count` is the buffer's current count, which goes up by one for each `input` event and for nothing else. It
+  returns `""` when applied, `"stale"` when ignored for its count (the user typed first; nothing changed) and an error
+  message otherwise. Applying clears the undo history and the composition and raises no `input`; a single-line input drops
+  line breaks from the value. `set_text_selection(tag, start, end, backward) -> String` is `setSelectionRange` (UTF-16
+  offsets into the current text; undo history untouched). The `TextInput` component answers each `input` with the
+  command when `value` differs from what native holds, so a transform or a rejection takes effect inside the same
+  dispatch.
+- **Pointer.** An un-prevented primary press on a text input places the caret (Shift extends from the anchor), a
+  double click selects the word, a triple click everything, and dragging with the button held extends the selection (by
+  words after a double click); a press that focuses a `selectOnFocus` input selects everything instead. The pointer
+  over a text input is the text cursor unless its style says otherwise.
+- **Painting.** The selection, the text (or the placeholder), the IME preedit's underline and the caret are drawn into two
+  canvas items under the node's `scroll` item, so following the caret is a transform: a single-line input scrolls
+  horizontally and a multi-line one vertically (and is a scroll container for wheel, touch pans and thumb dragging, with
+  chaining to the container around it). The caret blinks (650 ms) in the focused input while its window has focus, draws
+  both of `TextServer`'s carets and the direction markers as `LineEdit` does, and is plain on an empty line. The selection of
+  an input that is not focused is kept (`selectionStart`) but not drawn. Colours: `color`, `caretColor`, `placeholderColor`
+  and a fixed selection colour (`#3b82f659`).
+- **Platform.** Gaining focus starts the IME and shows the on-screen keyboard where the engine has them (`FEATURE_IME`,
+  `FEATURE_VIRTUAL_KEYBOARD`); `NOTIFICATION_OS_IME_UPDATE` becomes the preedit, and `_set_text` (the Web virtual
+  keyboard's hook) an `insertReplacementText` edit with the caret at 0. Copy, cut and paste use `DisplayServer`'s clipboard.
 
 ## Focus and keyboard
 

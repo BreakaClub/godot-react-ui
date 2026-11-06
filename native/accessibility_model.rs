@@ -119,7 +119,7 @@ pub(crate) fn resolve_role(kind: Kind, props: &PropsSpec) -> Option<Resolved> {
             Kind::Text if props.exposure().has_text => {
                 Some(Resolved::new(AxRole::StaticText, Content::Fold))
             }
-            Kind::Text | Kind::View => None,
+            Kind::Text | Kind::View | Kind::TextInput => None,
         };
     };
     Some(match role {

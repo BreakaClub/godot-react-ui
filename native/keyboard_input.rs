@@ -65,7 +65,7 @@ impl ReactUiRoot {
             ),
             code: dom_code(key.get_physical_keycode(), keycode, key.get_location()),
             repeat: echo,
-            is_composing: false,
+            is_composing: self.text_input_is_composing(),
             modifiers,
         };
         let target = self
@@ -94,9 +94,9 @@ impl ReactUiRoot {
         }
     }
 
-    /// Copy and select all act on the document's text selection; Tab moves focus; Enter and Space
-    /// press a focused button; the scrolling keys scroll the focused element's scroll container.
-    /// Returns whether native acted.
+    /// Copy and select all act on the document's text selection; Tab moves focus; a focused text input
+    /// takes every other key as text; Enter and Space press a focused button; the scrolling keys scroll
+    /// the focused element's scroll container. Returns whether native acted.
     fn key_down_default(
         &mut self,
         key: &Gd<InputEventKey>,
@@ -105,8 +105,9 @@ impl ReactUiRoot {
         modifiers: Modifiers,
     ) -> bool {
         // The keys that copy the document's text selection and select all of it (`ui_copy`,
-        // `ui_text_select_all`); a chord, so none of the keys below take it.
-        if self.run_selection_key(key, echo) {
+        // `ui_text_select_all`); a chord, so none of the keys below take it. A focused text input owns
+        // these keys for its own text (`text_input_key_down`).
+        if self.focused_text_input().is_none() && self.run_selection_key(key, echo) {
             return true;
         }
         if keycode == Key::TAB {
@@ -115,6 +116,10 @@ impl ReactUiRoot {
                 return false;
             }
             return self.advance_focus(modifiers.shift_key);
+        }
+        // A text input has its own use for every key, so its keys move the caret rather than scroll.
+        if let Some(input) = self.focused_text_input() {
+            return self.text_input_key_down(input, key, modifiers);
         }
         if is_activation_key(keycode) {
             if echo && self.activation_key.is_some() {

@@ -258,6 +258,14 @@ function utilityStyle(utility: string): Style | undefined {
     const color = parseColor(utility.slice('selection-'.length));
     if (color !== undefined) return { selectionColor: color };
   }
+  if (utility.startsWith('caret-')) {
+    const color = parseColor(utility.slice('caret-'.length));
+    if (color !== undefined) return { caretColor: color };
+  }
+  if (utility.startsWith('placeholder-')) {
+    const color = parseColor(utility.slice('placeholder-'.length));
+    if (color !== undefined) return { placeholderColor: color };
+  }
 
   for (const prefix of ['bg-', 'text-', 'border-']) {
     if (!utility.startsWith(prefix)) continue;

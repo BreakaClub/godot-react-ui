@@ -86,6 +86,10 @@ export interface Style {
   scrollbarWidth?: ScrollbarWidth;
   /** Inherited. The colour of a scroll container's overlay scrollbar thumbs. */
   scrollbarColor?: HexColor;
+  /** Inherited. The colour of a text input's caret; its text colour when not set. */
+  caretColor?: HexColor;
+  /** Inherited. The colour of a text input's placeholder; its text colour at half alpha when not set. */
+  placeholderColor?: HexColor;
   touchAction?: TouchAction;
   /** Inherited. */
   pointerEvents?: PointerEvents;

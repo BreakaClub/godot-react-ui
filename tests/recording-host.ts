@@ -2,10 +2,11 @@ import assert from 'node:assert/strict';
 import { createRoot, type RootOptions, type UIRoot } from '../src';
 import type { CommitPayload } from '../src/commit';
 import type {
-  NativeAccessibilityAction, NativeAccessibilityActionEvent, NativeDragEndEvent, NativeDragEvent, NativeDragEventType,
-  NativeDragState, NativeEvent, NativeEventType, NativeFocusEventType, NativeHost, NativeKeyEvent, NativePointerEvent,
-  NativePointerEventType, NativeScrollEvent, NativeScrollState, NativeSelection, NativeSelectionChangeEvent, NativeSnapshot,
-  NativeSnapshotNode, NativeWheelEvent, PackedTags,
+  NativeAccessibilityAction, NativeAccessibilityActionEvent, NativeBeforeInputEvent, NativeDragEndEvent, NativeDragEvent,
+  NativeDragEventType, NativeDragState, NativeEvent, NativeEventType, NativeFocusEventType, NativeHost, NativeInputEvent,
+  NativeInputType, NativeKeyEvent, NativePointerEvent, NativePointerEventType, NativeScrollEvent, NativeScrollState,
+  NativeSelection, NativeSelectionChangeEvent, NativeSnapshot, NativeSnapshotNode, NativeTextInputState, NativeWheelEvent,
+  PackedTags,
 } from '../src/native';
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -39,7 +40,7 @@ function parsePayload(value: unknown): CommitPayload {
   assert.deepEqual(Object.keys(value).sort(), ['children', 'created', 'updated'], 'a payload has exactly these keys');
   return {
     created: entries(value.created).map((entry) => {
-      assert.ok(entry.kind === 'view' || entry.kind === 'text' || entry.kind === 'button');
+      assert.ok(entry.kind === 'view' || entry.kind === 'text' || entry.kind === 'button' || entry.kind === 'textinput');
       assert.ok(isRecord(entry.props));
       return { tag: tagOf(entry), kind: entry.kind, props: entry.props };
     }),
@@ -51,10 +52,10 @@ function parsePayload(value: unknown): CommitPayload {
   };
 }
 
-export function node(id: number, kind: 'view' | 'text' | 'button'): NativeSnapshotNode {
+export function node(id: number, kind: 'view' | 'text' | 'button' | 'textinput'): NativeSnapshotNode {
   return {
     id, kind, layer: 0, text: '', parent: null, children: [], paintParent: null, paintIndex: 0, documentIndex: 0, style: {}, props: {},
-    scroll: null,
+    scroll: null, textInput: null,
     rect: { x: 0, y: 0, width: 100, height: 40 },
     clipRect: null,
     presentation: {width: 100, height: 40, widthIsAuto: false, heightIsAuto: false, opacity: 1, backgroundColor: '#00000000'},
@@ -65,7 +66,28 @@ export function node(id: number, kind: 'view' | 'text' | 'button'): NativeSnapsh
 export type NativeCall =
   | 'commit' | 'takeCommitDeletions' | 'drainEvents' | 'getSnapshot' | 'getNodeRect' | 'getSize' | 'findByTestId' | 'resolveEvent'
   | 'setPointerCapture' | 'releasePointerCapture' | 'hasPointerCapture' | 'focusNode' | 'blurNode'
-  | 'scrollTo' | 'scrollBy' | 'scrollIntoView' | 'getScrollState' | 'getSelection' | 'clearSelection';
+  | 'scrollTo' | 'scrollBy' | 'scrollIntoView' | 'getScrollState' | 'getSelection' | 'clearSelection'
+  | 'setTextAndSelection' | 'setTextSelection' | 'getTextInputState';
+
+/** What the fake host keeps of a text input: native's buffer, reduced to the value, the selection and the count. */
+export interface FakeTextInput {
+  value: string;
+  selectionStart: number;
+  selectionEnd: number;
+  selectionDirection: 'forward' | 'backward';
+  /** The number of `input` events the input has made, which `setTextAndSelection` must carry. */
+  eventCount: number;
+}
+
+/** One `setTextAndSelection` the fake host received, and what it answered. */
+export interface TextCommandRecord {
+  tag: number;
+  eventCount: number;
+  value: string;
+  start: number;
+  end: number;
+  result: string;
+}
 
 /**
  * A fake native host that implements the commit API in JavaScript: it applies each payload to a
@@ -111,6 +133,12 @@ export class RecordingHost implements NativeHost {
     state: 'idle', session: 0, source: null, target: null, pointer: null, origin: null, position: null,
     allowedEffect: null, ghost: null, lastEnd: null,
   };
+  /** The text inputs the fake knows, by tag: created from `defaultValue`, changed by commands and by the test. */
+  readonly textInputs = new Map<number, FakeTextInput>();
+  /** Every `setTextAndSelection`, in order. */
+  readonly textCommands: TextCommandRecord[] = [];
+  /** Every `setTextSelection`, in order. */
+  readonly selectionCommands: Array<{ tag: number; start: number; end: number; backward: boolean }> = [];
   /** Extra events appended to every drain, for storm tests. */
   produceEvents: (() => NativeEvent[]) | undefined;
   private nextSeq = 1;
@@ -134,6 +162,13 @@ export class RecordingHost implements NativeHost {
       next.layer = layer;
       this.setProps(next, Object.fromEntries(Object.entries(created.props)));
       this.nodes.set(created.tag, next);
+      if (created.kind === 'textinput') {
+        const value = typeof created.props.defaultValue === 'string' ? created.props.defaultValue : '';
+        this.textInputs.set(created.tag, {
+          value, selectionStart: value.length, selectionEnd: value.length, selectionDirection: 'forward', eventCount: 0,
+        });
+        this.focusable.add(created.tag);
+      }
     }
     for (const updated of payload.updated) {
       const target = this.nodes.get(updated.tag);
@@ -243,6 +278,48 @@ export class RecordingHost implements NativeHost {
     return '';
   }
 
+  setTextAndSelection(tag: number, eventCount: number, value: string, start: number, end: number): string {
+    this.calls.push('setTextAndSelection');
+    const input = this.textInputs.get(tag);
+    const record = { tag, eventCount, value, start, end, result: '' };
+    this.textCommands.push(record);
+    if (input === undefined) {
+      record.result = `node ${tag} is not a text input`;
+      return record.result;
+    }
+    if (eventCount !== input.eventCount) {
+      record.result = 'stale';
+      return record.result;
+    }
+    input.value = value;
+    input.selectionStart = start === -1 ? value.length : start;
+    input.selectionEnd = end === -1 ? value.length : end;
+    input.selectionDirection = 'forward';
+    return '';
+  }
+
+  setTextSelection(tag: number, start: number, end: number, backward: boolean): string {
+    this.calls.push('setTextSelection');
+    this.selectionCommands.push({ tag, start, end, backward });
+    const input = this.textInputs.get(tag);
+    if (input === undefined) return `node ${tag} is not a text input`;
+    if (end > input.value.length || start > end) return `selection ${start}..${end} is not valid here`;
+    input.selectionStart = start;
+    input.selectionEnd = end;
+    input.selectionDirection = backward ? 'backward' : 'forward';
+    return '';
+  }
+
+  getTextInputState(tag: number): string {
+    this.calls.push('getTextInputState');
+    const input = this.textInputs.get(tag);
+    if (input === undefined) return 'null';
+    const state: NativeTextInputState = {
+      ...input, composing: false, preedit: null, scrollLeft: 0, scrollTop: 0, caretVisible: true, inputDirection: 'ltr',
+    };
+    return JSON.stringify(state);
+  }
+
   scrollTo(tag: number, left: number, top: number): string {
     this.calls.push('scrollTo');
     this.scrollRequests.push({ method: 'scrollTo', tag, x: left, y: top });
@@ -331,7 +408,7 @@ export class RecordingHost implements NativeHost {
   }
 
   /** Queue a pointer or focus event with the next sequence number. */
-  event(target: number, type: NativeEventType, overrides: Partial<NativePointerEvent> = {}): NativeEvent {
+  event(target: number, type: PlainEventType, overrides: Partial<NativePointerEvent> = {}): NativeEvent {
     const event = isFocusType(type)
       ? this.focusEvent(target, type)
       : type === 'wheel' ? this.wheelEvent(target)
@@ -366,6 +443,35 @@ export class RecordingHost implements NativeHost {
       seq: this.nextSeq++, target, path: this.pathOf(target), cancelable: false, timeStamp: 1.5, type: 'scroll',
       scrollLeft: 0, scrollTop: 120, scrollWidth: 300, scrollHeight: 900, clientWidth: 300, clientHeight: 400,
       ...overrides,
+    };
+  }
+
+  /** A `beforeinput`, cancelable: native waits for JS to say whether the edit may be made. */
+  beforeInputEvent(
+    target: number, inputType: NativeInputType, data: string | null, overrides: Partial<NativeBeforeInputEvent> = {},
+  ): NativeBeforeInputEvent {
+    return {
+      seq: this.nextSeq++, target, path: this.pathOf(target), cancelable: true, timeStamp: 1.5, type: 'beforeinput',
+      inputType, data, ...overrides,
+    };
+  }
+
+  /** An `input`: the text changed because of an edit. */
+  inputEvent(
+    target: number, inputType: NativeInputType, data: string | null, value: string, eventCount: number,
+    selection: { start: number; end: number } = { start: value.length, end: value.length },
+  ): NativeInputEvent {
+    return {
+      seq: this.nextSeq++, target, path: this.pathOf(target), cancelable: false, timeStamp: 1.5, type: 'input',
+      inputType, data, value, selectionStart: selection.start, selectionEnd: selection.end, eventCount,
+    };
+  }
+
+  /** A text input's selection moved: addressed to the input. */
+  textSelectionChangeEvent(target: number, start: number, end: number): NativeSelectionChangeEvent {
+    return {
+      seq: this.nextSeq++, target, path: this.pathOf(target), cancelable: false, timeStamp: 1.5, type: 'selectionchange',
+      input: { selectionStart: start, selectionEnd: end },
     };
   }
 
@@ -412,7 +518,7 @@ export class RecordingHost implements NativeHost {
 
   /** The document's selection changed: addressed to the root (target 0, no path), never cancelable. */
   selectionChangeEvent(): NativeSelectionChangeEvent {
-    return { seq: this.nextSeq++, target: 0, path: [], cancelable: false, timeStamp: 1.5, type: 'selectionchange' };
+    return { seq: this.nextSeq++, target: 0, path: [], cancelable: false, timeStamp: 1.5, type: 'selectionchange', input: null };
   }
 
   /** A key press or release; a `keydown` is cancelable, as native awaits JS's answer. */
@@ -426,7 +532,12 @@ export class RecordingHost implements NativeHost {
   }
 }
 
-function isFocusType(type: NativeEventType): type is NativeFocusEventType {
+/** The event types `event()` builds from its type alone: all but the text input events, which carry fields of their own. */
+export type PlainEventType = Exclude<
+  NativeEventType, 'beforeinput' | 'input' | 'compositionstart' | 'compositionupdate' | 'compositionend'
+>;
+
+function isFocusType(type: PlainEventType): type is NativeFocusEventType {
   return type === 'focus' || type === 'blur';
 }
 

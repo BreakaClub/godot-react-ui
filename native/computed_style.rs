@@ -79,8 +79,8 @@ impl Deref for ComputedStyle {
 }
 
 /// The properties a node passes on to its children: `color`, `fontSize`, `textAlign`,
-/// `interpolateSize`, `pointerEvents`, `cursor`, `scrollbarColor`, `userSelect` and `selectionColor`
-/// (plan 3.6). Later phases add the text input properties.
+/// `interpolateSize`, `pointerEvents`, `cursor`, `scrollbarColor`, `userSelect`, `selectionColor`, `caretColor`
+/// and `placeholderColor` (plan 3.6).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct InheritedStyle {
     pub color: Option<String>,
@@ -92,6 +92,8 @@ pub struct InheritedStyle {
     pub scrollbar_color: Option<String>,
     pub user_select: Option<UserSelectSpec>,
     pub selection_color: Option<String>,
+    pub caret_color: Option<String>,
+    pub placeholder_color: Option<String>,
 }
 
 impl ComputedStyle {
@@ -106,6 +108,8 @@ impl ComputedStyle {
             scrollbar_color: self.0.scrollbar_color.clone(),
             user_select: self.0.user_select,
             selection_color: self.0.selection_color.clone(),
+            caret_color: self.0.caret_color.clone(),
+            placeholder_color: self.0.placeholder_color.clone(),
         }
     }
 
@@ -143,6 +147,8 @@ pub fn resolve(
         scrollbar_color: inherited.scrollbar_color.clone(),
         user_select: inherited.user_select,
         selection_color: inherited.selection_color.clone(),
+        caret_color: inherited.caret_color.clone(),
+        placeholder_color: inherited.placeholder_color.clone(),
         ..StyleSpec::default()
     };
     if let Some(layers) = layers {
@@ -514,6 +520,8 @@ mod tests {
             scrollbar_color: Some("#64748b99".into()),
             user_select: Some(UserSelectSpec::Text),
             selection_color: Some("#3b82f659".into()),
+            caret_color: Some("#ef4444".into()),
+            placeholder_color: Some("#94a3b8".into()),
         };
         let none = StyleLayers::default();
         let child = resolve(Some(&none), false, &inherited, &conditions(WIDE, &[]));
@@ -526,9 +534,11 @@ mod tests {
         assert_eq!(child.scrollbar_color.as_deref(), Some("#64748b99"));
         assert_eq!(child.user_select, Some(UserSelectSpec::Text));
         assert_eq!(child.selection_color.as_deref(), Some("#3b82f659"));
+        assert_eq!(child.caret_color.as_deref(), Some("#ef4444"));
+        assert_eq!(child.placeholder_color.as_deref(), Some("#94a3b8"));
         let own = layers(
             r##"{"layers":[{"style":{"color":"#000","fontSize":12,"scrollbarColor":"#f00",
-                "userSelect":"none","selectionColor":"#0f0"}}]}"##,
+                "userSelect":"none","selectionColor":"#0f0","caretColor":"#0f0"}}]}"##,
         );
         let overridden = resolve(Some(&own), false, &inherited, &conditions(WIDE, &[]));
         assert_eq!(overridden.color.as_deref(), Some("#000"));
@@ -536,6 +546,8 @@ mod tests {
         assert_eq!(overridden.scrollbar_color.as_deref(), Some("#f00"));
         assert_eq!(overridden.user_select, Some(UserSelectSpec::None));
         assert_eq!(overridden.selection_color.as_deref(), Some("#0f0"));
+        assert_eq!(overridden.caret_color.as_deref(), Some("#0f0"));
+        assert_eq!(overridden.placeholder_color.as_deref(), Some("#94a3b8"));
         assert_eq!(overridden.text_align, Some(TextAlignSpec::Center));
         // A child may take pointer events back inside an element that has none.
         let auto = layers(r#"{"layers":[{"style":{"pointerEvents":"auto","cursor":"text"}}]}"#);

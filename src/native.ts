@@ -1,4 +1,4 @@
-import type { CommitPayload } from './commit';
+import { LAYER_ROOT_TAG, type CommitPayload } from './commit';
 import { isDropEffect, type DropEffect } from './data-transfer';
 import type { NativeKind } from './props';
 import type { TransitionProperty } from './types';
@@ -69,6 +69,17 @@ export interface NativeHost {
   /** Drop the document's text selection. Native queues `selectionchange` if there was one. */
   clearSelection(): void;
   /**
+   * `setTextAndSelection(eventCount, value, start, end)` on a text input (plan 3.18): replace its text and
+   * selection unless the user typed since the event count was read. `start` and `end` are UTF-16 offsets into
+   * `value`, both -1 for the caret at the end. Returns '' when applied, `STALE_TEXT_COMMAND` when ignored for its
+   * count, else why nothing changed.
+   */
+  setTextAndSelection(tag: number, eventCount: number, value: string, start: number, end: number): string;
+  /** `setSelectionRange` on a text input: UTF-16 offsets into its text. An empty string means success. */
+  setTextSelection(tag: number, start: number, end: number, backward: boolean): string;
+  /** A text input's state as JSON (`NativeTextInputState`), or `null` for anything else. */
+  getTextInputState(tag: number): string;
+  /**
    * Answer the one event native is awaiting (`cancelable: true`). An empty string means success.
    * `dropEffect` is '' (not set), 'none', 'copy', 'move' or 'link'.
    */
@@ -129,9 +140,11 @@ export type NativeKeyEventType = 'keydown' | 'keyup';
 export type NativeAccessibilityEventType = 'accessibilityaction';
 export type NativeSelectionEventType = 'selectionchange';
 export type NativeDragEventType = 'dragstart' | 'drag' | 'dragenter' | 'dragleave' | 'dragover' | 'drop' | 'dragend';
+export type NativeCompositionEventType = 'compositionstart' | 'compositionupdate' | 'compositionend';
 export type NativeEventType =
   | NativePointerEventType | NativeWheelEventType | NativeScrollEventType | NativeKeyEventType | NativeFocusEventType
-  | NativeAccessibilityEventType | NativeSelectionEventType | NativeDragEventType;
+  | NativeAccessibilityEventType | NativeSelectionEventType | NativeDragEventType | 'beforeinput' | 'input'
+  | NativeCompositionEventType;
 
 /** '' is synthetic keyboard activation, as in browsers. */
 export type NativePointerType = 'mouse' | 'touch' | '';
@@ -239,11 +252,54 @@ export interface NativeScrollEvent extends NativeEventBase {
 }
 
 /**
- * The document's text selection changed. Addressed to the root's listeners (target 0), not cancelable, and carries
- * nothing: ask the root for `getSelection()`. Native coalesces the changes of one delivery into one event.
+ * `selectionchange`, the document's or a text input's. The document's is addressed to the root's listeners
+ * (target 0), not cancelable, and carries nothing: ask the root for `getSelection()`. Native coalesces the changes of
+ * one delivery into one event. A text input's is addressed to the input and carries its selection.
  */
 export interface NativeSelectionChangeEvent extends NativeEventBase {
   type: NativeSelectionEventType;
+  /** The input's selection for a text input's event, `null` for the document's (target 0). */
+  input: NativeInputSelection | null;
+}
+
+/** A text input's selection: UTF-16 units, ordered. */
+export interface NativeInputSelection {
+  selectionStart: number;
+  selectionEnd: number;
+}
+
+/** The DOM `inputType`s a text input's edits have (plan 4.3). */
+export type NativeInputType =
+  | 'insertText' | 'insertLineBreak' | 'insertFromPaste' | 'insertReplacementText' | 'deleteContentBackward'
+  | 'deleteContentForward' | 'deleteWordBackward' | 'deleteWordForward' | 'deleteSoftLineBackward'
+  | 'deleteSoftLineForward' | 'deleteByCut' | 'historyUndo' | 'historyRedo';
+
+/** A text input is about to make this edit. Cancelable: native waits for the answer. */
+export interface NativeBeforeInputEvent extends NativeEventBase {
+  type: 'beforeinput';
+  inputType: NativeInputType;
+  /** The text an insertion carries, as given (before `maxLength` and line break handling). */
+  data: string | null;
+}
+
+/**
+ * A text input's text changed because of an edit. The selection is in UTF-16 units, and `eventCount` is the
+ * number a `setTextAndSelection` answering this event must carry for native to apply it.
+ */
+export interface NativeInputEvent extends NativeEventBase {
+  type: 'input';
+  inputType: NativeInputType;
+  data: string | null;
+  value: string;
+  selectionStart: number;
+  selectionEnd: number;
+  eventCount: number;
+}
+
+/** The IME's preedit: its text now, empty at the start and at the end of a composition. */
+export interface NativeCompositionEvent extends NativeEventBase {
+  type: NativeCompositionEventType;
+  data: string;
 }
 
 /**
@@ -270,7 +326,7 @@ export interface NativeDragEndEvent extends NativeMouseFields {
 
 export type NativeEvent =
   | NativePointerEvent | NativeWheelEvent | NativeScrollEvent | NativeKeyEvent | NativeFocusEvent | NativeAccessibilityActionEvent
-  | NativeSelectionChangeEvent
+  | NativeBeforeInputEvent | NativeInputEvent | NativeSelectionChangeEvent | NativeCompositionEvent
   | NativeDragEvent | NativeDragEndEvent;
 
 /** One end of the selection: a `Text` element and a UTF-16 offset into its text. */
@@ -341,6 +397,34 @@ export interface NativeSnapshotNode {
   props: Record<string, unknown>;
   /** Set for a scroll container: where it is scrolled and how far it can go. */
   scroll: NativeScrollState | null;
+  /** Set for a text input: what native holds of it and draws. */
+  textInput: NativeTextInputSnapshot | null;
+}
+
+/** A text input's state as JS reads it (`getTextInputState`). Offsets are UTF-16 units. */
+export interface NativeTextInputState {
+  value: string;
+  selectionStart: number;
+  selectionEnd: number;
+  selectionDirection: 'forward' | 'backward';
+  /** What a `setTextAndSelection` must carry to be applied: the number of `input` events so far. */
+  eventCount: number;
+  composing: boolean;
+  /** The IME's preedit and the part of it being converted, while composing. */
+  preedit: { text: string; selectionStart: number; selectionEnd: number } | null;
+  scrollLeft: number;
+  scrollTop: number;
+  caretVisible: boolean;
+  inputDirection: 'ltr' | 'rtl';
+}
+
+/** The snapshot's view of a text input: its state and what it draws. */
+export interface NativeTextInputSnapshot extends NativeTextInputState {
+  /** The text drawn: the value with the preedit spliced in, or bullets for a secure input. */
+  displayText: string;
+  showingPlaceholder: boolean;
+  /** The caret's rectangle, root-local, or `null` while it cannot be laid out. */
+  caret: LayoutRect | null;
 }
 
 export interface NativeSnapshot {
@@ -469,7 +553,7 @@ function array(value: unknown, label: string): unknown[] {
 }
 
 function kind(value: unknown): NativeKind {
-  if (value === 'view' || value === 'text' || value === 'button') return value;
+  if (value === 'view' || value === 'text' || value === 'button' || value === 'textinput') return value;
   throw new Error(`Invalid native node kind: ${String(value)}`);
 }
 
@@ -479,7 +563,8 @@ function eventType(value: unknown): NativeEventType {
     case 'pointerleave': case 'pointercancel': case 'click': case 'dblclick': case 'auxclick':
     case 'contextmenu': case 'wheel': case 'scroll': case 'keydown': case 'keyup': case 'focus': case 'blur':
     case 'accessibilityaction': case 'selectionchange': case 'dragstart': case 'drag': case 'dragenter': case 'dragleave':
-    case 'dragover': case 'drop': case 'dragend':
+    case 'dragover': case 'drop': case 'dragend': case 'beforeinput': case 'input':
+    case 'compositionstart': case 'compositionupdate': case 'compositionend':
       return value;
     default:
       throw new Error(`Invalid native event type: ${String(value)}`);
@@ -517,6 +602,22 @@ function nonnegativeInteger(value: unknown, label: string): number {
 
 function idList(value: unknown, label: string): number[] {
   return array(value, label).map((entry) => id(entry, label));
+}
+
+const INPUT_TYPES: readonly NativeInputType[] = [
+  'insertText', 'insertLineBreak', 'insertFromPaste', 'insertReplacementText', 'deleteContentBackward',
+  'deleteContentForward', 'deleteWordBackward', 'deleteWordForward', 'deleteSoftLineBackward',
+  'deleteSoftLineForward', 'deleteByCut', 'historyUndo', 'historyRedo',
+];
+
+function inputType(value: unknown): NativeInputType {
+  const found = INPUT_TYPES.find((candidate) => candidate === value);
+  if (found === undefined) throw new Error(`Invalid native input type: ${String(value)}`);
+  return found;
+}
+
+function nullableString(value: unknown, label: string): string | null {
+  return value === null ? null : string(value, label);
 }
 
 function mouseFields(base: NativeEventBase, event: Record<string, unknown>): NativeMouseFields {
@@ -617,13 +718,68 @@ function nativeEvent(entry: unknown): NativeEvent {
         ...base, type, action: accessibilityAction(event.action),
         value: event.value === null ? null : number(event.value, 'event.value'),
       };
+    case 'beforeinput':
+      return { ...base, type, inputType: inputType(event.inputType), data: nullableString(event.data, 'event.data') };
+    case 'input':
+      return {
+        ...base, type, inputType: inputType(event.inputType), data: nullableString(event.data, 'event.data'),
+        value: string(event.value, 'event.value'),
+        selectionStart: nonnegativeInteger(event.selectionStart, 'event.selectionStart'),
+        selectionEnd: nonnegativeInteger(event.selectionEnd, 'event.selectionEnd'),
+        eventCount: nonnegativeInteger(event.eventCount, 'event.eventCount'),
+      };
     case 'selectionchange':
-      return { ...base, type };
+      // The document's event is addressed to the root (target 0) and carries nothing; an input's is addressed to it.
+      return {
+        ...base, type,
+        input: base.target === LAYER_ROOT_TAG ? null : {
+          selectionStart: nonnegativeInteger(event.selectionStart, 'event.selectionStart'),
+          selectionEnd: nonnegativeInteger(event.selectionEnd, 'event.selectionEnd'),
+        },
+      };
+    case 'compositionstart': case 'compositionupdate': case 'compositionend':
+      return { ...base, type, data: string(event.data, 'event.data') };
     case 'dragstart': case 'drag': case 'dragenter': case 'dragleave': case 'dragover': case 'drop':
       return dragEvent(type, base, event);
     case 'dragend':
       return dragEndEvent(base, event);
   }
+}
+
+function textInputState(value: unknown, label: string): NativeTextInputState {
+  const state = record(value, label);
+  const direction = state.selectionDirection;
+  if (direction !== 'forward' && direction !== 'backward') throw new Error(`Invalid native ${label}.selectionDirection`);
+  const inputDirection = state.inputDirection;
+  if (inputDirection !== 'ltr' && inputDirection !== 'rtl') throw new Error(`Invalid native ${label}.inputDirection`);
+  const preedit = state.preedit === null ? null : record(state.preedit, `${label}.preedit`);
+  return {
+    value: string(state.value, `${label}.value`),
+    selectionStart: nonnegativeInteger(state.selectionStart, `${label}.selectionStart`),
+    selectionEnd: nonnegativeInteger(state.selectionEnd, `${label}.selectionEnd`),
+    selectionDirection: direction,
+    eventCount: nonnegativeInteger(state.eventCount, `${label}.eventCount`),
+    composing: boolean(state.composing, `${label}.composing`),
+    preedit: preedit === null ? null : {
+      text: string(preedit.text, `${label}.preedit.text`),
+      selectionStart: nonnegativeInteger(preedit.selectionStart, `${label}.preedit.selectionStart`),
+      selectionEnd: nonnegativeInteger(preedit.selectionEnd, `${label}.preedit.selectionEnd`),
+    },
+    scrollLeft: number(state.scrollLeft, `${label}.scrollLeft`),
+    scrollTop: number(state.scrollTop, `${label}.scrollTop`),
+    caretVisible: boolean(state.caretVisible, `${label}.caretVisible`),
+    inputDirection,
+  };
+}
+
+function textInputSnapshot(value: unknown, label: string): NativeTextInputSnapshot {
+  const snapshot = record(value, label);
+  return {
+    ...textInputState(value, label),
+    displayText: string(snapshot.displayText, `${label}.displayText`),
+    showingPlaceholder: boolean(snapshot.showingPlaceholder, `${label}.showingPlaceholder`),
+    caret: snapshot.caret === null ? null : rect(snapshot.caret, `${label}.caret`),
+  };
 }
 
 function rect(value: unknown, label: string): LayoutRect {
@@ -794,6 +950,7 @@ export function readSnapshot(host: NativeHost): NativeSnapshot {
         style: record(node.style, 'node.style'),
         props: record(node.props, 'node.props'),
         scroll: node.scroll === null ? null : scrollState(node.scroll, 'node.scroll'),
+        textInput: node.textInput === null ? null : textInputSnapshot(node.textInput, 'node.textInput'),
       };
     }),
     stats: {
@@ -891,6 +1048,34 @@ export function readSelection(host: NativeHost): NativeSelection | undefined {
     isCollapsed: boolean(selection.isCollapsed, 'selection.isCollapsed'),
     text: string(selection.text, 'selection.text'),
   };
+}
+
+/** What `setTextAndSelection` returns for a command it ignored because its event count was old. */
+export const STALE_TEXT_COMMAND = 'stale';
+
+/**
+ * Send `setTextAndSelection`. Returns whether native applied it: `false` means the user typed since `eventCount` was
+ * read (nothing changed, and the next `input` event lets the caller reconcile again). Any other refusal throws.
+ */
+export function setTextAndSelection(
+  host: NativeHost, tag: number, eventCount: number, value: string, start: number, end: number,
+): boolean {
+  const result = host.setTextAndSelection(tag, eventCount, value, start, end);
+  if (result === '') return true;
+  if (result === STALE_TEXT_COMMAND) return false;
+  throw new Error(`setTextAndSelection failed: ${result}`);
+}
+
+/** Throw if native refused `setSelectionRange`. */
+export function setTextSelection(host: NativeHost, tag: number, start: number, end: number, backward: boolean): void {
+  const result = host.setTextSelection(tag, start, end, backward);
+  if (result !== '') throw new Error(`setSelectionRange failed: ${result}`);
+}
+
+/** A text input's value, selection and event count, or `undefined` for a node that is not a mounted text input. */
+export function readTextInputState(host: NativeHost, tag: number): NativeTextInputState | undefined {
+  const value: unknown = JSON.parse(host.getTextInputState(tag));
+  return value === null ? undefined : textInputState(value, 'text input state');
 }
 
 /** The tags the commit that just succeeded deleted. */

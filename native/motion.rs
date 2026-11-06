@@ -546,18 +546,14 @@ impl ReactUiRoot {
         // TaffyTree::clone would otherwise retain the same mutable Godot paragraph
         // resources. Duplicate shaping buffers so measuring an endpoint never
         // changes visible text wrapping or the presentation tree's geometry.
+        // A text input's context is a plain size, which the clone carries as it is.
         for node in self.mounted.nodes.values() {
             if let Some(paragraph) = node.visual.paragraph.as_ref() {
                 let duplicate = paragraph
                     .duplicate()
                     .expect("TextParagraph duplicate is available");
                 probe
-                    .set_node_context(
-                        node.layout,
-                        Some(TextContext {
-                            paragraph: duplicate,
-                        }),
-                    )
+                    .set_node_context(node.layout, Some(TextContext::Paragraph(duplicate)))
                     .expect("known probe handle");
             }
         }
@@ -726,9 +722,11 @@ impl ReactUiRoot {
     /// this; nothing else turns processing on or off except [`Self::pause_process`].
     pub(crate) fn update_process(&mut self) {
         let inside = self.base().is_inside_tree();
-        let active =
-            (self.motion_active() || self.scrolling.wants_frames() || self.drag_wants_frames())
-                && inside;
+        let active = (self.motion_active()
+            || self.scrolling.wants_frames()
+            || self.drag_wants_frames()
+            || self.text_input_wants_frames())
+            && inside;
         let listening = self.drag_in_progress() && inside;
         self.base_mut().set_process(active);
         self.base_mut().set_process_input(listening);

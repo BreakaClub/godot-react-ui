@@ -148,6 +148,45 @@ pub struct AccessibilityActionData {
     pub value: Option<f64>,
 }
 
+/// `beforeinput` (plan 4.3): the edit a text input is about to make, cancelable. `input_type` is the
+/// DOM string (`insertText`, `deleteContentBackward`, ...) and `data` the text an insertion carries.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BeforeInputData {
+    pub input_type: &'static str,
+    pub data: Option<String>,
+}
+
+/// `input`: a text input's text changed because of an edit. `value` is all of its text, the selection
+/// is in UTF-16 units, and `event_count` is the number a `setTextAndSelection` answering this event
+/// must carry for native to apply it (plan 3.18).
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InputData {
+    pub input_type: &'static str,
+    pub data: Option<String>,
+    pub value: String,
+    pub selection_start: usize,
+    pub selection_end: usize,
+    pub event_count: u64,
+}
+
+/// `selectionchange` of a text input: where its selection is now, in UTF-16 units, ordered.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SelectionChangeData {
+    pub selection_start: usize,
+    pub selection_end: usize,
+}
+
+/// `compositionstart`, `compositionupdate` and `compositionend`: the IME's current preedit, empty at
+/// the end of a composition (the committed text arrives as an `input`).
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompositionData {
+    pub data: String,
+}
+
 /// One variant per wire `type`.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
@@ -182,6 +221,13 @@ pub enum EventPayload {
     /// (Phase I7) go to their input and carry the input's offsets.
     #[serde(rename = "selectionchange")]
     DocumentSelectionChange,
+    /// Cancelable: a text input is about to make an edit.
+    BeforeInput(BeforeInputData),
+    Input(InputData),
+    SelectionChange(SelectionChangeData),
+    CompositionStart(CompositionData),
+    CompositionUpdate(CompositionData),
+    CompositionEnd(CompositionData),
     /// Cancelable, at the dragged element: preventing it keeps the drag from starting.
     DragStart(DragData),
     /// At the dragged element, on every move and scroll under a held pointer.
@@ -221,6 +267,12 @@ impl EventPayload {
             | EventPayload::Blur(_)
             | EventPayload::AccessibilityAction(_)
             | EventPayload::DocumentSelectionChange
+            | EventPayload::BeforeInput(_)
+            | EventPayload::Input(_)
+            | EventPayload::SelectionChange(_)
+            | EventPayload::CompositionStart(_)
+            | EventPayload::CompositionUpdate(_)
+            | EventPayload::CompositionEnd(_)
             | EventPayload::DragStart(_)
             | EventPayload::Drag(_)
             | EventPayload::DragEnter(_)
@@ -1018,6 +1070,95 @@ mod tests {
             );
             assert_eq!(DropEffect::parse(name), Ok(Some(effect)));
         }
+    }
+
+    #[test]
+    fn text_input_events_have_the_documented_wire_shape() {
+        let mut queue = EventQueue::new();
+        queue.push_awaited(
+            9,
+            vec![9, 2],
+            EventPayload::BeforeInput(BeforeInputData {
+                input_type: "insertText",
+                data: Some("a".to_string()),
+            }),
+            STAMP,
+        );
+        let mut events: Vec<Value> = queue.drain().iter().map(wire).collect();
+        queue.take_outcome(1);
+        queue.push(
+            9,
+            vec![9, 2],
+            EventPayload::Input(InputData {
+                input_type: "deleteContentBackward",
+                data: None,
+                value: "ab".to_string(),
+                selection_start: 1,
+                selection_end: 2,
+                event_count: 3,
+            }),
+            STAMP,
+        );
+        queue.push(
+            9,
+            vec![9, 2],
+            EventPayload::SelectionChange(SelectionChangeData {
+                selection_start: 1,
+                selection_end: 2,
+            }),
+            STAMP,
+        );
+        for (event, text) in [
+            (
+                EventPayload::CompositionStart as fn(CompositionData) -> EventPayload,
+                "",
+            ),
+            (EventPayload::CompositionUpdate, "か"),
+            (EventPayload::CompositionEnd, ""),
+        ] {
+            queue.push(
+                9,
+                vec![9, 2],
+                event(CompositionData {
+                    data: text.to_string(),
+                }),
+                STAMP,
+            );
+        }
+        events.extend(queue.drain().iter().map(wire));
+        let at = |seq: u64| json!({"seq": seq, "target": 9, "path": [9, 2], "timeStamp": STAMP});
+        let with = |seq: u64, cancelable: bool, fields: Value| {
+            let mut event = at(seq);
+            event["cancelable"] = json!(cancelable);
+            for (key, value) in fields.as_object().expect("fields are an object") {
+                event[key] = value.clone();
+            }
+            event
+        };
+        assert_eq!(
+            events,
+            vec![
+                with(
+                    1,
+                    true,
+                    json!({"type": "beforeinput", "inputType": "insertText", "data": "a"})
+                ),
+                with(
+                    2,
+                    false,
+                    json!({"type": "input", "inputType": "deleteContentBackward", "data": null,
+                           "value": "ab", "selectionStart": 1, "selectionEnd": 2, "eventCount": 3})
+                ),
+                with(
+                    3,
+                    false,
+                    json!({"type": "selectionchange", "selectionStart": 1, "selectionEnd": 2})
+                ),
+                with(4, false, json!({"type": "compositionstart", "data": ""})),
+                with(5, false, json!({"type": "compositionupdate", "data": "か"})),
+                with(6, false, json!({"type": "compositionend", "data": ""})),
+            ]
+        );
     }
 
     #[test]

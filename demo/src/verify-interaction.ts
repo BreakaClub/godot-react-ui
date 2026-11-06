@@ -8,6 +8,7 @@ import type { LayoutRect, NativeScrollState, NativeSnapshot, NativeSnapshotNode 
 import type { LabName } from './labs';
 import type { PassthroughCounts } from './main';
 import { bindVerifierKeys, parseVerifierEvent } from './verifier-input';
+import { verifyTextInput } from './verify-text-input';
 import type { DemoInspection } from './verify';
 
 export interface InteractionInspection extends DemoInspection {
@@ -3262,7 +3263,7 @@ async function verifyDragging(owner: Node, api: InteractionInspection, capture: 
 }
 
 /** The sections of this verifier, in the order they run (plan 0.4.1: `--only=<name>[,<name>]` runs just those). */
-const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard', 'positioning', 'inputs', 'scroll', 'selection', 'drag'] as const;
+const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard', 'positioning', 'inputs', 'scroll', 'selection', 'drag', 'forms'] as const;
 type Section = (typeof SECTIONS)[number];
 
 function isSection(value: string): value is Section {
@@ -3322,6 +3323,7 @@ export async function runInteractionVerification(owner: Node, api: InteractionIn
   if (sections.has('scroll')) await timed('scroll', () => verifyScrolling(owner, api, capture));
   if (sections.has('selection')) await timed('selection', () => verifySelection(owner, api, capture));
   if (sections.has('drag')) await timed('drag', () => verifyDragging(owner, api, capture));
+  if (sections.has('forms')) await timed('forms', () => verifyTextInput(owner, api, capture));
 
   console.log('GODOT_REACT_INTERACTION_VERIFY_PASSED', JSON.stringify({sections: [...sections], sectionMs, captures, dispatchTiming: timing}));
 }

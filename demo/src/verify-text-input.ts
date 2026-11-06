@@ -1,0 +1,598 @@
+import {
+  Color, Control, DisplayServer, Engine, Image, InputEventKey, InputEventMouseButton, InputEventMouseMotion, InputMap, Key,
+  MouseButton, MouseButtonMask, Node, RenderingServer, Vector2,
+} from 'godot';
+import type { LayoutRect, NativeSnapshotNode, NativeTextInputSnapshot } from '../../src/native';
+import type { InteractionInspection } from './verify-interaction';
+import { parseVerifierEvent } from './verifier-input';
+
+/**
+ * Phase I7: `TextInput` in a window (docs/tracks/text-input.md). Real Godot input only (`Input.parseInputEvent`, marked
+ * as the verifier's), and the keys are the project's own `InputMap` actions, so the section holds on any platform.
+ * Typing, selecting by key and by mouse, word jumps, deleting over an emoji sequence, `maxLength`, a transforming
+ * controlled field, read-only, a password, undo and redo, the caret in the raster, horizontal scrolling that follows
+ * the caret, and a text area that wraps and scrolls.
+ */
+
+const SETTLE_MS = 100;
+const MIN_SETTLE_FRAMES = 2;
+const FRAME_POLL_MS = 10;
+/** Frames between the events of one click; the presses of a sequence must come within the click interval (500 ms). */
+const CLICK_PAUSE_FRAMES = 3;
+const FAR_CORNER = new Vector2(1, 1);
+/** The default selection colour (`DEFAULT_SELECTION_COLOR` in native, blue-500 at 35 %) and the form's page and field fills. */
+const PAGE_FILL = '#f8fafc';
+const FIELD_FILL = '#ffffff';
+const CARET_COLOR = '#4f46e5';
+const COLOR_TOLERANCE = 0.03;
+/** The code field's `maxLength`. */
+const CODE_MAX_LENGTH = 6;
+/** A family emoji: three people joined by zero-width joiners. One grapheme, eight UTF-16 units. */
+const FAMILY = '👩‍👩‍👧';
+const FAMILY_UTF16_LENGTH = 8;
+/** Far more steps than any section takes: a loop that reaches this is a bug. */
+const MAX_STEPS = 80;
+
+function assert(condition: unknown, message: string): asserts condition {
+  if (!condition) throw new Error(message);
+}
+
+async function settle(): Promise<void> {
+  const startFrame = Engine.getProcessFrames();
+  await new Promise(resolve => setTimeout(resolve, SETTLE_MS));
+  while (Engine.getProcessFrames() - startFrame < MIN_SETTLE_FRAMES) {
+    await new Promise(resolve => setTimeout(resolve, FRAME_POLL_MS));
+  }
+}
+
+async function frames(count: number): Promise<void> {
+  const start = Engine.getProcessFrames();
+  while (Engine.getProcessFrames() - start < count) await new Promise(resolve => setTimeout(resolve, FRAME_POLL_MS));
+}
+
+function node(api: InteractionInspection, testID: string): NativeSnapshotNode {
+  const found = api.find(testID);
+  assert(found, `Missing test target ${testID}`);
+  return found;
+}
+
+function input(api: InteractionInspection, testID: string): NativeTextInputSnapshot {
+  const state = node(api, testID).textInput;
+  assert(state, `${testID} is not a text input`);
+  return state;
+}
+
+function centerOf(rect: LayoutRect): Vector2 {
+  return new Vector2(rect.x + rect.width / 2, rect.y + rect.height / 2);
+}
+
+function move(position: Vector2, held = false): void {
+  const event = new InputEventMouseMotion();
+  event.position = position;
+  event.globalPosition = position;
+  event.buttonMask = held ? MouseButtonMask.MouseButtonMaskLeft : 0;
+  parseVerifierEvent(event);
+}
+
+function button(position: Vector2, pressed: boolean, modifiers: { shift?: boolean } = {}): void {
+  const event = new InputEventMouseButton();
+  event.position = position;
+  event.globalPosition = position;
+  event.buttonIndex = MouseButton.MouseButtonLeft;
+  event.pressed = pressed;
+  event.buttonMask = pressed ? MouseButtonMask.MouseButtonMaskLeft : 0;
+  event.shiftPressed = modifiers.shift === true;
+  parseVerifierEvent(event);
+}
+
+/** Longer than the click-count interval (plan Appendix A, 500 ms): the next click begins a new sequence. */
+const CLICK_SEQUENCE_PAUSE_MS = 650;
+
+/** `count` quick clicks at one place: a double click selects a word, a triple click everything. */
+async function click(position: Vector2, count = 1, modifiers: { shift?: boolean } = {}): Promise<void> {
+  await new Promise(resolve => setTimeout(resolve, CLICK_SEQUENCE_PAUSE_MS));
+  move(position);
+  await frames(CLICK_PAUSE_FRAMES);
+  for (let index = 0; index < count; index++) {
+    button(position, true, modifiers);
+    await frames(CLICK_PAUSE_FRAMES);
+    button(position, false, modifiers);
+    await frames(CLICK_PAUSE_FRAMES);
+  }
+  await settle();
+}
+
+/** Press at `from`, move to `to` in a few steps with the button down, release. */
+async function drag(from: Vector2, to: Vector2): Promise<void> {
+  await new Promise(resolve => setTimeout(resolve, CLICK_SEQUENCE_PAUSE_MS));
+  move(from);
+  await frames(CLICK_PAUSE_FRAMES);
+  button(from, true);
+  await frames(CLICK_PAUSE_FRAMES);
+  const steps = 6;
+  for (let step = 1; step <= steps; step++) {
+    move(from.lerp(to, step / steps), true);
+    await frames(1);
+  }
+  await settle();
+  button(to, false);
+  await settle();
+}
+
+interface KeyChord {
+  keycode: Key;
+  unicode?: number;
+  shift?: boolean;
+}
+
+function keyEvent(chord: KeyChord, pressed: boolean): void {
+  const event = new InputEventKey();
+  event.keycode = chord.keycode;
+  event.physicalKeycode = chord.keycode;
+  event.keyLabel = chord.keycode;
+  event.unicode = chord.unicode ?? 0;
+  event.pressed = pressed;
+  event.shiftPressed = chord.shift === true;
+  parseVerifierEvent(event);
+}
+
+/** The keycode a typed character has on a US keyboard (the letters and digits are their capitals' codes). */
+function keycodeOf(character: string): Key {
+  const code = character.toUpperCase().codePointAt(0) ?? 0;
+  const letterOrDigit = (code >= 0x30 && code <= 0x39) || (code >= 0x41 && code <= 0x5a);
+  return letterOrDigit || code === 0x20 ? code : Key.KeyNone;
+}
+
+/** Type `text` a character at a time, as a keyboard does: the key goes down with the character it types, and up. */
+async function typeText(text: string): Promise<void> {
+  for (const character of text) {
+    const chord: KeyChord = {
+      keycode: keycodeOf(character), unicode: character.codePointAt(0),
+      shift: character !== character.toLowerCase() && character === character.toUpperCase(),
+    };
+    keyEvent(chord, true);
+    keyEvent(chord, false);
+  }
+  await settle();
+}
+
+/** The first key the project's `InputMap` binds to `action`, as a fresh event that can be injected. */
+function actionKey(action: string): InputEventKey {
+  const events = InputMap.actionGetEvents(action);
+  for (let index = 0; index < events.size(); index++) {
+    const event = events.get(index);
+    if (event instanceof InputEventKey) {
+      const copy = event.duplicate();
+      assert(copy instanceof InputEventKey, `${action}'s event did not duplicate as a key`);
+      return copy;
+    }
+  }
+  throw new Error(`The InputMap has no key for ${action}`);
+}
+
+/** Press and release the key bound to `action`; `shift` adds Shift, which selects while moving. */
+async function pressAction(action: string, shift = false, times = 1): Promise<void> {
+  for (let count = 0; count < times; count++) {
+    for (const pressed of [true, false]) {
+      const event = actionKey(action);
+      event.pressed = pressed;
+      if (shift) event.shiftPressed = true;
+      parseVerifierEvent(event);
+    }
+  }
+  await settle();
+}
+
+/**
+ * Wait until the focused input's caret has just come on again. The caret blinks (650 ms on, 650 off) and a capture takes a
+ * good part of a period, so a capture is taken right after the caret turned on, with most of its period left. Waiting only
+ * reads the snapshot; it makes the input do nothing.
+ */
+async function waitForCaretOn(api: InteractionInspection, testID: string): Promise<void> {
+  const MAX_FRAMES = 400;
+  let seenOff = false;
+  for (let step = 0; step < MAX_FRAMES; step++) {
+    const visible = input(api, testID).caretVisible;
+    if (!visible) seenOff = true;
+    else if (seenOff) return;
+    await frames(1);
+  }
+  throw new Error(`The caret of ${testID} did not blink on within ${MAX_FRAMES} frames`);
+}
+
+function frameImage(owner: Node): Image {
+  RenderingServer.forceDraw();
+  const image = owner.getViewport()?.getTexture()?.getImage();
+  assert(image, 'Native verification requires a rendered viewport');
+  return image;
+}
+
+function pixel(image: Image, at: Vector2): Color {
+  return image.getPixel(Math.floor(at.x), Math.floor(at.y));
+}
+
+function near(color: Color, hex: string, tolerance = COLOR_TOLERANCE): boolean {
+  const expected = Color.fromString(hex, new Color(0, 0, 0, 0));
+  return Math.abs(color.r - expected.r) <= tolerance && Math.abs(color.g - expected.g) <= tolerance
+    && Math.abs(color.b - expected.b) <= tolerance;
+}
+
+function describe(color: Color): string {
+  return `#${color.toHtml(false)}`;
+}
+
+/** Whether any pixel of `rect` (root-local) is not `background`: something is drawn there. */
+function hasInk(image: Image, rect: LayoutRect, background: string): boolean {
+  const right = Math.floor(rect.x + rect.width);
+  const bottom = Math.floor(rect.y + rect.height);
+  for (let y = Math.floor(rect.y); y < bottom; y++) {
+    for (let x = Math.floor(rect.x); x < right; x++) {
+      if (!near(pixel(image, new Vector2(x, y)), background)) return true;
+    }
+  }
+  return false;
+}
+
+interface FormReadout {
+  name: string;
+  password: string;
+  code: string;
+  shout: string;
+  notes: string;
+  submitted: number;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function readForm(api: InteractionInspection): FormReadout {
+  const parsed: unknown = JSON.parse(readText(api, 'form-json'));
+  assert(isRecord(parsed), 'The form readout is JSON of an object');
+  const { name, password, code, shout, notes, submitted } = parsed;
+  assert(
+    typeof name === 'string' && typeof password === 'string' && typeof code === 'string' && typeof shout === 'string'
+    && typeof notes === 'string' && typeof submitted === 'number',
+    `The form readout has the fields of the form: ${JSON.stringify(parsed)}`,
+  );
+  return { name, password, code, shout, notes, submitted };
+}
+
+function readText(api: InteractionInspection, testID: string): string {
+  const snapshot = api.snapshot();
+  const collect = (entry: NativeSnapshotNode): string => entry.text + entry.children.map(childID => {
+    const child = snapshot.nodes.find(candidate => candidate.id === childID);
+    assert(child, `Missing native child ${childID}`);
+    return collect(child);
+  }).join('');
+  return collect(node(api, testID));
+}
+
+type Capture = (name: string, overflowing?: readonly string[]) => Promise<void>;
+
+export async function verifyTextInput(owner: Node, api: InteractionInspection, capture: Capture): Promise<void> {
+  api.showLab('hud');
+  await settle();
+  api.showLab('forms');
+  await settle();
+  move(FAR_CORNER);
+  await settle();
+
+  // The actions text inputs use are the engine's own; record which this project has (the plan asks for it).
+  const wanted = [
+    'ui_copy', 'ui_cut', 'ui_paste', 'ui_undo', 'ui_redo', 'ui_text_select_all', 'ui_text_submit', 'ui_text_newline',
+    'ui_text_backspace', 'ui_text_backspace_word', 'ui_text_backspace_all_to_left', 'ui_text_delete', 'ui_text_delete_word',
+    'ui_text_delete_all_to_right', 'ui_text_caret_left', 'ui_text_caret_right', 'ui_text_caret_word_left',
+    'ui_text_caret_word_right', 'ui_text_caret_up', 'ui_text_caret_down', 'ui_text_caret_line_start',
+    'ui_text_caret_line_end', 'ui_text_caret_page_up', 'ui_text_caret_page_down', 'ui_text_caret_document_start',
+    'ui_text_caret_document_end', 'ui_swap_input_direction',
+  ];
+  const present = wanted.filter(action => InputMap.hasAction(action));
+  console.log('GODOT_REACT_TEXT_ACTIONS', JSON.stringify({ present, missing: wanted.filter(action => !present.includes(action)) }));
+  assert(present.length === wanted.length, `The InputMap lacks text actions: ${wanted.filter(action => !present.includes(action)).join(', ')}`);
+
+  const focusedTestID = (): string => {
+    const id = api.snapshot().focused;
+    const testID = api.snapshot().nodes.find(entry => entry.id === id)?.props.testID;
+    return typeof testID === 'string' ? testID : 'none';
+  };
+  const focusField = async (testID: string): Promise<void> => {
+    await click(centerOf(node(api, testID).rect));
+    assert(focusedTestID() === testID, `Pressing ${testID} focuses it: ${focusedTestID()}`);
+  };
+  const selection = (testID: string): [number, number] => {
+    const state = input(api, testID);
+    return [state.selectionStart, state.selectionEnd];
+  };
+
+  await verifyTyping(owner, api, capture, { focusField, focusedTestID, selection });
+  await verifySelecting(owner, api, capture, { focusField, selection });
+  await verifyEditing(owner, api, capture, { focusField, selection });
+  await verifyModes(owner, api, capture, { focusField, selection });
+}
+
+interface Helpers {
+  focusField(testID: string): Promise<void>;
+  selection(testID: string): [number, number];
+}
+
+/** Typing, the caret and placeholder in a raster, the field's size not depending on its text, Tab, and submit. */
+async function verifyTyping(
+  owner: Node, api: InteractionInspection, capture: Capture,
+  helpers: Helpers & { focusedTestID(): string },
+): Promise<void> {
+  const { focusField, selection } = helpers;
+  const before = input(api, 'form-name');
+  assert(before.value === '' && before.showingPlaceholder, `An empty field shows its placeholder: ${JSON.stringify(before)}`);
+  assert(helpers.focusedTestID() === 'none', 'Nothing is focused before the first press');
+  const size = node(api, 'form-name').rect;
+
+  await focusField('form-name');
+  assert(api.snapshot().focusVisible === false, 'A press focuses the field without the keyboard ring');
+  let state = input(api, 'form-name');
+  assert(state.caretVisible, 'The caret is on after a press');
+  assert(state.caret !== null && state.caret.height > 0, `The caret has a rectangle: ${JSON.stringify(state.caret)}`);
+  await waitForCaretOn(api, 'form-name');
+  await capture('forms-01-placeholder-and-caret');
+  let image = frameImage(owner);
+  state = input(api, 'form-name');
+  assert(state.caretVisible, 'The caret was on when the raster was read');
+  const caret = state.caret;
+  assert(caret !== null, 'The caret is laid out');
+  const caretPixel = new Vector2(caret.x + caret.width / 2, caret.y + caret.height / 2);
+  assert(near(pixel(image, caretPixel), CARET_COLOR), `The caret is drawn in its colour at ${caretPixel.x},${caretPixel.y}: ${describe(pixel(image, caretPixel))}`);
+  // The placeholder is drawn: ink in the field's content box, before anything was typed.
+  const content: LayoutRect = { x: size.x + 12, y: size.y + 10, width: 80, height: size.height - 20 };
+  assert(hasInk(image, content, FIELD_FILL), 'The placeholder is drawn');
+  // The caret of a field with no text is only a caret: no marker over its top (that is how a position inside a
+  // ligature is drawn), which would be a serif a few pixels either side of it.
+  const serif = new Vector2(caret.x - 2 + 0.5, caret.y + 0.5);
+  assert(near(pixel(image, serif), FIELD_FILL), `An empty field's caret has no marker: ${describe(pixel(image, serif))} at ${serif.x},${serif.y}`);
+  assert(api.cursorShapeAt(size.x + 40, size.y + size.height / 2) === Control.CursorShape.CursorIbeam, 'The pointer over a text field is the text cursor');
+
+  await typeText('Ada');
+  state = input(api, 'form-name');
+  assert(state.value === 'Ada', `Typing puts the characters in the field: ${state.value}`);
+  assert(selection('form-name').join() === '3,3', `The caret follows the text: ${selection('form-name')}`);
+  assert(!state.showingPlaceholder, 'The placeholder gives way to the text');
+  assert(readForm(api).name === 'Ada', `React saw each edit (onChange): ${JSON.stringify(readForm(api))}`);
+  const grown = node(api, 'form-name').rect;
+  assert(grown.width === size.width && grown.height === size.height, 'What is typed does not change the field\'s size');
+
+  await typeText(' Lovelace and a very long surname that does not fit in the field at all');
+  state = input(api, 'form-name');
+  const longRect = node(api, 'form-name').rect;
+  assert(longRect.width === size.width && longRect.height === size.height, 'Text wider than the field does not widen it');
+  assert(state.scrollLeft > 0, `The text scrolls to keep the caret in view: scrollLeft ${state.scrollLeft}`);
+  const longCaret = state.caret;
+  assert(longCaret !== null && longCaret.x >= longRect.x && longCaret.x + longCaret.width <= longRect.x + longRect.width,
+    `The caret stays inside the field: ${JSON.stringify(longCaret)} in ${JSON.stringify(longRect)}`);
+  await capture('forms-02-scrolled-to-the-caret');
+  image = frameImage(owner);
+  assert(near(pixel(image, new Vector2(longCaret.x + longCaret.width / 2, longCaret.y + longCaret.height / 2)), CARET_COLOR),
+    'The caret is still drawn after the text scrolled');
+  // The text that scrolled into view is drawn (a paragraph clips its lines to its width, which cut a long line off).
+  const beforeCaret: LayoutRect = { x: longRect.x + 6, y: longRect.y + 10, width: longCaret.x - longRect.x - 14, height: longRect.height - 20 };
+  assert(hasInk(image, beforeCaret, FIELD_FILL), `The text before the caret is drawn after it scrolled: ${JSON.stringify(beforeCaret)}`);
+
+  await pressAction('ui_text_caret_line_start');
+  state = input(api, 'form-name');
+  assert(selection('form-name').join() === '0,0' && state.scrollLeft === 0, `Home puts the caret at the start and scrolls back: selection ${selection('form-name')}, scrollLeft ${state.scrollLeft}`);
+  await pressAction('ui_text_caret_line_end');
+  assert(input(api, 'form-name').scrollLeft > 0, 'End scrolls to the end again');
+  await capture('forms-03-end');
+
+  // Tab moves on to the next field, shows the keyboard ring, and leaves the caret off the field it left.
+  keyEvent({ keycode: Key.KeyTab }, true);
+  keyEvent({ keycode: Key.KeyTab }, false);
+  await settle();
+  assert(helpers.focusedTestID() === 'form-password', `Tab moves to the next field: ${helpers.focusedTestID()}`);
+  assert(api.snapshot().focusVisible, 'Tab focus is a keyboard focus');
+  await capture('forms-04-tab-to-password');
+
+  // Enter in a single-line field is a submit, and does not change its text.
+  await focusField('form-name');
+  const submitsBefore = readForm(api).submitted;
+  const valueBefore = input(api, 'form-name').value;
+  await pressAction('ui_text_submit');
+  assert(readForm(api).submitted === submitsBefore + 1, `Enter submits: ${readForm(api).submitted}`);
+  assert(input(api, 'form-name').value === valueBefore, 'A submit changes nothing');
+}
+
+/** Shift+arrows, word jumps and mouse selection. */
+async function verifySelecting(owner: Node, api: InteractionInspection, capture: Capture, helpers: Helpers): Promise<void> {
+  const { focusField, selection } = helpers;
+  await focusField('form-name');
+  // Replace the text, then work on a known sentence.
+  await pressAction('ui_text_select_all');
+  assert(selection('form-name').join() === `0,${input(api, 'form-name').value.length}`, 'Select all selects everything');
+  await typeText('one two three');
+  assert(input(api, 'form-name').value === 'one two three', 'Typing over a selection replaces it');
+  assert(readForm(api).name === 'one two three', 'React saw the replacement');
+
+  await pressAction('ui_text_caret_left', true, 2);
+  assert(selection('form-name').join() === '11,13', `Shift+Left twice selects the last two characters: ${selection('form-name')}`);
+  assert(input(api, 'form-name').selectionDirection === 'backward', 'The caret is at the start of a backward selection');
+  await capture('forms-05-shift-selection');
+  const image = frameImage(owner);
+  const rect = node(api, 'form-name').rect;
+  assert(input(api, 'form-name').caret !== null, 'A selection has a caret');
+  // The selection highlight is blue-ish over the white field: sample inside the field near its right text end.
+  const selected = hasSelectionPaint(image, rect);
+  assert(selected, 'The selection is painted');
+  await pressAction('ui_text_caret_right');
+  assert(selection('form-name').join() === '13,13', `Right collapses a selection to its end: ${selection('form-name')}`);
+
+  await pressAction('ui_text_caret_word_left');
+  assert(selection('form-name').join() === '8,8', `Word left jumps to the start of "three": ${selection('form-name')}`);
+  await pressAction('ui_text_caret_word_left');
+  assert(selection('form-name').join() === '4,4', `Word left again: ${selection('form-name')}`);
+  await pressAction('ui_text_caret_word_right');
+  assert(selection('form-name').join() === '7,7', `Word right lands after "two": ${selection('form-name')}`);
+  await pressAction('ui_text_caret_word_right', true);
+  assert(selection('form-name').join() === '7,13', `Shift+word right selects to the end of "three": ${selection('form-name')}`);
+  await pressAction('ui_text_caret_line_start', true);
+  assert(selection('form-name').join() === '0,7', `Shift+Home extends the other way from the anchor: ${selection('form-name')}`);
+
+  // Mouse: a double click selects a word, a triple click all, a drag a range, Shift+click extends.
+  const field = node(api, 'form-readonly');
+  const text = input(api, 'form-readonly').value;
+  assert(text === 'Copy me, you cannot edit me', 'The read-only field holds its default');
+  await focusField('form-readonly');
+  const firstWord = new Vector2(field.rect.x + 12 + 10, field.rect.y + field.rect.height / 2);
+  await click(firstWord, 2);
+  assert(selection('form-readonly').join() === '0,4', `A double click selects "Copy": ${selection('form-readonly')}`);
+  await click(firstWord, 3);
+  assert(selection('form-readonly').join() === `0,${text.length}`, `A triple click selects everything: ${selection('form-readonly')}`);
+  await click(firstWord);
+  const caret = selection('form-readonly');
+  assert(caret[0] === caret[1] && caret[0] <= 1, `A click places the caret in the word: ${caret}`);
+  const inkRect = input(api, 'form-readonly').caret;
+  assert(inkRect !== null, 'The clicked caret is laid out');
+  const from = new Vector2(field.rect.x + 12, field.rect.y + field.rect.height / 2);
+  const to = new Vector2(field.rect.x + 12 + 70, field.rect.y + field.rect.height / 2);
+  await drag(from, to);
+  const dragged = selection('form-readonly');
+  assert(dragged[0] === 0 && dragged[1] > 3 && dragged[1] < 12, `Dragging across the first words selects them: ${dragged}`);
+  await capture('forms-06-drag-selection');
+  const later = new Vector2(field.rect.x + 12 + 120, field.rect.y + field.rect.height / 2);
+  await click(later, 1, { shift: true });
+  const extended = selection('form-readonly');
+  assert(extended[0] === 0 && extended[1] > dragged[1], `Shift+click extends the selection from its anchor: ${extended}`);
+
+  // The selection of a field that is not focused is kept but not drawn.
+  await focusField('form-name');
+  assert(input(api, 'form-readonly').selectionEnd > input(api, 'form-readonly').selectionStart, 'The read-only field keeps its selection');
+  await settle();
+  assert(!hasSelectionPaint(frameImage(owner), node(api, 'form-readonly').rect), 'An unfocused field does not paint its selection');
+  // selectTextOnFocus: Tab onto the field selects everything, and so does the press that focuses it, which its release does not collapse.
+  await focusField('form-readonly');
+  await pressAction('ui_text_caret_line_start');
+  await click(centerOf(node(api, 'form-select').rect));
+  const selectValue = input(api, 'form-select').value;
+  assert(selection('form-select').join() === `0,${selectValue.length}`, `A press that focuses a selectTextOnFocus field selects all of it: ${selection('form-select')}`);
+  await click(centerOf(node(api, 'form-select').rect));
+  const placed = selection('form-select');
+  assert(placed[0] === placed[1], `A press in a field that already has focus places the caret: ${placed}`);
+}
+
+/** Whether the field's text area holds a pixel of the selection's blue over white. */
+function hasSelectionPaint(image: Image, rect: LayoutRect): boolean {
+  const selectionOverWhite = new Color(1 - 0.35 * (1 - 0x3b / 255), 1 - 0.35 * (1 - 0x82 / 255), 1 - 0.35 * (1 - 0xf6 / 255), 1);
+  for (let y = Math.floor(rect.y) + 4; y < rect.y + rect.height - 4; y++) {
+    for (let x = Math.floor(rect.x) + 4; x < rect.x + rect.width - 4; x++) {
+      const color = pixel(image, new Vector2(x, y));
+      if (Math.abs(color.r - selectionOverWhite.r) < 0.04 && Math.abs(color.g - selectionOverWhite.g) < 0.04
+        && Math.abs(color.b - selectionOverWhite.b) < 0.04) return true;
+    }
+  }
+  return false;
+}
+
+/** Deleting over a grapheme cluster, undo and redo. */
+async function verifyEditing(owner: Node, api: InteractionInspection, capture: Capture, helpers: Helpers): Promise<void> {
+  const { focusField, selection } = helpers;
+  await focusField('form-name');
+  await pressAction('ui_text_select_all');
+  await typeText('a');
+  await typeText(FAMILY);
+  await typeText('b');
+  assert(input(api, 'form-name').value === `a${FAMILY}b`, `Emoji type like any character: ${input(api, 'form-name').value}`);
+  assert(selection('form-name').join() === `${FAMILY_UTF16_LENGTH + 2},${FAMILY_UTF16_LENGTH + 2}`, `The caret counts UTF-16 units: ${selection('form-name')}`);
+  await capture('forms-07-emoji');
+
+  await pressAction('ui_text_caret_left');
+  assert(selection('form-name').join() === `${FAMILY_UTF16_LENGTH + 1},${FAMILY_UTF16_LENGTH + 1}`, `Left moves over the b: ${selection('form-name')}`);
+  await pressAction('ui_text_backspace');
+  assert(input(api, 'form-name').value === 'ab', `Backspace deletes the whole ZWJ sequence: ${input(api, 'form-name').value}`);
+  assert(readForm(api).name === 'ab', 'React saw the deletion');
+
+  await pressAction('ui_undo');
+  assert(input(api, 'form-name').value === `a${FAMILY}b`, `Undo puts the sequence back: ${input(api, 'form-name').value}`);
+  await pressAction('ui_redo');
+  assert(input(api, 'form-name').value === 'ab', `Redo deletes it again: ${input(api, 'form-name').value}`);
+  await pressAction('ui_undo');
+
+  await pressAction('ui_text_caret_line_end');
+  await pressAction('ui_text_caret_left', false, 2);
+  assert(selection('form-name').join() === '1,1', `Two lefts (over b, then the whole emoji) stand after the a: ${selection('form-name')}`);
+  await pressAction('ui_text_delete');
+  assert(input(api, 'form-name').value === 'ab', `Delete removes the whole ZWJ sequence ahead: ${input(api, 'form-name').value}`);
+  assert(input(api, 'form-name').eventCount > 0, 'The edits counted');
+
+  // Undo steps: words coalesce, white space starts an entry.
+  await pressAction('ui_text_select_all');
+  await typeText('hello world');
+  await pressAction('ui_undo');
+  assert(input(api, 'form-name').value === 'hello ', `Undo takes back the last word: ${input(api, 'form-name').value}`);
+  await pressAction('ui_undo');
+  assert(input(api, 'form-name').value === 'hello', `Then the space: ${input(api, 'form-name').value}`);
+  await pressAction('ui_undo');
+  assert(input(api, 'form-name').value === 'ab', `Then the word, back to what the typing replaced: ${input(api, 'form-name').value}`);
+  await pressAction('ui_redo', false, 2);
+  assert(input(api, 'form-name').value === 'hello ', `Redo steps forward: ${input(api, 'form-name').value}`);
+  assert(readForm(api).name === 'hello ', 'React followed undo and redo');
+}
+
+/** maxLength, a transforming controlled field, read-only, a password and blocked copy. */
+async function verifyModes(owner: Node, api: InteractionInspection, capture: Capture, helpers: Helpers): Promise<void> {
+  const { focusField, selection } = helpers;
+
+  // maxLength: counted in UTF-16 units, an insertion that does not fit is cut, one that fits nothing is refused.
+  await focusField('form-code');
+  await typeText('abcdefgh');
+  assert(input(api, 'form-code').value === 'abcdef', `maxLength stops the text at ${CODE_MAX_LENGTH}: ${input(api, 'form-code').value}`);
+  assert(readForm(api).code === 'abcdef', 'React never saw the characters that did not fit');
+  const counted = input(api, 'form-code').eventCount;
+  await typeText('z');
+  assert(input(api, 'form-code').eventCount === counted, 'A refused insertion makes no input event');
+  await pressAction('ui_text_backspace', false, 2);
+  await typeText('😀');
+  assert(input(api, 'form-code').value === 'abcd😀', `An emoji takes two units of the six: ${input(api, 'form-code').value}`);
+  await typeText('q');
+  assert(input(api, 'form-code').value === 'abcd😀', 'No room is left for another character');
+  await capture('forms-08-max-length');
+
+  // A controlled field that stores capitals: native holds the capitals, and the caret stays where it was.
+  await focusField('form-shout');
+  await typeText('abc');
+  assert(input(api, 'form-shout').value === 'ABC', `The transformed text is native's text: ${input(api, 'form-shout').value}`);
+  assert(selection('form-shout').join() === '3,3', 'The caret stays after a transform');
+  await pressAction('ui_text_caret_left');
+  await typeText('x');
+  assert(input(api, 'form-shout').value === 'ABXC', `Typing in the middle is transformed too: ${input(api, 'form-shout').value}`);
+  assert(selection('form-shout').join() === '3,3', `And the caret stays after the new character: ${selection('form-shout')}`);
+  assert(readForm(api).shout === 'ABXC', 'React holds the capitals');
+
+  // Read-only: focusable, the caret moves, nothing edits, copy still works.
+  await focusField('form-readonly');
+  const frozen = input(api, 'form-readonly').value;
+  await pressAction('ui_text_select_all');
+  assert(selection('form-readonly').join() === `0,${frozen.length}`, 'A read-only field can be selected');
+  const countBefore = input(api, 'form-readonly').eventCount;
+  await typeText('x');
+  await pressAction('ui_text_backspace');
+  await pressAction('ui_cut');
+  await pressAction('ui_paste');
+  assert(input(api, 'form-readonly').value === frozen && input(api, 'form-readonly').eventCount === countBefore, 'Nothing edits a read-only field');
+  DisplayServer.clipboardSet('sentinel');
+  await pressAction('ui_copy');
+  assert(DisplayServer.clipboardGet() === frozen, `Copy works in a read-only field: ${DisplayServer.clipboardGet()}`);
+  await capture('forms-09-read-only');
+
+  // A password: bullets on screen, the real text to React, nothing to the clipboard.
+  await focusField('form-password');
+  await typeText('s3cret pass');
+  assert(input(api, 'form-password').value === 's3cret pass', 'A password holds what was typed');
+  assert(readForm(api).password === 's3cret pass', 'React gets the real text');
+  assert(input(api, 'form-password').displayText === '•'.repeat(11), `The input draws bullets: ${input(api, 'form-password').displayText}`);
+  await capture('forms-10-password');
+  DisplayServer.clipboardSet('sentinel');
+  await pressAction('ui_text_select_all');
+  await pressAction('ui_copy');
+  await pressAction('ui_cut');
+  assert(DisplayServer.clipboardGet() === 'sentinel', `Copy and cut of a password write nothing: ${DisplayServer.clipboardGet()}`);
+  assert(input(api, 'form-password').value === 's3cret pass', 'Cut of a password deletes nothing');
+  await pressAction('ui_text_caret_word_left');
+  assert(selection('form-password').join() === '0,0', `A password has no words to jump between: ${selection('form-password')}`);
+}
