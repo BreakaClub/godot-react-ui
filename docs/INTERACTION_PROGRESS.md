@@ -1980,3 +1980,22 @@ Built on the `text-selection` branch; the full report, decisions S1 to S18 and n
 - **Inspected:** `selection-04-highlight.png` (landscape): the rose highlight sits under its text and the readout matches.
 
 **Not run after the rebase:** the other interaction sections, `verify`, `verify:motion` and the Web verifier. They wait for the batch regression.
+
+## Stock engine profile (`64e674c`, D42)
+
+Built on the `stock-engine` branch; the full report is in `docs/tracks/stock-engine.md`.
+
+- **Agent's gates, on `d417bb5`:** stock `verify:a11y` (real macOS tree, four readings, geometry residual 0.000 pt), stock `verify:interaction`, default `verify`, `cargo test` 496 passed, Clippy clean, `pnpm test` 310 passed, `test:types` clean on both profiles. Earlier in the track, before that rebase: stock `verify`, `verify:motion`, `verify:world`, `verify:text-layout` (619/619), and stock Web `verify:web` and `verify:interaction:web` on the release template. After the debug template fix: stock Web `verify:web` on the debug template (253 assertions).
+- **Coordinator's check after rebasing onto `710adc3` (I6):** `cargo test` 505 passed, Clippy clean, fmt clean, `pnpm test` 317 passed, default `test:types` clean, and `verify:interaction --only=selection` passed on both profiles in both viewports. The first stock `test:types` failed because it ran before the stock library was rebuilt, so its typings predated I6's `#[func]`s; after building that library and regenerating, it passed. The freshness guard track exists to catch that case.
+- **Proven for the first time:** the accessibility update requested on each scroll keeps a live tree current. After a 40 px scroll, Message 2 moved from 596.5 pt to 576.5 pt, which is exactly 40 px at 0.5 pt per pixel.
+- **Not done:** platform focus and VoiceOver by hand; scroll bar elements (D42).
+
+## Phase I9: drag and drop (`400bea3`, D43)
+
+Built on the `drag-drop` branch; the full report, decisions I9-1 to I9-16 and negative controls are in `docs/tracks/drag-and-drop.md`.
+
+- **Agent's gates, on `710adc3`:** `cargo test` 510 passed, Clippy clean, fmt clean, `pnpm test` 310 passed, `verify:interaction` (nine sections, both viewports), `verify`, `verify:motion`, and `verify:interaction:web` (906 assertions, 104 captures, including a touch page). One landscape attempt was disturbed by another window and re-run under D22.
+- **Coordinator's check after rebasing onto `64e674c` (stock engine):** `cargo test` 510 passed, Clippy clean, fmt clean, `pnpm test` 328 passed, `test:types` clean on both profiles, and `verify:interaction --only=drag` passed on both profiles in both viewports with no re-runs.
+- **Inspected:** `37-drag-ghost.png` (landscape): the ghost follows the pointer at 60 % and the source stays at full opacity.
+
+**Not run after the rebase:** the other interaction sections, `verify`, `verify:motion` and the Web verifier. They wait for the batch regression.

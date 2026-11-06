@@ -7,9 +7,9 @@ its numbers and decisions D7 to D10 are in the progress log and the decision log
 D19); decision D20 sets the verification tiers; decisions D21 and D22 isolate the native verifiers from real input
 (Task 0). Phase I4 (`5018fee`; decisions D23 to D26). Parallel tracks on main (D27): text engine, scroll and drag core,
 world-space part 1, kit part 1; kit approach D28; test-input rules D29. Phase I5 (`5858a54`; scroll containers, decisions D30 to
-D37) with scroll accessibility (D38) and the scrolling Select list (D39). Phase I6 (`1071e8d`; D41). Still open from I10: `TextInput`
-(I7). In parallel tracks now: Phase I7 with the kit `TextField`, Phase I9, the stock engine profile, and Phase V1 (filters and frosted
-glass, D40).
+D37) with scroll accessibility (D38) and the scrolling Select list (D39). Phase I6 (`1071e8d`; D41). The stock engine profile (`64e674c`;
+D42). Phase I9 (`400bea3`; D43). Still open from I10: `TextInput` (I7) and scroll bar elements (D42). In parallel tracks now: Phase I7
+with the kit `TextField`, Phase V1 (filters and frosted glass, D40), and a freshness guard for installed builds.
 
 v1 of this plan (`7f0a96c`) was rejected because it built every interaction feature on the
 prototype's commit path, which re-walks and re-sends the whole tree on every change. v2 replaces
@@ -440,6 +440,21 @@ not a reason to wait.
   `bindVerifierKeys` from `demo/src/verifier-input.ts` (S11); the root event is `DocumentSelectionChange`, wire name `selectionchange`
   with target 0, so `SelectionChange` stays free for I7's element event (S8). Coordinator check after rebasing onto I5: unit, lint and
   type gates, plus the `selection` and `inputs` verifier sections.
+- **D42 (coordinator, stock engine)**: every build, run and verify script takes `--engine=stock` or `GODOT_REACT_ENGINE=stock`; `breaka` stays
+  the default and the tracked typings stay Breaka's. Stock is Godot 4.7.2 with upstream GodotJS and AccessKit, under
+  `/Users/ben/Development/godot-stock/`, and Breaka's engine, templates and binaries are never touched. The evidence, decisions and engine
+  differences are in `docs/tracks/stock-engine.md`. Facts that bind later work: the real macOS tree is now read by `verify:a11y --engine=stock`,
+  and the input-isolation window flags empty that tree, so the accessibility lab does not set them. On macOS the adapter ignores the scroll
+  properties D38 sets, so VoiceOver reads a scroll view's contents but not its position; a stock `ScrollContainer` conveys position
+  through a child `AXScrollBar`. So each scrollable axis gets a scroll bar element (`SCROLL_BAR`, value and range, `Increment`/`Decrement`
+  mapped to `scroll_by`), built after I7 because both change the accessibility code. Group and radio-group roles and a mixed checkbox
+  are gaps in the engine's API, reported as `GODOT_REACT_A11Y_GAP`. Stock's debug Web template needs `use_closure_compiler=no`.
+- **D43 (I9)**: drag and drop. Decisions I9-1 to I9-16 are in `docs/tracks/drag-and-drop.md`, which is part of this log. Those that change plan
+  text: the touch hold starts a drag from `process()` because a held finger sends no input, the one exception to 3.10 rule 1 (I9-2); a scroll
+  under a stationary pointer is looked at again on the next frame, so a JS `scrollTo` never emits cancelable events (I9-3); Escape arrives
+  through `input()`, enabled only during a drag, because the root usually has no key focus then (I9-4); the ghost is a copy tree taken
+  before `dragstart` handlers run (I9-6); a prevented `dragover` or `drop` with no `dropEffect` is rejected in `resolve_event` (I9-8); text
+  inside a draggable starts no selection, and a press there that never becomes a drag clicks and clears the current selection (I9-15).
 
 The plan is written so an implementer can execute it phase by phase without re-deciding the
 architecture. Where it says **must**, it is a contract. Where it says *suggested*, use judgement and
@@ -1794,7 +1809,7 @@ by mouse, keyboard and (Web) touch.
 
 **Gate**: native gate; Web gate only if the phase changed Web-specific behaviour.
 
-### Phase I9 — Drag and drop
+### Phase I9 — Drag and drop — done (`400bea3`, decision D43)
 
 **Files**: `native/drag.rs`, `native/lib.rs`, `native/pointer.rs`, `native/scroll.rs`,
 `native/render_tree.rs`, `native/events.rs`, `native/props.rs`, `src/events.ts` (`DataTransfer`),
