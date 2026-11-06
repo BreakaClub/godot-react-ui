@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { importDemo } from './import-demo.mjs';
 import { argsWithoutEngine, selectEngine } from './engine.mjs';
+import { NATIVE_INTERACTION_SECTIONS, checkSectionNames, requestedSections } from './verifier-sections.mjs';
 import { runNativeVerifier, summarizeRuns } from './native-run.mjs';
 
 const root = resolve(import.meta.dirname, '..');
@@ -40,10 +41,13 @@ const only = process.argv.filter(argument => argument.startsWith('--only='));
 // `--no-retry` runs each window once, whatever disturbed it: for negative controls, where a re-run would hide the very failure being looked for.
 const retry = !process.argv.includes('--no-retry');
 if (only.length > 0 && !interaction) throw new Error('--only=<section> applies to the interaction workflow (--interaction).');
+// A typo must fail here, before the build and the window, not inside Godot.
+const requested = requestedSections(process.argv.slice(2));
+checkSectionNames(requested, NATIVE_INTERACTION_SECTIONS);
 // `--faults` runs against the filters negative-controls library (`pnpm build:native --faults`, the `filters-faults` section);
 // every other run refuses that library, and this one refuses a default build.
 const faults = process.argv.includes('--faults');
-if (faults && !only.some(argument => argument.slice('--only='.length).split(',').includes('filters-faults'))) {
+if (faults && !requested.includes('filters-faults')) {
   throw new Error('--faults is for the filters-faults section: pass --only=filters-faults.');
 }
 // Fail first if the binary or the installed library belongs to the other engine profile.

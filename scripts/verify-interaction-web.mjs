@@ -11,6 +11,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
 import { selectEngine } from './engine.mjs';
+import { WEB_INTERACTION_SECTIONS, describeSections, requestedSections } from './verifier-sections.mjs';
 import { isolateBrowserClipboard } from './web-clipboard.mjs';
 import { startVerificationServer } from './web-verify.mjs';
 import { runFiltersScenario } from './verify-filters-web.mjs';
@@ -39,13 +40,10 @@ const TOTAL_TIMEOUT_MS = 1_200_000;
 const POLL_MS = 50;
 // `--only=<section>[,<section>]` runs just those sections (plan 0.4.1); the names are the native verifier's, and `touch`
 // is this verifier's touch page. An unknown name is an error: a typo must not skip a section.
-const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard', 'scroll', 'selection', 'drag', 'forms', 'hidpi', 'filters', 'glass', 'touch'];
-const requestedSections = process.argv.filter((argument) => argument.startsWith('--only='))
-  .flatMap((argument) => argument.slice('--only='.length).split(','));
-for (const name of requestedSections) {
-  if (!SECTIONS.includes(name)) throw new Error(`Unknown section "${name}"; the sections are ${SECTIONS.join(', ')}`);
-}
-const wanted = (name) => requestedSections.length === 0 || requestedSections.includes(name);
+// The names, the order and what counts as left out are scripts/verifier-sections.mjs, shared with the native verifier.
+const SECTIONS = WEB_INTERACTION_SECTIONS;
+const coverage = describeSections(SECTIONS, [], requestedSections(process.argv.slice(2)));
+const wanted = (name) => coverage.run.includes(name);
 const GEOMETRY_TOLERANCE = 2;
 const DISPATCH_SAMPLES = 40;
 // Hover paint of the crossing panel's parent: slate-100 at rest, slate-200 while hovered.
@@ -2946,9 +2944,8 @@ try {
 
 if (report.passed && !process.exitCode) {
   // A run that left sections out says so, here and in the summary line a person reads.
-  const skipped = SECTIONS.filter((name) => !wanted(name));
   console.log('GODOT_REACT_WEB_INTERACTION_VERIFY_PASSED', JSON.stringify({
-    sections: SECTIONS.filter(wanted), partial: skipped.length > 0, skipped, sectionChecks,
+    sections: coverage.run, partial: coverage.partial, skipped: coverage.skipped, sectionChecks,
     assertions: report.assertions.length, captures: report.captures.length, timing: report.timing, engineGaps: report.engineGaps,
     report: resolve(output, 'report.json'),
   }));

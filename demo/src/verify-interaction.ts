@@ -15,6 +15,9 @@ import { measureFilterCost, verifyFilterFaults, verifyFilterSizes, verifyFilters
 import { GLASS_FAULT_CONTROLS, verifyGlass } from './verify-glass';
 import { verifyTextInput } from './verify-text-input';
 import type { DemoInspection } from './verify';
+import {
+  NATIVE_INTERACTION_SECTIONS, NATIVE_OPT_IN_SECTIONS, describeSections, requestedSections, type SectionCoverage,
+} from '../../scripts/verifier-sections.mjs';
 
 export interface InteractionInspection extends DemoInspection {
   /** Detach/reattach the same native Control, preserving the React root and state. */
@@ -3543,27 +3546,14 @@ async function verifyDragging(owner: Node, api: InteractionInspection, capture: 
   await settle();
 }
 
-/** The sections of this verifier, in the order they run (plan 0.4.1: `--only=<name>[,<name>]` runs just those). */
-const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard', 'positioning', 'inputs', 'scroll', 'selection', 'drag', 'forms', 'hidpi', 'filters', 'glass', 'filters-sizes', 'filters-cost', 'filters-faults'] as const;
-/** Sections that measure or need a special build rather than verify: they run only when `--only=` names them. */
-const OPT_IN_SECTIONS: readonly Section[] = ['filters-sizes', 'filters-cost', 'filters-faults'];
-type Section = (typeof SECTIONS)[number];
+/** The sections of this verifier, in the order they run (plan 0.4.1: `--only=<name>[,<name>]` runs just those; `scripts/verifier-sections.mjs`). */
+type Section = (typeof NATIVE_INTERACTION_SECTIONS)[number];
 
-function isSection(value: string): value is Section {
-  return SECTIONS.some(section => section === value);
-}
-
-/** The sections `--only=` names, or all of them. An unknown name is an error: a typo must not skip a section. */
-function selectedSections(): Set<Section> {
+/** What the run's arguments ask for: the sections to run and the ones a partial run leaves out. An unknown name is an error: a typo must not skip a section. */
+function selectedSections(): SectionCoverage<Section> {
   const args = OS.getCmdlineUserArgs();
-  const only = Array.from({length: args.size()}, (_, i) => args.get(i)).filter(arg => arg.startsWith('--only='));
-  if (only.length === 0) return new Set(SECTIONS.filter(section => !OPT_IN_SECTIONS.includes(section)));
-  const chosen = new Set<Section>();
-  for (const name of only.flatMap(arg => arg.slice('--only='.length).split(','))) {
-    assert(isSection(name), `Unknown section "${name}"; the sections are ${SECTIONS.join(', ')}`);
-    chosen.add(name);
-  }
-  return chosen;
+  const requested = requestedSections(Array.from({length: args.size()}, (_, i) => args.get(i)));
+  return describeSections(NATIVE_INTERACTION_SECTIONS, NATIVE_OPT_IN_SECTIONS, requested);
 }
 
 export async function runInteractionVerification(owner: Node, api: InteractionInspection): Promise<void> {
@@ -3585,7 +3575,8 @@ export async function runInteractionVerification(owner: Node, api: InteractionIn
     file.storeString(JSON.stringify(snapshot));
     file.close();
   }
-  const sections = selectedSections();
+  const coverage = selectedSections();
+  const sections = new Set(coverage.run);
   await settle();
   // How long each section took, for the budget `scripts/verify.mjs` gives a window.
   const sectionMs: Record<string, number> = {};
@@ -3620,6 +3611,5 @@ export async function runInteractionVerification(owner: Node, api: InteractionIn
   // A section that asserted nothing passed nothing; a run that left sections out says so (the verify script prints it).
   const empty = [...sections].filter(section => sectionChecks[section] === 0);
   if (empty.length > 0) throw new Error(`Section(s) ${empty.join(', ')} ran no assertion`);
-  const skipped = SECTIONS.filter(section => !sections.has(section));
-  console.log('GODOT_REACT_INTERACTION_VERIFY_PASSED', JSON.stringify({sections: [...sections], partial: skipped.length > 0, skipped, sectionChecks, sectionMs, captures, dispatchTiming: timing}));
+  console.log('GODOT_REACT_INTERACTION_VERIFY_PASSED', JSON.stringify({sections: coverage.run, partial: coverage.partial, skipped: coverage.skipped, sectionChecks, sectionMs, captures, dispatchTiming: timing}));
 }
