@@ -141,9 +141,10 @@ both ratios and both orientations.
 Every assertion that guards a fix has to fail when the fix is taken out. `native/filter_faults.rs` puts each fix back out, one
 at a time, at the single site where it lives; the faults exist only in a library built with `pnpm build:native --faults` (cargo
 feature `filter-faults`, its own `target/faults`), and `pnpm build:native` afterwards restores the default (a `strings` check of
-the installed file tells which one is there). A fault is switched by the environment variable `GODOT_REACT_FILTER_FAULT`, read at
+the installed file tells which one is there). It is a feature set of its own to the freshness guard (`docs/tracks/freshness.md`): a
+default run refuses it ("cargo features differ: built with [filter-faults], wanted []") and a faults run refuses a default build. A fault is switched by the environment variable `GODOT_REACT_FILTER_FAULT`, read at
 the fault's site on every use, so the opt-in `filters-faults` section (`--only=filters-faults`, both viewports with
-`node scripts/verify.mjs --interaction --only=filters-faults`) switches them with `OS.setEnvironment` in one process. For each
+`pnpm verify --interaction --only=filters-faults --faults`) switches them with `OS.setEnvironment` in one process. For each
 control it runs the guarding check with the fault off (it must pass) and on (it must fail, with the message of that check), clears
 every effect between the two so items, materials and (for the one fault that changes a shader's source) shaders are made again,
 and saves the broken picture as `filters-fault-<name>.png`.
@@ -160,7 +161,7 @@ and saves the broken picture as `filters-fault-<name>.png`.
 | `shadow-box-only` | the composite covers only the box, not the shadow | a hard `drop-shadow(6px 6px)` is drawn | 0.392 (the page) where black 0 is expected, 3 px beyond the card |
 | `single-border-draw` | a translucent border drawn in one `StyleBoxFlat` call (the glass showcase, below) | the border round a glass card's corner is unbroken | dimmest point 11.0 levels above the glass (11.3 portrait) against 26.3 or more fixed; limit 18 |
 
-Results: both viewports pass with every applicable control holding (landscape seven, portrait all eight; each fault failed with its own
+Results: both viewports pass with every applicable control holding (landscape eight, portrait all nine; each fault failed with its own
 check's message, not another). Captures: `artifacts/filters-iter/faults-landscape/` and `artifacts/filters-iter/faults-portrait/`,
 `filters-fault-<name>.png`; inspected: `merged-copy` (B's blur no wider than A's where they overlap, and stale vertical stripes below A),
 `fit-empty-group` (the halo drawn at the clip's edge) and `textbook-chain` (a faceted edge across the panel).
