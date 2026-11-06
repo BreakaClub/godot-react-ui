@@ -1,5 +1,8 @@
-import { useState } from 'react';
-import { Text, TextField, TextInput, View, type UIBeforeInputEvent, type UIInputEvent, type UIKeyboardEvent } from 'godot-react-ui';
+import { useRef, useState } from 'react';
+import {
+  Text, TextField, TextInput, View, type TextInputHandle, type UIBeforeInputEvent, type UICompositionEvent, type UIInputEvent,
+  type UIKeyboardEvent,
+} from 'godot-react-ui';
 
 /** Everything the page's fields edit, in one object: the readout is this object as JSON. */
 interface ExtraState {
@@ -17,6 +20,10 @@ const INITIAL_STATE: ExtraState = { chat: '', sent: 0, digits: '', picky: '', lo
 
 /** The picky field refuses an insertion that starts with this, in `beforeinput`. */
 export const PICKY_REFUSES = 'no';
+/** The picky field makes itself read-only when a composition reaches this text (`compositionupdate`). */
+export const PICKY_LOCKS_AT = 'lock';
+/** The picky field moves the focus to the resize field when a composition ends in this (`compositionupdate`). */
+export const PICKY_LEAVES_AT = '!';
 /** Spaces in the JSON readout's indentation. */
 const JSON_INDENT = 2;
 
@@ -27,16 +34,17 @@ const labelClass = 'text-sm text-slate-700';
  * Phase I7 fixes (docs/tracks/text-input-fixes.md): the fields that a review found misbehaving, each one the smallest
  * page that shows it. Chat is cleared by its submit, the way a message box is, and digits refuses any edit that is not a
  * number, so a soft keyboard (which holds the whole text itself) shows whether native tells it when the text changed
- * under it. Picky refuses some insertions in `beforeinput` and can be made read-only with F7, to see what happens to a
+ * under it. Picky refuses some insertions in `beforeinput` and makes itself read-only at a composition of its own, to see what happens to a
  * composition that is committed on blur, and to one that is under way when the input stops taking text. Resize changes
  * its width with F6 while it has the focus, to see where its caret goes. The kit field is the one whose label focuses it
  * and which selects its text when it is focused.
  */
 export function FormsExtraLab() {
   const [state, setState] = useState<ExtraState>(INITIAL_STATE);
+  const resize = useRef<TextInputHandle | null>(null);
   const patch = (change: Partial<ExtraState>) => setState(current => ({ ...current, ...change }));
-  const toggleOnKey = (key: string, field: 'locked' | 'narrow') => (event: UIKeyboardEvent) => {
-    if (event.key === key) setState(current => ({ ...current, [field]: !current[field] }));
+  const narrowOnF6 = (event: UIKeyboardEvent) => {
+    if (event.key === 'F6') setState(current => ({ ...current, narrow: !current.narrow }));
   };
 
   return (
@@ -68,12 +76,15 @@ export function FormsExtraLab() {
         <TextInput
           testID="extra-picky" className={`w-64 ${field}`} placeholder="Refuses no..." value={state.picky}
           readOnly={state.locked}
+          onCompositionUpdate={(event: UICompositionEvent) => {
+            if (event.data === PICKY_LOCKS_AT) patch({ locked: true });
+            else if (event.data.endsWith(PICKY_LEAVES_AT)) resize.current?.focus();
+          }}
           onBeforeInput={(event: UIBeforeInputEvent) => {
             if (event.inputType !== 'insertText' || !event.data?.startsWith(PICKY_REFUSES)) return;
             event.preventDefault();
             setState(current => ({ ...current, refused: current.refused + 1 }));
           }}
-          onKeyDown={toggleOnKey('F7', 'locked')}
           onChange={(event: UIInputEvent) => patch({ picky: event.value })}
         />
       </View>
@@ -81,8 +92,8 @@ export function FormsExtraLab() {
       <View className="flex-row items-center gap-3">
         <Text className={`w-24 ${labelClass}`}>Resize</Text>
         <TextInput
-          testID="extra-resize" className={`${state.narrow ? 'w-24' : 'w-64'} ${field}`} placeholder="F6 narrows"
-          onKeyDown={toggleOnKey('F6', 'narrow')}
+          testID="extra-resize" ref={resize} className={`${state.narrow ? 'w-24' : 'w-64'} ${field}`} placeholder="F6 narrows"
+          onKeyDown={narrowOnF6}
         />
       </View>
 

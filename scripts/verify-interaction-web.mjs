@@ -2101,50 +2101,67 @@ async function runImeScenario(viewport) {
  * What leaving a field, or making it read-only, does to a composition in progress, in real Chrome (the IME's own
  * commit and cancel cannot be injected natively). A composition left unfinished by leaving the field is committed as an
  * `insertText` through `beforeinput`, as a browser and `LineEdit` do, and a `beforeinput` that refuses it discards it. A
- * field that is made read-only while composing ends the composition, and takes keys again (every keyboard command is
- * refused while a composition is on, and a read-only field would never have ended it).
+ * field that is made read-only while composing ends the composition (every keyboard command is refused while a
+ * composition is on, and a read-only field would never have ended it).
+ *
+ * The engine's Web IME drops every raw key while a composition is under way (`DisplayServerWeb::_key_callback` returns when
+ * `ime_started`), so the field is left, and made read-only, by compositions of their own (`forms-extra-lab.tsx`). And it only clears
+ * `ime_started` when the IME's commit arrives while the IME is active (`_ime_callback`, case 2), which a composition ended
+ * by leaving the field never does: the keys stay dropped until one more composition is committed. That is the engine's, it
+ * was so before this change, and the scenario finishes with such a composition so the rest of the run has its keys.
  */
 async function runCompositionFixesScenario() {
   await demo('showLab', 'forms-extra');
   await waitUntil('the extra lab mounts', () => nodeExists('forms-extra-lab'));
   const cdp = await page.createCDPSession();
   const readout = async () => JSON.parse(await text('extra-json'));
-  const focusPicky = async () => {
-    await click('extra-picky');
-    await expectFocused((await find('extra-picky')).id, 'A press focuses the picky field');
+  const focus = async (testID) => {
+    // Presses at one place within the click interval are one double click, which selects a word: a pause starts a new
+    // sequence, so that the press only places the caret.
+    await new Promise((resolve) => setTimeout(resolve, CLICK_SEQUENCE_PAUSE_MS));
+    await click(testID);
+    await expectFocused((await find(testID)).id, `A press focuses ${testID}`);
     await waitUntil('the IME element holds browser focus', async () => page.evaluate(() => document.activeElement?.className === 'ime'));
   };
-  const compose = async (text) => {
+  const compose = async (testID, text) => {
     await cdp.send('Input.imeSetComposition', { text, selectionStart: text.length, selectionEnd: text.length });
-    await expectInput('extra-picky', (state) => state.composing && state.preedit?.text === text, `imeSetComposition shows "${text}"`);
+    await expectInput(testID, (state) => state.composing && state.preedit?.text === text, `imeSetComposition shows "${text}"`);
   };
 
-  await focusPicky();
-  await compose('yes');
-  await page.keyboard.press('Tab');
-  await expectInput('extra-picky', (state) => !state.composing && state.value === 'yes', 'Leaving the field commits the unfinished composition');
-  await waitUntil('React holds the committed text', async () => (await readout()).picky === 'yes');
-  check('and it was an insertText input', (await text('extra-json')).includes('"picky": "yes"'));
+  // Leaving the field mid-composition commits the preedit. The lab moves the focus (`focus()` from a composition handler) when a
+  // composition ends in "!": a press would end the composition in the browser first (Chrome commits on the mouse down, and the
+  // engine types the text itself), and Tab never reaches the page while one is on. The commit is the root's, a frame after the
+  // blur, and it must not also be typed into the field that took the focus.
+  await focus('extra-picky');
+  await cdp.send('Input.imeSetComposition', { text: 'yes!', selectionStart: 4, selectionEnd: 4 });
+  await waitUntil('the composition moved the focus to the resize field', async () => (await find('extra-resize')).id === (await focusedId()));
+  await expectInput('extra-picky', (state) => !state.composing && state.value === 'yes!', 'Leaving the field commits the unfinished composition');
+  await waitUntil('React holds the committed text', async () => (await readout()).picky === 'yes!');
+  check('and it was not typed into the field that took the focus too', (await inputState('extra-resize')).value === '');
 
   // A beforeinput that refuses the commit discards the preedit.
-  await focusPicky();
-  await pressAction('ui_text_caret_line_end');
-  await compose('nope');
-  await page.keyboard.press('Tab');
+  await focus('extra-picky');
+  await cdp.send('Input.imeSetComposition', { text: 'no!', selectionStart: 3, selectionEnd: 3 });
   await waitUntil('beforeinput refused the commit', async () => (await readout()).refused === 1);
-  await expectInput('extra-picky', (state) => !state.composing && state.value === 'yes', 'A refused commit leaves the text as it was');
-  check('and the preedit is gone for good', (await readout()).picky === 'yes');
+  await expectInput('extra-picky', (state) => !state.composing && state.value === 'yes!', 'A refused commit leaves the text as it was');
+  check('and the preedit is gone for good', (await readout()).picky === 'yes!' && (await inputState('extra-resize')).value === '');
 
-  // Making the field read-only while it composes ends the composition, and the keys work again.
-  await focusPicky();
-  await compose('ka');
-  await page.keyboard.press('F7');
-  await waitUntil('the field is read-only', async () => (await readout()).locked === true);
-  await expectInput('extra-picky', (state) => !state.composing && state.value === 'yes', 'Read-only ends the composition');
-  await pressAction('ui_text_caret_line_start');
-  await expectInput('extra-picky', (state) => state.selectionStart === 0, 'and the caret keys work in the read-only field');
-  await page.keyboard.press('F7');
-  await waitUntil('the field is editable again', async () => (await readout()).locked === false);
+  // Making the field read-only while it composes ends the composition.
+  await focus('extra-picky');
+  await compose('extra-picky', 'loc');
+  await cdp.send('Input.imeSetComposition', { text: 'lock', selectionStart: 4, selectionEnd: 4 });
+  await waitUntil('the field made itself read-only', async () => (await readout()).locked === true);
+  await expectInput('extra-picky', (state) => !state.composing && state.preedit === null && state.value === 'yes!', 'Read-only ends the composition');
+  check('and the preedit is not in the value', (await readout()).picky === 'yes!');
+  await capture('forms-04-read-only-ends-composition');
+
+  // One composition committed the engine's way gives the rest of the run its keys back (see above).
+  await demo('showLab', 'forms');
+  await waitUntil('the forms lab mounts again', () => nodeExists('forms-lab'));
+  await focus('form-name');
+  await cdp.send('Input.imeSetComposition', { text: 'x', selectionStart: 1, selectionEnd: 1 });
+  await cdp.send('Input.insertText', { text: 'x' });
+  await waitUntil('the commit reached the field', async () => (await inputState('form-name')).value.includes('x'));
   await cdp.detach();
 }
 
@@ -2263,23 +2280,6 @@ async function runTouchSoftKeyboardScenario() {
   await page.keyboard.type('3');
   await expectInput('extra-digits', (state) => state.value === '123' && state.selectionStart === 3, 'The next digit is taken, after the others: the letter did not come back with it');
   check('React holds the digits', (await readout()).digits === '123');
-  await capture('forms-06-touch-soft-keyboard');
-}
-
-async function runEventsScenario(viewport) {
-  await click('tab-interaction');
-  await waitUntil('interaction lab mounts', () => nodeExists('interaction-lab'));
-  await capture('01-interaction');
-
-  // Capture runs from the outermost ancestor to the target, bubble back out.
-  await click('event-inner');
-  await expectText('event-log', CAPTURE_THEN_BUBBLE, 'Capture then bubble order');
-  await capture('02-capture-bubble');
-
-  // stopPropagation in a capture handler prevents the rest of capture and all of bubble.
-  await click('event-clear');
-  await click('stop-toggle');
-  await expectText('stop-toggle', 'Stop in capture: on', 'Stop toggle reads on');
 
   // A key, and a refused one after it, before the engine's Right presses for the first (they come a frame after `_set_text`)
   // have been handled: both in one task, so no frame comes between them. The refusal is restored to the selection from before
@@ -2300,6 +2300,23 @@ async function runEventsScenario(viewport) {
   });
   await page.keyboard.type('5');
   await expectInput('extra-digits', (state) => state.value === '12345' && state.selectionStart === 5, 'The next key lands after the text, not at its start');
+  await capture('forms-06-touch-soft-keyboard');
+}
+
+async function runEventsScenario(viewport) {
+  await click('tab-interaction');
+  await waitUntil('interaction lab mounts', () => nodeExists('interaction-lab'));
+  await capture('01-interaction');
+
+  // Capture runs from the outermost ancestor to the target, bubble back out.
+  await click('event-inner');
+  await expectText('event-log', CAPTURE_THEN_BUBBLE, 'Capture then bubble order');
+  await capture('02-capture-bubble');
+
+  // stopPropagation in a capture handler prevents the rest of capture and all of bubble.
+  await click('event-clear');
+  await click('stop-toggle');
+  await expectText('stop-toggle', 'Stop in capture: on', 'Stop toggle reads on');
   await click('event-inner');
   await expectText('event-log', 'outer:capture middle:capture', 'Stopping in capture prevents bubble');
   await capture('03-stop-in-capture');
