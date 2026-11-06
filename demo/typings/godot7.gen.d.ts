@@ -1210,6 +1210,10 @@ declare module "godot" {
         get_scroll_state: "getScrollState";
         get_selection: "getSelection";
         clear_selection: "clearSelection";
+        set_text_and_selection: "setTextAndSelection";
+        set_text_selection: "setTextSelection";
+        get_text_input_state: "getTextInputState";
+        _set_text: "_setText";
         get_node_rect: "getNodeRect";
         find_by_test_id: "findByTestId";
         drain_events: "drainEvents";
@@ -1237,6 +1241,10 @@ declare module "godot" {
         getScrollState(tag: int64): string
         getSelection(): string
         clearSelection(): any
+        setTextAndSelection(tag: int64, eventCount: int64, value: string, start: int64, end: int64): string
+        setTextSelection(tag: int64, start: int64, end: int64, backward: boolean): string
+        getTextInputState(tag: int64): string
+        _setText(text: string, emitSignal: boolean): any
         getNodeRect(tag: int64): string
         findByTestId(testId: string): int64
         drainEvents(): string

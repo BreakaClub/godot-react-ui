@@ -252,21 +252,22 @@ export interface NativeScrollEvent extends NativeEventBase {
 }
 
 /**
- * `selectionchange`, the document's or a text input's. The document's is addressed to the root's listeners
- * (target 0), not cancelable, and carries nothing: ask the root for `getSelection()`. Native coalesces the changes of
- * one delivery into one event. A text input's is addressed to the input and carries its selection.
+ * The document's text selection changed. Addressed to the root's listeners (target 0), not cancelable, and carries
+ * nothing: ask the root for `getSelection()`. Native coalesces the changes of one delivery into one event.
  */
-export interface NativeSelectionChangeEvent extends NativeEventBase {
+export interface NativeDocumentSelectionChangeEvent extends NativeEventBase {
   type: NativeSelectionEventType;
-  /** The input's selection for a text input's event, `null` for the document's (target 0). */
-  input: NativeInputSelection | null;
 }
 
-/** A text input's selection: UTF-16 units, ordered. */
-export interface NativeInputSelection {
+/** A text input's selection moved: addressed to the input, UTF-16 units, ordered. */
+export interface NativeInputSelectionChangeEvent extends NativeEventBase {
+  type: NativeSelectionEventType;
   selectionStart: number;
   selectionEnd: number;
 }
+
+/** Both events share the wire name `selectionchange`; the target tells them apart (0 is the document's). */
+export type NativeSelectionChangeEvent = NativeDocumentSelectionChangeEvent | NativeInputSelectionChangeEvent;
 
 /** The DOM `inputType`s a text input's edits have (plan 4.3). */
 export type NativeInputType =
@@ -730,12 +731,11 @@ function nativeEvent(entry: unknown): NativeEvent {
       };
     case 'selectionchange':
       // The document's event is addressed to the root (target 0) and carries nothing; an input's is addressed to it.
+      if (base.target === LAYER_ROOT_TAG) return { ...base, type };
       return {
         ...base, type,
-        input: base.target === LAYER_ROOT_TAG ? null : {
-          selectionStart: nonnegativeInteger(event.selectionStart, 'event.selectionStart'),
-          selectionEnd: nonnegativeInteger(event.selectionEnd, 'event.selectionEnd'),
-        },
+        selectionStart: nonnegativeInteger(event.selectionStart, 'event.selectionStart'),
+        selectionEnd: nonnegativeInteger(event.selectionEnd, 'event.selectionEnd'),
       };
     case 'compositionstart': case 'compositionupdate': case 'compositionend':
       return { ...base, type, data: string(event.data, 'event.data') };

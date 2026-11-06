@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import { createRoot, type RootOptions, type UIRoot } from '../src';
 import type { CommitPayload } from '../src/commit';
 import type {
-  NativeAccessibilityAction, NativeAccessibilityActionEvent, NativeBeforeInputEvent, NativeDragEndEvent, NativeDragEvent,
-  NativeDragEventType, NativeDragState, NativeEvent, NativeEventType, NativeFocusEventType, NativeHost, NativeInputEvent,
-  NativeInputType, NativeKeyEvent, NativePointerEvent, NativePointerEventType, NativeScrollEvent, NativeScrollState,
-  NativeSelection, NativeSelectionChangeEvent, NativeSnapshot, NativeSnapshotNode, NativeTextInputState, NativeWheelEvent,
-  PackedTags,
+  NativeAccessibilityAction, NativeAccessibilityActionEvent, NativeBeforeInputEvent, NativeDocumentSelectionChangeEvent,
+  NativeDragEndEvent, NativeDragEvent, NativeDragEventType, NativeDragState, NativeEvent, NativeEventType,
+  NativeFocusEventType, NativeHost, NativeInputEvent, NativeInputSelectionChangeEvent, NativeInputType, NativeKeyEvent,
+  NativePointerEvent, NativePointerEventType, NativeScrollEvent, NativeScrollState, NativeSelection, NativeSnapshot,
+  NativeSnapshotNode, NativeTextInputState, NativeWheelEvent, PackedTags,
 } from '../src/native';
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -468,10 +468,10 @@ export class RecordingHost implements NativeHost {
   }
 
   /** A text input's selection moved: addressed to the input. */
-  textSelectionChangeEvent(target: number, start: number, end: number): NativeSelectionChangeEvent {
+  textSelectionChangeEvent(target: number, start: number, end: number): NativeInputSelectionChangeEvent {
     return {
       seq: this.nextSeq++, target, path: this.pathOf(target), cancelable: false, timeStamp: 1.5, type: 'selectionchange',
-      input: { selectionStart: start, selectionEnd: end },
+      selectionStart: start, selectionEnd: end,
     };
   }
 
@@ -517,8 +517,8 @@ export class RecordingHost implements NativeHost {
   }
 
   /** The document's selection changed: addressed to the root (target 0, no path), never cancelable. */
-  selectionChangeEvent(): NativeSelectionChangeEvent {
-    return { seq: this.nextSeq++, target: 0, path: [], cancelable: false, timeStamp: 1.5, type: 'selectionchange', input: null };
+  selectionChangeEvent(): NativeDocumentSelectionChangeEvent {
+    return { seq: this.nextSeq++, target: 0, path: [], cancelable: false, timeStamp: 1.5, type: 'selectionchange' };
   }
 
   /** A key press or release; a `keydown` is cancelable, as native awaits JS's answer. */

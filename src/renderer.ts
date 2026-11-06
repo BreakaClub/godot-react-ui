@@ -286,13 +286,13 @@ function handleFor(root: RootState, tag: number, kind: NativeKind): UIHandle {
   return handle;
 }
 
-/** The selection native holds now, with its ends as the handles of the elements. */
+/** The selection native holds now, with its ends as the handles of the elements (always `Text`, whose text it spans). */
 function currentSelection(root: RootState): UISelection | undefined {
   const selection = readSelection(root.host);
   if (selection === undefined) return undefined;
   return {
-    anchor: { node: handleFor(root, selection.anchor.tag), offset: selection.anchor.offset },
-    focus: { node: handleFor(root, selection.focus.tag), offset: selection.focus.offset },
+    anchor: { node: handleFor(root, selection.anchor.tag, 'text'), offset: selection.anchor.offset },
+    focus: { node: handleFor(root, selection.focus.tag, 'text'), offset: selection.focus.offset },
     isCollapsed: selection.isCollapsed,
     text: selection.text,
   };
@@ -555,7 +555,8 @@ function isContinuous(native: NativeEvent): boolean {
     case 'pointerdown': case 'pointerup': case 'pointerenter': case 'pointerleave': case 'pointercancel':
     case 'click': case 'dblclick': case 'auxclick': case 'contextmenu': case 'scroll': case 'keydown': case 'keyup':
     case 'focus': case 'blur': case 'accessibilityaction': case 'selectionchange': case 'dragstart': case 'drop':
-    case 'dragend':
+    case 'dragend': case 'beforeinput': case 'input': case 'compositionstart': case 'compositionupdate':
+    case 'compositionend':
       return false;
   }
 }
@@ -571,7 +572,7 @@ function dispatchDrag(root: RootState, native: NativeDragEvent | NativeDragEndEv
     return { ...NOT_DISPATCHED, dropEffect: '' };
   }
   const related = liveInstance(root, native.relatedTarget);
-  return root.drags.dispatch(native, pathNodes(root, native.path), related === undefined ? null : handleFor(root, related.tag), root);
+  return root.drags.dispatch(native, pathNodes(root, native.path), related === undefined ? null : handleFor(root, related.tag, related.kind), root);
 }
 
 function dispatch(root: RootState, native: NativeEvent): DispatchResult {

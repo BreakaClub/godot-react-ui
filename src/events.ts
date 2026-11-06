@@ -3,7 +3,7 @@ import type { DataTransfer, DropEffect } from './data-transfer';
 import type {
   NativeAccessibilityAction, NativeAccessibilityActionEvent, NativeBeforeInputEvent, NativeCompositionEvent,
   NativeCompositionEventType, NativeDragEndEvent, NativeDragEvent, NativeDragEventType, NativeEvent, NativeEventType,
-  NativeFocusEvent, NativeFocusEventType, NativeInputEvent, NativeInputSelection, NativeInputType, NativeKeyEvent,
+  NativeFocusEvent, NativeFocusEventType, NativeInputEvent, NativeInputSelectionChangeEvent, NativeInputType, NativeKeyEvent,
   NativeKeyEventType, NativeMouseFields, NativePointerEvent, NativePointerEventType, NativePointerType, NativeScrollEvent,
   NativeSelectionChangeEvent, NativeWheelEvent,
 } from './native';
@@ -446,10 +446,10 @@ class TextSelectionChangeEventImpl extends SyntheticEvent<'selectionchange'> imp
   readonly selectionStart: number;
   readonly selectionEnd: number;
 
-  constructor(native: NativeSelectionChangeEvent, selection: NativeInputSelection, target: UIHandle, bubbles: boolean) {
+  constructor(native: NativeInputSelectionChangeEvent, target: UIHandle, bubbles: boolean) {
     super(native.type, target, bubbles, native.cancelable, native.timeStamp);
-    this.selectionStart = selection.selectionStart;
-    this.selectionEnd = selection.selectionEnd;
+    this.selectionStart = native.selectionStart;
+    this.selectionEnd = native.selectionEnd;
   }
 }
 
@@ -800,9 +800,9 @@ function createEvent(
     case 'input':
       return new InputEventImpl(native, target, bubbles);
     case 'selectionchange':
-      return native.input === null
-        ? new SyntheticEvent(native.type, target, bubbles, native.cancelable, native.timeStamp)
-        : new TextSelectionChangeEventImpl(native, native.input, target, bubbles);
+      return 'selectionStart' in native
+        ? new TextSelectionChangeEventImpl(native, target, bubbles)
+        : new SyntheticEvent(native.type, target, bubbles, native.cancelable, native.timeStamp);
     case 'compositionstart': case 'compositionupdate': case 'compositionend':
       return new CompositionEventImpl(native, target, bubbles);
     case 'dragstart': case 'drag': case 'dragenter': case 'dragleave': case 'dragover': case 'drop':
