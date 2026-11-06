@@ -18,6 +18,9 @@ mod probe;
 mod profile;
 mod props;
 mod render_tree;
+// Integrated in Phase I6 (text selection); remove the attribute then.
+#[cfg_attr(not(test), allow(dead_code))]
+mod selection;
 mod snapshot;
 mod style_engine;
 // Integrated in Phase I6 (text selection) and I7 (TextInput); remove the attribute then.
