@@ -357,6 +357,16 @@ impl DragMachine {
         }
     }
 
+    /// The pointer a finished or refused gesture is still waiting to see lifted: its remaining events
+    /// are the drag's (after Escape) or plain pointer events (after a refusal), and a press of any
+    /// pointer is ignored until it is up. A window that lost the OS focus will never see it lift.
+    pub(crate) fn held_pointer(&self) -> Option<u32> {
+        match self.phase {
+            Phase::Ended(ended) => ended.held,
+            Phase::Idle | Phase::Pending(_) | Phase::Dragging(_) => None,
+        }
+    }
+
     /// The dragged element.
     pub(crate) fn source(&self) -> Option<u32> {
         match self.phase {
@@ -1219,6 +1229,83 @@ mod tests {
         let step = move_to(&mut machine, &mut env, MOUSE.id, 150.0);
         assert!(step.consumed);
         assert_eq!(machine.state(), DragState::Dragging);
+    }
+
+    #[test]
+    fn a_cancel_of_the_pointer_an_escaped_drag_waits_for_lets_the_next_press_start_afresh() {
+        // Escape cancels the drag with the button still down; if the window then loses focus, no lift
+        // will come, so the owner cancels the held pointer (`held_pointer`).
+        let (mut machine, mut env) = dragging_over_a();
+        machine.handle(T0, DragInput::Escape, &mut env);
+        assert_eq!(machine.state(), DragState::Ended);
+        assert_eq!(machine.pointer(), None, "no pointer is dragging");
+        assert_eq!(
+            machine.held_pointer(),
+            Some(MOUSE.id),
+            "but the button is waited for"
+        );
+        // Without the cancel a new press is ignored, and its release belongs to the old gesture.
+        let ignored = press(&mut machine, &mut env, MOUSE, 50.0);
+        assert!(!ignored.consumed);
+        assert_eq!(
+            machine.state(),
+            DragState::Ended,
+            "the press was not offered a drag"
+        );
+        let swallowed = release_at(&mut machine, &mut env, MOUSE.id, 50.0);
+        assert!(
+            swallowed.consumed,
+            "its release was swallowed: that is the bug"
+        );
+
+        let (mut machine, mut env) = dragging_over_a();
+        machine.handle(T0, DragInput::Escape, &mut env);
+        let held = machine.held_pointer().expect("a pointer is held");
+        machine.handle(T0, DragInput::PointerCancel { pointer_id: held }, &mut env);
+        assert_eq!(machine.state(), DragState::Idle);
+        assert_eq!(machine.held_pointer(), None);
+        press(&mut machine, &mut env, MOUSE, 50.0);
+        assert_eq!(
+            machine.state(),
+            DragState::Pending,
+            "the next press may become a drag"
+        );
+        let lift = release_at(&mut machine, &mut env, MOUSE.id, 50.0);
+        assert!(!lift.consumed, "and its release is a click's");
+    }
+
+    #[test]
+    fn only_a_gesture_that_ended_with_its_pointer_down_holds_one() {
+        let mut machine = machine();
+        let mut env = Script::new();
+        assert_eq!(machine.held_pointer(), None);
+        press(&mut machine, &mut env, MOUSE, 50.0);
+        assert_eq!(
+            machine.held_pointer(),
+            None,
+            "a pending press is the machine's pointer, not a held one"
+        );
+        env.start_prevented = true;
+        move_to(&mut machine, &mut env, MOUSE.id, 70.0);
+        assert_eq!(
+            machine.held_pointer(),
+            Some(MOUSE.id),
+            "a refused drag waits for the lift"
+        );
+        release_at(&mut machine, &mut env, MOUSE.id, 70.0);
+        assert_eq!(machine.held_pointer(), None);
+        let (mut machine, mut env) = dragging_over_a();
+        assert_eq!(
+            machine.held_pointer(),
+            None,
+            "a running drag has a pointer, not a held one"
+        );
+        release_at(&mut machine, &mut env, MOUSE.id, 62.0);
+        assert_eq!(
+            machine.held_pointer(),
+            None,
+            "a drag that ended with a release holds none"
+        );
     }
 
     // --- dragging: events ---

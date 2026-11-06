@@ -3315,6 +3315,24 @@ async function verifyDragging(owner: Node, api: InteractionInspection, capture: 
   assert(board() === boardBefore && isOver() && drag().pointer === null && log() === afterEscape, `Releasing it drops nothing: ${board()}`);
   assert(clicks() === clicksBefore + 3 && ups() === upsBeforeEscape, `And neither clicks nor sends a pointerup: ${dropStatus()}`);
 
+  // ---- Escape, then the window loses its focus with the button still down ---------------------------------------------------
+  // The lift will never reach a window that lost focus, so the focus loss ends the cancelled gesture too: the next press is
+  // offered to the machine and its release is a release (a click), not the old gesture's.
+  const cardAFocus = point(api, 'card-a');
+  await dragVia(cardAFocus, offset(cardAFocus, 0, BEYOND_THRESHOLD_PX));
+  assert(drag().state === 'dragging', 'A drag is under way');
+  keyEvent({ keycode: Key.KeyEscape }, true);
+  await settle();
+  keyEvent({ keycode: Key.KeyEscape }, false);
+  await settle();
+  assert(drag().state === 'ended', 'Escape cancelled it, and the button is still down');
+  api.simulateWindowFocusLoss();
+  await settle();
+  assert(drag().state === 'idle', `Losing the window's focus ends the gesture: ${JSON.stringify(drag())}`);
+  const clicksBeforeFocusLoss = clicks();
+  await click(api, 'card-b');
+  assert(clicks() === clicksBeforeFocusLoss + 1, `The next click is a click: ${dropStatus()}`);
+
   // ---- Text inside a draggable element starts no selection (plan 3.12: a draggable comes before selection) ---------------
   await click(api, 'selectable-plain');
   assert(api.selection() !== undefined, 'A click on select-text that is not in a draggable element selects (the control)');

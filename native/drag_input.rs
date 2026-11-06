@@ -295,17 +295,19 @@ impl ReactUiRoot {
         consumed
     }
 
-    /// The window lost the pointer's focus: a drag it was making is cancelled, like any press.
+    /// The window lost the pointer's focus: a drag it was making is cancelled, like any press. So is a
+    /// gesture that already ended but waits for its pointer to lift (Escape cancels a drag with the
+    /// button still down): the lift will not reach a window that lost focus, and until the machine lets
+    /// go of it, the next press is ignored and its release swallowed.
     pub(crate) fn cancel_dragging_pointer(&mut self) {
-        let pointer = self
-            .drag
-            .machine
-            .as_ref()
-            .and_then(|machine| machine.pointer());
-        if let Some(pointer) = pointer {
-            self.drag_input(DragInput::PointerCancel {
-                pointer_id: pointer.id,
-            });
+        let pointer_id = self.drag.machine.as_ref().and_then(|machine| {
+            machine
+                .pointer()
+                .map(|pointer| pointer.id)
+                .or_else(|| machine.held_pointer())
+        });
+        if let Some(pointer_id) = pointer_id {
+            self.drag_input(DragInput::PointerCancel { pointer_id });
         }
     }
 
