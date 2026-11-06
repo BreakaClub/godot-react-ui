@@ -64,6 +64,8 @@ so JS drops its instances and public handles.
 | `testID` | string |
 | `tabIndex` | `0` or `-1` (any node kind) |
 | `autoFocus` | boolean |
+| `draggable` | boolean (any node kind) |
+| `dragPreview` | `native` or `none` (what follows the pointer while the element is dragged; `native` when absent) |
 
 JS compiles `className` and `style` once per distinct input into ordered **layers** (`src/styles.ts`;
 shorthands `padding`, `margin`, `gap`, `overflow` and `inset` are expanded to longhands there). Native resolves
@@ -293,7 +295,8 @@ browser model, not an IPC round trip.
   native is waiting on.
 - `resolve_event(seq: int, default_prevented: bool, drop_effect: String) -> String` answers that event. Only the
   awaited `seq` can be resolved, once; anything else returns an error string. `drop_effect` is `""`, `none`,
-  `copy`, `move` or `link` (drag and drop is not implemented yet).
+  `copy`, `move` or `link`: the effect JS settled on for a `dragover` or `drop`. Preventing a `dragover` or a `drop`
+  without one is an error (the event then counts as not prevented), so native never guesses what a target accepted.
 - Event types: `pointerdown|pointermove|pointerup|pointerenter|pointerleave|pointercancel|click|dblclick|auxclick|
   contextmenu` carry `x,y` (root-local
   logical pixels), `viewportX,viewportY` (canvas coordinates: the root's global transform with canvas applied to the
@@ -312,6 +315,10 @@ browser model, not an IPC round trip.
   Only a mouse `pointerdown` on an enabled element is cancelable; its default action is focusing the nearest
   enabled button (and taking Godot key focus), which `preventDefault()` skips. `click` still follows a prevented
   `pointerdown`, as in browsers.
+- Drag events (`dragstart`, `drag`, `dragenter`, `dragleave`, `dragover`, `drop`, `dragend`) carry the pointer fields
+  above (`button` -1, `buttons` 1 while the pointer is held and 0 for `drop` and `dragend`), `sessionId` (the drag's
+  number; every event of one drag has the same) and, for `dragenter` and `dragleave`, `relatedTarget`. `dragend` also
+  carries `dropEffect` and `endedOutsideRoot`. `dragstart`, `dragover` and `drop` are cancelable. See "Drag and drop".
 - Native emits one `pointerleave` (target the element left, `relatedTarget` the element entered) and one
   `pointerenter` (target the element entered, `relatedTarget` the element left). JS dispatches them to the
   elements actually crossed, below the lowest common ancestor, without bubbling.
@@ -388,8 +395,10 @@ One record per pointer id (`native/pointer_state.rs`, unit tested): the mouse is
 - `get_snapshot()` adds `pointers: [{id, type: 'mouse'|'touch', x, y, buttons, down, capture: {target, implicit}|null}]`:
   the mouse, and each touch while it is down.
 
-Rules native follows: only input callbacks emit (`gui_input`); `commit`, lifecycle notifications and `process()`
-queue events for the next emission or the owner's per-frame `dispatchEvents()`. Input that arrives while JS is
+Rules native follows: only input callbacks emit (`gui_input`, and `input` while a drag runs); `commit`, lifecycle
+notifications and `process()` queue events for the next emission or the owner's per-frame `dispatchEvents()`. The
+one exception is a drag's own timers in `process()` (a touch held long enough, a scroll under a stationary pointer),
+whose cancelable `dragstart` and `dragover` must be answered synchronously like any other (see "Drag and drop"). Input that arrives while JS is
 inside a dispatch is queued with `cancelable: false`. After the emission everything native knew before it is
 stale: it looks the target up again (lookups return `Option`), skips the default action if the target was
 removed, and does nothing further if the root left the scene tree. JS may call `commit`, `get_snapshot` and
@@ -401,11 +410,65 @@ Godot's `Input` dispatches every `InputEventGesture` twice (once explicitly and 
 `core/input/input.cpp:995-1003` and `:1046-1048`), so a pan gesture, real or parsed, reaches JS as two `wheel` events
 with the same deltas, exactly as it reaches Godot's own `ScrollContainer`. Native does not filter this.
 
-Limits: no text input/IME, touch text selection, accessibility tree, images, rich inline text, rounded clip
+Limits: no text input/IME, touch text selection, accessibility tree, drag and drop with Godot `Control`s (the plan's
+3.19: `_can_drop_data` is synchronous on `&self`, where a JS answer cannot be had; `endedOutsideRoot` plus the release
+point is what a game uses) or with files or `setDragImage`, images, rich inline text, rounded clip
 masks, `position: sticky`, CSS stacking contexts (`zIndex` orders siblings of one paint parent), a public CSS stylesheet/selector API, arbitrary keyframe animations, or custom native
 materials. Both overflow axes clip together (`hidden`, `scroll` or `auto` on either clips the padding box). Not scrolling: scrollbar
 track clicks (paging), animated programmatic scrolling, overscroll bounce, `position: sticky`. Native drawing uses owned
 CanvasItem RIDs with cached resources and one Control for the whole React tree.
+
+## Drag and drop
+
+HTML drag and drop inside one root (`native/drag.rs` is the Godot-free state machine, 50 unit tests;
+`native/drag_input.rs` is the glue; `native/drag_ghost.rs` the ghost; `src/data-transfer.ts` and `src/drag.ts` the
+JS half). `draggable` and `dragPreview` are props (above).
+
+- **Arbitration** (plan 3.12 rule 3). After an un-prevented primary `pointerdown` whose pointer no element captured
+  and that is not on a scrollbar thumb, a press inside a `draggable` element (the nearest one at or above the press,
+  unless it or an ancestor is `disabled`) is offered to the machine; it is **pending**. A mouse becomes a drag when it
+  is further than `Viewport.gui_drag_threshold` (read at the press; 10 by default) from where it went down; a touch
+  when it has stayed within the 8 px slop for 500 ms (`TOUCH_DRAG_HOLD_MS`, `process()` ticks the timer, and
+  the machine also advances it on the next input). A touch that moves beyond the slop first is declined and goes on to
+  pan or stay pointer events (touch pans register after the drag offer, rule 4). A touch that stopped a coasting flick
+  starts nothing.
+- **Start.** `dragstart` (cancelable, at the dragged element) is sent first; if JS prevents it nothing else happens
+  and the pointer carries on as plain pointer events. Otherwise the pointer is cancelled (`pointercancel`; no `pointerup`
+  or `click` follows) and the drag begins: `drag` at the source, `dragenter` and `dragover` at the element under the
+  pointer. From then on every move of the held pointer, and every scroll of anything under it (looked at again at
+  the next frame), sends `drag` (source), `dragenter` (new target, `relatedTarget` the old one), `dragleave` (old
+  target, `relatedTarget` the new one; enter comes first, as in the HTML processing model) and `dragover` (cancelable).
+  The hit test skips `pointer-events: none` elements; the ghost is not in the tree. The hover freezes during a drag
+  and catches up when it ends.
+- **Accepting.** Preventing `dragover` accepts a drop at that target with the `dropEffect` JS reports through
+  `resolve_event`: the one the handler left on `dataTransfer` if `effectAllowed` permits it, else `none`, which refuses.
+  Release over an accepting target sends `drop` (cancelable; the effect JS reports is the drag's effect), then
+  `dragend`; over anything else it sends `dragleave` to the target and `dragend` with the effect `none`.
+- **End.** `dragend` (at the source; at the root when the source was removed, so JS can end the drag's store)
+  carries `dropEffect`, `endedOutsideRoot` and the release point (`x,y` and `viewportX,viewportY`). `endedOutsideRoot`
+  is true only for a release beyond the root. Escape (handled in `input` while a drag runs, so the root needs no key
+  focus; accepted), the OS cancelling the pointer (window focus loss) and the root leaving the tree cancel: `dragleave`
+  and `dragend` with the effect `none` and `endedOutsideRoot` false. After Escape the held pointer's remaining events
+  are swallowed until it is released, which does not click.
+- **Cursor.** While a drag runs `_get_cursor_shape` returns `CURSOR_CAN_DROP` over a target that accepted and
+  `CURSOR_FORBIDDEN` anywhere else. Godot asks for the shape before it hands a motion to `gui_input`, so the window
+  shows what the previous motion decided.
+- **Ghost.** `dragPreview: native` (the default): a copy of the source and everything it paints, as drawn when the
+  drag was about to start (before `dragstart` handlers run, so a handler that restyles the source does not change it),
+  drawn at 60 % in a top-most canvas item above both layers and the focus ring, at the pointer with the grab offset.
+  It is a snapshot (no scrollbars, no later changes), and the root's clip applies. `none` draws nothing.
+- **Edge auto-scroll.** While a drag runs, each scroll container on the path from the element under the pointer scrolls
+  towards an edge the pointer is within 32 px of (inside its padding box), at up to 600 px per second, on an axis that
+  can still move that way. Frames come from the one `update_process()` decision, together with a pending touch hold and
+  a scroll waiting to be looked at; a drag that needs none runs with `process()` off (and `input` on, for Escape).
+- **Session.** One drag at a time per root. `sessionId` numbers the drags; JS keeps one `DataTransfer` store for each,
+  made at `dragstart` and dropped after `dragend`. The machine is taken out of the root while it handles an input
+  (`Option<DragMachine>`), because every event it emits runs JS that may remove anything or unmount the root; events
+  for an element that is gone are skipped, and a root that left the tree cancels the drag.
+- `get_snapshot()` adds `drag: {state: idle|pending|dragging|ended|busy, session, source, target, pointer, origin,
+  position, allowedEffect, ghost: {x,y,width,height,elements}|null, lastEnd: {reason: dropped|released|escape|
+  pointercancel|rootexit, dropEffect, endedOutsideRoot}|null}`. `ended` is a finished or cancelled gesture (until the
+  next press); `busy` is only seen by a JS handler of a drag event.
 
 ## Native CSS motion and clipping
 

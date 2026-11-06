@@ -29,7 +29,7 @@ const TOTAL_TIMEOUT_MS = 600_000;
 const POLL_MS = 50;
 // `--only=<section>[,<section>]` runs just those sections (plan 0.4.1); the names are the native verifier's, and `touch`
 // is this verifier's touch page. An unknown name is an error: a typo must not skip a section.
-const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard', 'scroll', 'selection', 'touch'];
+const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard', 'scroll', 'selection', 'drag', 'touch'];
 const requestedSections = process.argv.filter((argument) => argument.startsWith('--only='))
   .flatMap((argument) => argument.slice('--only='.length).split(','));
 for (const name of requestedSections) {
@@ -1513,6 +1513,297 @@ async function runTouchScrollScenario() {
   await demo('grabSurfaceFocus');
 }
 
+/** A mouse press becomes a drag beyond this many logical pixels (`Viewport.gui_drag_threshold`'s default, 10), and how far inside it a move stays. */
+const DRAG_BEYOND_THRESHOLD_PX = 12;
+const DRAG_WITHIN_THRESHOLD_PX = 5;
+/** Godot's Web display server shows can-drop as the CSS cursor `grabbing` and forbidden as `no-drop` (display_server_web.cpp). */
+const CSS_CURSOR_CAN_DROP = 'grabbing';
+const CSS_CURSOR_FORBIDDEN = 'no-drop';
+/** The palette item (amber-100) at the ghost's 60 % over the lab's page (slate-50), as a canvas pixel; its tolerance in 8-bit levels. */
+const AMBER_100_RGB = [0xfe, 0xf3, 0xc7];
+const PAGE_FILL_RGB = [0xf8, 0xfa, 0xfc];
+const GHOST_OPACITY = 0.6;
+const GHOST_PIXEL_TOLERANCE = 8;
+const GHOST_PROBE_INSET = 6;
+/** The pointer rests this close to the list's bottom edge, inside its edge band, while it auto-scrolls. */
+const AUTOSCROLL_BAND_PX = 12;
+const AUTOSCROLL_DEADLINE_MS = 12_000;
+const AUTOSCROLL_SAMPLE_MS = 150;
+/** How long a touch must be held still to become a drag (native/drag.rs `TOUCH_DRAG_HOLD_MS`). */
+const TOUCH_HOLD_MS = 500;
+const HOLD_DEADLINE_MS = 5_000;
+const TOUCH_SWIPE_STEP_PX = 15;
+const DRAG_LIST_ROWS = 20;
+
+async function dragState() {
+  return (await snapshot()).drag;
+}
+
+/** The canvas pixel (RGB) under a logical point, from a real screenshot of the canvas. */
+async function canvasPixel(logical) {
+  const data = await snapshot();
+  const canvas = await page.$('canvas');
+  assert.ok(canvas, 'Godot canvas vanished');
+  const image = decodePng(Buffer.from(await canvas.screenshot({ type: 'png', timeout: ACTION_TIMEOUT_MS })));
+  await canvas.dispose();
+  const scale = image.width / data.width;
+  const offset = (Math.floor(logical.y * scale) * image.width + Math.floor(logical.x * scale)) * image.channels;
+  return [image.pixels[offset], image.pixels[offset + 1], image.pixels[offset + 2]];
+}
+
+const near = (pixel, expected, tolerance) => pixel.every((channel, index) => Math.abs(channel - expected[index]) <= tolerance);
+
+/**
+ * Plan I9, mouse half: drags in real Chrome at both device pixel ratios. Reordering and a cross-column move, the
+ * event sequence and `pointercancel` without a `click`, effect negotiation and the CSS cursor, Escape, a release
+ * beyond the page, the ghost in the canvas's pixels, edge auto-scroll with the target following the scroll under a
+ * stationary pointer. Mirrors the native `drag` section.
+ */
+async function runDragScenario() {
+  await demo('showLab', 'hud');
+  await demo('showLab', 'drag');
+  await waitUntil('the drag lab mounts', () => nodeExists('drag-lab'));
+  await page.mouse.move(1, 1);
+  await frames();
+  const board = () => text('board-status');
+  const log = () => text('drag-log');
+  const clicks = async () => Number(/clicks (\d+)$/.exec(await text('drop-status'))?.[1]);
+  const logical = async (testID) => centerOf(testID);
+  const pageOf = async (point) => pagePoint(point.x, point.y);
+  const press = async (from) => {
+    const start = await pageOf(from);
+    await page.mouse.move(start.x, start.y);
+    await frames();
+    await page.mouse.down();
+    await frames();
+  };
+  const moveToLogical = async (point) => {
+    const target = await pageOf(point);
+    await page.mouse.move(target.x, target.y);
+    await frames();
+  };
+  const idOf = async (testID) => (await find(testID)).id;
+  const settled = async (predicate, name) => waitUntil(name, async () => predicate(await dragState()));
+
+  check('Nothing is dragging at first', (await dragState()).session === 0, await dragState());
+  check('The board starts as designed', (await board()) === 'todo: a,b,c | doing: d,e', await board());
+
+  // Reorder: a press inside a draggable element is pending; past the threshold it is a drag and the pointer is cancelled.
+  const a = await logical('card-a');
+  const c = await logical('card-c');
+  await demo('resetPointerCancels');
+  await press(a);
+  await moveToLogical({ x: a.x, y: a.y + DRAG_WITHIN_THRESHOLD_PX });
+  const pending = await dragState();
+  check('Within the threshold a press is pending', pending.state === 'pending' && pending.source === await idOf('card-a') && (await demo('pointerCancels')) === 0, pending);
+  await moveToLogical({ x: a.x, y: a.y + DRAG_BEYOND_THRESHOLD_PX });
+  await settled((drag) => drag.state === 'dragging', 'past the threshold the press becomes a drag');
+  check('Starting a drag cancels the pointer once', (await demo('pointerCancels')) === 1, await demo('pointerCancels'));
+  check('The drag has a ghost', (await dragState()).ghost !== null, await dragState());
+  check('A running drag listens for Escape', await demo('surfaceProcessingInput'));
+  await moveToLogical(c);
+  await settled((drag) => drag.target !== null && drag.allowedEffect === 'move', 'over card c, which prevents dragover, the drop is accepted');
+  check('The target is card c', (await dragState()).target === await idOf('card-c'), await dragState());
+  // Godot asks for the cursor before it hands over the motion, so the canvas shows it from the next motion on.
+  await moveToLogical({ x: c.x + 1, y: c.y });
+  await expectCanvasCursor(CSS_CURSOR_CAN_DROP, 'Over a target that accepts, the cursor is can-drop');
+  await capture('30-drag-reorder');
+  await page.mouse.up();
+  await frames();
+  await waitUntil('the drop reorders the board', async () => (await board()) === 'todo: b,a,c | doing: d,e');
+  check('The event sequence is dragstart, dragenter, dragenter, drop, dragend',
+    (await log()) === 'dragstart a > dragenter card-a > dragenter card-c > drop a move > dragend move', await log());
+  check('No click follows a drag', (await clicks()) === 0, await text('drop-status'));
+  const reordered = await dragState();
+  check('The drop is reported', reordered.lastEnd?.reason === 'dropped' && reordered.lastEnd.dropEffect === 'move' && reordered.ghost === null, reordered);
+  check('Nothing keeps frames or input after the drag', !(await demo('surfaceProcessing')) && !(await demo('surfaceProcessingInput')));
+
+  // Between columns, onto the trash, and the refusals.
+  const b = await logical('card-b');
+  const e = await logical('card-e');
+  await press(b);
+  await moveToLogical({ x: b.x, y: b.y + DRAG_BEYOND_THRESHOLD_PX });
+  await moveToLogical(e);
+  await page.mouse.up();
+  await waitUntil('a card moves to the other column', async () => (await board()) === 'todo: a,c | doing: d,b,e');
+  const trash = await logical('trash');
+  const cardC = await logical('card-c');
+  await press(cardC);
+  await moveToLogical({ x: cardC.x, y: cardC.y + DRAG_BEYOND_THRESHOLD_PX });
+  await moveToLogical(trash);
+  await settled((drag) => drag.allowedEffect === 'move', 'the trash accepts a move');
+  await page.mouse.up();
+  await waitUntil('the trash takes the card', async () => (await board()) === 'todo: a | doing: d,b,e');
+  const palette = await logical('palette');
+  await press(palette);
+  await moveToLogical({ x: palette.x, y: palette.y + DRAG_BEYOND_THRESHOLD_PX });
+  await moveToLogical(trash);
+  await settled((drag) => drag.state === 'dragging' && drag.target !== null, 'the pointer is over the trash');
+  check('A copy-only source is refused by the trash', (await dragState()).allowedEffect === null, await dragState());
+  await moveToLogical({ x: trash.x + 1, y: trash.y });
+  await expectCanvasCursor(CSS_CURSOR_FORBIDDEN, 'Where nothing accepts, the cursor is forbidden');
+  await page.mouse.up();
+  await frames();
+  const refused = await dragState();
+  check('Released over a target that refused, the drag ends with no effect', refused.lastEnd?.reason === 'released' && refused.lastEnd.dropEffect === 'none', refused);
+  check('And nothing was dropped', !(await log()).slice((await log()).lastIndexOf('dragstart')).includes('drop '), await log());
+
+  // Escape cancels and is accepted.
+  const boardBefore = await board();
+  const cardA = await logical('card-a');
+  await press(cardA);
+  await moveToLogical({ x: cardA.x, y: cardA.y + DRAG_BEYOND_THRESHOLD_PX });
+  await settled((drag) => drag.state === 'dragging', 'a drag to cancel');
+  await demo('resetRootKeys');
+  await focusCanvas();
+  await pressKey('Escape');
+  await settled((drag) => drag.lastEnd?.reason === 'escape', 'Escape cancels the drag');
+  const cancelled = await dragState();
+  check('A cancelled drag is not a drop and not a release outside the root', cancelled.lastEnd.dropEffect === 'none' && !cancelled.lastEnd.endedOutsideRoot && cancelled.ghost === null, cancelled);
+  check('Escape was accepted: JS never saw the key', !(await demo('rootKeys')).includes('Escape'), await demo('rootKeys'));
+  await page.mouse.up();
+  await frames();
+  check('Releasing the held pointer drops nothing', (await board()) === boardBefore, await board());
+
+  // A release beyond the page: endedOutsideRoot and the release point.
+  const viewportSize = page.viewport();
+  const cardAAgain = await logical('card-a');
+  await press(cardAAgain);
+  await moveToLogical({ x: cardAAgain.x, y: cardAAgain.y + DRAG_BEYOND_THRESHOLD_PX });
+  await page.mouse.move(viewportSize.width + OUTSIDE_THE_PAGE_PX, viewportSize.height / 2);
+  await settled((drag) => drag.state === 'dragging' && drag.position !== null && drag.position.x > viewportSize.width, 'the pointer leaves the page');
+  await page.mouse.up();
+  await frames();
+  const outside = await dragState();
+  check('Released beyond the page, the drag says so', outside.lastEnd?.endedOutsideRoot === true && outside.lastEnd.dropEffect === 'none', outside);
+  await waitUntil('the source reports where the drag ended', async () => /outside true at \d+,\d+ viewport \d+,\d+$/.test(await text('end-status')) && Number(/at (\d+),/.exec(await text('end-status'))?.[1]) > viewportSize.width);
+
+  // The ghost: the palette chip at 60 % over the page, following the pointer with the grab offset.
+  const paletteRect = (await find('palette')).rect;
+  const logRect = (await find('drag-log')).rect;
+  const spot = { x: 40, y: logRect.y + logRect.height + 40 };
+  const grab = { x: paletteRect.x + paletteRect.width / 4, y: paletteRect.y + paletteRect.height / 2 };
+  await press(grab);
+  await moveToLogical({ x: grab.x, y: grab.y + DRAG_BEYOND_THRESHOLD_PX });
+  const target = { x: spot.x + (grab.x - paletteRect.x), y: spot.y + paletteRect.height / 2 };
+  await moveToLogical(target);
+  await settled((drag) => drag.ghost !== null && Math.abs(drag.ghost.x - spot.x) < 1 && Math.abs(drag.ghost.y - spot.y) < 1, 'the ghost follows the pointer');
+  const probe = { x: spot.x + GHOST_PROBE_INSET, y: spot.y + paletteRect.height / 2 };
+  const blended = AMBER_100_RGB.map((channel, index) => channel * GHOST_OPACITY + PAGE_FILL_RGB[index] * (1 - GHOST_OPACITY));
+  const ghostPixel = await canvasPixel(probe);
+  check('The ghost is the chip at 60 % over the page', near(ghostPixel, blended, GHOST_PIXEL_TOLERANCE), { ghostPixel, blended });
+  check('The source stays at full opacity', near(await canvasPixel({ x: paletteRect.x + GHOST_PROBE_INSET, y: probe.y }), AMBER_100_RGB, GHOST_PIXEL_TOLERANCE));
+  await capture('31-drag-ghost');
+  await page.mouse.up();
+  await frames();
+  check('The ghost is gone with the drag', near(await canvasPixel(probe), PAGE_FILL_RGB, GHOST_PIXEL_TOLERANCE) && (await dragState()).ghost === null);
+
+  // Edge auto-scroll, and the target following the scroll under a stationary pointer.
+  const list = (await find('drag-list')).rect;
+  const palette2 = await logical('palette');
+  await press(palette2);
+  await moveToLogical({ x: palette2.x, y: palette2.y + DRAG_BEYOND_THRESHOLD_PX });
+  await moveToLogical({ x: list.x + list.width / 2, y: list.y + list.height / 2 });
+  check('Away from the edge the list rests and the root asks for no frames', (await scrollOf('drag-list')).scrollTop === 0 && !(await demo('surfaceProcessing')));
+  const edge = { x: list.x + list.width / 2, y: list.y + list.height - 1 - AUTOSCROLL_BAND_PX };
+  await moveToLogical(edge);
+  const seen = new Set();
+  const deadline = Date.now() + AUTOSCROLL_DEADLINE_MS;
+  let state = await scrollOf('drag-list');
+  while (state.scrollTop < state.maxScrollTop - SCROLL_TOLERANCE) {
+    assert.ok(Date.now() < deadline, `The list scrolled to ${state.scrollTop} of ${state.maxScrollTop} in ${AUTOSCROLL_DEADLINE_MS} ms`);
+    await new Promise((resolve) => setTimeout(resolve, AUTOSCROLL_SAMPLE_MS));
+    state = await scrollOf('drag-list');
+    seen.add((await dragState()).target);
+  }
+  check('The list auto-scrolled to its end', true, state);
+  check('The target was looked up again as the list scrolled under the stationary pointer', seen.size >= 3, [...seen]);
+  await waitUntil('the pointer is over the last row', async () => (await dragState()).target === await idOf(`row-${DRAG_LIST_ROWS - 1}`));
+  check('With the list at its end nothing asks for frames', !(await demo('surfaceProcessing')));
+  await capture('32-drag-autoscroll');
+  await page.mouse.up();
+  await expectTextWhere('drop-status', 'The drop landed on the last row', (value) => value.includes(`list palette onto row ${DRAG_LIST_ROWS - 1}`));
+  await page.mouse.move(1, 1);
+  await frames();
+  await demo('restoreDemo');
+  await waitUntil('the demo returns', () => nodeExists('app'));
+  await demo('grabSurfaceFocus');
+}
+
+/**
+ * Plan I9, touch half (the touch page): a touch held still on a draggable element becomes a drag, and a finger that
+ * moves first pans the list instead, with no drag, no click and one pointercancel.
+ */
+async function runTouchDragScenario() {
+  await demo('showLab', 'drag');
+  await waitUntil('the drag lab mounts on touch', () => nodeExists('drag-lab'));
+  await page.mouse.move(1, 1);
+  await frames();
+  const cdp = await page.createCDPSession();
+  const touchAt = async (type, point) => {
+    await cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x: point.x, y: point.y, id: 1 }] });
+    await frames();
+  };
+  const board = () => text('board-status');
+  const clicks = async () => Number(/clicks (\d+)$/.exec(await text('drop-status'))?.[1]);
+  const pageOf = async (logicalPoint) => pagePoint(logicalPoint.x, logicalPoint.y);
+
+  // Hold, then move: a drag. Nothing starts before the hold elapses.
+  const d = await pageOf(await centerOf('card-d'));
+  const b = await pageOf(await centerOf('card-b'));
+  await demo('resetPointerCancels');
+  await touchAt('touchStart', d);
+  const heldSince = Date.now();
+  const pending = await dragState();
+  check('A touch on a draggable element waits to see which it is', pending.state === 'pending' && pending.pointer >= FIRST_TOUCH_ID, pending);
+  check('Waiting out the hold asks for frames', await demo('surfaceProcessing'));
+  await waitUntil('the hold starts the drag', async () => (await dragState()).state === 'dragging', HOLD_DEADLINE_MS);
+  check('It began after the hold, not before', Date.now() - heldSince >= TOUCH_HOLD_MS - 100, Date.now() - heldSince);
+  check('The pointer was cancelled and a ghost shows', (await demo('pointerCancels')) === 1 && (await dragState()).ghost !== null, await dragState());
+  await touchAt('touchMove', b);
+  await waitUntil('the finger moves the drag', async () => (await dragState()).target === await idOf('card-b'));
+  await capture('33-drag-touch-hold');
+  const clicksBefore = await clicks();
+  const boardBefore = await board();
+  await touchAt('touchEnd', b);
+  await waitUntil('lifting the finger drops', async () => (await board()) !== boardBefore);
+  check('A touch drag does not click', (await clicks()) === clicksBefore && (await dragState()).lastEnd?.reason === 'dropped', await dragState());
+
+  // A swipe on a draggable row pans the list: the drag is declined.
+  const rows = (await find('drag-list')).rect;
+  const sessionBefore = (await dragState()).session;
+  const logBefore = await text('drag-log');
+  const start = await pageOf({ x: rows.x + rows.width / 2, y: rows.y + 2 * AUTOSCROLL_BAND_PX + 10 });
+  await demo('resetPointerCancels');
+  await touchAt('touchStart', start);
+  check('A touch on a draggable row waits too', (await dragState()).state === 'pending', await dragState());
+  let finger = start;
+  for (let step = 1; step <= 4; step += 1) {
+    finger = { x: start.x, y: start.y - step * TOUCH_SWIPE_STEP_PX };
+    await touchAt('touchMove', finger);
+  }
+  await waitUntil('the swipe scrolls the list', async () => (await scrollOf('drag-list')).scrollTop > 0);
+  const swiped = await dragState();
+  check('Moving first declines the drag', swiped.session === sessionBefore && swiped.state !== 'dragging', swiped);
+  check('The pan cancelled the pointer once', (await demo('pointerCancels')) === 1, await demo('pointerCancels'));
+  await touchAt('touchEnd', finger);
+  await waitUntil('the list comes to rest', async () => !(await demo('surfaceProcessing')), HOLD_DEADLINE_MS);
+  check('The swipe made no drag event and no click', (await text('drag-log')) === logBefore && (await clicks()) === clicksBefore, await text('drag-log'));
+
+  // A quick tap still clicks.
+  const tap = await pageOf(await centerOf('card-a'));
+  await page.touchscreen.tap(tap.x, tap.y);
+  await waitUntil('a tap clicks', async () => (await clicks()) === clicksBefore + 1);
+  check('A tap starts no drag', (await dragState()).session === sessionBefore, await dragState());
+  await cdp.detach();
+
+  await page.mouse.move(1, 1);
+  await frames();
+  await demo('restoreDemo');
+  await waitUntil('the demo returns on touch', () => nodeExists('app'));
+  await demo('grabSurfaceFocus');
+}
+
 async function runEventsScenario(viewport) {
   await click('tab-interaction');
   await waitUntil('interaction lab mounts', () => nodeExists('interaction-lab'));
@@ -1797,6 +2088,7 @@ async function runWorkflow(viewport) {
   if (wanted('keyboard')) await runKeyboardScenario();
   if (wanted('scroll')) await runScrollScenario();
   if (wanted('selection')) await runSelectionScenario();
+  if (wanted('drag')) await runDragScenario();
 
   // This page keeps running across viewports (the native verifier gets a fresh process for each),
   // so leave a fresh root: the lab's log and click counters must not leak into the next viewport.
@@ -1815,24 +2107,27 @@ async function runTouchWorkflow() {
     const data = await snapshot();
     return data.width === viewport.width && data.height === viewport.height;
   });
-  const tap = async (testID) => {
-    const point = await pointerPoint(testID);
-    await page.touchscreen.tap(point.x, point.y);
-    await frames();
-  };
-  await tap('tab-interaction');
-  await waitUntil('interaction lab mounts on touch', () => nodeExists('interaction-lab'));
-  await tap('event-inner');
-  await expectText('event-log', CAPTURE_THEN_BUBBLE, 'A touch tap dispatches capture then bubble');
-  await tap('focus-normal');
-  const normal = (await find('focus-normal')).id;
-  await expectFocused(normal, 'A touch tap focuses its button');
-  await tap('focus-prevented');
-  await expectText('focus-status', 'Clicks: normal 1, no-focus 1', 'A touch tap on a prevented button still clicks');
-  check('A prevented touch tap does not take focus', (await focusedId()) === normal);
-  await capture('01-touch-interaction');
-  await runTouchPointersScenario();
-  await runTouchScrollScenario();
+  if (wanted('touch')) {
+    const tap = async (testID) => {
+      const point = await pointerPoint(testID);
+      await page.touchscreen.tap(point.x, point.y);
+      await frames();
+    };
+    await tap('tab-interaction');
+    await waitUntil('interaction lab mounts on touch', () => nodeExists('interaction-lab'));
+    await tap('event-inner');
+    await expectText('event-log', CAPTURE_THEN_BUBBLE, 'A touch tap dispatches capture then bubble');
+    await tap('focus-normal');
+    const normal = (await find('focus-normal')).id;
+    await expectFocused(normal, 'A touch tap focuses its button');
+    await tap('focus-prevented');
+    await expectText('focus-status', 'Clicks: normal 1, no-focus 1', 'A touch tap on a prevented button still clicks');
+    check('A prevented touch tap does not take focus', (await focusedId()) === normal);
+    await capture('01-touch-interaction');
+    await runTouchPointersScenario();
+    await runTouchScrollScenario();
+  }
+  if (wanted('drag')) await runTouchDragScenario();
 }
 
 try {
@@ -1846,7 +2141,7 @@ try {
     await browser.defaultBrowserContext().overridePermissions(new URL(url).origin, ['clipboard-read', 'clipboard-write', 'clipboard-sanitized-write']);
     await loadPage({ width: viewports[0].width, height: viewports[0].height, deviceScaleFactor: 1 });
     for (const viewport of viewports) await runWorkflow(viewport);
-    if (wanted('touch')) await runTouchWorkflow();
+    if (wanted('touch') || wanted('drag')) await runTouchWorkflow();
     checkBrowserErrors();
     report.passed = true;
   })(), TOTAL_TIMEOUT_MS, 'Browser interaction verification');

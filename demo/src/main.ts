@@ -116,6 +116,9 @@ export default class Main extends Node {
       cursorShapeAt: (x: number, y: number) => this.requireSurface().getCursorShape(new Vector2(x, y)),
       /** Whether the root holds Godot key focus. */
       surfaceHasFocus: () => this.requireSurface().hasFocus(),
+      /** Whether the root asks for `process()` frames and for `_input` (native's one decision, `update_process`). */
+      surfaceProcessing: () => this.requireSurface().isProcessing(),
+      surfaceProcessingInput: () => this.requireSurface().isProcessingInput(),
       grabSurfaceFocus: () => this.requireSurface().grabFocus(),
       /** Whether a root that has only just entered the tree holds key focus (it must not). */
       bareSurfaceHasFocus: () => {

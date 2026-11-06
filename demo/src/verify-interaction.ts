@@ -28,6 +28,9 @@ export interface InteractionInspection extends DemoInspection {
   resetPassthrough(): void;
   cursorShapeAt(x: number, y: number): Control.CursorShape;
   surfaceHasFocus(): boolean;
+  /** Whether the root asks for `process()` frames and for `_input` (native's one decision, `update_process`). */
+  surfaceProcessing(): boolean;
+  surfaceProcessingInput(): boolean;
   grabSurfaceFocus(): void;
   bareSurfaceHasFocus(): boolean;
   offsetSurface(x: number, y: number): void;
@@ -2808,6 +2811,433 @@ async function verifySelectionGestures(owner: Node, api: InteractionInspection, 
   assert(api.selectionChanges() === beforeInsertion + 1 && text(api, 'sel-readout') === 'selected: nothing',
     'A selectable line inserted between the ends clears the selection, with a selectionchange, when the commit lands');
   assert(selected() === undefined, 'And nothing is selected');
+}
+
+/** The drag lab's list has this many rows (`LIST_ROWS` in demo/src/drag-lab.tsx). */
+const LIST_ROWS = 20;
+/** A mouse press becomes a drag once it is further than this from where it began (`Viewport.gui_drag_threshold`'s default). */
+const DRAG_THRESHOLD_PX = 10;
+/** A step that stays inside the threshold, and one that goes past it but is still on a 36 px card. */
+const WITHIN_THRESHOLD_PX = 5;
+const BEYOND_THRESHOLD_PX = DRAG_THRESHOLD_PX + 2;
+/** How long a touch must stay put to become a drag (`TOUCH_DRAG_HOLD_MS`, native/drag.rs), and how long to wait for it. */
+const TOUCH_HOLD_MS = 500;
+const HOLD_DEADLINE_MS = 3000;
+/** Edge auto-scroll: how close to the list's bottom edge the pointer rests, how long the scroll may take, how often it is sampled. */
+const AUTOSCROLL_BAND_PX = 12;
+const AUTOSCROLL_DEADLINE_MS = 10_000;
+const AUTOSCROLL_SAMPLE_MS = 100;
+/** The ghost's opacity (`DRAG_GHOST_OPACITY`, native/drag_ghost.rs) over the lab's page; the palette item is amber-100. */
+const GHOST_OPACITY = 0.6;
+const AMBER_100 = '#fef3c7';
+const GHOST_PROBE_INSET = 6;
+const GHOST_SCAN_STEP = 12;
+const GHOST_TOLERANCE = 0.03;
+/** A touch that swipes moves this far per step, well before the hold elapses. */
+const SWIPE_STEP_PX = 15;
+/** Where the root, offset by `SURFACE_OFFSET`, is not: inside the window, left of the root's edge. */
+const BEYOND_THE_ROOT = new Vector2(20, 100);
+
+async function waitUntil(what: string, ready: () => boolean, deadlineMs: number): Promise<void> {
+  const deadline = Date.now() + deadlineMs;
+  while (!ready()) {
+    assert(Date.now() < deadline, `Timed out after ${deadlineMs} ms waiting for ${what}`);
+    await new Promise(resolve => setTimeout(resolve, FRAME_POLL_MS));
+  }
+}
+
+/** The top-left corner of a `size` area of the lab that is bare page, found in the raster. */
+function barePage(owner: Node, size: Vector2, snapshot: NativeSnapshot): Vector2 {
+  const image = frameImage(owner);
+  const bare = (at: Vector2): boolean => {
+    for (let y = 0; y <= size.y; y += GHOST_SCAN_STEP) {
+      for (let x = 0; x <= size.x; x += GHOST_SCAN_STEP) if (!paintIs(image, new Vector2(at.x + x, at.y + y), PAGE_FILL)) return false;
+    }
+    return paintIs(image, new Vector2(at.x + size.x, at.y + size.y), PAGE_FILL);
+  };
+  for (let y = EMPTY_POINT_SEARCH_STEP; y + size.y < snapshot.height; y += EMPTY_POINT_SEARCH_STEP) {
+    for (let x = EMPTY_POINT_SEARCH_STEP; x + size.x < snapshot.width; x += EMPTY_POINT_SEARCH_STEP) {
+      if (bare(new Vector2(x, y))) return new Vector2(x, y);
+    }
+  }
+  throw new Error(`No bare ${size.x} x ${size.y} area of page in the drag lab`);
+}
+
+/**
+ * Plan I9: drag and drop. Arbitration (a press that moves on, a touch that is held, a prevented or captured
+ * `pointerdown`, a prevented `dragstart`), the event sequence and its outcomes, reordering and moving cards between
+ * columns, a target that takes only `move`, effect negotiation and the cursor, Escape, a release beyond the root,
+ * the ghost in the raster, edge auto-scroll and the target following a scroll under a stationary pointer, the
+ * root leaving the tree, and touch (hold then move drags; a swipe pans instead).
+ */
+async function verifyDragging(owner: Node, api: InteractionInspection, capture: (name: string) => Promise<void>): Promise<void> {
+  api.showLab('hud');
+  await settle();
+  api.showLab('drag');
+  await settle();
+  move(FAR_CORNER);
+  await settle();
+  const drag = () => api.snapshot().drag;
+  /** No pointer is held for a drag, or being watched for one (a finished or cancelled drag leaves `ended`, until the next press). */
+  const isOver = () => drag().state !== 'pending' && drag().state !== 'dragging';
+  const board = () => text(api, 'board-status');
+  const log = () => text(api, 'drag-log');
+  const ended = () => text(api, 'end-status');
+  const dropStatus = () => text(api, 'drop-status');
+  const clicks = () => Number(/clicks (\d+)$/.exec(dropStatus())?.[1]);
+  /** The `pointerup`s that reached the lab's root: a drag, which cancels the pointer, sends none. */
+  const ups = () => Number(/pointerups (\d+),/.exec(dropStatus())?.[1]);
+  const idOf = (testID: string) => get(api, testID).id;
+  const cursor = (at: Vector2) => api.cursorShapeAt(at.x, at.y);
+  const offset = (at: Vector2, dx: number, dy: number) => new Vector2(at.x + dx, at.y + dy);
+  const lastEnd = () => {
+    const end = drag().lastEnd;
+    assert(end, 'A drag has ended');
+    return end;
+  };
+  /** Press at `from` and move to `via` (all in order). The button stays down. */
+  const dragVia = async (from: Vector2, ...via: Vector2[]): Promise<void> => {
+    move(from);
+    await settle();
+    pointer(from, true);
+    await settle();
+    for (const at of via) {
+      move(at);
+      await settle();
+    }
+  };
+  const release = async (at: Vector2): Promise<void> => {
+    pointer(at, false);
+    await settle();
+  };
+
+  // ---- At rest ------------------------------------------------------------------------------------------------------
+  assert(drag().state === 'idle' && drag().session === 0 && drag().ghost === null && drag().lastEnd === null,
+    `Nothing is dragging before the first drag: ${JSON.stringify(drag())}`);
+  assert(board() === 'todo: a,b,c | doing: d,e', `The board starts as designed: ${board()}`);
+  assert(!api.surfaceProcessing() && !api.surfaceProcessingInput(), 'An idle root asks for no frames and no input');
+  assert(get(api, 'card-a').props.draggable === true && get(api, 'ghostless').props.dragPreview === 'none',
+    'draggable and dragPreview reach native as props');
+  await click(api, 'card-b');
+  assert(clicks() === 1 && ups() === 1, `A plain click on a draggable card is still a click, with its pointerup: ${dropStatus()}`);
+  await capture('35-drag-lab');
+
+  // ---- Reorder within a column: arbitration, the event sequence, the outcome --------------------------------------
+  const cardA = point(api, 'card-a');
+  const cardC = point(api, 'card-c');
+  api.resetPointerCancels();
+  await dragVia(cardA, offset(cardA, 0, WITHIN_THRESHOLD_PX));
+  assert(drag().state === 'pending' && drag().source === idOf('card-a'), `A press inside a draggable element is pending: ${JSON.stringify(drag())}`);
+  assert(api.pointerCancels() === 0 && drag().ghost === null && log() === 'no events',
+    'Within the threshold it is still a press: no cancel, no ghost, no drag event');
+  move(offset(cardA, 0, BEYOND_THRESHOLD_PX));
+  await settle();
+  assert(drag().state === 'dragging' && drag().session === 1, `Past the threshold it is a drag: ${JSON.stringify(drag())}`);
+  assert(api.pointerCancels() === 1, `Starting a drag cancels the pointer once: ${api.pointerCancels()}`);
+  assert(api.surfaceProcessingInput(), 'A running drag listens for Escape');
+  assert(log() === 'dragstart a > dragenter card-a', `dragstart, then dragenter on what is under the pointer: ${log()}`);
+  move(cardC);
+  await settle();
+  assert(drag().target === idOf('card-c') && drag().allowedEffect === 'move', `Over card c, which prevents dragover: ${JSON.stringify(drag())}`);
+  assert(cursor(cardC) === Control.CursorShape.CursorCanDrop, 'Over a target that accepts, the cursor is can-drop');
+  await capture('36-drag-reorder');
+  await release(cardC);
+  assert(board() === 'todo: b,a,c | doing: d,e', `Card a dropped on card c lands before it: ${board()}`);
+  assert(log() === 'dragstart a > dragenter card-a > dragenter card-c > drop a move > dragend move', `The event sequence: ${log()}`);
+  assert(clicks() === 1, 'No click follows a drag');
+  assert(ups() === 1, `No pointerup follows it either (the pointer was cancelled): ${dropStatus()}`);
+  assert(api.pointerCancels() === 1, 'And no further pointer cancel');
+  assert(isOver() && drag().pointer === null && drag().ghost === null, 'The drag is over and the ghost gone');
+  const reorder = lastEnd();
+  assert(reorder.reason === 'dropped' && reorder.dropEffect === 'move' && !reorder.endedOutsideRoot, `The drop is reported: ${JSON.stringify(reorder)}`);
+  assert(ended().startsWith('last drag ended: move outside false at '), `The source heard dragend: ${ended()}`);
+  assert(!api.surfaceProcessing() && !api.surfaceProcessingInput(), 'A finished drag asks for no frames and no input');
+  assert(cursor(cardC) === Control.CursorShape.CursorArrow, 'The cursor is the element\'s again');
+
+  // ---- Between columns, and onto a column's own space ------------------------------------------------------------------
+  const cardB = point(api, 'card-b');
+  const cardE = point(api, 'card-e');
+  await dragVia(cardB, offset(cardB, 0, BEYOND_THRESHOLD_PX), cardE);
+  await release(cardE);
+  assert(board() === 'todo: a,c | doing: d,b,e', `Card b dropped on card e moves to the other column before it: ${board()}`);
+  const doingCards = point(api, 'card-d');
+  const todoRect = get(api, 'column-todo').rect;
+  const columnFloor = new Vector2(todoRect.x + todoRect.width / 2, todoRect.y + todoRect.height - WITHIN_THRESHOLD_PX);
+  await dragVia(doingCards, offset(doingCards, 0, BEYOND_THRESHOLD_PX), columnFloor);
+  assert(drag().target === idOf('column-todo'), `The pointer is over the todo column's own space: ${JSON.stringify(drag())}`);
+  await release(columnFloor);
+  assert(board() === 'todo: a,c,d | doing: b,e', `Dropped on a column rather than a card, it goes last: ${board()}`);
+  assert(clicks() === 1, 'Still no click');
+
+  // ---- The ghost: a translucent copy, following the pointer with the grab offset ----------------------------------------
+  const paletteRect = get(api, 'palette').rect;
+  const spot = barePage(owner, new Vector2(paletteRect.width, paletteRect.height), api.snapshot());
+  const grab = offset(point(api, 'palette'), paletteRect.width / 4 - paletteRect.width / 2, 0);
+  const grabInChip = new Vector2(grab.x - paletteRect.x, grab.y - paletteRect.y);
+  const amberGhost = blend(AMBER_100, PAGE_FILL, GHOST_OPACITY);
+  const probeInGhost = (origin: Vector2) => offset(origin, GHOST_PROBE_INSET, paletteRect.height / 2);
+  await dragVia(grab, offset(grab, 0, BEYOND_THRESHOLD_PX));
+  let ghost = drag().ghost;
+  assert(ghost, 'A dragged element with a native preview has a ghost');
+  assert(near(ghost.x, grab.x - grabInChip.x, 0.5) && near(ghost.y, grab.y + BEYOND_THRESHOLD_PX - grabInChip.y, 0.5)
+    && near(ghost.width, paletteRect.width, 0.5) && near(ghost.height, paletteRect.height, 0.5),
+  `The ghost is the source's box, kept at the same place under the pointer: ${JSON.stringify(ghost)}`);
+  const ghostPointer = new Vector2(spot.x + grabInChip.x, spot.y + grabInChip.y);
+  move(ghostPointer);
+  await settle();
+  ghost = drag().ghost;
+  assert(ghost && near(ghost.x, spot.x, 0.5) && near(ghost.y, spot.y, 0.5), `The ghost follows the pointer: ${JSON.stringify(ghost)}`);
+  const image = frameImage(owner);
+  assert(paintNear(image, probeInGhost(spot), amberGhost, GHOST_TOLERANCE),
+    `The ghost is the chip at 60 % over the page: ${describePaint(image, probeInGhost(spot))}, expected #${amberGhost.toHtml(false)}`);
+  assert(paintIs(image, probeInGhost(new Vector2(paletteRect.x, paletteRect.y)), AMBER_100), 'The source stays where it was, at full opacity');
+  assert(cursor(ghostPointer) === Control.CursorShape.CursorForbidden, 'Over bare page nothing accepts: the cursor is forbidden');
+  await capture('37-drag-ghost');
+  await release(ghostPointer);
+  assert(paintIs(frameImage(owner), probeInGhost(spot), PAGE_FILL), 'The ghost is gone with the drag');
+  assert(drag().ghost === null && lastEnd().reason === 'released' && lastEnd().dropEffect === 'none', 'Released over nothing, the drag ends with no effect');
+  assert(log().endsWith('> dragend none'), `Nothing was dropped: ${log()}`);
+  assert(!lastEnd().endedOutsideRoot, 'Over bare page, but inside the root: not outside');
+
+  // dragPreview="none" draws nothing.
+  const ghostless = point(api, 'ghostless');
+  await dragVia(ghostless, offset(ghostless, 0, BEYOND_THRESHOLD_PX), spot);
+  assert(drag().state === 'dragging' && drag().ghost === null, 'dragPreview none: the drag runs with no ghost');
+  assert(paintIs(frameImage(owner), probeInGhost(spot), PAGE_FILL), 'And nothing is drawn');
+  await release(spot);
+
+  // ---- The trash takes only a move; the palette item only copies -----------------------------------------------------
+  const trash = point(api, 'trash');
+  const cardCNow = point(api, 'card-c');
+  await dragVia(cardCNow, offset(cardCNow, 0, BEYOND_THRESHOLD_PX), trash);
+  assert(drag().target === idOf('trash') && drag().allowedEffect === 'move', 'The trash accepts a move');
+  assert(cursor(trash) === Control.CursorShape.CursorCanDrop, 'with the can-drop cursor');
+  // Godot asks for the cursor before it hands over the motion, so the window shows it from the next motion on.
+  move(offset(trash, 1, 0));
+  await settle();
+  assert(DisplayServer.cursorGetShape() === DisplayServer.CursorShape.CursorCanDrop,
+    `Moving over a target sets the window cursor: ${DisplayServer.cursorGetShape()}`);
+  await release(offset(trash, 1, 0));
+  assert(board() === 'todo: a,d | doing: b,e' && dropStatus().startsWith('trash c,'), `Card c is in the trash: ${board()}, ${dropStatus()}`);
+  const palette = point(api, 'palette');
+  const doingColumn = get(api, 'column-doing').rect;
+  const doingFloor = new Vector2(doingColumn.x + doingColumn.width / 2, doingColumn.y + doingColumn.height - WITHIN_THRESHOLD_PX);
+  await dragVia(palette, offset(palette, 0, BEYOND_THRESHOLD_PX), doingFloor);
+  assert(drag().allowedEffect === 'copy', `A column takes a copy: ${JSON.stringify(drag())}`);
+  await release(doingFloor);
+  assert(board() === 'todo: a,d | doing: b,e,n1', `The palette item became a new card: ${board()}`);
+  assert(log().includes('drop palette copy'), `The drop carried the copy effect: ${log()}`);
+
+  const reject = async (from: Vector2, over: Vector2, why: string): Promise<void> => {
+    const before = board();
+    const trashBefore = dropStatus();
+    await dragVia(from, offset(from, 0, BEYOND_THRESHOLD_PX), over);
+    assert(drag().state === 'dragging' && drag().allowedEffect === null, `${why}: nothing accepted: ${JSON.stringify(drag())}`);
+    assert(cursor(over) === Control.CursorShape.CursorForbidden, `${why}: the cursor is forbidden`);
+    move(offset(over, 1, 0));
+    await settle();
+    assert(DisplayServer.cursorGetShape() === DisplayServer.CursorShape.CursorForbidden, `${why}: and so is the window's: ${DisplayServer.cursorGetShape()}`);
+    await release(offset(over, 1, 0));
+    const end = lastEnd();
+    assert(end.reason === 'released' && end.dropEffect === 'none', `${why}: released, with no effect: ${JSON.stringify(end)}`);
+    const started = log().lastIndexOf('dragstart');
+    assert(started >= 0 && !/drop /.test(log().slice(started)), `${why}: no drop event: ${log()}`);
+    assert(board() === before && dropStatus() === trashBefore, `${why}: nothing changed`);
+  };
+  await reject(point(api, 'palette'), trash, 'The trash takes only a move; a copy-only source is refused');
+  await reject(point(api, 'card-a'), point(api, 'refuser'), 'A target that does not prevent dragover');
+
+  // ---- Arbitration: a prevented pointerdown, a captured pointer, a prevented dragstart ---------------------------------
+  const clicksBefore = clicks();
+  const sessionBeforeGestures = drag().session;
+  for (const testID of ['locked', 'captured']) {
+    const at = point(api, testID);
+    api.resetPointerCancels();
+    // Past the threshold and then further, but still on the chip (36 px high), so the release clicks it.
+    const furthest = offset(at, 0, BEYOND_THRESHOLD_PX + WITHIN_THRESHOLD_PX / 2);
+    await dragVia(at, offset(at, 0, BEYOND_THRESHOLD_PX), furthest);
+    assert(isOver() && drag().session === sessionBeforeGestures && api.pointerCancels() === 0,
+      `${testID}: JS took the pointer, so no drag is offered: ${JSON.stringify(drag())}`);
+    await release(furthest);
+  }
+  const refused = point(api, 'refused');
+  api.resetPointerCancels();
+  await dragVia(refused, offset(refused, 0, BEYOND_THRESHOLD_PX));
+  assert(log().endsWith('dragstart refused') && drag().state === 'ended' && drag().ghost === null,
+    `dragstart ran and was prevented: no drag, no ghost: ${JSON.stringify(drag())} ${log()}`);
+  assert(api.pointerCancels() === 0, 'A refused drag leaves the pointer events alone');
+  await release(offset(refused, 0, BEYOND_THRESHOLD_PX));
+  assert(isOver() && drag().pointer === null, 'The press ends');
+  assert(clicks() === clicksBefore + 3, `Those three presses ended in clicks, as plain pointer events: ${clicksBefore} -> ${clicks()}`);
+
+  // ---- Escape cancels and is accepted ---------------------------------------------------------------------------------
+  const boardBefore = board();
+  const upsBeforeEscape = ups();
+  const cardAEsc = point(api, 'card-a');
+  const cardDEsc = point(api, 'card-d');
+  api.resetPointerCancels();
+  api.resetRootKeys();
+  const keysToGame = Object.keys(counts(api).unhandledKeys).length;
+  await dragVia(cardAEsc, offset(cardAEsc, 0, BEYOND_THRESHOLD_PX), cardDEsc);
+  assert(drag().state === 'dragging' && drag().target === idOf('card-d'), 'A drag is over card d');
+  keyEvent({ keycode: Key.KeyEscape }, true);
+  await settle();
+  keyEvent({ keycode: Key.KeyEscape }, false);
+  await settle();
+  const cancelled = lastEnd();
+  assert(cancelled.reason === 'escape' && cancelled.dropEffect === 'none' && !cancelled.endedOutsideRoot,
+    `Escape cancels: not a drop, and not a release outside the root: ${JSON.stringify(cancelled)}`);
+  assert(drag().ghost === null && drag().state === 'ended' && !api.surfaceProcessingInput(), 'The ghost goes at once; the held pointer\'s gesture is over');
+  assert(api.rootKeys().length === 0 && Object.keys(counts(api).unhandledKeys).length === keysToGame,
+    `Escape was accepted: neither JS nor the game saw it (${api.rootKeys()}): ${JSON.stringify(counts(api).unhandledKeys)}`);
+  assert(log().endsWith('> dragend none'), `A cancelled drag still ends with dragend: ${log()}`);
+  const afterEscape = log();
+  move(point(api, 'card-e'));
+  await settle();
+  move(point(api, 'card-b'));
+  await settle();
+  assert(log() === afterEscape && drag().state === 'ended', 'The pointer is still down, but moving it drags nothing');
+  await release(point(api, 'card-b'));
+  assert(board() === boardBefore && isOver() && drag().pointer === null && log() === afterEscape, `Releasing it drops nothing: ${board()}`);
+  assert(clicks() === clicksBefore + 3 && ups() === upsBeforeEscape, `And neither clicks nor sends a pointerup: ${dropStatus()}`);
+
+  // ---- A release beyond the root ---------------------------------------------------------------------------------------
+  api.offsetSurface(SURFACE_OFFSET.x, SURFACE_OFFSET.y);
+  await settle();
+  const cardAOutside = offset(point(api, 'card-a'), SURFACE_OFFSET.x, SURFACE_OFFSET.y);
+  const beyond = BEYOND_THE_ROOT;
+  await dragVia(cardAOutside, offset(cardAOutside, 0, BEYOND_THRESHOLD_PX), beyond);
+  assert(drag().state === 'dragging' && drag().target === null && drag().allowedEffect === null, 'Beyond the root there is no target');
+  const beyondPosition = drag().position;
+  assert(beyondPosition && beyondPosition.x === beyond.x - SURFACE_OFFSET.x, 'The drag reports root-local coordinates');
+  await release(beyond);
+  const outside = lastEnd();
+  assert(outside.reason === 'released' && outside.endedOutsideRoot && outside.dropEffect === 'none', `Released beyond the root: ${JSON.stringify(outside)}`);
+  assert(ended() === `last drag ended: none outside true at ${beyond.x - SURFACE_OFFSET.x},${beyond.y - SURFACE_OFFSET.y} viewport ${beyond.x},${beyond.y}`,
+    `dragend carries root-local and viewport coordinates: ${ended()}`);
+  api.offsetSurface(0, 0);
+  await settle();
+
+  // ---- Edge auto-scroll, and the target following a scroll under a stationary pointer ------------------------------------
+  const listRect = get(api, 'drag-list').rect;
+  const listState = () => {
+    const state = get(api, 'drag-list').scroll;
+    assert(state, 'The list is a scroll container');
+    return state;
+  };
+  assert(listState().scrollTop === 0 && listState().maxScrollTop > 0, 'The list has room to scroll');
+  const edgePoint = new Vector2(listRect.x + listRect.width / 2, listRect.y + listRect.height - 1 - AUTOSCROLL_BAND_PX);
+  const paletteAgain = point(api, 'palette');
+  await dragVia(paletteAgain, offset(paletteAgain, 0, BEYOND_THRESHOLD_PX), centerOf(listRect));
+  assert(listState().scrollTop === 0 && !api.surfaceProcessing(), 'Away from the edge the list does not scroll and the root asks for no frames');
+  move(edgePoint);
+  await settle();
+  assert(api.surfaceProcessing(), 'Near the edge the drag asks for frames');
+  const targets = new Set<number | null>();
+  let captured = false;
+  let previousTop = listState().scrollTop;
+  const deadline = Date.now() + AUTOSCROLL_DEADLINE_MS;
+  while (listState().scrollTop < listState().maxScrollTop - SCROLL_TOLERANCE) {
+    assert(Date.now() < deadline, `The list scrolled to ${listState().scrollTop} of ${listState().maxScrollTop} in ${AUTOSCROLL_DEADLINE_MS} ms`);
+    await new Promise(resolve => setTimeout(resolve, AUTOSCROLL_SAMPLE_MS));
+    const top = listState().scrollTop;
+    assert(top >= previousTop, 'Auto-scroll only goes towards the edge the pointer is at');
+    previousTop = top;
+    const sample = drag();
+    targets.add(sample.target);
+    if (!captured && top > listState().maxScrollTop / 2) {
+      captured = true;
+      assert(sample.state === 'dragging' && sample.position !== null && sample.position.y === edgePoint.y, 'The pointer has not moved');
+      await capture('38-drag-autoscroll');
+    }
+  }
+  assert(targets.size >= 3, `The element under the stationary pointer was looked up again as the list scrolled: ${targets.size} targets seen`);
+  const lastRow = idOf(`row-${LIST_ROWS - 1}`);
+  await settle();
+  assert(drag().target === lastRow && drag().allowedEffect === 'copy', `At the bottom the pointer is over the last row, which takes the copy: ${JSON.stringify(drag())}`);
+  assert(!api.surfaceProcessing(), 'With the list at its end nothing asks for frames');
+  await release(edgePoint);
+  assert(dropStatus().includes(`list palette onto row ${LIST_ROWS - 1}`), `The drop landed on the last row: ${dropStatus()}`);
+  assert(near(listState().scrollTop, listState().maxScrollTop), 'And the list stayed at the bottom');
+  await capture('39-drag-list-end');
+
+  // ---- The root leaves the tree mid-drag -----------------------------------------------------------------------------------
+  const cardBExit = point(api, 'card-b');
+  await dragVia(cardBExit, offset(cardBExit, 0, BEYOND_THRESHOLD_PX));
+  assert(drag().state === 'dragging', 'A drag is running');
+  api.surfaceAttached(false);
+  await settle();
+  assert(drag().state === 'idle' && drag().ghost === null && lastEnd().reason === 'rootexit', `The drag ends with the root: ${JSON.stringify(drag())}`);
+  assert(lastEnd().dropEffect === 'none' && !lastEnd().endedOutsideRoot, 'Cancelled, not released anywhere');
+  assert(ended().startsWith('last drag ended: none outside false'), `JS heard dragend: ${ended()}`);
+  api.surfaceAttached(true);
+  await settle();
+  await release(cardBExit);
+  assert(drag().state === 'idle' && board() === boardBefore, 'The root comes back with no drag');
+  api.grabSurfaceFocus();
+  await settle();
+
+  // ---- Touch: hold then move drags; a swipe pans instead ------------------------------------------------------------------
+  move(FAR_CORNER);
+  await settle();
+  const holdAt = point(api, 'card-d');
+  const holdTarget = point(api, 'card-b');
+  const holdCancels = api.pointerCancels();
+  const boardBeforeTouch = board();
+  const clicksBeforeTouch = clicks();
+  const upsBeforeTouch = ups();
+  touch(FIRST_TOUCH, holdAt, true);
+  const heldSince = Date.now();
+  await settle();
+  assert(drag().state === 'pending' && drag().source === idOf('card-d') && drag().pointer === FIRST_TOUCH_ID, `A touch on a draggable element is pending: ${JSON.stringify(drag())}`);
+  assert(api.surfaceProcessing(), 'A touch waiting out its hold asks for frames');
+  await waitUntil('the hold to start the drag', () => drag().state === 'dragging', HOLD_DEADLINE_MS);
+  assert(Date.now() - heldSince >= TOUCH_HOLD_MS - SETTLE_MS, `The drag began after the hold, not before: ${Date.now() - heldSince} ms`);
+  assert(api.pointerCancels() === holdCancels + 1 && drag().ghost !== null, 'Held long enough: the pointer is cancelled and the ghost shows');
+  touchDrag(FIRST_TOUCH, holdTarget, new Vector2(holdTarget.x - holdAt.x, holdTarget.y - holdAt.y));
+  await settle();
+  assert(drag().target === idOf('card-b') && drag().allowedEffect === 'move', 'The finger moves the drag');
+  await capture('40-drag-touch-hold');
+  touch(FIRST_TOUCH, holdTarget, false);
+  await settle();
+  assert(board() !== boardBeforeTouch && isOver(), `Lifting the finger over a target drops: ${board()}`);
+  assert(clicks() === clicksBeforeTouch && ups() === upsBeforeTouch && lastEnd().reason === 'dropped', `A touch drag does not click or send a pointerup: ${dropStatus()}`);
+
+  // A quick swipe on a draggable row scrolls the list: the drag is declined, the pan takes the finger. The list is at
+  // its end after the auto-scroll, so the finger goes down (the content follows it back towards the top).
+  const rows = get(api, 'drag-list').rect;
+  const visibleRow = Array.from({ length: LIST_ROWS }, (_, index) => get(api, `row-${index}`))
+    .find(row => row.rect.y >= rows.y && row.rect.y + row.rect.height <= rows.y + rows.height);
+  assert(visibleRow, 'A row is fully in view');
+  const swipeStart = centerOf(visibleRow.rect);
+  const logBeforeSwipe = log();
+  const sessionBefore = drag().session;
+  api.resetPointerCancels();
+  const topBefore = listState().scrollTop;
+  touch(FIRST_TOUCH, swipeStart, true);
+  await frames(2);
+  assert(drag().state === 'pending', 'A touch on a draggable row waits to see which it is');
+  let finger = swipeStart;
+  for (let step = 1; step <= 3; step++) {
+    finger = new Vector2(swipeStart.x, swipeStart.y + step * SWIPE_STEP_PX);
+    touchDrag(FIRST_TOUCH, finger, new Vector2(0, SWIPE_STEP_PX));
+    await frames(2);
+  }
+  assert(listState().scrollTop < topBefore, `Moving first scrolls the list: ${topBefore} -> ${listState().scrollTop}`);
+  assert(drag().session === sessionBefore && drag().state !== 'dragging', 'And no drag began');
+  assert(api.pointerCancels() === 1, 'The pan cancelled the pointer, once');
+  touch(FIRST_TOUCH, finger, false);
+  await settle();
+  assert(isOver() && log() === logBeforeSwipe && clicks() === clicksBeforeTouch, 'No drag event, no click');
+  await waitUntil('the list to stop coasting', () => !api.surfaceProcessing(), HOLD_DEADLINE_MS);
+
+  // A quick tap on a draggable card is a tap.
+  const tapAt = point(api, 'card-a');
+  touch(FIRST_TOUCH, tapAt, true);
+  await frames(2);
+  touch(FIRST_TOUCH, tapAt, false);
+  await settle();
+  assert(clicks() === clicksBeforeTouch + 1 && drag().session === sessionBefore, `A tap clicks and starts no drag: ${dropStatus()}`);
 
   move(FAR_CORNER);
   await settle();
@@ -2818,7 +3248,7 @@ async function verifySelectionGestures(owner: Node, api: InteractionInspection, 
 }
 
 /** The sections of this verifier, in the order they run (plan 0.4.1: `--only=<name>[,<name>]` runs just those). */
-const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard', 'positioning', 'inputs', 'scroll', 'selection'] as const;
+const SECTIONS = ['events', 'cooperation', 'pointers', 'keyboard', 'positioning', 'inputs', 'scroll', 'selection', 'drag'] as const;
 type Section = (typeof SECTIONS)[number];
 
 function isSection(value: string): value is Section {
@@ -2877,6 +3307,7 @@ export async function runInteractionVerification(owner: Node, api: InteractionIn
   if (sections.has('inputs')) await timed('inputs', () => verifyInputs(owner, api, capture));
   if (sections.has('scroll')) await timed('scroll', () => verifyScrolling(owner, api, capture));
   if (sections.has('selection')) await timed('selection', () => verifySelection(owner, api, capture));
+  if (sections.has('drag')) await timed('drag', () => verifyDragging(owner, api, capture));
 
   console.log('GODOT_REACT_INTERACTION_VERIFY_PASSED', JSON.stringify({sections: [...sections], sectionMs, captures, dispatchTiming: timing}));
 }

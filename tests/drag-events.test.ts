@@ -238,3 +238,24 @@ test('draggable and dragPreview cross to native as props and change by diff', ()
   assert.deepEqual(host.commits.at(-1)?.payload.updated, [{ tag, props: { draggable: null } }]);
   root.unmount();
 });
+
+test('drag events bubble from the element under the pointer to its ancestors and then to root listeners', () => {
+  const host = new RecordingHost();
+  const { root } = createTestRoot(host);
+  const log: string[] = [];
+  root.addEventListener('dragover', (event) => log.push(`root:${event.target.testID}:${event.eventPhase}`));
+  root.render(h(View, null,
+    h(View, { testID: 'source', draggable: true }),
+    h(View, {
+      testID: 'outer',
+      onDragOver(event: UIDragEvent<'dragover'>) { log.push(`outer:${event.target.testID}:${event.currentTarget.testID}`); event.preventDefault(); },
+    }, h(View, { testID: 'inner' }))));
+  host.events.push(host.dragEvent(requireNode(root, 'source'), 'dragstart', SESSION));
+  const over = host.dragEvent(requireNode(root, 'inner'), 'dragover', SESSION);
+  host.events.push(over);
+  root.dispatchEvents();
+  assert.deepEqual(log, ['outer:inner:outer', 'root:inner:3']);
+  assert.deepEqual(resolutionOf(host, over.seq), { defaultPrevented: true, dropEffect: 'copy' },
+    'a handler on an ancestor accepts the drop for the element under the pointer');
+  root.unmount();
+});
