@@ -266,7 +266,7 @@ export class RecordingHost implements NativeHost {
     this.calls.push('focusNode');
     this.focusRequests.push({ tag, focusVisible });
     if (!this.nodes.has(tag) || tag === 0) return `node ${tag} is not mounted`;
-    if (!this.focusable.has(tag)) return `node ${tag} cannot take focus: it is not a button and has no tabIndex`;
+    if (!this.focusable.has(tag)) return `node ${tag} cannot take focus: it is not a button or text input and has no tabIndex`;
     this.focused = tag;
     return '';
   }
@@ -383,7 +383,7 @@ export class RecordingHost implements NativeHost {
       width: this.currentSize.x, height: this.currentSize.y, hovered: null, focused: this.focused, pressed: null, focusVisible: false, modality: 'keyboard', pointers: [],
       drag: this.dragState,
       stats: {
-        batches: this.commits.length, nodeCount: this.nodes.size - 1, layoutPasses: 0, paintPasses: 0, layoutMicros: 0,
+        batches: this.commits.length, commits: this.commits.length, animationFrames: 0, nodeCount: this.nodes.size - 1, layoutPasses: 0, paintPasses: 0, layoutMicros: 0,
         nodesCreated: 0, nodesUpdated: 0, nodesDeleted: 0, nodesRestyled: 0, mutations: 0, boxRecords: 0, contentRecords: 0,
         scrollUpdates: 0, overlayRecords: 0,
       },

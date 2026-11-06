@@ -28,7 +28,7 @@ export interface PointerInit {
  * The recording host plus the parts of native that the kit's behaviour depends on and that the kit
  * tests would otherwise have to script by hand, each copied from the native source it names:
  *
- * - `focusNode` refuses what native refuses: an element that is not a button and has no `tabIndex`, or
+ * - `focusNode` refuses what native refuses: an element that is not a button or text input and has no `tabIndex`, or
  *   that is or sits in a disabled element (`native/focus.rs` `nearest_focusable`).
  * - Enter and Space press a focused enabled button when `keydown` is not prevented (a repeat is part of
  *   the press), and releasing that key clicks it with pointer 0 and no pointer type
@@ -88,7 +88,7 @@ export class KitHost extends RecordingHost {
       current = parent;
     }
     if (target.kind !== 'button' && target.kind !== 'textinput' && target.props.tabIndex === undefined) {
-      return `node ${tag} cannot take focus: it is not a button and has no tabIndex`;
+      return `node ${tag} cannot take focus: it is not a button or text input and has no tabIndex`;
     }
     return undefined;
   }

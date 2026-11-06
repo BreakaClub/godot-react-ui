@@ -71,7 +71,7 @@ the pure helpers `arrowDirection` and `adjacentEnabledIndex`), 5 for slider math
 
 - `tests/kit-host.ts` `KitHost extends RecordingHost` (a subclass so `tests/recording-host.ts` is untouched and
   cannot conflict with the other tracks). It adds what the kit depends on and each piece cites the native source it
-  copies: `focusNode` refuses what `native/focus.rs` refuses (not a button, no `tabIndex`, or in a disabled
+  copies: `focusNode` refuses what `native/focus.rs` refuses (not a button or text input, no `tabIndex`, or in a disabled
   element); Enter and Space press a focused enabled button when `keydown` is not prevented and the matching
   `keyup` clicks it with pointer 0 and no pointer type (`native/keyboard_input.rs` `key_down_default`,
   `key_up_default`); `keyup` is cancelable as native awaits it; a captured pointer's events go to the capturing

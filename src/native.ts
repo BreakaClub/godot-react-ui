@@ -147,12 +147,14 @@ export interface NativeBlurPlan {
   clamped: boolean;
 }
 
+/** How an element's effect items hang (`RenderNode::layout_name`): `both` has the backdrop outside the group, on its shell; `both-in-wrapper` inside it. */
+export type NativeEffectsLayout = 'plain' | 'backdrop' | 'group' | 'both' | 'both-in-wrapper';
+
 export interface NativeEffects {
   backdrop: { plan: NativeBlurPlan | null; region: [number, number, number, number] | null; kind: string | null } | null;
   /** `culled`: the element's opacity is too low for the engine to draw anything of it, so its group is not drawn either. */
   filter: { plan: NativeBlurPlan | null; kind: string | null; probe: boolean; culled: boolean } | null;
-  /** How the effect items hang: `plain`, `backdrop`, `group`, or `both` (the backdrop outside the group, on its shell). */
-  layout: string;
+  layout: NativeEffectsLayout;
 }
 
 export interface NativeTransition {
@@ -497,6 +499,9 @@ export interface NativeSnapshot {
     nodeCount: number;
     paintPasses: number;
     layoutMicros: number;
+    /** The same count as `batches`: successful commits. */
+    commits: number;
+    animationFrames: number;
     nodesCreated: number;
     nodesUpdated: number;
     nodesDeleted: number;
@@ -986,8 +991,13 @@ function nodeEffects(value: unknown): NativeEffects | null {
       plan: blurPlan(filter.plan, 'effects.filter.plan'), kind: kind(filter.kind),
       probe: boolean(filter.probe, 'effects.filter.probe'), culled: boolean(filter.culled, 'effects.filter.culled'),
     },
-    layout: string(effects.layout, 'effects.layout'),
+    layout: effectsLayout(effects.layout),
   };
+}
+
+function effectsLayout(value: unknown): NativeEffectsLayout {
+  if (value === 'plain' || value === 'backdrop' || value === 'group' || value === 'both' || value === 'both-in-wrapper') return value;
+  throw new Error(`Invalid native effects layout: ${String(value)}`);
 }
 
 function regionTuple(value: unknown): [number, number, number, number] {
@@ -1077,6 +1087,8 @@ export function readSnapshot(host: NativeHost): NativeSnapshot {
     stats: {
       layoutPasses: number(stats.layoutPasses, 'stats.layoutPasses'),
       batches: number(stats.batches, 'stats.batches'),
+      commits: number(stats.commits, 'stats.commits'),
+      animationFrames: number(stats.animationFrames, 'stats.animationFrames'),
       nodeCount: number(stats.nodeCount, 'stats.nodeCount'),
       paintPasses: number(stats.paintPasses, 'stats.paintPasses'),
       layoutMicros: number(stats.layoutMicros, 'stats.layoutMicros'),

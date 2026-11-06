@@ -37,7 +37,7 @@ export interface UIHandle {
   /**
    * Focus the element and give the root Godot key focus. The focus shows the ring and matches
    * `focus-visible:` if it is a keyboard focus: `focusVisible` says so, else it follows how the user last
-   * gave input. Throws for an element that is gone or cannot take focus (not a `Button`, no `tabIndex`,
+   * gave input. Throws for an element that is gone or cannot take focus (not a `Button` or `TextInput`, no `tabIndex`,
    * or disabled).
    */
   focus(options?: { focusVisible?: boolean }): void;
