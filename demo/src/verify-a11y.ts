@@ -181,6 +181,11 @@ export async function runA11yVerification(api: A11yInspection): Promise<void> {
   assert(get(api, 'a11y-delete').props.disabled === true, 'Delete is disabled');
   assert(api.snapshot().nodes.every(node => node.kind !== 'text' || isAbsent(node.props.role)), 'Text has no explicit role');
 
+  // ---- The dump tool reaches this process whatever the engine exposes: the window is always there ----------
+  const outline = await readTree(directory, 'ax-window.json', nodes => nodes.some(node => node.role === 'AXWindow'));
+  assert(outline !== undefined && flatten(outline.tree).some(node => node.role === 'AXWindow'),
+    'ax-dump could not read this process\'s window through the Accessibility API');
+
   // ---- The platform's view of the initial state ---------------------------------------------------------
   const platformTree = engine.enabled;
   const failures: string[] = [];

@@ -1,21 +1,25 @@
 # Track: accessibility (Phase I10, native exposure and its verification)
 
-Branch `accessibility`, based on `5151c68`. Notes and report for the coordinator; `docs/INTERACTION_PLAN.md` and
+Branch `accessibility`, rebased onto main `a98df16` (positioning, the shared verifier isolation and text layout). Notes and report for the coordinator; `docs/INTERACTION_PLAN.md` and
 `docs/INTERACTION_PROGRESS.md` are not edited here. This is plan I10 tasks 1 and 2 plus the verification of task 4,
 for everything except scroll containers (I5) and `TextInput` (I7).
 
-**Headline: the platform's accessibility tree could not be read, because the installed engine has no accessibility
-driver.** `/Applications/Godot48.app` was built without AccessKit: `AccessibilityServer.is_supported()` is false,
-`DisplayServer.has_feature(FEATURE_ACCESSIBILITY_SCREEN_READER)` is false, `SceneTree.is_accessibility_enabled()` is
-false even with `--accessibility always`, and the binary contains no AccessKit symbol. So the engine never sends
-`NOTIFICATION_ACCESSIBILITY_UPDATE` and nothing in `native/accessibility.rs`'s update pass has run in a real engine.
-Everything else here ran (below), including the action entry point and the JS side in a real window. What Ben needs to
-do is under "To finish the verification".
+**Headline: the platform's accessibility tree could not be read, because no engine that can run this project has an
+accessibility driver.** `/Applications/Godot48.app` (27 Oct) was built without AccessKit:
+`AccessibilityServer.is_supported()` is false, `DisplayServer.has_feature(FEATURE_ACCESSIBILITY_SCREEN_READER)` is false,
+`SceneTree.is_accessibility_enabled()` is false even with `--accessibility always`, and the binary has no `_accesskit_`
+symbol. The older local editors that do have AccessKit are 4.7.2 and cannot load the extension (below). So the engine
+never sends `NOTIFICATION_ACCESSIBILITY_UPDATE`, and nothing in `native/accessibility.rs`'s update pass has run in a
+real engine. Everything else here ran, including the action entry point and the JS side in a real window, and the dump
+tool reading the lab's own window from inside the run. What is needed is under "To finish the verification", and why
+the engine lacks the driver is decision 17.
 
 | What | Where | Commit |
 | --- | --- | --- |
-| Native fields, JS wiring, the model, the registry, the Godot glue, the `accessibilityaction` event, the slider's answer, tests | `native/props.rs`, `native/accessibility_model.rs`, `native/accessibility.rs`, `native/events.rs`, hooks in `native/lib.rs` `mount.rs` `layout.rs` `motion.rs`, `src/props.ts` `src/native.ts` `src/events.ts` `src/components.tsx` `src/index.ts` `src/types.ts` `src/kit/slider*.ts*`, `tests/*` | `a241d4c` |
-| Lab scene, verifiers, AX dump tool, typings, these notes | `demo/a11y.tscn`, `demo/src/a11y-*.ts*`, `demo/src/verify-a11y.ts`, `scripts/verify-a11y.mjs`, `scripts/ax-dump.swift`, `scripts/ax-tree.mjs`, `scripts/a11y-expectations.mjs`, `demo/typings/godot7.gen.d.ts`, `demo/gen/**`, `docs/tracks/accessibility.md` | the commit after `a241d4c` |
+| Native fields, JS wiring, the model, the registry, the Godot glue, the `accessibilityaction` event, the slider's answer, tests | `native/props.rs`, `native/accessibility_model.rs`, `native/accessibility.rs`, `native/events.rs`, hooks in `native/lib.rs` `mount.rs` `layout.rs` `motion.rs`, `src/props.ts` `src/native.ts` `src/events.ts` `src/components.tsx` `src/index.ts` `src/types.ts` `src/kit/slider*.ts*`, `tests/*` | `e95e653` |
+| Lab scene, verifiers, AX dump tool, typings, these notes | `demo/a11y.tscn`, `demo/src/a11y-*.ts*`, `demo/src/verify-a11y.ts`, `scripts/verify-a11y.mjs`, `scripts/ax-dump.swift`, `scripts/ax-tree.mjs`, `scripts/a11y-expectations.mjs`, `demo/typings/godot7.gen.d.ts`, `demo/gen/**`, `docs/tracks/accessibility.md` | `3ffe642` |
+| After the rebase: bounds from the paint tree, the verifier on the shared isolation and runner, the in-process dump | `native/accessibility*.rs`, `demo/src/a11y-main.ts` `verify-a11y.ts` `verifier-input.ts`, `scripts/verify-a11y.mjs` `ax-dump.swift` `a11y-expectations.mjs` | `eb31786` |
+| The dump-tool self-check, the older-engine result, decision 17 and the final checks | `demo/src/verify-a11y.ts`, this file | the commit after `eb31786` |
 
 ## What the engine does (read from source, with the lines)
 
@@ -127,34 +131,84 @@ and `blur`.
     in the run below; no timing was measured.
 11. **Focus.** `get_focused_accessibility_element` returns the focused node's element, else its nearest exposed
     ancestor's, else the root's own element.
-12. **Bounds** are the node's border box in root-local logical pixels (origins accumulated down the walk), no
-    transforms on sub-elements; clipping ancestors are not applied, but an exposed element that clips its children has
-    `FLAG_CLIPS_CHILDREN`.
+12. **Bounds** are the node's border box in root-local logical pixels, no transforms on sub-elements. After the
+    positioning phase an `absolute` or `fixed` element is located in its *paint* parent's frame, not its tree
+    parent's, so the walk does not add up tree locations: `AxSource::node` returns the rectangle from
+    `stacking::absolute_geometry` (the same function the snapshot's rects come from) and the model uses it as given.
+    Reading order is document order (the tree), not paint order. Clipping ancestors are not applied, but an exposed
+    element that clips its children has `FLAG_CLIPS_CHILDREN`.
 13. **No `aria-valuestep`:** plan 4.2 has no such field, so the numeric step is not set; increment and decrement are
     answered by JS, which knows the step.
-14. **The platform tree is read from outside the process** (`scripts/ax-dump.swift`), the Godot half changes state
-    with `Input.parse_input_event`, and the two meet through files in a per-run directory
-    (`scripts/verify-a11y.mjs`). The dump tool only calls `AXUIElementCopyAttributeValue`; the wrapper refuses to run if
-    its source mentions a call that could act. It reads only the application's windows (its menu bar lists the user's
-    recent files). Geometry is checked by fitting one scale and offset over all elements and bounding the residual,
-    so a retina window (0.5 points per pixel was observed) is not a special case.
-15. **Assistive actions are exercised through the callable's entry point.** The verifier calls
+14. **The platform tree is read by the run itself, through the shared native runner.** The verifier follows
+    `verify-world` (plan D21, D22): `demo/src/verifier-input.ts` isolates the window from real input (`--verify-a11y`
+    joins `injectsOwnInput`), events are injected with `parseVerifierEvent`, and `scripts/verify-a11y.mjs` launches the
+    run through `scripts/native-run.mjs`, so a failure with a disturbance in its log is re-run at most twice and any
+    other failure is not. The runner waits for the window to finish, so the run reads its own tree: it starts
+    `scripts/ax-dump.swift` against its own process with `OS.createProcess` (not `OS.execute`: the tool asks this
+    process's main thread for the tree, which a blocked main thread never answers), polls for the file the tool writes
+    atomically (`--output`), and judges the readings with `scripts/a11y-expectations.mjs` (bundled into the Godot
+    script; it is pure) before and after the changes. The dump tool only calls `AXUIElementCopyAttributeValue`, the
+    wrapper refuses to run if its source mentions a call that could act, and it reads only the application's windows
+    (the menu bar lists the user's recent files). Geometry is checked by fitting one scale and offset over all
+    elements and bounding the residual, so a retina window (0.5 points per pixel was observed) is not a special case.
+    An engine without a driver ends the run with `GODOT_REACT_A11Y_UNSUPPORTED` (exit 2: not verified), a missing
+    Accessibility permission with `GODOT_REACT_A11Y_NOT_TRUSTED` (exit 3).
+15. **Platform focus is not judged under isolation.** The isolated window is never the key window, and the platform
+    reports focus only for a key window, so there is nothing to read; `checkFocus` is skipped with a logged note
+    instead of passing or failing on no evidence. Native's own choice of focused element
+    (`get_focused_accessibility_element`) is therefore unverified against a real adapter.
+16. **Assistive actions are exercised through the callable's entry point.** The verifier calls
     `ReactUiRoot._on_accessibility_action` the way the adapter's callable does (a `Callable` bound with the tag and the
     action code, called with the request's data), because the dump tool must not perform real accessibility actions.
     That proves argument order, the native-to-JS event, and the kit's handling; it does not prove that AccessKit
     delivers a request to the callable (it is the engine's code and the shape is `ItemList`'s).
+17. **Shipping gap: accessibility cannot work in the shipped game until Breaka's engine builds include AccessKit.**
+    Both the editor and the export templates must be built with it. The current `/Applications/Godot48.app`
+    (installed 2026-10-27) is not: `AccessibilityServer.is_supported()` is false, the binary has no AccessKit
+    symbol, and `--accessibility always` changes nothing, so with it the update pass never runs and the game
+    exposes only the window. On macOS the option is `accesskit` (default on), the SDK is looked for at
+    `accesskit_sdk_path`, default `bin/build_deps/accesskit` under the source tree being built
+    (`platform/macos/detect.py:57-60`); if that path does not exist the build prints a warning and carries on
+    with `env["accesskit"] = False` (`detect.py:215-232`). **Why the 27 Oct build lacks it, from its recorded
+    build log** (`/Users/ben/Development/godot-4.8-restoration-20261027/evidence/editor-build.log`, lines 3-7): the
+    editor was built in that restoration tree (`.../source`), which has no `bin/build_deps/` at all, and scons
+    printed "The screen reader support driver requires dependencies to be installed ... Alternatively, disable
+    this driver by compiling with `accesskit=no` explicitly" and disabled the driver (the same log disables ANGLE the
+    same way). It was not a flag anyone passed; the SDK was missing from the tree. Builds made in the main checkout
+    `~/Development/godot`, where `bin/build_deps/accesskit` exists, do contain it: every 4.7.x engine binary in its
+    `bin/` (`nm -gU` shows 450 `_accesskit_` symbols in each editor and the debug templates; the `template_release`
+    one has 124) is built with it, while Godot48 and its source binary
+    (`godot-4.8-restoration-20261027/artifacts/godot.macos.editor.arm64.unit463`) have none. Two things to
+    check before relying on that checkout for a 4.8 build: the SDK installed there is dated 20 Mar 2026, and the
+    4.8 source pins AccessKit 0.22.3 (`misc/scripts/install_accesskit.py`, updated 15 Jul 2026), so refresh it with
+    that script first (the installed copy's version was not recorded, and a mismatch would show as compile errors
+    in `drivers/accesskit`); and `docs/operations/GODOT_ENGINE_BUILDS.md`'s macOS recipe has no `accesskit_sdk_path`
+    and relies on the default being present. Fixes: install the SDK in the tree being built or pass
+    `accesskit_sdk_path=...`, and treat the AccessKit warning in the scons log as an error. The Web platform in this engine has no
+    accessibility code at all (`platform/web/` contains none), so a Web export has no screen-reader support from the
+    engine whatever the build flags are; that is a separate gap from this one. The export templates for macOS were
+    not inspected.
 
 ## Checks
 
+Run on the rebased branch (`eb31786` and the commit after it), each once:
+
 | Command | Result |
 | --- | --- |
-| `cargo test --locked` | 416 passed (the model, registry, props and event wire tests are new) |
+| `cargo test --locked` | 473 passed (416 were this track's tree before the rebase; the rest is main's) |
 | `cargo clippy --locked --all-targets` | 0 warnings |
 | `rustup run stable cargo fmt --check` | clean |
 | `pnpm test:types` | clean |
-| `pnpm test` | 209 passed (178 before this track), including the AX-tree helper and expectation tests |
-| `pnpm build:native`, `pnpm build`, `pnpm gen:types` | succeed; typings and `demo/gen` committed |
-| `node scripts/verify-a11y.mjs` (once, then once more after its last edit) | the Godot-side half passes in a real window; the run then reports that the platform tree was not verified (exit 2) |
+| `pnpm test` | 216 passed, including the AX-tree helper and expectation tests |
+| `pnpm build:native`, `pnpm build`, `pnpm gen:types` | succeed; `godot7.gen.d.ts` regenerates to no change |
+| `pnpm verify` | passed, both viewports (landscape reported `GODOT_REACT_RUN_DISTURBED` and passed) |
+| `pnpm verify:motion` | passed, both viewports |
+| `pnpm verify:interaction` | passed, both viewports, all five sections including positioning (landscape reported a disturbance and passed) |
+| `pnpm verify:a11y` (Godot48; run twice in all: once after the port, once after the dump self-check was added) | the Godot-side half passes in an isolated window, the dump tool reads the run's own window from inside it (8 nodes), then the run ends `GODOT_REACT_A11Y_UNSUPPORTED` and the wrapper exits 2 "not verified" |
+| `GODOT=…/godot.macos.editor.arm64 pnpm verify:a11y` | not run as such; see "The older engine" |
+
+No run was re-run because of a disturbance. A "disturbed" pass means the shared isolation logged a foreign event,
+a focus loss or a cursor crossing during the run; the verifiers still passed, and the log has the line.
 
 The Godot-side half (`demo/src/verify-a11y.ts`, `GODOT_REACT_A11Y_NATIVE_PASSED`) checks, in a window with Godot's own
 input: the native props of the lab as snapshot reports them (including `ariaChecked: "mixed"`), Space on a checkbox,
@@ -164,35 +218,59 @@ moving focus, increment/decrement/set-value (including a value past the end) mov
 Godot key focus. A first run of it failed on a real defect (a set-value of `300` arrives as an integer variant and was
 rejected); fixed in `requested_number`.
 
-`scripts/ax-dump.swift` was run against the lab window on this machine and works (8 nodes: the window, its title bar
-buttons and title, no content, which is what an engine without AccessKit exposes). The expectations for the real tree
+`scripts/ax-dump.swift` works: the verifier starts it against its own process and reads the lab's window (8 nodes: the
+window, its title bar buttons and title, no content, which is what an engine without AccessKit exposes; under isolation
+the window's subrole is `AXDialog`). The expectations for the real tree
 are tested against hand-written readings, including readings that are wrong in each way the checks look for
 (`tests/a11y-expectations.test.ts`, `tests/ax-tree.test.ts`); they encode what AccessKit's macOS adapter is expected to
 show (`AXButton`/`AXCheckBox`/`AXRadioButton`/`AXSlider`, names in `AXTitle` or `AXDescription`, `AXValue` 0/1 for
 toggles) and have never met the real adapter, so a first real run may need them adjusted.
 
-Not run, by the brief: `pnpm verify`, `pnpm verify:motion`, `pnpm verify:interaction` and the Web verifiers. The commit
-path changed by one call each in `run_commit`, `delete_node`, `flush_layout`, `set_focus` and `publish_style_changes`,
-all no-ops unless accessibility is enabled; the coordinator's merge gate should run them.
+Not run: the Web verifiers (nothing here changes Web behaviour; the extension's accessibility calls are native-only
+in effect, and the engine's Web platform has no accessibility driver).
+
+## The older engine (coordinator step 4)
+
+`/Users/ben/Development/godot/bin/godot.macos.editor.arm64` (14 Oct) does have the driver (`nm -gU` shows 450
+`_accesskit_` symbols; so do its dev and debug-template siblings), but it is `4.7.2.stable.custom_build.8525f2d85`
+and cannot run this project. I did not run `pnpm verify:a11y` against it, because the wrapper would first run
+`importDemo` with that editor in this worktree and an older editor can rewrite project and import state; I ran the
+same engine on a copy of `demo/` in the scratchpad instead (`--headless --path demo --quit`), which is the point the
+wrapper would have died at. The exact output:
+
+```
+ERROR: GDExtension only compatible with Godot version 4.8.0 or later: res://addons/godot-react-ui/react_ui.gdextension, but your Godot version is 4.7.2
+   at: parse_gdextension_file (core/extension/gdextension_library_loader.cpp:327)
+ERROR: Can't open GDExtension dynamic library: 'res://addons/godot-react-ui/react_ui.gdextension'.
+   at: open_library (core/extension/gdextension.cpp:811)
+ERROR: Error loading extension: 'res://addons/godot-react-ui/react_ui.gdextension'.
+   at: load_extensions (core/extension/gdextension_manager.cpp:333)
+...
+Uncaught Error: godot class not found 'ReactUiRoot'
+```
+
+GodotJS itself loads and runs the project's scripts in that engine; the extension does not, and could not be forced to:
+the extension is built against the 4.8 API (`compatibility_minimum = "4.8"`), and `AccessibilityServer` is a 4.8
+class (4.7 has the accessibility calls on `DisplayServer`). No engine was rebuilt or replaced.
 
 ## To finish the verification
 
-1. **An engine with AccessKit.** The SDK is present in the engine checkout (`bin/build_deps/accesskit`, with
-   `lib/macos/arm64/static`), and `platform/macos/detect.py` links it and defines `ACCESSKIT_ENABLED` by default; if the
-   path is missing it prints a warning and builds without it, so a build run from a tree that lacks
-   `bin/build_deps/accesskit` (or with `accesskit=no`) gives exactly this binary; the build flags of Godot48 were
-   not inspected. Rebuild Godot48 with
-   `accesskit_sdk_path=/Users/ben/Development/godot/bin/build_deps/accesskit` (and check the build log for the
-   AccessKit warning), then `strings` the binary for `accesskit_macos_subclassing_adapter_for_window`.
+1. **A 4.8 engine with AccessKit** (decision 17): install or refresh the SDK in the source tree and rebuild the editor
+   there; check that the scons log has no AccessKit warning and that `nm -gU <binary> | grep -c _accesskit_` is
+   non-zero. Nothing else in this repository needs to change.
 2. **macOS Accessibility permission** for the process that runs `pnpm verify:a11y`: System Settings > Privacy &
-   Security > Accessibility. On this machine `AXIsProcessTrusted()` is already true for the agent's process, so no
-   grant was needed here; the wrapper stops with exactly this message (exit 3) if it is missing.
-3. `GODOT=<that engine> pnpm verify:a11y`. Evidence goes to `artifacts/native-a11y/run-*/` (`ax-before.json`,
-   `ax-after.json`, `ready.json`, `mutated.json`, `run.log`).
+   Security > Accessibility. On this machine `AXIsProcessTrusted()` is already true for the agent's process and the
+   dump tool read the run's own window, so no grant was needed here; the wrapper stops with exactly this message
+   (exit 3) if it is missing.
+3. `GODOT=<that engine> pnpm verify:a11y`. Evidence goes to `artifacts/native-a11y/run/` (`ax-window.json`,
+   `ax-before.json`, `ax-after.json`, `run.log`). Compare `ax-before.json` with the table in
+   `scripts/a11y-expectations.mjs`: those expectations were written from AccessKit's macOS mapping and have not met
+   the real adapter, so fix whichever side is wrong, with the dump as evidence. Platform focus is not judged under
+   isolation (decision 15).
 4. **VoiceOver, manually, not done:** with the lab running (`godot --path demo res://a11y.tscn`, no
-   `--verify-a11y`), turn VoiceOver on and check that the order, names and states read as the table in the verifier
-   (`scripts/a11y-expectations.mjs`) says, that VO-Space presses Save, that adjusting the slider with VO-Up/Down
-   changes Volume, and that the hidden text is skipped.
+   `--verify-a11y`), turn VoiceOver on and check that the order, names and states read as the table says, that
+   VO-Space presses Save, that adjusting the slider with VO-Up/Down changes Volume, and that the hidden text is
+   skipped.
 
 Web is not claimed. `DisplayServer.hasFeature(FEATURE_ACCESSIBILITY_SCREEN_READER)` was recorded on native macOS only
 (false on this engine); recording it on Web needs a Web build and a browser run, which was not cheap.
@@ -210,6 +288,13 @@ Web is not claimed. `DisplayServer.hasFeature(FEATURE_ACCESSIBILITY_SCREEN_READE
   set`); `aria-live` regions are sent but untested.
 
 ## Merging notes (shared files touched)
+
+Rebased onto main `a98df16`: the only conflicts were `package.json` (the `verify:a11y` script beside `verify:text-layout`) and
+`scripts/build.mjs` (the lab's `build()` call beside the text-layout one); both kept both sides. `native/props.rs`,
+`native/mount.rs`, `native/lib.rs` and `native/layout.rs` merged without conflict, but positioning changed what a
+node's `location` means, which the rebase could not see (decision 12). `demo/src/verifier-input.ts` gained
+`--verify-a11y` in `injectsOwnInput`; `demo/gen/godot/src/verifier-input.ts.gen.ts` is its generated file, which main did
+not have. Original notes:
 
 Small and local, in the places the positioning and text-layout tracks also edit: `native/props.rs` (new enums before
 `TransitionSpec`; 18 fields at the end of `PropsSpec`, `PropsDiff` and `with_diff`; `validate`), `native/lib.rs`
