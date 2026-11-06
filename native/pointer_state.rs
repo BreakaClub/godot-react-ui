@@ -595,7 +595,10 @@ mod tests {
     fn only_a_capture_an_element_asked_for_counts_as_js_taking_the_pointer() {
         let mut table = PointerTable::default();
         let touch = touch_pointer_id(0).unwrap();
-        assert!(!table.captured_by_js(MOUSE), "an unknown pointer is nobody's");
+        assert!(
+            !table.captured_by_js(MOUSE),
+            "an unknown pointer is nobody's"
+        );
         table.press(
             MOUSE,
             PointerKind::Mouse,
@@ -604,7 +607,10 @@ mod tests {
             BUTTONS_PRIMARY,
             press(7),
         );
-        assert!(!table.captured_by_js(MOUSE), "a pressed mouse is not captured");
+        assert!(
+            !table.captured_by_js(MOUSE),
+            "a pressed mouse is not captured"
+        );
         table.press(
             touch,
             PointerKind::Touch,
@@ -624,9 +630,15 @@ mod tests {
             "setPointerCapture is, even on the element the touch is implicitly captured to"
         );
         table.release_capture(touch, 9);
-        assert!(!table.captured_by_js(touch), "and releasing it gives the pointer back");
+        assert!(
+            !table.captured_by_js(touch),
+            "and releasing it gives the pointer back"
+        );
         table.release(MOUSE, PRIMARY, ORIGIN, 0);
-        assert!(!table.captured_by_js(MOUSE), "the capture ends with the press");
+        assert!(
+            !table.captured_by_js(MOUSE),
+            "the capture ends with the press"
+        );
     }
 
     #[test]

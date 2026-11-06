@@ -208,9 +208,8 @@ impl ReactUiRoot {
             // press inside a draggable element may become a drag once it moves (rule 3, which also keeps
             // the text inside it from starting a selection, as in browsers); selectable text starts a
             // selection (rule 5).
-            let grabbed_thumb = !prevented
-                && !self.mouse_is_captured()
-                && self.begin_thumb_drag(hit, self.pointer);
+            let grabbed_thumb =
+                !prevented && !self.mouse_is_captured() && self.begin_thumb_drag(hit, self.pointer);
             let draggable = !prevented
                 && !grabbed_thumb
                 && self.begin_drag_gesture(MOUSE_DRAG_POINTER, self.pointer, hit);
