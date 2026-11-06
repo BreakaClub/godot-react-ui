@@ -1217,6 +1217,7 @@ declare module "godot" {
         set_text_and_selection: "setTextAndSelection";
         set_text_selection: "setTextSelection";
         get_text_input_state: "getTextInputState";
+        get_text_line_elements: "getTextLineElements";
         _set_text: "_setText";
         _on_web_clipboard_text: "_onWebClipboardText";
         _on_web_clipboard_refused: "_onWebClipboardRefused";
@@ -1254,6 +1255,7 @@ declare module "godot" {
         setTextAndSelection(tag: int64, eventCount: int64, value: string, start: int64, end: int64): string
         setTextSelection(tag: int64, start: int64, end: int64, backward: boolean): string
         getTextInputState(tag: int64): string
+        getTextLineElements(tag: int64): GArray<Rid>
         _setText(text: string, emitSignal: boolean): any
         _onWebClipboardText(arguments_: GArray): any
         _onWebClipboardRefused(arguments_: GArray): any

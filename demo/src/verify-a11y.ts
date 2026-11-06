@@ -336,12 +336,43 @@ export async function runA11yVerification(api: A11yInspection): Promise<void> {
   await assistiveAction(api, 'a11y-name', ACTION_SET_VALUE, NEW_VALUE);
   assert(textOf('a11y-name').value === NEW_VALUE, `A set-value action sets the text: ${textOf('a11y-name').value}`);
   assert(textOf('a11y-name').selection.join() === `${NEW_VALUE.length},${NEW_VALUE.length}`, `with the caret after it: ${textOf('a11y-name').selection}`);
+  // An assistive technology deletes a selection by replacing it with nothing.
+  await assistiveAction(api, 'a11y-name', ACTION_SET_TEXT_SELECTION, GDictionary.create({ start_char: LOVELACE_FROM, end_char: NEW_VALUE.length }));
+  await assistiveAction(api, 'a11y-name', ACTION_REPLACE_SELECTED_TEXT, '');
+  assert(textOf('a11y-name').value === NEW_VALUE.slice(0, LOVELACE_FROM), `A replace-selected-text action with no text deletes the selection: ${JSON.stringify(textOf('a11y-name').value)}`);
+  assert(textOf('a11y-name').selection.join() === `${LOVELACE_FROM},${LOVELACE_FROM}`, `and leaves the caret where it was: ${textOf('a11y-name').selection}`);
+  const deletions = textOf('a11y-name').eventCount;
+  await assistiveAction(api, 'a11y-name', ACTION_REPLACE_SELECTED_TEXT, '');
+  assert(textOf('a11y-name').eventCount === deletions, 'and with nothing selected it deletes nothing');
+  await assistiveAction(api, 'a11y-name', ACTION_SET_VALUE, NEW_VALUE);
+  assert(textOf('a11y-name').value === NEW_VALUE, 'A set-value action puts the name back');
   const readOnlyCount = textOf('a11y-readonly').eventCount;
+  // A set-value that is refused leaves the caret where it was, not after the text it did not set.
+  await assistiveAction(api, 'a11y-readonly', ACTION_SET_TEXT_SELECTION, GDictionary.create({ start_char: 0, end_char: 2 }));
   await assistiveAction(api, 'a11y-readonly', ACTION_SET_VALUE, 'changed');
+  assert(textOf('a11y-readonly').selection.join() === '0,2', `A refused set-value moves nothing: ${textOf('a11y-readonly').selection}`);
   await assistiveAction(api, 'a11y-readonly', ACTION_REPLACE_SELECTED_TEXT, 'changed');
   assert(textOf('a11y-readonly').value === A11Y_READONLY_TEXT && textOf('a11y-readonly').eventCount === readOnlyCount, 'The edit actions change a read-only field not at all');
   await assistiveAction(api, 'a11y-readonly', ACTION_SET_TEXT_SELECTION, GDictionary.create({ start_char: 0, end_char: A11Y_READONLY_TEXT.length }));
   assert(textOf('a11y-readonly').selection.join() === `0,${A11Y_READONLY_TEXT.length}`, 'but its text can be selected');
+  // A text area's selection names the row (its element) each end is on and a character in that row's hard line, as the
+  // platform adapter does (AccessibilityServerAccessKit, SetTextSelection). Rows exist once the platform has read the tree.
+  if (platformTree) {
+    const notesTag = get(api, 'a11y-notes').id;
+    const rows = api.surface().getTextLineElements(notesTag);
+    assert(rows.size() === 2, `The two-line text area has a row element for each line: ${rows.size()}`);
+    const firstLineLength = A11Y_NOTES_START.indexOf('\n') + 1;
+    await assistiveAction(api, 'a11y-notes', ACTION_SET_TEXT_SELECTION, GDictionary.create({
+      start_element: rows.get(1), start_char: 0, end_element: rows.get(1), end_char: 3,
+    }));
+    assert(textOf('a11y-notes').selection.join() === `${firstLineLength},${firstLineLength + 3}`,
+      `A selection on the second line counts from the start of that line: ${textOf('a11y-notes').selection}`);
+    await assistiveAction(api, 'a11y-notes', ACTION_SET_TEXT_SELECTION, GDictionary.create({
+      start_element: rows.get(0), start_char: 2, end_element: rows.get(1), end_char: 4,
+    }));
+    assert(textOf('a11y-notes').selection.join() === `2,${firstLineLength + 4}`,
+      `and one across both lines runs from a character of the first to a character of the second: ${textOf('a11y-notes').selection}`);
+  }
   await assistiveAction(api, 'a11y-notes', ACTION_SET_VALUE, 'one\ntwo\nthree');
   assert(textOf('a11y-notes').value === 'one\ntwo\nthree', 'A set-value action gives a text area its line breaks');
   await assistiveAction(api, 'a11y-notes', ACTION_SET_VALUE, A11Y_NOTES_START);

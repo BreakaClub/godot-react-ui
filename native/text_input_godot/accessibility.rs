@@ -29,7 +29,7 @@ use crate::ReactUiRoot;
 use crate::accessibility_model::{
     AxAction, AxBounds, AxTextField, hard_line_of, hard_line_starts, line_for_offset,
 };
-use crate::text_input::EditCommand;
+use crate::text_input::{Direction, EditCommand};
 
 use super::shaping::{display_string, shape};
 use super::{TextInputState, sanitize_value};
@@ -39,6 +39,8 @@ const ACTION_METHOD: &str = "_on_accessibility_action";
 /// The keys of the dictionary a `set text selection` request carries (`LineEdit::_accessibility_action_set_selection`).
 const SELECTION_START_KEY: &str = "start_char";
 const SELECTION_END_KEY: &str = "end_char";
+const START_ELEMENT_KEY: &str = "start_element";
+const END_ELEMENT_KEY: &str = "end_element";
 
 /// `insert_pos` that appends a child element.
 const APPEND: i32 = -1;
@@ -230,6 +232,12 @@ impl ReactUiRoot {
                 *rid,
                 Transform2D::from_cols(Vector2::RIGHT, Vector2::DOWN, origin),
             );
+            // `TextEdit` keeps its line in the element's meta (`text_edit.cpp:654`): a request names the element of
+            // the line an end of a selection is on, and a character offset in that line, not in the text.
+            server.element_set_meta(
+                *rid,
+                &RowMeta::new(placement.starts[row.hard_line], row.hard_line).to_variant(),
+            );
         }
         // An end of the selection is a column in a hard line, on the element of the row that holds it.
         let end_of = |offset: usize| {
@@ -277,11 +285,24 @@ impl ReactUiRoot {
         self.request_accessibility_update();
     }
 
-    /// A text field's `set text selection`: the data is `{start_char, end_char}`.
+    /// A text field's `set text selection`: the data is `{start_element, start_char, end_element, end_char}`
+    /// (`accessibility_server_accesskit.cpp`, `SetTextSelection`). An element is the one a row of the text was made
+    /// as (`place_text_lines`), and a character offset counts in the hard line that row belongs to, as `TextEdit`
+    /// reads it (`text_edit.cpp:654`): in a text area the offset into the text is the line's start plus it. A request
+    /// without elements counts in the text, as `LineEdit` reads it.
     pub(crate) fn assistive_set_selection(&mut self, tag: u32, data: &Variant) {
-        let Some((anchor, focus)) = requested_selection(data) else {
+        let Some(request) = requested_selection(data) else {
             godot_error!(
                 "ReactUiRoot: accessibility set-text-selection for node {tag} carried no {SELECTION_START_KEY} and {SELECTION_END_KEY}: {data}"
+            );
+            return;
+        };
+        let (Some(anchor), Some(focus)) = (
+            self.text_offset_of_end(tag, request.start_element, request.start_char),
+            self.text_offset_of_end(tag, request.end_element, request.end_char),
+        ) else {
+            godot_error!(
+                "ReactUiRoot: accessibility set-text-selection for node {tag} names an element that is not a row of its text: {data}"
             );
             return;
         };
@@ -304,26 +325,77 @@ impl ReactUiRoot {
         self.run_internal_command(tag, EditCommand::SetSelection { anchor, focus });
     }
 
-    /// A text field's `replace selected text`: the data is the text.
+    /// The elements of the rows of text input `tag`'s text, in order, as the platform last read them: what a
+    /// `set text selection` request names. Empty before the platform has read the tree.
+    pub(crate) fn text_line_elements(&self, tag: u32) -> Vec<Rid> {
+        self.accessibility
+            .text_lines
+            .get(&tag)
+            .map(|rows| rows.rids.clone())
+            .unwrap_or_default()
+    }
+
+    /// The offset into the text that character `character` of the row `element` is. `None` for an element that is
+    /// not a row of this input's text.
+    fn text_offset_of_end(
+        &self,
+        tag: u32,
+        element: Option<Rid>,
+        character: usize,
+    ) -> Option<usize> {
+        let Some(element) = element else {
+            return Some(character);
+        };
+        let rows = self.accessibility.text_lines.get(&tag)?;
+        if !rows.rids.contains(&element) {
+            return None;
+        }
+        let meta = AccessibilityServer::singleton().element_get_meta(element);
+        let row = RowMeta::from_variant(&meta)?;
+        Some(row.hard_line_start + character)
+    }
+
+    /// A text field's `replace selected text`: the data is the text. Assistive technologies delete a selection by
+    /// replacing it with nothing, which is a deletion (`LineEdit` and `TextEdit` insert the empty text over their
+    /// selection, which removes it); with no selection there is nothing to delete.
     pub(crate) fn assistive_replace_selected(&mut self, tag: u32, data: &Variant) {
         let Some(text) = self.requested_text(tag, data, "replace-selected-text") else {
             return;
         };
+        if text.is_empty() {
+            let selected = self
+                .text_state(tag)
+                .is_some_and(|state| state.buffer.has_selection());
+            if selected {
+                self.run_text_command(tag, EditCommand::DeleteGrapheme(Direction::Backward));
+            }
+            return;
+        }
         self.run_text_command(tag, EditCommand::InsertText(text));
     }
 
-    /// A text field's `set value`: the data is the new text, and the caret goes after it.
+    /// A text field's `set value`: the data is the new text, and the caret goes after it, when the text was set:
+    /// a value that `beforeinput` refused, or a read-only input, is left as it was, caret and all.
     pub(crate) fn assistive_set_value(&mut self, tag: u32, data: &Variant) {
         let Some(text) = self.requested_text(tag, data, "set-value") else {
             return;
         };
-        let length = text.chars().count();
+        let Some(expected) = self
+            .text_state(tag)
+            .map(|state| state.buffer.replacement_for(&text))
+        else {
+            return;
+        };
         self.run_text_command(tag, EditCommand::ReplaceText(text));
         // `ReplaceText` puts the caret at 0, as `_set_text` does for a virtual keyboard; a platform that
         // sets the value of a field wants the caret after it, as typing it would leave it.
-        let end = self
-            .text_state(tag)
-            .map_or(length, |state| state.buffer.text().len());
+        let Some(state) = self.text_state(tag) else {
+            return;
+        };
+        if state.buffer.text() != expected.as_slice() {
+            return;
+        }
+        let end = state.buffer.text().len();
         self.run_internal_command(
             tag,
             EditCommand::SetSelection {
@@ -375,14 +447,57 @@ fn signed(offset: usize) -> i32 {
     i32::try_from(offset).unwrap_or(i32::MAX)
 }
 
-/// The anchor and the focus of a `set text selection` request.
-fn requested_selection(data: &Variant) -> Option<(usize, usize)> {
+/// What a `set text selection` request names: the row each end is on (absent from a request made without one) and
+/// the character offset in it.
+struct RequestedSelection {
+    start_element: Option<Rid>,
+    start_char: usize,
+    end_element: Option<Rid>,
+    end_char: usize,
+}
+
+/// The ends of a `set text selection` request.
+fn requested_selection(data: &Variant) -> Option<RequestedSelection> {
     let dictionary = data.try_to::<VarDictionary>().ok()?;
     let offset = |key: &str| -> Option<usize> {
         let value = dictionary.get(key)?;
         usize::try_from(value.try_to::<i64>().ok()?).ok()
     };
-    Some((offset(SELECTION_START_KEY)?, offset(SELECTION_END_KEY)?))
+    let element = |key: &str| -> Option<Rid> { dictionary.get(key)?.try_to::<Rid>().ok() };
+    Some(RequestedSelection {
+        start_element: element(START_ELEMENT_KEY),
+        start_char: offset(SELECTION_START_KEY)?,
+        end_element: element(END_ELEMENT_KEY),
+        end_char: offset(SELECTION_END_KEY)?,
+    })
+}
+
+/// What a row's element remembers (its meta): the hard line it is a row of, and the offset into the text that line
+/// starts at.
+struct RowMeta {
+    hard_line_start: usize,
+    hard_line: usize,
+}
+
+impl RowMeta {
+    fn new(hard_line_start: usize, hard_line: usize) -> Self {
+        Self {
+            hard_line_start,
+            hard_line,
+        }
+    }
+
+    fn to_variant(&self) -> Variant {
+        Vector2i::new(signed(self.hard_line_start), signed(self.hard_line)).to_variant()
+    }
+
+    fn from_variant(meta: &Variant) -> Option<Self> {
+        let meta = meta.try_to::<Vector2i>().ok()?;
+        Some(Self::new(
+            usize::try_from(meta.x).ok()?,
+            usize::try_from(meta.y).ok()?,
+        ))
+    }
 }
 
 /// The per-root map of line elements, for [`crate::accessibility::Accessibility`].

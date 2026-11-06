@@ -775,6 +775,17 @@ impl ReactUiRoot {
         json.to_string().as_str().into()
     }
 
+    /// The accessibility elements of the rows of a text input's text, in order, once the platform has read the
+    /// tree: the elements a `set text selection` request names (`text_input_godot/accessibility.rs`). A verifier
+    /// uses them to make the request the platform adapter makes.
+    #[func]
+    fn get_text_line_elements(&self, tag: i64) -> Array<Rid> {
+        let rows = u32::try_from(tag)
+            .map(|tag| self.text_line_elements(tag))
+            .unwrap_or_default();
+        rows.into_iter().collect()
+    }
+
     /// The virtual keyboard's hook (`scene/main/viewport.cpp:2856-2868`): the engine calls a method
     /// of this name on the Control that holds key focus with the keyboard's whole text.
     #[func]
