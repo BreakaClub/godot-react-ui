@@ -3333,6 +3333,22 @@ async function verifyDragging(owner: Node, api: InteractionInspection, capture: 
   await click(api, 'card-b');
   assert(clicks() === clicksBeforeFocusLoss + 1, `The next click is a click: ${dropStatus()}`);
 
+  // ---- The hover stays where the drag found it ---------------------------------------------------------------------------
+  // A drag looks under the pointer itself; hover events are not sent for what it passes over, wheel ticks included.
+  const cardAHover = point(api, 'card-a');
+  await dragVia(cardAHover, offset(cardAHover, 0, BEYOND_THRESHOLD_PX), point(api, 'card-d'));
+  assert(drag().state === 'dragging', 'A drag is under way');
+  const hoveredByTheDrag = api.snapshot().hovered;
+  await wheel(point(api, 'card-e'), MouseButton.MouseButtonWheelDown);
+  assert(api.snapshot().hovered === hoveredByTheDrag,
+    `A wheel tick over another card does not move the hover while the drag runs: ${hoveredByTheDrag} -> ${api.snapshot().hovered}`);
+  keyEvent({ keycode: Key.KeyEscape }, true);
+  await settle();
+  keyEvent({ keycode: Key.KeyEscape }, false);
+  await settle();
+  await release(point(api, 'card-e'));
+  assert(api.snapshot().hovered === idOf('card-e'), `The hover catches up when the drag is over: ${api.snapshot().hovered}`);
+
   // ---- Text inside a draggable element starts no selection (plan 3.12: a draggable comes before selection) ---------------
   await click(api, 'selectable-plain');
   assert(api.selection() !== undefined, 'A click on select-text that is not in a draggable element selects (the control)');

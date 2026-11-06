@@ -117,7 +117,8 @@ impl ReactUiRoot {
         }
         // The element under the pointer can only have changed if something that decides it did, and
         // finding it walks the siblings at every level, so a flush that moved nothing skips it.
-        if std::mem::take(&mut self.hit_stale) {
+        // The hover is frozen while a drag runs (I9-3); the end of the drag catches it up.
+        if std::mem::take(&mut self.hit_stale) && !self.drag_in_progress() {
             let hit = if self.pointer_known {
                 self.mounted.hit_test(self.pointer)
             } else {

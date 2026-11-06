@@ -363,7 +363,11 @@ impl IControl for ReactUiRoot {
             }
             ControlNotification::MOUSE_EXIT => {
                 self.pointer_known = false;
-                self.update_hover(None);
+                // The hover is frozen while a drag runs (I9-3): leaving the root with the button down is
+                // part of the drag, and its end catches the hover up.
+                if !self.drag_in_progress() {
+                    self.update_hover(None);
+                }
             }
             ControlNotification::FOCUS_EXIT => {
                 self.set_focus(None, false);

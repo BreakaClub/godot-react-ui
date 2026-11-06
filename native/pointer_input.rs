@@ -129,7 +129,10 @@ impl ReactUiRoot {
     /// scrolled; otherwise it goes on to the game's `_unhandled_input` (plan 3.11).
     fn dispatch_wheel(&mut self, delta_x: f32, delta_y: f32, source: WheelSource) {
         let hit = self.mounted.hit_test(self.pointer);
-        self.update_hover(hit);
+        // The hover is frozen while a drag runs (I9-3); the drag looks under the pointer itself.
+        if !self.drag_in_progress() {
+            self.update_hover(hit);
+        }
         let pointer = self.mouse_pointer_data(DOM_BUTTON_NONE, 0, None);
         let wheel = WheelData {
             pointer,
