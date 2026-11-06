@@ -10,14 +10,14 @@ verified in `demo/world.tscn`; every number below is from that scene.
 Verified on macOS (Godot 4.8, Compatibility renderer, `pnpm verify:world`, landscape 1120x800 and
 portrait 600x900) and in real Chrome on Breaka's Web template (`scripts/verify-world-web.mjs`, DPR 1
 and DPR 2, plus a touch page). The anchored label (below) was added after the Web run and is verified natively
-only. Not done: typing into a world-space `TextInput` (needs Phase I7).
+only. Typing into a world-space `TextInput` is built and verified (below), natively and in Chrome.
 
 | File | Role |
 | --- | --- |
 | `demo/world.tscn` | One `Node` whose script is the owner. |
 | `demo/src/world-main.ts` | The owner: builds the scene, mounts the root, routes input. |
 | `demo/src/world-geometry.ts` | Ray-quad intersection and the pixel mapping, as plain numbers. |
-| `demo/src/world-panel.tsx` | The React content: a counter and two buttons. |
+| `demo/src/world-panel.tsx` | The React content: a counter, two buttons and a name field. |
 | `demo/src/world-label.tsx` | The anchored label: one absolute element of the screen-space root. |
 | `demo/src/verify-world.ts` | Native verifier (`--verify-world`). |
 | `demo/src/scene-launcher.ts` | Web only: starts the scene named by `--scene` (see "Running it"). |
@@ -217,6 +217,22 @@ are unchanged.
   overlay), and a label for several nodes would be one `absolute` element each in the same root.
 - Hover and pointer events come from the camera ray only; moving the quad or camera without moving the
   mouse does not re-hit-test until the next motion.
+
+## Typing
+
+The panel has a `TextInput` (`world-input`) under the buttons, with an echo line. Nothing in the owner changed for it:
+a press on the projected field is routed as any other press and focuses it (the root takes key focus inside the
+`SubViewport`), and `routeKey` forwards the key events the main viewport leaves unhandled while the root holds focus. The
+text input matches the keys to its `InputMap` actions with the device of the event normalised to the keyboard's, because a
+key pushed into a `SubViewport` keeps the device it came with, and `InputMap` matches an event only to bindings of the
+same device (decision T3, `docs/tracks/text-input.md`); without that, a forwarded key would type its character but none of
+the editing keys would act. Verified natively (`06a-typing`: Hello, Hi ther) with real Godot input: a press on the projected
+field focuses it, typed characters and Backspace edit it, React follows, no key reaches the game, a press at the projected
+start of the text puts the caret there, typing goes in at the caret, and a press on the title hands key focus back so the
+next key is the game's. In Chrome (`verify-world-web.mjs`, `06-typing`) the same with `page.keyboard.type`. Not done:
+the IME's candidate window and the on-screen keyboard are placed from the main window's screen transform
+(`update_ime_position`), which is wrong for a root inside a `SubViewport` on a quad (it would need the projected caret);
+text selection by dragging across the quad was not exercised.
 
 ## Running it
 

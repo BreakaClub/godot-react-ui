@@ -142,6 +142,15 @@ platform-tree check waits for an engine with AccessKit (`docs/tracks/accessibili
   set-value puts the caret after the text, which `ReplaceText` (the virtual keyboard's, caret at 0) does not.
 - **T21. The a11y lab is 900x900**, taller than before, for three more fields.
 
+## World-space typing
+
+`demo/src/world-panel.tsx` has a name field and an echo line; `verify-world.ts` and `verify-world-web.mjs` type into it
+through the projected quad (`docs/WORLD_SPACE.md`, "Typing"). The owner needed no change. This finishes Phase I11's open
+item. The IME window position is not placed from the projected caret: `update_ime_position` uses the root's global position
+in its own viewport and that viewport's screen transform, which is the main window's for a root in the main window and
+only approximately right for one in a `SubViewport` on a quad. Recorded, not fixed: it needs the projection, which only the
+owner has.
+
 ## Web paste: investigation and decision (Phase I7C)
 
 **Reproduced.** Chrome (headless, clipboard permissions granted), the engine's own `clipboard_get` path, 1120x800:
@@ -190,4 +199,4 @@ clipboard changed inserts the new text".
 
 ## Owed
 
-World-space typing, the gates, merge notes.
+The gates and merge notes.

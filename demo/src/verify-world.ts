@@ -132,6 +132,8 @@ function panelCenter(api: WorldInspection, id: string): Vector2 {
  * moved in by this much (a label is centred in `Reset`, so the centre of that button is on glyphs).
  */
 const BOX_INSET_PX = 8;
+/** A point this far inside the name field's left edge is on its border and padding, before the first glyph. */
+const FIELD_TEXT_INSET_PX = 4;
 function panelInset(api: WorldInspection, id: string): Vector2 {
   const { rect } = get(api, id);
   return new Vector2(rect.x + BOX_INSET_PX, rect.y + BOX_INSET_PX);
@@ -196,6 +198,29 @@ async function key(keycode: Key): Promise<void> {
     parseVerifierEvent(event);
     await settle();
   }
+}
+
+/** The keycode a typed character has on a US keyboard (letters and digits are their capitals' codes). */
+function keycodeOf(character: string): Key {
+  const code = character.toUpperCase().codePointAt(0) ?? 0;
+  const letterOrDigit = (code >= 0x30 && code <= 0x39) || (code >= 0x41 && code <= 0x5a);
+  return letterOrDigit || code === 0x20 ? code : Key.KeyNone;
+}
+
+/** Type `text` a character at a time into the main viewport, as a keyboard does: the key down with its character, and up. */
+async function typeText(text: string): Promise<void> {
+  for (const character of text) {
+    for (const pressed of [true, false]) {
+      const event = new InputEventKey();
+      event.keycode = keycodeOf(character);
+      event.physicalKeycode = event.keycode;
+      event.unicode = character.codePointAt(0) ?? 0;
+      event.shiftPressed = character !== character.toLowerCase();
+      event.pressed = pressed;
+      parseVerifierEvent(event);
+    }
+  }
+  await settle();
 }
 
 function near(a: Color, b: Color): boolean {
@@ -558,6 +583,39 @@ export async function runWorldVerification(owner: Node, api: WorldInspection): P
   api.resetCounts();
   await key(Key.KeyEnter);
   assert(count() === '0' && counts().gameKeys === 1, `Without focus the key is the game's, not the panel's: ${count()} ${JSON.stringify(counts())}`);
+  move(OFF_QUAD);
+  await settle();
+
+  // ---- Typing: a text input on the quad takes a projected press, then the keys the main viewport gets -------------
+  const field = (): { value: string; selection: [number, number]; caretVisible: boolean } => {
+    const state = get(api, 'world-input').textInput;
+    assert(state, 'The name field is a text input');
+    return { value: state.value, selection: [state.selectionStart, state.selectionEnd], caretVisible: state.caretVisible };
+  };
+  assert(field().value === '' && text(api, 'world-echo') === 'Nobody yet', 'The name field starts empty');
+  api.resetCounts();
+  await click(screenCenter(api, 'world-input'));
+  assert(api.surfaceHasFocus() && api.snapshot().focused === get(api, 'world-input').id, 'A press on the projected field focuses it and gives the root key focus');
+  await typeText('Hi there');
+  assert(field().value === 'Hi there', `Keys sent to the main viewport type into the field in the SubViewport: ${field().value}`);
+  assert(text(api, 'world-echo') === 'Hello, Hi there', `and React followed: ${text(api, 'world-echo')}`);
+  assert(counts().gameKeys === 0, `A key the field consumed never reaches the game: ${JSON.stringify(counts())}`);
+  await key(Key.KeyBackspace);
+  assert(field().value === 'Hi ther', `Backspace deletes: ${field().value}`);
+  await capture('06a-typing');
+  // A press on the projected text places the caret where it lands, through the quad's mapping.
+  const fieldRect = get(api, 'world-input').rect;
+  const nearTheStart = api.screenPointOf(fieldRect.x + FIELD_TEXT_INSET_PX, fieldRect.y + fieldRect.height / 2);
+  await click(new Vector2(nearTheStart.x, nearTheStart.y));
+  assert(field().selection.join() === '0,0', `A press at the start of the projected text puts the caret there: ${field().selection}`);
+  await typeText('>');
+  assert(field().value === '>Hi ther', `and typing goes in at the caret: ${field().value}`);
+  // Pressing something that cannot take focus hands key focus back, and typing goes to the game again.
+  await click(screenCenter(api, 'world-title'));
+  assert(!api.surfaceHasFocus(), 'Clicking the title releases key focus from the field');
+  api.resetCounts();
+  await typeText('x');
+  assert(field().value === '>Hi ther' && counts().gameKeys === 1, `Without focus the key is the game's: ${field().value} ${JSON.stringify(counts())}`);
   move(OFF_QUAD);
   await settle();
 

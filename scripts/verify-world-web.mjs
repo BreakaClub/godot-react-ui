@@ -389,6 +389,21 @@ async function runWorkflow(viewport) {
   await frames();
   check('Without focus the key is the game\'s, not the panel\'s', (await counts()).gameKeys === 1 && await text('world-count') === '0', await counts());
   await moveTo(OFF_QUAD);
+
+  // Typing: a text input on the quad takes a projected press, then the keys the browser sends the main viewport.
+  const nameState = async () => (await find('world-input')).textInput;
+  await world('resetCounts');
+  await click(await elementPoint('world-input'));
+  check('A press on the projected field focuses it and gives the root key focus',
+    await world('surfaceHasFocus') && (await snapshot()).focused === (await find('world-input')).id);
+  await page.keyboard.type('Hi there');
+  await waitUntil('the typed text reaches the field in the SubViewport', async () => (await nameState()).value === 'Hi there');
+  await expectText('world-echo', 'Hello, Hi there', 'React follows the typing');
+  check('A key the field consumed never reaches the game', (await counts()).gameKeys === 0, await counts());
+  await capture('06-typing');
+  await click(await elementPoint('world-title'));
+  check('Clicking the title releases key focus from the field', !(await world('surfaceHasFocus')));
+  await moveTo(OFF_QUAD);
 }
 
 async function runTouchWorkflow() {
