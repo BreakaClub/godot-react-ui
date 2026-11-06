@@ -76,6 +76,8 @@ const SURFACE_OFFSET = { x: 50, y: 30 };
 const WHEEL_TICK_PIXELS = 100;
 // Longer than the click-count interval (plan Appendix A, 500 ms), and farther than its slop (4 px).
 const CLICK_SEQUENCE_PAUSE_MS = 650;
+/** How far inside and outside the pad label's left edge a click's press and release are. */
+const CLICK_EDGE_PX = 2;
 const CLICK_SLOP_BREAKER_PX = 10;
 // How far outside the page the knob test drags.
 const OUTSIDE_THE_PAGE_PX = 300;
@@ -909,6 +911,17 @@ async function expectPadLines(name, predicate) {
     .catch(async (error) => { throw new Error(`${error.message}: the pad log reads ${JSON.stringify(await padLines())}`); });
   check(name, true, { lines: await padLines() });
 }
+/** Page points just inside and just outside the left edge of the pad's label: the label, and the pad beside it. */
+async function padLabelPoints() {
+  const [pad, data] = await Promise.all([find('pad'), snapshot()]);
+  const label = data.nodes.find((node) => node.id === pad.children[0]);
+  assert.ok(label && label.rect.width > 0, 'The pad has a label of its own');
+  const y = label.rect.y + label.rect.height / 2;
+  return {
+    inLabel: await pagePoint(label.rect.x + CLICK_EDGE_PX, y),
+    besideLabel: await pagePoint(label.rect.x - CLICK_EDGE_PX, y),
+  };
+}
 async function expectPadTally(name, predicate) {
   await waitUntil(name, async () => predicate(await padTally()))
     .catch(async (error) => { throw new Error(`${error.message}: the pad tally reads ${await text('pad-tally')}`); });
@@ -955,6 +968,21 @@ async function runPointersScenario() {
   await page.mouse.down();
   await page.mouse.up();
   await expectPadTally('A click beyond the slop starts a sequence', (seen) => seen.clicks.join(',') === '1,2,3,1,1');
+
+  // The click goes to the nearest common ancestor of the press and the release: a press on the pad's label that lifts on the
+  // pad itself clicks the pad, and so does the reverse.
+  const { inLabel, besideLabel } = await padLabelPoints();
+  const clicksBeforeLabel = (await padTally()).clicks.length;
+  await page.mouse.move(inLabel.x, inLabel.y);
+  await page.mouse.down();
+  await page.mouse.move(besideLabel.x, besideLabel.y);
+  await page.mouse.up();
+  await expectPadTally('A press on the pad label lifted on the pad clicks the pad', (seen) => seen.clicks.length === clicksBeforeLabel + 1);
+  await page.mouse.move(besideLabel.x, besideLabel.y);
+  await page.mouse.down();
+  await page.mouse.move(inLabel.x, inLabel.y);
+  await page.mouse.up();
+  await expectPadTally('and so does a press on the pad lifted on its label', (seen) => seen.clicks.length === clicksBeforeLabel + 2);
 
   // Capture: the knob follows a drag wherever it goes, outside itself, the root and the page.
   const track = await find('knob-track');
@@ -1287,6 +1315,17 @@ async function runTouchPointersScenario() {
   check('No hover paint is left after a tap', padNode.style.backgroundColor === PAD_REST_COLOR, padNode.style.backgroundColor);
   check('A finished touch leaves no pointer record', (await snapshot()).pointers.every((entry) => entry.type === 'mouse'));
   await capture('14-pointer-touch-tap');
+
+  // A finger that drifts from the label onto the pad within the slop taps the pad, as the mouse does.
+  const drift = await page.createCDPSession();
+  const { inLabel, besideLabel } = await padLabelPoints();
+  const clicksBeforeDrift = (await padTally()).clicks.length;
+  await drift.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: inLabel.x, y: inLabel.y, id: 1 }] });
+  await drift.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: besideLabel.x, y: besideLabel.y, id: 1 }] });
+  await drift.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await expectPadTally('A tap whose finger drifted from the label onto the pad clicks the pad', (seen) => seen.clicks.length === clicksBeforeDrift + 1);
+  await waitUntil('the drifting finger is up', async () => (await snapshot()).pointers.every((entry) => !entry.down));
+  await drift.detach();
 
   // Two fingers through CDP: two pointer ids.
   const cdp = await page.createCDPSession();
