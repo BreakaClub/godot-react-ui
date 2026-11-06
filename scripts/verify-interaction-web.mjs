@@ -2862,7 +2862,7 @@ async function runWorkflow(viewport) {
     await section('filters', () => runFiltersScenario({ demo, page, frames, snapshot, find, check, capture, decodePng, moveTo, centerOf, actionTimeoutMs: ACTION_TIMEOUT_MS }));
   }
   if (wanted('glass')) {
-    await runGlassScenario({ demo, page, frames, snapshot, find, check, capture, decodePng, moveTo, centerOf, click, pressAction, inputState, waitUntil, actionTimeoutMs: ACTION_TIMEOUT_MS });
+    await section('glass', () => runGlassScenario({ demo, page, frames, snapshot, find, check, capture, decodePng, moveTo, centerOf, click, pressAction, inputState, waitUntil, actionTimeoutMs: ACTION_TIMEOUT_MS }));
   }
 
   // This page keeps running across viewports (the native verifier gets a fresh process for each),

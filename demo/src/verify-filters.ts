@@ -5,7 +5,7 @@ import {
   SWATCH_COLOURS, type FiltersLabProps,
 } from './filters-lab';
 import type { GlassInspection } from './verify-glass';
-import { parseVerifierEvent } from './verifier-input';
+import { assertionTally, parseVerifierEvent } from './verifier-input';
 
 /**
  * The `filters` section of the interaction verifier (plan Phase V1). Every claim is read from the rendered pixels of a
@@ -64,6 +64,7 @@ const SWEEP_FACTOR = 1.02;
 const SWEEP_PROBE_PX = 12;
 
 function assert(condition: unknown, message: string): asserts condition {
+  assertionTally.count += 1;
   if (!condition) throw new Error(message);
 }
 
@@ -1033,6 +1034,7 @@ export async function measureFilterCost(owner: Node, api: FiltersInspection): Pr
     await frames(4);
     results.push({ target, panels: 4, width: 400, height: 300, radius: 16, extraMs: Number((frameMilliseconds(owner) - baseline).toFixed(3)) });
   }
+  assert(results.length > 0 && results.every(cell => Number.isFinite(cell.extraMs)), 'Every cost cell was measured');
   console.log('GODOT_REACT_FILTERS_COST', JSON.stringify({ renderer: RenderingServer.getCurrentRenderingMethod(), firstUseMs: first, results }));
   DisplayServer.windowSetVsyncMode(vsync);
   api.showFilters({ scene: 'edge', radius: 0 });

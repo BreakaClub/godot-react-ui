@@ -2,7 +2,7 @@ import { Color, Engine, Image, InputEventMouseButton, InputEventMouseMotion, Mou
 import type { NativeSnapshot, NativeSnapshotNode } from '../../src/native';
 import { GLASS_BLOB_IDS } from './glass-lab';
 import { grab, settleFrames, type FaultControl } from './verify-filters';
-import { parseVerifierEvent } from './verifier-input';
+import { assertionTally, parseVerifierEvent } from './verifier-input';
 import { pressAction, typeText, waitForCaretOn } from './verify-text-input';
 
 /**
@@ -79,6 +79,7 @@ function round(value: number, scale: number): number {
 }
 
 function assert(condition: unknown, message: string): asserts condition {
+  assertionTally.count += 1;
   if (!condition) throw new Error(message);
 }
 
