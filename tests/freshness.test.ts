@@ -126,6 +126,23 @@ test('cargo features are inputs: a probe build is not fresh for a default run', 
   assert.match(problem ?? '', /cargo features differ: built with \[probe\], wanted \[\]/u);
 });
 
+test('the filters negative-controls build is a feature set of its own: a default run refuses it and a faults run a default build', () => {
+  const repo = makeRepo();
+  const faults = repo.inputs(['filter-faults']);
+  const standard = repo.inputs([]);
+  assert.notEqual(faults.digest, standard.digest);
+  assert.match(check(repo, install(repo, faults), standard) ?? '', /cargo features differ: built with \[filter-faults\], wanted \[\]/u);
+  assert.match(check(repo, install(repo, standard), faults) ?? '', /cargo features differ: built with \[\], wanted \[filter-faults\]/u);
+  assert.equal(check(repo, install(repo, faults), faults), undefined, 'a faults build is fresh for a faults run');
+  // The engine layer picks the feature, the target directory and the rebuild command for it.
+  const breaka = selectEngine([], {});
+  assert.deepEqual(breaka.features('native', { faults: true }), ['filter-faults']);
+  assert.deepEqual(breaka.features('native'), []);
+  assert.notEqual(breaka.sourceInputs('native', { faults: true }).digest, breaka.sourceInputs('native').digest);
+  assert.match(breaka.targets.nativeFaults, /target\/faults$/u);
+  assert.notEqual(breaka.targets.nativeFaults, selectEngine(['--engine=stock'], {}).targets.nativeFaults);
+});
+
 test('a build of the current sources is accepted, however old or new its files are', () => {
   const repo = makeRepo();
   const inputs = repo.inputs();

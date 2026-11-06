@@ -43,7 +43,8 @@ export interface Engine {
   /** The directory of the API dump pair, undefined for the default profile (`.cargo/config.toml` names its own). */
   apiDirectory: string | undefined;
   artifacts: string;
-  targets: { native: string; nativeProbe: string; web: string; webProbe: string };
+  /** `nativeFaults` is the filters negative-controls build's (cargo feature `filter-faults`). */
+  targets: { native: string; nativeProbe: string; nativeFaults: string; web: string; webProbe: string };
   web: WebProfile;
   root: string;
   libraryName: string;
@@ -55,7 +56,7 @@ export interface Engine {
   bindingEnvironment(): Record<string, string>;
   verifiedVersion(): string;
   /** Throws unless the installed native library is this profile's build of the current sources. */
-  requireInstalledLibrary(options?: { probe?: boolean }): void;
+  requireInstalledLibrary(options?: { probe?: boolean; faults?: boolean }): void;
   /** Throws unless the installed Web side module is this profile's build of the current sources. */
   requireInstalledWasm(options?: { probe?: boolean }): void;
   installedWasmStamp(): Record<string, unknown> | undefined;
@@ -63,14 +64,14 @@ export interface Engine {
   requireBuiltLibrary(): void;
   /** Throws unless the Web export (`--release` or debug) carries this profile's side module built from the current sources. */
   requireFreshWebExport(options?: { probe?: boolean }): void;
-  prepareNative(options?: { probe?: boolean }): string;
+  prepareNative(options?: { probe?: boolean; faults?: boolean }): string;
   /** The cargo features a build of `kind` enables. */
-  features(kind: BuildKind, options?: { probe?: boolean }): string[];
-  sourceInputs(kind: BuildKind, options?: { probe?: boolean }): BuildInputs;
+  features(kind: BuildKind, options?: { probe?: boolean; faults?: boolean }): string[];
+  sourceInputs(kind: BuildKind, options?: { probe?: boolean; faults?: boolean }): BuildInputs;
   /** The inputs of the pack, shell and engine template of the Web export in `mode` (scripts/web-content.mjs). */
   webContentInputs(mode: string): BuildInputs;
   /** Hash the inputs, have `clean` run if cargo's last output is not provably a build of them, and return the recording steps. */
-  beginBuild(kind: BuildKind, options: { probe?: boolean; clean: () => void }): BuildRecord;
+  beginBuild(kind: BuildKind, options: { probe?: boolean; faults?: boolean; clean: () => void }): BuildRecord;
 }
 
 export function argsWithoutEngine(argv: readonly string[]): string[];

@@ -21,7 +21,7 @@ window or browser opens, naming the files that differ and the command that fixes
 
 | Where | What is checked | Fix it names |
 | --- | --- | --- |
-| `prepareNative` (`verify`, `verify:interaction`, `verify:motion`, `verify:a11y`, `verify:world`, `verify:text-layout`, `demo`, `dev`) | installed library's stamp: profile, probe flag, library hash, digest | `pnpm build:native [--probe] --engine=<name>` |
+| `prepareNative` (`verify`, `verify:interaction`, `verify:motion`, `verify:a11y`, `verify:world`, `verify:text-layout`, `demo`, `dev`) | installed library's stamp: profile, probe flag, library hash, digest | `pnpm build:native [--probe] [--faults] --engine=<name>` |
 | `build:web` (export step, `--export-only`) | installed Web side module's stamp | `pnpm build:web --wasm-only [--probe] --engine=<name>` |
 | `verify:web`, `verify:motion:web`, `verify:interaction:web`, `scripts/verify-world-web.mjs`, `demo:web`, `scripts/probe-web.mjs` | the export's `build-receipt.json` (`extension` is the side module's stamp) and the exported `.wasm` beside it | `pnpm build:web [--release] [--probe] --engine=<name>` |
 | `test:types --engine=stock`, `gen:types --engine=stock` | the stock library cargo left in `target/stock` (what the typings are generated from) | `pnpm build:native --engine=stock` |
@@ -37,8 +37,9 @@ F1. **The digest is of file contents, per file, plus the cargo features.** Evide
 false result above is exactly a restored file whose mtime is older than the build. A content hash does not care. Inputs
 (`scripts/freshness.mjs`, `collectInputs`): every file under `native/` except `native/api/` and Markdown; `Cargo.toml`, `Cargo.lock`;
 `build.rs`, `rust-toolchain.toml` and `.cargo/config.toml` when present; the profile's API dump pair (`native/api/*.json` for `breaka`,
-`native/api/stock-4.7.2/*.json` for `stock`); and the cargo features (`probe` for a native probe build, `web` and `probe` for Web), so a
-probe build is never fresh for a default run. Each file's hash is kept in the stamp (about 4.8 KB), not just one combined digest: a refusal
+`native/api/stock-4.7.2/*.json` for `stock`); and the cargo features (`probe` for a native probe build, `filter-faults` for the filters negative-controls build
+(`pnpm build:native --faults`, `verify --interaction --only=filters-faults --faults`), `web` and `probe` for Web), so a
+probe or faults build is never fresh for a default run. Each file's hash is kept in the stamp (about 4.8 KB), not just one combined digest: a refusal
 that says `changed: native/props.rs` is actionable where "digest mismatch" is not. Left out on purpose: the other profile's dumps (editing
 them must not stale this profile), Markdown (`native/PROTOCOL.md` is prose; `include_str!` of `tests/fixtures/*.json` is under
 `#[cfg(test)]` modules, `native/commit.rs:439`, `native/props.rs:1098`). `native/probe.rs` and `native/text_layout_probe*` are inputs of the

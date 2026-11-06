@@ -915,6 +915,9 @@ async function verifyTextOverBlur(owner: Node, api: FiltersInspection, capture: 
 }
 
 export async function verifyFilters(owner: Node, api: FiltersInspection, capture: FiltersCapture): Promise<void> {
+  // The section's fixtures are read at rest: the pointer an earlier section left (the portrait window put it over the native-state card) is moved off them.
+  hoverAt(new Vector2(2, 2));
+  await settleFrames();
   const fresh = api.activity().effects;
   assert(fresh.itemsCreated === 0 && fresh.materialsCreated === 0 && fresh.shadersCreated === 0 && !fresh.primer,
     `A tree that has used no filter has made no item, material or shader: ${JSON.stringify(fresh)}`);
