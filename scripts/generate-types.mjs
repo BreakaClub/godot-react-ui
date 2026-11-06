@@ -1,13 +1,22 @@
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
+import { argsWithoutEngine, selectEngine } from './engine.mjs';
+import { generateStockTypings } from './typings.mjs';
 
+// `breaka` (the default) lets Breaka's editor write `demo/typings` and `demo/gen`, which are tracked. `stock` leaves
+// them alone and writes the stock editor's declarations to `target/stock/typings` (scripts/typings.mjs).
 const root = resolve(import.meta.dirname, '..');
-const godot = process.env.GODOT ?? '/Applications/Godot48.app/Contents/MacOS/Godot';
-for (const [command, args] of [
-  ['pnpm', ['build']],
-  [godot, ['--headless', '--audio-driver', 'Dummy', '--editor', '--generate-types', '--path', resolve(root, 'demo')]],
-]) {
-  const result = spawnSync(command, args, {cwd:root, stdio:'inherit', timeout:120_000});
+const engine = selectEngine();
+const godot = engine.godot;
+const unknown = argsWithoutEngine(process.argv.slice(2));
+if (unknown.length > 0) throw new Error(`Unknown argument: ${unknown.join(' ')}`);
+const build = spawnSync('pnpm', ['build'], {cwd:root, stdio:'inherit', timeout:120_000});
+if (build.error) throw build.error;
+if (build.status !== 0) process.exit(build.status ?? 1);
+if (engine.name === 'stock') {
+  generateStockTypings(engine);
+} else {
+  const result = spawnSync(godot, ['--headless', '--audio-driver', 'Dummy', '--editor', '--generate-types', '--path', resolve(root, 'demo')], {cwd:root, stdio:'inherit', timeout:120_000});
   if (result.error) throw result.error;
   if (result.status !== 0) process.exit(result.status ?? 1);
 }

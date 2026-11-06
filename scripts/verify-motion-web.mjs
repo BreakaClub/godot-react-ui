@@ -4,17 +4,19 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
+import { argsWithoutEngine, selectEngine } from './engine.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // `--baseline` records the pre-Fabric benchmark scenarios (Phase F0) and never touches the motion evidence.
 // `--acceptance` reruns the same scenarios on the Fabric renderer and checks Phase F4's criteria
 // (docs/INTERACTION_PLAN.md); it writes to its own directory so the F0 evidence stays intact.
+const engine = selectEngine();
 const baseline = process.argv.includes('--baseline');
 const acceptance = process.argv.includes('--acceptance');
 if (baseline && acceptance) throw new Error('Choose one scenario mode: --baseline or --acceptance.');
 const scenarioMode = baseline || acceptance;
-const output = resolve(root, 'artifacts', baseline ? 'fabric-baseline' : acceptance ? 'fabric-acceptance' : 'motion-web-verification');
-const packBuffer = await readFile(resolve(root, 'artifacts', 'web-debug', 'index.pck'));
+const output = engine.artifactPath(baseline ? 'fabric-baseline' : acceptance ? 'fabric-acceptance' : 'motion-web-verification');
+const packBuffer = await readFile(engine.artifactPath('web-debug', 'index.pck'));
 const expectedPack = {
   bytes: packBuffer.byteLength,
   sha256: createHash('sha256').update(packBuffer).digest('hex'),
@@ -49,7 +51,7 @@ const BASELINE_RESIZE_PAIRS = 10;
 const BASELINE_NARROW_VIEWPORT = { width: 700, height: 800 };
 const BASELINE_DRAIN_EVERY = 25;
 const quick = process.argv.includes('--quick');
-for (const argument of process.argv.slice(2)) assert.ok(['--quick', '--baseline', '--acceptance'].includes(argument), `Unknown argument ${argument}`);
+for (const argument of argsWithoutEngine(process.argv.slice(2))) assert.ok(['--quick', '--baseline', '--acceptance'].includes(argument), `Unknown argument ${argument}`);
 const repetitions = Number(process.env.MOTION_BENCH_REPETITIONS ?? (quick ? 3 : 30));
 assert.ok(Number.isSafeInteger(repetitions) && repetitions > 0, 'MOTION_BENCH_REPETITIONS must be a positive integer');
 const counts = process.env.MOTION_BENCH_COUNTS

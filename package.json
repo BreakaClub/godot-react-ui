@@ -9,7 +9,7 @@
   "types": "./dist/index.d.ts",
   "packageManager": "pnpm@11.5.2",
   "scripts": {
-    "test:types": "tsc --noEmit",
+    "test:types": "node scripts/test-types.mjs",
     "gen:types": "node scripts/generate-types.mjs",
     "build:native": "node scripts/build-native.mjs",
     "build:web": "node scripts/build-web.mjs",

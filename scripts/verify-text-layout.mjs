@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { selectEngine } from './engine.mjs';
 import { importDemo } from './import-demo.mjs';
 
 // Text layout probe (docs/tracks/text-layout.md): caret, hit-test and selection geometry against a running
@@ -8,12 +9,15 @@ import { importDemo } from './import-demo.mjs';
 // `pnpm build:native` afterwards). The probe takes no input: it reads geometry and draws, so the window
 // only has to exist. `--headless` skips the pixel checks and the captures.
 const root = resolve(import.meta.dirname, '..');
-const godot = process.env.GODOT ?? '/Applications/Godot48.app/Contents/MacOS/Godot';
+const engine = selectEngine();
+const godot = engine.godot;
 const deadlineMs = 120_000;
 const scene = 'res://text-layout-probe.tscn';
 const successMarker = 'GODOT_REACT_TEXT_LAYOUT_VERIFY_PASSED';
 const headless = process.argv.includes('--headless');
-const output = resolve(root, 'artifacts/native-text-layout');
+const output = engine.artifactPath('native-text-layout');
+// Fail first if the binary or the installed library belongs to the other engine profile.
+engine.prepareNative({probe: true});
 // Never launch runtime acceptance against missing or type-invalid JS artifacts.
 const build = spawnSync('pnpm', ['build'], {cwd:root, stdio:'inherit'});
 if (build.error) throw build.error;

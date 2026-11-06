@@ -6,9 +6,10 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
+import { selectEngine } from './engine.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const output = resolve(root, 'artifacts', 'fabric-probe');
+const output = selectEngine().artifactPath('fabric-probe');
 const url = process.env.GODOT_REACT_WEB_URL ?? 'http://127.0.0.1:8096';
 const executablePath = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const STARTUP_TIMEOUT_MS = 180_000;

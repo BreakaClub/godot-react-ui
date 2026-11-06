@@ -10,16 +10,18 @@ import { inflateSync } from 'node:zlib';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
+import { selectEngine } from './engine.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const packBuffer = await readFile(resolve(root, 'artifacts', 'web-debug', 'index.pck'));
+const engine = selectEngine();
+const packBuffer = await readFile(engine.artifactPath('web-debug', 'index.pck'));
 const expectedPack = {
   bytes: packBuffer.byteLength,
   sha256: createHash('sha256').update(packBuffer).digest('hex'),
 };
 const url = process.env.GODOT_REACT_WEB_URL ?? 'http://127.0.0.1:8096';
 const executablePath = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const output = resolve(root, 'artifacts', 'web-interaction-verification');
+const output = engine.artifactPath('web-interaction-verification');
 const STARTUP_TIMEOUT_MS = 180_000;
 const ACTION_TIMEOUT_MS = 15_000;
 const TOTAL_TIMEOUT_MS = 600_000;

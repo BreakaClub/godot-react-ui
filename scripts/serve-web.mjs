@@ -1,10 +1,11 @@
 import { createServer } from 'node:http';
 import { createReadStream, statSync } from 'node:fs';
-import { dirname, extname, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { extname, resolve, sep } from 'node:path';
+import { selectEngine } from './engine.mjs';
 
 const mode = process.argv.includes('--release') ? 'release' : 'debug';
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'artifacts', `web-${mode}`);
+// Serves the selected engine profile's export (`--engine=stock` / `GODOT_REACT_ENGINE=stock`).
+const root = selectEngine().artifactPath(`web-${mode}`);
 if (!statSync(resolve(root, 'index.html')).isFile()) throw new Error('Build the Web demo before serving it.');
 const port = Number(process.env.PORT ?? '8096');
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be 1..65535.');
