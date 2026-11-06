@@ -9,6 +9,7 @@ import { createRoot, type NativeSnapshot, type NativeSnapshotNode, type ReactRoo
 import { intersectQuad, quadPixelToLocal, type QuadHit, type QuadSurface } from './world-geometry';
 import { WorldPanel } from './world-panel';
 import { runWorldVerification } from './verify-world';
+import { VerifierInputIsolation, injectsOwnInput } from './verifier-input';
 
 const bind = createClassBinder();
 const MICROSECONDS_PER_MILLISECOND = 1000;
@@ -61,11 +62,6 @@ export interface WorldCounts {
   panelPointerEvents: number;
   /** Whether the pointer is currently inside the quad, as far as the owner has told the SubViewport. */
   pointerInside: boolean;
-  /**
-   * Times the window lost OS focus since it started (never reset). Another application taking focus
-   * cancels a press in flight (plan D6), which a verifier would otherwise report as an unexplained failure.
-   */
-  windowFocusLosses: number;
 }
 
 /** A point in the panel, in `SubViewport` pixels, or in the main viewport: a plain object, so it can leave the realm. */
@@ -98,11 +94,19 @@ export default class WorldMain extends Node {
   private lastMousePixel: Vector2 | null = null;
   /** Fingers that went down on the panel, by touch index, with the panel pixel they were last at. */
   private readonly touches = new Map<number, Vector2>();
-  private counts: WorldCounts = { gamePresses: 0, gameKeys: 0, panelPointerEvents: 0, pointerInside: false, windowFocusLosses: 0 };
-  /** When not null, only events from this input device are routed or counted; see `onlyAcceptDevice`. */
-  private acceptedDevice: number | null = null;
+  private counts: WorldCounts = { gamePresses: 0, gameKeys: 0, panelPointerEvents: 0, pointerInside: false };
+  /** Set only in a run that injects its own input (the verifier); a normal run takes real input. */
+  private isolation: VerifierInputIsolation | null = null;
 
   override _ready(): void {
+    const args = OS.getCmdlineUserArgs();
+    const userArgs = Array.from({ length: args.size() }, (_, i) => args.get(i));
+    // First, before the window can become the key window: see VerifierInputIsolation.
+    if (injectsOwnInput(userArgs)) {
+      const window = this.getWindow();
+      if (!window) throw new Error('A verifier run requires its owning Window');
+      this.isolation = VerifierInputIsolation.begin(window);
+    }
     this.updateDisplayScale();
     this.buildScene();
     this.mount();
@@ -112,13 +116,12 @@ export default class WorldMain extends Node {
       mount: () => this.mount(),
       unmount: () => this.unmount(),
       counts: (): WorldCounts => ({ ...this.counts, pointerInside: this.pointerInside }),
-      resetCounts: () => { this.counts = { gamePresses: 0, gameKeys: 0, panelPointerEvents: 0, pointerInside: false, windowFocusLosses: this.counts.windowFocusLosses }; },
-      /**
-       * For verification: route only events whose `device` is `device`, and everything else is ignored, so a
-       * person moving a real mouse over a verifier's window cannot interleave with its injected input.
-       * `null` accepts every device again.
-       */
-      onlyAcceptDevice: (device: number | null) => { this.acceptedDevice = device; },
+      resetCounts: () => { this.counts = { gamePresses: 0, gameKeys: 0, panelPointerEvents: 0, pointerInside: false }; },
+      /** Deliver the notification the window system sends when the cursor leaves the window. */
+      simulateWindowMouseExit: () => {
+        this.isolation?.expectSimulated(Node.NOTIFICATION_WM_MOUSE_EXIT);
+        this.notification(Node.NOTIFICATION_WM_MOUSE_EXIT);
+      },
       /** The panel pixel under a main-viewport point, by the same ray the input routing uses. */
       panelPixelAt: (x: number, y: number): (Point2 & { inside: boolean }) | undefined => {
         const hit = this.pick(new Vector2(x, y));
@@ -146,10 +149,10 @@ export default class WorldMain extends Node {
     // This demo-only inspection surface is also available in the Web JS realm.
     Object.assign(globalThis, { godotReactWorld: api });
     console.log('GODOT_REACT_WORLD_READY');
-    const args = OS.getCmdlineUserArgs();
-    if (Array.from({ length: args.size() }, (_, i) => args.get(i)).includes('--verify-world')) {
-      void runWorldVerification(this, api).then(() => this.getTree()?.quit()).catch(error => {
+    if (userArgs.includes('--verify-world')) {
+      void runWorldVerification(this, api).then(() => { this.isolation?.report(); this.getTree()?.quit(); }).catch(error => {
         console.error('GODOT_REACT_VERIFY_FAILED', error instanceof Error ? error.stack : String(error));
+        this.isolation?.report();
         this.getTree()?.quit(1);
       });
     }
@@ -269,8 +272,13 @@ export default class WorldMain extends Node {
 
   /** `NOTIFICATION_WM_MOUSE_EXIT` leaves no motion event behind, so tell the panel the pointer is gone. */
   _notification(what: number): void {
+    this.isolation?.notify(what);
     if (what === Node.NOTIFICATION_WM_MOUSE_EXIT) this.leavePanel();
-    else if (what === Node.NOTIFICATION_WM_WINDOW_FOCUS_OUT) this.counts.windowFocusLosses += 1;
+  }
+
+  /** A foreign event should not reach an isolated window; one that does is dropped and recorded. */
+  override _input(event: InputEvent): void {
+    if (this.isolation?.rejects(event)) this.getViewport()?.setInputAsHandled();
   }
 
   // ---- Input routing --------------------------------------------------------------------------------
@@ -283,7 +291,6 @@ export default class WorldMain extends Node {
     // Godot also turns real touches into mouse events (`emulate_mouse_from_touch`, device -1). The touch is
     // what is routed; the emulated mouse press that comes with it would be a second press.
     if (event.device === InputEvent.DEVICE_ID_EMULATION) return;
-    if (this.acceptedDevice !== null && event.device !== this.acceptedDevice) return;
     if (this.routeToPanel(event)) {
       this.getViewport()?.setInputAsHandled();
       return;

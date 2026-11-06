@@ -67,8 +67,8 @@ export type Disturbance = 'foreign-input' | 'window-focus-loss' | 'window-mouse-
 export class VerifierInputIsolation {
   private readonly startedMs = Time.getTicksMsec();
   private readonly counts = new Map<Disturbance, number>();
-  /** Focus-out notifications the verifier sends itself, to test plan D6, that are not the window system's. */
-  private simulatedFocusLosses = 0;
+  /** Notifications the verifier sends itself (D6's focus-out, a window mouse exit) that are not the window system's. */
+  private readonly simulated = new Map<number, number>();
 
   private constructor(window: Window) {
     window.unfocusable = true;
@@ -97,9 +97,13 @@ export class VerifierInputIsolation {
 
   /** The owner forwards the notifications it receives: the window losing focus and the cursor crossing it. */
   notify(what: number): void {
+    const pending = this.simulated.get(what) ?? 0;
+    if (pending > 0) {
+      this.simulated.set(what, pending - 1);
+      return;
+    }
     if (what === Node.NOTIFICATION_WM_WINDOW_FOCUS_OUT) {
-      if (this.simulatedFocusLosses > 0) this.simulatedFocusLosses -= 1;
-      else this.disturb('window-focus-loss', 'NOTIFICATION_WM_WINDOW_FOCUS_OUT');
+      this.disturb('window-focus-loss', 'NOTIFICATION_WM_WINDOW_FOCUS_OUT');
     } else if (what === Node.NOTIFICATION_WM_MOUSE_ENTER) {
       this.disturb('window-mouse-crossing', 'NOTIFICATION_WM_MOUSE_ENTER');
     } else if (what === Node.NOTIFICATION_WM_MOUSE_EXIT) {
@@ -107,9 +111,12 @@ export class VerifierInputIsolation {
     }
   }
 
-  /** The next focus-out notification is one the verifier sends itself (plan D6), not the window system's. */
-  expectSimulatedFocusLoss(): void {
-    this.simulatedFocusLosses += 1;
+  /**
+   * The next notification `what` is one the verifier sends itself (D6's focus-out, a window mouse exit to test
+   * what leaving the window does), not the window system's.
+   */
+  expectSimulated(what: number): void {
+    this.simulated.set(what, (this.simulated.get(what) ?? 0) + 1);
   }
 
   private disturb(kind: Disturbance, detail: string): void {

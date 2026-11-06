@@ -179,13 +179,14 @@ $GODOT --audio-driver Dummy --path demo --resolution 1120x800 res://world.tscn
 $GODOT --audio-driver Dummy --path demo --resolution 1120x800 res://world.tscn -- --verify-world
 ```
 
-The native verifier injects every event with its own device id and tells the owner to route only that
-device (`onlyAcceptDevice`), and turns input accumulation off. A real mouse moving over the window
-sends events too (device 32 was seen, at positions on another display), and Godot merges consecutive
-motion events, so a stray one lands inside an injected one and moves it; without this most runs
-failed on a machine in use. What it cannot filter is the window losing OS focus,
-which cancels a press in flight (plan D6): the owner counts those (`windowFocusLosses`) and the
-verifier names them in a failure. Keep other applications from taking focus while it runs.
+The native verifier shares its isolation with the other native verifiers (`demo/src/verifier-input.ts`, plan D21 and
+D22): it injects every event with its own device id, the owner drops every other device, input accumulation is off,
+and the window is unfocusable and mouse-passthrough. A real mouse over the window would otherwise send events too
+(device 32 was seen, at positions on another display), Godot would merge a stray motion into an injected one, and
+the window losing OS focus would cancel a press in flight (plan D6). What still gets in is logged as
+`GODOT_REACT_RUN_DISTURBED`, and `scripts/verify-world.mjs` (through `scripts/native-run.mjs`) runs again a run that
+failed with one, at most twice; a failure without one is real and is not run again. The window-exit test sends its
+own `NOTIFICATION_WM_MOUSE_EXIT` (`simulateWindowMouseExit`), so it is not counted as a disturbance.
 
 Web: `pnpm build:web`, serve on a port you have checked is free (`PORT=8098 pnpm demo:web`), then
 `GODOT_REACT_WEB_URL=http://127.0.0.1:8098 node scripts/verify-world-web.mjs`, or open

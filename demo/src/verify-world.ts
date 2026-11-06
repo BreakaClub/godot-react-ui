@@ -1,9 +1,10 @@
 import {
-  Color, DirAccess, Engine, FileAccess, GError, Image, Input, InputEventKey, InputEventMouseButton,
+  Color, DirAccess, Engine, FileAccess, GError, Image, InputEventKey, InputEventMouseButton,
   InputEventMouseMotion, InputEventScreenDrag, InputEventScreenTouch, Key, MeshInstance3D, MouseButton, MouseButtonMask,
   Node, OS, RenderingServer, SubViewport, Vector2, Vector3,
 } from 'godot';
 import type { NativeSnapshot, NativeSnapshotNode } from '../../src';
+import { parseVerifierEvent } from './verifier-input';
 import type { Point2, WorldCounts } from './world-main';
 
 /** What the world owner exposes (`godotReactWorld`); the verifier and the Web verifier use the same surface. */
@@ -14,7 +15,8 @@ export interface WorldInspection {
   unmount(): void;
   counts(): WorldCounts;
   resetCounts(): void;
-  onlyAcceptDevice(device: number | null): void;
+  /** Deliver the notification the window system sends when the cursor leaves the window. */
+  simulateWindowMouseExit(): void;
   panelPixelAt(x: number, y: number): (Point2 & { inside: boolean }) | undefined;
   screenPointOf(x: number, y: number): Point2;
   panelSize(): Point2;
@@ -24,13 +26,6 @@ export interface WorldInspection {
   panelImage(): Image;
 }
 
-/**
- * The device id of every event this verifier injects. The owner is told to route only this device
- * (`onlyAcceptDevice`): a real mouse or keyboard sends events to the verifier's window too (device 32 was
- * seen for a mouse, at positions on another display), and each one is a motion that leaves the quad or a
- * key press nobody asked for. A real device id is a small number; this is far above any.
- */
-export const VERIFIER_DEVICE_ID = 1 << 30;
 const SETTLE_MS = 100;
 const MIN_SETTLE_FRAMES = 2;
 const FRAME_POLL_MS = 10;
@@ -129,8 +124,7 @@ function mouseButton(position: Vector2, pressed: boolean, button = MouseButton.M
   event.buttonIndex = button;
   event.pressed = pressed;
   event.buttonMask = pressed && button === MouseButton.MouseButtonLeft ? MouseButtonMask.MouseButtonMaskLeft : 0;
-  event.device = VERIFIER_DEVICE_ID;
-  Input.parseInputEvent(event);
+  parseVerifierEvent(event);
 }
 
 function move(position: Vector2, held = false): void {
@@ -138,8 +132,7 @@ function move(position: Vector2, held = false): void {
   event.position = position;
   event.globalPosition = position;
   event.buttonMask = held ? MouseButtonMask.MouseButtonMaskLeft : 0;
-  event.device = VERIFIER_DEVICE_ID;
-  Input.parseInputEvent(event);
+  parseVerifierEvent(event);
 }
 
 /** A real touch (device 0): Godot also translates it to an emulated mouse event, which the owner must ignore. */
@@ -148,8 +141,7 @@ function touch(index: number, position: Vector2, pressed: boolean): void {
   event.index = index;
   event.position = position;
   event.pressed = pressed;
-  event.device = VERIFIER_DEVICE_ID;
-  Input.parseInputEvent(event);
+  parseVerifierEvent(event);
 }
 
 function touchDrag(index: number, position: Vector2, relative: Vector2): void {
@@ -157,8 +149,7 @@ function touchDrag(index: number, position: Vector2, relative: Vector2): void {
   event.index = index;
   event.position = position;
   event.relative = relative;
-  event.device = VERIFIER_DEVICE_ID;
-  Input.parseInputEvent(event);
+  parseVerifierEvent(event);
 }
 
 async function click(position: Vector2): Promise<void> {
@@ -175,8 +166,7 @@ async function key(keycode: Key): Promise<void> {
     const event = new InputEventKey();
     event.keycode = keycode;
     event.pressed = pressed;
-    event.device = VERIFIER_DEVICE_ID;
-    Input.parseInputEvent(event);
+    parseVerifierEvent(event);
     await settle();
   }
 }
@@ -206,26 +196,9 @@ function style(hexColor: string): Color {
  * drawn, so what is exercised is the whole route: ray, plane, pixel, copy, `pushInput`.
  */
 export async function runWorldVerification(owner: Node, api: WorldInspection): Promise<void> {
-  try {
-    await verifyWorld(owner, api);
-  } catch (error) {
-    const lost = api.counts().windowFocusLosses;
-    // Not a retry or an excuse: the failure stands. The note says where to look first.
-    if (lost > 0 && error instanceof Error) {
-      throw new Error(`${error.message} (the window lost OS focus ${lost} time(s) during the run, which cancels a press in flight; keep other applications from taking focus while this runs)`, { cause: error });
-    }
-    throw error;
-  }
-}
-
-async function verifyWorld(owner: Node, api: WorldInspection): Promise<void> {
   const directory = OS.getEnvironment('GODOT_REACT_ARTIFACTS') || 'user://react-ui-verification';
   assert(DirAccess.makeDirRecursiveAbsolute(directory) === GError.Ok, 'Cannot create evidence directory');
   const captures: string[] = [];
-  api.onlyAcceptDevice(VERIFIER_DEVICE_ID);
-  // Accumulated input merges consecutive motion events, a real mouse's into an injected one included; with
-  // it off every injected event is dispatched at once, in order.
-  Input.useAccumulatedInput = false;
 
   async function capture(name: string): Promise<void> {
     await settle();
@@ -306,7 +279,7 @@ async function verifyWorld(owner: Node, api: WorldInspection): Promise<void> {
   move(incrementAt());
   await settle();
   assert(isWithin(api, api.snapshot().hovered, 'world-increment'), 'The panel can be hovered again after leaving');
-  owner.notification(Node.NOTIFICATION_WM_MOUSE_EXIT);
+  api.simulateWindowMouseExit();
   await settle();
   assert(api.snapshot().hovered === null, 'The window losing the pointer clears hover');
   assert(!counts().pointerInside, 'The window losing the pointer leaves the quad');

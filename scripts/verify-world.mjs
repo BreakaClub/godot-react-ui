@@ -1,7 +1,7 @@
-import { spawn, spawnSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { importDemo } from './import-demo.mjs';
+import { runNativeVerifier } from './native-run.mjs';
 
 // Phase I11: the world-space panel (docs/WORLD_SPACE.md). Godot runs a scene other than the project's main
 // scene when its path follows the project options; arguments for the scripts follow `--`.
@@ -17,25 +17,10 @@ if (build.error) throw build.error;
 if (build.status !== 0) process.exit(build.status ?? 1);
 importDemo(godot);
 for (const [name, resolution] of [['landscape','1120x800'],['portrait','600x900']]) {
-  const output = resolve(root,artifactRoot,name);
-  mkdirSync(output,{recursive:true});
-  const child = spawn(godot,['--audio-driver','Dummy','--path',resolve(root,'demo'),'--resolution',resolution,scene,'--','--verify-world'],{
-    env:{...process.env,GODOT_REACT_ARTIFACTS:output},stdio:['ignore','pipe','pipe'],
+  await runNativeVerifier({
+    godot, project: resolve(root, 'demo'), output: resolve(root, artifactRoot, name), name, resolution,
+    leading: [scene], scriptArgs: ['--verify-world'], successMarker, deadlineMs,
+    // `previously notified` is the engine's warning for an unpaired notifyMouseEntered/notifyMouseExited.
+    errorPattern: /ERROR:|Uncaught|\[panic |previously notified/u,
   });
-  let log = '';
-  const collect = data => {const value=data.toString();log+=value;process.stdout.write(value);};
-  child.stdout.on('data',collect);child.stderr.on('data',collect);
-  const timer = setTimeout(()=>child.kill('SIGTERM'),deadlineMs);
-  const code = await new Promise((resolve,reject)=>{child.on('error',reject);child.on('exit',resolve);});
-  clearTimeout(timer);
-  writeFileSync(resolve(output,'run.log'),log);
-  if (!log.includes(successMarker) || log.includes('GODOT_REACT_VERIFY_FAILED')) {
-    throw new Error(`${name} runtime verification failed (exit ${code}); see ${output}/run.log`);
-  }
-  const duringWorkflow = log.split(successMarker)[0];
-  // `previously notified` is the engine's warning for an unpaired notifyMouseEntered/notifyMouseExited.
-  if (/ERROR:|Uncaught|\[panic |previously notified/u.test(duringWorkflow)) {
-    throw new Error(`${name} emitted a runtime error before completion; see ${output}/run.log`);
-  }
-  if (code !== 0) console.warn(`Runtime assertions passed; teardown exited ${code}. Evidence retained.`);
 }

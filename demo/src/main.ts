@@ -88,7 +88,7 @@ export default class Main extends Node {
       simulateWindowFocusLoss: () => {
         const window = this.getWindow();
         if (!window) throw new Error('The demo requires its owning Window');
-        this.isolation?.expectSimulatedFocusLoss();
+        this.isolation?.expectSimulated(Node.NOTIFICATION_WM_WINDOW_FOCUS_OUT);
         window.propagateNotification(Node.NOTIFICATION_WM_WINDOW_FOCUS_OUT);
       },
       /** `pointercancel`s the root's own listener saw since the last reset. */
