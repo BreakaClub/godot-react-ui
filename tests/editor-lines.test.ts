@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { ensureSyntaxTree } from '@codemirror/language';
 import { EditorSelection } from '@codemirror/state';
-import { ParseScheduler, SYNTAX_COLORS, PLAIN_TEXT_COLOR } from '../demo/src/editor/highlight';
+import { ParseScheduler, SYNTAX_COLORS, PLAIN_TEXT_COLOR, colorSpans, colorSpansOfLines, type ColorSpan } from '../demo/src/editor/highlight';
 import { LineLayout } from '../demo/src/editor/line-layout';
 import { insertionsFor } from '../demo/src/editor/lines';
 import { displayColumns } from '../demo/src/editor/geometry';
@@ -158,6 +159,61 @@ test('a line that did not change keeps its spec, whatever happened to the others
   assert.notEqual(afterType[0], before[0], 'the line that was typed in is new');
   assert.equal(afterType[1], afterMove[1], 'line 2 is the same object after a character was typed in line 1');
   assert.equal(afterType[3], afterMove[3]);
+});
+
+test('the colours of a window of lines read in one walk are those of each line read alone, spans over several lines included', () => {
+  const source = [
+    'const a = `one', '  two ${a}', 'three`; // end', '/* a', 'comment', 'over lines */ const b: number = 1;',
+    'function f(x: string) {', '  return <div className="c" id={x}>{`t${x}`}</div>;', '}', '',
+  ].join('\n');
+  const { state } = openEditor(source).editor.model;
+  const tree = ensureSyntaxTree(state, state.doc.length, 1000);
+  assert.ok(tree !== null);
+  const lineCount = state.doc.lines;
+  for (let first = 1; first <= lineCount; first += 1) {
+    for (let last = first; last <= lineCount; last += 1) {
+      const together = colorSpansOfLines(tree, state.doc, first, last);
+      for (let number = first; number <= last; number += 1) {
+        const line = state.doc.line(number);
+        const alone: ColorSpan[] = colorSpans(tree, line.from, line.to).map(span => ({ ...span, from: span.from - line.from, to: span.to - line.from }));
+        assert.deepEqual(together[number - first], alone, `line ${number} of the window ${first} to ${last}`);
+      }
+    }
+  }
+});
+
+test('a keystroke builds the line it changed and no other, and a caret that moves builds none', () => {
+  const { editor } = openEditor(`${CODE.slice(0, 3)}|${CODE.slice(3)}`);
+  assert.equal(editor.lines(1, 5).length, 5);
+  assert.equal(editor.linesBuilt, 5, 'the first call builds every line');
+  editor.lines(1, 5);
+  assert.equal(editor.linesBuilt, 5, 'and the same call again none');
+  editor.beforeInput('insertText', 'X');
+  const afterType = editor.lines(1, 5);
+  assert.equal(editor.linesBuilt, 6, 'a character typed in line 1 builds line 1');
+  assert.equal(afterType[0]?.text.startsWith('conXst'), true);
+  const function_ = editor.model.text.indexOf('function');
+  editor.setSelection(EditorSelection.single(function_ + 3));
+  editor.lines(1, 5);
+  assert.equal(editor.linesBuilt, 6, 'a caret that moved to another line builds nothing: no line shows it');
+  editor.setFocused(false);
+  editor.lines(1, 5);
+  assert.equal(editor.linesBuilt, 6, 'nor does losing the focus, which only recolours a selection');
+  editor.setSelection(EditorSelection.single(function_, function_ + 8));
+  editor.lines(1, 5);
+  assert.equal(editor.linesBuilt, 7, 'a selection builds the line it is in');
+});
+
+test('typing in a line that opens a block comment colours the lines after it as the comment they now are', () => {
+  const editor = openEditor('|const a = 1;\nconst b = 2;\nconst c = 3;\n');
+  const before = editor.editor.lines(1, 3);
+  assert.equal(before[1]?.segments[0]?.color, SYNTAX_COLORS.keyword);
+  editor.type('/*');
+  const after = editor.editor.lines(1, 3);
+  for (const [index, spec] of after.entries()) {
+    assert.deepEqual(spec.segments.map(segment => segment.color), [SYNTAX_COLORS.comment], `line ${index + 1} is all comment`);
+  }
+  assert.notEqual(after[1], before[1], 'line 2 was built again, though only line 1 was typed in');
 });
 
 test('typing asks the parse for the part in view only, and a line past it is coloured once the parse has caught up', async () => {

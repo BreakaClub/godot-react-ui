@@ -1,5 +1,5 @@
 import { ensureSyntaxTree, syntaxTree } from '@codemirror/language';
-import type { EditorState } from '@codemirror/state';
+import type { EditorState, Text } from '@codemirror/state';
 import { highlightTree, tagHighlighter, tags as t } from '@lezer/highlight';
 
 /**
@@ -85,27 +85,55 @@ function sameSpans(a: readonly ColorSpan[], b: readonly ColorSpan[]): boolean {
   return a.length === b.length && a.every((span, index) => span.from === b[index]?.from && span.to === b[index].to && span.color === b[index].color);
 }
 
+/** The colours of the lines `first` to `last` of `doc` in a tree, each line's in offsets from its start: `colorSpans` for all of them in one walk of the tree. */
+export function colorSpansOfLines(tree: SyntaxTree, doc: Text, first: number, last: number): ColorSpan[][] {
+  const lines = Array.from({ length: last - first + 1 }, (_, index) => doc.line(first + index));
+  const found: ColorSpan[][] = lines.map(() => []);
+  const [start, end] = [lines[0]?.from ?? 0, lines[lines.length - 1]?.to ?? 0];
+  // The spans come in order of position, so the first line a span can touch only moves forward.
+  let firstTouched = 0;
+  for (const span of colorSpans(tree, start, end)) {
+    while (firstTouched < lines.length && (lines[firstTouched]?.to ?? Infinity) < span.from) firstTouched += 1;
+    for (let index = firstTouched; index < lines.length; index += 1) {
+      const line = lines[index];
+      const spans = found[index];
+      if (line === undefined || spans === undefined || line.from >= span.to) break;
+      const from = Math.max(span.from, line.from);
+      const to = Math.min(span.to, line.to);
+      if (to > from) spans.push({ from: from - line.from, to: to - line.from, color: span.color });
+    }
+  }
+  return found;
+}
+
 interface CachedLine {
-  readonly tree: SyntaxTree;
   readonly text: string;
   readonly spans: readonly ColorSpan[];
 }
 
 /**
- * The colours of a line, remembered by the line's text and the tree they were read from. When an edit makes a new tree, the
- * line's spans are read again (about a tenth of a millisecond for a screenful) and the old array is kept when they come out the
- * same, so a line that did not change gives its component the same props and costs no native commit.
+ * The colours of the lines in view, read from the tree for all of them at once. When an edit makes a new tree, the colours of the lines
+ * are read again (a tenth of a millisecond for a screenful), and a line whose colours come out the same keeps the array it had, so a
+ * line that did not change gives its component the same props and costs no native commit.
  */
 export class HighlightCache {
   private readonly lines = new Map<number, CachedLine>();
+  private last: { readonly tree: SyntaxTree; readonly doc: Text; readonly first: number; readonly spans: readonly (readonly ColorSpan[])[] } | undefined;
 
-  /** Spans of line `number` (document offsets `from` to `from + text.length`), in offsets from the start of the line. */
-  spans(tree: SyntaxTree, number: number, from: number, text: string): readonly ColorSpan[] {
-    const cached = this.lines.get(number);
-    if (cached !== undefined && cached.tree === tree && cached.text === text) return cached.spans;
-    const read = colorSpans(tree, from, from + text.length).map(span => ({ from: span.from - from, to: span.to - from, color: span.color }));
-    const spans = cached !== undefined && cached.text === text && sameSpans(cached.spans, read) ? cached.spans : read;
-    this.lines.set(number, { tree, text, spans });
+  /** The colours of lines `first` to `last`, in offsets from the start of each, in order. */
+  window(tree: SyntaxTree, doc: Text, first: number, last: number): readonly (readonly ColorSpan[])[] {
+    // The same tree over the same text (a caret that moved) has the same colours.
+    if (this.last?.tree === tree && this.last.doc === doc && this.last.first === first && this.last.spans.length === last - first + 1) return this.last.spans;
+    const read = colorSpansOfLines(tree, doc, first, last);
+    const spans = read.map((fresh, index) => {
+      const number = first + index;
+      const text = doc.line(number).text;
+      const cached = this.lines.get(number);
+      const kept = cached !== undefined && cached.text === text && sameSpans(cached.spans, fresh) ? cached.spans : fresh;
+      this.lines.set(number, { text, spans: kept });
+      return kept;
+    });
+    this.last = { tree, doc, first, spans };
     return spans;
   }
 

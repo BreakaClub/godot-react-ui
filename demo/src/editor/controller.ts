@@ -17,7 +17,7 @@ import { HighlightCache, ParseScheduler } from './highlight';
 import { SINK_TEXT, decodeSoftKeyboardText } from './sink';
 import { Keymap, codeMirrorCommand, type KeyChord, type Platform } from './keymap';
 import {
-  LineSpecCache, buildLine, insertionsFor, matchedBrackets, type Composition, type LineSpec,
+  LineBuilder, insertionsFor, matchedBrackets, type Composition, type LineSpec,
 } from './lines';
 import { LineLayout } from './line-layout';
 import { EditorModel, type ModelUpdate } from './model';
@@ -100,7 +100,7 @@ export class EditorController {
   private readonly clipboard: ClipboardPort;
   private readonly linewise = new LinewiseMemory();
   private readonly highlight = new HighlightCache();
-  private readonly lineCache = new LineSpecCache();
+  private readonly lineBuilder = new LineBuilder();
   private readonly scheduler: ParseScheduler;
   private readonly listeners = new Set<Listener>();
   private currentMetrics: ViewMetrics;
@@ -166,6 +166,11 @@ export class EditorController {
     return { line: line.number, column: head - line.from + 1 };
   }
 
+  /** How many lines `lines` has built from their parts since this was made (a keystroke builds the one it changed); for tests and profiles. */
+  get linesBuilt(): number {
+    return this.lineBuilder.built;
+  }
+
   /** The specs of lines `first` to `last` (from 1), parsing as far as the last one with the parse budget. */
   lines(first: number, last: number): LineSpec[] {
     const { state } = this.model;
@@ -173,15 +178,13 @@ export class EditorController {
     const firstLine = Math.max(first, 1);
     const tree = this.scheduler.treeFor(state, state.doc.line(lastLine).to);
     this.highlight.keepOnly(firstLine, lastLine);
-    this.lineCache.keepOnly(firstLine, lastLine);
+    this.lineBuilder.keepOnly(firstLine, lastLine);
     if (this.bracketsFor?.state !== state) this.bracketsFor = { state, ranges: matchedBrackets(state) };
-    const inputs = {
-      state, tree, highlight: this.highlight, diagnostics: this.diagnostics, inlays: this.inlays.items,
+    const colors = this.highlight.window(tree, state.doc, firstLine, lastLine);
+    return this.lineBuilder.build({
+      state, spans: number => colors[number - firstLine] ?? [], diagnostics: this.diagnostics, inlays: this.inlays.items,
       composition: this.currentComposition, focused: this.isFocused, brackets: this.bracketsFor.ranges,
-    };
-    const specs: LineSpec[] = [];
-    for (let number = firstLine; number <= lastLine; number += 1) specs.push(this.lineCache.stable(buildLine(inputs, number)));
-    return specs;
+    }, firstLine, lastLine);
   }
 
   /** The map between offsets and columns of a line as it is drawn now, with its hints and the preedit. */

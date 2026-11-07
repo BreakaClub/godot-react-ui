@@ -5,7 +5,7 @@ import { MemoryClipboard } from './clipboard';
 import { EditorController } from './controller';
 import { EditorModel } from './model';
 import { HighlightCache, ParseScheduler, colorSpans } from './highlight';
-import { LineSpecCache, buildLine, matchedBrackets } from './lines';
+import { LineBuilder, matchedBrackets } from './lines';
 
 /**
  * The editor's per-keystroke work without a window (docs/tracks/keystroke-profile.md): the CodeMirror transaction and the parse, and the
@@ -39,7 +39,7 @@ export interface BenchSamples {
   readonly modelDispatch: number[];
   readonly tree: number[];
   readonly brackets: number[];
-  /** `buildLine` for every line of the window, which reads the colours of each line from the tree (`highlightTree` per line). */
+  /** The window's colours (one walk of the tree) and the lines built from them: the changed line only. */
   readonly buildLines: number[];
   /** Only the colour spans of the window, line by line as `HighlightCache` reads them after an edit. */
   readonly spansPerLine: number[];
@@ -121,7 +121,7 @@ export function runKeystrokeBench(options: BenchOptions): BenchSamples {
   const model = new EditorModel(options.source);
   model.dispatch({ selection: { anchor: at } });
   const highlight = new HighlightCache();
-  const lineCache = new LineSpecCache();
+  const lineBuilder = new LineBuilder();
   const scheduler = new ParseScheduler(() => undefined);
   for (let index = 0; index < options.warmup + options.keystrokes; index += 1) {
     const recording = index >= options.warmup;
@@ -141,9 +141,10 @@ export function runKeystrokeBench(options: BenchOptions): BenchSamples {
     const brackets = matchedBrackets(state);
     const bracketed = now();
     highlight.keepOnly(options.firstLine, last);
-    lineCache.keepOnly(options.firstLine, last);
-    const inputs = { state, tree, highlight, diagnostics: [], inlays: [], composition: undefined, focused: true, brackets };
-    for (let number = options.firstLine; number <= last; number += 1) lineCache.stable(buildLine(inputs, number));
+    lineBuilder.keepOnly(options.firstLine, last);
+    const colors = highlight.window(tree, state.doc, options.firstLine, last);
+    const inputs = { state, spans: (number: number) => colors[number - options.firstLine] ?? [], diagnostics: [], inlays: [], composition: undefined, focused: true, brackets };
+    lineBuilder.build(inputs, options.firstLine, last);
     const built = now();
     // The colour spans alone, read from the same tree the way a cache miss reads them.
     for (let number = options.firstLine; number <= last; number += 1) {

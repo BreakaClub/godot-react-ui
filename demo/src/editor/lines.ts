@@ -1,7 +1,7 @@
 import type { EditorState } from '@codemirror/state';
 import { matchBrackets } from '@codemirror/language';
 import { LineLayout, type Insertion, type InsertionKind } from './line-layout';
-import { PLAIN_TEXT_COLOR, type ColorSpan, type HexColor, type HighlightCache, type SyntaxTree } from './highlight';
+import { PLAIN_TEXT_COLOR, type ColorSpan, type HexColor } from './highlight';
 import { isProblem, worse, type EditorDiagnostic, type EditorInlay, type Severity } from './diagnostics';
 import { THEME } from './theme';
 
@@ -48,8 +48,8 @@ export interface Composition {
 
 export interface LineInputs {
   readonly state: EditorState;
-  readonly tree: SyntaxTree;
-  readonly highlight: HighlightCache;
+  /** The colour spans of line `number`, in offsets from the start of the line. */
+  readonly spans: (number: number) => readonly ColorSpan[];
   readonly diagnostics: readonly EditorDiagnostic[];
   readonly inlays: readonly EditorInlay[];
   readonly composition: Composition | undefined;
@@ -124,24 +124,80 @@ export function insertionsFor(
   return insertions;
 }
 
-export function buildLine(inputs: LineInputs, number: number): LineSpec {
-  const { state, tree, highlight, composition, focused } = inputs;
+/**
+ * Everything a line is built from, before it is built: the line's text, its colours, and the selection, problems, brackets and pieces
+ * that fall in it, in offsets from its start. A line made of the same parts as the one before is that line, so a keystroke builds the
+ * line it changed and compares the others (`LineBuilder`).
+ */
+export interface LineParts {
+  readonly text: string;
+  readonly spans: readonly ColorSpan[];
+  readonly selected: readonly Covered[];
+  readonly diagnostics: readonly (EditorDiagnostic & Covered)[];
+  readonly brackets: readonly Covered[];
+  readonly insertions: readonly Insertion[];
+  readonly selectionColor: HexColor;
+  /** The selection goes on over the line break. */
+  readonly breakSelected: boolean;
+  readonly severity: Severity | undefined;
+}
+
+export function lineParts(inputs: LineInputs, number: number): LineParts {
+  const { state, composition, focused } = inputs;
   const line = state.doc.line(number);
-  const text = line.text;
-  const spans = highlight.spans(tree, number, line.from, text);
-  const selected = inLine(state.selection.ranges.filter(range => !range.empty), line.from, line.to);
-  const diagnostics = inLine(inputs.diagnostics, line.from, line.to);
-  const bracketRanges = inLine(inputs.brackets, line.from, line.to);
-  const insertions = insertionsFor(line.from, line.to, inputs.inlays, composition);
+  const ranges = state.selection.ranges;
+  let severity: Severity | undefined;
+  for (const diagnostic of inputs.diagnostics) {
+    if (isProblem(diagnostic) && diagnostic.from <= line.to && diagnostic.to > line.from) {
+      severity = severity === undefined ? diagnostic.severity : worse(severity, diagnostic.severity);
+    }
+  }
+  return {
+    text: line.text,
+    spans: inputs.spans(number),
+    selected: inLine(ranges.filter(range => !range.empty), line.from, line.to),
+    diagnostics: inLine(inputs.diagnostics, line.from, line.to),
+    brackets: inLine(inputs.brackets, line.from, line.to),
+    insertions: insertionsFor(line.from, line.to, inputs.inlays, composition),
+    selectionColor: focused ? THEME.selection : THEME.selectionInactive,
+    breakSelected: ranges.some(range => !range.empty && range.from <= line.to && range.to > line.to),
+    severity,
+  };
+}
+
+function sameRanges(a: readonly Covered[], b: readonly Covered[]): boolean {
+  return a.length === b.length && a.every((range, index) => range.from === b[index]?.from && range.to === b[index].to);
+}
+
+function sameDiagnostics(a: readonly (EditorDiagnostic & Covered)[], b: readonly (EditorDiagnostic & Covered)[]): boolean {
+  return sameRanges(a, b) && a.every((diagnostic, index) => diagnostic.severity === b[index]?.severity);
+}
+
+function sameInsertions(a: readonly Insertion[], b: readonly Insertion[]): boolean {
+  return a.length === b.length && a.every((insertion, index) => {
+    const other = b[index];
+    return other !== undefined && insertion.offset === other.offset && insertion.text === other.text && insertion.kind === other.kind;
+  });
+}
+
+/** Whether two sets of parts build the same line. `spans` are compared by identity: the colours of an unchanged line are the same array (`HighlightCache`). */
+export function sameLineParts(a: LineParts, b: LineParts): boolean {
+  return a.text === b.text && a.spans === b.spans && a.selectionColor === b.selectionColor && a.breakSelected === b.breakSelected
+    && a.severity === b.severity && sameRanges(a.selected, b.selected) && sameDiagnostics(a.diagnostics, b.diagnostics)
+    && sameRanges(a.brackets, b.brackets) && sameInsertions(a.insertions, b.insertions);
+}
+
+/** The line built from its parts: the text cut into segments at every edge of a colour, selection, problem, bracket or piece. */
+export function assembleLine(number: number, parts: LineParts): LineSpec {
+  const { text, spans, selected, diagnostics, brackets, insertions, selectionColor } = parts;
   const layout = new LineLayout(text, insertions);
 
   const edges = new Set<number>([0, text.length]);
   for (const span of spans) { edges.add(span.from); edges.add(span.to); }
-  for (const range of [...selected, ...diagnostics, ...bracketRanges]) { edges.add(range.from); edges.add(range.to); }
+  for (const range of [...selected, ...diagnostics, ...brackets]) { edges.add(range.from); edges.add(range.to); }
   for (const insertion of insertions) edges.add(insertion.offset);
   const boundaries = [...edges].filter(edge => edge >= 0 && edge <= text.length).sort((a, b) => a - b);
 
-  const selectionColor = focused ? THEME.selection : THEME.selectionInactive;
   const segments: Segment[] = [];
   const push = (segment: Segment): void => {
     const last = segments[segments.length - 1];
@@ -172,19 +228,16 @@ export function buildLine(inputs: LineInputs, number: number): LineSpec {
     push({
       kind: 'text', text: text.slice(from, to),
       color: colorAt(spans, from, to),
-      background: selected.some(range => covers(range, from, to)) ? selectionColor : bracketRanges.some(range => covers(range, from, to)) ? THEME.bracketMatch : undefined,
+      background: selected.some(range => covers(range, from, to)) ? selectionColor : brackets.some(range => covers(range, from, to)) ? THEME.bracketMatch : undefined,
       underline: underlineAt(diagnostics, from, to),
     });
   }
-  const breakSelected = state.selection.ranges.some(range => !range.empty && range.from <= line.to && range.to > line.to);
-  if (breakSelected) segments.push({ kind: 'break', text: ' ', color: PLAIN_TEXT_COLOR, background: selectionColor, underline: undefined });
-  let severity: Severity | undefined;
-  for (const diagnostic of inputs.diagnostics) {
-    if (isProblem(diagnostic) && diagnostic.from <= line.to && diagnostic.to > line.from) {
-      severity = severity === undefined ? diagnostic.severity : worse(severity, diagnostic.severity);
-    }
-  }
-  return { number, text, segments, layout, severity };
+  if (parts.breakSelected) segments.push({ kind: 'break', text: ' ', color: PLAIN_TEXT_COLOR, background: selectionColor, underline: undefined });
+  return { number, text, segments, layout, severity: parts.severity };
+}
+
+export function buildLine(inputs: LineInputs, number: number): LineSpec {
+  return assembleLine(number, lineParts(inputs, number));
 }
 
 function colorAt(spans: readonly ColorSpan[], from: number, to: number): HexColor {
@@ -203,17 +256,41 @@ export function matchedBrackets(state: EditorState): { readonly from: number; re
   return [];
 }
 
-/** Keeps the previous `LineSpec` of a line when the new one is equal, so an unchanged line gives its component the same props. */
-export class LineSpecCache {
-  private readonly lines = new Map<number, LineSpec>();
+/**
+ * The specs of the lines in view. A keystroke changes one line of them, so the others are not built again: each line's parts (its text,
+ * colours, selection, problems, brackets and pieces) are read, which is cheap, and compared with those the line was last built from.
+ * A line that is built again and comes out equal keeps its previous `LineSpec`, so an unchanged line gives its component the same props
+ * and costs no native commit.
+ */
+export class LineBuilder {
+  private readonly lines = new Map<number, { readonly parts: LineParts; readonly spec: LineSpec }>();
+  private assembled = 0;
 
-  stable(spec: LineSpec): LineSpec {
-    const previous = this.lines.get(spec.number);
-    if (previous !== undefined && sameLineSpec(previous, spec)) return previous;
-    this.lines.set(spec.number, spec);
-    return spec;
+  /** How many lines have been built from their parts since this was made: a keystroke builds the one it changed. */
+  get built(): number {
+    return this.assembled;
   }
 
+  /** The specs of lines `first` to `last`. */
+  build(inputs: LineInputs, first: number, last: number): LineSpec[] {
+    const specs: LineSpec[] = [];
+    for (let number = first; number <= last; number += 1) {
+      const parts = lineParts(inputs, number);
+      const known = this.lines.get(number);
+      if (known !== undefined && sameLineParts(known.parts, parts)) {
+        specs.push(known.spec);
+        continue;
+      }
+      this.assembled += 1;
+      const built = assembleLine(number, parts);
+      const spec = known !== undefined && sameLineSpec(known.spec, built) ? known.spec : built;
+      this.lines.set(number, { parts, spec });
+      specs.push(spec);
+    }
+    return specs;
+  }
+
+  /** Forgets the lines outside `[first, last]`, so the builder holds a window of lines and not the file. */
   keepOnly(first: number, last: number): void {
     for (const number of this.lines.keys()) {
       if (number < first || number > last) this.lines.delete(number);
