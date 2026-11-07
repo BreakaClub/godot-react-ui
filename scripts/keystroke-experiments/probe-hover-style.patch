@@ -1,0 +1,83 @@
+diff --git a/demo/src/editor/view/grid-probe.tsx b/demo/src/editor/view/grid-probe.tsx
+index 2555d65..e73183f 100644
+--- a/demo/src/editor/view/grid-probe.tsx
++++ b/demo/src/editor/view/grid-probe.tsx
+@@ -27,12 +27,16 @@ export interface MeasuredGrid {
+  */
+ export function GridProbe({ onMeasured }: { readonly onMeasured: (grid: MeasuredGrid) => void }) {
+   const handle = useRef<UIHandle | null>(null);
++  const reported = useRef<MeasuredGrid | undefined>(undefined);
+   useLayoutEffect(() => {
+     const rect = handle.current?.getRect();
+     if (rect === undefined || rect.width === 0 || rect.height === 0) {
+       throw new Error('The editor\'s grid probe has no size: its font did not lay out');
+     }
+-    onMeasured({ advance: Math.round(rect.width / PROBE_COLUMNS / GLYPH_POSITION_STEP_PX) * GLYPH_POSITION_STEP_PX, lineHeight: rect.height });
++    const next = { advance: Math.round(rect.width / PROBE_COLUMNS / GLYPH_POSITION_STEP_PX) * GLYPH_POSITION_STEP_PX, lineHeight: rect.height };
++    if (reported.current?.advance === next.advance && reported.current.lineHeight === next.lineHeight) return;
++    reported.current = next;
++    onMeasured(next);
+   });
+   return (
+     <Text
+diff --git a/demo/src/editor/view/hover.ts b/demo/src/editor/view/hover.ts
+index 7ca5f11..839d2be 100644
+--- a/demo/src/editor/view/hover.ts
++++ b/demo/src/editor/view/hover.ts
+@@ -19,6 +19,7 @@ export class HoverTracker<T> {
+   private timer: ReturnType<typeof setTimeout> | undefined;
+   private generation = 0;
+   private current: HoverTarget | undefined;
++  private shown = false;
+   private readonly delayMs: number;
+   private readonly request: (target: HoverTarget) => Promise<T | undefined>;
+   private readonly show: (value: T | undefined, target: HoverTarget | undefined) => void;
+@@ -44,7 +45,10 @@ export class HoverTracker<T> {
+     this.timer = setTimeout(() => {
+       this.timer = undefined;
+       this.request(target).then(value => {
+-        if (generation === this.generation) this.show(value, target);
++        if (generation === this.generation) {
++          this.shown = value !== undefined;
++          this.show(value, target);
++        }
+       }, (error: unknown) => {
+         // A failed hover shows nothing; the failure is reported, not swallowed.
+         console.error(`The hover at ${target.offset} failed: ${error instanceof Error ? error.message : String(error)}`);
+@@ -58,6 +62,8 @@ export class HoverTracker<T> {
+     this.timer = undefined;
+     this.generation += 1;
+     this.current = undefined;
++    if (!this.shown) return;
++    this.shown = false;
+     this.show(undefined, undefined);
+   }
+ }
+diff --git a/src/props.ts b/src/props.ts
+index 69fcb15..c1b0428 100644
+--- a/src/props.ts
++++ b/src/props.ts
+@@ -121,6 +121,14 @@ export interface PreviousProps {
+   readonly native: NativeProps;
+ }
+ 
++/** Whether two inline styles are the same plain object, or two plain objects with the same keys and values. */
++function sameInlineStyle(left: HostProps['style'], right: HostProps['style']): boolean {
++  if (left === right) return true;
++  if (typeof left !== 'object' || typeof right !== 'object' || left === null || right === null || Array.isArray(left) || Array.isArray(right)) return false;
++  const keys = Object.keys(left);
++  return keys.length === Object.keys(right).length && keys.every(key => Reflect.get(left, key) === Reflect.get(right, key));
++}
++
+ /**
+  * Derive the native props of an element. Compiling a style is the one costly step, so a clone whose
+  * `className` and `style` props are unchanged reuses the previous compiled style.
+@@ -129,7 +137,7 @@ export function nativeProps(
+   kind: NativeKind, props: HostProps, hidden: boolean, previous?: PreviousProps, rich?: FlatText,
+ ): NativeProps {
+   const native: { -readonly [K in keyof NativeProps]: NativeProps[K] } = {};
+-  if (previous !== undefined && previous.props.className === props.className && previous.props.style === props.style) {
++  if (previous !== undefined && previous.props.className === props.className && sameInlineStyle(previous.props.style, props.style)) {
+     if (previous.native.style !== undefined) native.style = previous.native.style;
+   } else if (props.className || props.style) {
+     const compiled = compileStyle(props.className, props.style);

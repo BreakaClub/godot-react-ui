@@ -1,0 +1,22 @@
+diff --git a/demo/src/editor/model.ts b/demo/src/editor/model.ts
+index 92fabf2..1c1e057 100644
+--- a/demo/src/editor/model.ts
++++ b/demo/src/editor/model.ts
+@@ -87,12 +87,17 @@ export class EditorModel {
+    * state is a bug in the caller: the model never merges.
+    */
+   dispatch(change: Transaction | TransactionSpec): Transaction {
++    const clock = Reflect.get(globalThis, 'godotReactClock');
++    const started = typeof clock === 'function' ? clock() : 0;
+     const transaction = this.transactionOf(change);
++    if (typeof clock === 'function') console.log(`DISPATCH_US ${(clock() - started).toFixed(0)} transactionOf`);
+     if (transaction.startState !== this.current) {
+       throw new Error('A transaction made from an older state was dispatched: the model applies one transaction at a time, in order');
+     }
+     const previous = this.current;
++    const stateStarted = typeof clock === 'function' ? clock() : 0;
+     this.current = transaction.state;
++    if (typeof clock === 'function') console.log(`DISPATCH_US ${(clock() - stateStarted).toFixed(0)} state`);
+     if (transaction.docChanged) {
+       this.documentVersion += 1;
+       this.changeLog.push(transaction.changes);

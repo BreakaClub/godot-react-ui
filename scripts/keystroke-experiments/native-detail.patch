@@ -1,0 +1,293 @@
+diff --git a/native/detail.rs b/native/detail.rs
+new file mode 100644
+index 0000000..f420063
+--- /dev/null
++++ b/native/detail.rs
+@@ -0,0 +1,62 @@
++//! Diagnostic phase timers (docs/tracks/keystroke-profile.md). Not part of the library: a build with this file is a measuring build.
++use std::cell::{Cell, RefCell};
++use std::collections::BTreeMap;
++use std::time::Instant;
++
++thread_local! {
++    static ENABLED: Cell<bool> = const { Cell::new(false) };
++    static TOTALS: RefCell<BTreeMap<&'static str, (u64, u64)>> = const { RefCell::new(BTreeMap::new()) };
++}
++
++pub fn enable(enabled: bool) {
++    ENABLED.with(|flag| flag.set(enabled));
++}
++
++/// Whether to print every paragraph measurement: the process was started with KEYSTROKE_TRACE_MEASURE set, and profiling is on.
++pub fn tracing() -> bool {
++    thread_local! { static ASKED: bool = std::env::var_os("KEYSTROKE_TRACE_MEASURE").is_some(); }
++    ENABLED.with(Cell::get) && ASKED.with(|asked| *asked)
++}
++
++pub struct Timer {
++    name: &'static str,
++    started: Option<Instant>,
++}
++
++/// Times the scope it is held in, inclusive of what it calls; the totals are in nanoseconds and the number of times it ran.
++pub fn timer(name: &'static str) -> Timer {
++    Timer { name, started: ENABLED.with(Cell::get).then(Instant::now) }
++}
++
++impl Drop for Timer {
++    fn drop(&mut self) {
++        if let Some(started) = self.started {
++            let nanos = started.elapsed().as_nanos() as u64;
++            TOTALS.with(|totals| {
++                let mut totals = totals.borrow_mut();
++                let entry = totals.entry(self.name).or_insert((0, 0));
++                entry.0 += nanos;
++                entry.1 += 1;
++            });
++        }
++    }
++}
++
++/// Counts `amount` things under `name` (no time).
++pub fn count(name: &'static str, amount: u64) {
++    if ENABLED.with(Cell::get) {
++        TOTALS.with(|totals| {
++            let mut totals = totals.borrow_mut();
++            let entry = totals.entry(name).or_insert((0, 0));
++            entry.1 += amount;
++        });
++    }
++}
++
++pub fn take() -> String {
++    TOTALS.with(|totals| {
++        let taken = std::mem::take(&mut *totals.borrow_mut());
++        let body: Vec<String> = taken.iter().map(|(name, (nanos, times))| format!("\"{name}\":[{nanos},{times}]")).collect();
++        format!("{{{}}}", body.join(","))
++    })
++}
+diff --git a/native/layout.rs b/native/layout.rs
+index 5ec963e..01f8308 100644
+--- a/native/layout.rs
++++ b/native/layout.rs
+@@ -28,7 +28,10 @@ pub(crate) fn compute_tree(tree: &mut TaffyTree<TextContext>, root: NodeId, size
+                     let measured = match context.as_ref() {
+                         None => return Size::ZERO,
+                         Some(TextContext::Paragraph(paragraph)) => {
++                            let _measure = crate::detail::timer("layout.measure_paragraph");
++                            let clone = crate::detail::timer("layout.measure_clone");
+                             let mut paragraph = paragraph.clone();
++                            drop(clone);
+                             let offered = match (known.width, available.width) {
+                                 (Some(width), _) | (None, AvailableSpace::Definite(width)) => {
+                                     Offered::Definite(width)
+@@ -36,7 +39,12 @@ pub(crate) fn compute_tree(tree: &mut TaffyTree<TextContext>, root: NodeId, size
+                                 (None, AvailableSpace::MinContent) => Offered::MinContent,
+                                 (None, AvailableSpace::MaxContent) => Offered::MaxContent,
+                             };
+-                            paragraph.measure(offered)
++                            let _call = crate::detail::timer("layout.measure_call");
++                            let size = paragraph.measure(offered);
++                            if crate::detail::tracing() {
++                                godot::global::godot_print!("MEASURE known={:?}x{:?} available={:?}x{:?} -> {:?}", known.width, known.height, available.width, available.height, size);
++                            }
++                            size
+                         }
+                         // A text input is the same size whatever it holds and however wide it is
+                         // offered (a long value scrolls, it does not widen the field).
+@@ -150,6 +158,7 @@ impl ReactUiRoot {
+             let root = self.layer_roots[layer];
+             if self.tree.dirty(root).expect("layer root exists") {
+                 let start = Instant::now();
++                let _layout = crate::detail::timer("layout.compute_tree");
+                 compute_tree(&mut self.tree, root, self.viewport_size);
+                 self.stats.layout_micros = start.elapsed().as_micros() as u64;
+                 self.stats.layout_passes += 1;
+@@ -161,9 +170,15 @@ impl ReactUiRoot {
+             0
+         };
+         let geometry_started = Instant::now();
++        let timer = crate::detail::timer("geometry.settle_paint_structure");
+         self.settle_paint_structure();
++        drop(timer);
++        let timer = crate::detail::timer("geometry.update_geometry");
+         self.update_geometry();
++        drop(timer);
++        let timer = crate::detail::timer("geometry.reveal_carets");
+         self.reveal_carets_after_layout();
++        drop(timer);
+         let viewport = self.viewport_box();
+         if self
+             .focused
+@@ -193,7 +208,9 @@ impl ReactUiRoot {
+         self.geometry_micros = micros(geometry_started);
+         self.phase_layout_micros += self.last_layout_micros;
+         self.phase_geometry_micros += self.geometry_micros;
++        let timer = crate::detail::timer("paint.pass");
+         self.paint_pass();
++        drop(timer);
+         // Bounds are part of the accessibility tree.
+         self.request_accessibility_update();
+     }
+diff --git a/native/lib.rs b/native/lib.rs
+index b7e827b..56d676f 100644
+--- a/native/lib.rs
++++ b/native/lib.rs
+@@ -35,6 +35,7 @@ mod pointer_input;
+ mod pointer_state;
+ #[cfg(feature = "probe")]
+ mod probe;
++mod detail;
+ mod profile;
+ mod props;
+ mod render_tree;
+@@ -584,6 +585,7 @@ impl ReactUiRoot {
+         let Ok(layer) = usize::try_from(layer) else {
+             return GString::from(&format!("layer {layer} is negative"));
+         };
++        let _t = detail::timer("commit.parse_json");
+         let payload: CommitPayload = match serde_json::from_str(&payload_json.to_string()) {
+             Ok(payload) => payload,
+             Err(error) => return GString::from(&format!("Invalid commit JSON: {error}")),
+@@ -638,6 +640,7 @@ impl ReactUiRoot {
+ 
+     #[func]
+     fn set_profiling(&mut self, enabled: bool) {
++        detail::enable(enabled);
+         self.profiler.enable(enabled);
+     }
+ 
+@@ -668,6 +671,7 @@ impl ReactUiRoot {
+ 
+     #[func]
+     fn take_profile(&mut self) -> GString {
++        godot_print!("KEYSTROKE_DETAIL {}", detail::take());
+         let (samples, dropped) = self.profiler.take();
+         json!({"samples":samples,"dropped":dropped,"counters":self.activity_json()})
+             .to_string()
+diff --git a/native/motion.rs b/native/motion.rs
+index a3de726..5cee74c 100644
+--- a/native/motion.rs
++++ b/native/motion.rs
+@@ -279,14 +279,18 @@ impl ReactUiRoot {
+         }
+ 
+         let mut rebuilt = BTreeSet::new();
++        let timer = crate::detail::timer("publish.apply_authored_style");
+         for change in changes {
+             self.apply_authored_style(change, &mut rebuilt);
+         }
++        drop(timer);
++        let timer = crate::detail::timer("publish.refresh_paragraph");
+         for tag in pending_text {
+             if rebuilt.insert(tag) {
+                 self.refresh_paragraph(tag);
+             }
+         }
++        drop(timer);
+ 
+         // New content is present in native measurement contexts, but no geometry has been
+         // published or drawn from this target-only state.
+@@ -306,9 +310,15 @@ impl ReactUiRoot {
+             );
+         }
+         let tags = self.style_engine_tags(changes);
++        let timer = crate::detail::timer("publish.update_style_engine");
+         self.update_style_engine(&tags, &immediate);
++        drop(timer);
++        let timer = crate::detail::timer("publish.apply_presentation");
+         self.apply_presentation();
++        drop(timer);
++        let timer = crate::detail::timer("publish.flush_layout");
+         self.flush_layout();
++        drop(timer);
+         for (tag, property, duration_ms) in changed {
+             let current = self.current_motion_value(tag, property);
+             let target = self.target_motion_value(tag, property);
+diff --git a/native/mount.rs b/native/mount.rs
+index b32d3c1..ee505ba 100644
+--- a/native/mount.rs
++++ b/native/mount.rs
+@@ -697,9 +697,20 @@ impl ReactUiRoot {
+         parse_micros: u64,
+     ) -> Result<(), String> {
+         let started = Instant::now();
++        let timer = crate::detail::timer("validate.validate");
+         let validated = commit::validate(payload, layer, &self.mounted).map_err(|error| error.0)?;
++        drop(timer);
++        let timer = crate::detail::timer("validate.plan");
+         let transaction = commit::plan(&validated, &self.mounted);
++        drop(timer);
++        let timer = crate::detail::timer("validate.dry_run_styles");
+         let dry_run = self.dry_run_styles(&validated, &transaction)?;
++        drop(timer);
++        crate::detail::count("commit.creates", transaction.creates.len() as u64);
++        crate::detail::count("commit.updates", transaction.updates.len() as u64);
++        crate::detail::count("commit.inserts", transaction.inserts.len() as u64);
++        crate::detail::count("commit.removes", transaction.removes.len() as u64);
++        crate::detail::count("commit.deletes", transaction.deletes.len() as u64);
+         let validate_micros = micros(started);
+ 
+         let mount_started = Instant::now();
+@@ -715,23 +726,37 @@ impl ReactUiRoot {
+             + transaction.inserts.len()) as u64;
+         self.deletions.clear();
+ 
++        let timer = crate::detail::timer("mount.apply_transaction");
+         let touched = self.apply_transaction(layer, &transaction);
+         for (tag, computed) in dry_run.computed {
+             if let Some(node) = self.mounted.nodes.get_mut(&tag) {
+                 node.computed = computed;
+             }
+         }
++        drop(timer);
++        let timer = crate::detail::timer("mount.settle_structure");
+         self.settle_structure(&touched);
++        drop(timer);
++        let timer = crate::detail::timer("mount.publish_commit");
+         self.publish_commit(&dry_run.changes, !touched.is_empty());
++        drop(timer);
++        let timer = crate::detail::timer("mount.settle_selection");
+         self.settle_selection(!touched.is_empty());
++        drop(timer);
++        let timer = crate::detail::timer("mount.refresh_interaction");
+         self.refresh_interaction();
++        drop(timer);
++        let timer = crate::detail::timer("mount.focus");
+         self.apply_auto_focus(&validated);
+         self.settle_key_focus();
++        drop(timer);
+         // What is exposed may have changed in any way a commit can change the tree; pruning is a
+         // no-op until an assistive technology has asked for the tree (plan 3.21).
++        let timer = crate::detail::timer("mount.accessibility");
+         self.accessibility.mark_structure_dirty();
+         self.prune_accessibility();
+         self.request_accessibility_update();
++        drop(timer);
+         self.stats.batches += 1;
+         self.stats.node_count = self.mounted.nodes.len();
+         let mount_micros = micros(mount_started)
+@@ -1177,6 +1202,9 @@ impl ReactUiRoot {
+             },
+             None => None,
+         };
++        crate::detail::count("paragraph.refreshed", 1);
++        crate::detail::count("paragraph.chars", shown.chars().count() as u64);
++        let _shaping = crate::detail::timer("paragraph.shape");
+         let paragraph = match rich {
+             Some(rich) => self.shape_rich(rich, &style.shaping, epoch),
+             None => {
+diff --git a/native/render_tree.rs b/native/render_tree.rs
+index 7381205..3873cda 100644
+--- a/native/render_tree.rs
++++ b/native/render_tree.rs
+@@ -1168,7 +1168,9 @@ impl ReactUiRoot {
+         self.sync_oversampling();
+         let dirty = std::mem::take(&mut self.paint_dirty);
+         let mut changed = !dirty.is_empty();
++        crate::detail::count("paint.dirty_nodes", dirty.len() as u64);
+         for tag in dirty {
++            let _node = crate::detail::timer("paint.node");
+             let (boxed, contented) = self.paint_node(tag);
+             self.stats.box_records += u64::from(boxed);
+             self.stats.content_records += u64::from(contented);

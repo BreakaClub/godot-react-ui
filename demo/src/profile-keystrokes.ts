@@ -337,6 +337,8 @@ export function installKeystrokeProfile(owner: Node, api: KeystrokeProfileInspec
 
   const controls = { prepare, warmup, burst, settle, bench, nativeCallCost };
   Object.assign(globalThis, {
+    /** The engine's clock in microseconds, for a throwaway patch that times a function inside the library (which cannot import 'godot'). */
+    godotReactClock: nowUs,
     godotReactKeystrokeProfile: {
       ...controls,
       /** What the run is made of, for the report. */

@@ -6,6 +6,7 @@
 //
 // - `--standalone` attaches no client at all: the demo runs the steps itself and prints the keystrokes (the run the profiler's cost is measured against).
 // - `--gap=<frames>` leaves that many frames between keystrokes (default 1; a burst must stay under the workspace's 600 ms, so use few inserts).
+// - `--after-prepare=<js>` evaluates that expression in the demo once the caret is in place (for a throwaway patch that needs to know when to start).
 // - `--move` presses Right and Left instead of typing: a keystroke that moves the caret and changes no text.
 // - `--no-inspector` also turns the inspector off in the demo (debugger port 0).
 // - `--bench` runs the editor's data work without React or native (demo/src/editor/keystroke-bench.ts) inside the demo's V8, for the typing site and
@@ -42,7 +43,7 @@ function option(name, fallback) {
 }
 
 for (const argument of argsWithoutEngine(process.argv.slice(2))) {
-  if (!['--site=', '--warmup=', '--bursts=', '--inserts=', '--cpu=', '--keystrokes=', '--bench-warmup=', '--renderer-profile=', '--coverage', '--standalone', '--no-inspector', '--bench', '--move', '--gap=', '--out='].some(prefix => argument.startsWith(prefix))) {
+  if (!['--site=', '--warmup=', '--bursts=', '--inserts=', '--cpu=', '--keystrokes=', '--bench-warmup=', '--renderer-profile=', '--coverage', '--standalone', '--no-inspector', '--bench', '--move', '--gap=', '--after-prepare=', '--out='].some(prefix => argument.startsWith(prefix))) {
     throw new Error(`Unknown argument: ${argument}`);
   }
 }
@@ -211,6 +212,8 @@ try {
   console.log('environment:', await cdp.evaluate('godotReactKeystrokeProfile.environment()'));
   const prepared = await cdp.evaluate(`godotReactKeystrokeProfile.prepare(${JSON.stringify(site)})`);
   console.log('prepared:', JSON.stringify(prepared));
+  const afterPrepare = option('after-prepare', undefined);
+  if (afterPrepare !== undefined) console.log('after prepare:', JSON.stringify(await cdp.evaluate(afterPrepare)));
   if (process.argv.includes('--bench')) {
     const keystrokes = Number(option('keystrokes', 1000));
     const benchWarmup = Number(option('bench-warmup', 400));

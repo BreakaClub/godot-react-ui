@@ -1,4 +1,4 @@
-// Reads the `KEYSTROKE_DETAIL` lines a measuring native build prints (scripts/keystroke-native-detail.patch) from the log of a profile run, and
+// Reads the `KEYSTROKE_DETAIL` lines a measuring native build prints (scripts/keystroke-experiments/native-detail.patch) from the log of a profile run, and
 // prints the native commit's phases per keystroke (docs/tracks/keystroke-profile.md):
 //
 //   node scripts/analyze-native-detail.mjs <run directory>... [--kind=insert|delete]

@@ -1,0 +1,13 @@
+diff --git a/demo/src/editor/view/status-bar.tsx b/demo/src/editor/view/status-bar.tsx
+index 9a134ea..0be62de 100644
+--- a/demo/src/editor/view/status-bar.tsx
++++ b/demo/src/editor/view/status-bar.tsx
+@@ -44,7 +44,7 @@ function checkColor(check: CheckStatus): HexColor {
+ export function StatusBar({ position, selections, fileName, run, check, problemsOpen, onToggleProblems }: StatusBarProps) {
+   return (
+     <View testID="code-status" role="region" aria-label="Editor status" className="flex-row items-center gap-3 border-t border-slate-800 bg-slate-950 px-3 py-1">
+-      <Text testID="code-status-position" className="shrink-0 font-mono text-xs text-slate-400">
++      <Text testID="code-status-position" className="w-28 shrink-0 font-mono text-xs text-slate-400">
+         {`Ln ${position.line}, Col ${position.column}${selections > 1 ? `  ${selections} selections` : ''}`}
+       </Text>
+       <Text testID="code-status-file" className="shrink-0 text-xs text-slate-500">{fileName}</Text>
