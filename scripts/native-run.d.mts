@@ -23,6 +23,8 @@ export interface NativeVerifierRun {
   beforeLaunch?: (attempt: number) => void;
   /** How long a child gets to leave after SIGTERM before SIGKILL. */
   killGraceMs?: number;
+  /** Default true: the window cannot take focus (scripts/quiet-window.mjs). Only a stand-in for Godot turns it off. */
+  quiet?: boolean;
 }
 
 export interface Disturbance {

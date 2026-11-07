@@ -63,6 +63,12 @@ const profiles = {
     name: 'stock',
     description: 'Stock Godot 4.7.2 with upstream GodotJS',
     godot: `${stockRoot}/bin/godot-stock`,
+    // What the launcher script above does. A window that must not take focus starts the binary itself (scripts/quiet-window.mjs).
+    directLaunch: {
+      command: `${stockRoot}/bin/godot.macos.editor.arm64`,
+      env: { HOME: `${stockRoot}/home` },
+      directories: [`${stockRoot}/home/Library/Application Support`, `${stockRoot}/home/Library/Caches`],
+    },
     versionPrefix: '4.7.',
     apiDirectory: resolve(root, 'native/api/stock-4.7.2'),
     artifacts: resolve(root, 'artifacts/stock'),
@@ -134,6 +140,11 @@ export function selectEngineName(argv, env) {
     throw new Error(`Unknown engine profile "${name}" (from ${flags.length > 0 ? ENGINE_FLAG : ENGINE_VARIABLE}); use ${Object.keys(profiles).join(' or ')}.`);
   }
   return name;
+}
+
+/** How to start `godot` without its launcher script, if it is a profile's script; `undefined` when `godot` is the binary. */
+export function directLaunchOf(godot) {
+  return Object.values(profiles).find(profile => profile.godot === godot)?.directLaunch;
 }
 
 /**

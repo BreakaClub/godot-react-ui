@@ -78,7 +78,7 @@ async function run(
     result = await runNativeVerifier({
       godot: fakeGodot(directory, launches), project: directory, output, name: 'landscape', resolution: '1x1',
       scriptArgs: ['--verify'], successMarker: options.scriptMarker ?? PASSED, errorPattern: /ERROR:|Uncaught|\[panic /u,
-      deadlineMs: options.deadlineMs ?? 30_000, retry: options.retry, beforeLaunch: options.beforeLaunch, killGraceMs: options.killGraceMs,
+      deadlineMs: options.deadlineMs ?? 30_000, retry: options.retry, beforeLaunch: options.beforeLaunch, killGraceMs: options.killGraceMs, quiet: false,
     });
   } catch (caught) {
     assert.ok(caught instanceof Error);

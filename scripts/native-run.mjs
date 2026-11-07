@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { cpSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
+import { quietLaunch, quietWindowProblem } from './quiet-window.mjs';
 
 /**
  * What the demo logs (demo/src/verifier-input.ts) when a run sees something its verifier did not cause: input from a
@@ -122,14 +123,14 @@ export function describePass(log, successMarker) {
  */
 export async function runNativeVerifier({
   godot, project, output, name, resolution, leading = [], scriptArgs, successMarker, artifacts, errorPattern, deadlineMs,
-  retry = true, beforeLaunch, killGraceMs = KILL_GRACE_MS,
+  retry = true, beforeLaunch, killGraceMs = KILL_GRACE_MS, quiet = true,
 }) {
   mkdirSync(output, { recursive: true });
   clearStaleEvidence(output);
   const disturbedFailures = [];
   for (let attempt = 1; ; attempt += 1) {
     beforeLaunch?.(attempt);
-    const launched = await launch({ godot, project, resolution, leading, scriptArgs, artifacts: artifacts ?? output, deadlineMs, killGraceMs });
+    const launched = await launch({ godot, project, resolution, leading, scriptArgs, artifacts: artifacts ?? output, deadlineMs, killGraceMs, quiet });
     const { log, code } = launched;
     // `run.log` is always the last attempt's log; every attempt keeps its own.
     writeFileSync(resolve(output, 'run.log'), log);
@@ -138,7 +139,8 @@ export async function runNativeVerifier({
     if (launched.interrupted !== undefined) {
       throw new Error(`${name} was interrupted by ${launched.interrupted}; its Godot window was closed (see ${output}/run.log)`);
     }
-    const failure = judge(log, successMarker, errorPattern, name, code, output, launched.timedOut ? deadlineMs : undefined);
+    const noisy = quiet ? quietWindowProblem(log) : undefined;
+    const failure = noisy === undefined ? judge(log, successMarker, errorPattern, name, code, output, launched.timedOut ? deadlineMs : undefined) : `${name}: ${noisy}; see ${output}/run.log`;
     if (failure === undefined) {
       if (code !== 0) console.warn(`Runtime assertions passed; teardown exited ${code === null ? 'by signal' : code}. Evidence retained.`);
       return passed({ name, attempt, report, log, successMarker, disturbedFailures, output });
@@ -239,9 +241,12 @@ function judge(log, successMarker, errorPattern, name, code, output, killedAtDea
  * signal sent to this script (forwarded, then SIGKILL after the same grace), and this script exiting for any reason.
  * Nothing is left running, and no timer outlives the child.
  */
-async function launch({ godot, project, resolution, leading, scriptArgs, artifacts, deadlineMs, killGraceMs }) {
-  const child = spawn(godot, ['--audio-driver', 'Dummy', '--path', project, '--resolution', resolution, ...leading, '--', ...scriptArgs], {
-    env: { ...process.env, GODOT_REACT_ARTIFACTS: artifacts }, stdio: ['ignore', 'pipe', 'pipe'],
+async function launch({ godot, project, resolution, leading, scriptArgs, artifacts, deadlineMs, killGraceMs, quiet }) {
+  const environment = { ...process.env, GODOT_REACT_ARTIFACTS: artifacts };
+  // An automated window never takes focus (scripts/quiet-window.mjs, docs/tracks/quiet-windows.md).
+  const { command, env } = quiet ? quietLaunch(godot, environment) : { command: godot, env: environment };
+  const child = spawn(command, ['--audio-driver', 'Dummy', '--path', project, '--resolution', resolution, ...leading, '--', ...scriptArgs], {
+    env, stdio: ['ignore', 'pipe', 'pipe'],
   });
   let log = '';
   const collect = data => { const value = data.toString(); log += value; process.stdout.write(value); };

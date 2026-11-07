@@ -77,3 +77,6 @@ export interface Engine {
 export function argsWithoutEngine(argv: readonly string[]): string[];
 export function selectEngineName(argv: readonly string[], env: Record<string, string | undefined>): string;
 export function selectEngine(argv?: readonly string[], env?: Record<string, string | undefined>): Engine;
+
+/** How to start `godot` without its launcher script, if it is a profile's script. */
+export function directLaunchOf(godot: string): { command: string; env: Record<string, string>; directories: string[] } | undefined;
