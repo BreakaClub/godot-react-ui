@@ -22,191 +22,191 @@ is merged; regenerating after the merge turns it into "supported". "Deliberately
 
 ## Summary
 
-* Class names that compile: **4641 of 11344** (40.9 %), up from 3020 of 11344 (26.6 %) on main at d282fee, before this batch of tracks.
-* Variants (of 103 probed, covering every family of v3.4.17): **11 compile**, up from 11 before.
+* Class names that compile: **8045 of 11344** (70.9 %).
+* Variants (of 103 probed, covering every family of v3.4.17): **11 compile**.
 
 ## Core plugins
 
 | plugin | classes | compile | before | status |
 | --- | ---: | ---: | ---: | --- |
-| `container` | 1 | 1 | 0 | supported |
-| `accessibility` | 2 | 2 | 0 | supported |
-| `pointerEvents` | 2 | 2 | 2 | supported |
-| `visibility` | 3 | 2 | 0 | partly (the rest is deliberately absent): `collapse` is absent: a flex `visibility: collapse` keeps the cross size and is not `display: none`; use `invisible` or `hidden` |
-| `position` | 5 | 4 | 4 | partly (the rest is deliberately absent): `sticky` needs scroll-linked positioning in the layout engine; use `relative`, `absolute` or `fixed` |
-| `inset` | 765 | 765 | 595 | supported |
-| `isolation` | 2 | 0 | 0 | deliberately absent: z-index here never creates a stacking context, so there is nothing for `isolate` to do |
-| `zIndex` | 13 | 13 | 13 | supported |
-| `order` | 30 | 30 | 0 | supported |
-| `gridColumn` | 14 | 14 | 0 | supported |
-| `gridColumnStart` | 27 | 27 | 0 | supported |
-| `gridColumnEnd` | 27 | 27 | 0 | supported |
-| `gridRow` | 14 | 14 | 0 | supported |
-| `gridRowStart` | 27 | 27 | 0 | supported |
-| `gridRowEnd` | 27 | 27 | 0 | supported |
-| `float` | 5 | 0 | 0 | deliberately absent: no floats; use flex (`ml-auto`, `justify-end`) or grid |
-| `clear` | 6 | 0 | 0 | deliberately absent: no floats, so nothing to clear |
-| `margin` | 639 | 639 | 245 | supported |
-| `boxSizing` | 2 | 2 | 0 | supported |
-| `lineClamp` | 7 | 7 | 0 | supported |
-| `display` | 21 | 5 | 3 | partly (the rest is deliberately absent): `block` and `flow-root` are Taffy block layout; there is no inline layout, so `inline*`, `table*`, `contents` and `list-item` are absent (a flex or grid parent makes its children block-level anyway) |
-| `aspectRatio` | 3 | 3 | 0 | supported |
-| `size` | 66 | 66 | 0 | supported |
-| `height` | 59 | 59 | 52 | supported |
-| `maxHeight` | 44 | 41 | 36 | partly (the rest is deliberately absent): `max-h-min|max|fit` are absent for the same reason as `max-w-*` |
-| `minHeight` | 43 | 40 | 36 | partly (the rest is deliberately absent): `min-h-min|max|fit` are absent for the same reason as `max-w-*` |
-| `width` | 70 | 70 | 63 | supported |
-| `minWidth` | 39 | 36 | 36 | partly (the rest is deliberately absent): `min-w-min|max|fit` are absent for the same reason as `max-w-*` |
-| `maxWidth` | 57 | 53 | 47 | partly (the rest is deliberately absent): `max-w-min|max|fit` are absent (Taffy limits take lengths and percentages, not intrinsic keywords; size the box with `w-min`); `max-w-prose` needs the `ch` unit |
-| `flex` | 4 | 4 | 4 | supported |
-| `flexShrink` | 4 | 2 | 2 | partly (the rest is deliberately absent): not yet decided |
-| `flexGrow` | 4 | 2 | 2 | partly (the rest is deliberately absent): not yet decided |
-| `flexBasis` | 63 | 63 | 63 | supported |
-| `tableLayout` | 2 | 0 | 0 | deliberately absent: no table layout; use grid |
-| `captionSide` | 2 | 0 | 0 | deliberately absent: no table layout |
-| `borderCollapse` | 2 | 0 | 0 | deliberately absent: no table layout |
-| `borderSpacing` | 105 | 0 | 0 | deliberately absent: no table layout |
-| `transformOrigin` | 9 | 9 | 0 | supported |
-| `translate` | 168 | 168 | 0 | supported |
-| `rotate` | 18 | 18 | 0 | supported |
-| `skew` | 24 | 24 | 0 | supported |
-| `scale` | 60 | 60 | 0 | supported |
-| `transform` | 4 | 4 | 0 | supported |
-| `animation` | 5 | 0 | 0 | deliberately absent: keyframe animations are not part of the motion engine (transitions only) |
-| `cursor` | 36 | 15 | 15 | partly (the rest is deliberately absent): native has the 15 shapes Godot has; the rest (`cursor-copy`, `cursor-zoom-in`, `cursor-none`, ...) have no Godot cursor to map to |
-| `touchAction` | 10 | 4 | 4 | partly (the rest is deliberately absent): native has `auto`, `none`, `pan-x` and `pan-y`; pinch-zoom and manipulation are not modelled |
-| `userSelect` | 4 | 2 | 2 | partly (the rest is deliberately absent): native selects text with `select-text` and `select-none`; `select-all` and `select-auto` are not modelled |
-| `resize` | 4 | 0 | 0 | deliberately absent: no user-resizable elements |
-| `scrollSnapType` | 6 | 0 | 0 | deliberately absent: no scroll snapping |
-| `scrollSnapAlign` | 4 | 0 | 0 | deliberately absent: no scroll snapping |
-| `scrollSnapStop` | 2 | 0 | 0 | deliberately absent: no scroll snapping |
-| `scrollMargin` | 630 | 0 | 0 | deliberately absent: no scroll snapping or scroll-into-view offsets |
-| `scrollPadding` | 315 | 0 | 0 | deliberately absent: no scroll snapping or scroll-into-view offsets |
-| `listStylePosition` | 2 | 0 | 0 | deliberately absent: no list markers; draw the marker as an element |
-| `listStyleType` | 3 | 0 | 0 | deliberately absent: no list markers |
-| `listStyleImage` | 1 | 0 | 0 | deliberately absent: no list markers |
-| `appearance` | 2 | 0 | 0 | deliberately absent: there are no native form controls to restyle |
-| `columns` | 26 | 0 | 0 | deliberately absent: no multi-column layout; use `grid-cols-*` (the class says so) |
-| `breakBefore` | 8 | 0 | 0 | deliberately absent: no fragmentation |
-| `breakInside` | 4 | 0 | 0 | deliberately absent: no fragmentation |
-| `breakAfter` | 8 | 0 | 0 | deliberately absent: no fragmentation |
-| `gridAutoColumns` | 4 | 4 | 0 | supported |
-| `gridAutoFlow` | 5 | 5 | 0 | supported |
-| `gridAutoRows` | 4 | 4 | 0 | supported |
-| `gridTemplateColumns` | 14 | 13 | 12 | partly (the rest is deliberately absent): `grid-cols-subgrid` is absent: Taffy has no subgrid |
-| `gridTemplateRows` | 14 | 13 | 0 | partly (the rest is deliberately absent): `grid-rows-subgrid` is absent: Taffy has no subgrid |
-| `flexDirection` | 4 | 4 | 4 | supported |
-| `flexWrap` | 3 | 3 | 3 | supported |
-| `placeContent` | 8 | 7 | 0 | partly (the rest is deliberately absent): `place-content-baseline` is absent for the same reason |
-| `placeItems` | 5 | 5 | 0 | supported |
-| `alignContent` | 9 | 8 | 0 | partly (the rest is deliberately absent): `content-baseline` is absent: Taffy has no baseline content alignment |
-| `alignItems` | 5 | 5 | 5 | supported |
-| `justifyContent` | 8 | 8 | 6 | supported |
-| `justifyItems` | 4 | 4 | 0 | supported |
-| `gap` | 105 | 105 | 105 | supported |
-| `space` | 142 | 0 | 0 | deliberately absent: a child combinator for margins does not exist natively; the class throws and says to use `gap-x-*` or `gap-y-*` on the container |
-| `divideWidth` | 12 | 0 | 0 | deliberately absent: a child combinator for borders does not exist natively; the class throws and says to border the children |
-| `divideStyle` | 5 | 0 | 0 | deliberately absent: as `divide-width` |
-| `divideColor` | 247 | 0 | 0 | deliberately absent: as `divide-width` |
-| `divideOpacity` | 21 | 0 | 0 | deliberately absent: as `divide-width` |
-| `placeSelf` | 5 | 5 | 0 | supported |
-| `alignSelf` | 6 | 6 | 5 | supported |
-| `justifySelf` | 5 | 5 | 0 | supported |
-| `overflow` | 15 | 15 | 12 | supported |
-| `overscrollBehavior` | 9 | 2 | 2 | partly (the rest is deliberately absent): native overscroll is one value for both axes, `auto` or `contain`; `overscroll-none` and the per-axis forms are not modelled |
-| `scrollBehavior` | 2 | 0 | 0 | deliberately absent: smooth scrolling of programmatic scrolls is not modelled |
-| `textOverflow` | 4 | 3 | 0 | partly (`utilities-text` adds the rest): `truncate`, `text-ellipsis` |
-| `hyphens` | 3 | 0 | 0 | added by `utilities-text`: `hyphens-*` |
-| `whitespace` | 6 | 6 | 0 | supported |
-| `textWrap` | 4 | 0 | 0 | added by `utilities-text`: `text-wrap`, `text-balance` |
-| `wordBreak` | 4 | 4 | 0 | supported |
-| `borderRadius` | 135 | 9 | 9 | partly (`utilities-paint` adds the rest): per-corner and per-side radii |
-| `borderWidth` | 45 | 5 | 5 | partly (`utilities-paint` adds the rest): per-side border widths |
-| `borderStyle` | 6 | 0 | 0 | added by `utilities-paint`: dashed, dotted and double borders |
-| `borderColor` | 2223 | 245 | 245 | partly (`utilities-paint` adds the rest): per-side border colours |
-| `borderOpacity` | 21 | 0 | 0 | added by `utilities-paint`: the opacity utilities `border-opacity-*` |
-| `backgroundColor` | 247 | 245 | 245 | partly (the rest is deliberately absent): `bg-inherit` and `bg-current` need `inherit` and `currentColor` as paint values |
-| `backgroundOpacity` | 21 | 0 | 0 | added by `utilities-paint`: the opacity utilities `bg-opacity-*` |
-| `backgroundImage` | 9 | 0 | 0 | added by `utilities-paint`: gradients (`bg-gradient-to-*`); there are no image backgrounds |
-| `gradientColorStops` | 804 | 0 | 0 | added by `utilities-paint`: `from-*`, `via-*`, `to-*` |
-| `boxDecorationBreak` | 4 | 0 | 0 | deliberately absent: no fragmentation |
-| `backgroundSize` | 3 | 0 | 0 | deliberately absent: no background images |
-| `backgroundAttachment` | 3 | 0 | 0 | deliberately absent: no background images |
-| `backgroundClip` | 4 | 0 | 0 | deliberately absent: no background images (`bg-clip-text` needs text as a mask) |
-| `backgroundPosition` | 9 | 0 | 0 | deliberately absent: no background images |
-| `backgroundRepeat` | 6 | 0 | 0 | deliberately absent: no background images |
-| `backgroundOrigin` | 3 | 0 | 0 | deliberately absent: no background images |
-| `fill` | 248 | 0 | 0 | deliberately absent: no SVG content |
-| `stroke` | 248 | 0 | 0 | deliberately absent: no SVG content |
-| `strokeWidth` | 3 | 0 | 0 | deliberately absent: no SVG content |
-| `objectFit` | 5 | 0 | 0 | deliberately absent: no replaced content (images are not elements here) |
-| `objectPosition` | 9 | 0 | 0 | deliberately absent: no replaced content |
-| `padding` | 315 | 315 | 245 | supported |
-| `textAlign` | 6 | 6 | 3 | supported |
-| `textIndent` | 70 | 0 | 0 | added by `utilities-text`: `indent-*` |
-| `verticalAlign` | 8 | 0 | 0 | added by `utilities-text`: `align-*` |
-| `fontFamily` | 3 | 3 | 0 | supported |
-| `fontSize` | 13 | 13 | 10 | supported |
-| `fontWeight` | 9 | 9 | 0 | supported |
-| `textTransform` | 4 | 4 | 0 | supported |
-| `fontStyle` | 2 | 2 | 0 | supported |
-| `fontVariantNumeric` | 9 | 9 | 0 | supported |
-| `lineHeight` | 14 | 14 | 0 | supported |
-| `letterSpacing` | 12 | 6 | 0 | partly (`utilities-text` adds the rest): `tracking-*` |
-| `textColor` | 247 | 245 | 245 | partly (the rest is deliberately absent): `text-inherit` and `text-current`: a colour is inherited by default; there is no `currentColor` keyword |
-| `textOpacity` | 21 | 0 | 0 | added by `utilities-text`: `text-opacity-*` |
-| `textDecoration` | 4 | 4 | 0 | supported |
-| `textDecorationColor` | 247 | 245 | 0 | partly (`utilities-text` adds the rest): text decoration |
-| `textDecorationStyle` | 5 | 0 | 0 | added by `utilities-text`: decoration styles |
-| `textDecorationThickness` | 7 | 7 | 0 | supported |
-| `textUnderlineOffset` | 6 | 6 | 0 | supported |
-| `fontSmoothing` | 2 | 1 | 0 | partly (`utilities-text` adds the rest): `antialiased` |
-| `placeholderColor` | 247 | 245 | 245 | partly (the rest is deliberately absent): `placeholder-inherit` and `placeholder-current`: as `text-inherit` |
-| `placeholderOpacity` | 21 | 0 | 0 | added by `utilities-text`: `placeholder-opacity-*` |
-| `caretColor` | 247 | 245 | 245 | partly (the rest is deliberately absent): `caret-inherit` and `caret-current`: as `text-inherit` |
-| `accentColor` | 248 | 0 | 0 | deliberately absent: there are no native form controls to tint; the kit components take their own colour classes |
-| `opacity` | 21 | 21 | 21 | supported |
-| `backgroundBlendMode` | 16 | 0 | 0 | deliberately absent: no blend modes |
-| `mixBlendMode` | 18 | 0 | 0 | deliberately absent: no blend modes |
-| `boxShadow` | 8 | 0 | 0 | added by `utilities-paint`: box shadows |
-| `boxShadowColor` | 247 | 0 | 0 | added by `utilities-paint`: box shadow colours |
-| `outlineStyle` | 5 | 0 | 0 | added by `utilities-paint`: outlines |
-| `outlineWidth` | 5 | 0 | 0 | added by `utilities-paint`: outlines |
-| `outlineOffset` | 10 | 0 | 0 | added by `utilities-paint`: outlines |
-| `outlineColor` | 247 | 0 | 0 | added by `utilities-paint`: outlines |
-| `ringWidth` | 7 | 0 | 0 | added by `utilities-paint`: rings |
-| `ringColor` | 247 | 0 | 0 | added by `utilities-paint`: rings |
-| `ringOpacity` | 21 | 0 | 0 | added by `utilities-paint`: rings |
-| `ringOffsetWidth` | 5 | 0 | 0 | added by `utilities-paint`: rings |
-| `ringOffsetColor` | 247 | 0 | 0 | added by `utilities-paint`: rings |
-| `blur` | 9 | 8 | 8 | partly (the rest is deliberately absent): `blur-0`: use `blur-none` |
-| `brightness` | 11 | 11 | 11 | supported |
-| `contrast` | 7 | 7 | 7 | supported |
-| `dropShadow` | 7 | 7 | 7 | supported |
-| `grayscale` | 2 | 2 | 2 | supported |
-| `hueRotate` | 12 | 12 | 12 | supported |
-| `invert` | 2 | 2 | 2 | supported |
-| `saturate` | 5 | 5 | 5 | supported |
-| `sepia` | 2 | 2 | 2 | supported |
-| `filter` | 2 | 2 | 2 | supported |
-| `backdropBlur` | 9 | 8 | 8 | partly (the rest is deliberately absent): `backdrop-blur-0`: use `backdrop-blur-none` |
-| `backdropBrightness` | 11 | 11 | 11 | supported |
-| `backdropContrast` | 7 | 7 | 7 | supported |
-| `backdropGrayscale` | 2 | 2 | 2 | supported |
-| `backdropHueRotate` | 12 | 12 | 12 | supported |
-| `backdropInvert` | 2 | 2 | 2 | supported |
-| `backdropOpacity` | 21 | 15 | 15 | partly (the rest is deliberately absent): native takes the amounts 0 to 100; Tailwind names a few more steps that fall between them |
-| `backdropSaturate` | 5 | 5 | 5 | supported |
-| `backdropSepia` | 2 | 2 | 2 | supported |
-| `backdropFilter` | 2 | 2 | 2 | supported |
-| `transitionProperty` | 7 | 6 | 0 | partly (`utilities-paint` adds the rest): `transition-shadow` compiles once `box-shadow` is a native transition property (the paint track adds `boxShadow` to `TRANSITION_PROPERTIES`) |
-| `transitionDelay` | 9 | 9 | 0 | supported |
-| `transitionDuration` | 9 | 9 | 0 | supported |
-| `transitionTimingFunction` | 4 | 4 | 0 | supported |
-| `willChange` | 4 | 0 | 0 | deliberately absent: a performance hint with nothing to hint at |
-| `contain` | 8 | 0 | 0 | deliberately absent: no layout containment hints |
-| `content` | 1 | 0 | 0 | added by `utilities-text`: `content-[...]` needs `before:` and `after:` |
-| `forcedColorAdjust` | 2 | 0 | 0 | deliberately absent: no forced-colors mode |
+| `container` | 1 | 1 |  | supported |
+| `accessibility` | 2 | 2 |  | supported |
+| `pointerEvents` | 2 | 2 |  | supported |
+| `visibility` | 3 | 2 |  | partly (the rest is deliberately absent): `collapse` is absent: a flex `visibility: collapse` keeps the cross size and is not `display: none`; use `invisible` or `hidden` |
+| `position` | 5 | 4 |  | partly (the rest is deliberately absent): `sticky` needs scroll-linked positioning in the layout engine; use `relative`, `absolute` or `fixed` |
+| `inset` | 765 | 765 |  | supported |
+| `isolation` | 2 | 0 |  | deliberately absent: z-index here never creates a stacking context, so there is nothing for `isolate` to do |
+| `zIndex` | 13 | 13 |  | supported |
+| `order` | 30 | 30 |  | supported |
+| `gridColumn` | 14 | 14 |  | supported |
+| `gridColumnStart` | 27 | 27 |  | supported |
+| `gridColumnEnd` | 27 | 27 |  | supported |
+| `gridRow` | 14 | 14 |  | supported |
+| `gridRowStart` | 27 | 27 |  | supported |
+| `gridRowEnd` | 27 | 27 |  | supported |
+| `float` | 5 | 0 |  | deliberately absent: no floats; use flex (`ml-auto`, `justify-end`) or grid |
+| `clear` | 6 | 0 |  | deliberately absent: no floats, so nothing to clear |
+| `margin` | 639 | 639 |  | supported |
+| `boxSizing` | 2 | 2 |  | supported |
+| `lineClamp` | 7 | 7 |  | supported |
+| `display` | 21 | 5 |  | partly (the rest is deliberately absent): `block` and `flow-root` are Taffy block layout; there is no inline layout, so `inline*`, `table*`, `contents` and `list-item` are absent (a flex or grid parent makes its children block-level anyway) |
+| `aspectRatio` | 3 | 3 |  | supported |
+| `size` | 66 | 66 |  | supported |
+| `height` | 59 | 59 |  | supported |
+| `maxHeight` | 44 | 41 |  | partly (the rest is deliberately absent): `max-h-min|max|fit` are absent for the same reason as `max-w-*` |
+| `minHeight` | 43 | 40 |  | partly (the rest is deliberately absent): `min-h-min|max|fit` are absent for the same reason as `max-w-*` |
+| `width` | 70 | 70 |  | supported |
+| `minWidth` | 39 | 36 |  | partly (the rest is deliberately absent): `min-w-min|max|fit` are absent for the same reason as `max-w-*` |
+| `maxWidth` | 57 | 53 |  | partly (the rest is deliberately absent): `max-w-min|max|fit` are absent (Taffy limits take lengths and percentages, not intrinsic keywords; size the box with `w-min`); `max-w-prose` needs the `ch` unit |
+| `flex` | 4 | 4 |  | supported |
+| `flexShrink` | 4 | 2 |  | partly (the rest is deliberately absent): not yet decided |
+| `flexGrow` | 4 | 2 |  | partly (the rest is deliberately absent): not yet decided |
+| `flexBasis` | 63 | 63 |  | supported |
+| `tableLayout` | 2 | 0 |  | deliberately absent: no table layout; use grid |
+| `captionSide` | 2 | 0 |  | deliberately absent: no table layout |
+| `borderCollapse` | 2 | 0 |  | deliberately absent: no table layout |
+| `borderSpacing` | 105 | 0 |  | deliberately absent: no table layout |
+| `transformOrigin` | 9 | 9 |  | supported |
+| `translate` | 168 | 168 |  | supported |
+| `rotate` | 18 | 18 |  | supported |
+| `skew` | 24 | 24 |  | supported |
+| `scale` | 60 | 60 |  | supported |
+| `transform` | 4 | 4 |  | supported |
+| `animation` | 5 | 0 |  | deliberately absent: keyframe animations are not part of the motion engine (transitions only) |
+| `cursor` | 36 | 15 |  | partly (the rest is deliberately absent): native has the 15 shapes Godot has; the rest (`cursor-copy`, `cursor-zoom-in`, `cursor-none`, ...) have no Godot cursor to map to |
+| `touchAction` | 10 | 4 |  | partly (the rest is deliberately absent): native has `auto`, `none`, `pan-x` and `pan-y`; pinch-zoom and manipulation are not modelled |
+| `userSelect` | 4 | 2 |  | partly (the rest is deliberately absent): native selects text with `select-text` and `select-none`; `select-all` and `select-auto` are not modelled |
+| `resize` | 4 | 0 |  | deliberately absent: no user-resizable elements |
+| `scrollSnapType` | 6 | 0 |  | deliberately absent: no scroll snapping |
+| `scrollSnapAlign` | 4 | 0 |  | deliberately absent: no scroll snapping |
+| `scrollSnapStop` | 2 | 0 |  | deliberately absent: no scroll snapping |
+| `scrollMargin` | 630 | 0 |  | deliberately absent: no scroll snapping or scroll-into-view offsets |
+| `scrollPadding` | 315 | 0 |  | deliberately absent: no scroll snapping or scroll-into-view offsets |
+| `listStylePosition` | 2 | 0 |  | deliberately absent: no list markers; draw the marker as an element |
+| `listStyleType` | 3 | 0 |  | deliberately absent: no list markers |
+| `listStyleImage` | 1 | 0 |  | deliberately absent: no list markers |
+| `appearance` | 2 | 0 |  | deliberately absent: there are no native form controls to restyle |
+| `columns` | 26 | 0 |  | deliberately absent: no multi-column layout; use `grid-cols-*` (the class says so) |
+| `breakBefore` | 8 | 0 |  | deliberately absent: no fragmentation |
+| `breakInside` | 4 | 0 |  | deliberately absent: no fragmentation |
+| `breakAfter` | 8 | 0 |  | deliberately absent: no fragmentation |
+| `gridAutoColumns` | 4 | 4 |  | supported |
+| `gridAutoFlow` | 5 | 5 |  | supported |
+| `gridAutoRows` | 4 | 4 |  | supported |
+| `gridTemplateColumns` | 14 | 13 |  | partly (the rest is deliberately absent): `grid-cols-subgrid` is absent: Taffy has no subgrid |
+| `gridTemplateRows` | 14 | 13 |  | partly (the rest is deliberately absent): `grid-rows-subgrid` is absent: Taffy has no subgrid |
+| `flexDirection` | 4 | 4 |  | supported |
+| `flexWrap` | 3 | 3 |  | supported |
+| `placeContent` | 8 | 7 |  | partly (the rest is deliberately absent): `place-content-baseline` is absent for the same reason |
+| `placeItems` | 5 | 5 |  | supported |
+| `alignContent` | 9 | 8 |  | partly (the rest is deliberately absent): `content-baseline` is absent: Taffy has no baseline content alignment |
+| `alignItems` | 5 | 5 |  | supported |
+| `justifyContent` | 8 | 8 |  | supported |
+| `justifyItems` | 4 | 4 |  | supported |
+| `gap` | 105 | 105 |  | supported |
+| `space` | 142 | 0 |  | deliberately absent: a child combinator for margins does not exist natively; the class throws and says to use `gap-x-*` or `gap-y-*` on the container |
+| `divideWidth` | 12 | 0 |  | deliberately absent: a child combinator for borders does not exist natively; the class throws and says to border the children |
+| `divideStyle` | 5 | 0 |  | deliberately absent: as `divide-width` |
+| `divideColor` | 247 | 0 |  | deliberately absent: as `divide-width` |
+| `divideOpacity` | 21 | 0 |  | deliberately absent: as `divide-width` |
+| `placeSelf` | 5 | 5 |  | supported |
+| `alignSelf` | 6 | 6 |  | supported |
+| `justifySelf` | 5 | 5 |  | supported |
+| `overflow` | 15 | 15 |  | supported |
+| `overscrollBehavior` | 9 | 2 |  | partly (the rest is deliberately absent): native overscroll is one value for both axes, `auto` or `contain`; `overscroll-none` and the per-axis forms are not modelled |
+| `scrollBehavior` | 2 | 0 |  | deliberately absent: smooth scrolling of programmatic scrolls is not modelled |
+| `textOverflow` | 4 | 3 |  | partly (`utilities-text` adds the rest): `truncate`, `text-ellipsis` |
+| `hyphens` | 3 | 0 |  | added by `utilities-text`: `hyphens-*` |
+| `whitespace` | 6 | 6 |  | supported |
+| `textWrap` | 4 | 0 |  | added by `utilities-text`: `text-wrap`, `text-balance` |
+| `wordBreak` | 4 | 4 |  | supported |
+| `borderRadius` | 135 | 81 |  | partly (`utilities-paint` adds the rest): per-corner and per-side radii |
+| `borderWidth` | 45 | 35 |  | partly (`utilities-paint` adds the rest): per-side border widths |
+| `borderStyle` | 6 | 2 |  | partly (`utilities-paint` adds the rest): dashed, dotted and double borders |
+| `borderColor` | 2223 | 1715 |  | partly (`utilities-paint` adds the rest): per-side border colours |
+| `borderOpacity` | 21 | 0 |  | added by `utilities-paint`: the opacity utilities `border-opacity-*` |
+| `backgroundColor` | 247 | 245 |  | partly (the rest is deliberately absent): `bg-inherit` and `bg-current` need `inherit` and `currentColor` as paint values |
+| `backgroundOpacity` | 21 | 0 |  | added by `utilities-paint`: the opacity utilities `bg-opacity-*` |
+| `backgroundImage` | 9 | 9 |  | supported |
+| `gradientColorStops` | 804 | 798 |  | partly (`utilities-paint` adds the rest): `from-*`, `via-*`, `to-*` |
+| `boxDecorationBreak` | 4 | 0 |  | deliberately absent: no fragmentation |
+| `backgroundSize` | 3 | 0 |  | deliberately absent: no background images |
+| `backgroundAttachment` | 3 | 0 |  | deliberately absent: no background images |
+| `backgroundClip` | 4 | 0 |  | deliberately absent: no background images (`bg-clip-text` needs text as a mask) |
+| `backgroundPosition` | 9 | 0 |  | deliberately absent: no background images |
+| `backgroundRepeat` | 6 | 0 |  | deliberately absent: no background images |
+| `backgroundOrigin` | 3 | 0 |  | deliberately absent: no background images |
+| `fill` | 248 | 0 |  | deliberately absent: no SVG content |
+| `stroke` | 248 | 0 |  | deliberately absent: no SVG content |
+| `strokeWidth` | 3 | 0 |  | deliberately absent: no SVG content |
+| `objectFit` | 5 | 0 |  | deliberately absent: no replaced content (images are not elements here) |
+| `objectPosition` | 9 | 0 |  | deliberately absent: no replaced content |
+| `padding` | 315 | 315 |  | supported |
+| `textAlign` | 6 | 6 |  | supported |
+| `textIndent` | 70 | 0 |  | added by `utilities-text`: `indent-*` |
+| `verticalAlign` | 8 | 0 |  | added by `utilities-text`: `align-*` |
+| `fontFamily` | 3 | 3 |  | supported |
+| `fontSize` | 13 | 13 |  | supported |
+| `fontWeight` | 9 | 9 |  | supported |
+| `textTransform` | 4 | 4 |  | supported |
+| `fontStyle` | 2 | 2 |  | supported |
+| `fontVariantNumeric` | 9 | 9 |  | supported |
+| `lineHeight` | 14 | 14 |  | supported |
+| `letterSpacing` | 12 | 6 |  | partly (`utilities-text` adds the rest): `tracking-*` |
+| `textColor` | 247 | 245 |  | partly (the rest is deliberately absent): `text-inherit` and `text-current`: a colour is inherited by default; there is no `currentColor` keyword |
+| `textOpacity` | 21 | 0 |  | added by `utilities-text`: `text-opacity-*` |
+| `textDecoration` | 4 | 4 |  | supported |
+| `textDecorationColor` | 247 | 245 |  | partly (`utilities-text` adds the rest): text decoration |
+| `textDecorationStyle` | 5 | 5 |  | supported |
+| `textDecorationThickness` | 7 | 7 |  | supported |
+| `textUnderlineOffset` | 6 | 6 |  | supported |
+| `fontSmoothing` | 2 | 1 |  | partly (`utilities-text` adds the rest): `antialiased` |
+| `placeholderColor` | 247 | 245 |  | partly (the rest is deliberately absent): `placeholder-inherit` and `placeholder-current`: as `text-inherit` |
+| `placeholderOpacity` | 21 | 0 |  | added by `utilities-text`: `placeholder-opacity-*` |
+| `caretColor` | 247 | 245 |  | partly (the rest is deliberately absent): `caret-inherit` and `caret-current`: as `text-inherit` |
+| `accentColor` | 248 | 0 |  | deliberately absent: there are no native form controls to tint; the kit components take their own colour classes |
+| `opacity` | 21 | 21 |  | supported |
+| `backgroundBlendMode` | 16 | 0 |  | deliberately absent: no blend modes |
+| `mixBlendMode` | 18 | 0 |  | deliberately absent: no blend modes |
+| `boxShadow` | 8 | 8 |  | supported |
+| `boxShadowColor` | 247 | 245 |  | partly (`utilities-paint` adds the rest): box shadow colours |
+| `outlineStyle` | 5 | 2 |  | partly (`utilities-paint` adds the rest): outlines |
+| `outlineWidth` | 5 | 5 |  | supported |
+| `outlineOffset` | 10 | 10 |  | supported |
+| `outlineColor` | 247 | 245 |  | partly (`utilities-paint` adds the rest): outlines |
+| `ringWidth` | 7 | 7 |  | supported |
+| `ringColor` | 247 | 245 |  | partly (`utilities-paint` adds the rest): rings |
+| `ringOpacity` | 21 | 0 |  | added by `utilities-paint`: rings |
+| `ringOffsetWidth` | 5 | 5 |  | supported |
+| `ringOffsetColor` | 247 | 245 |  | partly (`utilities-paint` adds the rest): rings |
+| `blur` | 9 | 8 |  | partly (the rest is deliberately absent): `blur-0`: use `blur-none` |
+| `brightness` | 11 | 11 |  | supported |
+| `contrast` | 7 | 7 |  | supported |
+| `dropShadow` | 7 | 7 |  | supported |
+| `grayscale` | 2 | 2 |  | supported |
+| `hueRotate` | 12 | 12 |  | supported |
+| `invert` | 2 | 2 |  | supported |
+| `saturate` | 5 | 5 |  | supported |
+| `sepia` | 2 | 2 |  | supported |
+| `filter` | 2 | 2 |  | supported |
+| `backdropBlur` | 9 | 8 |  | partly (the rest is deliberately absent): `backdrop-blur-0`: use `backdrop-blur-none` |
+| `backdropBrightness` | 11 | 11 |  | supported |
+| `backdropContrast` | 7 | 7 |  | supported |
+| `backdropGrayscale` | 2 | 2 |  | supported |
+| `backdropHueRotate` | 12 | 12 |  | supported |
+| `backdropInvert` | 2 | 2 |  | supported |
+| `backdropOpacity` | 21 | 15 |  | partly (the rest is deliberately absent): native takes the amounts 0 to 100; Tailwind names a few more steps that fall between them |
+| `backdropSaturate` | 5 | 5 |  | supported |
+| `backdropSepia` | 2 | 2 |  | supported |
+| `backdropFilter` | 2 | 2 |  | supported |
+| `transitionProperty` | 7 | 7 |  | supported |
+| `transitionDelay` | 9 | 9 |  | supported |
+| `transitionDuration` | 9 | 9 |  | supported |
+| `transitionTimingFunction` | 4 | 4 |  | supported |
+| `willChange` | 4 | 0 |  | deliberately absent: a performance hint with nothing to hint at |
+| `contain` | 8 | 0 |  | deliberately absent: no layout containment hints |
+| `content` | 1 | 0 |  | added by `utilities-text`: `content-[...]` needs `before:` and `after:` |
+| `forcedColorAdjust` | 2 | 0 |  | deliberately absent: no forced-colors mode |
 
 ## Variants
 
@@ -368,15 +368,14 @@ The first few classes of each plugin that still do not compile (the plugin's ful
 * `textOverflow` (1 of 4): `overflow-ellipsis`
 * `hyphens` (3 of 3): `hyphens-none` `hyphens-manual` `hyphens-auto`
 * `textWrap` (4 of 4): `text-wrap` `text-nowrap` `text-balance` `text-pretty`
-* `borderRadius` (126 of 135): `rounded-s-none` `rounded-s-sm` `rounded-s` `rounded-s-md` `rounded-s-lg` `rounded-s-xl` `rounded-s-2xl` `rounded-s-3xl` ...
-* `borderWidth` (40 of 45): `border-x-0` `border-x-2` `border-x-4` `border-x-8` `border-x` `border-y-0` `border-y-2` `border-y-4` ...
-* `borderStyle` (6 of 6): `border-solid` `border-dashed` `border-dotted` `border-double` `border-hidden` `border-none`
-* `borderColor` (1978 of 2223): `border-inherit` `border-current` `border-x-inherit` `border-x-current` `border-x-transparent` `border-x-black` `border-x-white` `border-x-slate-50` ...
+* `borderRadius` (54 of 135): `rounded-s-none` `rounded-s-sm` `rounded-s` `rounded-s-md` `rounded-s-lg` `rounded-s-xl` `rounded-s-2xl` `rounded-s-3xl` ...
+* `borderWidth` (10 of 45): `border-s-0` `border-s-2` `border-s-4` `border-s-8` `border-s` `border-e-0` `border-e-2` `border-e-4` ...
+* `borderStyle` (4 of 6): `border-dashed` `border-dotted` `border-double` `border-hidden`
+* `borderColor` (508 of 2223): `border-inherit` `border-current` `border-x-inherit` `border-x-current` `border-y-inherit` `border-y-current` `border-s-inherit` `border-s-current` ...
 * `borderOpacity` (21 of 21): `border-opacity-0` `border-opacity-5` `border-opacity-10` `border-opacity-15` `border-opacity-20` `border-opacity-25` `border-opacity-30` `border-opacity-35` ...
 * `backgroundColor` (2 of 247): `bg-inherit` `bg-current`
 * `backgroundOpacity` (21 of 21): `bg-opacity-0` `bg-opacity-5` `bg-opacity-10` `bg-opacity-15` `bg-opacity-20` `bg-opacity-25` `bg-opacity-30` `bg-opacity-35` ...
-* `backgroundImage` (9 of 9): `bg-none` `bg-gradient-to-t` `bg-gradient-to-tr` `bg-gradient-to-r` `bg-gradient-to-br` `bg-gradient-to-b` `bg-gradient-to-bl` `bg-gradient-to-l` ...
-* `gradientColorStops` (804 of 804): `from-inherit` `from-current` `from-transparent` `from-black` `from-white` `from-slate-50` `from-slate-100` `from-slate-200` ...
+* `gradientColorStops` (6 of 804): `from-inherit` `from-current` `via-inherit` `via-current` `to-inherit` `to-current`
 * `boxDecorationBreak` (4 of 4): `decoration-slice` `decoration-clone` `box-decoration-slice` `box-decoration-clone`
 * `backgroundSize` (3 of 3): `bg-auto` `bg-cover` `bg-contain`
 * `backgroundAttachment` (3 of 3): `bg-fixed` `bg-local` `bg-scroll`
@@ -395,7 +394,6 @@ The first few classes of each plugin that still do not compile (the plugin's ful
 * `textColor` (2 of 247): `text-inherit` `text-current`
 * `textOpacity` (21 of 21): `text-opacity-0` `text-opacity-5` `text-opacity-10` `text-opacity-15` `text-opacity-20` `text-opacity-25` `text-opacity-30` `text-opacity-35` ...
 * `textDecorationColor` (2 of 247): `decoration-inherit` `decoration-current`
-* `textDecorationStyle` (5 of 5): `decoration-solid` `decoration-double` `decoration-dotted` `decoration-dashed` `decoration-wavy`
 * `fontSmoothing` (1 of 2): `subpixel-antialiased`
 * `placeholderColor` (2 of 247): `placeholder-inherit` `placeholder-current`
 * `placeholderOpacity` (21 of 21): `placeholder-opacity-0` `placeholder-opacity-5` `placeholder-opacity-10` `placeholder-opacity-15` `placeholder-opacity-20` `placeholder-opacity-25` `placeholder-opacity-30` `placeholder-opacity-35` ...
@@ -403,21 +401,15 @@ The first few classes of each plugin that still do not compile (the plugin's ful
 * `accentColor` (248 of 248): `accent-inherit` `accent-current` `accent-transparent` `accent-black` `accent-white` `accent-slate-50` `accent-slate-100` `accent-slate-200` ...
 * `backgroundBlendMode` (16 of 16): `bg-blend-normal` `bg-blend-multiply` `bg-blend-screen` `bg-blend-overlay` `bg-blend-darken` `bg-blend-lighten` `bg-blend-color-dodge` `bg-blend-color-burn` ...
 * `mixBlendMode` (18 of 18): `mix-blend-normal` `mix-blend-multiply` `mix-blend-screen` `mix-blend-overlay` `mix-blend-darken` `mix-blend-lighten` `mix-blend-color-dodge` `mix-blend-color-burn` ...
-* `boxShadow` (8 of 8): `shadow-sm` `shadow` `shadow-md` `shadow-lg` `shadow-xl` `shadow-2xl` `shadow-inner` `shadow-none`
-* `boxShadowColor` (247 of 247): `shadow-inherit` `shadow-current` `shadow-transparent` `shadow-black` `shadow-white` `shadow-slate-50` `shadow-slate-100` `shadow-slate-200` ...
-* `outlineStyle` (5 of 5): `outline-none` `outline` `outline-dashed` `outline-dotted` `outline-double`
-* `outlineWidth` (5 of 5): `outline-0` `outline-1` `outline-2` `outline-4` `outline-8`
-* `outlineOffset` (10 of 10): `outline-offset-0` `-outline-offset-0` `outline-offset-1` `-outline-offset-1` `outline-offset-2` `-outline-offset-2` `outline-offset-4` `-outline-offset-4` ...
-* `outlineColor` (247 of 247): `outline-inherit` `outline-current` `outline-transparent` `outline-black` `outline-white` `outline-slate-50` `outline-slate-100` `outline-slate-200` ...
-* `ringWidth` (7 of 7): `ring-0` `ring-1` `ring-2` `ring-4` `ring-8` `ring` `ring-inset`
-* `ringColor` (247 of 247): `ring-inherit` `ring-current` `ring-transparent` `ring-black` `ring-white` `ring-slate-50` `ring-slate-100` `ring-slate-200` ...
+* `boxShadowColor` (2 of 247): `shadow-inherit` `shadow-current`
+* `outlineStyle` (3 of 5): `outline-dashed` `outline-dotted` `outline-double`
+* `outlineColor` (2 of 247): `outline-inherit` `outline-current`
+* `ringColor` (2 of 247): `ring-inherit` `ring-current`
 * `ringOpacity` (21 of 21): `ring-opacity-0` `ring-opacity-5` `ring-opacity-10` `ring-opacity-15` `ring-opacity-20` `ring-opacity-25` `ring-opacity-30` `ring-opacity-35` ...
-* `ringOffsetWidth` (5 of 5): `ring-offset-0` `ring-offset-1` `ring-offset-2` `ring-offset-4` `ring-offset-8`
-* `ringOffsetColor` (247 of 247): `ring-offset-inherit` `ring-offset-current` `ring-offset-transparent` `ring-offset-black` `ring-offset-white` `ring-offset-slate-50` `ring-offset-slate-100` `ring-offset-slate-200` ...
+* `ringOffsetColor` (2 of 247): `ring-offset-inherit` `ring-offset-current`
 * `blur` (1 of 9): `blur-0`
 * `backdropBlur` (1 of 9): `backdrop-blur-0`
 * `backdropOpacity` (6 of 21): `backdrop-opacity-15` `backdrop-opacity-35` `backdrop-opacity-45` `backdrop-opacity-55` `backdrop-opacity-65` `backdrop-opacity-85`
-* `transitionProperty` (1 of 7): `transition-shadow`
 * `willChange` (4 of 4): `will-change-auto` `will-change-scroll` `will-change-contents` `will-change-transform`
 * `contain` (8 of 8): `contain-none` `contain-content` `contain-strict` `contain-size` `contain-inline-size` `contain-layout` `contain-paint` `contain-style`
 * `content` (1 of 1): `content-none`
