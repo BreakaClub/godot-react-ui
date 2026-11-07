@@ -1100,7 +1100,8 @@ impl ReactUiRoot {
     /// Bring one node's canvas items up to date. Returns whether its box and its content were
     /// re-recorded.
     fn paint_node(&mut self, tag: u32) -> (bool, bool) {
-        let oversampling = self.oversampling();
+        self.ensure_raster_scale(tag);
+        let oversampling = self.node_oversampling(tag);
         let motion = self
             .sampled
             .get(&tag)
@@ -1119,7 +1120,13 @@ impl ReactUiRoot {
         let clip = node
             .clips_content()
             .then(|| node.geometry.padding_box().godot_rect());
-        node.render.set_clip(clip);
+        let clip_changed = node.render.set_clip(clip);
+        if clip_changed && clip.is_some() {
+            self.note_clip_in_turned_frame(tag);
+        }
+        let Some(node) = self.mounted.nodes.get_mut(&tag) else {
+            return (false, false);
+        };
         let size = node.geometry.size;
         if size.x <= 0.0 || size.y <= 0.0 {
             return (node.render.clear_box(), node.render.clear_content());

@@ -1072,17 +1072,28 @@ mod tests {
         scene.node(1).transform = Some(transform_of("rotate(90deg) scale(2)"));
         let started = scene.sync(0.0);
         let [a, b, ..] = matrix_at(&started, 1);
-        assert!((a - 1.0).abs() < 1e-4 && b.abs() < 1e-4, "starts where it was");
+        assert!(
+            (a - 1.0).abs() < 1e-4 && b.abs() < 1e-4,
+            "starts where it was"
+        );
         // Halfway: rotate(45deg) scale(1.5), whose x axis is 1.5 * (cos 45, sin 45).
         let middle = scene.sample(0.5);
         let [a, b, c, d, ..] = matrix_at(&middle, 1);
         let expected = 1.5 * std::f32::consts::FRAC_1_SQRT_2;
-        assert!((a - expected).abs() < 1e-3 && (b - expected).abs() < 1e-3, "{a} {b}");
-        assert!((c + expected).abs() < 1e-3 && (d - expected).abs() < 1e-3, "{c} {d}");
+        assert!(
+            (a - expected).abs() < 1e-3 && (b - expected).abs() < 1e-3,
+            "{a} {b}"
+        );
+        assert!(
+            (c + expected).abs() < 1e-3 && (d - expected).abs() < 1e-3,
+            "{c} {d}"
+        );
         assert!(middle.active);
         let end = scene.sample(1.0);
         let [a, b, c, d, ..] = matrix_at(&end, 1);
-        assert!(a.abs() < 1e-5 && (b - 2.0).abs() < 1e-5 && (c + 2.0).abs() < 1e-5 && d.abs() < 1e-5);
+        assert!(
+            a.abs() < 1e-5 && (b - 2.0).abs() < 1e-5 && (c + 2.0).abs() < 1e-5 && d.abs() < 1e-5
+        );
         assert!(!end.active, "nothing is left animating");
 
         // Lists that do not match: rotate to a percentage translate. The percentage is of the box, which only the
@@ -1097,7 +1108,9 @@ mod tests {
         scene.sync(0.0);
         let middle = scene.sample(0.5);
         let [a, b, c, d, e, _] = matrix_at(&middle, 1);
-        assert!((a - 1.0).abs() < 1e-4 && b.abs() < 1e-4 && c.abs() < 1e-4 && (d - 1.0).abs() < 1e-4);
+        assert!(
+            (a - 1.0).abs() < 1e-4 && b.abs() < 1e-4 && c.abs() < 1e-4 && (d - 1.0).abs() < 1e-4
+        );
         // 50% of 200 is 100 px, halfway is 50 px; the origin is the middle and the matrix is unrotated, so e is the shift.
         assert!((e - 50.0).abs() < 1e-3, "{e}");
         let end = scene.sample(1.0);

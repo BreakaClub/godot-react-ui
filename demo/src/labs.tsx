@@ -18,6 +18,7 @@ import { PointerLab } from './pointer-lab';
 import { PositioningLab } from './positioning-lab';
 import { ScrollLab } from './scroll-lab';
 import { SelectionLab } from './selection-lab';
+import { TransformLab } from './transform-lab';
 
 /**
  * The labs of the demo: one array, one entry per lab. The navigator (`navigator.tsx`) builds its sidebar, its lab menu, its header
@@ -151,6 +152,11 @@ export const LABS = defineLabs([
     id: 'motion', kind: 'inline', padded: true, group: 'Motion', title: 'Transitions',
     description: 'Height, colour and opacity transitions that run natively, including intrinsic sizes and retargeting.',
     component: MotionLab, sources: ['res://src/motion-lab.tsx'],
+  },
+  {
+    id: 'transforms', kind: 'inline', group: 'Motion', title: 'Transforms',
+    description: '2D translate, rotate, scale and skew transforms with matrix hit testing and transitions.',
+    component: TransformLab, sources: ['res://src/transform-lab.tsx'],
   },
   {
     id: 'filters', kind: 'inline', group: 'Effects', title: 'Filters',

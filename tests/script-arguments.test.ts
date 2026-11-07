@@ -26,10 +26,10 @@ const SCRIPTS_WITH_OPTIONS = [
   'verify-interaction-web', 'verify-motion-web', 'verify-text-layout', 'verify-web', 'verify-world', 'verify-world-web',
 ];
 
-for (const script of [...SCRIPTS_WITH_OPTIONS, 'glass-reference']) {
+for (const script of [...SCRIPTS_WITH_OPTIONS, 'glass-reference', 'transform-reference']) {
   test(`scripts/${script}.mjs refuses an argument it does not take, before it does anything`, () => {
-    // glass-reference is run with tsx, which loads its TypeScript data module.
-    const nodeArguments = script === 'glass-reference' ? ['--import', 'tsx'] : [];
+    // The reference scripts are run with tsx, which loads their TypeScript data modules.
+    const nodeArguments = script.endsWith('-reference') ? ['--import', 'tsx'] : [];
     const result = spawnSync('node', [...nodeArguments, resolve(scripts, `${script}.mjs`), BOGUS], { encoding: 'utf8', timeout: 30_000, cwd: resolve(scripts, '..') });
     assert.notEqual(result.status, 0, `${script} ran with ${BOGUS}`);
     assert.match(result.stderr, new RegExp(`Unknown argument:? ${BOGUS}`));
@@ -52,6 +52,6 @@ test('every script that reads process.argv is checked above, so a new one cannot
     .map((name) => name.replace(/\.mjs$/, ''));
   // run and quiet-window hand their arguments to Godot or an underlying command.
   const exempt = ['run', 'quiet-window'];
-  const unchecked = reading.filter((name) => !SCRIPTS_WITH_OPTIONS.includes(name) && name !== 'glass-reference' && !exempt.includes(name));
+  const unchecked = reading.filter((name) => !SCRIPTS_WITH_OPTIONS.includes(name) && name !== 'glass-reference' && name !== 'transform-reference' && !exempt.includes(name));
   assert.deepEqual(unchecked, [], 'these scripts read process.argv and are not checked by this test');
 });

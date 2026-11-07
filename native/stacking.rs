@@ -870,7 +870,11 @@ mod tests {
         assert!((width - 40.0).abs() < 1e-3 && (height - 200.0).abs() < 1e-3);
         assert_eq!(tree.hit(200.0, 30.0), Some(1), "the turned top end");
         assert_eq!(tree.hit(200.0, 210.0), Some(1), "the turned bottom end");
-        assert_eq!(tree.hit(120.0, 120.0), None, "where it was, it no longer is");
+        assert_eq!(
+            tree.hit(120.0, 120.0),
+            None,
+            "where it was, it no longer is"
+        );
         // 45 degrees: the box round a 200 x 40 bar is 170 square; its corners are empty.
         let mut tree = TestTree::new();
         tree.add(TOP, 1, Static, (100.0, 100.0), (200.0, 40.0));
@@ -893,7 +897,10 @@ mod tests {
         assert_eq!(tree.hit(200.0 + along, 120.0 + along), Some(1));
         assert_eq!(tree.hit(200.0 - along, 120.0 - along), Some(1));
         let across = std::f32::consts::FRAC_1_SQRT_2;
-        assert_eq!(tree.hit(200.0 - 15.0 * across, 120.0 + 15.0 * across), Some(1));
+        assert_eq!(
+            tree.hit(200.0 - 15.0 * across, 120.0 + 15.0 * across),
+            Some(1)
+        );
         assert_eq!(tree.hit(200.0 - 30.0 * across, 120.0 + 30.0 * across), None);
     }
 
@@ -926,12 +933,19 @@ mod tests {
         // The child's centre (170, 20) is at 2 * (170 - 100) + 100 = 240, 2 * (20 - 100) + 100 = -60 on screen.
         let (x, y, width, height) = rect_of_drawn(&tree, 2);
         assert!(
-            (x - 200.0).abs() < 1e-2 && (y - -100.0).abs() < 1e-2 && (width - 80.0).abs() < 1e-2 && (height - 80.0).abs() < 1e-2,
+            (x - 200.0).abs() < 1e-2
+                && (y - -100.0).abs() < 1e-2
+                && (width - 80.0).abs() < 1e-2
+                && (height - 80.0).abs() < 1e-2,
             "{x} {y} {width} {height}"
         );
         assert_eq!(tree.hit(240.0, -60.0), Some(2));
         assert_eq!(tree.hit(100.0, 100.0), Some(1));
-        assert_eq!(tree.hit(-90.0, -90.0), Some(1), "the scaled parent reaches past its layout box");
+        assert_eq!(
+            tree.hit(-90.0, -90.0),
+            Some(1),
+            "the scaled parent reaches past its layout box"
+        );
     }
 
     #[test]
@@ -977,7 +991,10 @@ mod tests {
             .unwrap()
             .affine
             .apply(Vector2::new(50.0, 30.0));
-        assert!((at.x - 70.0).abs() < 1e-3 && (at.y - 50.0).abs() < 1e-3, "{at:?}");
+        assert!(
+            (at.x - 70.0).abs() < 1e-3 && (at.y - 50.0).abs() < 1e-3,
+            "{at:?}"
+        );
         assert_eq!(tree.hit(at.x, at.y), Some(2));
     }
 
@@ -991,8 +1008,16 @@ mod tests {
         tree.add(Parent::Node(2), 4, Fixed, (6.0, 6.0), (10.0, 10.0));
         tree.nodes.get_mut(&4).unwrap().stacking.inside_transform = true;
         tree.settle();
-        assert_eq!(tree.nodes[&3].paint_parent, Some(Parent::Node(1)), "absolute: the transformed ancestor");
-        assert_eq!(tree.nodes[&4].paint_parent, Some(Parent::Node(1)), "fixed: the same");
+        assert_eq!(
+            tree.nodes[&3].paint_parent,
+            Some(Parent::Node(1)),
+            "absolute: the transformed ancestor"
+        );
+        assert_eq!(
+            tree.nodes[&4].paint_parent,
+            Some(Parent::Node(1)),
+            "fixed: the same"
+        );
         // Without the transform they go where they went.
         let mut tree = TestTree::new();
         tree.add(TOP, 1, Static, (10.0, 10.0), (100.0, 100.0));
@@ -1011,7 +1036,11 @@ mod tests {
         tree.settle();
         let (x, y, width, height) = rect_of_drawn(&tree, 2);
         assert_eq!((x, y), (0.1 + 0.3, 0.2 + 0.7));
-        assert_eq!((width, height), (4.1, 5.9), "the size is not recomputed from corners");
+        assert_eq!(
+            (width, height),
+            (4.1, 5.9),
+            "the size is not recomputed from corners"
+        );
     }
 
     #[test]

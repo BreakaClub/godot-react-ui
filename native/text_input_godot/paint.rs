@@ -254,7 +254,7 @@ impl ReactUiRoot {
             selection_color,
             selection,
             preedit,
-            oversampling: self.oversampling(),
+            oversampling: self.node_oversampling(tag),
         };
         let drawing = TextDrawing {
             key,

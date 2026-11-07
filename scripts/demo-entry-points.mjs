@@ -14,6 +14,8 @@ export const DEMO_ENTRY_POINTS = [
   'demo/src/verifier-input.ts', 'demo/src/verify-text-input.ts', 'demo/src/verify-combobox.ts',
   // The lab navigator (`demo/src/navigator.tsx`, bundled into main): what a run opens with, and the way back from a lab that is a scene.
   'demo/src/launch.ts', 'demo/src/scene-return.ts', 'demo/src/verify-navigator.ts',
+  // The transforms lab's verifier, its shared data and the numbers Chrome reports for it (docs/tracks/transforms.md).
+  'demo/src/verify-transforms.ts', 'demo/src/transform-data.ts', 'demo/src/transform-golden.ts',
   // The text layout probe scene (docs/tracks/text-layout.md) has its own owner and verifier.
   'demo/src/text-layout-probe.ts', 'demo/src/verify-text-layout.ts',
   // The accessibility lab (docs/tracks/accessibility.md): its owner and its verifier.

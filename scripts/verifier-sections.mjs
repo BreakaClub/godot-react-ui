@@ -8,7 +8,7 @@ export const ONLY_PREFIX = '--only=';
 /** The native verifier's sections, in the order they run. */
 export const NATIVE_INTERACTION_SECTIONS = [
   'events', 'cooperation', 'pointers', 'keyboard', 'positioning', 'inputs', 'scroll', 'selection', 'drag', 'forms', 'combobox', 'hidpi', 'filters', 'glass',
-  'navigator', 'filters-sizes', 'filters-cost', 'filters-faults',
+  'navigator', 'transforms', 'filters-sizes', 'filters-cost', 'filters-faults',
 ];
 
 /** Sections that measure or need a special build rather than verify: they run only when `--only=` names them, and a run without them is not partial. */

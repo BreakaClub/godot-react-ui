@@ -121,6 +121,15 @@ impl Linear2 {
         })
     }
 
+    /// Whether this map takes a rectangle on the axes to one on the axes: no rotation or skew other than quarter
+    /// turns and mirrors. The engine's rectangular clips are exact under such a map.
+    pub(crate) fn keeps_axes(&self) -> bool {
+        const AXIS_TOLERANCE: f32 = 1e-4;
+        let straight = self.b.abs() <= AXIS_TOLERANCE && self.c.abs() <= AXIS_TOLERANCE;
+        let quarter = self.a.abs() <= AXIS_TOLERANCE && self.d.abs() <= AXIS_TOLERANCE;
+        straight || quarter
+    }
+
     /// The larger of the lengths the unit x and y vectors are stretched to: the factor glyphs must be
     /// rasterised at to stay sharp under this map.
     pub(crate) fn scale_factor(&self) -> f32 {
@@ -306,7 +315,7 @@ impl Scratch {
     fn read<T>(&self, read: impl Fn(&style::properties::ComputedValues) -> T) -> Option<T> {
         let node = self.document.get_node(self.node)?;
         let styles = node.primary_styles()?;
-        Some(read(&**styles))
+        Some(read(&styles))
     }
 }
 
@@ -589,6 +598,7 @@ impl TransformOriginSpec {
         })
     }
 
+    #[cfg(test)]
     pub fn css(&self) -> &str {
         &self.css
     }
@@ -722,6 +732,7 @@ impl StyleSpec {
     }
 
     /// The `transform-origin` this style resolves to.
+    #[cfg(test)]
     pub fn transform_origin_spec(&self) -> TransformOriginSpec {
         self.transform_origin.clone().unwrap_or_default()
     }

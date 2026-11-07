@@ -780,14 +780,6 @@ fn to_target(transform: &Transform2D, rect: BoxRect) -> PixelRect {
     }
 }
 
-/// Whether `map` takes a rectangle on the axes to one on the axes: no rotation or skew other than quarter turns.
-fn axis_aligned(map: crate::transform::Linear2) -> bool {
-    const AXIS_TOLERANCE: f32 = 1e-4;
-    let straight = map.b.abs() <= AXIS_TOLERANCE && map.c.abs() <= AXIS_TOLERANCE;
-    let quarter = map.a.abs() <= AXIS_TOLERANCE && map.d.abs() <= AXIS_TOLERANCE;
-    straight || quarter
-}
-
 /// `rect` (render-target pixels, biased by `bias` at its corner and again in its size) in the group's frame: the bounding
 /// box of the four corners, so a root that is rotated or mirrored gets the rectangle that covers it, not the one the
 /// transformed corner and the absolute size would make.
@@ -1132,7 +1124,7 @@ impl ReactUiRoot {
         renderer: RendererKind,
     ) {
         // Read once for the pass: the root caches the level its items are drawn at.
-        let oversampling = self.oversampling();
+        let oversampling = self.node_oversampling(tag);
         let blur_plan = plan(effect.sigma_css_px * scale, levels, renderer);
         let kind = if blur_plan.is_some() {
             ShaderKind::BackdropBlur
@@ -1518,7 +1510,7 @@ impl ReactUiRoot {
         // moved and scaled by an ancestor's transform, and the rectangles the engine makes mipmaps for stay exact;
         // turned or skewed they would not (the engine takes the bounding box of the rotated rectangle, which is not
         // the region the shader's texel maps were made for), so a group below a rotation is not drawn.
-        if !axis_aligned(parent.linear) {
+        if !parent.linear.keeps_axes() {
             self.report_turned_frame(tag);
             return;
         }

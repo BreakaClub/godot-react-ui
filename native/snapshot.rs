@@ -29,7 +29,7 @@ impl ReactUiRoot {
         let mut nodes = vec![json!({
             "id": 0, "kind": "view", "text": "", "parent": null, "layer": 0,
             "children": self.mounted.roots[0], "style": {}, "props": {}, "scroll": null,
-            "textInput": null, "effects": null,
+            "textInput": null, "effects": null, "transform": null, "rasterScale": null,
             "paintParent": null, "paintIndex": 0, "documentIndex": -1,
             "rect": viewport, "clipRect": viewport,
             "presentation": {
@@ -83,6 +83,7 @@ impl ReactUiRoot {
                     "props": node.props,
                     "rect": rect, "clipRect": inherited_clip,
                     "transform": node.transform.map(|transform| transform.placement.affine.to_array()),
+                    "rasterScale": node.raster_scale,
                     "presentation": self.presentation_json(tag),
                     "scroll": self.scroll_state_json(tag),
                     "textInput": self.text_input_snapshot_json(tag),

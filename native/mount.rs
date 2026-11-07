@@ -135,6 +135,9 @@ pub(crate) struct MountedNode {
     /// The element's transform evaluated for its border box (the sampled one while it animates), or
     /// `None` for one without a transform or whose transform does nothing: nothing is computed for those.
     pub(crate) transform: Option<NodeTransform>,
+    /// The scale text and rounded corners are rasterised at on top of the viewport's, for the transforms on the element
+    /// and above it (`transform_state.rs`). `None` until the element has been placed.
+    pub(crate) raster_scale: Option<f32>,
 }
 
 #[derive(Default)]
@@ -884,6 +887,7 @@ impl ReactUiRoot {
                 )
             }),
             transform: None,
+            raster_scale: None,
         };
         self.mounted.breakpoints.register(tag, props.style.as_ref());
         self.mounted
@@ -939,6 +943,7 @@ impl ReactUiRoot {
         self.mounted
             .index_test_id(tag, node.props.test_id.as_deref(), None);
         self.forget_motion(tag);
+        self.forget_transform(tag);
         self.forget_accessibility_node(tag);
         self.layout_dirty.remove(&tag);
         self.paint_dirty.remove(&tag);

@@ -2437,7 +2437,9 @@ mod tests {
     #[test]
     fn transform_utilities_merge_per_value_and_an_explicit_transform_replaces_them() {
         let mut base = style(r#"{"transformParts":{"translateX":"-50%"}}"#);
-        base.merge(&style(r#"{"transformParts":{"scaleX":1.05,"scaleY":1.05}}"#));
+        base.merge(&style(
+            r#"{"transformParts":{"scaleX":1.05,"scaleY":1.05}}"#,
+        ));
         let list = base.transform_list();
         assert_eq!(
             list.css(),
@@ -2445,7 +2447,11 @@ mod tests {
             "the hover layer keeps the translate"
         );
         base.merge(&style(r#"{"transform":"rotate(10deg)"}"#));
-        assert_eq!(base.transform_list().css(), "rotate(10deg)", "an inline transform replaces both");
+        assert_eq!(
+            base.transform_list().css(),
+            "rotate(10deg)",
+            "an inline transform replaces both"
+        );
         assert!(base.transform_parts.is_none());
         base.merge(&style(r#"{"transformParts":{"rotate":"45deg"}}"#));
         assert_eq!(
@@ -2471,11 +2477,26 @@ mod tests {
         let error = serde_json::from_str::<StyleSpec>(r#"{"transform":"perspective(500px)"}"#)
             .expect_err("refused")
             .to_string();
-        assert!(error.contains("perspective is not implemented yet"), "{error}");
+        assert!(
+            error.contains("perspective is not implemented yet"),
+            "{error}"
+        );
         // A part with a bad value is refused when the style is validated.
-        assert!(style(r#"{"transformParts":{"translateX":"2em"}}"#).validate().is_err());
-        assert!(style(r#"{"transformParts":{"rotate":"45"}}"#).validate().is_err());
-        assert!(style(r#"{"transformParts":{"translateX":"-50%","rotate":"45deg","gpu":true}}"#).validate().is_ok());
+        assert!(
+            style(r#"{"transformParts":{"translateX":"2em"}}"#)
+                .validate()
+                .is_err()
+        );
+        assert!(
+            style(r#"{"transformParts":{"rotate":"45"}}"#)
+                .validate()
+                .is_err()
+        );
+        assert!(
+            style(r#"{"transformParts":{"translateX":"-50%","rotate":"45deg","gpu":true}}"#)
+                .validate()
+                .is_ok()
+        );
     }
 
     #[test]
@@ -2503,28 +2524,46 @@ mod tests {
                 .unwrap();
             let root = tree
                 .new_with_children(
-                    style(r#"{"width":500,"height":400}"#).taffy_style().unwrap(),
+                    style(r#"{"width":500,"height":400}"#)
+                        .taffy_style()
+                        .unwrap(),
                     &[parent],
                 )
                 .unwrap();
             tree.compute_layout(root, Size::MAX_CONTENT).unwrap();
-            (tree.layout(child).unwrap().location, tree.layout(parent).unwrap().location)
+            (
+                tree.layout(child).unwrap().location,
+                tree.layout(parent).unwrap().location,
+            )
         };
         let (plain, _) = build("");
         assert_eq!((plain.x, plain.y), (11.0, 13.0), "against the root");
         let (inside, parent) = build(r#","transform":"rotate(5deg)""#);
-        assert_eq!((parent.x, parent.y), (20.0, 20.0), "layout ignores the transform");
-        assert_eq!((inside.x, inside.y), (11.0, 13.0), "in the transformed parent's frame");
+        assert_eq!(
+            (parent.x, parent.y),
+            (20.0, 20.0),
+            "layout ignores the transform"
+        );
+        assert_eq!(
+            (inside.x, inside.y),
+            (11.0, 13.0),
+            "in the transformed parent's frame"
+        );
         // A fixed element below a transform is laid out like an absolute one.
         let mut fixed = style(r#"{"position":"fixed"}"#);
         fixed.inside_transform = true;
         assert_eq!(fixed.taffy_style().unwrap().position, Position::Absolute);
         assert_eq!(
-            style(r#"{"position":"fixed"}"#).taffy_style().unwrap().position,
+            style(r#"{"position":"fixed"}"#)
+                .taffy_style()
+                .unwrap()
+                .position,
             Position::Fixed
         );
         // And a static transformed element does not take its insets as offsets.
-        let moved = style(r#"{"left":50,"top":50,"transform":"scale(2)"}"#).taffy_style().unwrap();
+        let moved = style(r#"{"left":50,"top":50,"transform":"scale(2)"}"#)
+            .taffy_style()
+            .unwrap();
         assert_eq!(moved.position, Position::Relative);
         assert_eq!(moved.inset.left, auto());
     }

@@ -233,6 +233,8 @@ pub struct ReactUiRoot {
     phase_geometry_micros: u64,
     /// The oversampling every item was last drawn at (`render_tree::Oversampling`).
     oversampling: Oversampling,
+    /// What transforms keep beyond each element's evaluated value (`transform_state.rs`).
+    transform_root: crate::transform_state::TransformRoot,
 }
 
 #[godot_api]
@@ -302,6 +304,7 @@ impl IControl for ReactUiRoot {
             phase_layout_micros: 0,
             phase_geometry_micros: 0,
             oversampling: Oversampling::NONE,
+            transform_root: crate::transform_state::TransformRoot::default(),
         }
     }
 

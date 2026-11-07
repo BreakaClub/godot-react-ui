@@ -157,11 +157,15 @@ export interface NativeEffects {
   layout: NativeEffectsLayout;
 }
 
+/** A transform's matrix: CSS `matrix(a, b, c, d, e, f)` of the element's own frame about its origin. */
+export type NativeMatrix = [number, number, number, number, number, number];
+
 export interface NativeTransition {
   id: number;
   property: TransitionProperty;
-  current: number | string;
-  target: number | string;
+  /** A number, a colour or a filter list as text, or a transform's matrix. */
+  current: number | string | NativeMatrix;
+  target: number | string | NativeMatrix;
   startedAtMs: number;
   durationMs: number;
 }
@@ -455,6 +459,16 @@ export interface NativeSnapshotNode {
   textInput: NativeTextInputSnapshot | null;
   /** Set while the element has a filter or backdrop-filter that is drawn. */
   effects: NativeEffects | null;
+  /**
+   * Set while the element has a transform that does something (the sampled one while it transitions): the matrix of its
+   * own frame about its origin, of which `rect` is the bounding box.
+   */
+  transform: NativeMatrix | null;
+  /**
+   * The factor text and rounded corners are rasterised at on top of the viewport's, for the transforms on the element
+   * and above it, as of the last time they settled; `null` until the element has been placed or while no transform exists.
+   */
+  rasterScale: number | null;
 }
 
 /** A text input's state as JS reads it (`getTextInputState`). Offsets are UTF-16 units. */
@@ -910,11 +924,24 @@ function thumbRects(value: unknown, label: string): { x: LayoutRect | null; y: L
 }
 
 function transitionProperty(value: unknown): TransitionProperty {
-  if (value === 'width' || value === 'height' || value === 'opacity' || value === 'backgroundColor' || value === 'filter' || value === 'backdropFilter') return value;
+  if (
+    value === 'width' || value === 'height' || value === 'opacity' || value === 'backgroundColor' || value === 'filter'
+    || value === 'backdropFilter' || value === 'transform'
+  ) return value;
   throw new Error(`Invalid native transition property: ${String(value)}`);
 }
 
-function transitionValue(value: unknown): number | string {
+function matrix(value: unknown, name: string): NativeMatrix {
+  const numbers = array(value, name).map(entry => number(entry, name));
+  const [a, b, c, d, e, f] = numbers;
+  if (numbers.length !== 6 || a === undefined || b === undefined || c === undefined || d === undefined || e === undefined || f === undefined) {
+    throw new Error(`Native ${name} must be six numbers`);
+  }
+  return [a, b, c, d, e, f];
+}
+
+function transitionValue(value: unknown): number | string | NativeMatrix {
+  if (Array.isArray(value)) return matrix(value, 'transition matrix');
   return typeof value === 'string' ? value : number(value, 'transition value');
 }
 
@@ -1082,6 +1109,8 @@ export function readSnapshot(host: NativeHost): NativeSnapshot {
         scroll: node.scroll === null ? null : scrollState(node.scroll, 'node.scroll'),
         textInput: node.textInput === null ? null : textInputSnapshot(node.textInput, 'node.textInput'),
         effects: nodeEffects(node.effects),
+        transform: node.transform === null ? null : matrix(node.transform, 'node.transform'),
+        rasterScale: node.rasterScale === null ? null : number(node.rasterScale, 'node.rasterScale'),
       };
     }),
     stats: {
