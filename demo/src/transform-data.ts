@@ -27,7 +27,7 @@ export interface ShapeCase {
   readonly origin?: string;
   /** The nested case: the card also holds a child with this transform. */
   readonly child?: { readonly transform: string; readonly origin?: string };
-  /** The card has square corners, which are drawn from feathered triangles, not `StyleBoxFlat` (`native/square_box.rs`). */
+  /** The card has square corners: a box under a transform is drawn from feathered triangles (`native/box_mesh.rs`), square or rounded. */
   readonly squareCorners?: true;
   /** What the case shows. */
   readonly note: string;
@@ -113,11 +113,13 @@ export const BEHAVIOUR = {
   contain: { left: 100, top: 80, width: 200, height: 120, transform: 'translate(40px, 30px)', absolute: { left: 10, top: 10, size: 30 }, fixed: { left: 70, top: 10, size: 30 } },
   /**
    * A box squeezed to 0.6 on y about its top edge and moved 0.1 px down: its straight edges fall inside a pixel row, so their
-   * antialiasing shows. Twice: with square corners (drawn from feathered triangles, whose feather is one pixel on each axis) and rounded
-   * (`StyleBoxFlat`, whose one feather length is exact on the stretched axis and 0.6 of a pixel on the squeezed one).
+   * antialiasing shows. Three times: rounded (`edge`), with square corners (`edgeFlat`), and rounded with an outline of a border
+   * 1 px thick and no fill (`edgeRing`), which the squeeze makes thinner than a device pixel. All are drawn from feathered triangles,
+   * whose feather is one device pixel across each edge whichever axis it is on.
    */
   edge: { left: 100, top: 100, width: 200, height: 100, transform: 'translateY(0.1px) scaleY(0.6)' },
   edgeFlat: { left: 100, top: 200, width: 200, height: 100, transform: 'translateY(0.1px) scaleY(0.6)' },
+  edgeRing: { left: 340, top: 200, width: 140, height: 100, border: 1, radius: 8, transform: 'translateY(0.1px) scaleY(0.6)' },
   /** A plain square-cornered box turned 30 degrees: all four edges are slanted, so a hard edge shows as a staircase. */
   turnedSquare: { left: 340, top: 80, size: 100, transform: 'rotate(30deg)' },
   clipped: { left: 90, top: 100, size: 100, scale: 'scale(1.3)', rotate: 'rotate(30deg)', gap: 220 },

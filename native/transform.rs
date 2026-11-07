@@ -131,19 +131,22 @@ impl Linear2 {
         straight || quarter
     }
 
-    /// How long a feather must be along the element's own x axis and along its y axis to measure one device pixel across a
-    /// straight edge there (an edge whose normal is that axis): the distance between the two parallel device-space lines a local
-    /// shift of that length opens up, which is the inverse transpose's column for that axis. `rotateX(50deg)` squeezes y to 0.64,
-    /// so a feather of one pixel on y is 1.56 long, and one of one pixel on x is 1. `None` for a collapsed map, which paints
+    /// The two vectors, in the element's own frame, that one device pixel spans across an edge whose normal is the element's x axis
+    /// and across an edge whose normal is its y axis: the columns of the inverse transpose, which sends an edge's normal to the
+    /// normal of the edge it is drawn as. Their lengths are how long a feather must be along each axis to measure one device pixel
+    /// across a straight edge there (`rotateX(50deg)` squeezes y to 0.64, so a feather of one pixel on y is 1.56 long and one on x
+    /// is 1); an edge between the axes takes the blend of the two (`box_mesh::Feather`). `None` for a collapsed map, which paints
     /// nothing.
-    pub(crate) fn edge_feather(&self) -> Option<(f32, f32)> {
+    pub(crate) fn edge_axes(&self) -> Option<([f32; 2], [f32; 2])> {
         let det = self.determinant();
         if !det.is_finite() || det.abs() < SINGULAR_DETERMINANT {
             return None;
         }
+        // The magnitude: a mirror turns both vectors over together, which changes no length and no angle between them.
+        let scale = det.abs();
         Some((
-            self.c.hypot(self.d) / det.abs(),
-            self.a.hypot(self.b) / det.abs(),
+            [self.d / scale, -self.c / scale],
+            [-self.b / scale, self.a / scale],
         ))
     }
 
@@ -1520,14 +1523,18 @@ mod tests {
     }
 
     #[test]
-    fn an_edge_feather_is_one_device_pixel_across_an_edge_on_each_axis() {
+    fn an_edge_axis_is_one_device_pixel_across_an_edge_on_each_axis() {
+        let lengths = |linear: Linear2| {
+            let (x, y) = linear.edge_axes().expect("an invertible map");
+            (x[0].hypot(x[1]), y[0].hypot(y[1]))
+        };
         let near = |actual: (f32, f32), want: (f32, f32)| {
             assert!(
                 (actual.0 - want.0).abs() < 1e-5 && (actual.1 - want.1).abs() < 1e-5,
                 "{actual:?} is not {want:?}"
             );
         };
-        near(Linear2::IDENTITY.edge_feather().unwrap(), (1.0, 1.0));
+        near(lengths(Linear2::IDENTITY), (1.0, 1.0));
         // A turn keeps a pixel a pixel.
         let turn = 30.0_f32.to_radians();
         let rotation = Linear2 {
@@ -1536,7 +1543,7 @@ mod tests {
             c: -turn.sin(),
             d: turn.cos(),
         };
-        near(rotation.edge_feather().unwrap(), (1.0, 1.0));
+        near(lengths(rotation), (1.0, 1.0));
         // `rotateX(50deg)` squeezes y: a pixel on y is a longer stretch of the element's own axis.
         let squeeze = 50.0_f32.to_radians().cos();
         let flat = Linear2 {
@@ -1545,33 +1552,41 @@ mod tests {
             c: 0.0,
             d: squeeze,
         };
-        near(flat.edge_feather().unwrap(), (1.0, 1.0 / squeeze));
+        near(lengths(flat), (1.0, 1.0 / squeeze));
         near(
-            Linear2 {
+            lengths(Linear2 {
                 a: 2.0,
                 b: 0.0,
                 c: 0.0,
                 d: 0.5,
-            }
-            .edge_feather()
-            .unwrap(),
+            }),
             (0.5, 2.0),
         );
         // A skew along x slants the edges whose normal is x, so a shift along x crosses them at an angle: the feather is longer by
-        // the secant of it.
+        // the secant of it, and the two vectors are no longer at right angles.
         let shear = Linear2 {
             a: 1.0,
             b: 0.0,
             c: 1.0,
             d: 1.0,
         };
-        near(shear.edge_feather().unwrap(), (2.0_f32.sqrt(), 1.0));
+        near(lengths(shear), (2.0_f32.sqrt(), 1.0));
+        let (x, y) = shear.edge_axes().expect("an invertible map");
+        assert!((x[0] * y[0] + x[1] * y[1]).abs() > 0.5, "{x:?} {y:?}");
+        // A mirror changes no length and no angle.
+        let mirror = Linear2 {
+            a: -1.0,
+            b: 0.0,
+            c: 0.0,
+            d: 1.0,
+        };
+        near(lengths(mirror), (1.0, 1.0));
         let collapsed = Linear2 {
             a: 0.0,
             b: 0.0,
             c: 0.0,
             d: 0.0,
         };
-        assert_eq!(collapsed.edge_feather(), None);
+        assert_eq!(collapsed.edge_axes(), None);
     }
 }

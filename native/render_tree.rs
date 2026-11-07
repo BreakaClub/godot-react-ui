@@ -1199,7 +1199,7 @@ impl ReactUiRoot {
     fn paint_node(&mut self, tag: u32) -> (bool, bool) {
         self.ensure_raster(tag);
         let oversampling = self.node_oversampling(tag);
-        let square_feather = self.node_square_feather(tag);
+        let feather = self.node_box_feather(tag);
         let motion = self.sampled.get(&tag).map(|sampled| {
             (
                 sampled.opacity,
@@ -1266,11 +1266,7 @@ impl ReactUiRoot {
             },
             border,
             decoration,
-            square_feather: if border.is_rounded() {
-                None
-            } else {
-                square_feather
-            },
+            feather,
         };
         let reach_before = node.render.paint_reach();
         let boxed = node.render.record_box(box_key, &mut node.visual.background);

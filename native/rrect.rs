@@ -251,10 +251,15 @@ impl RRect {
         }
     }
 
-    /// The outline as a polygon going clockwise (y down) from the top left, with every vertex moved by `grow` along its
-    /// outward normal (inward when negative). A rounded corner contributes `segments + 1` points on its arc, a square
-    /// one a single point moved diagonally, so that two loops made with the same `segments` pair up vertex for vertex.
-    pub fn outline(&self, grow: f32, segments: usize) -> Vec<Vertex> {
+    /// The outline as a polygon going clockwise (y down) from the top left, with every vertex moved outward (inward when negative)
+    /// by `grow(nx, ny)`, the amount for an edge whose outward unit normal is `(nx, ny)`: the vertices of a rounded corner's arc
+    /// move along the arc's own normals, and a square corner's one vertex moves diagonally, by `grow(1, 0)` on x and `grow(0, 1)`
+    /// on y. A rounded corner contributes `segments + 1` points on its arc, a square one a single point repeated as many times,
+    /// so that two loops made with the same `segments` pair up vertex for vertex.
+    ///
+    /// The amount depends on the direction so that a feather can be one length on each axis of a box that a transform has
+    /// stretched on one (`box_mesh::Feather`); a constant amount is the usual outline.
+    pub fn outline(&self, segments: usize, grow: impl Fn(f32, f32) -> f32) -> Vec<Vertex> {
         let mut points = Vec::with_capacity(4 * (segments + 1));
         for corner in [TOP_LEFT, TOP_RIGHT, BOTTOM_RIGHT, BOTTOM_LEFT] {
             let Corner { x: rx, y: ry } = self.corners[corner];
@@ -265,11 +270,13 @@ impl RRect {
                 for step in 0..=segments {
                     let angle = start + FRAC_PI_2 * step as f32 / segments as f32;
                     let (sin, cos) = angle.sin_cos();
-                    let radius_x = (rx + grow).max(0.0);
-                    let radius_y = (ry + grow).max(0.0);
+                    // The arc's outward normal is the gradient of its ellipse: (cos / rx, sin / ry), which is (cos, sin) for a circle.
+                    let (normal_x, normal_y) = (cos / rx, sin / ry);
+                    let length = normal_x.hypot(normal_y);
+                    let amount = grow(normal_x / length, normal_y / length);
                     points.push(Vertex {
-                        x: cx + radius_x * cos,
-                        y: cy + radius_y * sin,
+                        x: cx + (rx + amount).max(0.0) * cos,
+                        y: cy + (ry + amount).max(0.0) * sin,
                     });
                 }
             } else {
@@ -280,11 +287,12 @@ impl RRect {
                     _ => (-1.0, 1.0, self.x0, self.y1),
                 };
                 // One vertex stands in for the arc's points; repeating it keeps the loops the same length.
+                let vertex = Vertex {
+                    x: x + sign_x * grow(1.0, 0.0),
+                    y: y + sign_y * grow(0.0, 1.0),
+                };
                 for _ in 0..=segments {
-                    points.push(Vertex {
-                        x: x + sign_x * grow,
-                        y: y + sign_y * grow,
-                    });
+                    points.push(vertex);
                 }
             }
         }
@@ -399,10 +407,10 @@ mod tests {
         let inner = outer.padding_box([2.0; 4]);
         let segments = arc_segments(8.0);
         assert_eq!(
-            outer.outline(0.0, segments).len(),
-            inner.outline(0.0, segments).len()
+            outer.outline(segments, |_, _| 0.0).len(),
+            inner.outline(segments, |_, _| 0.0).len()
         );
-        let points = outer.outline(0.0, segments);
+        let points = outer.outline(segments, |_, _| 0.0);
         // The loop is closed on itself: the first point of the top left arc is above-left of its centre.
         close(points[0].x, 0.0);
         close(points[0].y, 8.0);
@@ -413,7 +421,7 @@ mod tests {
     #[test]
     fn the_outline_grows_along_its_normal() {
         let rect = RRect::from_box(40.0, 30.0, [8.0; 4]);
-        let grown = rect.outline(1.0, 8);
+        let grown = rect.outline(8, |_, _| 1.0);
         // The topmost point of the loop is one pixel above the box.
         let top = grown
             .iter()
@@ -425,6 +433,31 @@ mod tests {
             .map(|point| point.x)
             .fold(f32::INFINITY, f32::min);
         close(left, -1.0);
+    }
+
+    #[test]
+    fn the_outline_grows_by_the_amount_for_the_direction_it_faces() {
+        // Two across a vertical edge and six across a horizontal one, blended between: the length of the normal scaled by them.
+        let amount = |nx: f32, ny: f32| (4.0 * nx * nx + 36.0 * ny * ny).sqrt();
+        let rect = RRect::from_box(40.0, 30.0, [8.0; 4]);
+        let grown = rect.outline(8, amount);
+        let extreme = |by: fn(&Vertex) -> f32| grown.iter().map(by).fold(f32::INFINITY, f32::min);
+        close(extreme(|point| point.y), -6.0);
+        close(extreme(|point| point.x), -2.0);
+        // A square corner moves by the amount for each axis, diagonally.
+        let square = RRect::from_box(40.0, 30.0, [0.0; 4]);
+        let corner = square.outline(3, amount)[0];
+        close(corner.x, -2.0);
+        close(corner.y, -6.0);
+        let far = square.outline(3, amount)[2 * 4];
+        close(far.x, 42.0);
+        close(far.y, 36.0);
+        // An arc between the two faces turns from one amount to the other: 45 degrees round, the circle's radius grows by the blend.
+        let diagonal = std::f32::consts::FRAC_1_SQRT_2;
+        let blend = amount(diagonal, diagonal);
+        let middle = grown[4];
+        close(middle.x, 8.0 - (8.0 + blend) * diagonal);
+        close(middle.y, 8.0 - (8.0 + blend) * diagonal);
     }
 
     #[test]

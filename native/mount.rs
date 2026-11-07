@@ -461,8 +461,9 @@ impl MountedNode {
 
     /// Whether what this element's items draw depends on the oversampling of the viewport (`render_tree::Oversampling`):
     /// text, whose glyphs are rasterised at it; rounded corners, whose antialiasing feather is one device pixel; a
-    /// shadow, a gradient, a mitred border or an outline, which are drawn in device pixels; and a scroll container's bars,
-    /// which have round ends. A change of scale paints exactly these again.
+    /// shadow, a gradient, a mitred border or an outline, which are drawn in device pixels; a box a transform has put off the pixel
+    /// grid, whose feather is one device pixel; and a scroll container's bars, which have round ends. A change of scale paints
+    /// exactly these again.
     pub(crate) fn paints_at_oversampling(&self) -> bool {
         match self.kind {
             Kind::Text | Kind::TextInput => true,
@@ -473,8 +474,8 @@ impl MountedNode {
                     .any(|radius| radius.round() > 0.0)
                     || self.render.drawn_at_scale()
                     || self.render.has_scroller()
-                    // A square box a transform moves off the pixel grid is drawn from feathered triangles.
-                    || self.raster.is_some_and(|raster| raster.soften_squares)
+                    // A box a transform moves off the pixel grid is drawn from feathered triangles.
+                    || self.raster.is_some_and(|raster| raster.mesh_boxes)
             }
         }
     }

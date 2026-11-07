@@ -90,12 +90,13 @@ pub(crate) enum Fault {
     TransformRasterUnscaled,
     /// A transformed element is not the containing block of the absolute elements below it (only a positioned one is).
     TransformNoContainingBlock,
-    /// The feather of a square-cornered box under a transform is one length sized for the axis the transform stretches most (as
-    /// `StyleBoxFlat` has it) and not one per axis, so it is narrower than a pixel on the squeezed axis and a straight edge there
-    /// comes out hard.
+    /// The feather of a box under a transform is one length sized for the axis the transform stretches most (as `StyleBoxFlat`
+    /// has it) and not one per axis, so it is narrower than a pixel on the squeezed axis and a straight edge there comes out
+    /// hard.
     TransformFeatherUniform,
-    /// A box with square corners under a transform is left to `StyleBoxFlat`, which antialiases only a rounded or skewed one.
-    TransformSquaresHard,
+    /// A box under a transform is left to `StyleBoxFlat`, which antialiases only a rounded or skewed one and has one feather
+    /// length: a box with square corners comes out as a staircase.
+    TransformBoxesHard,
 }
 
 #[cfg(feature = "filter-faults")]
@@ -132,7 +133,7 @@ impl Fault {
             Fault::TransformRasterUnscaled => "transform-raster-unscaled",
             Fault::TransformNoContainingBlock => "transform-no-containing-block",
             Fault::TransformFeatherUniform => "transform-feather-uniform",
-            Fault::TransformSquaresHard => "transform-squares-hard",
+            Fault::TransformBoxesHard => "transform-boxes-hard",
         }
     }
 }

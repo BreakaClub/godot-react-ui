@@ -16,7 +16,7 @@ use godot::classes::rendering_server::{CanvasItemTextureFilter, CanvasItemTextur
 use godot::classes::{Image, RenderingServer};
 use godot::prelude::*;
 
-use crate::box_mesh::{self, Mesh};
+use crate::box_mesh::{self, Feather, Mesh};
 use crate::box_shadow::{SHADOW_SIGMAS, SIGMA_PER_BLUR, ShadowLayer};
 use crate::filter::Rgba;
 use crate::gradient::{LinearGradient, ramp, ramp_texels};
@@ -170,6 +170,9 @@ pub(crate) struct BoxShape {
     pub radii: [f32; 4],
     /// Top, right, bottom, left.
     pub borders: [f32; 4],
+    /// The feather of every edge, in device pixels, when a transform has put the box off the pixel grid; `None` for a box on it, whose
+    /// rounded edges are one device pixel and whose square ones are hard (see [`BoxShape::feather_of`]).
+    pub feather: Option<Feather>,
 }
 
 impl BoxShape {
@@ -180,6 +183,16 @@ impl BoxShape {
             height: size.y * scale,
             radii: radii.map(|radius| radius as f32 * scale),
             borders: borders.map(|width| width as f32 * scale),
+            feather: None,
+        }
+    }
+
+    /// The same box with the feather a transform needs (`feather` is in logical pixels, as a [`BoxKey`](crate::box_paint::BoxKey)
+    /// holds it).
+    pub fn with_feather(self, feather: Option<Feather>) -> BoxShape {
+        BoxShape {
+            feather: feather.map(|feather| feather.scaled(self.scale)),
+            ..self
         }
     }
 
@@ -205,9 +218,14 @@ impl BoxShape {
         self.border_box().padding_box(halves)
     }
 
-    /// The feather of a shape: one device pixel where it has curves, none where its edges are on pixels.
-    fn feather(rect: &RRect) -> f32 {
-        if rect.is_rounded() { FEATHER_PX } else { 0.0 }
+    /// The feather of a shape: under a transform, the box's own (one length on each axis); on the pixel grid, one device pixel where
+    /// it has curves and none where its edges are on pixels.
+    fn feather_of(&self, rect: &RRect) -> Feather {
+        match self.feather {
+            Some(feather) => feather,
+            None if rect.is_rounded() => Feather::isotropic(FEATHER_PX),
+            None => Feather::NONE,
+        }
     }
 }
 
@@ -430,7 +448,7 @@ pub(crate) fn shadow(
 type Sampled<'a> = (Rid, &'a dyn Fn(f32, f32) -> f32);
 
 fn add_mesh(item: Rid, mesh: &Mesh, color: Color, texture: Option<Sampled>) {
-    if mesh.is_empty() {
+    if mesh.is_empty() || color.a <= 0.0 {
         return;
     }
     let indices = PackedInt32Array::from(
@@ -508,7 +526,7 @@ pub(crate) fn gradient(
     let (lease, texture, _, _) = acquire(key, || (ramp(&stops, texels), texels, 1));
     leases.push(lease);
     let fill_box = shape.fill_box(covered);
-    let mesh = box_mesh::fill(&fill_box, BoxShape::feather(&fill_box));
+    let mesh = box_mesh::fill(&fill_box, shape.feather_of(&fill_box));
     begin(item, shape.scale);
     add_mesh(
         item,
@@ -523,9 +541,48 @@ pub(crate) fn gradient(
 /// opaque border on the `covered` sides is painted over the fill's edge (see [`BoxShape::fill_box`]).
 pub(crate) fn solid(item: Rid, shape: &BoxShape, color: Color, covered: [bool; 4]) {
     let fill_box = shape.fill_box(covered);
-    let mesh = box_mesh::fill(&fill_box, BoxShape::feather(&fill_box));
+    let mesh = box_mesh::fill(&fill_box, shape.feather_of(&fill_box));
     begin(item, shape.scale);
     add_mesh(item, &mesh, color, None);
+    end(item);
+}
+
+/// The ring between the border box and the padding box in one colour, from an exact mesh: a border whose sides differ in width
+/// round a rounded corner (an elliptical inner curve), or any border of a box a transform has put off the pixel grid.
+pub(crate) fn ring(item: Rid, shape: &BoxShape, color: Color) {
+    let outer = shape.border_box();
+    let mesh = box_mesh::ring(&outer, &shape.padding_box(), shape.feather_of(&outer));
+    begin(item, shape.scale);
+    add_mesh(item, &mesh, color, None);
+    end(item);
+}
+
+/// A plain box (one fill, one border colour, nothing between them) from exact meshes: the fill, then the ring over it as CSS paints
+/// them. Under an opaque border (`covered`) the fill stops beneath the ring's inner edge, so no fringe of it shows past the outer one.
+pub(crate) fn plain(
+    item: Rid,
+    shape: &BoxShape,
+    background: Color,
+    border: Option<Color>,
+    covered: bool,
+) {
+    let outer = shape.border_box();
+    let inner = shape.padding_box();
+    let feather = shape.feather_of(&outer);
+    begin(item, shape.scale);
+    if covered {
+        add_mesh(
+            item,
+            &box_mesh::fill_under_ring(&outer, &inner, feather),
+            background,
+            None,
+        );
+    } else {
+        add_mesh(item, &box_mesh::fill(&outer, feather), background, None);
+    }
+    if let Some(color) = border {
+        add_mesh(item, &box_mesh::ring(&outer, &inner, feather), color, None);
+    }
     end(item);
 }
 

@@ -351,21 +351,27 @@ async function checkContainingBlock(api: TransformsInspection): Promise<void> {
 const EDGE_FILL_BLUE = 0x09 / LEVELS;
 /** An edge row's coverage may differ from the area the box covers in it by this (a one pixel ramp reads within 0.05; a ramp under 0.7 px, 0.2). */
 const EDGE_COVERAGE_TOLERANCE = 0.12;
+/** The y scale of the squeezed boxes (`BEHAVIOUR.edge.transform` is `scaleY` of this). */
+const SQUEEZE = 0.6;
 /** A pixel is partly covered when its coverage is between these. */
 const PARTLY_COVERED_MIN = 0.1;
 const PARTLY_COVERED_MAX = 0.9;
 /** Of the scanlines across a turned box's slanted edge, this share must show a partly covered pixel (all of them do, with a one pixel ramp). */
 const SLANTED_EDGE_ROWS_ANTIALIASED = 0.85;
 
+/** A rounded box and a square one: both are squeezed and both must show the same ramp. */
+type SqueezedBox = 'edge-flat' | 'edge-box';
+const SQUEEZED_KIND: Readonly<Record<SqueezedBox, string>> = { 'edge-flat': 'square', 'edge-box': 'rounded' };
+
 /**
  * What a box squeezed on one axis shows in the two rows its top and bottom edges fall in, next to the share of each row the box covers
- * (a browser's coverage), and what is wrong with it if `assert`: more than [`EDGE_COVERAGE_TOLERANCE`] away. The feather of a box
- * drawn from triangles (square corners) is one length on each of its axes, so the squeezed axis keeps a one pixel ramp; the one
- * `StyleBoxFlat` gives a rounded corner is one length for both, which is exact on the stretched axis and 0.6 of a pixel on the
- * squeezed one, where the edge comes out nearly hard (`docs/tracks/transforms.md`, "Against Chrome": widening it to a pixel on the
- * squeezed axis blurs the stretched one, which was measured to be further from Chrome's).
+ * (a browser's coverage), and what is wrong with it: more than [`EDGE_COVERAGE_TOLERANCE`] away. A box under a transform is drawn from
+ * triangles whose feather is one length across each of its edges, square corners or rounded (`native/box_mesh.rs`), so the squeezed axis
+ * keeps a one pixel ramp. `StyleBoxFlat`, which drew a rounded box until then, has one `anti_aliasing_size` for both axes: exact on the
+ * stretched axis and 0.6 of a pixel on the squeezed one, where the edge came out nearly hard (rows 1.0 and 0.0 against 0.9 and 0.1 at
+ * a device pixel ratio of one, `docs/tracks/box-mesh.md`).
  */
-function squeezedEdgeProblems(image: Image, ratio: number, api: TransformsInspection, suffix: string, testID: 'edge-flat' | 'edge-box'): string[] {
+function squeezedEdgeProblems(image: Image, ratio: number, api: TransformsInspection, suffix: string, testID: SqueezedBox): string[] {
   const box = node(api, testID);
   const spec = testID === 'edge-flat' ? BEHAVIOUR.edgeFlat : BEHAVIOUR.edge;
   const column = Math.round((spec.left + spec.width / 2) * ratio);
@@ -376,16 +382,48 @@ function squeezedEdgeProblems(image: Image, ratio: number, api: TransformsInspec
   const bottomRow = Math.floor(bottom);
   const topWant = topRow + 1 - top;
   const bottomWant = bottom - bottomRow;
+  const kind = SQUEEZED_KIND[testID];
   const measure = testID === 'edge-flat' ? 'squeezedEdge' : 'squeezedRoundedEdge';
   console.log('GODOT_REACT_TRANSFORMS_MEASURE', JSON.stringify({ [measure]: suffix, top: round(coverageIn(topRow), 3), topWant: round(topWant, 3), bottom: round(coverageIn(bottomRow), 3), bottomWant: round(bottomWant, 3) }));
-  if (testID === 'edge-box') return [];
   const problems: string[] = [];
   if (Math.abs(coverageIn(topRow) - topWant) > EDGE_COVERAGE_TOLERANCE) {
-    problems.push(`A squeezed box's top edge is antialiased (${suffix}): row ${topRow} is covered ${round(coverageIn(topRow), 3)} where the box covers ${round(topWant, 3)} of it`);
+    problems.push(`A squeezed ${kind} box's top edge is antialiased (${suffix}): row ${topRow} is covered ${round(coverageIn(topRow), 3)} where the box covers ${round(topWant, 3)} of it`);
   }
   if (Math.abs(coverageIn(bottomRow) - bottomWant) > EDGE_COVERAGE_TOLERANCE) {
-    problems.push(`A squeezed box's bottom edge is antialiased (${suffix}): row ${bottomRow} is covered ${round(coverageIn(bottomRow), 3)} where the box covers ${round(bottomWant, 3)} of it`);
+    problems.push(`A squeezed ${kind} box's bottom edge is antialiased (${suffix}): row ${bottomRow} is covered ${round(coverageIn(bottomRow), 3)} where the box covers ${round(bottomWant, 3)} of it`);
   }
+  return problems;
+}
+
+/**
+ * A rounded box with a border 1 px thick, squeezed to 0.6 on y: its top and bottom borders are 0.6 of a device pixel thick at a ratio
+ * of one, and 1.2 across two rows at two. A border thinner than the feather peaks below one (a trapezoid, `box_mesh.rs`), so each row
+ * reads the share of itself the border covers. A feather of one length makes a ring that thin a full pixel on the squeezed axis.
+ */
+function squeezedRingProblems(image: Image, ratio: number, api: TransformsInspection, suffix: string): string[] {
+  const { rect } = node(api, 'edge-ring');
+  const spec = BEHAVIOUR.edgeRing;
+  const column = Math.round((spec.left + spec.width / 2) * ratio);
+  const coverageIn = (row: number): number => (STAGE_COLOR.b - image.getPixel(column, row).b) / (STAGE_COLOR.b - EDGE_FILL_BLUE);
+  const thickness = spec.border * SQUEEZE * ratio;
+  const top = rect.y * ratio;
+  const bottom = (rect.y + rect.height) * ratio;
+  /** How much of `row` the band `from..to` covers. */
+  const overlap = (row: number, from: number, to: number): number => Math.max(0, Math.min(to, row + 1) - Math.max(from, row));
+  const problems: string[] = [];
+  const measured: Record<string, number> = {};
+  for (const [name, from] of [['top', top], ['bottom', bottom - thickness]] as const) {
+    for (let row = Math.floor(from); row <= Math.floor(from + thickness); row += 1) {
+      const want = overlap(row, from, from + thickness);
+      const got = coverageIn(row);
+      measured[`${name}${row}`] = round(got, 3);
+      measured[`${name}${row}Want`] = round(want, 3);
+      if (Math.abs(got - want) > EDGE_COVERAGE_TOLERANCE) {
+        problems.push(`A squeezed thin border keeps the share of the row it covers (${suffix}): the ${name} border's row ${row} is covered ${round(got, 3)} where the border covers ${round(want, 3)} of it`);
+      }
+    }
+  }
+  console.log('GODOT_REACT_TRANSFORMS_MEASURE', JSON.stringify({ squeezedRing: suffix, ...measured }));
   return problems;
 }
 
@@ -426,8 +464,12 @@ async function checkEdges(owner: Node, api: TransformsInspection, suffix: string
   await showCase(api, 'edge');
   const image = grab(owner);
   const ratio = ratioOf(image, api);
-  squeezedEdgeProblems(image, ratio, api, suffix, 'edge-box');
-  edgeProblems.push(...squeezedEdgeProblems(image, ratio, api, suffix, 'edge-flat'), ...turnedSquareProblems(image, ratio, api, suffix));
+  edgeProblems.push(
+    ...squeezedEdgeProblems(image, ratio, api, suffix, 'edge-box'),
+    ...squeezedEdgeProblems(image, ratio, api, suffix, 'edge-flat'),
+    ...squeezedRingProblems(image, ratio, api, suffix),
+    ...turnedSquareProblems(image, ratio, api, suffix),
+  );
 }
 
 /** A card that scales on hover is still hovered where its scaled box reaches past the layout one, and stops being where that does not. */
@@ -902,6 +944,11 @@ async function assertEdges(owner: Node, api: TransformsInspection, suffix: strin
 
 const silent: TransformsCapture = async () => undefined;
 
+/** The controls that read a squeezed edge at a content scale of two need a window with room for it. */
+function needsRetina(api: TransformsInspection): string | undefined {
+  return api.snapshot().width >= STAGE.width * RETINA_SCALE ? undefined : 'the window has no room for a content scale of two';
+}
+
 const TRANSFORM_FAULT_CONTROLS: readonly TransformFaultControl[] = [
   {
     fault: 'transform-hit-flat', guards: 'a point is hit through the inverse of the matrix (the turned bar)',
@@ -922,11 +969,22 @@ const TRANSFORM_FAULT_CONTROLS: readonly TransformFaultControl[] = [
   {
     fault: 'transform-feather-uniform', guards: 'a straight edge of a square box on the squeezed axis of a transform keeps a one pixel antialiasing ramp',
     run: (owner, api) => atRetina(owner, () => assertEdges(owner, api, 'dpr2', (image, ratio) => squeezedEdgeProblems(image, ratio, api, 'dpr2', 'edge-flat'))),
-    fails: /A squeezed box's top edge is antialiased/u,
-    notApplicable: api => (api.snapshot().width >= STAGE.width * RETINA_SCALE ? undefined : 'the window has no room for a content scale of two'),
+    fails: /A squeezed square box's top edge is antialiased/u,
+    notApplicable: needsRetina,
   },
   {
-    fault: 'transform-squares-hard', guards: 'a square box turned 30 degrees has antialiased edges',
+    fault: 'transform-feather-uniform', guards: 'a straight edge of a rounded box on the squeezed axis of a transform keeps a one pixel antialiasing ramp',
+    run: (owner, api) => atRetina(owner, () => assertEdges(owner, api, 'dpr2', (image, ratio) => squeezedEdgeProblems(image, ratio, api, 'dpr2', 'edge-box'))),
+    fails: /A squeezed rounded box's top edge is antialiased/u,
+    notApplicable: needsRetina,
+  },
+  {
+    fault: 'transform-feather-uniform', guards: 'a border thinner than the feather, squeezed, keeps the share of a pixel it covers',
+    run: (owner, api) => assertEdges(owner, api, 'dpr1', (image, ratio) => squeezedRingProblems(image, ratio, api, 'dpr1')),
+    fails: /A squeezed thin border keeps the share of the row it covers/u,
+  },
+  {
+    fault: 'transform-boxes-hard', guards: 'a square box turned 30 degrees has antialiased edges',
     run: (owner, api) => assertEdges(owner, api, 'dpr1', (image, ratio) => turnedSquareProblems(image, ratio, api, 'dpr1')),
     fails: /A square box turned 30 degrees has antialiased edges/u,
   },

@@ -75,7 +75,7 @@ const BEHAVIOUR_OPTIONS: readonly CaseOption[] = [
   { id: 'loop', label: 'Looping transform animation', caption: 'Continuous multi-step transform + colour loop driven by a timer.' },
   { id: 'starting', label: '@starting-style (starting: mount transition)', caption: 'Tailwind starting: variant animates opacity, scale, rotate and translate on mount.' },
   { id: 'contain', label: 'Containing block of a transformed element', caption: 'An absolute and a fixed child are placed in a translated static parent, as in CSS.' },
-  { id: 'edge', label: 'Squeezed edges (antialiasing on one axis)', caption: 'A rounded and a plain box scaled 0.6 on y, and a plain square turned 30 degrees: the plain ones keep a one-pixel antialiasing ramp on every edge.' },
+  { id: 'edge', label: 'Squeezed edges (antialiasing on one axis)', caption: 'A rounded box, a plain one and a thin outline scaled 0.6 on y, and a plain square turned 30 degrees: every edge keeps a one-pixel antialiasing ramp.' },
   { id: 'hit', label: 'Hit testing (rotated & scaled)', caption: 'Click the turned bar, the scaled parent and its rotated child.' },
   { id: 'hover', label: 'Hover scale (1.25x)', caption: 'Hover the card: hit testing grows with the scaled box.' },
   { id: 'utilities', label: 'Tailwind transform utilities', caption: '-translate-x-1/2 -translate-y-1/4 rotate-6 hover:scale-110 origin-top-left.' },
@@ -219,7 +219,7 @@ function HitPage() {
   );
 }
 
-/** A rounded and a square-cornered box squeezed on one axis, and a square turned, for the antialiasing of their straight edges. */
+/** A rounded box, a square-cornered one and a thin outline squeezed on one axis, and a square turned, for the antialiasing of their straight edges. */
 function EdgePage() {
   const { edge } = BEHAVIOUR;
   return (
@@ -236,6 +236,14 @@ function EdgePage() {
         style={{
           position: 'absolute', left: BEHAVIOUR.edgeFlat.left, top: BEHAVIOUR.edgeFlat.top, width: BEHAVIOUR.edgeFlat.width, height: BEHAVIOUR.edgeFlat.height,
           backgroundColor: '#b45309', transform: BEHAVIOUR.edgeFlat.transform, transformOrigin: 'top',
+        }}
+      />
+      <View
+        testID="edge-ring"
+        style={{
+          position: 'absolute', left: BEHAVIOUR.edgeRing.left, top: BEHAVIOUR.edgeRing.top, width: BEHAVIOUR.edgeRing.width, height: BEHAVIOUR.edgeRing.height,
+          borderRadius: BEHAVIOUR.edgeRing.radius, borderWidth: BEHAVIOUR.edgeRing.border, borderColor: '#b45309',
+          transform: BEHAVIOUR.edgeRing.transform, transformOrigin: 'top',
         }}
       />
       <View

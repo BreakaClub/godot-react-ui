@@ -3,7 +3,9 @@
 //! A box with a uniform border and a plain fill is drawn by one `StyleBoxFlat`, as it always was. Anything else is drawn in
 //! layers, bottom to top, as CSS paints a box: the outer shadows (the last listed first), the background colour, the
 //! gradient, the inset shadows, the border. A border whose sides differ in colour, and one whose widths differ round a
-//! rounded corner, is drawn from meshes (`box_mesh.rs`); a `StyleBoxFlat` cannot join them as CSS does.
+//! rounded corner, is drawn from meshes (`box_mesh.rs`); a `StyleBoxFlat` cannot join them as CSS does. So is every box that a
+//! transform has put off the pixel grid: `StyleBoxFlat` antialiases only a rounded or skewed box, and with one feather length, which
+//! is a pixel wide across an edge only on the axis a transform stretches most.
 
 use std::rc::Rc;
 
@@ -12,11 +14,11 @@ use godot::classes::StyleBoxFlat;
 use godot::prelude::*;
 
 use crate::box_draw::{self, BoxShape, Lease};
+use crate::box_mesh::Feather;
 use crate::box_shadow::{ShadowLayer, ShadowList};
 use crate::gradient::LinearGradient;
 use crate::props::StyleSpec;
 use crate::render_tree::Oversampling;
-use crate::square_box;
 use crate::style_engine::current_color;
 
 /// The sides of a box in the order CSS lists them, as indexes into [`BorderKey`]'s arrays.
@@ -181,9 +183,9 @@ pub(crate) struct BoxKey {
     /// square box keeps `Oversampling::NONE` and is not re-recorded when the scale changes.
     pub oversampling: Oversampling,
     /// A box under a transform that moves it off the pixel grid is drawn from feathered meshes (`StyleBoxFlat` antialiases only a rounded
-    /// or skewed box, and has one feather length): this is the feather along the box's own x and y in logical pixels, one device pixel
-    /// across an edge on each axis (`Linear2::edge_feather`). `None` for a box on the grid.
-    pub square_feather: Option<Vector2>,
+    /// or skewed box, and has one feather length): this is the feather in logical pixels, one device pixel across an edge whichever
+    /// way it faces (`Linear2::edge_axes`). `None` for a box on the grid.
+    pub feather: Option<Feather>,
 }
 
 impl BoxKey {
@@ -198,9 +200,9 @@ impl BoxKey {
             .decoration
             .as_ref()
             .map_or([0.0; 4], |decoration| decoration.reach());
-        let reach = self
-            .square_feather
-            .map_or(Vector2::ZERO, |feather| feather / 2.0);
+        let reach = self.feather.map_or(Vector2::ZERO, |feather| {
+            Vector2::new(feather.x(), feather.y()) / 2.0
+        });
         Rect2::new(
             Vector2::new(-left - reach.x, -top - reach.y),
             Vector2::new(
@@ -262,7 +264,8 @@ pub(crate) fn draw_box(
         border.widths,
         border.radii,
         key.oversampling.factor(),
-    );
+    )
+    .with_feather(key.feather);
     shape_style(style, key);
 
     // The outer shadows, the last listed first: the first listed is on top. Chrome cuts the box out of them only when its
@@ -275,9 +278,24 @@ pub(crate) fn draw_box(
         }
     }
 
+    // A box under a transform is made of meshes whole: the fill, the gradient and the border (`StyleBoxFlat` has one feather length and
+    // no antialiasing on a square corner). Only a border of sides of different colours is still cut from masks.
+    let meshed = key.feather.is_some();
+    let mixed_border = border.has_border() && border.shared_color().is_none();
+    if meshed && !has_inset && gradient.is_none() && !mixed_border {
+        let ring = border.shared_color();
+        let covered = ring.is_some() && border.opaque_sides().iter().all(|&opaque| opaque);
+        box_draw::plain(item, &shape, key.background, ring, covered);
+        return;
+    }
+
     // One call draws the fill and the border when nothing has to come between them.
-    let mesh_fill = fill_from_mesh(key.size, border, decoration);
-    let mesh_border = border.needs_mesh() || mesh_fill && border.has_border();
+    let mesh_fill = meshed || fill_from_mesh(key.size, border, decoration);
+    let mesh_border = if meshed {
+        mixed_border
+    } else {
+        border.needs_mesh() || mesh_fill && border.has_border()
+    };
     let split = is_layered(
         border,
         key.background.a < 1.0,
@@ -287,10 +305,6 @@ pub(crate) fn draw_box(
         single_border_draw,
     );
     if !split {
-        if let Some(feather) = key.square_feather {
-            draw_square(item, key, feather);
-            return;
-        }
         style.set_bg_color(key.background);
         style.set_border_color(border.shared_color().unwrap_or(Color::TRANSPARENT_BLACK));
         set_widths(style, border.widths);
@@ -306,16 +320,10 @@ pub(crate) fn draw_box(
             box_draw::solid(item, &shape, key.background, border.opaque_sides());
         }
     } else if key.background.a > 0.0 || gradient.is_none() {
-        if let Some(feather) = key.square_feather {
-            let outer = square_box::Rect::from_size(key.size);
-            let fill = square_box::fill(outer, feather);
-            square_box::draw(item, &fill, key.background);
-        } else {
-            style.set_bg_color(key.background);
-            set_widths(style, [0; 4]);
-            style.set_draw_center(true);
-            style.draw(item, bounds);
-        }
+        style.set_bg_color(key.background);
+        set_widths(style, [0; 4]);
+        style.set_draw_center(true);
+        style.draw(item, bounds);
     }
     if let Some(gradient) = gradient {
         box_draw::gradient(item, &shape, gradient, border.opaque_sides(), leases);
@@ -328,16 +336,8 @@ pub(crate) fn draw_box(
     if mesh_border {
         box_draw::border(item, &shape, border.colors, leases);
     } else if let Some(color) = border.shared_color() {
-        if let Some(feather) = key.square_feather {
-            let outer = square_box::Rect::from_size(key.size);
-            let [top, right, bottom, left] = border.widths.map(|w| w as f32);
-            let inner = square_box::Rect {
-                x0: outer.x0 + left,
-                y0: outer.y0 + top,
-                x1: (outer.x1 - right).max(outer.x0 + left),
-                y1: (outer.y1 - bottom).max(outer.y0 + top),
-            };
-            square_box::draw(item, &square_box::ring(outer, inner, feather), color);
+        if meshed {
+            box_draw::ring(item, &shape, color);
         } else {
             style.set_border_color(color);
             set_widths(style, border.widths);
@@ -345,37 +345,6 @@ pub(crate) fn draw_box(
             style.draw(item, bounds);
             style.set_draw_center(true);
         }
-    }
-}
-
-/// Draw a box with square corners from feathered triangles: the fill, then the border ring over it, as CSS paints them. Under
-/// an opaque border the fill stops beneath the ring's inner edge, so no fringe of it shows past the outer one.
-fn draw_square(item: Rid, key: &BoxKey, feather: Vector2) {
-    let outer = square_box::Rect::from_size(key.size);
-    let border = &key.border;
-    let [top, right, bottom, left] = border.widths.map(|w| w as f32);
-    let ring = border.has_border() && border.shared_color().is_some_and(|c| c.a > 0.0);
-    let inner = if top == right && right == bottom && bottom == left {
-        outer.inset(top)
-    } else {
-        square_box::Rect {
-            x0: outer.x0 + left,
-            y0: outer.y0 + top,
-            x1: (outer.x1 - right).max(outer.x0 + left),
-            y1: (outer.y1 - bottom).max(outer.y0 + top),
-        }
-    };
-    if key.background.a > 0.0 {
-        let opaque_border = ring && border.opaque_sides().iter().all(|&o| o);
-        let fill = if opaque_border {
-            square_box::under_border(outer, inner, feather)
-        } else {
-            square_box::fill(outer, feather)
-        };
-        square_box::draw(item, &fill, key.background);
-    }
-    if ring && let Some(color) = border.shared_color() {
-        square_box::draw(item, &square_box::ring(outer, inner, feather), color);
     }
 }
 
@@ -555,7 +524,7 @@ mod tests {
             border: BorderKey::new([0.0; 4], [Color::WHITE; 4], [0.0; 4]),
             decoration: decoration_of(&style, None),
             oversampling: Oversampling::NONE,
-            square_feather: None,
+            feather: None,
         };
         let rect = key.paint_rect();
         // sigma 10, three sigmas 30, spread -4: 26 around, moved down 10.
