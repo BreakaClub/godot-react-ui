@@ -731,7 +731,7 @@ function verifyTransforms(api: RichTextInspection): number {
 
 /** The pixels of a glyph sample from the top left of its ink to the bottom right of it. */
 interface Crop {
-  /** Where the top left of the ink is in the picture, in device pixels. */
+  /** Where the top left of the ink is from the top left of its text's box, in device pixels. */
   readonly left: number;
   readonly top: number;
   readonly width: number;
@@ -761,7 +761,7 @@ function inkCrop(image: Image, ratio: number, rect: LayoutRect): Crop | undefine
       levels.push(Math.round(color.r * LEVELS), Math.round(color.g * LEVELS), Math.round(color.b * LEVELS));
     }
   }
-  return { left, top, width: right - left + 1, height: bottom - top + 1, levels };
+  return { left: left - rect.x * ratio, top: top - rect.y * ratio, width: right - left + 1, height: bottom - top + 1, levels };
 }
 
 /** The most a level differs between two crops, or `Infinity` when they are not the same size. */

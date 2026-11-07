@@ -15,7 +15,7 @@ const BARE_FACE_WEIGHTS: [number, number] = [300, 800];
 
 /**
  * The system families that have Han characters, in the order they are tried (`SystemFont.fontNames`: the first one the system has is
- * used). The engine does look for a system font for a character no font has (`TextServerAdvanced::_find_system_fallback`), and it asks
+ * used). The engine does look for a system font for a character no font has (`TextServerAdvanced::_find_sys_font_for_text`), and it asks
  * the platform for one font file. macOS 26 answers for Han with `PingFangUI.ttc`, which is made of `hvgl` outlines that FreeType cannot
  * open, so every glyph of it is missing and the character is a hex box (docs/tracks/missing-glyph.md). These families are ones FreeType
  * reads, found by shaping the character in every family `OS.getSystemFonts()` lists. The Web has no system fonts.
