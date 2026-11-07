@@ -138,7 +138,7 @@ const EMPTY_VALUES: readonly string[] = Object.freeze([]);
 /** The control looks like one input: the input, the chips and the buttons share its border. */
 const CONTROL_CLASS = 'flex-row items-center gap-1 rounded-lg border border-slate-300 bg-white pl-3 pr-2 py-1 text-sm text-slate-900 cursor-text focus-within:border-indigo-500 disabled:cursor-not-allowed disabled:opacity-50';
 /** The input has no box of its own; it takes the room the chips leave on its line, and wraps to a line of its own when that is under its minimum. */
-const INPUT_CLASS = 'grow shrink basis-24 min-w-24 bg-transparent py-1 text-sm text-slate-900 placeholder-slate-400 caret-indigo-600';
+const INPUT_CLASS = 'grow shrink basis-16 min-w-16 bg-transparent py-1 text-sm text-slate-900 placeholder-slate-400 caret-indigo-600';
 const BUTTON_CLASS = 'items-center justify-center rounded px-1 py-0.5 text-slate-500 cursor-pointer hover:text-slate-800 active:bg-slate-100';
 const CLEAR_TEXT_CLASS = 'text-base';
 /** Like the select's list, and for the same reasons: placement caps its height to the room on its side, and the list scrolls. */

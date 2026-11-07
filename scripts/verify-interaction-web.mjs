@@ -15,6 +15,7 @@ import { selectEngine } from './engine.mjs';
 import { WEB_INTERACTION_SECTIONS, describeSections, requestedSections } from './verifier-sections.mjs';
 import { isolateBrowserClipboard } from './web-clipboard.mjs';
 import { startVerificationServer } from './web-verify.mjs';
+import { runComboboxScenario, runTouchComboboxScenario } from './verify-combobox-web.mjs';
 import { runFiltersScenario } from './verify-filters-web.mjs';
 import { runGlassScenario } from './verify-glass-web.mjs';
 import { runNavigatorScenario, runNavigatorStartScenario } from './verify-navigator-web.mjs';
@@ -2858,6 +2859,12 @@ async function runWorkflow(viewport) {
   if (wanted('selection')) await section('selection', runSelectionScenario);
   if (wanted('drag')) await section('drag', runDragScenario);
   if (wanted('forms')) await section('forms', () => runFormsScenario(viewport));
+  if (wanted('combobox')) {
+    await section('combobox', () => runComboboxScenario({
+      viewport, demo, page, frames, snapshot, find, check, capture, waitUntil, moveTo, centerOf, click, wheelAt, nodeExists, text,
+      expectFocused, actionTimeoutMs: ACTION_TIMEOUT_MS,
+    }));
+  }
   if (wanted('hidpi')) await section('hidpi', () => runHidpiScenario(viewport));
   if (wanted('filters')) {
     await section('filters', () => runFiltersScenario({ demo, page, frames, snapshot, find, check, capture, decodePng, moveTo, centerOf, waitUntil, expectedConsoleErrors, actionTimeoutMs: ACTION_TIMEOUT_MS }));
@@ -2909,6 +2916,11 @@ async function runTouchWorkflow() {
     await runTouchSoftKeyboardScenario();
   });
   if (wanted('drag')) await section('drag', runTouchDragScenario);
+  if (wanted('combobox')) {
+    await section('combobox', () => runTouchComboboxScenario({
+      demo, page, frames, snapshot, find, check, waitUntil, nodeExists, text, pointerPoint, keyboardElement,
+    }));
+  }
 }
 
 try {
@@ -2928,7 +2940,7 @@ try {
         output: resolve(output, activeViewport),
       }));
     }
-    if (wanted('touch') || wanted('drag')) await runTouchWorkflow();
+    if (wanted('touch') || wanted('drag') || wanted('combobox')) await runTouchWorkflow();
     checkBrowserErrors();
     const empty = SECTIONS.filter((name) => wanted(name) && !(sectionChecks[name] > 0));
     assert.ok(empty.length === 0, `Section(s) ${empty.join(', ')} ran no assertion`);

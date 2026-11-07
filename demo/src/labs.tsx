@@ -2,6 +2,7 @@ import { createElement, type ComponentType, type ReactElement } from 'react';
 import { CounterLab, InventoryLab } from './app';
 import { A11yPanel } from './a11y-panel';
 import { BenchmarkExplorer } from './benchmark-explorer';
+import { ComboboxLab } from './combobox-lab';
 import { DragLab } from './drag-lab';
 import { FiltersExplorer } from './filters-explorer';
 import { FormsExtraLab } from './forms-extra-lab';
@@ -120,6 +121,11 @@ export const LABS = defineLabs([
     id: 'inputs', kind: 'inline', group: 'Input', title: 'Controls',
     description: 'Checkbox, switch, radio group, slider, select and text field from the component kit.',
     component: InputsLab, sources: ['res://src/inputs-lab.tsx'],
+  },
+  {
+    id: 'combobox', kind: 'inline', group: 'Input', title: 'Combobox',
+    description: 'Single and multiple editable comboboxes with list filtering, chips and custom values.',
+    component: ComboboxLab, sources: ['res://src/combobox-lab.tsx'],
   },
   {
     id: 'drag', kind: 'inline', group: 'Input', title: 'Drag and drop',
