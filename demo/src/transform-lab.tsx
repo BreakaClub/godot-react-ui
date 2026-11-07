@@ -431,10 +431,10 @@ function ScrollPage() {
 function AnchorPage() {
   const { anchor: spec } = BEHAVIOUR;
   const trigger = useRef<UIHandle>(null);
-  const [corner, setCorner] = useState<{ left: number; top: number } | undefined>(undefined);
+  const [box, setBox] = useState<{ left: number; top: number; width: number; height: number } | undefined>(undefined);
   useLayoutEffect(() => {
     const rect = trigger.current?.getRect();
-    if (rect !== undefined) setCorner({ left: rect.x + rect.width, top: rect.y + rect.height });
+    if (rect !== undefined) setBox({ left: rect.x, top: rect.y, width: rect.width, height: rect.height });
   }, []);
   return (
     <Stage>
@@ -445,9 +445,17 @@ function AnchorPage() {
           backgroundColor: '#c7d2fe', borderRadius: 8, transform: spec.transform,
         }}
       />
-      {corner === undefined ? null : (
+      {box === undefined ? null : (
         <Portal>
-          <View testID="anchor-marker" style={{ position: 'absolute', left: corner.left, top: corner.top, width: 8, height: 8, backgroundColor: '#be123c' }} />
+          {/* Subtle bounding-box guide so the marker's anchor position at the corner is visually clear. */}
+          <View
+            testID="anchor-bounding-box"
+            style={{
+              position: 'absolute', left: box.left, top: box.top, width: box.width, height: box.height,
+              borderWidth: 1, borderColor: '#a5b4fc', pointerEvents: 'none',
+            }}
+          />
+          <View testID="anchor-marker" style={{ position: 'absolute', left: box.left + box.width, top: box.top + box.height, width: 8, height: 8, backgroundColor: '#be123c' }} />
         </Portal>
       )}
     </Stage>

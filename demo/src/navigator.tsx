@@ -1,6 +1,7 @@
 import { Component, Fragment, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 import { Button, Portal, ScrollView, Select, Text, TextField, View, type UIHandle, type UIInputEvent, type UIKeyboardEvent } from 'godot-react-ui';
 import { LAB_GROUPS, LABS, filterLabs, labsInOrder, type Lab, type SceneLab, type WindowLab } from './labs';
+import { CodeEditor } from './code-editor';
 
 /**
  * The demo's shop window: every lab behind one navigation shell, built from the library's own kit and utility classes.
@@ -303,9 +304,12 @@ interface HeaderProps {
   /** "3 of 21", or nothing. */
   position: string;
   onStep: (delta: number) => void;
+  canEdit?: boolean;
+  codeOpen?: boolean;
+  onToggleCode?: () => void;
 }
 
-function LabHeader({ lab, missing, position, onStep }: HeaderProps) {
+function LabHeader({ lab, missing, position, onStep, canEdit, codeOpen, onToggleCode }: HeaderProps) {
   const title = lab?.title ?? 'Lab not found';
   const description = lab?.description ?? `"${missing ?? ''}" is not one of the labs.`;
   return (
@@ -320,6 +324,23 @@ function LabHeader({ lab, missing, position, onStep }: HeaderProps) {
           <Text testID="lab-position" className="mr-1 text-xs text-slate-400">{position}</Text>
           <Button testID="lab-previous" aria-label="Previous lab" className={HEADER_BUTTON} onClick={() => onStep(PREVIOUS)}>Previous</Button>
           <Button testID="lab-next" aria-label="Next lab" className={HEADER_BUTTON} onClick={() => onStep(NEXT)}>Next</Button>
+          {canEdit ? (
+            <Button
+              testID="toggle-code"
+              aria-label="Toggle code editor"
+              aria-pressed={codeOpen}
+              className={`hidden md:flex rounded-lg border px-3 py-1.5 text-sm transition-colors ${
+                codeOpen
+                  ? 'border-indigo-600 bg-indigo-50 text-indigo-700 font-medium'
+                  : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50 active:bg-slate-100'
+              }`}
+              onClick={onToggleCode}
+            >
+              <Text className={codeOpen ? 'text-indigo-700 font-semibold' : 'text-slate-700'}>
+                {codeOpen ? 'Hide Code' : '</> Code'}
+              </Text>
+            </Button>
+          ) : null}
         </View>
       </View>
       <Rule />
@@ -334,6 +355,7 @@ export function Navigator({ labs = LABS, initialLab, onLabChange, onOpenScene }:
   const [missing, setMissing] = useState<string | undefined>(initialLab !== undefined && requested === undefined ? initialLab : undefined);
   const [query, setQuery] = useState('');
   const [windowOpen, setWindowOpen] = useState(false);
+  const [codeOpen, setCodeOpen] = useState(false);
   const handles = useRef(new Map<string, UIHandle>());
 
   const visible = useMemo(() => filterLabs(ordered, query), [ordered, query]);
@@ -456,10 +478,35 @@ export function Navigator({ labs = LABS, initialLab, onLabChange, onOpenScene }:
       </View>
 
       <View className="min-h-0 min-w-0 flex-1">
-        <LabHeader lab={selected} missing={missing} position={position} onStep={step} />
-        <View testID="lab-stage" role="region" aria-label="Lab" className={`relative min-h-0 flex-1 overflow-hidden ${game ? 'pointer-events-none' : 'bg-slate-50'}`}>
-          {stage}
-        </View>
+        <LabHeader
+          lab={selected}
+          missing={missing}
+          position={position}
+          onStep={step}
+          canEdit={selected?.sources !== undefined && selected.sources.length > 0}
+          codeOpen={codeOpen}
+          onToggleCode={() => setCodeOpen(open => !open)}
+        />
+        {codeOpen && selected?.sources && selected.sources.length > 0 ? (
+          <View className="relative min-h-0 flex-1 flex-col xl:flex-row overflow-hidden">
+            <View
+              testID="lab-stage"
+              role="region"
+              aria-label="Lab"
+              className={`relative min-h-0 min-w-0 flex-1 overflow-hidden ${game ? 'pointer-events-none' : 'bg-slate-50'}`}
+            >
+              {stage}
+            </View>
+            <View className="w-full h-px xl:w-px xl:h-full bg-slate-200 shrink-0" />
+            <View className="h-[45%] xl:h-full xl:w-[45%] min-w-0 min-h-0 shrink-0">
+              <CodeEditor lab={selected} />
+            </View>
+          </View>
+        ) : (
+          <View testID="lab-stage" role="region" aria-label="Lab" className={`relative min-h-0 flex-1 overflow-hidden ${game ? 'pointer-events-none' : 'bg-slate-50'}`}>
+            {stage}
+          </View>
+        )}
       </View>
     </View>
   );

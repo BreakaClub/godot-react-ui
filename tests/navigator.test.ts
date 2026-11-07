@@ -332,3 +332,16 @@ test('the narrow menu holds the current lab even when the filter hides it', () =
   void root;
   assert.equal(m.textOf('lab-menu-value'), FIRST.title);
 });
+
+test('the code button toggles the revealable code editor for labs with sources', () => {
+  const m = mount();
+  assert.equal(m.has('toggle-code'), true, 'toggle-code button is visible in the header for labs with sources');
+  assert.equal(m.has('code-editor'), false, 'code editor is initially closed');
+
+  m.click('toggle-code');
+  assert.equal(m.has('code-editor'), true, 'clicking toggle-code opens the code editor');
+  assert.equal(m.has('editor-input-sink'), true, 'editor input sink is mounted');
+
+  m.click('toggle-code');
+  assert.equal(m.has('code-editor'), false, 'clicking toggle-code again closes the code editor');
+});

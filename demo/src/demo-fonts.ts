@@ -17,6 +17,7 @@ export function registerDemoFonts(root: ReactUiRoot): void {
     // Chrome places glyphs at quarter pixels at every size; a font that rounds its advances above 20 px (the default) would
     // not match it. This is the owner's choice for its font, not the library's.
     font.subpixelPositioning = TextServer.SubpixelPositioning.SubpixelPositioningOneQuarter;
+    font.allowSystemFallback = true;
     registerFontFace(root, { family: face.family, weight: face.weight, style: face.style, font });
   }
 }
