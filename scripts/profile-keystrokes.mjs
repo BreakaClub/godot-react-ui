@@ -4,6 +4,8 @@
 //   node scripts/profile-keystrokes.mjs [--site=attribute|function] [--warmup=200] [--bursts=25] [--inserts=8]
 //                                       [--cpu=25|off|enabled] [--coverage] [--standalone] [--no-inspector] [--bench] [--move] [--out=<directory>] [--demo=<directory>] [--engine=stock]
 //
+// - `--sample=<seconds>` has macOS's `sample` look at the Godot process for that long once it reports ready, and keeps the call tree in
+//   `native-sample.txt` (where the native side of a keystroke goes: the engine's routing, the library's commit; not a measuring build).
 // - `--demo=<directory>` runs a copy of the demo project that `scripts/keystroke-ab.mjs snapshot` made, with the library and the bundle it was made with
 //   (the installed library is not checked against the working tree then: the copy is the build it names).
 
@@ -48,7 +50,7 @@ function option(name, fallback) {
 
 rejectUnknownArguments(process.argv.slice(2), {
   flags: ['--coverage', '--standalone', '--no-inspector', '--bench', '--move'],
-  prefixes: ['--site=', '--warmup=', '--bursts=', '--inserts=', '--cpu=', '--keystrokes=', '--bench-warmup=', '--renderer-profile=', '--gap=', '--after-prepare=', '--out=', '--demo='],
+  prefixes: ['--site=', '--warmup=', '--bursts=', '--inserts=', '--cpu=', '--keystrokes=', '--bench-warmup=', '--renderer-profile=', '--gap=', '--after-prepare=', '--out=', '--demo=', '--sample='],
 });
 const site = option('site', 'attribute');
 const warmup = Number(option('warmup', DEFAULT_WARMUP));
@@ -113,9 +115,14 @@ const child = spawn(command, ['--audio-driver', 'Dummy', '--path', demoDirectory
 let log = '';
 let announce;
 const ready = new Promise(resolveReady => { announce = resolveReady; });
+let nativeSample;
 const collect = data => {
   const value = data.toString();
   log += value;
+  if (value.includes(READY_MARKER) && nativeSample === undefined && option('sample', undefined) !== undefined) {
+    // `sample <pid> <seconds> -file <path>` writes the call tree of every thread when it ends.
+    nativeSample = spawn('sample', [String(child.pid), option('sample', undefined), '-file', resolve(output, 'native-sample.txt')], { stdio: 'ignore' });
+  }
   // The standalone run's numbers are one long line; the rest of the log is shown.
   process.stdout.write(value.includes(RESULT_MARKER) ? value.replace(/GODOT_REACT_KEYSTROKE_PROFILE_RESULT .*/u, `${RESULT_MARKER} (kept in records.json)`) : value);
   if (log.includes(READY_MARKER)) announce();

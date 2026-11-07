@@ -2,7 +2,7 @@
 //
 //   node scripts/keystroke-ab.mjs snapshot <name> [--replace]     keep the demo as built now (native library, bundle, imports) as a variant
 //   node scripts/keystroke-ab.mjs run <variant>... [--rounds=4] [--site=attribute|function] [--bursts=25] [--warmup=100] [--move]
-//                                                  [--renderer-profile=on|off] [--label=<name>]
+//                                                  [--renderer-profile=on|off] [--label=<name>] [--engine=stock]
 //   node scripts/keystroke-ab.mjs report <directory>              print the tables of a run again
 //
 // A variant is a copy of `demo/` (an APFS clone, so it costs no space until something changes) taken right after a build: it holds the library
@@ -19,7 +19,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, wri
 import { loadavg } from 'node:os';
 import { join, resolve } from 'node:path';
 import { rejectUnknownArguments } from './arguments.mjs';
-import { selectEngine } from './engine.mjs';
+import { ENGINE_FLAG, selectEngine } from './engine.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const variantsDirectory = resolve(root, 'artifacts/keystroke-speed/variants');
@@ -188,6 +188,7 @@ function measure(variant, round, directory, settings) {
     resolve(root, 'scripts/profile-keystrokes.mjs'), '--standalone', `--demo=${demo}`, `--site=${settings.site}`, `--bursts=${settings.bursts}`,
     `--warmup=${settings.warmup}`, `--renderer-profile=${settings.rendererProfile}`, `--out=${out}`,
     ...settings.move ? ['--move'] : [],
+    ...process.argv.filter(argument => argument.startsWith(ENGINE_FLAG)),
   ];
   const started = Date.now();
   const result = spawnSync('node', args, { cwd: root, encoding: 'utf8', maxBuffer: 1 << 28, timeout: RUN_DEADLINE_MS });
