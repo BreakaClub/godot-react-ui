@@ -13,12 +13,13 @@ pnpm verify:web
 pnpm verify:motion:web
 pnpm verify:interaction:web
 node scripts/verify-world-web.mjs
-# To look at it by hand: node scripts/serve-web.mjs
+node scripts/verify-live-compile-web.mjs    # the code editor's compiler in Chrome (needs the live-compile Web side module)
+# To look at it by hand: node scripts/serve-web.mjs   (pnpm demo:web; --lab=<id> opens a lab)
 ```
 
 The build runs the TypeScript check and bundle before exporting with the V8 Godot
 4.8 editor. `serve-web` listens on `http://127.0.0.1:8096` (or `PORT`). `--release` selects the
-release engine template; the Rust extension is optimized in both modes.
+release engine template and exports the stripped release pack ("The release export and hosting"); the Rust extension is optimized in both modes.
 `--wasm-only` builds just the side module, and `--export-only` rechecks and rebundles
 TypeScript before exporting an existing side module. `--probe` (on `build-web.mjs` and `serve-web.mjs`)
 builds and serves the F0 probe build for `scripts/probe-web.mjs`. Every verifier runs Chrome headless through
@@ -44,11 +45,13 @@ The source shell `demo/web-shell.html` passes `--audio-driver Dummy` to the Web
 runtime too. Add `?verify=1` to launch the demo's real-input verifier; ordinary
 launches remain interactive.
 
-The Rust binding is generated against the checked-in custom Godot 4.8 API dumps
-under `native/api/`, selected by `.cargo/config.toml`. A stable 4.7 binding is
-insufficient for this custom engine: an editor method expected by that binding
-was removed in 4.8, causing eager binding initialization to fail. Web and native
-builds use the same exact API input, recorded in the Web receipt.
+The Rust binding is generated against checked-in API dumps, and which pair binds what depends on the target (`native/api/README.md`). The Web side module of the `breaka`
+profile is bound to the custom Godot 4.8 dumps under `native/api/`, which `scripts/build-web.mjs` sets for the cargo child process; the `stock` profile's Web side module is bound to
+`native/api/stock-4.7.2/`. The native builds are not bound to Breaka's dumps any more: the UI library and the live-compile extension are one build bound to the 4.7.2 pair for both
+engine profiles (`NATIVE_BINDING_API` in `scripts/native-binding.mjs`; `.cargo/config.toml` names the same pair for a hand-run `cargo test`), which Breaka's 4.8 loads
+(`docs/tracks/single-build.md`). A stable 4.7 binding built from godot-rust's own table is insufficient for Breaka's custom engine: an editor method expected by that binding
+was removed in 4.8, causing eager binding initialization to fail, which is why the Breaka Web build keeps its own dumps. The Web receipt records the hashes of the pair a side module
+is bound to.
 
 The library enables godot-rust's public `lazy-function-tables` feature on both
 platforms. Breaka's Web engine deliberately excludes 3D physics; eagerly binding
@@ -56,7 +59,8 @@ every unrelated class from a full editor API therefore fails during startup.
 Demand loading binds each method on first use, with the same method/hash check
 and panic on a missing method. All UI Godot calls stay on the main thread;
 godot-rust's separate `experimental-threads` feature is not enabled. This Rust
-binding cache is distinct from Breaka's Wasm function-table optimization below.
+binding cache is distinct from Breaka's Wasm function-table optimization below. (It is also why a library bound to 4.7.2 runs in Breaka's 4.8: only the methods it calls have to
+exist there, with the hash it was bound with.)
 
 This prototype uses Breaka's existing threaded GodotJS 4.8 templates, Emscripten
 6.0.12 and Binaryen 133. Those templates use Breaka's lazy function-table ABI v2;
@@ -140,13 +144,69 @@ digest of the sources and each source file's hash), and `serve-web`, `probe-web`
 longer matches the working tree, naming the files that differ and the fix (`pnpm build:web`, or `pnpm build:web --export-only` when the pack, shell, template or an exported file is what moved; `docs/tracks/freshness.md`). An export made
 before the guard has no stamp and is refused once.
 
+## The live-compile side module
+
+The code editor's compiler and checker (`live-compile/`, `docs/tracks/live-compile.md`) are a second Web side module, `live_compile.web.wasm` (8.7 MB, about 2.3 MB brotli), built by
+`node scripts/build-live-compile-web.mjs` for the `breaka` profile only. It has its own toolchain, `live-compile/rust-toolchain.toml` (`nightly-2026-09-15`, because Bun's crates need
+`core::alloc::AllocatorClone`, which `nightly-2026-05-15` lacks), and its recipe is the UI extension's with `--cap-lints=warn` and without `-Z emscripten-wasm-eh=false` (that switch is gone
+on the newer nightly); it is built with `panic=abort`, so a panic traps the service thread and the page is told the call did not answer. The page lists it in `gdextensionLibs`, so it is
+fetched at startup with the other side modules whether or not the code panel ever opens; loading it on first use is designed in `docs/tracks/web-load.md` and not built. The export also
+carries `demo/live-compile/project.json` (the labs' TSX, the library's and React's declarations and the ES2022 lib files; 2.07 MB in the pack, 198 KB compressed). The Web build checks that
+the export holds the side module and the project, and `node scripts/verify-live-compile-web.mjs` runs the `live-compile` section in Chrome.
+
+## The release export and hosting (react.breaka.club)
+
+`node scripts/build-web.mjs --release` selects the release engine template and exports a stripped pack. GodotJS's export plugin packs every `.ts` resource and its source map and no
+export filter reaches them, so the release export runs on a copy of `demo/` (`scripts/release-stage.mjs`) from which the 39 verification-only scripts, the two scenes that exist for them
+(`a11y.tscn`, `text-layout-probe.tscn`) and every `.godot/GodotJS/**/*.map` have been taken out. The debug export, which the Web verifiers use, is made from `demo/` itself and is
+unchanged. `scripts/demo-entry-points.mjs` says which scripts the playground starts (`DEMO_RELEASE_ENTRY_POINTS`: `main`, `scene-launcher`, `world-main`); after the export
+`assertReleasePack` reads the pack's directory as the engine does (`scripts/pack-contents.mjs`) and fails the build if the pack holds a source map or a script outside the release set, and
+the deploy script runs the same check. The release pack is 30 files and 6.6 MiB where the debug pack is 154 files and 52.7 MiB.
+
+```sh
+pnpm deploy:web:plan        # stage and compress the release, print every file and what would be uploaded (a dry run)
+pnpm deploy:web             # upload what the bucket lacks, point the site at the new release, deploy the Worker if its source changed
+pnpm deploy:web:releases    # the releases the site has shown, newest first
+pnpm deploy:web:rollback    # point the site back at the release before the current one (one object write)
+pnpm check:site --url=https://react.breaka.club/ --files   # load the site in headless Chrome, compare every file, open a lab and the code panel
+```
+
+The site is the Cloudflare Worker `godot-react-ui-demo` (`deploy/cloudflare-worker.ts`, `wrangler.react-demo.jsonc`, custom domain `react.breaka.club`) over the R2 bucket
+`breaka-asset-uploads`, prefix `react-demo/v2/` (`deploy/release-layout.mjs` is the one definition of the layout the Worker and the deploy script share):
+
+```
+current.json            the pointer: the release the site shows, and the 20 releases before it
+releases/<id>.json      a manifest: each file's path, type, size, hash of its bytes, size of its brotli copy
+objects/<hash>          a file's bytes; objects/<hash>.br its brotli copy
+```
+
+A release id is a hash of its files' paths and contents, so publishing the same export twice is the same release. A deploy puts the objects, then the manifest, then the pointer; the
+pointer is one object, so the site changes in one atomic write and a half-uploaded release is never shown, and a rollback writes only the pointer. Old releases stay in the bucket (nothing
+prunes it), so a tab with an older page open keeps working. Each compressible file (`.html .js .json .wasm .pck .svg .txt`) is compressed once, at deploy, with brotli 11 and a 16 MiB
+window, and cached under `artifacts/web-deploy-cache/` by content hash; the Worker sends the stored bytes with `Content-Encoding: br`, `Vary: Accept-Encoding` and the stored
+`Content-Length` when the browser's own `Accept-Encoding` allows `br` (Cloudflare rewrites the request header; the original is in `request.cf.clientAcceptEncoding`), the plain file
+otherwise. The page is served with `no-cache` and an ETag, and its `<base href="/r/<release>/">` sends every relative load of the engine to that release; `.wasm` and `.pck` answer
+there with a cacheable redirect to `/o/<hash>/<name>`, so a binary that did not change between two deploys is already in the visitor's cache; scripts do not redirect, because a worker
+started from a redirected script takes the final URL as its base. Everything under `/r/` and `/o/` is `public, max-age=31536000, immutable`. Godot builds its URLs itself, so versioning is
+by path, not by query. The bare address redirects to `/?demo=navigator`, and `?lab=<id>`, `?demo=navigator` and `?demo=app` pass through to the page. The isolation headers
+(`Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Embedder-Policy: require-corp`, `Cross-Origin-Resource-Policy: cross-origin`) are on every response, redirects, 304s and
+errors included. The Worker is deployed only when its source (`cloudflare-worker.ts`, `release-layout.mjs`, `wrangler.react-demo.jsonc`) differs from the hash the pointer records
+(`--deploy-worker` forces it), and after the pointer is written. `--local --persist-to=<directory>` runs a deploy against wrangler's local R2 state for `wrangler dev -c
+wrangler.react-demo.jsonc --persist-to <directory>`, refuses to run without a directory (so it cannot touch the state root `pnpm dev` shares) and never deploys the Worker.
+
+Measured in headless Chrome through the Worker on `wrangler dev` with a browser that accepts only `br`: a cold visit transfers 12.16 MiB (it was 66.58 MiB with the pack uncompressed
+and every deploy emptying the cache), a returning visitor after a deploy that changed the pack and the page 2.01 MiB, one with nothing new two small requests; on a 20 Mbit/s line with a
+40 ms round trip the demo is ready in 6.7 s where it took 29.8 s. Not observed: whether Cloudflare's edge passes the stored brotli through untouched (the local runtime re-encodes it
+for Chrome's own `Accept-Encoding`, so every local `br` figure forces the header; the `curl` that shows it is in `docs/tracks/web-load.md`). Chrome only; the stock engine's release
+export was not built. A build or test command never deploys anything; `pnpm deploy:web` needs the wrangler login of the breaka account.
+
 ## Web-specific limits
 
-Verified in headless Chrome only (debug template of the `breaka` profile; the `stock` profile also ran its release template): Safari, mobile devices and the `breaka`
-release preset are not qualified. The Web engine has no accessibility code, so the accessibility tree is native only. A paste asks the browser through
+Verified in headless Chrome only (debug template of the `breaka` profile; the `stock` profile also ran its release template; on the `breaka` release export, `verify-web.mjs --release`,
+`verify-live-compile-web.mjs --release` and the landscape pass of the navigator section ran): Safari, Firefox and mobile devices are not qualified. The Web engine has no accessibility code, so the accessibility tree is native only. A paste asks the browser through
 `JavaScriptBridge` because the engine's `clipboard_get` is stale, and the root writes the engine's hidden soft-keyboard element itself; after a Web IME composition
-ended by a focus move the engine keeps `ime_started` set (an engine bug, not worked around). Horizontal wheel ticks have the opposite sign on Web, a touch's
-`pointerId` is the browser's contact identifier, and the stock 4.7.2 engine turns `touchcancel` into a plain release. The full list is the README's "Current limits".
+ended by a focus move the engine keeps `ime_started` set (an engine bug, not worked around). Horizontal wheel ticks have the opposite sign on Web, a wheel event's pixel delta `d` is `0.03 * d` ticks (so a 100 px notch from Chrome is 3 ticks at device pixel ratio 1 and 1.5 at 2,
+where a native notch is one; `docs/tracks/web-fixes.md`), a touch's `pointerId` is the browser's contact identifier, and the stock 4.7.2 engine turns `touchcancel` into a plain release. The full list is the README's "Current limits".
 
 Primary contracts: [godot-rust Web exports](https://godot-rust.github.io/book/toolchain/export-web.html),
 [Godot Web export requirements](https://docs.godotengine.org/en/stable/tutorials/export/exporting_for_web.html).

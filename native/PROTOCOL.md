@@ -7,6 +7,8 @@ arguments here). The renderer (`src/renderer.ts`, typed in `src/native.ts`) call
 - `commit`, `takeCommitDeletions` ("Commit");
 - `drainEvents`, `resolveEvent` and the `eventsReady` signal ("Input events");
 - `getSnapshot`, `getNodeRect`, `findByTestId`, `getScrollState`, `getSelection`, `getTextInputState` ("Queries");
+- `getCaretRect`, `getOffsetAtPoint`, `getRangeRects` ("Rich text"; the `UIHandle` methods of the same names), `getTextLines` ("Queries");
+- `registerFontFace` ("Text styles and fonts");
 - `setPointerCapture`, `releasePointerCapture`, `hasPointerCapture` ("Pointer model");
 - `focusNode`, `blurNode` ("Focus and keyboard");
 - `scrollTo`, `scrollBy`, `scrollIntoView` ("Scrolling");
@@ -99,6 +101,7 @@ so JS drops its instances and public handles.
 | `ariaChecked` | `true`, `false` or `"mixed"` |
 | `ariaValueMin`, `ariaValueMax`, `ariaValueNow` | finite numbers; min may not exceed max |
 | `ariaLive` | `off|polite|assertive`; `ariaOrientation`: `horizontal|vertical` |
+| `ariaActiveDescendant`, `ariaControls` | the tag of an element: a nonzero integer, which JS sends as the `id` of a handle (native has no DOM ids); a tag that is not in the accessibility tree is logged as an error |
 
 The JSX names are `aria-label` and so on and `selectTextOnFocus`; the wire names above are camelCase and `selectOnFocus`
 (`src/props.ts`).
@@ -106,36 +109,47 @@ The JSX names are `aria-label` and so on and `selectTextOnFocus`; the wire names
 JS compiles `className` and `style` once per distinct input into ordered **layers** (`src/styles.ts`;
 shorthands `padding`, `margin`, `gap`, `overflow` and `inset` are expanded to longhands there). Native resolves
 a node's **computed style**: its parent's inherited properties (`color`, `fontSize`, `textAlign`,
-`interpolateSize`, `pointerEvents`, `cursor`, `scrollbarColor`, `userSelect`, `selectionColor`, `caretColor`, `placeholderColor`), then every layer whose conditions hold, in order. A layer applies when the root's
+`interpolateSize`, `pointerEvents`, `cursor`, `scrollbarColor`, `userSelect`, `selectionColor`, `caretColor`, `placeholderColor`, `visibility`, and the text longhands of "Text styles and fonts"), then every layer whose conditions hold, in order. A layer applies when the root's
 logical width is at least its `minWidth` and every listed state holds: `hover` and `active` apply to the
 target and its ancestors; `focus` and `focusVisible` to the focused element only; `focusWithin` to it
-and its ancestors; `disabled` to a node whose own `disabled` prop is true. Hover, press, focus and
+and its ancestors; `disabled` to a node whose own `disabled` prop is true; `starting` (CSS `@starting-style`) to the style a node starts from, resolved
+besides its resting style only when the node is first mounted or is shown from `display: none` and some layer uses the state, so the node transitions from it (`StyleChange::starting`). Hover, press, focus and
 breakpoint changes restyle only the nodes whose style uses the state or threshold that changed, with no
 JS and no React work. A mouse press stays `active` only while the pointer is inside it; a key press
 until the key is released.
 
 Style longhands (camelCase): width/height/minWidth/minHeight/maxWidth/maxHeight/flexBasis accept
-nonnegative numbers, `"auto"`, or percentage strings; display `flex|grid|none`; flexDirection
+nonnegative numbers, `"auto"`, or percentage strings; display `flex|grid|block|flow-root|none` (`block` and `flow-root` are Taffy block layout: children stack and vertical margins collapse; there is no inline layout); flexDirection
 `row|column|row-reverse|column-reverse`; flexWrap `nowrap|wrap|wrap-reverse`; flexGrow/flexShrink
 nonnegative numbers; rowGap/columnGap, paddingTop/Right/Bottom/Left (nonnegative) and
 marginTop/Right/Bottom/Left (finite) numeric pixels; alignItems/alignSelf
 `start|end|center|stretch|baseline|flex-start|flex-end`; justifyContent
-`start|end|center|space-between|space-around|space-evenly|flex-start|flex-end`; gridTemplateColumns a
-positive integer (equal fractional columns); backgroundColor/color/borderColor
+`start|end|center|space-between|space-around|space-evenly|flex-start|flex-end`; gridTemplateColumns and gridTemplateRows a
+positive integer (equal fractional columns or rows) or a list of tracks (sizes, `minmax`, `fitContent`, `repeat` with a count, `auto-fill` or `auto-fit`); backgroundColor/color/borderColor
 `#RGB|#RGBA|#RRGGBB|#RRGGBBAA`; fontSize a positive integer; borderRadius/borderWidth nonnegative
-pixels; opacity 0..1; textAlign `left|center|right`; overscrollBehavior `auto|contain`, scrollbarWidth `auto|none`,
+pixels; opacity 0..1; textAlign `left|center|right|justify|start|end`; overscrollBehavior `auto|contain`, scrollbarWidth `auto|none`,
 scrollbarColor (a hex colour, inherited) and touchAction `auto|none|pan-x|pan-y` (see "Scrolling" below); pointerEvents `auto|none` and cursor
 `default|pointer|text|move|grab|grabbing|not-allowed|crosshair|wait|progress|help|ew-resize|ns-resize|nesw-resize|nwse-resize`
 (both inherited; see "Godot co-operation" below); userSelect `none|text` and selectionColor (a hex colour), both inherited (see "Text selection" below); transition and interpolateSize as described below; overflowX/overflowY
 `visible|hidden|scroll|auto` ("Scrolling" below); `filter` and `backdropFilter` ("Filters and frosted glass" below). `position` is `static|relative|absolute|fixed` (not inherited; `sticky` is
 rejected), `top`/`right`/`bottom`/`left` are finite numbers (negative allowed), percentage strings (negative
-allowed) or `"auto"`, and `zIndex` is a 32-bit integer; see "Positioning and stacking" below. Unsupported properties fail explicitly. Default is a flex column,
+allowed) or `"auto"`, and `zIndex` is a 32-bit integer; see "Positioning and stacking" below. The longhands the utility tracks added are listed
+below and in "Text styles and fonts", "Paint beyond the fill" and "Transforms". Unsupported properties fail explicitly. Default is a flex column,
 transparent background, white 16px text, no spacing, normal flex shrinking. Text is shaped and wrapped
 with Godot `TextParagraph`; there is no JS text measurement callback.
 
 A node's `kind` is `view`, `text`, `button` or `textinput`. A `textinput` has no children and no `text`: its text lives in
 a native edit buffer ("Text input" below). `caretColor` and `placeholderColor` are hex colours (inherited): the caret is drawn
 in the text colour and the placeholder in the text colour at half alpha when they are not set.
+
+**Layout longhands added with the utility classes** (`src/utilities/layout.ts`; value types in `src/types.ts`; `docs/tracks/utilities-layout-motion.md`). `width`, `height` and `flexBasis` also
+take `min-content`, `max-content` and `fit-content` (Taffy's minimum and maximum sizes take none), and every size takes `vw` and `vh` percentages, which native resolves to pixels
+in the computed style against the root's size (`StyleSpec::resolve_viewport_units`; nodes that use them are indexed beside the breakpoint index and restyled when the viewport changes,
+and layout refuses an unresolved one). Margins take `auto`, negative values and percentages. `alignContent` and `justifyContent` take `stretch` and `normal` as well, and `justifyContent` defaults to `normal`
+(Taffy treats it as `flex-start` for flex, and a grid's `auto` tracks stretch as in CSS); `justifyItems`, `justifySelf`, `order` (it reorders the Taffy children, in `ReactUiRoot::apply_layout_order`;
+painting and hit testing keep document order), `aspectRatio` (a number or `auto`), `boxSizing`, and `visibility` (`visible|hidden`, inherited: the element paints nothing of its own, is not a
+pointer target, cannot be focused, is left out of the accessibility tree and out of selection, keeps its layout, and a child can be `visible`). The grid: `gridTemplateColumns|Rows`,
+`gridAutoFlow`, `gridAutoColumns|Rows`, `gridColumnStart|End|Span` and `gridRowStart|End|Span` (`native/grid_style.rs`); a line beats a span, in either class order.
 
 ## Mounted tree, geometry, paint
 
@@ -161,7 +175,8 @@ when a viewport's oversampling changes) and on entering the tree, so a change of
 and an idle frame still records nothing. Rounded `StyleBoxFlat` draws use a one-device-pixel feather. The snapshot's
 `oversampling` is the scale the root last drew at (`docs/tracks/hidpi.md`).
 
-Native hit testing descends the **paint tree** in reverse paint order, the overlay layer first, and hands a
+Native hit testing descends the **paint tree** in reverse paint order, the overlay layer first, takes the point through the inverse of an element's transform before it tests the clip and the
+children ("Transforms"), and hands a
 point to a clipping element's paint children only inside its padding box, plus the scroll offset for a scroll container
 (and a scrollbar thumb of a container is hit before the content it covers). An element whose computed `pointerEvents` is `none` is never
 the hit, but its children are still tested (CSS semantics). The root clips drawing and input to its own
@@ -195,6 +210,58 @@ anywhere between it and its containing block moves it with no layout flag on the
 out-of-flow elements only (plan 3.2, invariant 6, named exception). A childless element is laid out by Taffy as a
 leaf, which does not replace the list of out-of-flow boxes it was the containing block of; `layout::compute_tree` gives
 leaf output the positioning area of an empty container so that the list is replaced when its last child goes.
+
+A **transformed** element is the containing block of its `absolute` and `fixed` descendants, as in CSS. `StyleSpec::taffy_style` gives a static transformed element `Position::Relative` (Taffy's
+containing block for absolute boxes; its insets are not applied) and a `fixed` element below a transform `Position::Absolute` (Taffy's `fixed` is always the root); `InheritedStyle::inside_transform`
+carries that down and `stacking::paint_parent` makes the same two choices, so the frames agree. Unlike CSS, a `relative` element between the transform and a `fixed` descendant is that descendant's
+containing block here. A transform creates no stacking context (`zIndex` has none), and scrollable overflow ignores transforms.
+
+## Text styles and fonts
+
+The text longhands (`src/utilities/text.ts`, `native/text_style/`, `docs/tracks/utilities-text.md`): `fontFamily` (a registered family, or a comma separated list of them: the first registered
+one is used), `fontWeight` (a number), `fontStyle`, `lineHeight` (a factor, or a length), `letterSpacing` (px, or `em` of the element's font size), `textTransform`,
+`textDecorationLine|Color|Style|Thickness`, `textUnderlineOffset`, `textOverflow`, `whiteSpace`, `wordBreak`, `overflowWrap`, `lineClamp`, `numericFigure|Spacing|Fraction`, `ordinal` and
+`slashedZero`. All inherit except `textOverflow` and `lineClamp`; a decoration propagates instead, to the in-flow text below (not to an `absolute` or `fixed` descendant) in the colour and
+thickness set where it was declared, and cannot be taken away there. An `em` length becomes px where it is set; a unitless line height stays a factor that each element multiplies by its own size.
+Unset `whiteSpace` behaves as `pre-wrap`, so no existing text changed. The text a node shows is its source text after `textTransform` and white-space collapsing, and offsets JS sees count it.
+
+`register_font_face(family: String, weight_min: int, weight_max: int, italic: bool, font: Font) -> String` registers `font` as a face of `family` for this root (per root, like a Godot `Theme`;
+nothing is process-global). A static face has `weight_min == weight_max`; a variable font gives the range of its `wght` axis. An empty return is success; anything else says why nothing changed (an empty
+family name, weights that are not a range of CSS weights, a font with no data). A later registration of the same family, weight range and style replaces the earlier. Text that names the family is shaped with the face CSS font matching picks (style first, then weight; `text_style/face.rs`), a bold or italic the
+family lacks is made up as a browser does, and text that names no registered family keeps the theme font, so a tree that registers nothing costs nothing. Registering a face shapes the text that
+names a family again. `src/fonts.ts` wraps it as `registerFontFace(root, {family, weight, style, font})`.
+
+`StyledParagraph` (`native/text_paragraph.rs`) is the one place that reads or draws a node's text. It configures a `TextParagraph` from the style (letter spacing is the text server's own fractional
+advance, `embolden * size / 64` px added to each shaped glyph, so wrapping, widths, carets and selection are the real geometry), and draws a paragraph line by line, each baseline on a device pixel,
+when it is tracked, decorated, fractionally spaced or centred, or when the display ratio is not a whole number; anything else is `TextParagraph::draw`.
+
+## Paint beyond the fill
+
+`boxShadow` is CSS text (a list of `[inset] x y [blur [spread]] colour`, or `none`) with `boxShadowParts`, the variables Tailwind composes (`--tw-ring-offset-shadow`, `--tw-ring-shadow`,
+`--tw-shadow`), merged per variable across layers as `filterParts` is, so `shadow-sm ring-1 focus:ring-2` keeps the shadow; an explicit `boxShadow` replaces the parts, and a utility set after
+it takes the composed value back. `backgroundImage` is `none` or `linear-gradient(...)` over `backgroundColor`, with `gradientParts` (`--tw-gradient-from|via|to` and their positions), merged the
+same way. `borderStyle` and `outlineStyle` are `none|solid` (dashed, dotted and double are rejected), the border has sides and corners (`border{Top,Right,Bottom,Left}{Width,Color}`,
+`border{TopLeft,TopRight,BottomRight,BottomLeft}Radius`; a side beats the shorthand in the same layer and a shorthand in a later layer resets the sides, following the class order), and
+`outline{Style,Width,Color,Offset}` draws outside the border box (setting any of them takes the native focus ring from the element). Widths, radii and outline widths are whole logical pixels in paint;
+layout takes the float. `boxShadow` is a transition property, interpolated by Stylo (a shorter list is padded with transparent shadows). Native paint: `paint_style.rs` says what a computed style
+asks, `box_paint.rs` what a box item records and its key; a plain box with a uniform border is one `StyleBoxFlat`, and anything else is drawn in layers (fill, gradient, inset shadows, border) from
+baked coverage masks (`shadow_mask.rs`, shared between boxes with the same layer and leased from a cache) and exact meshes (`box_mesh.rs`, `gradient.rs`). A box item's custom rect is its
+border box plus the reach of its outer shadows, so the engine culls it correctly; `get_activity().paintTextures` counts the baked textures held.
+
+## Transforms
+
+`transform` (CSS text, or `none`), `transformOrigin` (CSS text) and `transformParts` (`translateX|Y`, `rotate`, `skewX|Y`, `scaleX|Y`, `gpu`: what Tailwind's separate utilities set, merged per
+field across layers). A value is parsed by Stylo in a throwaway document (`native/transform.rs`), so units, `calc()` and every syntax rule are Stylo's, and a refused value is a rejected commit with a
+specific message: `perspective()` and a projective `matrix3d()` say "perspective is not implemented yet", and `em`, `ex`, `ch`, `lh` and the viewport units are refused because they would resolve
+against the scratch element (`rem` is 16 px). An element's matrix is `translate(-origin) * list * translate(origin)` for its border box, a 4 x 4 in `f64` flattened per element to the canvas
+affine (`Placement`, with its inverse; `None` when the determinant is below 1e-9, which hides the element and what is in it). The box item takes `location x matrix`, so nothing is re-recorded,
+and layout ignores the transform (apart from the containing block, "Positioning and stacking"). Everything that reads geometry goes through the matrix: hit testing (the point through the inverse
+before the clip and the children), `get_node_rect` and the snapshot's `rect` (the bounding box of the drawn border box), the clips of paint ancestors (the bounding box of the clip rectangle under
+their maps: an `overflow` clip in a frame that a transform rotates or skews is drawn as the box round the rotated rectangle and logged once per element), the focus ring, selection and the text
+input's pointer, caret and IME position, wheel and pan deltas, drag auto-scroll and the ghost, `scroll_into_view`, accessibility bounds, and filter and backdrop extents. Text, rounded corners and
+scroll bar ends are drawn at `Oversampling` times the larger column of the accumulated linear map, rounded up to an eighth and never below a quarter (`transform_state.rs`), and drawn again once an
+animation settles. Every box under a map that is more than a move is a feathered mesh with a feather per axis (`box_mesh.rs`); a box on the pixel grid is drawn as before.
+The snapshot's nodes have `transform` (the six numbers of the affine, or `null`) and `rasterScale` (`null` without a transform).
 
 ## Filters and frosted glass
 
@@ -383,14 +450,13 @@ style, is painted again without shaping (`paragraphRepaints` in `get_activity`, 
 - `get_range_rects(tag, start, end) -> String`: `{"rects": [{x, y, width, height}, ...]}`, one or more per line, the boxes of a selection
   highlight; the range covers an inlay strictly inside it and none at its ends. Empty for an empty range.
 
-The three bound a transformed rectangle by its box, as `get_node_rect` does. `get_text_lines` reports, besides `text` (the shown text), `display` (the
-display text its line ranges index).
+The three bound a transformed rectangle by its box, as `get_node_rect` does.
 
 ## Queries
 
 - `get_snapshot() -> String`: `{nodes, stats, width, height, hovered, focused, pressed, focusVisible, modality,
   pointers, drag, clockMs, oversampling, transitions}`. Each node is `{id, kind, layer, text, parent, children, paintParent,
-  paintIndex, documentIndex, rect, clipRect, style, props, presentation, scroll, textInput, effects}`: `id` is the tag, `parent` and `children` are the React
+  paintIndex, documentIndex, rect, clipRect, style, props, presentation, scroll, textInput, effects, transform, rasterScale}`: `id` is the tag, `parent` and `children` are the React
   tree's, `paintParent` is who paints the node (`parent`'s rule, `0` for the main layer's root, `null` in the overlay)
   and `paintIndex` its place, back to front, among what that paint parent paints, `documentIndex` its pre-order place
   (node 0 reports `-1`), `rect` is root-local logical pixels, `clipRect` the clip its paint ancestors impose (or `null`), `style` the node's **computed** style (unset properties omitted) and `props`
@@ -402,10 +468,12 @@ display text its line ranges index).
   the removes, deletes, creates, updates and inserts applied, `boxRecords` and `contentRecords` the canvas
   command lists re-recorded, `scrollUpdates` and `overlayRecords` what scrolling changed. `nodeCount` excludes node 0.
   `oversampling` is the font oversampling the root last drew at ("Mounted tree, geometry, paint"); `scroll`, `textInput` and
-  `effects` are `null` unless the node is a scroll container, a text input or has a filter. Whole-tree by design:
+  `effects` are `null` unless the node is a scroll container, a text input or has a filter, and `transform` and `rasterScale` unless the node (or an ancestor, for the scale) has a transform ("Transforms"). Whole-tree by design:
   diagnostics only.
 - `get_node_rect(tag: int) -> String`: the root-local rectangle as JSON, or `null` when the node is not mounted. Node 0 is
   the root, which has the rectangle the snapshot gives it (the viewport), so a root handle's `getRect()` answers.
+- `get_text_lines(tag: int) -> String`: the lines of a text node as they are drawn, in root-local coordinates (`text_lines_json` in `selection_input.rs`), or `null`; it reports `text` (the
+  shown text) and `display` (the display text its line ranges index, "Rich text"). For verifiers that compare the layout with another renderer's.
 - `find_by_test_id(test_id: String) -> int`: the lowest (first created) tag carrying the `testID`, or -1.
 - `get_text_input_state(tag: int) -> String`: a text input's `{value, selectionStart, selectionEnd, selectionDirection,
   eventCount, composing, preedit, scrollLeft, scrollTop, caretVisible, inputDirection}` as JSON (offsets in UTF-16
@@ -697,9 +765,14 @@ JS half). `draggable` and `dragPreview` are props (above).
 
 ## Native CSS motion and clipping
 
-A node whose computed style has `transition: {properties: ('width'|'height'|'opacity'|'backgroundColor'|'filter'|'backdropFilter')[],
-durationMs: number, delayMs?: number, easing?: 'linear'|'ease'|'ease-in'|'ease-out'|'ease-in-out'}` is a
-*motion node*. `properties` is non-empty and has no duplicates. Duration and delay are finite nonnegative milliseconds. Easing defaults to CSS `ease`. A retained
+A node whose computed style has `transition: {properties: ('width'|'height'|'opacity'|'backgroundColor'|'color'|'borderColor'|'filter'|'backdropFilter'|'transform'|'boxShadow')[] | 'all',
+durationMs: number, delayMs?: number, easing?: 'linear'|'ease'|'ease-in'|'ease-out'|'ease-in-out'|{cubicBezier: [x1, y1, x2, y2]}}` is a
+*motion node*. `properties` is non-empty and has no duplicates. `'all'` is every property of `TransitionProperty::ANIMATABLE` (`native/props.rs`, twinned by `TRANSITION_PROPERTIES` in `src/types.ts`): a change
+that cannot animate under `'all'` (a width from pixels to a percentage, an intrinsic size on a flex main axis that can grow) is a quiet `MotionViolation`, applied at once with no report and no rejected
+commit, where naming the property in a list keeps the rejection. `transitionParts` (`properties`, `durationMs`, `delayMs`, `easing`, each optional; `properties` may be `'all'` or `'none'`) is what the
+`transition-*` utility classes set: native merges it per field across layers (`transition::merge_transition`; an inline `transition` replaces it and a longhand after the inline one edits it) and
+fills what is missing with CSS's initial values (`all`, 0 ms, `ease`); no duration and no delay is no transition, so the node is not a motion node. Text colour and border colour animate, and text
+that inherits a moving colour paints the ancestor's sampled colour (`presented_text_color`). Duration and delay are finite nonnegative milliseconds. Easing defaults to CSS `ease`. A retained
 Blitz/Stylo style tree owns numeric/color interpolation, delay and reversal shortening. Every mounted node has an
 element in it, kept in tree order (`insert`, `remove`, `set_children`), but a node's style is written to it only
 while the node is a motion node or has just stopped being one (which cancels what was running); a node that gains
@@ -726,20 +799,23 @@ without animation and an `ERROR` line names the node.
 
 `overflow: 'hidden'` clips descendants and text to the sampled padding box, with ancestor intersections; the
 border is still painted. Hit testing and focus eligibility use the same clip geometry. This is rectangular
-scissor clipping: border radius affects paint, not the clip shape. Nested rounded masks are not claimed.
+scissor clipping: border radius affects paint, not the clip shape. Nested rounded masks are not claimed, and under a rotation or skew the clip is the bounding box of the rotated rectangle
+("Transforms").
 
-Per-node `presentation: {width,height,widthIsAuto,heightIsAuto,opacity,backgroundColor}` and the snapshot's
+Per-node `presentation: {width,height,widthIsAuto,heightIsAuto,opacity,backgroundColor,color,borderColor}` and the snapshot's
 `transitions: [{id,property,current,target,startedAtMs,durationMs}]` report what is being presented; dimension and
-opacity diagnostics are numbers, colors are hexadecimal RGBA strings and a filter transition's `current` and `target` are
-CSS filter text (a sampled filter is not in `presentation`: it goes straight to the effect's material).
+opacity diagnostics are numbers, colors are hexadecimal RGBA strings, a filter transition's `current` and `target` are
+CSS filter text (a sampled filter is not in `presentation`: it goes straight to the effect's material), a transform's are the six numbers of the matrix
+(`matrix(a, b, c, d, e, f)` about the origin) and a `boxShadow`'s are CSS text.
 `filter` and `backdropFilter` transitions are interpolated by Stylo function by function (`backdrop-filter` is behind a Stylo
 preference that native turns on); the sampled list comes back as CSS text and updates material parameters only. The `widthIsAuto` and `heightIsAuto` flags
 read the actual Taffy presentation style. Transition records are native tracking diagnostics, not access to Stylo's
 private per-property animation table.
 
 `get_activity() -> String` provides compact JSON `{batches,layoutPasses,paintPasses,animationFrames,animating,
-trackedTransitions,clockMs,drawSerial,nodeCount,mutations,nodesUpdated,nodesRestyled,boxRecords,contentRecords,effects}`
-(`batches` counts commits; `drawSerial` is the paint pass count, which advances only when native changed something visible).
+trackedTransitions,clockMs,drawSerial,nodeCount,mutations,nodesUpdated,nodesRestyled,boxRecords,contentRecords,paragraphBuilds,paragraphRepaints,effects,paintTextures}`
+(`batches` counts commits; `drawSerial` is the paint pass count, which advances only when native changed something visible; `paragraphBuilds` counts the paragraphs shaped and
+`paragraphRepaints` the changes to a text's spans, colours or decorations that were painted again without shaping; `paintTextures` is the number of baked textures, shadow masks and decoration pictures, held).
 `effects` is `{backdrops, groups, blocked, copiesEnabled, itemsCreated, materialsCreated, materialsFreed, shadersCreated,
 materialUpdates, copyRectUpdates, subtreeWalks, probes, refreshes, refreshMicros}`: how many backdrop and filter effects
 exist, how many are held back by an enclosing group, and what has been made, freed and updated since the root began, so a
