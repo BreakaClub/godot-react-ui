@@ -50,7 +50,8 @@ test('every script that reads process.argv is checked above, so a new one cannot
     .filter((name) => name.endsWith('.mjs') && name !== 'engine.mjs')
     .filter((name) => /process\.argv/.test(readFileSync(resolve(scripts, name), 'utf8')))
     .map((name) => name.replace(/\.mjs$/, ''));
-  const exempt = ['run'];
+  // run and quiet-window hand their arguments to Godot or an underlying command.
+  const exempt = ['run', 'quiet-window'];
   const unchecked = reading.filter((name) => !SCRIPTS_WITH_OPTIONS.includes(name) && name !== 'glass-reference' && !exempt.includes(name));
   assert.deepEqual(unchecked, [], 'these scripts read process.argv and are not checked by this test');
 });
