@@ -2308,30 +2308,52 @@ The native UI library and the live-compile extension are one build per platform,
 
 ### Batch regression
 
-**Pending.** To be filled in by the coordinator with the full regression over the merged tree, from a clean build of the one native library and both Web exports. No number in this subsection has been measured yet.
+Date: 8 November 2026, on one native library bound to Godot 4.7.2 (single-build) loaded by both engines, Breaka's Web export, and the
+stock engine's Web export. Every step ran through the gate once (no retries were needed). The native and Web lanes ran side by side,
+load average 13 to 20. Logs are in `artifacts/logs/regression/` (ignored).
+Commits:
+- The standard lanes ran on `99ba6f0`.
+- The native interaction re-run ran on `4f06d8b`, after the deadline fix: docs and scripts only since `99ba6f0`.
+- The Web re-runs, the extra gates and the release ran on `36fb6e5`, after the regression fixes.
 
 | Gate | Breaka engine | Stock engine |
 | --- | --- | --- |
-| `cargo test --locked` (once) | pending | |
-| Clippy, default, `probe`, `filter-faults` | pending | |
-| `cargo fmt --check` | pending | |
-| `pnpm test` | pending | |
-| `pnpm test:types` | pending | pending |
-| `verify` | pending | pending |
-| `verify:motion` | pending | pending |
-| `verify:interaction`, every default section, both viewports | pending | pending |
-| `verify:interaction --only=live-compile` | pending | pending |
-| `verify:world` | pending | pending |
-| `verify:text-layout` (probe build) | pending | pending |
-| `verify:a11y` | pending | pending |
-| `filters,glass,paint,transforms,rich-text` on `--renderer=mobile` and `--renderer=forward_plus` | pending | |
-| `filters-faults`, `transforms-faults` (negative controls, `--faults` build) | pending | |
-| `verify:web` | pending | pending |
-| `verify:motion:web` | pending | pending |
-| `verify:interaction:web`, all sections with touch | pending | pending |
-| `verify-world-web` | pending | pending |
-| `verify-live-compile-web` | pending | |
-| `node scripts/live-compile-agreement.mjs` | pending | |
-| `check:site` against a local `wrangler dev` of the release export | pending | |
+| `cargo test --locked` (once) | 869 passed | |
+| Clippy, default, `probe`, `filter-faults` | clean, clean, clean | |
+| `cargo fmt --check` | clean | |
+| `pnpm test` | 890 passed | |
+| `pnpm test:types` | clean | clean |
+| `verify` | passed, both viewports | passed, both viewports |
+| `verify:motion` | passed, both viewports | passed, both viewports |
+| `verify:interaction`, every default section, both viewports | passed: 22 sections in one run, 1,031 s for both windows | passed: 1,018 s |
+| `verify:interaction --only=live-compile` | passed (43 s) | passed (45 s) |
+| `verify:world` | passed | passed |
+| `verify:text-layout` (probe build) | passed | passed |
+| `verify:a11y` | Godot-side checks passed; the platform tree was not read, because Breaka's engine has no AccessKit driver (exit 2, as recorded before) | passed, with 7 recorded engine gaps, platform focus not run (the quiet window is never the key window) |
+| `filters,glass,paint,transforms,rich-text` on `--renderer=mobile` and `--renderer=forward_plus` | passed, both viewports (171 s and 176 s) | |
+| `filters-faults`, `transforms-faults` (negative controls, `--faults` build) | passed: each injected fault caught | |
+| `verify:web` | passed: 261 assertions, 53 captures | failed at load (see below) |
+| `verify:motion:web` | passed: 433 assertions, 26 captures | failed at load |
+| `verify:interaction:web`, all sections with touch | passed: 20 sections in one run, 5,042 assertions, 578 captures | failed at load |
+| `verify-world-web` | passed: 96 assertions, 13 captures | failed at load |
+| `verify-live-compile-web` | passed: 8 assertions; first check 168 ms, later median 15 ms | |
+| `node scripts/live-compile-agreement.mjs` | 41 of 41 agree with `tsc` | |
+| `check:site` against a local `wrangler dev` of the release export | not run; `check:site --files` passed against the production site instead, on release `a0ffb59a12cc` built from `36fb6e5` (27 labs, 12.26 MiB, ready in 2.2 s) | |
 
-**Failures, re-runs, disturbances and anything not run:** pending.
+**Failures, re-runs, disturbances and anything not run:**
+
+- **The native interaction run was killed at its 300 s deadline on both engines** in the first pass, during the glass section. Nothing hung:
+  - The suite had outgrown the flat guard. Three `--only=` runs covering every default section measured 570 s for a landscape window.
+  - The deadline now grows with the sections a window runs (`4f06d8b`: 60 s plus 45 s a section, floor 300 s).
+  - The re-run above passed.
+- **`verify:text-layout` first ran against the default build** and was refused before it started, because it needs the probe build. It was re-run with `pnpm build:native --probe`, and the default build was reinstalled after it.
+- **Two Web failures on `99ba6f0`**, fixed in the `regression-fixes` track (`docs/tracks/regression-fixes.md`):
+  - A glass card width of -1 px in a root narrower than 32 px. The lab now clamps it at zero, CSS has no negative width, and native rightly refused it. Why the root was that narrow in that one run is not proven; five repeats did not reproduce it.
+  - A wall-clock race in the motion check, which now holds the engine's clock while it reads transitions in flight.
+
+  Both verifiers were re-run whole on `36fb6e5` and passed (the rows above).
+- **The stock engine's Web export fails at load** with `unknown dylink.0 subsection: 6` and `__breaka_lazy_register`. It ships `live_compile.web.wasm`, which is built only with Breaka's Emscripten 6.0.12. Its generated manifest names it whenever the file exists in the shared addon folder, so the stock export (Emscripten 4.0.11) includes a side module it cannot load.
+  - The fix is the `stock-web` track.
+  - Until it lands, the stock Web column is red. Breaka's Web export and the deployed site are not affected.
+- `pnpm build:web` for both profiles, and the release export, built cleanly.
+
