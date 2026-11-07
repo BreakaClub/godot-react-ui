@@ -4,6 +4,7 @@ import { A11yPanel } from './a11y-panel';
 import { BenchmarkExplorer } from './benchmark-explorer';
 import { ComboboxLab } from './combobox-lab';
 import { DragLab } from './drag-lab';
+import { DropdownTouchLab } from './dropdown-touch-lab';
 import { FiltersExplorer } from './filters-explorer';
 import { FormsExtraLab } from './forms-extra-lab';
 import { FormsLab } from './forms-lab';
@@ -136,6 +137,11 @@ export const LABS = defineLabs([
     id: 'combobox', kind: 'inline', group: 'Input', title: 'Combobox',
     description: 'Single and multiple editable comboboxes with list filtering, chips and custom values.',
     component: ComboboxLab, sources: ['res://src/combobox-lab.tsx'],
+  },
+  {
+    id: 'dropdown-touch', kind: 'inline', group: 'Input', title: 'Dropdown lists on touch',
+    description: 'A select, a combobox and a combobox with chips whose long lists pan under a finger, in a page that scrolls.',
+    component: DropdownTouchLab, sources: ['res://src/dropdown-touch-lab.tsx'],
   },
   {
     id: 'drag', kind: 'inline', group: 'Input', title: 'Drag and drop',

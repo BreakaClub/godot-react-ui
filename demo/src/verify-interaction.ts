@@ -10,6 +10,7 @@ import type { FiltersLabProps } from './filters-lab';
 import type { LabName } from './labs';
 import type { NavigatorOptions, PassthroughCounts } from './main';
 import { verifyCombobox } from './verify-combobox';
+import { verifyDropdownTouch } from './verify-dropdown-touch';
 import { verifyHidpi } from './verify-hidpi';
 import { assertionTally, parseVerifierEvent, verifierClipboard } from './verifier-input';
 import { measureFilterCost, verifyFilterFaults, verifyFilterSizes, verifyFilters } from './verify-filters';
@@ -3630,6 +3631,7 @@ export async function runInteractionVerification(owner: Node, api: InteractionIn
   if (sections.has('drag')) await timed('drag', () => verifyDragging(owner, api, capture));
   if (sections.has('forms')) await timed('forms', () => verifyTextInput(owner, api, capture));
   if (sections.has('combobox')) await timed('combobox', () => verifyCombobox(owner, api, capture));
+  if (sections.has('dropdown-touch')) await timed('dropdown-touch', () => verifyDropdownTouch(owner, api, capture));
   if (sections.has('hidpi')) await timed('hidpi', () => verifyHidpi(owner, api, capture));
   if (sections.has('filters')) await timed('filters', () => verifyFilters(owner, api, capture));
   if (sections.has('glass')) await timed('glass', () => verifyGlass(owner, api, capture));

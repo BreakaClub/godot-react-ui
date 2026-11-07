@@ -16,6 +16,7 @@ import { WEB_INTERACTION_SECTIONS, describeSections, requestedSections } from '.
 import { isolateBrowserClipboard } from './web-clipboard.mjs';
 import { startVerificationServer } from './web-verify.mjs';
 import { runComboboxScenario, runTouchComboboxScenario } from './verify-combobox-web.mjs';
+import { runTouchDropdownScenario } from './verify-dropdown-touch-web.mjs';
 import { runFiltersScenario } from './verify-filters-web.mjs';
 import { runGlassScenario } from './verify-glass-web.mjs';
 import { runCodeEditorScenario, runTouchCodeEditorScenario } from './verify-code-editor-web.mjs';
@@ -2977,6 +2978,11 @@ async function runTouchWorkflow() {
       demo, page, frames, snapshot, find, check, waitUntil, nodeExists, text, pointerPoint, pagePoint, keyboardElement,
     }));
   }
+  if (wanted('dropdown-touch')) {
+    await section('dropdown-touch', () => runTouchDropdownScenario({
+      demo, page, frames, snapshot, find, check, capture, waitUntil, nodeExists, text, pagePoint,
+    }));
+  }
   if (wanted('code-editor')) {
     // The code panel is offered from 768 logical pixels wide, which the touch page above (a phone) is not: a page of its own, a tablet's size.
     await page.close();
@@ -3006,7 +3012,7 @@ try {
         output: resolve(output, activeViewport),
       }));
     }
-    if (wanted('touch') || wanted('drag') || wanted('combobox') || wanted('code-editor')) await runTouchWorkflow();
+    if (wanted('touch') || wanted('drag') || wanted('combobox') || wanted('dropdown-touch') || wanted('code-editor')) await runTouchWorkflow();
     checkBrowserErrors();
     const empty = SECTIONS.filter((name) => wanted(name) && !(sectionChecks[name] > 0));
     assert.ok(empty.length === 0, `Section(s) ${empty.join(', ')} ran no assertion`);
