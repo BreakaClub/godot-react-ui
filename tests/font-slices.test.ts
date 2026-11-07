@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { test } from 'node:test';
+import { mock, test } from 'node:test';
 import {
   createFontSliceLoader, familiesFor, installFontSlices, languageSubtags, parseFontSliceIndex, parseFontSliceManifest,
   type FontSlice, type FontSliceFailure, type FontSliceFetch, type FontSliceHost, type FontSliceLoader, type FontSliceOptions,
@@ -163,7 +163,7 @@ test('a page that asks for nothing fetches nothing', async () => {
   assert.deepEqual(world.requested, []);
   assert.deepEqual(loader.status(), {
     manifest: 'unrequested', indexesLoaded: [], slicesLoading: 0, slicesLoaded: [], slicesFailed: [], requests: 0, bytesFetched: 0,
-    codepointsServed: 0, codepointsUnmapped: 0, failures: [],
+    addMilliseconds: [], codepointsServed: 0, codepointsUnmapped: 0, failures: [],
   });
 });
 
@@ -183,6 +183,8 @@ test('the first characters fetch the manifest, the family index, then the slice 
   assert.deepEqual(status.slicesLoaded, [world.slice('sc-1').path]);
   assert.equal(status.requests, 3);
   assert.equal(status.codepointsServed, 1);
+  assert.equal(status.addMilliseconds.length, 1, 'the one call that added the font was timed');
+  assert.ok((status.addMilliseconds[0] ?? -1) >= 0);
 });
 
 test('characters asked for again, or by two requests at once, fetch each file once', async () => {
@@ -265,6 +267,28 @@ test('a character no family has is reported as unmapped and not asked for again'
   assert.equal(world.requested.length, requests);
   assert.equal(failures.length, 1);
   assert.equal(loader.status().codepointsUnmapped, 1);
+});
+
+test('with no handler, a failure goes to the console: a warning for a character no font has, an error for anything else', async () => {
+  const warn = mock.method(console, 'warn', () => {});
+  const error = mock.method(console, 'error', () => {});
+  try {
+    const unmapped = rig({ onFailure: undefined });
+    unmapped.loader.request([0x1f9ff]);
+    await unmapped.loader.whenIdle();
+    assert.equal(warn.mock.callCount(), 1);
+    assert.match(String(warn.mock.calls[0]?.arguments[0]), /^Font slices: no font slice has U\+1F9FF/u);
+    assert.equal(error.mock.callCount(), 0);
+    const broken = rig({ onFailure: undefined });
+    broken.world.broken.set(MANIFEST_URL, 500);
+    broken.loader.request([0x4e01]);
+    await broken.loader.whenIdle();
+    assert.equal(error.mock.callCount(), 1);
+    assert.match(String(error.mock.calls[0]?.arguments[0]), /^Font slices: the font slice manifest .* 500/u);
+  } finally {
+    warn.mock.restore();
+    error.mock.restore();
+  }
 });
 
 test('a manifest that cannot be fetched is reported, nothing else is fetched, and the next request after the retry window tries again', async () => {
@@ -414,6 +438,24 @@ test('text that still has no glyph after its slice is in is reported as a font f
   loader.request([0x4e02]);
   await loader.whenIdle();
   assert.equal(failures.length, 1);
+});
+
+test('onChange is told when the status moves, and a handler that throws is reported and does not stop the loader', async () => {
+  let changes = 0;
+  const first = rig({ onChange: () => { changes += 1; } });
+  first.loader.request([0x4e01]);
+  await first.loader.whenIdle();
+  assert.ok(changes >= 4, `the manifest, the index, the slice queued and the font added each moved the status (${changes})`);
+  const error = mock.method(console, 'error', () => {});
+  try {
+    const second = rig({ onChange: () => { throw new Error('the view is gone'); } });
+    second.loader.request([0x4e01]);
+    await second.loader.whenIdle();
+    assert.equal(second.added.length, 1, 'the font was still added');
+    assert.ok(error.mock.calls.some(call => /onChange handler threw: the view is gone/u.test(String(call.arguments[0]))));
+  } finally {
+    error.mock.restore();
+  }
 });
 
 test('a base URL without a trailing slash is refused', () => {

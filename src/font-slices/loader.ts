@@ -54,7 +54,7 @@ export interface FontSliceOptions<Font> {
   /** Makes a font from a slice's bytes. It must throw if the engine cannot read them. */
   readonly makeFont: (bytes: ArrayBuffer, slice: FontSlice) => Font;
   readonly fetch?: FontSliceFetch;
-  /** Called with every failure. The default writes it to the console as an error. */
+  /** Called with every failure. The default writes it to the console: a warning for a character no font has, an error for anything else. */
   readonly onFailure?: (failure: FontSliceFailure) => void;
   /** How long a request may take, headers and body. */
   readonly timeoutMs?: number;
@@ -62,6 +62,8 @@ export interface FontSliceOptions<Font> {
   readonly retryAfterMs?: number;
   /** The most slices fetched at once. */
   readonly maxConcurrent?: number;
+  /** Called when something `status()` reports has moved: a manifest, an index or a slice has arrived, is loading or has failed. For a view of it. */
+  readonly onChange?: () => void;
   readonly now?: () => number;
 }
 
@@ -76,6 +78,8 @@ export interface FontSliceStatus {
   /** Network requests made, and the bytes that arrived in them (the manifest's text, each index and each slice's file). */
   readonly requests: number;
   readonly bytesFetched: number;
+  /** How long each call of the host's `addFontFallbacks` took, in ms, the last 32: it is where the text is shaped again, on the page's thread. */
+  readonly addMilliseconds: readonly number[];
   /** The characters some slice has been added for, and the ones no slice has. */
   readonly codepointsServed: number;
   readonly codepointsUnmapped: number;
@@ -100,7 +104,7 @@ const DEFAULT_MAXIMUM_CONCURRENT = 6;
  * one frame at 60 Hz, which is the most main-thread work a burst of arrivals costs a frame.
  */
 const BATCH_WINDOW_MS = 16;
-/** The failures `status()` keeps: the last few, so a page that fails over and over does not grow. */
+/** The failures and timings `status()` keeps: the last few, so a page that fails over and over does not grow. */
 const KEPT_FAILURES = 32;
 
 type SliceState =
@@ -126,6 +130,19 @@ interface DigestSource {
 
 function hex(codepoint: number): string {
   return `U+${codepoint.toString(16).toUpperCase().padStart(4, '0')}`;
+}
+
+/** A clock fine enough to time a call: `performance.now()` where the page has it, else the date. */
+function clock(): number {
+  const performanceValue: unknown = Reflect.get(globalThis, 'performance');
+  if (typeof performanceValue === 'object' && performanceValue !== null) {
+    const nowFunction: unknown = Reflect.get(performanceValue, 'now');
+    if (typeof nowFunction === 'function') {
+      const value: unknown = Reflect.apply(nowFunction, performanceValue, []);
+      if (typeof value === 'number') return value;
+    }
+  }
+  return Date.now();
 }
 
 function describe(error: unknown): string {
@@ -184,7 +201,11 @@ export function createFontSliceLoader<Font>(host: FontFallbackHost<Font>, option
   if (maxConcurrent < 1) throw new Error('maxConcurrent must be at least 1');
   const now = options.now ?? (() => Date.now());
   const fetchSlice = options.fetch ?? defaultFetch();
-  const report = options.onFailure ?? ((failure: FontSliceFailure) => { console.error(`Font slices: ${failure.message}`); });
+  // A character no family has is an expected condition (no font here draws Thai), a warning; the rest is something the page should have had and did not.
+  const report = options.onFailure ?? ((failure: FontSliceFailure) => {
+    if (failure.kind === 'unmapped') console.warn(`Font slices: ${failure.message}`);
+    else console.error(`Font slices: ${failure.message}`);
+  });
 
   const lifetime = new AbortController();
   let manifestState: ManifestState = { kind: 'unrequested' };
@@ -200,6 +221,7 @@ export function createFontSliceLoader<Font>(host: FontFallbackHost<Font>, option
   /** Fonts made and not yet added: they wait for the batch window to pass. */
   const arrived: Array<{ slice: FontSlice; font: Font; url: string; codepoints: readonly number[] }> = [];
   let batchTimer: ReturnType<typeof setTimeout> | undefined;
+  const addMilliseconds: number[] = [];
   const failures: FontSliceFailure[] = [];
   const idleWaiters: Array<() => void> = [];
   let inFlight = 0;
@@ -208,10 +230,21 @@ export function createFontSliceLoader<Font>(host: FontFallbackHost<Font>, option
   let bytesFetched = 0;
   let disposed = false;
 
+  /** Tell the app something in `status()` moved. A handler that throws is reported, and does not stop the loader. */
+  function changed(): void {
+    if (options.onChange === undefined) return;
+    try {
+      options.onChange();
+    } catch (error) {
+      console.error(`Font slices: the onChange handler threw: ${describe(error)}`);
+    }
+  }
+
   function fail(failure: FontSliceFailure): void {
     failures.push(failure);
     if (failures.length > KEPT_FAILURES) failures.shift();
     report(failure);
+    changed();
   }
 
   function settleIfIdle(): void {
@@ -247,6 +280,7 @@ export function createFontSliceLoader<Font>(host: FontFallbackHost<Font>, option
       bytesFetched += body.length;
       const manifest = parseFontSliceManifest(JSON.parse(body));
       manifestState = { kind: 'ready', manifest };
+      changed();
       return manifest;
     } catch (error) {
       manifestState = { kind: 'failed', at: now() };
@@ -287,6 +321,7 @@ export function createFontSliceLoader<Font>(host: FontFallbackHost<Font>, option
       await checkedBytes(family.index, bytes);
       const lookup = new SliceLookup(parseFontSliceIndex(JSON.parse(new TextDecoder().decode(bytes)), family.id));
       indexes.set(family.id, { kind: 'ready', lookup });
+      changed();
       return lookup;
     } catch (error) {
       indexes.set(family.id, { kind: 'failed', at: now() });
@@ -340,12 +375,15 @@ export function createFontSliceLoader<Font>(host: FontFallbackHost<Font>, option
     const batch = arrived.splice(0);
     if (disposed || batch.length === 0) return;
     let refusal: string;
+    const started = clock();
     try {
       refusal = host.addFontFallbacks(batch.map(entry => entry.font));
     } catch (error) {
       // The host threw instead of answering: the same as a refusal, reported with what it said, never left as slices that stay loading.
       refusal = describe(error);
     }
+    addMilliseconds.push(clock() - started);
+    if (addMilliseconds.length > KEPT_FAILURES) addMilliseconds.shift();
     for (const { slice, url, codepoints } of batch) {
       if (refusal === '') {
         slices.set(slice.path, { kind: 'loaded' });
@@ -354,6 +392,7 @@ export function createFontSliceLoader<Font>(host: FontFallbackHost<Font>, option
         fail({ kind: 'font', url, sliceId: slice.id, message: `the engine could not use the font slice ${slice.id}: ${refusal}`, codepoints });
       }
     }
+    changed();
     settleIfIdle();
   }
 
@@ -390,6 +429,7 @@ export function createFontSliceLoader<Font>(host: FontFallbackHost<Font>, option
       for (const codepoint of codepoints) served.add(codepoint);
       queue.push({ slice, codepoints: [...codepoints] });
     }
+    changed();
     pump();
   }
 
@@ -473,6 +513,7 @@ export function createFontSliceLoader<Font>(host: FontFallbackHost<Font>, option
         slicesFailed: [...slices].filter(([, state]) => state.kind === 'failed').map(([path]) => path),
         requests,
         bytesFetched,
+        addMilliseconds: [...addMilliseconds],
         codepointsServed: served.size,
         codepointsUnmapped: unmapped.size,
         failures: [...failures],
