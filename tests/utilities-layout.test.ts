@@ -274,13 +274,14 @@ test('transition classes set the longhands with Tailwind\'s timing', () => {
   assert.deepEqual(styleOf('transition'), {
     transitionParts: {
       durationMs: 150, easing: standard,
-      properties: ['color', 'backgroundColor', 'borderColor', 'opacity', 'filter', 'backdropFilter'],
+      properties: ['color', 'backgroundColor', 'borderColor', 'opacity', 'transform', 'filter', 'backdropFilter'],
     },
   });
   assert.deepEqual(styleOf('transition-colors'), {
     transitionParts: { durationMs: 150, easing: standard, properties: ['color', 'backgroundColor', 'borderColor'] },
   });
   assert.deepEqual(styleOf('transition-opacity'), { transitionParts: { durationMs: 150, easing: standard, properties: ['opacity'] } });
+  assert.deepEqual(styleOf('transition-transform'), { transitionParts: { durationMs: 150, easing: standard, properties: ['transform'] } });
   assert.deepEqual(styleOf('transition-all'), { transitionParts: { durationMs: 150, easing: standard, properties: 'all' } });
   assert.deepEqual(styleOf('transition-none'), { transitionParts: { properties: 'none' } });
   for (const duration of [0, 75, 100, 150, 200, 300, 500, 700, 1000]) {
@@ -298,8 +299,8 @@ test('transition classes set the longhands with Tailwind\'s timing', () => {
   assert.deepEqual(styleOf('ease-[cubic-bezier(0,_-0.5,1,1.5)]'), { transitionParts: { easing: { cubicBezier: [0, -0.5, 1, 1.5] } } });
   assertUnsupported(['duration-250', 'duration-', 'duration-[250]', 'duration-[-5ms]', 'delay-80', 'ease-bounce', 'ease-[cubic-bezier(2,0,0,1)]',
     'ease-[cubic-bezier(0,0,1)]', 'ease-[cubic-bezier(0,0,1,1,1)]', 'ease-[cubic-bezier(a,0,1,1)]', 'transition-foo', 'transition-colors-x']);
-  // These name a property native does not animate, so they say so instead of compiling to nothing.
-  assertUnsupported(['transition-shadow', 'transition-transform'], /not a property this build animates/);
+  // This names a property native does not animate yet (`boxShadow`, from the paint track), so it says so instead of compiling to nothing.
+  assertUnsupported(['transition-shadow'], /not a property this build animates/);
 });
 
 test('transition classes compose across layers and variants, longhand by longhand', () => {
@@ -333,7 +334,7 @@ test('transition classes compose across layers and variants, longhand by longhan
 
 test('the transition classes name only properties native animates, and all of its list is reachable', () => {
   const named = new Set<string>();
-  for (const utility of ['transition', 'transition-colors', 'transition-opacity']) {
+  for (const utility of ['transition', 'transition-colors', 'transition-opacity', 'transition-transform']) {
     const parts = styleOf(utility)?.transitionParts;
     assert.ok(parts && Array.isArray(parts.properties), utility);
     for (const property of parts.properties) {

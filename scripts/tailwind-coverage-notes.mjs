@@ -36,7 +36,7 @@ export const PLUGIN_NOTES = {
   cursor: ['absent', 'native has the 15 shapes Godot has; the rest (`cursor-copy`, `cursor-zoom-in`, `cursor-none`, ...) have no Godot cursor to map to'],
   touchAction: ['absent', 'native has `auto`, `none`, `pan-x` and `pan-y`; pinch-zoom and manipulation are not modelled'],
   userSelect: ['absent', 'native selects text with `select-text` and `select-none`; `select-all` and `select-auto` are not modelled'],
-  transitionProperty: ['layout-motion', '`transition-shadow` and `transition-transform` compile once `box-shadow` and `transform` are native transition properties (the paint and transforms tracks add them to `TRANSITION_PROPERTIES`)'],
+  transitionProperty: ['layout-motion', '`transition-shadow` compiles once `box-shadow` is a native transition property (the paint track adds `boxShadow` to `TRANSITION_PROPERTIES`)'],
   animation: ['absent', 'keyframe animations are not part of the motion engine (transitions only)'],
   // Paint
   borderRadius: ['paint', 'per-corner and per-side radii'],
