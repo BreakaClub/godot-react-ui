@@ -19,6 +19,7 @@ import { verifyNavigator } from './verify-navigator';
 import { verifyTransformFaults, verifyTransforms } from './verify-transforms';
 import type { LayoutUtilitiesPage } from './layout-utilities-lab';
 import { verifyLayoutUtilities } from './verify-layout-utilities';
+import { verifyPaint } from './verify-paint';
 import { verifyTextInput } from './verify-text-input';
 import type { DemoInspection } from './verify';
 import type { LiveSession } from './live-compile-session';
@@ -39,6 +40,7 @@ export interface InteractionInspection extends DemoInspection {
   showLayoutUtilities(page: LayoutUtilitiesPage): void;
   /** A lab compiled from its source, mounted and kept up to date as the source changes (the `live-compile` section). */
   openLiveSession(labId: string, exportName: string): LiveSession;
+  showPaintPage(page: string): void;
   /** The filters lab, rendered again with new props (plan Phase V1). */
   showFilters(props: FiltersLabProps): void;
   /** The lab navigator in place of the app, with `extraLabs` listed after the demo's own. */
@@ -3620,6 +3622,7 @@ export async function runInteractionVerification(owner: Node, api: InteractionIn
   if (sections.has('glass')) await timed('glass', () => verifyGlass(owner, api, capture));
   if (sections.has('navigator')) await timed('navigator', () => verifyNavigator(owner, api, capture));
   if (sections.has('transforms')) await timed('transforms', () => verifyTransforms(owner, api, capture));
+  if (sections.has('paint')) await timed('paint', () => verifyPaint(owner, api, capture));
   if (sections.has('layout-utilities')) await timed('layout-utilities', () => verifyLayoutUtilities(owner, api));
   if (sections.has('live-compile')) await timed('live-compile', () => verifyLiveCompile(owner, api, capture));
   if (sections.has('filters-sizes')) await timed('filters-sizes', () => verifyFilterSizes(owner, api, capture));

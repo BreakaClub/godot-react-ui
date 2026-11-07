@@ -14,6 +14,7 @@ import { InteractionLab } from './interaction-lab';
 import { KeyboardLab } from './keyboard-lab';
 import { MotionLab } from './motion-lab';
 import { LayoutUtilitiesExplorer } from './layout-utilities-lab';
+import { PaintExplorer } from './paint-lab';
 import { PassthroughHud } from './passthrough-hud';
 import { PointerLab } from './pointer-lab';
 import { PositioningLab } from './positioning-lab';
@@ -174,6 +175,11 @@ export const LABS = defineLabs([
     id: 'filters', kind: 'inline', group: 'Effects', title: 'Filters',
     description: 'CSS filters and backdrop filters on real layouts: pick a fixture and a blur radius.',
     component: FiltersExplorer, sources: ['res://src/filters-explorer.tsx', 'res://src/filters-lab.tsx'],
+  },
+  {
+    id: 'paint', kind: 'inline', group: 'Effects', title: 'Shadows, rings and gradients',
+    description: 'Box shadows, rings, outlines, borders and corners by side and linear gradients, a page of Tailwind utilities at a time.',
+    component: PaintExplorer, sources: ['res://src/paint-lab.tsx'],
   },
   {
     id: 'glass', kind: 'window', group: 'Effects', title: 'Frosted glass',

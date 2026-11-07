@@ -11,6 +11,7 @@ import { App, getDemoLifecycle } from './app';
 import { setLabOwner } from './interaction-lab';
 import { demoStart, type DemoStart } from './launch';
 import { LABS, findLab, labElement, labsInOrder, type Lab, type LabName, type SceneLab } from './labs';
+import { PaintLab } from './paint-lab';
 import { Navigator, type NavigatorProps } from './navigator';
 import { openSceneWithBack } from './scene-return';
 import { registerDemoFonts } from './demo-fonts';
@@ -150,6 +151,8 @@ export default class Main extends Node {
       showLab: (name: LabName) => this.requireRenderer().render(labElement(name)),
       /** A lab compiled from its source and kept up to date as the source changes (`live-compile-session.ts`), for the `live-compile` section. */
       openLiveSession: (labId: string, exportName: string) => openLiveSession({ root: this.requireRenderer(), labId, exportName }),
+      /** One page of the paint lab on its own (`docs/tracks/utilities-paint.md`), at the stage's size, from the window's corner. */
+      showPaintPage: (page: string) => this.requireRenderer().render(createElement(PaintLab, { page })),
       /** The filters lab (plan Phase V1): rendered again with new props, so a change is an ordinary commit. */
       /** One page of the text styles lab (`text-styles-data.ts`). */
       showTextStyles: (page: string) => this.requireRenderer().render(createElement(TextStylesLab, { page })),

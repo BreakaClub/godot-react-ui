@@ -27,6 +27,7 @@
     "verify:interaction": "node scripts/verify.mjs --interaction",
     "verify:interaction:web": "node scripts/verify-interaction-web.mjs",
     "glass:reference": "node --import tsx scripts/glass-reference.mjs",
+    "paint:reference": "node --import tsx scripts/paint-reference.mjs",
     "verify:world": "node scripts/verify-world.mjs",
     "verify:text-layout": "node scripts/verify-text-layout.mjs",
     "verify:a11y": "node scripts/verify-a11y.mjs",

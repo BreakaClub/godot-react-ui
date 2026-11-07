@@ -11,6 +11,8 @@ export const DEMO_ENTRY_POINTS = [
   'demo/src/verify-filters.ts', 'demo/src/verify-glass.ts', 'demo/src/glass-data.ts', 'demo/src/probe.ts', 'demo/src/app.tsx',
   // The layout utilities lab's data, its verifier and the Chrome numbers it compares with (docs/tracks/utilities-layout-motion.md).
   'demo/src/layout-utilities-data.ts', 'demo/src/layout-utilities-reference.ts', 'demo/src/verify-layout-utilities.ts',
+  // The paint lab's data and verifier (docs/tracks/utilities-paint.md).
+  'demo/src/paint-data.ts', 'demo/src/verify-paint.ts',
   // The world-space scene (docs/WORLD_SPACE.md) has its own owner, and the scene launcher starts it on the Web.
   'demo/src/world-main.ts', 'demo/src/world-geometry.ts', 'demo/src/verify-world.ts', 'demo/src/scene-launcher.ts',
   'demo/src/verifier-input.ts', 'demo/src/verify-text-input.ts', 'demo/src/verify-combobox.ts',
