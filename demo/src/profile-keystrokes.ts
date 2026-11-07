@@ -1,7 +1,6 @@
 import { Engine, FileAccess, InputEventKey, InputEventMouseButton, Key, MouseButton, Node, OS, Time, Vector2 } from 'godot';
 import type { LayoutRect, NativeProfile, NativeSnapshot, NativeSnapshotNode } from '../../src/native';
 import type { RendererProfile } from '../../src/profile';
-import { GLYPH_POSITION_STEP_PX } from './editor/font-grid';
 import { ExhaustiveCheckError } from './editor/exhaustive';
 import { TYPING_SITES, runKeystrokeBench, summarizeAll } from './editor/keystroke-bench';
 import type { NavigatorOptions } from './main';
@@ -87,6 +86,8 @@ const DEFAULT_WARMUP = 200;
 const DEFAULT_BURSTS = 25;
 const DEFAULT_INSERTS = 8;
 const FRAMES_AFTER_OPEN = 30;
+/** The width of the editor's grid probe in columns (`view/grid-probe.tsx`): a click half a column into the first line only needs the column's width roughly. */
+const PROBE_COLUMNS = 400;
 const MIB = 1024 * 1024;
 
 function nowUs(): number {
@@ -235,7 +236,7 @@ export function installKeystrokeProfile(owner: Node, api: KeystrokeProfileInspec
     const column = at - (before.lastIndexOf('\n') + 1) + site.offset;
     // Scroll to the line by moving the caret there: a click on line 1, Down to the line, Home, Right to the column.
     const probe = node('editor-grid-probe').rect;
-    const advance = Math.round(probe.width / 400 / GLYPH_POSITION_STEP_PX) * GLYPH_POSITION_STEP_PX;
+    const advance = probe.width / PROBE_COLUMNS;
     const content = node('code-content').rect;
     const gutter = node('code-gutter').rect.width;
     const firstLine = new Vector2(content.x + gutter + advance / 2, content.y + probe.height / 2);
