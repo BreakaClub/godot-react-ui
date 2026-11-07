@@ -14,7 +14,40 @@ Code button.
 
 ## What works, end to end
 
-In a real Breaka window (`node scripts/verify.mjs --interaction --only=code-editor`, injected input only): _RESULTS BELOW_
+Press Code on a lab and its TSX opens beside the page: highlighted, with a gutter, a caret, selections, and the keys of a code editor. Type, and the page follows after a short pause in typing:
+the edited component swaps in with its state kept where its hooks are the same. A syntax error keeps the last good page and is underlined and listed; a type error is underlined where `tsc`
+puts it and says so when hovered, with the type; inlay hints stand in the line. Everything below was run in this worktree (injected input only: no real mouse, keys or clipboard).
+
+Numbers from the section on the default engine (Breaka's Godot 4.8, landscape 1920 x 1080 logical, DPR 1; `artifacts/logs/native-code-editor-final1.log`, 2,555 assertions in 61 s; the portrait
+window runs 2 more: no Code button below 768 logical px):
+
+| | |
+|---|---|
+| window mount (press Code to the first lines drawn) | 177 ms; 8 flushes, 409 commands; 444 nodes on the whole page |
+| grid | advance 7.25 px (12 px mono), line 20 px, gutter 44 px; 100 runs checked against `column * advance`, the caret within 0.3 px at every column tried |
+| keystroke to ink | median 25.9 ms, p95 32.4 ms (key injected, the next raster has the glyph) |
+| commit per keystroke | median 849 characters of commands, worst 1,364 (a line's runs and the caret, not the window) |
+| last key to the page | 256 ms (150 ms debounce, the swap, the commit) |
+| autoscroll while dragging past the edge | starts 50 ms after the pointer leaves |
+| idle, panel open, not focused | 0 busy samples over 2 s: the root asks for no frames |
+
+Checked in the section: a press puts the caret within a pixel; drag, double, triple and Shift+click; the keys of the table (Alt/Ctrl word jumps and the rest; the Node tests run every bound
+command in four kinds of document); Copy, Cut and Paste (the section runs with the root's in-process clipboard, `setClipboardText`; the browser's real one is read in the Web scenario);
+IME preedit (composition events, native and Web) drawn underlined at the caret and committed; undo and redo; Reset; hiding and showing the panel keeps the text and the lab's state;
+the page's counter keeps its count through an edit; a class the library does not know is not sent and is underlined; a read-only fallback when the extension is missing.
+
+Negative controls. The section failed on real defects before it passed, each fixed at its cause (C5 click counts, C6 clipped glyphs and drifting runs, C14 the class that reset the counter,
+the stale inlay mapping, the tooltip that stayed). 36 mutants of the model, controller, annotations and embedded session were run against the Node tests and all are killed (five survivors
+got tests). The live-compile memo cases fail natively with the family subscription removed ("The element the parent kept shows the edited component: kept v1"). The Web touch scenario failed
+on "Backspace takes one off" with the input empty and passes with C18's space in it (`artifacts/logs/web-code-editor6.log` before, `web-code-editor8.log` after).
+
+Web in Chrome (`node scripts/build-web.mjs --export-only`, then `node scripts/verify-interaction-web.mjs --only=code-editor`; `artifacts/logs/web-code-editor8.log`): 308 checks over the landscape
+page at DPR 1, the retina page at DPR 2, the portrait page (no button) and the touch-landscape page. The touch page taps a column (caret on its pixel, the engine's soft keyboard element
+focused), types `XY`, `Z`, presses Backspace through it (C18), taps elsewhere, and pans with a finger: the code scrolls and the caret stays.
+
+Rasters are in `artifacts/code-editor/` (ignored by git): `native-dpr1-*` (7 states), `web-landscape-*` (DPR 1, 8 states incl. preedit), `web-retina-landscape-*` (DPR 2, the same 8) and
+`web-touch-landscape-code-editor-09-touch.png`. I looked at them: glyphs sit on the grid with no clipped letters, the selection is a band behind the text, the inlay pills and the
+underline are under the right runs, the tooltip shows TS2322 and the type, the gutter marks the problem line, and at DPR 2 the text is as sharp as the page's.
 
 ## Layout of the code
 
@@ -41,8 +74,8 @@ demo/src/verify-code-editor.ts   scripts/verify-code-editor-web.mjs      tests/e
 
 **C1. The text is CodeMirror's, the view and the input are ours** (the evaluation's design, built as written). `EditorModel` is an `EditorState` (TypeScript and
 JSX through Lezer, history, several selections, `indentOnInput`) with no `EditorView`; `EditorController` answers a `keydown`, a `beforeinput`, a composition
-and the pointer with transactions. The input is an empty `multiline` `TextInput`, one column wide, at the caret; every `beforeinput` is prevented, so its own
-buffer never holds text (a test asserts it, and the Web touch scenario types through the soft keyboard into it).
+and the pointer with transactions. The input is a `multiline` `TextInput`, one column wide, at the caret, that holds one zero-width space (C18); every `beforeinput` is prevented, so its own
+buffer is never edited (a test asserts it, and the Web touch scenario types and deletes through the soft keyboard into it).
 
 **C2. `demo/src/editor/` has a `.gdignore`.** Every `demo/src/*.ts` is a Godot script and, by `scripts/demo-entry-points.mjs`, a bundle of its own; the editor's
 thirty files import CodeMirror, which would then be in the pack thirty times over. Hidden from Godot the folder needs no `.uid` and no entry points, and is bundled
@@ -129,7 +162,39 @@ phones: decide"). A tablet (768 and wider) has the panel and its tap, caret and 
 file that changes when a line becomes one `Text` with spans. `rich-text` had not landed (no commits, no notes) when this was written, so nothing here uses spans, `getCaretRect`,
 `getOffsetAtPoint` or `getRangeRects`. Characters wider than a column or made of several code units (CJK, emoji, combining marks) are laid out on the one-column grid until it does.
 
+**C18. The input holds one zero-width space, for a soft keyboard's Backspace.** The first version's input was empty. On the Web a soft keyboard types into a hidden DOM element that
+holds the text of the focused input and sends *all* of it with every key (`GodotDisplayVK`, and `native/text_input_godot/web_keyboard.rs` keeps it in step with what native holds). An element
+that held nothing gave Backspace nothing to delete: no `input` event, so the key never reached the editor (the Web touch scenario's "Backspace takes one off" timed out; Backspace on a
+phone or tablet would not have worked at all). The input now holds U+200B (`editor/sink.ts`, `SINK_TEXT`), which every answered edit leaves in place (native writes it back to the element
+after a prevented edit). A text from the soft keyboard without it is a Backspace; one with it, wherever the keyboard's caret left it, has what was typed beside it. The engine presses
+Right once per character of the element's text after it (`_vk_input_text_callback`), which now counts the space, and the controller swallows that many plain Right presses within 250 ms
+of the text (`SOFT_KEYBOARD_PRESS_WINDOW_MS`): they are the engine's, not arrows. On a desktop the space is never seen: every `keydown` that edits is the keymap's and every `beforeinput` is prevented.
+
+## Not verified, and limits
+
+Not verified:
+- A real phone's or tablet's soft keyboard (iOS Safari, Android Chrome). The touch page is Chrome with touch events and the engine's hidden element, driven by Puppeteer's keyboard; a real keyboard
+  also sends autocorrection (`insertReplacementText` of a whole word) and Android's composing text, which the controller treats as typed text or a composition but I have not seen.
+- Safari and Firefox on the Web for the editor (Chrome only; `docs/tracks` has the engine's Safari notes).
+- A real IME. The composition events are synthesised (native and Web); no real OS input was generated, by the rules of the track.
+- Native at DPR 2. The Web retina page (DPR 2) is the evidence for the grid and the caret at that scale; a native window ran at 1.0.
+- The machine's real clipboard on the desktop (the section uses the root's in-process one); the browser's is read in the Web scenario.
+
+Limits:
+- A wavy underline is a solid one until `rich-text` lands (C17); so are the ranges, the caret and offsets, which are computed from a fixed grid, not asked of a paragraph.
+- A character wider than a column, or of several code units (CJK, emoji, combining marks), is laid out on the one-column grid.
+- A render that throws loses the page's state (React drops it); the class check (C14) covers the common case, a mistyped literal `className`, and nothing else.
+- Leaving a lab drops its edits: the session is kept while the lab stays selected, not across selections.
+- A type check older than the last 1,000 edits is dropped (the status bar says so).
+- A stray `}` in JSX text is not a syntax error to Bun's parser, so it is not underlined; the section types ` = = ;` for a syntax error.
+- `@tanstack/virtual-core` stays in `package.json` and is unused (C7).
+- Below 768 logical pixels there is no Code button (C16).
 
 ## README text
 
-_README_
+**Code editor.** The lab navigator can reveal the TSX of the lab on the stage in an editor that is made of the library's own components: press Code, type, and the page above updates after a short
+pause, with its state kept where the hooks are the same. Bun's checker and compiler (the `live-compile` extension) report errors, types for a hover and inlay hints, drawn as underlines, a
+problems list and a status line; a syntax or type error leaves the last good page on the stage. The text lives in CodeMirror 6's headless `EditorState` (Lezer highlighting, history, several
+selections, CodeMirror's key table), and the view is a window of lines drawn as runs of `Text`, with a caret, a selection and a gutter. A focused `TextInput` at the caret takes the keyboard,
+the IME and the soft keyboard and is never edited: every key it receives is answered with a transaction. Without the extension the code is shown read-only, with the reason. See `demo/src/editor/`
+and `docs/tracks/code-editor.md`.
