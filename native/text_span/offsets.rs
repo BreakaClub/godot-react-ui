@@ -52,8 +52,10 @@ impl OffsetMap {
     /// text.
     pub(crate) fn new(inlays: Vec<Inlay>, source_len: usize) -> Self {
         debug_assert!(
-            inlays.windows(2).all(|pair| pair[0].source <= pair[1].source
-                && pair[0].display + pair[0].len <= pair[1].display),
+            inlays
+                .windows(2)
+                .all(|pair| pair[0].source <= pair[1].source
+                    && pair[0].display + pair[0].len <= pair[1].display),
             "inlays are in order and do not overlap"
         );
         debug_assert!(inlays.iter().all(|inlay| inlay.source <= source_len));
@@ -158,11 +160,31 @@ mod tests {
     fn map() -> OffsetMap {
         OffsetMap::new(
             vec![
-                Inlay { source: 0, display: 0, len: 1 },
-                Inlay { source: 3, display: 4, len: 2 },
-                Inlay { source: 3, display: 6, len: 1 },
-                Inlay { source: 3, display: 7, len: 1 },
-                Inlay { source: 6, display: 11, len: 1 },
+                Inlay {
+                    source: 0,
+                    display: 0,
+                    len: 1,
+                },
+                Inlay {
+                    source: 3,
+                    display: 4,
+                    len: 2,
+                },
+                Inlay {
+                    source: 3,
+                    display: 6,
+                    len: 1,
+                },
+                Inlay {
+                    source: 3,
+                    display: 7,
+                    len: 1,
+                },
+                Inlay {
+                    source: 6,
+                    display: 11,
+                    len: 1,
+                },
             ],
             6,
         )
@@ -177,7 +199,13 @@ mod tests {
             for side in [Side::Before, Side::After] {
                 assert_eq!(none.display_of(offset, side), offset);
             }
-            assert_eq!(none.locate(offset), Located::At { source: offset, side: Side::After });
+            assert_eq!(
+                none.locate(offset),
+                Located::At {
+                    source: offset,
+                    side: Side::After
+                }
+            );
         }
     }
 
@@ -206,9 +234,13 @@ mod tests {
             for side in [Side::Before, Side::After] {
                 let display = map.display_of(source, side);
                 match map.locate(display) {
-                    Located::At { source: found, side: found_side } => {
+                    Located::At {
+                        source: found,
+                        side: found_side,
+                    } => {
                         assert_eq!(found, source, "display {display}");
-                        let has_inlays = map.display_of(source, Side::Before) != map.display_of(source, Side::After);
+                        let has_inlays = map.display_of(source, Side::Before)
+                            != map.display_of(source, Side::After);
                         if has_inlays {
                             assert_eq!(found_side, side, "display {display}");
                         }
@@ -219,7 +251,14 @@ mod tests {
         }
         // 5 is between YY and Z, 6 between Z and W, 7... each inside the group 4..8.
         for display in [5, 6, 7] {
-            assert_eq!(map.locate(display), Located::Within { source: 3, group: 4..8 }, "{display}");
+            assert_eq!(
+                map.locate(display),
+                Located::Within {
+                    source: 3,
+                    group: 4..8
+                },
+                "{display}"
+            );
         }
         assert_eq!(map.source_of(5), 3);
         assert_eq!(map.source_of(2), 1);
@@ -246,10 +285,23 @@ mod tests {
 
     #[test]
     fn an_inlay_only_text_has_a_display_and_no_source() {
-        let map = OffsetMap::new(vec![Inlay { source: 0, display: 0, len: 4 }], 0);
+        let map = OffsetMap::new(
+            vec![Inlay {
+                source: 0,
+                display: 0,
+                len: 4,
+            }],
+            0,
+        );
         assert_eq!(map.display_len(), 4);
         assert_eq!(map.display_of(0, Side::Before), 0);
         assert_eq!(map.display_of(0, Side::After), 4);
-        assert_eq!(map.locate(2), Located::Within { source: 0, group: 0..4 });
+        assert_eq!(
+            map.locate(2),
+            Located::Within {
+                source: 0,
+                group: 0..4
+            }
+        );
     }
 }

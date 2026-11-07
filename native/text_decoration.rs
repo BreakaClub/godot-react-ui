@@ -24,9 +24,9 @@
 
 pub(crate) mod raster;
 
+use crate::text_style::TextDecoration;
 use crate::text_style::metrics::{DecorationFont, Decorator};
 use crate::text_style::spec::{DecorationStyleSpec, DecorationThickness};
-use crate::text_style::TextDecoration;
 
 /// Which of the three lines of a decoration.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -143,14 +143,16 @@ pub(crate) struct Fit {
 /// one end and the last ends at the other. Of the two counts around the nominal one, the one whose gap is nearer the nominal is used;
 /// a line too short for two dashes is one dash.
 pub(crate) fn fit_gap(length: f32, dash: f32, nominal_gap: f32) -> Fit {
-    let lower = ((length + nominal_gap) / (dash + nominal_gap)).floor().max(0.0) as usize;
-    let gap_for = |count: usize| {
-        (count > 1).then(|| (length - count as f32 * dash) / (count - 1) as f32)
-    };
+    let lower = ((length + nominal_gap) / (dash + nominal_gap))
+        .floor()
+        .max(0.0) as usize;
+    let gap_for =
+        |count: usize| (count > 1).then(|| (length - count as f32 * dash) / (count - 1) as f32);
     let smaller = gap_for(lower).map(|gap| Fit { count: lower, gap });
-    let larger = gap_for(lower + 1)
-        .filter(|gap| *gap > 0.0)
-        .map(|gap| Fit { count: lower + 1, gap });
+    let larger = gap_for(lower + 1).filter(|gap| *gap > 0.0).map(|gap| Fit {
+        count: lower + 1,
+        gap,
+    });
     match (smaller, larger) {
         (Some(smaller), Some(larger)) => {
             if (smaller.gap - nominal_gap).abs() < (larger.gap - nominal_gap).abs() {
@@ -184,7 +186,12 @@ fn round_half_up(value: f32) -> f32 {
 fn thickness(requested: DecorationThickness, font: DecorationFont) -> Option<Thickness> {
     let whole = |value: f32| {
         let whole = round_half_up(value).max(1.0);
-        Thickness { stroke: whole, whole, drawn: whole, auto: false }
+        Thickness {
+            stroke: whole,
+            whole,
+            drawn: whole,
+            auto: false,
+        }
     };
     match requested {
         DecorationThickness::Px(px) if px <= 0.0 => None,
@@ -236,7 +243,9 @@ impl Geometry {
             LineKind::LineThrough if patterned_line_through => {
                 (-(self.ascent / 3.0).ceil() - height / 2.0 + 0.5).floor()
             }
-            LineKind::LineThrough => (-self.ascent / 3.0 - self.thickness.stroke / 2.0 + 0.5).floor(),
+            LineKind::LineThrough => {
+                (-self.ascent / 3.0 - self.thickness.stroke / 2.0 + 0.5).floor()
+            }
         }
     }
 
@@ -273,7 +282,12 @@ pub(crate) fn shapes(
     scale: f32,
     fragment: Fragment,
 ) -> Vec<Shape> {
-    let decorator = Decorator::new(font, decoration.thickness, decoration.underline_offset, scale);
+    let decorator = Decorator::new(
+        font,
+        decoration.thickness,
+        decoration.underline_offset,
+        scale,
+    );
     let solid_band = match kind {
         LineKind::Underline => decorator.underline(),
         LineKind::Overline => decorator.overline(),
@@ -302,10 +316,18 @@ pub(crate) fn shapes(
     patterned(decoration.style, geometry, scale, fragment)
 }
 
-fn patterned(style: DecorationStyleSpec, geometry: Geometry, scale: f32, fragment: Fragment) -> Vec<Shape> {
+fn patterned(
+    style: DecorationStyleSpec,
+    geometry: Geometry,
+    scale: f32,
+    fragment: Fragment,
+) -> Vec<Shape> {
     let device = |value: f32| (value * scale).round() / scale;
     let row = |top: f32, height: f32| -> (f32, f32) {
-        (fragment.baseline + device(top), device(height).max(1.0 / scale))
+        (
+            fragment.baseline + device(top),
+            device(height).max(1.0 / scale),
+        )
     };
     let width = fragment.right - fragment.left;
     let thickness = geometry.thickness;
@@ -316,12 +338,21 @@ fn patterned(style: DecorationStyleSpec, geometry: Geometry, scale: f32, fragmen
             let first = geometry.top(thickness.drawn, false);
             let distance = geometry.double_distance();
             // An overline's pair keeps its order top to bottom: the second line is above the first.
-            let second = if geometry.kind == LineKind::Overline { first - distance } else { first + distance };
+            let second = if geometry.kind == LineKind::Overline {
+                first - distance
+            } else {
+                first + distance
+            };
             [first, second]
                 .into_iter()
                 .map(|top| {
                     let (y, height) = row(top, thickness.drawn);
-                    Shape::Rect(PlanRect { x: fragment.left, y, width, height })
+                    Shape::Rect(PlanRect {
+                        x: fragment.left,
+                        y,
+                        width,
+                        height,
+                    })
                 })
                 .collect()
         }
@@ -339,7 +370,12 @@ fn patterned(style: DecorationStyleSpec, geometry: Geometry, scale: f32, fragmen
                 .map(|k| {
                     let from = start + k as f32 * (dash + fit.gap);
                     let to = (from + dash).min(start + length);
-                    Shape::Rect(PlanRect { x: device(from), y, width: device(to) - device(from), height })
+                    Shape::Rect(PlanRect {
+                        x: device(from),
+                        y,
+                        width: device(to) - device(from),
+                        height,
+                    })
                 })
                 .collect()
         }
@@ -351,7 +387,12 @@ fn patterned(style: DecorationStyleSpec, geometry: Geometry, scale: f32, fragmen
             let mut rects = Vec::new();
             while x < end {
                 let to = (x + whole).min(end);
-                rects.push(Shape::Rect(PlanRect { x: device(x), y, width: device(to) - device(x), height }));
+                rects.push(Shape::Rect(PlanRect {
+                    x: device(x),
+                    y,
+                    width: device(to) - device(x),
+                    height,
+                }));
                 x += 2.0 * whole;
             }
             rects
@@ -363,7 +404,9 @@ fn patterned(style: DecorationStyleSpec, geometry: Geometry, scale: f32, fragmen
             let pitch = whole + fit.gap;
             vec![Shape::Dots(DotsPlan {
                 diameter: whole,
-                centers: (0..fit.count).map(|k| start + whole / 2.0 + k as f32 * pitch).collect(),
+                centers: (0..fit.count)
+                    .map(|k| start + whole / 2.0 + k as f32 * pitch)
+                    .collect(),
                 center_y: fragment.baseline + geometry.top(whole, true) + whole / 2.0,
                 clip_right: start + length,
             })]

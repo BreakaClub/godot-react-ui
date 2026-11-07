@@ -17,9 +17,11 @@ import { GLASS_FAULT_CONTROLS, verifyGlass } from './verify-glass';
 import { verifyLiveCompile } from './verify-live-compile';
 import { verifyCodeEditor } from './verify-code-editor';
 import { verifyNavigator } from './verify-navigator';
+import { verifyRichText } from './verify-rich-text';
 import { verifyTextStyles } from './verify-text-styles';
 import { verifyTransformFaults, verifyTransforms } from './verify-transforms';
 import type { LayoutUtilitiesPage } from './layout-utilities-lab';
+import type { RichTextLabProps } from './rich-text-lab';
 import { verifyLayoutUtilities } from './verify-layout-utilities';
 import { verifyPaint } from './verify-paint';
 import { verifyTextInput } from './verify-text-input';
@@ -48,6 +50,8 @@ export interface InteractionInspection extends DemoInspection {
   /** One page of the text styles lab, and the lines of a text as the native layout has them (`ReactUiRoot.getTextLines`). */
   showTextStyles(page: string): void;
   textLines(testID: string): unknown;
+  /** One page of the rich text lab, or a file of highlighted lines (`verify-rich-text.ts`). */
+  showRichText(props: RichTextLabProps): void;
   /** The lab navigator in place of the app, with `extraLabs` listed after the demo's own. */
   showNavigator(options?: NavigatorOptions): void;
   /** What Godot draws behind the root: two flat colours, a lit box in 3D, or nothing. */
@@ -3630,6 +3634,7 @@ export async function runInteractionVerification(owner: Node, api: InteractionIn
   if (sections.has('paint')) await timed('paint', () => verifyPaint(owner, api, capture));
   if (sections.has('layout-utilities')) await timed('layout-utilities', () => verifyLayoutUtilities(owner, api));
   if (sections.has('text-styles')) await timed('text-styles', () => verifyTextStyles(owner, api, capture));
+  if (sections.has('rich-text')) await timed('rich-text', () => verifyRichText(owner, api, capture));
   if (sections.has('live-compile')) await timed('live-compile', () => verifyLiveCompile(owner, api, capture));
   if (sections.has('code-editor')) await timed('code-editor', () => verifyCodeEditor(owner, api, capture));
   if (sections.has('filters-sizes')) await timed('filters-sizes', () => verifyFilterSizes(owner, api, capture));

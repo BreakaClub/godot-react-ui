@@ -25,15 +25,32 @@ pub(crate) struct RichParagraph {
 }
 
 impl RichParagraph {
-    pub(super) fn new(text: RichText, fonts: Vec<ResolvedFont>, style: &ShapingStyle, epoch: u64) -> Self {
+    pub(super) fn new(
+        text: RichText,
+        fonts: Vec<ResolvedFont>,
+        style: &ShapingStyle,
+        epoch: u64,
+    ) -> Self {
         assert_eq!(text.font_runs.len(), fonts.len(), "a font for every run");
         let colors = ColorRuns::of(&text, |color| parse_color(Some(color), Color::WHITE));
         let backgrounds = text
             .backgrounds
             .iter()
-            .map(|background| (background.range.clone(), parse_color(Some(&background.color), Color::TRANSPARENT_BLACK)))
+            .map(|background| {
+                (
+                    background.range.clone(),
+                    parse_color(Some(&background.color), Color::TRANSPARENT_BLACK),
+                )
+            })
             .collect();
-        Self { text, fonts, colors, backgrounds, epoch, style: style.clone() }
+        Self {
+            text,
+            fonts,
+            colors,
+            backgrounds,
+            epoch,
+            style: style.clone(),
+        }
     }
 
     /// Whether `text` shapes to what this paragraph is shaped from: the same characters in the same fonts, at the same style.
@@ -51,6 +68,9 @@ impl RichParagraph {
 
     /// Whether any segment is decorated.
     pub(super) fn is_decorated(&self) -> bool {
-        self.text.segments.iter().any(|segment| !segment.style.decorations.is_empty())
+        self.text
+            .segments
+            .iter()
+            .any(|segment| !segment.style.decorations.is_empty())
     }
 }

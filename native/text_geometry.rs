@@ -15,14 +15,18 @@ use crate::selection_input::lay_out;
 use crate::text_layout::{GodotTextLayout, TextDirection};
 use crate::text_offsets::{code_point_to_utf16, utf16_to_code_point};
 use crate::text_paragraph::StyledParagraph;
-use crate::text_style::TextStyle;
 use crate::text_span::offsets::{Located, OffsetMap, Side};
+use crate::text_style::TextStyle;
 
 /// `getCaretRect`'s `side` on the wire.
 const SIDE_BEFORE: i64 = -1;
 
 fn side_of(wire: i64) -> Side {
-    if wire == SIDE_BEFORE { Side::Before } else { Side::After }
+    if wire == SIDE_BEFORE {
+        Side::Before
+    } else {
+        Side::After
+    }
 }
 
 fn reply(result: Result<Value, String>) -> Value {
@@ -36,7 +40,10 @@ fn rect_json(rect: BoxRect) -> Value {
 impl ReactUiRoot {
     /// The mounted `Text` `tag`, or `None`.
     fn text_node(&self, tag: u32) -> Option<&crate::mount::MountedNode> {
-        self.mounted.nodes.get(&tag).filter(|node| node.kind == Kind::Text)
+        self.mounted
+            .nodes
+            .get(&tag)
+            .filter(|node| node.kind == Kind::Text)
     }
 
     /// `rect`, in the frame of the node, as the rectangle that bounds it where it is drawn.
@@ -55,7 +62,9 @@ impl ReactUiRoot {
 
     /// The shown text of the node, which offsets in UTF-16 units are into.
     fn shown_of<'a>(node: &'a crate::mount::MountedNode) -> &'a str {
-        node.visual.shown_text(node.props.text.as_deref()).unwrap_or("")
+        node.visual
+            .shown_text(node.props.text.as_deref())
+            .unwrap_or("")
     }
 
     /// The caret rectangle at UTF-16 `offset` of node `tag`'s text, on `side` (-1 before, 1 after).
@@ -70,11 +79,16 @@ impl ReactUiRoot {
         let node = self.text_node(tag).ok_or("not a Text")?;
         let shown = Self::shown_of(node);
         let offset = usize::try_from(offset).map_err(|_| format!("offset {offset} is negative"))?;
-        let source = utf16_to_code_point(shown.chars(), offset).map_err(|error| error.to_string())?;
+        let source =
+            utf16_to_code_point(shown.chars(), offset).map_err(|error| error.to_string())?;
         if node.visual.paragraph.is_none() {
             // Nothing is shaped (an empty text): the caret is at the start of its one empty line.
             let empty = self.empty_text_line(tag)?;
-            let origin = self.text_node(tag).ok_or("not a Text")?.geometry.content_origin();
+            let origin = self
+                .text_node(tag)
+                .ok_or("not a Text")?
+                .geometry
+                .content_origin();
             return self.text_rect_to_root(
                 tag,
                 Rect2::new(origin, Vector2::new(0.0, empty.ascent + empty.descent)),
@@ -88,19 +102,31 @@ impl ReactUiRoot {
             .ok_or("the text has no paragraph")?;
         let layout = lay_out(paragraph, &node.geometry).map_err(|error| error.to_string())?;
         let side = side_of(side);
-        let display = paragraph.offset_map().map_or(source, |map| map.display_of(source, side));
-        let display_text = paragraph.rich_text().map_or(Self::shown_of(node), |rich| rich.display.as_str());
+        let display = paragraph
+            .offset_map()
+            .map_or(source, |map| map.display_of(source, side));
+        let display_text = paragraph
+            .rich_text()
+            .map_or(Self::shown_of(node), |rich| rich.display.as_str());
         let carets = Self::carets_at(&layout, display_text, display, side)?;
         let caret = carets.primary(TextDirection::Ltr);
-        let line = layout.line(carets.line).map_err(|error| error.to_string())?;
-        let rect = Rect2::new(Vector2::new(caret.x, line.top()), Vector2::new(0.0, line.height()));
+        let line = layout
+            .line(carets.line)
+            .map_err(|error| error.to_string())?;
+        let rect = Rect2::new(
+            Vector2::new(caret.x, line.top()),
+            Vector2::new(0.0, line.height()),
+        );
         self.text_rect_to_root(tag, rect)
     }
 
     /// What an empty line of the text of node `tag` measures.
     fn empty_text_line(&mut self, tag: u32) -> Result<crate::text_layout::LineExtents, String> {
         let node = self.text_node(tag).ok_or("not a Text")?;
-        let style = TextStyle::of(&node.computed, node.computed.overflow_x.is_some_and(OverflowSpec::clips));
+        let style = TextStyle::of(
+            &node.computed,
+            node.computed.overflow_x.is_some_and(OverflowSpec::clips),
+        );
         let font = self.fonts.resolve(&style.shaping)?;
         Ok(StyledParagraph::empty_line(&font, &style.shaping))
     }
@@ -154,12 +180,17 @@ impl ReactUiRoot {
                     Ok(carets.primary(TextDirection::Ltr).x)
                 };
                 let (before, after) = (x_of(group.start)?, x_of(group.end)?);
-                let side = if (local.x - before).abs() < (local.x - after).abs() { Side::Before } else { Side::After };
+                let side = if (local.x - before).abs() < (local.x - after).abs() {
+                    Side::Before
+                } else {
+                    Side::After
+                };
                 (source, side)
             }
         };
         let shown = Self::shown_of(node);
-        let utf16 = code_point_to_utf16(shown.chars(), source).map_err(|error| error.to_string())?;
+        let utf16 =
+            code_point_to_utf16(shown.chars(), source).map_err(|error| error.to_string())?;
         let side = match side {
             Side::Before => "before",
             Side::After => "after",
@@ -172,25 +203,33 @@ impl ReactUiRoot {
         if self.text_node(tag).is_none() {
             return Value::Null;
         }
-        reply(self.range_rects(tag, start, end).map(|rects| json!({ "rects": rects })))
+        reply(
+            self.range_rects(tag, start, end)
+                .map(|rects| json!({ "rects": rects })),
+        )
     }
 
     fn range_rects(&self, tag: u32, start: i64, end: i64) -> Result<Vec<Value>, String> {
         let node = self.text_node(tag).ok_or("not a Text")?;
         let shown = Self::shown_of(node);
         let to_code_point = |offset: i64, name: &str| -> Result<usize, String> {
-            let offset = usize::try_from(offset).map_err(|_| format!("{name} {offset} is negative"))?;
+            let offset =
+                usize::try_from(offset).map_err(|_| format!("{name} {offset} is negative"))?;
             utf16_to_code_point(shown.chars(), offset).map_err(|error| format!("{name}: {error}"))
         };
         let (start, end) = (to_code_point(start, "start")?, to_code_point(end, "end")?);
         if start > end {
-            return Err(format!("the range starts at {start} after it ends at {end}"));
+            return Err(format!(
+                "the range starts at {start} after it ends at {end}"
+            ));
         }
         let Some(paragraph) = node.visual.paragraph.as_ref().filter(|_| start < end) else {
             return Ok(Vec::new());
         };
         let layout = lay_out(paragraph, &node.geometry).map_err(|error| error.to_string())?;
-        let range = paragraph.offset_map().map_or(start..end, |map: &OffsetMap| map.display_range(start..end));
+        let range = paragraph
+            .offset_map()
+            .map_or(start..end, |map: &OffsetMap| map.display_range(start..end));
         layout
             .selection_rects(range.start, range.end.max(range.start))
             .map_err(|error| error.to_string())?

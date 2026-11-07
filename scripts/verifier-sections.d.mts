@@ -2,11 +2,11 @@ export const ONLY_PREFIX: string;
 
 export const NATIVE_INTERACTION_SECTIONS: readonly [
   'events', 'cooperation', 'pointers', 'keyboard', 'positioning', 'inputs', 'scroll', 'selection', 'drag', 'forms', 'combobox', 'hidpi', 'filters', 'glass', 'paint',
-  'navigator', 'transforms', 'layout-utilities', 'text-styles', 'filters-sizes', 'filters-cost', 'filters-faults', 'transforms-faults', 'live-compile', 'code-editor',
+  'navigator', 'transforms', 'layout-utilities', 'text-styles', 'rich-text', 'filters-sizes', 'filters-cost', 'filters-faults', 'transforms-faults', 'live-compile', 'code-editor',
 ];
 export const NATIVE_OPT_IN_SECTIONS: readonly ['filters-sizes', 'filters-cost', 'filters-faults', 'transforms-faults', 'live-compile'];
 export const WEB_INTERACTION_SECTIONS: readonly [
-  'events', 'cooperation', 'pointers', 'keyboard', 'scroll', 'selection', 'drag', 'forms', 'combobox', 'hidpi', 'filters', 'glass', 'paint', 'navigator', 'transforms', 'text-styles', 'code-editor', 'touch',
+  'events', 'cooperation', 'pointers', 'keyboard', 'scroll', 'selection', 'drag', 'forms', 'combobox', 'hidpi', 'filters', 'glass', 'paint', 'navigator', 'transforms', 'text-styles', 'rich-text', 'code-editor', 'touch',
 ];
 
 /** Every section name the arguments ask for, across all `--only=` arguments. */

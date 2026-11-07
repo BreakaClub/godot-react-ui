@@ -1224,6 +1224,9 @@ declare module "godot" {
         _on_web_clipboard_refused: "_onWebClipboardRefused";
         get_node_rect: "getNodeRect";
         get_text_lines: "getTextLines";
+        get_caret_rect: "getCaretRect";
+        get_offset_at_point: "getOffsetAtPoint";
+        get_range_rects: "getRangeRects";
         find_by_test_id: "findByTestId";
         drain_events: "drainEvents";
         resolve_event: "resolveEvent";
@@ -1264,6 +1267,9 @@ declare module "godot" {
         _onWebClipboardRefused(arguments_: GArray): any
         getNodeRect(tag: int64): string
         getTextLines(tag: int64): string
+        getCaretRect(tag: int64, offset: int64, side: int64): string
+        getOffsetAtPoint(tag: int64, x: float64, y: float64): string
+        getRangeRects(tag: int64, start: int64, end: int64): string
         findByTestId(testId: string): int64
         drainEvents(): string
         resolveEvent(seq: int64, defaultPrevented: boolean, dropEffect: string): string

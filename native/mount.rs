@@ -34,9 +34,9 @@ use crate::text_input::EditConfig;
 use crate::text_input_godot::TextInputState;
 use crate::text_paragraph::StyledParagraph;
 use crate::text_span::{self, RichText};
+use crate::text_style::TextStyle;
 use crate::text_style::flow::shown_text_mapped;
 use crate::text_style::resolve::ShapingStyle;
-use crate::text_style::TextStyle;
 use crate::transform::{Affine2, NodeTransform};
 use crate::{CORNER_DETAIL, ReactUiRoot};
 
@@ -1157,8 +1157,14 @@ impl ReactUiRoot {
             .as_deref()
             .filter(|spans| !spans.is_empty())
             .map(|spans| {
-                text_span::resolve(&node.computed.0, source, &shown.text, shown.positions.as_deref(), spans)
-                    .expect("spans were validated against the text with the commit that brought them")
+                text_span::resolve(
+                    &node.computed.0,
+                    source,
+                    &shown.text,
+                    shown.positions.as_deref(),
+                    spans,
+                )
+                .expect("spans were validated against the text with the commit that brought them")
             });
         let shown = shown.text.into_owned();
         let epoch = self.fonts.epoch();
@@ -1246,7 +1252,12 @@ impl ReactUiRoot {
     }
 
     /// The paragraph that shapes `rich`: one font per run of fonts, resolved against the node's own style.
-    fn shape_rich(&mut self, rich: RichText, style: &ShapingStyle, epoch: u64) -> Option<StyledParagraph> {
+    fn shape_rich(
+        &mut self,
+        rich: RichText,
+        style: &ShapingStyle,
+        epoch: u64,
+    ) -> Option<StyledParagraph> {
         if rich.display.is_empty() {
             return None;
         }

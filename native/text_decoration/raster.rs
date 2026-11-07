@@ -10,7 +10,12 @@
 use super::Wave;
 
 /// The sample offsets inside a device pixel, as (x, y) fractions.
-const SAMPLES: [(f32, f32); 4] = [(0.375, 0.125), (0.875, 0.375), (0.125, 0.625), (0.625, 0.875)];
+const SAMPLES: [(f32, f32); 4] = [
+    (0.375, 0.125),
+    (0.875, 0.375),
+    (0.125, 0.625),
+    (0.625, 0.875),
+];
 /// How finely a period is cut into straight pieces to measure distances to.
 const SEGMENTS_PER_PERIOD: usize = 96;
 /// A period count is searched for up to this many periods whose total length is whole device pixels.
@@ -31,7 +36,11 @@ pub(crate) struct Raster {
 
 impl Raster {
     fn new(width: usize, height: usize) -> Self {
-        Self { width, height, alpha: vec![0; width * height] }
+        Self {
+            width,
+            height,
+            alpha: vec![0; width * height],
+        }
     }
 
     fn set(&mut self, x: usize, y: usize, covered: usize) {
@@ -71,8 +80,14 @@ pub(crate) struct WaveLayout {
 
 pub(crate) fn wave_layout(wave: &Wave, scale: f32) -> WaveLayout {
     let (periods, width) = periods_for(wave.period * scale);
-    let rows_above = (wave.amplitude() * scale + wave.width * scale / 2.0).ceil() as usize + PADDING;
-    WaveLayout { periods, width, height: rows_above * 2 + 1, rows_above }
+    let rows_above =
+        (wave.amplitude() * scale + wave.width * scale / 2.0).ceil() as usize + PADDING;
+    WaveLayout {
+        periods,
+        width,
+        height: rows_above * 2 + 1,
+        rows_above,
+    }
 }
 
 /// A baked wave, to be tiled along the line: `periods` periods in a picture `width` pixels wide. The picture's rows start
@@ -107,7 +122,12 @@ fn distance_to_wave(points: &[(f32, f32)], period: f32, x: f32, y: f32) -> f32 {
 /// Chrome's does.
 pub(crate) fn wave_tile(wave: &Wave, scale: f32, center_fraction: f32) -> WaveTile {
     let period = wave.period * scale;
-    let WaveLayout { periods, width, height, rows_above } = wave_layout(wave, scale);
+    let WaveLayout {
+        periods,
+        width,
+        height,
+        rows_above,
+    } = wave_layout(wave, scale);
     let half_stroke = wave.width * scale / 2.0;
     // The pieces of one period, with the centre line at `rows_above + center_fraction` from the picture's top.
     let center = rows_above as f32 + center_fraction;
@@ -129,7 +149,11 @@ pub(crate) fn wave_tile(wave: &Wave, scale: f32, center_fraction: f32) -> WaveTi
             raster.set(x, y, covered);
         }
     }
-    WaveTile { raster, periods, rows_above }
+    WaveTile {
+        raster,
+        periods,
+        rows_above,
+    }
 }
 
 /// Bake a round dot of `diameter` device pixels, centred in its picture.
@@ -143,7 +167,8 @@ pub(crate) fn dot(diameter: f32) -> Raster {
             let covered = SAMPLES
                 .iter()
                 .filter(|(dx, dy)| {
-                    ((x as f32 + dx - center).powi(2) + (y as f32 + dy - center).powi(2)).sqrt() <= radius
+                    ((x as f32 + dx - center).powi(2) + (y as f32 + dy - center).powi(2)).sqrt()
+                        <= radius
                 })
                 .count();
             raster.set(x, y, covered);

@@ -2,10 +2,10 @@
 //! into px where they are set (`settle`), and the typed view shaping and painting read (`TextStyle`).
 
 use super::spec::{
-    DecorationLines, DecorationStyleSpec, DecorationThickness, DecorationThicknessSpec, FontStyleSpec,
-    LetterSpacingSpec, LineClampSpec, LineHeightSpec, LineHeightValue, NumericFigureSpec,
-    NumericFractionSpec, NumericSpacingSpec, OverflowWrapSpec, TextLength, TextOverflowSpec,
-    TextTransformSpec, UnderlineOffsetSpec, WhiteSpaceSpec, WordBreakSpec,
+    DecorationLines, DecorationStyleSpec, DecorationThickness, DecorationThicknessSpec,
+    FontStyleSpec, LetterSpacingSpec, LineClampSpec, LineHeightSpec, LineHeightValue,
+    NumericFigureSpec, NumericFractionSpec, NumericSpacingSpec, OverflowWrapSpec, TextLength,
+    TextOverflowSpec, TextTransformSpec, UnderlineOffsetSpec, WhiteSpaceSpec, WordBreakSpec,
 };
 use crate::DEFAULT_FONT_SIZE;
 use crate::props::{PositionSpec, StyleSpec, TextAlignSpec};

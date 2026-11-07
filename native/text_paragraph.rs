@@ -183,7 +183,12 @@ impl StyledParagraph {
     /// Give this paragraph the spans of `text` without shaping it again, if shaping them gives what it holds: the same characters
     /// in the same fonts at the same style. The colours, backgrounds and decorations are what changed. Hands `text` back when it
     /// has to be shaped again.
-    pub(crate) fn repaint_rich(&mut self, text: RichText, style: &ShapingStyle, epoch: u64) -> Result<(), RichText> {
+    pub(crate) fn repaint_rich(
+        &mut self,
+        text: RichText,
+        style: &ShapingStyle,
+        epoch: u64,
+    ) -> Result<(), RichText> {
         let Some(rich) = self.rich.as_ref() else {
             return Err(text);
         };
@@ -300,13 +305,20 @@ impl StyledParagraph {
         let source = GodotParagraph::lay_out(&self.paragraph, width)
             .map_err(|error| error.to_string())?
             .hanging_spaces();
-        TextLayout::new(source, origin, self.extents_of_empty_line()).map_err(|error| error.to_string())
+        TextLayout::new(source, origin, self.extents_of_empty_line())
+            .map_err(|error| error.to_string())
     }
 
     /// Draw the backgrounds of the spans: under the selection highlight and under the text. A span's background fills the
     /// content area of its text (the font's rounded ascent above the baseline, its descent below), not the line box, and its
     /// edges are whole logical pixels, as Chrome paints it.
-    pub(crate) fn draw_backgrounds(&mut self, canvas: Rid, origin: Vector2, width: f32, oversampling: f32) {
+    pub(crate) fn draw_backgrounds(
+        &mut self,
+        canvas: Rid,
+        origin: Vector2,
+        width: f32,
+        oversampling: f32,
+    ) {
         let Some(rich) = self.rich.clone() else {
             return;
         };
@@ -408,7 +420,8 @@ impl StyledParagraph {
         layout: &GodotTextLayout,
         oversampling: f32,
     ) -> Result<Vec<draw::DecoratedFragment>, String> {
-        let baseline = |line: &crate::text_layout::Line| (line.origin.y * oversampling).round() / oversampling;
+        let baseline =
+            |line: &crate::text_layout::Line| (line.origin.y * oversampling).round() / oversampling;
         let Some(rich) = &self.rich else {
             return Ok(layout
                 .lines()
@@ -427,7 +440,13 @@ impl StyledParagraph {
         let lines: Vec<std::ops::Range<usize>> = layout
             .lines()
             .iter()
-            .map(|line| if line.after_final_break { 0..0 } else { line.range.clone() })
+            .map(|line| {
+                if line.after_final_break {
+                    0..0
+                } else {
+                    line.range.clone()
+                }
+            })
             .collect();
         let mut found = Vec::new();
         for piece in fragments(&rich.text.segments, &lines) {
@@ -437,14 +456,20 @@ impl StyledParagraph {
             let mut extent: Option<(f32, f32)> = None;
             for run in runs.iter().filter(|run| run.line == piece.line) {
                 let (left, right) = (run.rect.position.x, run.rect.position.x + run.rect.size.x);
-                extent = Some(extent.map_or((left, right), |(from, to)| (from.min(left), to.max(right))));
+                extent = Some(
+                    extent.map_or((left, right), |(from, to)| (from.min(left), to.max(right))),
+                );
             }
             let Some((left, right)) = extent else {
                 continue;
             };
             let line = layout.line(piece.line).map_err(|error| error.to_string())?;
             found.push(draw::DecoratedFragment {
-                fragment: Fragment { left, right, baseline: baseline(line) },
+                fragment: Fragment {
+                    left,
+                    right,
+                    baseline: baseline(line),
+                },
                 decorations: rich.text.segments[piece.segment].style.decorations.clone(),
             });
         }

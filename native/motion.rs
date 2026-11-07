@@ -395,7 +395,9 @@ impl ReactUiRoot {
         let decorations_changed = previous_text
             .as_ref()
             .is_some_and(|previous| previous.decorations != now.decorations);
-        let has_text = node.props.text.is_some() || node.props.spans.is_some() || node.visual.paragraph.is_some();
+        let has_text = node.props.text.is_some()
+            || node.props.spans.is_some()
+            || node.visual.paragraph.is_some();
         if node.computed.transition.is_some() {
             self.motion_nodes.insert(tag);
         } else {

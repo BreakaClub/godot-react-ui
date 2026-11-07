@@ -18,19 +18,19 @@ use taffy::style_helpers::auto;
 
 use crate::box_shadow::{ShadowList, ShadowParts};
 use crate::filter::{FilterKind, FilterList, FilterParts};
+use crate::gradient::{BackgroundImage, GradientParts};
 use crate::grid_style::{
     AutoKeyword, GridAutoFlowSpec, GridLineSpec, GridTemplateSpec, GridTrackSpec, auto_tracks,
     placement, validate_auto_tracks,
 };
-use crate::gradient::{BackgroundImage, GradientParts};
+use crate::text_span::{SpanSpec, validate_spans};
 use crate::text_style::spec::{MAX_FONT_WEIGHT, MIN_FONT_WEIGHT};
 use crate::text_style::{
-    DecorationLines, DecorationStyleSpec, DecorationThicknessSpec, FontStyleSpec, LetterSpacingSpec, LineClampSpec,
-    LineHeightSpec, NumericFigureSpec, NumericFractionSpec, NumericSpacingSpec, OverflowWrapSpec,
-    TextDecoration, TextOverflowSpec, TextTransformSpec, UnderlineOffsetSpec, WhiteSpaceSpec,
-    WordBreakSpec,
+    DecorationLines, DecorationStyleSpec, DecorationThicknessSpec, FontStyleSpec,
+    LetterSpacingSpec, LineClampSpec, LineHeightSpec, NumericFigureSpec, NumericFractionSpec,
+    NumericSpacingSpec, OverflowWrapSpec, TextDecoration, TextOverflowSpec, TextTransformSpec,
+    UnderlineOffsetSpec, WhiteSpaceSpec, WordBreakSpec,
 };
-use crate::text_span::{SpanSpec, validate_spans};
 use crate::transform::{TransformList, TransformOriginSpec, TransformParts};
 pub use crate::transition::Easing;
 use crate::transition::{

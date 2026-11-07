@@ -1266,7 +1266,11 @@ impl ReactUiRoot {
             },
             border,
             decoration,
-            square_feather: if border.is_rounded() { None } else { square_feather },
+            square_feather: if border.is_rounded() {
+                None
+            } else {
+                square_feather
+            },
         };
         let reach_before = node.render.paint_reach();
         let boxed = node.render.record_box(box_key, &mut node.visual.background);

@@ -27,7 +27,8 @@ use serde::{Deserialize, Serialize};
 use crate::props::StyleSpec;
 use crate::text_style::resolve::family_list;
 use crate::text_style::spec::{
-    DecorationLines, DecorationStyleSpec, DecorationThicknessSpec, FontStyleSpec, UnderlineOffsetSpec,
+    DecorationLines, DecorationStyleSpec, DecorationThicknessSpec, FontStyleSpec,
+    UnderlineOffsetSpec,
 };
 use crate::text_style::{InheritedText, TextDecoration, settle};
 use offsets::{Inlay, OffsetMap};
@@ -126,8 +127,9 @@ impl Utf16Index {
         }
         match &self.table {
             None => Ok(offset),
-            Some(table) => table[offset]
-                .ok_or_else(|| format!("offset {offset} is inside a surrogate pair")),
+            Some(table) => {
+                table[offset].ok_or_else(|| format!("offset {offset} is inside a surrogate pair"))
+            }
         }
     }
 }
@@ -154,7 +156,10 @@ fn validate_level(
     for (n, span) in spans.iter().enumerate() {
         let here = format!("{path}[{n}]");
         if span.start > span.end {
-            return Err(format!("{here} starts at {} after it ends at {}", span.start, span.end));
+            return Err(format!(
+                "{here} starts at {} after it ends at {}",
+                span.start, span.end
+            ));
         }
         if span.start < cursor {
             return Err(format!(
@@ -163,12 +168,22 @@ fn validate_level(
             ));
         }
         if span.end > to {
-            return Err(format!("{here} ends at {}, past the end of its parent ({to})", span.end));
+            return Err(format!(
+                "{here} ends at {}, past the end of its parent ({to})",
+                span.end
+            ));
         }
-        index.code_point(span.start).map_err(|error| format!("{here}.start: {error}"))?;
-        index.code_point(span.end).map_err(|error| format!("{here}.end: {error}"))?;
+        index
+            .code_point(span.start)
+            .map_err(|error| format!("{here}.start: {error}"))?;
+        index
+            .code_point(span.end)
+            .map_err(|error| format!("{here}.end: {error}"))?;
         if let Some(style) = &span.style {
-            style.as_style().validate().map_err(|error| format!("{here}.style: {error}"))?;
+            style
+                .as_style()
+                .validate()
+                .map_err(|error| format!("{here}.style: {error}"))?;
         }
         let children = span.children.as_deref().unwrap_or(&[]);
         match &span.inlay {
@@ -177,7 +192,10 @@ fn validate_level(
                     return Err(format!("{here} is an inlay with no text"));
                 }
                 if span.start != span.end {
-                    return Err(format!("{here} is an inlay and must sit at one offset, not cover {}..{}", span.start, span.end));
+                    return Err(format!(
+                        "{here} is an inlay and must sit at one offset, not cover {}..{}",
+                        span.start, span.end
+                    ));
                 }
                 if !children.is_empty() {
                     return Err(format!("{here} is an inlay and cannot have children"));
@@ -187,7 +205,14 @@ fn validate_level(
                 if span.start == span.end && children.is_empty() {
                     return Err(format!("{here} is empty"));
                 }
-                validate_level(children, span.start, span.end, index, depth + 1, &format!("{here}.children"))?;
+                validate_level(
+                    children,
+                    span.start,
+                    span.end,
+                    index,
+                    depth + 1,
+                    &format!("{here}.children"),
+                )?;
             }
         }
         cursor = span.end;
@@ -206,7 +231,11 @@ pub(crate) struct FontKey {
 impl FontKey {
     fn of(style: &StyleSpec) -> Self {
         Self {
-            families: style.font_family.as_deref().map(family_list).unwrap_or_default(),
+            families: style
+                .font_family
+                .as_deref()
+                .map(family_list)
+                .unwrap_or_default(),
             weight: style.font_weight,
             italic: style.font_style == Some(FontStyleSpec::Italic),
         }
@@ -271,7 +300,8 @@ fn in_code_points<'a>(
     index: &Utf16Index,
     shown_positions: Option<&[usize]>,
 ) -> Result<Vec<CodePointSpan<'a>>, String> {
-    let shown = |code_point: usize| shown_positions.map_or(code_point, |positions| positions[code_point]);
+    let shown =
+        |code_point: usize| shown_positions.map_or(code_point, |positions| positions[code_point]);
     spans
         .iter()
         .map(|span| {
@@ -280,7 +310,11 @@ fn in_code_points<'a>(
                 end: shown(index.code_point(span.end)?),
                 style: span.style.as_ref(),
                 inlay: span.inlay.as_deref(),
-                children: in_code_points(span.children.as_deref().unwrap_or(&[]), index, shown_positions)?,
+                children: in_code_points(
+                    span.children.as_deref().unwrap_or(&[]),
+                    index,
+                    shown_positions,
+                )?,
             })
         })
         .collect()
@@ -450,7 +484,9 @@ pub(crate) fn resolve(
     };
     let to = builder.shown.len();
     builder.walk(&tree, 0, to, &root, &root_style);
-    builder.backgrounds.retain(|background| background.range.start < background.range.end);
+    builder
+        .backgrounds
+        .retain(|background| background.range.start < background.range.end);
     let font_runs = font_runs_of(&builder.segments);
     Ok(RichText {
         map: OffsetMap::new(builder.inlays, to),

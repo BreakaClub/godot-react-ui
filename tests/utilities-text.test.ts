@@ -114,6 +114,20 @@ test('case classes', () => {
   assert.deepEqual(style('uppercase normal-case'), { textTransform: 'none' });
 });
 
+test('decoration style classes set textDecorationStyle, and combine with the line, colour and thickness', () => {
+  for (const name of ['solid', 'double', 'dotted', 'dashed', 'wavy'] as const) {
+    assert.deepEqual(style(`decoration-${name}`), { textDecorationStyle: name }, name);
+  }
+  assert.deepEqual(
+    style('underline decoration-wavy decoration-red-500 decoration-2'),
+    { textDecorationLine: 'underline', textDecorationStyle: 'wavy', textDecorationColor: '#ef4444', textDecorationThickness: 2 },
+  );
+  // The last class of a kind wins, and a variant keeps the base.
+  assert.deepEqual(style('decoration-wavy decoration-dotted'), { textDecorationStyle: 'dotted' });
+  const hover = compileStyle('underline hover:decoration-wavy');
+  assert.deepEqual(hover.layers.map(layer => layer.style), [{ textDecorationLine: 'underline' }, { textDecorationStyle: 'wavy' }]);
+});
+
 test('decoration classes', () => {
   assert.deepEqual(style('underline'), { textDecorationLine: 'underline' });
   assert.deepEqual(style('overline'), { textDecorationLine: 'overline' });

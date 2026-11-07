@@ -18,6 +18,7 @@ import { registerDemoFonts } from './demo-fonts';
 import { FiltersLab, type FiltersLabProps } from './filters-lab';
 import { selectionLabControls } from './selection-lab';
 import { LayoutUtilitiesLab, TransitionClassesLab, type LayoutUtilitiesPage } from './layout-utilities-lab';
+import { RichTextLab, type RichTextLabProps } from './rich-text-lab';
 import { TextStylesLab } from './text-styles-lab';
 import { observeInputFailure, runVerification } from './verify';
 import { BenchmarkApp, type BenchmarkProps } from './benchmark';
@@ -169,6 +170,8 @@ export default class Main extends Node {
       /** The filters lab (plan Phase V1): rendered again with new props, so a change is an ordinary commit. */
       /** One page of the text styles lab (`text-styles-data.ts`). */
       showTextStyles: (page: string) => this.requireRenderer().render(createElement(TextStylesLab, { page })),
+      /** One page of the rich text lab (`rich-text-data.ts`) bare, with the tone its changing samples have; rendered again with another tone it is an ordinary commit. */
+      showRichText: (props: RichTextLabProps) => this.requireRenderer().render(createElement(RichTextLab, props)),
       /** One page of the layout utilities lab (`layout-utilities-data.ts`), bare at the root's corner, or its transition page. */
       showLayoutUtilities: (page: LayoutUtilitiesPage) => this.requireRenderer().render(
         page === 'transitions' ? createElement(TransitionClassesLab) : createElement(LayoutUtilitiesLab, { page }),

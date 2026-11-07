@@ -210,9 +210,17 @@ pub(super) fn draw_decorations(
         for decoration in &decorated.decorations {
             let color = parse_color(Some(&decoration.color), Color::WHITE);
             let lines: [(LineKind, bool, Layer); 3] = [
-                (LineKind::Underline, decoration.lines.underline, Layer::Behind),
+                (
+                    LineKind::Underline,
+                    decoration.lines.underline,
+                    Layer::Behind,
+                ),
                 (LineKind::Overline, decoration.lines.overline, Layer::Behind),
-                (LineKind::LineThrough, decoration.lines.line_through, Layer::Over),
+                (
+                    LineKind::LineThrough,
+                    decoration.lines.line_through,
+                    Layer::Over,
+                ),
             ];
             for (kind, wanted, line_layer) in lines {
                 if !wanted || line_layer != layer {
@@ -287,10 +295,8 @@ fn draw_wave(canvas: Rid, plan: &WavePlan, color: Color, scale: f32, leases: &mu
 
 fn draw_dots(canvas: Rid, plan: &DotsPlan, color: Color, scale: f32, leases: &mut Vec<Lease>) {
     let diameter = plan.diameter * scale;
-    let (lease, texture, width, height) = acquire_baked(
-        vec![DOT_PICTURE, diameter.to_bits()],
-        || dot(diameter),
-    );
+    let (lease, texture, width, height) =
+        acquire_baked(vec![DOT_PICTURE, diameter.to_bits()], || dot(diameter));
     leases.push(lease);
     let mut server = RenderingServer::singleton();
     begin(canvas, scale);
@@ -303,7 +309,10 @@ fn draw_dots(canvas: Rid, plan: &DotsPlan, color: Color, scale: f32, leases: &mu
         server
             .canvas_item_add_texture_rect_region_ex(
                 canvas,
-                Rect2::new(Vector2::new(left, top), Vector2::new(width as f32, height as f32)),
+                Rect2::new(
+                    Vector2::new(left, top),
+                    Vector2::new(width as f32, height as f32),
+                ),
                 texture,
                 Rect2::new(Vector2::ZERO, Vector2::new(width as f32, height as f32)),
             )

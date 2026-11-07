@@ -20,7 +20,12 @@ impl<T> ColorRuns<T> {
             runs: rich
                 .segments
                 .iter()
-                .map(|segment| (segment.range.start, segment.style.color.as_deref().map(&parse)))
+                .map(|segment| {
+                    (
+                        segment.range.start,
+                        segment.style.color.as_deref().map(&parse),
+                    )
+                })
                 .collect(),
         }
     }
@@ -65,7 +70,11 @@ pub(crate) fn fragments(segments: &[Segment], lines: &[Range<usize>]) -> Vec<Fra
             let from = candidate.range.start.max(range.start);
             let to = candidate.range.end.min(range.end);
             if from < to {
-                found.push(FragmentRange { line, segment, range: from..to });
+                found.push(FragmentRange {
+                    line,
+                    segment,
+                    range: from..to,
+                });
             }
         }
     }

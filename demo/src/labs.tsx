@@ -18,6 +18,7 @@ import { PaintExplorer } from './paint-lab';
 import { PassthroughHud } from './passthrough-hud';
 import { PointerLab } from './pointer-lab';
 import { PositioningLab } from './positioning-lab';
+import { RichTextLab } from './rich-text-lab';
 import { ScrollLab } from './scroll-lab';
 import { SelectionLab } from './selection-lab';
 import { TextStylesLab } from './text-styles-lab';
@@ -160,6 +161,11 @@ export const LABS = defineLabs([
     id: 'text-styles', kind: 'inline', group: 'Text', title: 'Text styles',
     description: 'Font families, weights, italics, tracking, leading, decoration, wrapping, overflow and numerals.',
     component: TextStylesLab, sources: ['res://src/text-styles-lab.tsx'],
+  },
+  {
+    id: 'rich-text', kind: 'inline', group: 'Text', title: 'Rich text',
+    description: 'Nested Text as one paragraph: coloured, weighted and decorated spans, wavy underlines and inlays, with caret and hit-test geometry.',
+    component: RichTextLab, sources: ['res://src/rich-text-lab.tsx'],
   },
   {
     id: 'motion', kind: 'inline', padded: true, group: 'Motion', title: 'Transitions',

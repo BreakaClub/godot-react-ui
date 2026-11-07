@@ -2,9 +2,16 @@ use super::raster::{dot, wave_tile};
 use super::*;
 use crate::text_style::spec::DecorationThickness;
 
-fn decoration(style: DecorationStyleSpec, thickness: DecorationThickness, offset: Option<f32>) -> TextDecoration {
+fn decoration(
+    style: DecorationStyleSpec,
+    thickness: DecorationThickness,
+    offset: Option<f32>,
+) -> TextDecoration {
     TextDecoration {
-        lines: crate::text_style::DecorationLines { underline: true, ..Default::default() },
+        lines: crate::text_style::DecorationLines {
+            underline: true,
+            ..Default::default()
+        },
         color: "#ff0000".into(),
         style,
         thickness,
@@ -14,11 +21,19 @@ fn decoration(style: DecorationStyleSpec, thickness: DecorationThickness, offset
 
 /// JetBrains Mono at 14 px, as the references use it.
 fn font(size: f32) -> DecorationFont {
-    DecorationFont { size, ascent: (1.02 * size).round(), underline_thickness: 0.05 * size }
+    DecorationFont {
+        size,
+        ascent: (1.02 * size).round(),
+        underline_thickness: 0.05 * size,
+    }
 }
 
 fn fragment(left: f32, right: f32) -> Fragment {
-    Fragment { left, right, baseline: 100.0 }
+    Fragment {
+        left,
+        right,
+        baseline: 100.0,
+    }
 }
 
 fn rects(shapes: &[Shape]) -> Vec<(f32, f32, f32, f32)> {
@@ -44,7 +59,11 @@ fn the_wave_has_chromes_period_control_distance_and_amplitude() {
     ] {
         let wave = Wave::new(width);
         assert_eq!((wave.period, wave.control), (period, control), "w {width}");
-        assert!((2.0 * wave.amplitude() - peak_to_peak).abs() < 2e-3, "w {width}: {}", 2.0 * wave.amplitude());
+        assert!(
+            (2.0 * wave.amplitude() - peak_to_peak).abs() < 2e-3,
+            "w {width}: {}",
+            2.0 * wave.amplitude()
+        );
     }
     // `auto` at 16 px is a 1.6 px stroke with the period of Chrome's 9 px.
     assert_eq!(Wave::new(1.6).period, 9.0);
@@ -57,7 +76,9 @@ fn the_wave_has_chromes_period_control_distance_and_amplitude() {
 fn the_wave_follows_the_centre_line_chrome_measured() {
     // T = 2 at scale one, centre line 4.5 below the baseline: at x = 0.5 .. 10.5 the line is at these heights.
     let wave = Wave::new(2.0);
-    let expected = [5.139, 6.123, 6.626, 6.527, 5.763, 4.500, 3.237, 2.473, 2.374, 2.877, 3.861];
+    let expected = [
+        5.139, 6.123, 6.626, 6.527, 5.763, 4.500, 3.237, 2.473, 2.374, 2.877, 3.861,
+    ];
     for (k, expected) in expected.iter().enumerate() {
         let x = k as f32 + 0.5;
         // Find t with x(t) = x by bisection: x(t) increases with t.
@@ -76,11 +97,20 @@ fn the_wave_follows_the_centre_line_chrome_measured() {
 }
 
 /// The centre line of a wavy `kind` line of thickness `thickness` (a font of size 16 and ascent 16) at `scale`, below the baseline.
-fn wave_center(kind: LineKind, thickness: DecorationThickness, offset: Option<f32>, scale: f32) -> f32 {
+fn wave_center(
+    kind: LineKind,
+    thickness: DecorationThickness,
+    offset: Option<f32>,
+    scale: f32,
+) -> f32 {
     let shapes = shapes(
         &decoration(DecorationStyleSpec::Wavy, thickness, offset),
         kind,
-        DecorationFont { size: 16.0, ascent: 16.0, underline_thickness: 0.8 },
+        DecorationFont {
+            size: 16.0,
+            ascent: 16.0,
+            underline_thickness: 0.8,
+        },
         scale,
         fragment(0.0, 40.0),
     );
@@ -93,23 +123,75 @@ fn wave_center(kind: LineKind, thickness: DecorationThickness, offset: Option<f3
 #[test]
 fn the_wave_centre_lines_are_where_chrome_draws_them() {
     // Chrome 156, JetBrains Mono 16 px (ascent 16): the centre line's rows below the baseline, at any ratio for the whole strokes.
-    for (width, under, over) in [(1.0, 3.5, -18.5), (2.0, 4.5, -20.5), (3.0, 6.5, -22.5), (4.0, 7.5, -24.5), (6.0, 10.5, -28.5)] {
+    for (width, under, over) in [
+        (1.0, 3.5, -18.5),
+        (2.0, 4.5, -20.5),
+        (3.0, 6.5, -22.5),
+        (4.0, 7.5, -24.5),
+        (6.0, 10.5, -28.5),
+    ] {
         for scale in [1.0, 2.0] {
             let thickness = DecorationThickness::Px(width);
-            assert_eq!(wave_center(LineKind::Underline, thickness, None, scale), under, "underline {width} at {scale}");
-            assert_eq!(wave_center(LineKind::Overline, thickness, None, scale), over, "overline {width} at {scale}");
+            assert_eq!(
+                wave_center(LineKind::Underline, thickness, None, scale),
+                under,
+                "underline {width} at {scale}"
+            );
+            assert_eq!(
+                wave_center(LineKind::Overline, thickness, None, scale),
+                over,
+                "overline {width} at {scale}"
+            );
         }
     }
     // The line through the text is on a device pixel, so it moves with the ratio.
-    for (width, one, two) in [(1.0, -5.5, -5.5), (2.0, -5.5, -6.0), (3.0, -6.5, -6.5), (4.0, -6.5, -7.0), (6.0, -7.5, -8.0)] {
+    for (width, one, two) in [
+        (1.0, -5.5, -5.5),
+        (2.0, -5.5, -6.0),
+        (3.0, -6.5, -6.5),
+        (4.0, -6.5, -7.0),
+        (6.0, -7.5, -8.0),
+    ] {
         let thickness = DecorationThickness::Px(width);
-        assert_eq!(wave_center(LineKind::LineThrough, thickness, None, 1.0), one, "line through {width} at 1");
-        assert_eq!(wave_center(LineKind::LineThrough, thickness, None, 2.0), two, "line through {width} at 2");
+        assert_eq!(
+            wave_center(LineKind::LineThrough, thickness, None, 1.0),
+            one,
+            "line through {width} at 1"
+        );
+        assert_eq!(
+            wave_center(LineKind::LineThrough, thickness, None, 2.0),
+            two,
+            "line through {width} at 2"
+        );
     }
     // `text-underline-offset: 4px` is 4 + w + 1.5 for an underline and changes neither of the others.
-    assert_eq!(wave_center(LineKind::Underline, DecorationThickness::Px(2.0), Some(4.0), 1.0), 7.5);
-    assert_eq!(wave_center(LineKind::Overline, DecorationThickness::Px(2.0), Some(4.0), 1.0), -20.5);
-    assert_eq!(wave_center(LineKind::LineThrough, DecorationThickness::Px(2.0), Some(4.0), 1.0), -5.5);
+    assert_eq!(
+        wave_center(
+            LineKind::Underline,
+            DecorationThickness::Px(2.0),
+            Some(4.0),
+            1.0
+        ),
+        7.5
+    );
+    assert_eq!(
+        wave_center(
+            LineKind::Overline,
+            DecorationThickness::Px(2.0),
+            Some(4.0),
+            1.0
+        ),
+        -20.5
+    );
+    assert_eq!(
+        wave_center(
+            LineKind::LineThrough,
+            DecorationThickness::Px(2.0),
+            Some(4.0),
+            1.0
+        ),
+        -5.5
+    );
 }
 
 #[test]
@@ -117,7 +199,12 @@ fn a_baked_wave_has_chromes_ink_rows_and_only_whole_quarter_coverages() {
     // Rows with any ink, relative to the baseline, at scale one: T = 1 -> 1..=5, 2 -> 1..=7, 3 -> 2..=10 (Chrome 156).
     for (width, first, last) in [(1.0, 1, 5), (2.0, 1, 7), (3.0, 2, 10)] {
         let wave = Wave::new(width);
-        let center = wave_center(LineKind::Underline, DecorationThickness::Px(width), None, 1.0);
+        let center = wave_center(
+            LineKind::Underline,
+            DecorationThickness::Px(width),
+            None,
+            1.0,
+        );
         let fraction = center.fract();
         let tile = wave_tile(&wave, 1.0, fraction);
         let top_row = center.floor() as i32 - tile.rows_above as i32;
@@ -125,8 +212,17 @@ fn a_baked_wave_has_chromes_ink_rows_and_only_whole_quarter_coverages() {
             .filter(|row| (0..tile.raster.width).any(|x| tile.raster.at(x, *row) > 0))
             .map(|row| top_row + row as i32)
             .collect();
-        assert_eq!((rows.first().copied(), rows.last().copied()), (Some(first), Some(last)), "w {width}");
-        assert!(tile.raster.alpha.iter().all(|alpha| [0, 64, 128, 191, 255].contains(alpha)));
+        assert_eq!(
+            (rows.first().copied(), rows.last().copied()),
+            (Some(first), Some(last)),
+            "w {width}"
+        );
+        assert!(
+            tile.raster
+                .alpha
+                .iter()
+                .all(|alpha| [0, 64, 128, 191, 255].contains(alpha))
+        );
         assert_eq!(tile.raster.width, (wave.period as usize) * tile.periods);
     }
 }
@@ -152,10 +248,18 @@ fn a_round_dot_is_centred_and_symmetric() {
     let dot = dot(6.0);
     let size = dot.width;
     assert_eq!(dot.height, size);
-    assert!(dot.alpha.iter().any(|alpha| *alpha == 255), "its middle is solid");
+    assert!(
+        dot.alpha.iter().any(|alpha| *alpha == 255),
+        "its middle is solid"
+    );
     assert_eq!(dot.at(0, 0), 0, "its corner is empty");
-    let rows: usize = (0..size).filter(|y| (0..size).any(|x| dot.at(x, *y) > 0)).count();
-    assert!((6..=8).contains(&rows), "a 6 px dot covers about 6 rows, not {rows}");
+    let rows: usize = (0..size)
+        .filter(|y| (0..size).any(|x| dot.at(x, *y) > 0))
+        .count();
+    assert!(
+        (6..=8).contains(&rows),
+        "a 6 px dot covers about 6 rows, not {rows}"
+    );
 }
 
 #[test]
@@ -185,9 +289,19 @@ fn dashes_and_gaps_are_fitted_as_blink_does() {
 #[test]
 fn double_is_two_bands_a_pixel_apart() {
     // Rows below the baseline at scale one: T = 1 -> 1 and 3; 2 -> 1..=2 and 4..=5; 3 -> 2..=4 and 6..=8.
-    for (thickness, first, second) in [(1.0, 1.0, 3.0), (2.0, 1.0, 4.0), (3.0, 2.0, 6.0), (4.0, 2.0, 7.0), (6.0, 3.0, 10.0)] {
+    for (thickness, first, second) in [
+        (1.0, 1.0, 3.0),
+        (2.0, 1.0, 4.0),
+        (3.0, 2.0, 6.0),
+        (4.0, 2.0, 7.0),
+        (6.0, 3.0, 10.0),
+    ] {
         let shapes = shapes(
-            &decoration(DecorationStyleSpec::Double, DecorationThickness::Px(thickness), None),
+            &decoration(
+                DecorationStyleSpec::Double,
+                DecorationThickness::Px(thickness),
+                None,
+            ),
             LineKind::Underline,
             font(14.0),
             1.0,
@@ -195,13 +309,25 @@ fn double_is_two_bands_a_pixel_apart() {
         );
         let found = rects(&shapes);
         assert_eq!(found.len(), 2);
-        assert_eq!((found[0].1, found[0].3), (first, thickness), "T {thickness}");
-        assert_eq!((found[1].1, found[1].3), (second, thickness), "T {thickness}");
+        assert_eq!(
+            (found[0].1, found[0].3),
+            (first, thickness),
+            "T {thickness}"
+        );
+        assert_eq!(
+            (found[1].1, found[1].3),
+            (second, thickness),
+            "T {thickness}"
+        );
         assert_eq!((found[0].0, found[0].2), (10.0, 80.0));
     }
     // `text-underline-offset: 4px` puts the first line's top on row 4 whatever the thickness.
     let offset = shapes(
-        &decoration(DecorationStyleSpec::Double, DecorationThickness::Px(3.0), Some(4.0)),
+        &decoration(
+            DecorationStyleSpec::Double,
+            DecorationThickness::Px(3.0),
+            Some(4.0),
+        ),
         LineKind::Underline,
         font(14.0),
         1.0,
@@ -209,7 +335,11 @@ fn double_is_two_bands_a_pixel_apart() {
     );
     assert_eq!(rects(&offset)[0].1, 4.0);
     // `auto` at 16 px: rows 1 and 4; at 12 px 1 and 3; at 24 px 2..=3 and 5..=6.
-    for (size, first, second, height) in [(16.0, 1.0, 4.0, 1.0), (12.0, 1.0, 3.0, 1.0), (24.0, 2.0, 5.0, 2.0)] {
+    for (size, first, second, height) in [
+        (16.0, 1.0, 4.0, 1.0),
+        (12.0, 1.0, 3.0, 1.0),
+        (24.0, 2.0, 5.0, 2.0),
+    ] {
         let auto = shapes(
             &decoration(DecorationStyleSpec::Double, DecorationThickness::Auto, None),
             LineKind::Underline,
@@ -218,14 +348,22 @@ fn double_is_two_bands_a_pixel_apart() {
             fragment(0.0, 40.0),
         );
         let found = rects(&auto);
-        assert_eq!((found[0].1, found[1].1, found[0].3), (first, second, height), "{size} px");
+        assert_eq!(
+            (found[0].1, found[1].1, found[0].3),
+            (first, second, height),
+            "{size} px"
+        );
     }
 }
 
 #[test]
 fn dashes_are_butt_rectangles_on_the_solid_rows_from_the_floored_ends() {
     let shapes = shapes(
-        &decoration(DecorationStyleSpec::Dashed, DecorationThickness::Px(2.0), None),
+        &decoration(
+            DecorationStyleSpec::Dashed,
+            DecorationThickness::Px(2.0),
+            None,
+        ),
         LineKind::Underline,
         font(14.0),
         1.0,
@@ -237,13 +375,21 @@ fn dashes_are_butt_rectangles_on_the_solid_rows_from_the_floored_ends() {
     assert_eq!((found[0].0, found[0].2), (7.0, 6.0));
     assert!(found.iter().all(|rect| rect.1 == 1.0 && rect.3 == 2.0));
     let last = found.last().unwrap();
-    assert!((last.0 + last.2 - 199.0).abs() <= 0.51, "ends at the floored right end: {}", last.0 + last.2);
+    assert!(
+        (last.0 + last.2 - 199.0).abs() <= 0.51,
+        "ends at the floored right end: {}",
+        last.0 + last.2
+    );
 }
 
 #[test]
 fn dotted_lines_are_squares_to_three_pixels_and_round_dots_from_four() {
     let squares = shapes(
-        &decoration(DecorationStyleSpec::Dotted, DecorationThickness::Px(3.0), None),
+        &decoration(
+            DecorationStyleSpec::Dotted,
+            DecorationThickness::Px(3.0),
+            None,
+        ),
         LineKind::Underline,
         font(14.0),
         1.0,
@@ -251,9 +397,19 @@ fn dotted_lines_are_squares_to_three_pixels_and_round_dots_from_four() {
     );
     let found = rects(&squares);
     // Pitch 2T = 6: dots at 0, 6, 12 and 18, the last cut by the end at 20.
-    assert_eq!(found.iter().map(|rect| (rect.0, rect.2)).collect::<Vec<_>>(), [(0.0, 3.0), (6.0, 3.0), (12.0, 3.0), (18.0, 2.0)]);
+    assert_eq!(
+        found
+            .iter()
+            .map(|rect| (rect.0, rect.2))
+            .collect::<Vec<_>>(),
+        [(0.0, 3.0), (6.0, 3.0), (12.0, 3.0), (18.0, 2.0)]
+    );
     let round = shapes(
-        &decoration(DecorationStyleSpec::Dotted, DecorationThickness::Px(4.0), None),
+        &decoration(
+            DecorationStyleSpec::Dotted,
+            DecorationThickness::Px(4.0),
+            None,
+        ),
         LineKind::Underline,
         font(14.0),
         1.0,
@@ -263,8 +419,15 @@ fn dotted_lines_are_squares_to_three_pixels_and_round_dots_from_four() {
         [Shape::Dots(plan)] => {
             assert_eq!(plan.centers.len(), 23);
             assert_eq!(plan.diameter, 4.0);
-            assert!((plan.centers[0] - 2.0).abs() < 1e-4, "the first dot touches the left end");
-            assert!((plan.centers[22] - 180.0).abs() < 1e-3, "the last touches the right end: {}", plan.centers[22]);
+            assert!(
+                (plan.centers[0] - 2.0).abs() < 1e-4,
+                "the first dot touches the left end"
+            );
+            assert!(
+                (plan.centers[22] - 180.0).abs() < 1e-3,
+                "the last touches the right end: {}",
+                plan.centers[22]
+            );
             assert_eq!(plan.center_y, 100.0 + 2.0 + 2.0);
         }
         other => panic!("{other:?}"),
@@ -274,7 +437,11 @@ fn dotted_lines_are_squares_to_three_pixels_and_round_dots_from_four() {
 #[test]
 fn a_wavy_line_starts_at_the_left_edge_on_a_device_pixel_and_ends_at_the_right() {
     let shapes = shapes(
-        &decoration(DecorationStyleSpec::Wavy, DecorationThickness::Px(2.0), None),
+        &decoration(
+            DecorationStyleSpec::Wavy,
+            DecorationThickness::Px(2.0),
+            None,
+        ),
         LineKind::Underline,
         font(14.0),
         2.0,
@@ -295,7 +462,11 @@ fn a_wavy_line_starts_at_the_left_edge_on_a_device_pixel_and_ends_at_the_right()
 fn a_fractional_thickness_rounds_half_up_to_a_whole_pixel_and_zero_draws_nothing() {
     let line = |thickness: f32| {
         shapes(
-            &decoration(DecorationStyleSpec::Dashed, DecorationThickness::Px(thickness), None),
+            &decoration(
+                DecorationStyleSpec::Dashed,
+                DecorationThickness::Px(thickness),
+                None,
+            ),
             LineKind::Underline,
             font(14.0),
             1.0,
@@ -311,7 +482,11 @@ fn a_fractional_thickness_rounds_half_up_to_a_whole_pixel_and_zero_draws_nothing
 #[test]
 fn a_solid_style_is_the_band_the_decorator_gives() {
     let shapes = shapes(
-        &decoration(DecorationStyleSpec::Solid, DecorationThickness::Px(2.0), None),
+        &decoration(
+            DecorationStyleSpec::Solid,
+            DecorationThickness::Px(2.0),
+            None,
+        ),
         LineKind::Underline,
         font(14.0),
         1.0,
@@ -320,11 +495,21 @@ fn a_solid_style_is_the_band_the_decorator_gives() {
     assert_eq!(rects(&shapes), [(3.0, 1.0, 50.5, 2.0)]);
 }
 
-fn band_rows(style: DecorationStyleSpec, kind: LineKind, thickness: f32, size: f32, ascent: f32) -> Vec<(f32, f32)> {
+fn band_rows(
+    style: DecorationStyleSpec,
+    kind: LineKind,
+    thickness: f32,
+    size: f32,
+    ascent: f32,
+) -> Vec<(f32, f32)> {
     let drawn = shapes(
         &decoration(style, DecorationThickness::Px(thickness), None),
         kind,
-        DecorationFont { size, ascent, underline_thickness: 0.05 * size },
+        DecorationFont {
+            size,
+            ascent,
+            underline_thickness: 0.05 * size,
+        },
         1.0,
         fragment(0.0, 200.0),
     );
@@ -351,12 +536,28 @@ fn overlines_and_lines_through_the_text_have_their_own_rows() {
         (4.0, (-20.0, 4.0), (-7.0, 4.0), -8.0),
         (6.0, (-22.0, 6.0), (-8.0, 6.0), -9.0),
     ] {
-        assert_eq!(band_rows(Dashed, LineKind::Overline, thickness, 16.0, 16.0)[0], over, "dashed overline {thickness}");
-        assert_eq!(band_rows(Dashed, LineKind::LineThrough, thickness, 16.0, 16.0)[0], (through_dashed, thickness), "dashed line through {thickness}");
+        assert_eq!(
+            band_rows(Dashed, LineKind::Overline, thickness, 16.0, 16.0)[0],
+            over,
+            "dashed overline {thickness}"
+        );
+        assert_eq!(
+            band_rows(Dashed, LineKind::LineThrough, thickness, 16.0, 16.0)[0],
+            (through_dashed, thickness),
+            "dashed line through {thickness}"
+        );
         // A double's first line is the solid position, the second is a pixel beyond it: above an overline, below a line through the text.
         let double_over = band_rows(Double, LineKind::Overline, thickness, 16.0, 16.0);
-        assert_eq!(double_over, [over, (over.0 - thickness - 1.0, thickness)], "double overline {thickness}");
+        assert_eq!(
+            double_over,
+            [over, (over.0 - thickness - 1.0, thickness)],
+            "double overline {thickness}"
+        );
         let double_through = band_rows(Double, LineKind::LineThrough, thickness, 16.0, 16.0);
-        assert_eq!(double_through, [through, (through.0 + thickness + 1.0, thickness)], "double line through {thickness}");
+        assert_eq!(
+            double_through,
+            [through, (through.0 + thickness + 1.0, thickness)],
+            "double line through {thickness}"
+        );
     }
 }

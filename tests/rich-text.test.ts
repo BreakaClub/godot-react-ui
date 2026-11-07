@@ -82,7 +82,7 @@ test('empty spans are dropped, an empty inlay too, and an empty styled span that
 test('changing one span\'s colour sends only the spans; changing its text sends the text too', () => {
   const host = new RecordingHost();
   const root = createRoot(host, { subscribeToEvents: NO_SUBSCRIPTION });
-  const line = (color: string, word: string) => h(Text, { testID: 'line' }, 'let ', h(Text, { style: { color } }, word), ' = 1');
+  const line = (color: `#${string}`, word: string) => h(Text, { testID: 'line' }, 'let ', h(Text, { style: { color } }, word), ' = 1');
   root.render(line('#ff0000', 'x'));
   const created = host.commits.length;
   root.render(line('#00ff00', 'x'));
@@ -114,7 +114,7 @@ test('fragments, arrays and components around nested Text flatten like any child
   function Keyword({ children }: { children: string }) {
     return h(Text, { className: 'text-purple-500' }, children);
   }
-  const host = render(h(Text, { testID: 'a' }, h(Fragment, null, 'x ', [h(Keyword, { key: 'k' }, 'if')]), ' y'));
+  const host = render(h(Text, { testID: 'a' }, h(Fragment, null, 'x ', [h(Keyword, { key: 'k', children: 'if' })]), ' y'));
   const props = nativeOf(host, 'a');
   assert.equal(props.text, 'x if y');
   assert.deepEqual(props.spans, [{ start: 2, end: 4, style: { color: '#a855f7' } }]);

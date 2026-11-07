@@ -39,7 +39,9 @@ pub fn shown_text_mapped(
     let positions = match (transform_positions, collapse_positions) {
         (None, None) => None,
         (Some(only), None) | (None, Some(only)) => Some(only),
-        (Some(first), Some(second)) => Some(first.iter().map(|position| second[*position]).collect()),
+        (Some(first), Some(second)) => {
+            Some(first.iter().map(|position| second[*position]).collect())
+        }
     };
     Shown {
         text: match collapsed {

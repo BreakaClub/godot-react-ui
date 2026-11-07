@@ -94,3 +94,50 @@ getRangeRects(start: number, end: number): LayoutRect[] | undefined
 * **Why a nested `Text` has no state or breakpoint classes.** Registering the parent for every threshold its spans use is breakpoint
   index work for a case nobody asked for; refusing it by name is honest and can be relaxed later.
 * **`TextHandle` is not a type.** The three queries are on `UIHandle`, as `scrollTo` is, so existing `ref`s typed `UIHandle` keep working.
+
+## Decoration styles: what Chrome draws, read off its pixels
+
+Measured in headless Chrome 156 (puppeteer-core; JetBrains Mono at 12, 14, 16, 24 and 25 px, Open Sans at 16 px, device pixel ratios 1 and 2,
+thicknesses auto and 1 to 10 px, `text-decoration-skip-ink: none`, the text transparent so only the line is in the picture). The scripts
+and their raw output are in the scratch directory of the session that measured them (`.../scratchpad/chrome-decoration/`, `run-section.sh
+<section>`); the numbers below are what the implementation (`native/text_decoration.rs`, `text_decoration/raster.rs`) holds to, in unit tests
+that quote them. Chrome's "DPR 2" here is puppeteer's emulated device scale: everything is laid out and snapped in CSS px and scaled by two.
+A real high-density display (zoom-for-dsf) may snap in device pixels; it was not measured.
+
+**Definitions.** `w` is the stroke: an explicit thickness rounded half up to whole CSS px (at least 1), or the font size over ten for `auto`
+(unrounded). `T` is the drawn thickness (`w`, or `max(1, floor(size / 10))` for `auto`). `A` is the font's ascent rounded to a whole pixel.
+Rows are CSS px from the baseline, y down.
+
+| | solid and first line of a double | dotted and dashed | wavy centre line |
+| --- | --- | --- | --- |
+| underline | `g` = the offset, else `max(1, ceil(w / 2))` | the same | `round(g + w) + 1.5` |
+| overline | `[-A - T, -A)` | the same | `round(-A - w - T) - 0.5` |
+| line through | `floor(-A / 3 - w / 2 + 1/2)` | `floor(-ceil(A / 3) - T / 2 + 1/2)` | `round(-A / 3 - w / 2) + 1/2` |
+
+`text-underline-offset` changes the underline only (30/30 identical for the other two, five styles, four offsets).
+
+* **Double**: two bands of `T` with one CSS px between them; the second is below the first for an underline and a line through the text and
+  **above** it for an overline. For `auto` the distance between the tops is `round(w) + 1` (underline), `floor(w + 0.4) + 1` (overline), `T + 1`.
+* **Dashed**: butt dashes of `3T` with `2T` gaps for `T < 3`, `2T` and `T` otherwise, on the solid band's rows. A line of `L` whole CSS px
+  (`floor(right) - floor(left)`) is fitted as Blink's `SelectBestDashGap` does: of the two counts around the nominal one the gap nearer the
+  nominal wins (ties go to the larger count); the first dash starts at `floor(left)` and the last ends at `floor(right)`. At `L = 192`: T 1 gives
+  39 dashes and a gap of 1.974, T 2 20 and 3.789, T 3 22 and 2.857, T 4 16 and 4.267, T 6 11 and 6.
+* **Dotted**: squares of `T` every `2T` for `T < 4` (the last cut by the line's end); round dots of diameter `T` fitted like dashes
+  (dash = gap = T) for `T >= 4`, drawn as a circle of radius `T/2 - 0.17` device px.
+* **Wavy**: a cubic Bezier S-curve, one cubic per period, from `(0, 0)` with control points `(P/2, d)` and `(P/2, -d)` to `(P, 0)`, stroked `w`
+  wide with butt caps: period `P = 3 + 2 floor(2w)`, control distance `d = 1.5 + floor(3w)`, centre-line peak to peak `sqrt(3) (w + 1/2)`. It is
+  anchored to the fragment's left edge rounded to a device pixel and **cut off, not completed**, at its right. The overline's wave is
+  pixel-exact against this model (1/255); the underline's too; the line through the text is exact for T 3 and 6 at DPR 1 and T 1, 3, 4, 6 at
+  DPR 2 and within 0.17 coverage on crest and trough tips for the others. Antialiasing is 4 samples per pixel at (3/8, 1/8), (7/8, 3/8),
+  (1/8, 5/8), (5/8, 7/8): every partial pixel is 0.25, 0.5 or 0.75. A sample is inside when its distance to the centre line is at most `w / 2`,
+  which agrees with Chrome for 93 to 97 % of the pixels of a wave and differs by one sample at a few tips (Skia's stroker is a little tighter there).
+* **Where a pattern starts**: at every inline box fragment. A wave over `abc<b>def</b>ghi` starts again at the bold span and again after it
+  (differing by 6 px of 0.03 from three independent spans; 1.0 over whole segments from one continuous span), and at the start of every wrapped
+  line; dashes and dots are fitted to each fragment's own length. The library draws a decoration per segment of a text (between span
+  boundaries) and per line, so it does the same.
+* **Backgrounds** of a span have no antialiasing: each edge rounds to a whole CSS px (then scales), and the height is the content area, rows
+  `[-round(ascent), round(descent))`, not the line box.
+
+Left out, with the reason: `auto` thickness on a dotted or dashed line is a stroke of about `round(2w)/2` px with antialiased rows (Chrome),
+drawn here as the nearest whole pixels; dash and dot x positions are quantised to a quarter device pixel in Chrome and to a device pixel
+here; the exact round-dot construction (a dot's phase differs from dot to dot in Chrome).
