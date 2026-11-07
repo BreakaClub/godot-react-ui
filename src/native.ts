@@ -81,6 +81,17 @@ export interface NativeHost {
   /** A text input's state as JSON (`NativeTextInputState`), or `null` for anything else. */
   getTextInputState(tag: number): string;
   /**
+   * Where a caret at `offset` (UTF-16 units of the text the node shows, inlays not counted) is, as the root-local rectangle
+   * JSON (`{x, y, width, height}`), `null` for a node that is not a mounted `Text`, or `{"error": reason}` for an offset past the
+   * end or inside a surrogate pair. `side` is -1 for the position before generated text (an inlay) or at the end of a soft
+   * wrapped line, and 1 for the position after it.
+   */
+  getCaretRect(tag: number, offset: number, side: number): string;
+  /** The caret position nearest to a root-local point: `{"offset": n, "side": "before" | "after"}`, or `null` for a node that is not a mounted `Text`. */
+  getOffsetAtPoint(tag: number, x: number, y: number): string;
+  /** The root-local rectangles `start..end` covers, one or more per line, as JSON; `null` or `{"error": reason}` as for `getCaretRect`. */
+  getRangeRects(tag: number, start: number, end: number): string;
+  /**
    * Answer the one event native is awaiting (`cancelable: true`). An empty string means success.
    * `dropEffect` is '' (not set), 'none', 'copy', 'move' or 'link'.
    */
@@ -1259,6 +1270,52 @@ export function readDeletions(host: NativeHost): number[] {
 export function readNodeRect(host: NativeHost, tag: number): LayoutRect | undefined {
   const value: unknown = JSON.parse(host.getNodeRect(tag));
   return value === null ? undefined : rect(value, 'node rect');
+}
+
+/** Which side of generated text (an inlay), or of a soft line break, a text position is on. */
+export type TextSide = 'before' | 'after';
+
+/** `getCaretRect`'s `side` on the wire. */
+const SIDE_BEFORE = -1;
+const SIDE_AFTER = 1;
+
+/** A text position: an offset into the text a node shows (inlays not counted) and the side of what sits there it is on. */
+export interface NativeTextPosition {
+  readonly offset: number;
+  readonly side: TextSide;
+}
+
+/** `null` is a node that is not a mounted `Text`; a reply with an `error` is an argument native refused. */
+function textGeometryReply(json: string, method: string): Record<string, unknown> | undefined {
+  const value: unknown = JSON.parse(json);
+  if (value === null) return undefined;
+  const reply = record(value, method);
+  if (reply.error !== undefined) throw new RangeError(`${method} failed: ${string(reply.error, `${method}.error`)}`);
+  return reply;
+}
+
+/** The caret rectangle at `offset`, root-local, or `undefined` for an element that is gone. Throws `RangeError` for an offset native refuses. */
+export function readCaretRect(host: NativeHost, tag: number, offset: number, side: TextSide): LayoutRect | undefined {
+  const reply = textGeometryReply(host.getCaretRect(tag, offset, side === 'before' ? SIDE_BEFORE : SIDE_AFTER), 'getCaretRect');
+  return reply === undefined ? undefined : rect(reply, 'caret rect');
+}
+
+/** The caret position nearest to `(x, y)`, root-local, or `undefined` for an element that is gone. */
+export function readOffsetAtPoint(host: NativeHost, tag: number, x: number, y: number): NativeTextPosition | undefined {
+  const reply = textGeometryReply(host.getOffsetAtPoint(tag, x, y), 'getOffsetAtPoint');
+  if (reply === undefined) return undefined;
+  const side = reply.side;
+  if (side !== 'before' && side !== 'after') throw new Error(`Invalid native text position side: ${String(side)}`);
+  return { offset: nonnegativeInteger(reply.offset, 'text position.offset'), side };
+}
+
+/** The rectangles `start..end` covers, root-local, or `undefined` for an element that is gone. Throws `RangeError` for a range native refuses. */
+export function readRangeRects(host: NativeHost, tag: number, start: number, end: number): LayoutRect[] | undefined {
+  const reply = textGeometryReply(host.getRangeRects(tag, start, end), 'getRangeRects');
+  if (reply === undefined) return undefined;
+  const rects = reply.rects;
+  if (!Array.isArray(rects)) throw new Error('Invalid native range rects');
+  return rects.map((entry: unknown) => rect(entry, 'range rect'));
 }
 
 /** The tag of the first node created with `testID`, if any. */

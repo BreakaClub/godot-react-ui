@@ -1,7 +1,9 @@
 export { View, Text, Button, Portal, useRootEvent, useRootSize, useTextSelection } from './components';
 export type {
-  HostProps, TextInputHandle, TextInputHostProps, UIProps, UIHandle, UISelection, UISelectionPoint,
+  HostProps, TextInputHandle, TextInputHostProps, TextProps, UIProps, UIHandle, UISelection, UISelectionPoint,
+  UITextPosition,
 } from './components';
+export type { TextSide } from './native';
 export { TextInput, isTextInputHandle } from './text-input';
 export type { TextInputProps } from './text-input';
 export type { KeyboardType } from './props';

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import type { HostProps } from './components';
+import { sameSpans, type FlatText, type NativeSpan } from './rich-text';
 import { compileStyle, styleKey } from './styles';
 import type { CompiledStyle, UIRole } from './types';
 
@@ -14,8 +15,10 @@ export type NativeKind = 'view' | 'text' | 'button' | 'textinput';
 export interface NativeProps {
   /** Compiled `className` and `style`. */
   readonly style?: CompiledStyle;
-  /** The string of a `text` node. */
+  /** The string of a `text` node. With `spans` it is the source text: every string child, no inlay. */
   readonly text?: string;
+  /** The styled ranges and inlays of a `text` node made of nested `Text` (`src/rich-text.ts`); absent for plain text. */
+  readonly spans?: readonly NativeSpan[];
   readonly disabled?: true;
   /** Suspense is showing a fallback: the element and its subtree take no space. */
   readonly hidden?: true;
@@ -90,7 +93,7 @@ export type NativePropsDiff = { [K in keyof NativeProps]?: NativeProps[K] | null
  * not here is JavaScript-only. Native rejects any other key (`deny_unknown_fields`).
  */
 export const NATIVE_PROP_KEYS = [
-  'style', 'text', 'disabled', 'hidden', 'testID', 'tabIndex', 'autoFocus', 'draggable', 'dragPreview', ...ACCESSIBILITY_KEYS,
+  'style', 'text', 'spans', 'disabled', 'hidden', 'testID', 'tabIndex', 'autoFocus', 'draggable', 'dragPreview', ...ACCESSIBILITY_KEYS,
   'defaultValue', ...TEXT_INPUT_KEYS,
 ] as const satisfies readonly (keyof NativeProps)[];
 
@@ -122,7 +125,9 @@ export interface PreviousProps {
  * Derive the native props of an element. Compiling a style is the one costly step, so a clone whose
  * `className` and `style` props are unchanged reuses the previous compiled style.
  */
-export function nativeProps(kind: NativeKind, props: HostProps, hidden: boolean, previous?: PreviousProps): NativeProps {
+export function nativeProps(
+  kind: NativeKind, props: HostProps, hidden: boolean, previous?: PreviousProps, rich?: FlatText,
+): NativeProps {
   const native: { -readonly [K in keyof NativeProps]: NativeProps[K] } = {};
   if (previous !== undefined && previous.props.className === props.className && previous.props.style === props.style) {
     if (previous.native.style !== undefined) native.style = previous.native.style;
@@ -131,9 +136,10 @@ export function nativeProps(kind: NativeKind, props: HostProps, hidden: boolean,
     if (compiled.layers.length > 0) native.style = compiled;
   }
   if (kind === 'text') {
-    const text = scalarText(props.children);
-    if (text === undefined) throw new Error('Text children must be strings or numbers');
+    const text = rich === undefined ? scalarText(props.children) : rich.text;
+    if (text === undefined) throw new Error('A Text whose children are not plain strings or numbers needs its flattened content (flattenRichText)');
     if (text !== '') native.text = text;
+    if (rich !== undefined && rich.spans.length > 0) native.spans = rich.spans;
   }
   if (props.disabled === true) native.disabled = true;
   if (hidden) native.hidden = true;
@@ -253,6 +259,10 @@ export function diffNativeProps(previous: NativeProps, next: NativeProps): Nativ
   }
   if (previous.text !== next.text) {
     diff.text = next.text ?? null;
+    changed = true;
+  }
+  if (!sameSpans(previous.spans, next.spans)) {
+    diff.spans = next.spans ?? null;
     changed = true;
   }
   if (previous.disabled !== next.disabled) {

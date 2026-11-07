@@ -13,12 +13,14 @@ import {
   type DispatchResult, type PathNode, type UIEventMap,
 } from './events';
 import {
-  checkCapture, checkFocus, checkScroll, commitPayload, findTag, readDeletions, readEvents, readNodeRect, readScrollState,
+  checkCapture, checkFocus, checkScroll, commitPayload, findTag, readCaretRect, readDeletions, readEvents, readNodeRect,
+  readOffsetAtPoint, readRangeRects, readScrollState,
   readSelection, readSnapshot, readTextInputState, resolveEvent, setTextAndSelection, setTextSelection,
   type NativeDragEndEvent, type NativeDragEvent, type NativeEvent, type NativeEventType, type NativeHost,
   type NativePointerEvent, type NativeSnapshot, type NativeSnapshotNode,
 } from './native';
-import { nativeProps, scalarText, type NativeKind } from './props';
+import { nativeProps, scalarText, type NativeKind, type NativeProps, type PreviousProps } from './props';
+import { checkSpanProps, flattenRichText, type RichPart, type RichRun, type RichSpan } from './rich-text';
 import { RendererProfiler, type RendererProfile } from './profile';
 
 /** The native tag of the layer root, which is also the target of events addressed to the root. */
@@ -28,7 +30,12 @@ const OVERLAY_LAYER = 1;
 const MAX_TAG = 0xffff_ffff;
 /** `focusNode`'s `focusVisible` argument for "follow how the user last gave input". */
 const FOCUS_VISIBLE_BY_MODALITY = -1;
-const EMPTY_CONTEXT = Object.freeze({});
+/** Where a host element is being created: React Native's `isInAParentText`. Strings and nested `Text` are runs of a `Text` only. */
+interface TextContext {
+  readonly insideText: boolean;
+}
+const OUTSIDE_TEXT: TextContext = Object.freeze({ insideText: false });
+const INSIDE_TEXT: TextContext = Object.freeze({ insideText: true });
 /**
  * Guard against an event storm. Each round drains everything native has queued; handlers that keep
  * producing input-driven events for this many rounds are a bug, not a condition to tolerate.
@@ -44,8 +51,27 @@ interface Instance extends CommitNode<Instance> {
   readonly root: RootState;
   /** Full React props, handlers included. */
   readonly props: HostProps;
+  /** The native children. A `Text` has none: what it holds is in `parts`. */
   readonly children: Instance[];
+  /**
+   * What a `Text` holds when its children are more than plain strings and numbers: its strings and its nested `Text`, in
+   * order. Its native `text` and `spans` are the flattening of these (`flattenRichText`), made when the commit walk first
+   * reads `native`, after React has appended every child.
+   */
+  readonly parts?: RichPart[];
 }
+
+/**
+ * A `Text` nested in another: a run of its parent's text, not an element. It has no tag, is never committed natively and its
+ * parent's `spans` carry it. React Native does the same (a virtual text shadow node).
+ */
+interface SpanInstance extends RichSpan {
+  readonly root: RootState;
+  readonly content: RichPart[];
+}
+
+/** What React's host config holds: elements and the runs inside a `Text`. */
+type HostInstance = Instance | SpanInstance;
 
 /** One tree of instances native mounts as a layer; React calls its callbacks with this. */
 interface LayerContainer {
@@ -163,20 +189,63 @@ export interface UIRoot {
   takeProfile(): RendererProfile;
 }
 
-function createInstance(kind: NativeKind, props: HostProps, container: Container): Instance {
+/** The strings of a nested `Text` whose children are plain: it has no child fibers, so its text is read from its props. */
+function plainRuns(props: HostProps): RichRun[] {
+  const text = scalarText(props.children);
+  return text === undefined || text === '' ? [] : [{ kind: 'run', text }];
+}
+
+/** A `Text` with strings and nested `Text` among its children holds them as parts; a plain one is read from its props. */
+function holdsParts(kind: NativeKind, props: HostProps): boolean {
+  return kind === 'text' && scalarText(props.children) === undefined;
+}
+
+/**
+ * An element. A `Text` that holds parts reads its native props lazily: React appends its children after it makes the
+ * instance, and its `text` and `spans` are the flattening of them. Every other element's are made at once.
+ */
+function makeInstance(
+  tag: number, kind: NativeKind, root: RootState, props: HostProps, hidden: boolean, previous: PreviousProps | undefined,
+  children: Instance[], parts: RichPart[] | undefined,
+): Instance {
+  if (parts === undefined) return { tag, kind, root, props, native: nativeProps(kind, props, hidden, previous), children };
+  let native: NativeProps | undefined;
+  return {
+    tag, kind, root, props, children, parts,
+    get native() {
+      native ??= nativeProps(kind, props, hidden, previous, flattenRichText(parts));
+      return native;
+    },
+  };
+}
+
+function createInstance(kind: NativeKind, props: HostProps, container: Container, context: TextContext): HostInstance {
   const root = container.root;
+  if (kind === 'text' && context.insideText) {
+    checkSpanProps(props);
+    return { kind: 'span', root, props, content: plainRuns(props), hidden: false };
+  }
+  if (kind === 'text' && props.inlay === true) throw new Error('inlay is only valid on a <Text> nested in another <Text>');
   if (root.nextTag > MAX_TAG) throw new Error('UI root exhausted its u32 tags');
   const tag = root.nextTag++;
-  return { tag, kind, root, props, native: nativeProps(kind, props, false), children: [] };
+  return makeInstance(tag, kind, root, props, false, undefined, [], holdsParts(kind, props) ? [] : undefined);
 }
 
 function cloneInstance(
-  instance: Instance, kind: NativeKind, oldProps: HostProps, newProps: HostProps, keepChildren: boolean, hidden: boolean,
+  instance: Instance, oldProps: HostProps, newProps: HostProps, keepChildren: boolean, hidden: boolean,
 ): Instance {
+  const kept = keepChildren ? instance.parts : undefined;
+  return makeInstance(
+    instance.tag, instance.kind, instance.root, newProps, hidden, { props: oldProps, native: instance.native },
+    keepChildren ? instance.children : [], holdsParts(instance.kind, newProps) ? (kept ?? []) : undefined,
+  );
+}
+
+function cloneSpan(span: SpanInstance, newProps: HostProps, keepChildren: boolean, hidden: boolean): SpanInstance {
+  checkSpanProps(newProps);
   return {
-    tag: instance.tag, kind, root: instance.root, props: newProps,
-    native: nativeProps(kind, newProps, hidden, { props: oldProps, native: instance.native }),
-    children: keepChildren ? instance.children : [],
+    kind: 'span', root: span.root, props: newProps, hidden,
+    content: scalarText(newProps.children) !== undefined ? plainRuns(newProps) : keepChildren ? span.content : [],
   };
 }
 
@@ -289,6 +358,21 @@ function textInputMethods(host: NativeHost, tag: number): Omit<TextInputHandle, 
 /** `setTextAndSelection`'s start and end for "the caret at the end of the new text". */
 const NO_SELECTION = -1;
 
+/** The geometry methods of a `Text`'s handle: where its text is. */
+function textMethods(host: NativeHost, tag: number): Pick<UIHandle, 'getCaretRect' | 'getOffsetAtPoint' | 'getRangeRects'> {
+  return {
+    getCaretRect(offset, side = 'after') { return readCaretRect(host, tag, offset, side); },
+    getOffsetAtPoint(x, y) { return readOffsetAtPoint(host, tag, x, y); },
+    getRangeRects(start, end) { return readRangeRects(host, tag, start, end); },
+  };
+}
+
+/** What the same methods do on an element that is not a `Text`. */
+function notText(kind: NativeKind): Pick<UIHandle, 'getCaretRect' | 'getOffsetAtPoint' | 'getRangeRects'> {
+  const refuse = (method: string) => (): never => { throw new Error(`${method} is only available on a Text, not on a ${kind} element`); };
+  return { getCaretRect: refuse('getCaretRect'), getOffsetAtPoint: refuse('getOffsetAtPoint'), getRangeRects: refuse('getRangeRects') };
+}
+
 /** The public handle of a tag; created on first use and stable across clones. */
 function handleFor(root: RootState, tag: number, kind: NativeKind): UIHandle {
   let handle = root.handles.get(tag);
@@ -301,6 +385,7 @@ function handleFor(root: RootState, tag: number, kind: NativeKind): UIHandle {
       ...captureMethods(root.host, tag),
       ...focusMethods(root.host, tag),
       ...scrollMethods(root.host, tag),
+      ...(kind === 'text' ? textMethods(root.host, tag) : notText(kind)),
     };
     // Its value and selection are read when asked for, so they are defined as accessors (a spread would read them).
     if (kind === 'textinput') Object.defineProperties(own, Object.getOwnPropertyDescriptors(textInputMethods(root.host, tag)));
@@ -412,6 +497,7 @@ function commitLayer(container: LayerContainer, children: readonly Instance[]): 
     for (const [tag, instance] of built.updates) {
       // Nothing may mutate a committed instance: a violation throws instead of corrupting the diff.
       Object.freeze(instance.children);
+      if (instance.parts !== undefined) Object.freeze(instance.parts);
       Object.freeze(instance);
       root.committed.set(tag, instance);
     }
@@ -461,8 +547,8 @@ let updatePriority: Reconciler.EventPriority = NoEventPriority;
 const transitionContext = createContext(null);
 
 type HostConfig = Reconciler.HostConfig<
-  NativeKind, HostProps, Container, Instance, never, never, never, never,
-  UIHandle, typeof EMPTY_CONTEXT, Instance[], ReturnType<typeof setTimeout>, -1, null
+  NativeKind, HostProps, Container, HostInstance, RichRun, never, never, never,
+  UIHandle, TextContext, Instance[], ReturnType<typeof setTimeout>, -1, null
 >;
 
 const hostConfig = {
@@ -480,16 +566,38 @@ const hostConfig = {
       setTimeout(() => { throw error; }, 0);
     });
   },
-  getRootHostContext: () => EMPTY_CONTEXT,
-  getChildHostContext: () => EMPTY_CONTEXT,
-  getPublicInstance: (instance: Instance) => handleFor(instance.root, instance.tag, instance.kind),
+  getRootHostContext: () => OUTSIDE_TEXT,
+  // Only a `Text` makes what is below it runs of its text (React Native's `isInAParentText`).
+  getChildHostContext: (_parent: TextContext, kind: NativeKind) => kind === 'text' ? INSIDE_TEXT : OUTSIDE_TEXT,
+  getPublicInstance(instance: HostInstance) {
+    if (instance.kind === 'span') {
+      throw new Error('A ref on a nested <Text> is not supported: it is a run of its parent\'s text, not an element');
+    }
+    return handleFor(instance.root, instance.tag, instance.kind);
+  },
   // Render makes no native call: instances are plain JS objects, so an abandoned render costs
   // nothing natively (plan 3.9).
-  createInstance: (kind: NativeKind, props: HostProps, container: Container) => createInstance(kind, props, container),
-  createTextInstance(): never {
-    throw new Error('Text strings must be rendered within a <Text> component');
+  createInstance: (kind: NativeKind, props: HostProps, container: Container, context: TextContext) =>
+    createInstance(kind, props, container, context),
+  createTextInstance(text: string, _container: Container, context: TextContext): RichRun {
+    if (!context.insideText) throw new Error('Text strings must be rendered within a <Text> component');
+    return { kind: 'run', text };
   },
-  appendInitialChild(parent: Instance, child: Instance) { parent.children.push(child); },
+  appendInitialChild(parent: HostInstance, child: HostInstance | RichRun) {
+    if (parent.kind === 'text' || parent.kind === 'span') {
+      if (child.kind === 'run' || child.kind === 'span') {
+        const parts = parent.kind === 'span' ? parent.content : parent.parts;
+        if (parts === undefined) throw new Error('UI internal error: a Text that holds plain text was given children');
+        parts.push(child);
+        return;
+      }
+      throw new Error(`A <${child.kind === 'textinput' ? 'TextInput' : child.kind === 'button' ? 'Button' : 'View'}> cannot be rendered inside a <Text>: a Text holds strings, numbers and other <Text> elements`);
+    }
+    if (child.kind === 'run' || child.kind === 'span') {
+      throw new Error('UI internal error: a run of text was appended to an element that is not a Text');
+    }
+    parent.children.push(child);
+  },
   finalizeInitialChildren: () => false,
   shouldSetTextContent: (kind: NativeKind, props: HostProps) => kind === 'text' && scalarText(props.children) !== undefined,
   prepareForCommit: () => null,
@@ -504,17 +612,20 @@ const hostConfig = {
   prepareScopeUpdate: () => {},
   getInstanceFromScope: () => null,
   detachDeletedInstance: () => {},
-  cloneInstance: (instance: Instance, kind: NativeKind, oldProps: HostProps, newProps: HostProps, keepChildren: boolean) =>
-    cloneInstance(instance, kind, oldProps, newProps, keepChildren, false),
+  cloneInstance: (instance: HostInstance, _kind: NativeKind, oldProps: HostProps, newProps: HostProps, keepChildren: boolean) =>
+    instance.kind === 'span'
+      ? cloneSpan(instance, newProps, keepChildren, false)
+      : cloneInstance(instance, oldProps, newProps, keepChildren, false),
   // A hidden subtree (Suspense showing a fallback) keeps its instance but takes no space; when it is
   // shown again React appends the unhidden instance, which the walk diffs back.
-  cloneHiddenInstance: (instance: Instance, kind: NativeKind, props: HostProps) =>
-    cloneInstance(instance, kind, instance.props, props, true, true),
-  cloneHiddenTextInstance(): never {
-    throw new Error('Text strings must be rendered within a <Text> component');
-  },
+  cloneHiddenInstance: (instance: HostInstance, _kind: NativeKind, props: HostProps) =>
+    instance.kind === 'span' ? cloneSpan(instance, props, true, true) : cloneInstance(instance, instance.props, props, true, true),
+  cloneHiddenTextInstance: (): RichRun => ({ kind: 'run', text: '' }),
   createContainerChildSet: (): Instance[] => [],
-  appendChildToContainerChildSet(childSet: Instance[], child: Instance) { childSet.push(child); },
+  appendChildToContainerChildSet(childSet: Instance[], child: HostInstance) {
+    if (child.kind === 'span') throw new Error('UI internal error: a nested <Text> reached the top of a layer');
+    childSet.push(child);
+  },
   finalizeContainerChildren: () => {},
   replaceContainerChildren,
   NotPendingTransition: null,
@@ -690,6 +801,7 @@ export function createRoot(host: NativeHost, options: RootOptions): UIRoot {
       ...captureMethods(host, LAYER_ROOT_TAG),
       ...focusMethods(host, LAYER_ROOT_TAG),
       ...scrollMethods(host, LAYER_ROOT_TAG),
+      ...notText('view'),
     },
   };
   const onUncaughtError = (error: Error) => {

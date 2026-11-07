@@ -31,7 +31,7 @@ test('a text element carries its string, and children must be plain strings or n
   assert.equal(nativeProps('text', { children: 0 }, false).text, '0');
   assert.deepEqual(nativeProps('text', {}, false), {}, 'empty text is the default');
   assert.deepEqual(nativeProps('text', { children: '' }, false), {});
-  assert.throws(() => nativeProps('text', { children: createElement('span') }, false), /strings or numbers/);
+  assert.throws(() => nativeProps('text', { children: createElement('span') }, false), /needs its flattened content/);
   // Only text elements read their children.
   assert.equal(nativeProps('view', { children: 'x' }, false).text, undefined);
   assert.equal(scalarText(['a', ['b', 2]]), 'ab2');

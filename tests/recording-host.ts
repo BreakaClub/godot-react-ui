@@ -67,7 +67,7 @@ export type NativeCall =
   | 'commit' | 'takeCommitDeletions' | 'drainEvents' | 'getSnapshot' | 'getNodeRect' | 'getSize' | 'findByTestId' | 'resolveEvent'
   | 'setPointerCapture' | 'releasePointerCapture' | 'hasPointerCapture' | 'focusNode' | 'blurNode'
   | 'scrollTo' | 'scrollBy' | 'scrollIntoView' | 'getScrollState' | 'getSelection' | 'clearSelection'
-  | 'setTextAndSelection' | 'setTextSelection' | 'getTextInputState';
+  | 'setTextAndSelection' | 'setTextSelection' | 'getTextInputState' | 'getCaretRect' | 'getOffsetAtPoint' | 'getRangeRects';
 
 /** What the fake host keeps of a text input: native's buffer, reduced to the value, the selection and the count. */
 export interface FakeTextInput {
@@ -356,6 +356,28 @@ export class RecordingHost implements NativeHost {
   getNodeRect(tag: number): string {
     this.calls.push('getNodeRect');
     return JSON.stringify(this.nodes.get(tag)?.rect ?? null);
+  }
+
+  /** The arguments of every text geometry query, and what the fake answers (a test sets `textGeometry`). */
+  readonly textQueries: Array<{ method: 'getCaretRect' | 'getOffsetAtPoint' | 'getRangeRects'; tag: number; args: number[] }> = [];
+  textGeometry: (method: string, tag: number, args: number[]) => unknown = () => null;
+
+  getCaretRect(tag: number, offset: number, side: number): string {
+    this.calls.push('getCaretRect');
+    this.textQueries.push({ method: 'getCaretRect', tag, args: [offset, side] });
+    return JSON.stringify(this.textGeometry('getCaretRect', tag, [offset, side]));
+  }
+
+  getOffsetAtPoint(tag: number, x: number, y: number): string {
+    this.calls.push('getOffsetAtPoint');
+    this.textQueries.push({ method: 'getOffsetAtPoint', tag, args: [x, y] });
+    return JSON.stringify(this.textGeometry('getOffsetAtPoint', tag, [x, y]));
+  }
+
+  getRangeRects(tag: number, start: number, end: number): string {
+    this.calls.push('getRangeRects');
+    this.textQueries.push({ method: 'getRangeRects', tag, args: [start, end] });
+    return JSON.stringify(this.textGeometry('getRangeRects', tag, [start, end]));
   }
 
   /** A read of the root's size crosses the boundary like any other property of the Godot object. */

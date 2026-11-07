@@ -5,7 +5,7 @@ import type {
   UIAccessibilityActionEvent, UIBeforeInputEvent, UICompositionEvent, UIDragEndEvent, UIDragEvent, UIEventMap, UIFocusEvent,
   UIInputEvent, UIKeyboardEvent, UIPointerEvent, UIScrollEvent, UITextSelectionChangeEvent, UIWheelEvent,
 } from './events';
-import type { LayoutRect, NativeEventType, NativeScrollState } from './native';
+import type { LayoutRect, NativeEventType, NativeScrollState, TextSide } from './native';
 import {
   createOverlayPortal, createPortalContainer, OverlayContext, readRootSize, readTextSelection, watchRootEvent, watchRootSize, watchTextSelection,
   type RootSize,
@@ -61,6 +61,40 @@ export interface UIHandle {
   scrollIntoView(): void;
   /** A scroll container's position, size and range, or `undefined` for an element that is not one. */
   getScrollState(): NativeScrollState | undefined;
+  /**
+   * `Text` only (these three throw for any other element). Where the element's text is, in the root-local space `getRect()` uses:
+   * a text under a rotation, a scale or a scroll is reported where it is drawn, at any device pixel ratio. Offsets are UTF-16 code
+   * units of the text the element shows: its children joined, nested `Text` flattened, inlays left out (`text-transform` and
+   * `white-space` collapsing can change that text, and the selection uses the shown one too).
+   *
+   * The caret at `offset`: a zero-width rectangle as tall as the line box (as a selection highlight is), at the x where a caret
+   * between the characters either side of `offset` is drawn. `side` picks one of the two places an offset can have: before or
+   * after an inlay at that offset, the end of a soft wrapped line or the start of the next. It defaults to `'after'`. Throws
+   * `RangeError` for an offset past the end or inside a surrogate pair. `undefined` once the element is gone.
+   */
+  getCaretRect(offset: number, side?: TextSide): LayoutRect | undefined;
+  /**
+   * `Text` only. The caret position nearest to a root-local point, clamped into the text (above the first line is the first, past
+   * the end of a line is its end). Inside an inlay it is the nearer side. `undefined` once the element is gone.
+   */
+  getOffsetAtPoint(x: number, y: number): UITextPosition | undefined;
+  /**
+   * `Text` only. The rectangles `start..end` covers, one or more per line, the boxes a selection highlight is made of (the line's
+   * height, the glyphs' width). An inlay inside the range is covered, one at an end is not. Empty for an empty range. Throws
+   * `RangeError` for a range past the end or with an end inside a surrogate pair. `undefined` once the element is gone.
+   */
+  getRangeRects(start: number, end: number): LayoutRect[] | undefined;
+}
+
+/**
+ * A caret position in a `Text`: an offset into the text it shows (UTF-16 code units, so `text.slice(0, offset)` is what precedes
+ * it; generated text, an inlay, is not counted) and the side of what sits there it is on. `side` tells apart the two places one
+ * offset has: either side of an inlay, and the end of a soft wrapped line (`'before'`) from the start of the next (`'after'`).
+ * It is `'after'` everywhere else.
+ */
+export interface UITextPosition {
+  readonly offset: number;
+  readonly side: TextSide;
 }
 
 /** One end of the text selection: a `Text` element and an offset into its text. */
@@ -206,8 +240,19 @@ export interface TextInputHostProps {
   keyboardType?: KeyboardType;
 }
 
+/** What only a `Text` nested in another has. */
+export interface TextSpanHostProps {
+  /**
+   * Generated text: shown in the paragraph, measured and wrapped like the text around it, but not part of the text. The
+   * offsets of the selection, of `getCaretRect` and of everything else skip it; selecting across it and copying leave it
+   * out; it is not in the accessible name. A caret can sit on either side of it (`UITextPosition.side`). It takes the style of
+   * the `Text` it is in, with its own `className` and `style` on top. It holds plain text.
+   */
+  inlay?: boolean;
+}
+
 /** The props of any element the host renders. */
-export type HostProps = UIProps & TextInputHostProps;
+export type HostProps = UIProps & TextInputHostProps & TextSpanHostProps;
 
 /** The handle of a `TextInput`: an element handle that can also read and move the selection. */
 export interface TextInputHandle extends UIHandle {
@@ -239,10 +284,18 @@ export const View = forwardRef<UIHandle, UIProps>((props, ref) =>
 View.displayName = 'View';
 
 /**
- * Native Godot-shaped text. Its children must be strings or numbers; React Native's rule is that
- * raw strings only appear inside `<Text>`. Text color, size and alignment inherit from the parent.
+ * The props of a `Text`. A `Text` nested in another is a run of its parent's text, not an element: it takes `className`,
+ * `style`, `inlay` and children, and its style may set colour, background colour, font family, weight and style, and the text
+ * decoration longhands (`SPAN_STYLE_KEYS` in `src/rich-text.ts`).
  */
-export const Text = forwardRef<UIHandle, UIProps>((props, ref) =>
+export interface TextProps extends UIProps, TextSpanHostProps {}
+
+/**
+ * Native Godot-shaped text. Its children are strings, numbers and other `Text`, which make one paragraph as in React Native:
+ * `<Text>const <Text className="text-purple-400">x</Text> = 1</Text>` is one element with a styled range. React Native's rule
+ * is that raw strings only appear inside `<Text>`. Text color, size and alignment inherit from the parent.
+ */
+export const Text = forwardRef<UIHandle, TextProps>((props, ref) =>
   createElement('text', { ...props, ref }));
 Text.displayName = 'Text';
 
