@@ -34,9 +34,12 @@ export function remapRange<T extends RangeAnnotation>(annotation: T, changes: Ch
   return from === annotation.from && to === annotation.to ? annotation : { ...annotation, from, to };
 }
 
-/** A point moves with the text before it; an insertion at the point goes after it. */
+/**
+ * A point moves with the text before it, and text inserted at the point goes before it: a hint that stands after a name stays after it
+ * when the name is typed, or cut and pasted back.
+ */
 export function remapPoint<T extends PointAnnotation>(annotation: T, changes: ChangeDesc): T | undefined {
-  const at = changes.mapPos(annotation.at, -1);
+  const at = changes.mapPos(annotation.at, 1);
   return at === annotation.at ? annotation : { ...annotation, at };
 }
 

@@ -49,6 +49,10 @@ export type CodeEditorCapture = (name: string, overflowing?: readonly string[]) 
 const OVERFLOWING = ['inputs-slider-thumb', 'editor-grid-probe'];
 /** Typed at the end of a statement: not a statement. (A stray `}` in JSX text is not a syntax error to Bun's parser: it compiles and throws when the page renders.) */
 const SYNTAX_JUNK = ' = = ;';
+/** A run's style that sets an underline (a run that sets none has the key with `none`, or not at all). */
+const UNDERLINED = /"textDecorationLine":\s*"underline"/u;
+/** A comment typed into the blank third line of the source: an edit that changes no behaviour. */
+const NOTE = '// note';
 const LAB_ID = 'inputs';
 const LAB_SOURCE = 'res://src/inputs-lab.tsx';
 /** `md:` (README: Styles): from here the Code button is offered. */
@@ -79,6 +83,8 @@ const CLICK_PAUSE_FRAMES = 3;
 /** The probe sits this far inside the page's top left corner, where only its background is (the page pads its content by 24). */
 const PAGE_PROBE_INSET_PX = 6;
 const PAGE_BACKGROUND_ORIGINAL = '#f8fafc';
+/** The colour of an inlay hint's text (`editor/theme.ts`). */
+const INLAY_COLOUR = '#8aa0bd';
 /** The selection colour without its alpha (`editor/theme.ts`). */
 const SELECTION_BOX_PREFIX = '#2563eb';
 /** The theme's caret (`editor/theme.ts`). */
@@ -268,6 +274,13 @@ function lineText(api: CodeEditorInspection, line: number): string | undefined {
   return hasNode(api, `code-line-${line}`) ? textOf(api, `code-line-${line}`) : undefined;
 }
 
+/** The text of the line without its inlay hints, which are drawn in the line but are not in the source. */
+function sourceTextOfDrawnLine(api: CodeEditorInspection, line: number): string {
+  const row = rowOf(api, line);
+  assert(row !== undefined, `Line ${line} is drawn`);
+  return childrenOf(api, row).filter(run => run.presentation.color.slice(0, INLAY_COLOUR.length).toLowerCase() !== INLAY_COLOUR).map(run => run.text).join('');
+}
+
 function childrenOf(api: CodeEditorInspection, entry: NativeSnapshotNode): NativeSnapshotNode[] {
   const byId = new Map(api.snapshot().nodes.map(candidate => [candidate.id, candidate]));
   return entry.children.map(id => byId.get(id)).filter((child): child is NativeSnapshotNode => child !== undefined);
@@ -385,13 +398,15 @@ export async function verifyCodeEditor(owner: Node, api: CodeEditorInspection, c
   api.showNavigator({ initialLab: LAB_ID });
   await settleFrames();
   if (api.snapshot().width < PHONE_BREAKPOINT_PX) {
-    assert(!hasNode(api, 'toggle-code'), 'A window narrower than 768 logical pixels has no room for the page and its code together, so it has no Code button');
+    // The button is in the tree with `display: none` below `md` (`hidden md:flex`), so it has no size.
+    const hidden = api.find('toggle-code');
+    assert(hidden === undefined || (hidden.rect.width === 0 && hidden.rect.height === 0), 'A window narrower than 768 logical pixels has no room for the page and its code together, so it shows no Code button');
     api.restoreDemo();
     await settleFrames();
     console.log('GODOT_REACT_CODE_EDITOR', JSON.stringify({ phoneWindow: true }));
     return;
   }
-  assert(hasNode(api, 'toggle-code') && !hasNode(api, 'code-editor'), 'The Code button is in the header and the panel is closed');
+  assert((api.find('toggle-code')?.rect.width ?? 0) > 0 && !hasNode(api, 'code-editor'), 'The Code button is in the header and the panel is closed');
   const pageBefore = textOf(api, 'inputs-lab');
   const stageBefore = node(api, 'lab-stage').rect;
 
@@ -645,7 +660,7 @@ export async function verifyCodeEditor(owner: Node, api: CodeEditorInspection, c
   assert(/Syntax error at \d+:\d+/u.test(textOf(api, 'code-status-run')), `The status names the place: ${textOf(api, 'code-status-run')}`);
   assert(textOf(api, 'inputs-next') === 'Next 3' && near(pageBackground(owner, api), hexLevels(EMERALD_100)), 'The last good page stays, with its state');
   assert(hasNode(api, `code-marker-${brokenLine}`), 'The gutter marks the line with the error');
-  const underlined = childrenOf(api, node(api, `code-line-${brokenLine}`)).filter(run => String(run.props.style ?? '').length > 0 && JSON.stringify(run.props.style).includes('underline'));
+  const underlined = childrenOf(api, node(api, `code-line-${brokenLine}`)).filter(run => String(run.props.style ?? '').length > 0 && UNDERLINED.test(JSON.stringify(run.props.style)));
   assert(underlined.length > 0, 'A run of the line is underlined');
   await capture('code-editor-04-syntax-error', OVERFLOWING);
   await pressKey(Key.KeyBackspace, {}, SYNTAX_JUNK.length);
@@ -671,7 +686,7 @@ export async function verifyCodeEditor(owner: Node, api: CodeEditorInspection, c
   // Declaring `label` a number makes every use of it as a class an error too (the section's edit is the shared TYPE_ERROR): the first is the declaration.
   await waitUntil('the checker to find the errors', () => /^\d+ errors?$/u.test(textOf(api, 'code-status-check')), UPDATE_DEADLINE_MS, () => `The checker's summary reads "${textOf(api, 'code-status-check')}", the run "${textOf(api, 'code-status-run')}", the line "${lineText(api, labelAt.line)}"`);
   const errorLine = node(api, `code-line-${typeAnchor.line}`);
-  const underlinedRuns = childrenOf(api, errorLine).filter(run => JSON.stringify(run.props.style).includes('textDecorationLine'));
+  const underlinedRuns = childrenOf(api, errorLine).filter(run => UNDERLINED.test(JSON.stringify(run.props.style)));
   assert(underlinedRuns.length === 1 && underlinedRuns[0]?.text === 'label', `The run "label" is underlined, and nothing else on the line: ${underlinedRuns.map(run => run.text).join('|')}`);
   const errorRun = underlinedRuns[0];
   assert(errorRun !== undefined, 'There is an underlined run');
@@ -717,29 +732,33 @@ export async function verifyCodeEditor(owner: Node, api: CodeEditorInspection, c
   const copied = verifierClipboard.get();
   assert(copied === 'sizes', `Copy: ${JSON.stringify(copied)}`);
   await pressKey(Key.KeyX, command);
-  assert(!(lineText(api, sizesAt.line) ?? '').includes('sizes ='), `Cut took the word out: ${lineText(api, sizesAt.line)}`);
+  assert(!(lineText(api, sizesAt.line) ?? '').includes('const sizes'), `Cut took the word out: ${lineText(api, sizesAt.line)}`);
   await pressKey(Key.KeyV, command);
-  assert((lineText(api, sizesAt.line) ?? '').includes('const sizes ='), `Paste put it back: ${lineText(api, sizesAt.line)}`);
+  // The line as drawn has the hint after the name (the check has not answered for the new text yet, so the hint is where the edits moved it).
+  assert(/^\s*const sizes(: [^=]*)? = reversed/u.test(lineText(api, sizesAt.line) ?? ''), `Paste put it back, and the hint is still after the name: ${lineText(api, sizesAt.line)}`);
 
   // ---- Reset: back to the source, and the page with it ---------------------------------------------------------------------------------------------------
   await click(centerOf(node(api, 'code-reset').rect));
-  await waitUntil('the source again', () => [...drawnLines(api)].every(([number, text]) => text === sourceLines[number - 1]), UPDATE_DEADLINE_MS);
+  await waitUntil('the source again', () => [...drawnLines(api).keys()].every(number => sourceTextOfDrawnLine(api, number) === sourceLines[number - 1]), UPDATE_DEADLINE_MS);
   await waitUntil('the page to be as it was', () => near(pageBackground(owner, api), hexLevels(PAGE_BACKGROUND_ORIGINAL)), UPDATE_DEADLINE_MS);
   await waitUntil('the type check to find nothing', () => textOf(api, 'code-status-check') === 'No problems', UPDATE_DEADLINE_MS);
   assert(textOf(api, 'inputs-next') === 'Next 3', `The counter is still 3 after the reset: a reset is an edit like any other: ${textOf(api, 'inputs-next')}`);
 
   // ---- The panel hidden and shown again keeps what was typed; the lab on the stage keeps its state -------------------------------------------------------------
   await toTop(api);
-  await click(boundaryAt(api, 1, 0));
-  await typeText('//');
-  assert((lineText(api, 1) ?? '').startsWith('//'), 'The edit is in the first line');
+  assert(sourceLines[2] === '', 'Line 3 of the source is blank');
+  await click(boundaryAt(api, 3, 0));
+  await typeText(NOTE);
+  assert(lineText(api, 3) === NOTE, `The comment is in the third line: ${lineText(api, 3)}`);
   const counterBefore = textOf(api, 'inputs-next');
+  await waitUntil('the comment to reach the page', () => textOf(api, 'code-status-run').startsWith('Swapped in'), UPDATE_DEADLINE_MS);
   await click(centerOf(node(api, 'toggle-code').rect));
   assert(!hasNode(api, 'code-editor'), 'Hide Code closes the panel');
-  assert(textOf(api, 'inputs-next') === counterBefore, 'and the lab on the stage keeps its state');
+  assert(textOf(api, 'inputs-next') === counterBefore, `and the lab on the stage keeps its state: ${textOf(api, 'inputs-next')} against ${counterBefore}`);
   await click(centerOf(node(api, 'toggle-code').rect));
-  await waitUntil('the panel again', () => hasNode(api, 'code-line-1'));
-  assert((lineText(api, 1) ?? '').startsWith('//'), 'Show Code brings the edited text back');
+  await waitUntil('the panel again', () => hasNode(api, 'code-line-3'));
+  assert(lineText(api, 3) === NOTE, 'Show Code brings the edited text back');
+  assert(textOf(api, 'inputs-next') === counterBefore, 'and the lab still has its state');
 
   // ---- Idle: the panel open and not focused asks for no frames ------------------------------------------------------------------------------------------------
   await click(centerOf(node(api, 'lab-title').rect));

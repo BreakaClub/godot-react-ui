@@ -11,6 +11,10 @@
 
 /** `md:` (README: Styles): from here the Code button is offered. */
 const PHONE_BREAKPOINT_PX = 768;
+/** A run's style that sets an underline. */
+const UNDERLINED = /"textDecorationLine":\s*"underline"/u;
+/** The colour of an inlay hint's text (demo/src/editor/theme.ts). */
+const INLAY_COLOUR = '#8aa0bd';
 const PROBE_COLUMNS = 400;
 /** The step the demo's fonts place glyphs at (`SubpixelPositioningOneQuarter`; demo/src/editor/font-grid.ts). */
 const GLYPH_POSITION_STEP_PX = 0.25;
@@ -96,10 +100,12 @@ function helpers(context) {
     return lines;
   };
   const clipboard = () => page.evaluate(() => navigator.clipboard.readText());
-  const underlinedRuns = async (line) => (await childrenOf(`code-line-${line}`)).filter((run) => JSON.stringify(run.props?.style ?? '').includes('textDecorationLine'));
+  // The text of a line without its inlay hints, which are drawn in it but are not in the source.
+  const sourceTextOfDrawnLine = async (line) => (await childrenOf(`code-line-${line}`)).filter((run) => run.presentation.color.slice(0, INLAY_COLOUR.length).toLowerCase() !== INLAY_COLOUR).map((run) => run.text).join('');
+  const underlinedRuns = async (line) => (await childrenOf(`code-line-${line}`)).filter((run) => UNDERLINED.test(JSON.stringify(run.props?.style ?? '')));
   return {
     demo, page, frames, snapshot, find, check, nodeExists, text, waitUntil, centerOf, grid, boundaryAt, statusPosition, lineText, childrenOf, press, click, drag,
-    pageBackground, drawnLines, clipboard, underlinedRuns,
+    pageBackground, drawnLines, clipboard, underlinedRuns, sourceTextOfDrawnLine,
   };
 }
 
@@ -112,7 +118,9 @@ export async function runCodeEditorScenario(context) {
   await demo('showNavigator', { initialLab: 'inputs' });
   await waitUntil('the navigator', () => nodeExists('lab-header'));
   if ((await context.snapshot()).width < PHONE_BREAKPOINT_PX) {
-    check('A viewport narrower than 768 logical pixels has no Code button: no room for the page and its code together', !(await nodeExists('toggle-code')));
+    // The button is in the tree with `display: none` below `md` (`hidden md:flex`), so it has no size.
+    const hidden = (await nodeExists('toggle-code')) ? await find('toggle-code') : undefined;
+    check('A viewport narrower than 768 logical pixels shows no Code button: no room for the page and its code together', hidden === undefined || (hidden.rect.width === 0 && hidden.rect.height === 0), hidden?.rect);
     return;
   }
   const lines = source.split('\n');
@@ -255,9 +263,9 @@ export async function runCodeEditorScenario(context) {
   await h.click(await h.boundaryAt(sizesAt.line, sizesAt.column + 6), 2);
   await h.press('KeyX', ['Meta']);
   await waitUntil('Cut reaches the browser clipboard', async () => (await h.clipboard()) === 'sizes');
-  check('Cut took the word out', !(((await h.lineText(sizesAt.line)) ?? '').includes('sizes =')));
+  check('Cut took the word out', !(((await h.lineText(sizesAt.line)) ?? '').includes('const sizes')));
   await h.press('KeyV', ['Meta']);
-  await waitUntil('Paste puts it back', async () => ((await h.lineText(sizesAt.line)) ?? '').includes('const sizes ='));
+  await waitUntil('Paste puts it back, and the hint is still after the name', async () => /^\s*const sizes(: [^=]*)? = reversed/u.test((await h.lineText(sizesAt.line)) ?? ''));
   await h.click(await h.boundaryAt(2, 0));
   await page.keyboard.type('Q');
   check('Typing put a character at the start of line 2', (await h.lineText(2)) === `Q${lines[1]}`, await h.lineText(2));
@@ -272,7 +280,7 @@ export async function runCodeEditorScenario(context) {
   await cdp.send('Input.imeSetComposition', { text: 'に', selectionStart: 1, selectionEnd: 1 });
   await waitUntil('the preedit is in the line', async () => (await h.childrenOf('code-line-2')).some((run) => run.text === 'に'));
   const preedit = (await h.childrenOf('code-line-2')).find((run) => run.text === 'に');
-  check('and it is underlined, at the caret', JSON.stringify(preedit.props?.style ?? '').includes('textDecorationLine') && near(preedit.rect.x, content.x + grid.gutterWidth));
+  check('and it is underlined, at the caret', UNDERLINED.test(JSON.stringify(preedit.props?.style ?? '')) && near(preedit.rect.x, content.x + grid.gutterWidth));
   check('The preedit is not in the document yet: the other runs read as the source', (await h.childrenOf('code-line-2')).filter((run) => run.text !== 'に').map((run) => run.text).join('') === lines[1]);
   await capture('code-editor-08-preedit', { geometry: false });
   await cdp.send('Input.insertText', { text: 'に' });
@@ -282,7 +290,10 @@ export async function runCodeEditorScenario(context) {
   // Reset puts every file back.
   await context.click('code-reset');
   await waitUntil('the page to be as it was', async () => (await h.pageBackground()) === PAGE_BACKGROUND, UPDATE_DEADLINE_MS);
-  await waitUntil('the source again', async () => [...(await h.drawnLines())].every(([n, t]) => t === lines[n - 1]), UPDATE_DEADLINE_MS);
+  await waitUntil('the source again', async () => {
+    for (const number of (await h.drawnLines()).keys()) if ((await h.sourceTextOfDrawnLine(number)) !== lines[number - 1]) return false;
+    return true;
+  }, UPDATE_DEADLINE_MS);
   check('The counter kept its count through the reset', (await text('inputs-next')) === 'Next 3', await text('inputs-next'));
 
   // The panel open and not focused asks for no frames.

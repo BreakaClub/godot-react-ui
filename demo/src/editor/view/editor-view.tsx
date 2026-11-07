@@ -298,6 +298,7 @@ export function EditorView({ workspace, file }: EditorViewProps) {
             onPointerMove={onPointerMove}
             onPointerUp={endPointer}
             onPointerCancel={endPointer}
+            onPointerLeave={() => { hover.cancel(); }}
             onClick={onClick}
           >
             {specs.map(spec => (

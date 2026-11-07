@@ -368,6 +368,14 @@ panelTest('an inlay hint is in the line, shifts the text after it, and a hover o
   assert.equal(has(s, 'code-hover'), false, 'nothing until the pointer has rested');
   await pause(HOVER_DELAY_MS + 100);
   assert.equal(textOf(s, 'code-hover-type'), 'Button: string');
+  // The pointer leaving the code hides it.
+  s.host.events.push(s.host.pointerEvent(tag(s, 'code-content'), 'pointerleave', { x: 1, y: 1 }));
+  s.uiRoot.dispatchEvents();
+  assert.equal(has(s, 'code-hover'), false, 'the tooltip goes when the pointer leaves');
+  s.host.events.push(s.host.pointerEvent(tag(s, 'code-content'), 'pointermove', { x: over.x + ADVANCE / 2, y: over.y }));
+  s.uiRoot.dispatchEvents();
+  await pause(HOVER_DELAY_MS + 100);
+  assert.ok(has(s, 'code-hover'), 'and it comes back when the pointer rests on a word again');
   // Typing hides it.
   s.host.type(s.uiRoot, 'x');
   assert.equal(has(s, 'code-hover'), false);
