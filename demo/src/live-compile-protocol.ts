@@ -80,7 +80,7 @@ export type ParameterNames = 'none' | 'literals' | 'all';
 
 /** What a `requestCheck` came to: its report, a failure, or that a newer check took its place before it began. */
 export type CheckOutcome =
-  | { readonly kind: 'checked'; readonly report: CheckReport }
+  | { readonly kind: 'checked'; readonly report: CheckReport; /** The time the service thread took, from its own clock: the answer reaches JavaScript a frame later at the soonest. */ readonly serviceMs: number }
   | { readonly kind: 'failed'; readonly message: string }
   | { readonly kind: 'superseded'; readonly by: number };
 
@@ -126,14 +126,14 @@ function isCheckReport(value: unknown): value is CheckReport {
 /** A reply `poll` handed over: the id of the request it answers, and what came of it. */
 export type Reply =
   | { readonly id: number; readonly kind: 'check'; readonly outcome: CheckOutcome }
-  | { readonly id: number; readonly kind: 'query'; readonly result: Record<string, unknown> };
+  | { readonly id: number; readonly kind: 'query'; readonly serviceMs: number; readonly result: Record<string, unknown> };
 
 export function parseReply(json: string): Reply {
   const reply: unknown = JSON.parse(json);
   if (!isRecord(reply) || typeof reply.id !== 'number' || (reply.kind !== 'check' && reply.kind !== 'query')) throw new Error(`A reply of the service is not one: ${json.slice(0, 200)}`);
   if (reply.kind === 'query') {
     if (!isRecord(reply.result)) throw new Error('A query has no result');
-    return { id: reply.id, kind: 'query', result: reply.result };
+    return { id: reply.id, kind: 'query', serviceMs: typeof reply.ms === 'number' ? reply.ms : 0, result: reply.result };
   }
   if (reply.superseded === true) {
     if (typeof reply.by !== 'number') throw new Error('A superseded check says nothing of what superseded it');
@@ -141,7 +141,9 @@ export function parseReply(json: string): Reply {
   }
   const result = reply.result;
   if (!isRecord(result)) throw new Error('A check has no result');
-  if (result.ok === true && isCheckReport(result.report)) return { id: reply.id, kind: 'check', outcome: { kind: 'checked', report: result.report } };
+  if (result.ok === true && isCheckReport(result.report) && typeof reply.ms === 'number') {
+    return { id: reply.id, kind: 'check', outcome: { kind: 'checked', report: result.report, serviceMs: reply.ms } };
+  }
   const first = Array.isArray(result.diagnostics) ? result.diagnostics[0] : undefined;
   const message = isCompileDiagnostic(first) ? first.message : `the check failed: ${JSON.stringify(result).slice(0, 300)}`;
   return { id: reply.id, kind: 'check', outcome: { kind: 'failed', message } };

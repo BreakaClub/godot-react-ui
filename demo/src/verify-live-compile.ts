@@ -214,11 +214,20 @@ export async function verifyLiveCompile(owner: Node, api: LiveCompileInspection,
   // ---- Type checking: clean, then the first and the later checks -----------------------------------------------------------
   const first = await checkOf(session);
   assert(diagnosticsOf(first.outcome).length === 0, `The lab type-checks clean: ${JSON.stringify(first.outcome).slice(0, 300)}`);
-  facts.firstCheckMs = round(first.ms, TENTH);
+  assert(first.outcome.kind === 'checked', 'The first check is answered');
+  facts.firstCheck = { serviceMs: round(first.outcome.serviceMs, TENTH), seenByJsMs: round(first.ms, TENTH) };
   const later: number[] = [];
-  for (let index = 0; index < LATER_CHECKS; index += 1) later.push((await checkOf(session)).ms);
-  facts.laterCheckMedianMs = round(percentile(later, MEDIAN), TENTH);
-  facts.laterCheckWorstMs = round(Math.max(...later), TENTH);
+  const laterService: number[] = [];
+  for (let index = 0; index < LATER_CHECKS; index += 1) {
+    const check = await checkOf(session);
+    assert(check.outcome.kind === 'checked', 'A later check is answered');
+    later.push(check.ms);
+    laterService.push(check.outcome.serviceMs);
+  }
+  facts.laterChecks = {
+    serviceMedianMs: round(percentile(laterService, MEDIAN), TENTH), serviceWorstMs: round(Math.max(...laterService), TENTH),
+    seenByJsMedianMs: round(percentile(later, MEDIAN), TENTH), seenByJsWorstMs: round(Math.max(...later), TENTH),
+  };
 
   // ---- Editor services over the same program: hover and inlay hints ---------------------------------------------------------
   const hoverAt = original.indexOf('NICKNAME_MIN_LENGTH') + 2;
