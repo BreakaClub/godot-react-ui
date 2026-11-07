@@ -1,11 +1,10 @@
 import { useLayoutEffect, useRef } from 'react';
 import { Text, type UIHandle } from 'godot-react-ui';
-import { GLYPH_POSITION_STEP_PX } from '../font-grid';
 
 /** The classes every piece of code in the editor is set in, so the probe below measures the font the lines are drawn in. */
-export const CODE_TEXT_CLASS = 'font-mono text-xs leading-5 whitespace-pre';
+export const CODE_TEXT_CLASS = 'font-mono text-xs leading-4 whitespace-pre';
 
-/** The probe is this many columns wide: the error of a measured advance is a whole pixel over this many columns at worst. */
+/** The probe is this many columns wide: the line is longer than any the editor is likely to show, so no column is past what was measured. */
 export const PROBE_COLUMNS = 400;
 
 /** What the probe measured: the width of a column and the height of a line, in logical pixels. */
@@ -15,24 +14,28 @@ export interface MeasuredGrid {
 }
 
 /**
- * An invisible line of `PROBE_COLUMNS` characters in the editor's font, laid out by the same text engine as the code. The
- * monospace advance is the width the engine gave it divided by the columns, taken to the step glyphs are placed at
- * (`GLYPH_POSITION_STEP_PX`), and the line height is the height of its one line: measured, not assumed from the font's size.
- * Reports once the layout is there, and again if the size changes.
- *
- * Why the step: at 12 px the layout of a monospace character is 7.205 px and the glyphs are painted 7.25 apart. A run that is
- * `chars * 7.205` wide is then narrower than its glyphs and the paragraph does not draw the last one (the first capture of this
- * editor read "impor" and "Checkbo"). With the advance the glyphs have, a run is as wide as what is painted in it and the grid is
- * the paint's.
+ * An invisible line of `PROBE_COLUMNS` characters in the editor's font, laid out by the same text engine as the code. The monospace
+ * advance is the distance the text says between a caret at its start and one at its end, over the columns: what the paragraph's
+ * glyphs are laid out at, not the width of a box (which layout rounds to whole pixels), so it is exact to a column however far along
+ * the line. The line height is the height of its one line: measured, not assumed from the font's size. Reports once the layout is
+ * there, and again if the size changes.
  */
 export function GridProbe({ onMeasured }: { readonly onMeasured: (grid: MeasuredGrid) => void }) {
   const handle = useRef<UIHandle | null>(null);
+  const measuredBox = useRef<{ readonly width: number; readonly height: number } | undefined>(undefined);
   useLayoutEffect(() => {
-    const rect = handle.current?.getRect();
-    if (rect === undefined || rect.width === 0 || rect.height === 0) {
+    const probe = handle.current;
+    const box = probe?.getRect();
+    if (probe === null || box === undefined || box.width === 0 || box.height === 0) {
       throw new Error('The editor\'s grid probe has no size: its font did not lay out');
     }
-    onMeasured({ advance: Math.round(rect.width / PROBE_COLUMNS / GLYPH_POSITION_STEP_PX) * GLYPH_POSITION_STEP_PX, lineHeight: rect.height });
+    // The carets are asked for when the probe's box is not what they were last asked in: a keystroke renders the editor again and the font is the same.
+    if (measuredBox.current?.width === box.width && measuredBox.current.height === box.height) return;
+    const start = probe.getCaretRect(0);
+    const end = probe.getCaretRect(PROBE_COLUMNS);
+    if (start === undefined || end === undefined || end.x <= start.x) throw new Error('The editor\'s grid probe has no carets: its font did not lay out');
+    measuredBox.current = { width: box.width, height: box.height };
+    onMeasured({ advance: (end.x - start.x) / PROBE_COLUMNS, lineHeight: box.height });
   });
   return (
     <Text

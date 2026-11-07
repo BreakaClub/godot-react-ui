@@ -5,8 +5,8 @@ import type { LayoutRect, NativeSnapshot, NativeSnapshotNode } from '../../src/n
 import type { RendererProfile } from '../../src/profile';
 import type { NativeProfile } from '../../src/native';
 import { TYPE_ERROR, anchorOffset, applyEdits } from '../../scripts/live-compile-edits.mjs';
-import { GLYPH_POSITION_STEP_PX } from './editor/font-grid';
 import type { NavigatorOptions } from './main';
+import { THEME } from './editor/theme';
 import { assertionTally, parseVerifierEvent, verifierClipboard } from './verifier-input';
 import { grab, settleFrames } from './verify-filters';
 import { click, drag, move, typeText } from './verify-text-input';
@@ -38,6 +38,10 @@ export interface CodeEditorInspection {
   scrollTo(testID: string, top: number): void;
   profile(enabled: boolean): void;
   takeProfile(): { js: RendererProfile; native: NativeProfile };
+  /** Where the text with test id `testID` has its caret (`getCaretRect`), and what a press at a point lands on (`getOffsetAtPoint`) and a range covers (`getRangeRects`). */
+  textCaret(testID: string, offset: number, side: 'before' | 'after'): LayoutRect | null;
+  textOffsetAt(testID: string, x: number, y: number): { readonly offset: number; readonly side: 'before' | 'after' } | null;
+  textRanges(testID: string, start: number, end: number): LayoutRect[] | null;
 }
 
 export type CodeEditorCapture = (name: string, overflowing?: readonly string[]) => Promise<void>;
@@ -49,8 +53,6 @@ export type CodeEditorCapture = (name: string, overflowing?: readonly string[]) 
 const OVERFLOWING = ['inputs-slider-thumb', 'editor-grid-probe'];
 /** Typed at the end of a statement: not a statement. (A stray `}` in JSX text is not a syntax error to Bun's parser: it compiles and throws when the page renders.) */
 const SYNTAX_JUNK = ' = = ;';
-/** A run's style that sets an underline (a run that sets none has the key with `none`, or not at all). */
-const UNDERLINED = /"textDecorationLine":\s*"underline"/u;
 /** A comment typed into the blank third line of the source: an edit that changes no behaviour. */
 const NOTE = '// note';
 const LAB_ID = 'inputs';
@@ -61,6 +63,46 @@ const FRAME_POLL_MS = 1;
 const DEADLINE_MS = 6_000;
 /** How far a caret may stray from the pixel of its column. */
 const COLUMN_TOLERANCE_PX = 1;
+/** How far the caret of a column on the grid may be from where the grid says: the paragraph's own advance is exact to a small fraction of a pixel. */
+const GRID_EXACT_PX = 0.05;
+/** A strip of pixels this far to this far from an edge of a drawn band, so antialiasing at the fractional edge does not decide a pixel. */
+const EDGE_NEAR_PX = 1.5;
+const EDGE_FAR_PX = 3;
+/** A selection far along a long line: from this column to this one. */
+const FAR_COLUMN_FROM = 100;
+const FAR_COLUMN_TO = 106;
+/** A line of text this long has the columns above. */
+const LONG_LINE_COLUMNS = 110;
+/**
+ * A comment with three emoji (two code units and about two columns each), two CJK characters (the demo's fonts have none and this machine
+ * finds no fallback, so the engine lays them out as two-column boxes of their own) and ASCII on both sides.
+ */
+const WIDE_COMMENT = '// \u{1F600}\u{1F680}\u{1F3B2} \u65e5\u672c ok';
+/** Offsets in `WIDE_COMMENT`: the first emoji starts and ends (an emoji is two code units), and the three end. */
+const EMOJI_CODE_UNITS = 2;
+const EMOJI_COUNT = 3;
+const WIDE_FIRST_START = 3;
+const WIDE_FIRST_END = WIDE_FIRST_START + EMOJI_CODE_UNITS;
+const WIDE_RUN_END = WIDE_FIRST_START + EMOJI_COUNT * EMOJI_CODE_UNITS;
+/** Low surrogates: the second code unit of an emoji, where no caret can be. */
+const LOW_SURROGATE_START = 0xdc00;
+const LOW_SURROGATE_END = 0xdfff;
+/** The wide line has a caret at least this many columns from where the grid would put it. */
+const WIDE_OFF_GRID_COLUMNS = 0.5;
+/** The rows of a span's background, from here to here below the top of the line's box (above and below it is the line's gap). */
+const BAND_FIRST_ROW_PX = 2;
+const BAND_LAST_ROW_PX = 13;
+/** A span's background is the font's own height (a little less than the line's): a pixel row this far below the top of the line's box is in the middle of it. */
+const SPAN_BAND_PROBE_PX = 8;
+/** Past an edge of a selection that has the caret at it: further than the caret is wide. */
+const PAST_CARET_PX = 4;
+/** The error colour in the raster of a wave is blended at its edges: a pixel within this many levels counts. */
+const WAVE_COLOUR_TOLERANCE_LEVELS = 40;
+/** A wave is on at least this many rows of pixels; a solid underline is on one. */
+const WAVE_MIN_ROWS = 2;
+/** Where in the span between two carets a press lands on the left one (under half) and on the right one (over half). */
+const BELOW_HALF = 0.3;
+const ABOVE_HALF = 0.7;
 /** The probe's width in columns (`view/grid-probe.tsx`). */
 const PROBE_COLUMNS = 400;
 /** Character codes of the keys `injectCharacter` gives a keycode: the digits and the capital letters. */
@@ -83,8 +125,6 @@ const CLICK_PAUSE_FRAMES = 3;
 /** The probe sits this far inside the page's top left corner, where only its background is (the page pads its content by 24). */
 const PAGE_PROBE_INSET_PX = 6;
 const PAGE_BACKGROUND_ORIGINAL = '#f8fafc';
-/** The colour of an inlay hint's text (`editor/theme.ts`). */
-const INLAY_COLOUR = '#8aa0bd';
 /** The selection colour without its alpha (`editor/theme.ts`). */
 const SELECTION_BOX_PREFIX = '#2563eb';
 /** The theme's caret (`editor/theme.ts`). */
@@ -94,6 +134,7 @@ const LEVELS = 255;
 const COLOUR_TOLERANCE_LEVELS = 4;
 const MILLISECONDS_PER_MICROSECOND = 1000;
 const TENTH = 10;
+const HUNDRED = 100;
 const MEDIAN = 0.5;
 const PERCENTILE_95 = 0.95;
 /** A hover is asked for after this long (view/hover.ts); the section waits this and a little more. */
@@ -253,9 +294,11 @@ interface Grid {
 }
 
 function gridOf(api: CodeEditorInspection): Grid {
-  const probe = node(api, 'editor-grid-probe').rect;
-  // The editor takes the measured advance to the step glyphs are placed at (view/grid-probe.tsx); the grid it draws on is that one.
-  return { advance: Math.round(probe.width / PROBE_COLUMNS / GLYPH_POSITION_STEP_PX) * GLYPH_POSITION_STEP_PX, lineHeight: probe.height, gutterWidth: node(api, 'code-gutter').rect.width };
+  // The advance the paragraph lays its glyphs out at: the distance between a caret at the start of the probe's line and one at its end, over its columns.
+  const start = api.textCaret('editor-grid-probe', 0, 'after');
+  const end = api.textCaret('editor-grid-probe', PROBE_COLUMNS, 'after');
+  assert(start !== null && end !== null, 'The probe is a text with carets');
+  return { advance: (end.x - start.x) / PROBE_COLUMNS, lineHeight: node(api, 'editor-grid-probe').rect.height, gutterWidth: node(api, 'code-gutter').rect.width };
 }
 
 /** The root-local point of the caret boundary at (`line`, `column`): the content's origin moves when the editor scrolls, and is read now. */
@@ -274,16 +317,38 @@ function lineText(api: CodeEditorInspection, line: number): string | undefined {
   return hasNode(api, `code-line-${line}`) ? textOf(api, `code-line-${line}`) : undefined;
 }
 
-/** The text of the line without its inlay hints, which are drawn in the line but are not in the source. */
-function sourceTextOfDrawnLine(api: CodeEditorInspection, line: number): string {
-  const row = rowOf(api, line);
-  assert(row !== undefined, `Line ${line} is drawn`);
-  return childrenOf(api, row).filter(run => run.presentation.color.slice(0, INLAY_COLOUR.length).toLowerCase() !== INLAY_COLOUR).map(run => run.text).join('');
+/** One span of a line: its range of the line's text, what it shows if it is an inlay, and its style. */
+interface LineSpan {
+  readonly start: number;
+  readonly end: number;
+  readonly inlay: string | undefined;
+  readonly style: Readonly<Record<string, unknown>>;
 }
 
-function childrenOf(api: CodeEditorInspection, entry: NativeSnapshotNode): NativeSnapshotNode[] {
-  const byId = new Map(api.snapshot().nodes.map(candidate => [candidate.id, candidate]));
-  return entry.children.map(id => byId.get(id)).filter((child): child is NativeSnapshotNode => child !== undefined);
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** The spans of the `Text` that is line `line`: the line is one node, and what it is coloured by is these. */
+function spansOf(api: CodeEditorInspection, line: number): LineSpan[] {
+  const row = node(api, `code-line-${line}`);
+  assert(row.kind === 'text' && row.children.length === 0, `Line ${line} is one Text with no node in it`);
+  const { spans } = row.props;
+  // A blank line has no children, so it has no spans.
+  if (spans === undefined || spans === null) {
+    assert(row.text === '', `Line ${line} has spans`);
+    return [];
+  }
+  assert(Array.isArray(spans), `Line ${line} has spans`);
+  return spans.map((span: unknown) => {
+    assert(isRecord(span) && typeof span.start === 'number' && typeof span.end === 'number', `A span of line ${line} has a range`);
+    return { start: span.start, end: span.end, inlay: typeof span.inlay === 'string' ? span.inlay : undefined, style: isRecord(span.style) ? span.style : {} };
+  });
+}
+
+/** The spans of a line that are the source's own text (not an inlay). */
+function textSpansOf(api: CodeEditorInspection, line: number): LineSpan[] {
+  return spansOf(api, line).filter(span => span.inlay === undefined);
 }
 
 interface Position {
@@ -358,6 +423,40 @@ function blend(colour: string, alpha: number, background: string): [number, numb
 function pageBackground(owner: Node, api: CodeEditorInspection): [number, number, number] {
   const page = node(api, 'inputs-lab').rect;
   return pixelAt(owner, api, page.x + PAGE_PROBE_INSET_PX, page.y + PAGE_PROBE_INSET_PX);
+}
+
+/** One grab of the window, to read many pixels from (`pixelAt` grabs each time). */
+interface Raster {
+  colourAt(x: number, y: number): [number, number, number];
+}
+
+function rasterOf(owner: Node, api: CodeEditorInspection): Raster {
+  const image: Image = grab(owner);
+  const ratio = image.getWidth() / api.snapshot().width;
+  return { colourAt: (x, y) => levels(image.getPixel(Math.round(x * ratio), Math.round(y * ratio))) };
+}
+
+/** Whether some pixel of the strip from `xFrom` to `xTo` and `yFrom` to `yTo` (root-local, a pixel apart) is `colour`. */
+function stripHas(raster: Raster, xFrom: number, xTo: number, yFrom: number, yTo: number, colour: readonly number[]): boolean {
+  for (let y = yFrom; y <= yTo; y += 1) {
+    for (let x = xFrom; x <= xTo; x += 1) if (near(raster.colourAt(x, y), colour)) return true;
+  }
+  return false;
+}
+
+/**
+ * That a span's background (`bandColour`) starts and ends where `left` and `right` say, in the raster: the colour is in a strip just inside each
+ * edge (some row of it: a glyph there covers some rows, not all) and in none just outside (a caret at the right edge is wider than the strip is
+ * far from it, so that one is taken beyond the caret).
+ */
+function bandEdgesAre(raster: Raster, lineTop: number, left: number, right: number, bandColour: readonly number[]): string | undefined {
+  const top = lineTop + BAND_FIRST_ROW_PX;
+  const bottom = lineTop + BAND_LAST_ROW_PX;
+  if (!stripHas(raster, left + EDGE_NEAR_PX, left + EDGE_FAR_PX, top, bottom, bandColour)) return `the colour is not just inside the left edge ${left}`;
+  if (stripHas(raster, left - EDGE_FAR_PX, left - EDGE_NEAR_PX, top, bottom, bandColour)) return `the colour is just outside the left edge ${left}`;
+  if (!stripHas(raster, right - EDGE_FAR_PX, right - EDGE_NEAR_PX, top, bottom, bandColour)) return `the colour is not just inside the right edge ${right}`;
+  if (stripHas(raster, right + PAST_CARET_PX, right + PAST_CARET_PX + (EDGE_FAR_PX - EDGE_NEAR_PX), top, bottom, bandColour)) return `the colour is just outside the right edge ${right}`;
+  return undefined;
 }
 
 // ---- The section ---------------------------------------------------------------------------------------------------------------------------
@@ -452,21 +551,21 @@ export async function verifyCodeEditor(owner: Node, api: CodeEditorInspection, c
   const row2 = node(api, 'code-line-2').rect;
   assert(Math.abs(row2.y - row1.y - grid.lineHeight) <= COLUMN_TOLERANCE_PX, `Lines stand a line height apart: ${row2.y - row1.y} against ${grid.lineHeight}`);
   assert(Math.abs(row1.x - (content.x + grid.gutterWidth)) <= COLUMN_TOLERANCE_PX, 'A line starts where the gutter ends');
-  let checkedRuns = 0;
+  let checkedCarets = 0;
   for (let line = 1; line <= 12; line += 1) {
-    const row = rowOf(api, line);
-    assert(row !== undefined, `Line ${line} is drawn`);
-    let column = 0;
-    for (const run of childrenOf(api, row)) {
-      if (run.text === '') continue;
+    const text = sourceLines[line - 1] ?? '';
+    const ranges = textSpansOf(api, line);
+    assert(lineText(api, line) === text, `Line ${line} reads as the source: ${lineText(api, line)}`);
+    assert(ranges.every((span, index) => span.start < span.end && span.end <= text.length && (index === 0 || (ranges[index - 1]?.end ?? 0) <= span.start)), `Line ${line}'s spans lie in the line, in order and apart`);
+    // A line is one paragraph, laid out at the advance the grid has: the caret of each column is where the grid says (this is the grid being exact).
+    for (let column = 0; column <= text.length; column += 1) {
+      const caret = api.textCaret(`code-line-${line}`, column, 'after');
       const wanted = content.x + grid.gutterWidth + column * grid.advance;
-      assert(Math.abs(run.rect.x - wanted) <= COLUMN_TOLERANCE_PX, `Line ${line} column ${column} ("${run.text}") is at ${run.rect.x}, the grid says ${wanted}`);
-      column += run.text.length;
-      checkedRuns += 1;
+      assert(caret !== null && Math.abs(caret.x - wanted) <= GRID_EXACT_PX, `Line ${line} column ${column} has its caret at ${caret?.x}, the grid says ${wanted}`);
+      checkedCarets += 1;
     }
-    assert(column === (sourceLines[line - 1] ?? '').length, `Line ${line}'s runs add up to the line: ${column}`);
   }
-  facts.checkedRuns = checkedRuns;
+  facts.checkedCarets = checkedCarets;
 
   // ---- A press puts the caret at the column, within a pixel ------------------------------------------------------------------------------------------
   const caretChecks: { line: number; column: number; caretX: number; wantedX: number }[] = [];
@@ -502,11 +601,13 @@ export async function verifyCodeEditor(owner: Node, api: CodeEditorInspection, c
   await pressKey(Key.KeyC, command);
   assert(verifierClipboard.get() === expectedDrag, `The dragged text is the clipboard's after Copy: ${JSON.stringify(verifierClipboard.get())} against ${JSON.stringify(expectedDrag)}`);
   const selectionColour = blend('#2563eb', 0x77 / LEVELS, '#0f172a');
-  const middle = node(api, 'code-line-5');
-  // The selection of a line is a box of its own under the text, as wide as the columns it covers.
-  const middleRun = childrenOf(api, middle).find(box => box.text === '' && box.presentation.backgroundColor.slice(0, SELECTION_BOX_PREFIX.length).toLowerCase() === SELECTION_BOX_PREFIX);
-  assert(middleRun !== undefined, 'A line in the middle of the selection has a selection box');
-  assert(near(pixelAt(owner, api, middleRun.rect.x + 1, middleRun.rect.y + 1), selectionColour), `The selection is in the raster: ${pixelAt(owner, api, middleRun.rect.x + 1, middleRun.rect.y + 1).join(',')} against ${selectionColour.join(',')}`);
+  // The selection of a line is the background of its spans, drawn by the paragraph where its glyphs are, and over the line break as one space of generated text.
+  const middle = spansOf(api, 5);
+  assert(middle.length > 1 && middle.every(span => String(span.style.backgroundColor).slice(0, SELECTION_BOX_PREFIX.length).toLowerCase() === SELECTION_BOX_PREFIX), 'Every span of a line in the middle of the selection has the selection behind it, the line break too');
+  assert(middle.at(-1)?.inlay === ' ', 'and the selection goes on over the line break');
+  const bandStart = api.textRanges('code-line-5', 0, 1)?.[0];
+  assert(bandStart !== undefined, 'The first character of the line has a range');
+  assert(near(pixelAt(owner, api, bandStart.x + 1, bandStart.y + SPAN_BAND_PROBE_PX), selectionColour), `The selection is in the raster: ${pixelAt(owner, api, bandStart.x + 1, bandStart.y + SPAN_BAND_PROBE_PX).join(',')} against ${selectionColour.join(',')}`);
   assert(statusPosition(api).line === 6 && statusPosition(api).column === 10, 'The caret is at the end of the drag');
   await capture('code-editor-02-selection', OVERFLOWING);
 
@@ -524,6 +625,16 @@ export async function verifyCodeEditor(owner: Node, api: CodeEditorInspection, c
   await click(boundaryAt(api, shiftLine, 9), 1, { shift: true });
   await pressKey(Key.KeyC, command);
   assert(verifierClipboard.get() === (sourceLines[shiftLine - 1] ?? '').slice(2, 9), `Shift+click extends from the caret: ${JSON.stringify(verifierClipboard.get())}`);
+
+  // Far along a long line the paint is still on the grid: a selection from one column to another has its edges, in the raster, where the grid says.
+  const longLine = sourceLines.findIndex(text => text.length >= LONG_LINE_COLUMNS) + 1;
+  assert(longLine > 0 && longLine <= 12, 'The first lines of the source include a long one');
+  await click(boundaryAt(api, longLine, FAR_COLUMN_FROM));
+  await click(boundaryAt(api, longLine, FAR_COLUMN_TO), 1, { shift: true });
+  const farFrom = boundaryAt(api, longLine, FAR_COLUMN_FROM);
+  const farTo = boundaryAt(api, longLine, FAR_COLUMN_TO);
+  const farProblem = bandEdgesAre(rasterOf(owner, api), farFrom.y - grid.lineHeight / 2, farFrom.x, farTo.x, blend('#2563eb', 0x77 / LEVELS, THEME.background));
+  assert(farProblem === undefined, `A selection from column ${FAR_COLUMN_FROM} to ${FAR_COLUMN_TO} of a long line has its edges on the grid: ${farProblem}`);
 
   // ---- A drag past the edge of the code scrolls it, and the selection goes on growing ----------------------------------------------------------------------
   const viewEdge = node(api, 'code-scroll').rect;
@@ -610,6 +721,8 @@ export async function verifyCodeEditor(owner: Node, api: CodeEditorInspection, c
   const typed = 'emerald-100';
   const keyToInk: number[] = [];
   const commitChars: number[] = [];
+  const jsMs: number[] = [];
+  const nativeCallMs: number[] = [];
   for (const character of typed) {
     const caretBefore = caretRect(api);
     const before = grab(owner);
@@ -623,6 +736,9 @@ export async function verifyCodeEditor(owner: Node, api: CodeEditorInspection, c
     injectCharacter(character);
     const sample = api.takeProfile().js;
     commitChars.push(sample.samples.reduce((total, entry) => total + (entry.kind === 'flush' ? entry.jsonChars : 0), 0));
+    // The key's handling as one span of time (the controller, the render, the commit: the longest `events` sample holds the rest), and the share of it that is the native commit call.
+    jsMs.push(Math.max(...sample.samples.map(entry => (entry.kind === 'events' ? entry.durationMs : 0))));
+    nativeCallMs.push(sample.samples.reduce((total, entry) => total + (entry.kind === 'flush' ? entry.nativeCallMs : 0), 0));
     // The character is in the next draw: some pixel of its cell differs from the background.
     let ink = false;
     const deadline = started + DEADLINE_MS;
@@ -640,6 +756,7 @@ export async function verifyCodeEditor(owner: Node, api: CodeEditorInspection, c
     keyToInk.push(nowMs() - started);
   }
   assert(lineText(api, classAt.line)?.includes('bg-emerald-100') === true, `The line reads bg-emerald-100: ${lineText(api, classAt.line)}`);
+  facts.keystrokeJs = { handlingMedianMs: round(percentile(jsMs, MEDIAN), HUNDRED), nativeCommitCallMedianMs: round(percentile(nativeCallMs, MEDIAN), HUNDRED) };
   facts.keystrokeToInk = { medianMs: round(percentile(keyToInk, MEDIAN), TENTH), p95Ms: round(percentile(keyToInk, PERCENTILE_95), TENTH) };
   facts.commitCharsPerKeystroke = { median: percentile(commitChars, MEDIAN), worst: Math.max(...commitChars) };
   assert(percentile(keyToInk, PERCENTILE_95) <= KEY_TO_INK_P95_BUDGET_MS, `A keystroke is in the raster within ${KEY_TO_INK_P95_BUDGET_MS} ms (p95): ${percentile(keyToInk, PERCENTILE_95)}`);
@@ -660,8 +777,8 @@ export async function verifyCodeEditor(owner: Node, api: CodeEditorInspection, c
   assert(/Syntax error at \d+:\d+/u.test(textOf(api, 'code-status-run')), `The status names the place: ${textOf(api, 'code-status-run')}`);
   assert(textOf(api, 'inputs-next') === 'Next 3' && near(pageBackground(owner, api), hexLevels(EMERALD_100)), 'The last good page stays, with its state');
   assert(hasNode(api, `code-marker-${brokenLine}`), 'The gutter marks the line with the error');
-  const underlined = childrenOf(api, node(api, `code-line-${brokenLine}`)).filter(run => String(run.props.style ?? '').length > 0 && UNDERLINED.test(JSON.stringify(run.props.style)));
-  assert(underlined.length > 0, 'A run of the line is underlined');
+  const underlined = textSpansOf(api, brokenLine).filter(span => span.style.textDecorationLine === 'underline');
+  assert(underlined.length > 0 && underlined.every(span => span.style.textDecorationStyle === 'wavy'), 'A span of the line is underlined, wavy');
   await capture('code-editor-04-syntax-error', OVERFLOWING);
   await pressKey(Key.KeyBackspace, {}, SYNTAX_JUNK.length);
   await waitUntil('the page to run again', () => textOf(api, 'code-status-run').startsWith('Swapped in'), UPDATE_DEADLINE_MS);
@@ -685,13 +802,29 @@ export async function verifyCodeEditor(owner: Node, api: CodeEditorInspection, c
   assert(typeAnchor.line === labelAt.line, 'The type error is on the line that was edited');
   // Declaring `label` a number makes every use of it as a class an error too (the section's edit is the shared TYPE_ERROR): the first is the declaration.
   await waitUntil('the checker to find the errors', () => /^\d+ errors?$/u.test(textOf(api, 'code-status-check')), UPDATE_DEADLINE_MS, () => `The checker's summary reads "${textOf(api, 'code-status-check')}", the run "${textOf(api, 'code-status-run')}", the line "${lineText(api, labelAt.line)}"`);
-  const errorLine = node(api, `code-line-${typeAnchor.line}`);
-  const underlinedRuns = childrenOf(api, errorLine).filter(run => UNDERLINED.test(JSON.stringify(run.props.style)));
-  assert(underlinedRuns.length === 1 && underlinedRuns[0]?.text === 'label', `The run "label" is underlined, and nothing else on the line: ${underlinedRuns.map(run => run.text).join('|')}`);
-  const errorRun = underlinedRuns[0];
-  assert(errorRun !== undefined, 'There is an underlined run');
+  const errorText = lineText(api, typeAnchor.line) ?? '';
+  const underlinedSpans = textSpansOf(api, typeAnchor.line).filter(span => span.style.textDecorationLine === 'underline');
+  assert(underlinedSpans.length === 1 && errorText.slice(underlinedSpans[0]?.start, underlinedSpans[0]?.end) === 'label', `The span "label" is underlined, and nothing else on the line: ${underlinedSpans.map(span => errorText.slice(span.start, span.end)).join('|')}`);
+  const errorSpan = underlinedSpans[0];
+  assert(errorSpan !== undefined, 'There is an underlined span');
+  assert(errorSpan.style.textDecorationStyle === 'wavy', `The underline is wavy: ${String(errorSpan.style.textDecorationStyle)}`);
+  assert(String(errorSpan.style.textDecorationColor).slice(0, THEME.error.length).toLowerCase() === THEME.error, `in the error colour: ${String(errorSpan.style.textDecorationColor)}`);
+  const labelRange = api.textRanges(`code-line-${typeAnchor.line}`, errorSpan.start, errorSpan.end)?.[0];
+  assert(labelRange !== undefined, 'The underlined range is on the page');
   const labelColumnX = node(api, 'code-content').rect.x + gridOf(api).gutterWidth + typeAnchor.column * gridOf(api).advance;
-  assert(Math.abs(errorRun.rect.x - labelColumnX) <= COLUMN_TOLERANCE_PX, 'at the column tsc reports (scripts/live-compile-agreement.mjs): the name being declared');
+  assert(Math.abs(labelRange.x - labelColumnX) <= GRID_EXACT_PX, 'at the column tsc reports (scripts/live-compile-agreement.mjs): the name being declared');
+  // The wave is in the raster: red pixels under the text on more than one row of pixels (a solid line is one).
+  const waveImage = grab(owner);
+  const waveRatio = waveImage.getWidth() / api.snapshot().width;
+  const waveRows = new Set<number>();
+  const errorLevels = hexLevels(THEME.error);
+  for (let y = Math.floor((labelRange.y + labelRange.height / 2) * waveRatio); y < Math.ceil((labelRange.y + labelRange.height) * waveRatio); y += 1) {
+    for (let x = Math.floor(labelRange.x * waveRatio); x < Math.ceil((labelRange.x + labelRange.width) * waveRatio); x += 1) {
+      if (near(levels(waveImage.getPixel(x, y)), errorLevels, WAVE_COLOUR_TOLERANCE_LEVELS)) waveRows.add(y);
+    }
+  }
+  assert(waveRows.size >= WAVE_MIN_ROWS, `The underline in the raster is a wave: red on ${waveRows.size} rows of pixels under "label"`);
+  facts.waveRows = waveRows.size;
   assert(anchorOffset(typedSource, TYPE_ERROR.anchor) === typedSource.indexOf(TYPE_ERROR.anchor), 'against the offset of the shared edit');
   assert(hasNode(api, `code-marker-${typeAnchor.line}`), 'The gutter marks the line');
   await capture('code-editor-05-type-error', OVERFLOWING);
@@ -718,12 +851,17 @@ export async function verifyCodeEditor(owner: Node, api: CodeEditorInspection, c
   const sizesAt = positionOf(source, 'const sizes = ');
   await click(boundaryAt(api, typeAnchor.line, 0));
   await pressKey(Key.KeyDown, {}, sizesAt.line - typeAnchor.line);
-  await waitUntil('an inlay hint on the line of "sizes"', () => childrenOf(api, node(api, `code-line-${sizesAt.line}`)).some(run => run.text.startsWith(': ')), UPDATE_DEADLINE_MS);
-  const hint = childrenOf(api, node(api, `code-line-${sizesAt.line}`)).find(run => run.text.startsWith(': '));
-  assert(hint !== undefined, 'There is an inlay hint');
-  const hintColumn = sizesAt.column + 'const sizes'.length;
-  assert(Math.abs(hint.rect.x - (node(api, 'code-content').rect.x + gridOf(api).gutterWidth + hintColumn * gridOf(api).advance)) <= COLUMN_TOLERANCE_PX, 'right after the name it describes');
-  facts.inlayHint = hint.text;
+  await waitUntil('an inlay hint on the line of "sizes"', () => spansOf(api, sizesAt.line).some(span => span.inlay?.startsWith(': ') === true), UPDATE_DEADLINE_MS);
+  const hint = spansOf(api, sizesAt.line).find(span => span.inlay?.startsWith(': ') === true);
+  assert(hint?.inlay !== undefined, 'There is an inlay hint');
+  const hintOffset = sizesAt.column + 'const sizes'.length;
+  assert(hint.start === hintOffset && hint.end === hintOffset, 'right after the name it describes, at an offset of the line\'s own text');
+  assert(!(lineText(api, sizesAt.line) ?? '').includes(hint.inlay), 'and not in the text of the line: the line is the document\'s');
+  // A caret can stand on either side of it, a hint's width apart: the grid said so, and so does the paragraph.
+  const beforeHint = api.textCaret(`code-line-${sizesAt.line}`, hintOffset, 'before');
+  const afterHint = api.textCaret(`code-line-${sizesAt.line}`, hintOffset, 'after');
+  assert(beforeHint !== null && afterHint !== null && Math.abs(afterHint.x - beforeHint.x - hint.inlay.length * gridOf(api).advance) <= GRID_EXACT_PX, `The carets either side of the hint are its width apart: ${beforeHint?.x} and ${afterHint?.x}`);
+  facts.inlayHint = hint.inlay;
   await capture('code-editor-07-inlay', OVERFLOWING);
 
   // ---- Copy, cut, paste -------------------------------------------------------------------------------------------------------------------------------
@@ -737,9 +875,55 @@ export async function verifyCodeEditor(owner: Node, api: CodeEditorInspection, c
   // The line as drawn has the hint after the name (the check has not answered for the new text yet, so the hint is where the edits moved it).
   assert(/^\s*const sizes(: [^=]*)? = reversed/u.test(lineText(api, sizesAt.line) ?? ''), `Paste put it back, and the hint is still after the name: ${lineText(api, sizesAt.line)}`);
 
+  // ---- A line with wide characters is placed by its text, not by the grid ----------------------------------------------------------------------------------------
+  await toTop(api);
+  await click(boundaryAt(api, 3, 0));
+  verifierClipboard.set(WIDE_COMMENT);
+  await pressKey(Key.KeyV, command);
+  assert(lineText(api, 3) === WIDE_COMMENT, `Paste put the comment in the blank third line: ${lineText(api, 3)}`);
+  assert(statusPosition(api).line === 3 && statusPosition(api).column === WIDE_COMMENT.length, `The caret is after the pasted text: ${textOf(api, 'code-status-position')}`);
+  const wideLine = 'code-line-3';
+  const wideCaret = (offset: number): LayoutRect => {
+    const rect = api.textCaret(wideLine, offset, 'after');
+    assert(rect !== null, `The wide line has a caret at ${offset}`);
+    return rect;
+  };
+  // How far from the grid the text's own carets are: the largest distance, in columns, between a caret and the column of its offset (an offset inside an emoji has no caret).
+  let offGrid = 0;
+  for (let offset = 0; offset <= WIDE_COMMENT.length; offset += 1) {
+    const unit = WIDE_COMMENT.charCodeAt(offset);
+    if (offset > 0 && offset < WIDE_COMMENT.length && unit >= LOW_SURROGATE_START && unit <= LOW_SURROGATE_END) continue;
+    offGrid = Math.max(offGrid, Math.abs((wideCaret(offset).x - wideCaret(0).x) / gridOf(api).advance - offset));
+  }
+  facts.wideLine = { codeUnits: WIDE_COMMENT.length, mostColumnsOffTheGrid: round(offGrid, HUNDRED) };
+  assert(offGrid >= WIDE_OFF_GRID_COLUMNS, `The carets of the line are not where the grid would put them (at most ${round(offGrid, HUNDRED)} columns off): this case needs wide characters`);
+  assert(Math.abs(caretRect(api).x - wideCaret(WIDE_COMMENT.length).x) <= COLUMN_TOLERANCE_PX, `The caret at the end of the line is where the text puts it: ${caretRect(api).x} against ${wideCaret(WIDE_COMMENT.length).x}`);
+  const wideY = node(api, wideLine).rect.y + gridOf(api).lineHeight / 2;
+  const between = (from: number, to: number, share: number): Vector2 => new Vector2(wideCaret(from).x + share * (wideCaret(to).x - wideCaret(from).x), wideY);
+  for (const [share, landed] of [[BELOW_HALF, WIDE_FIRST_START], [ABOVE_HALF, WIDE_FIRST_END]] as const) {
+    await click(between(WIDE_FIRST_START, WIDE_FIRST_END, share));
+    assert(statusPosition(api).line === 3 && statusPosition(api).column === landed, `A press ${share * HUNDRED} percent across an emoji lands on offset ${landed}: ${textOf(api, 'code-status-position')}`);
+    assert(Math.abs(caretRect(api).x - wideCaret(landed).x) <= COLUMN_TOLERANCE_PX, `and the caret is drawn there: ${caretRect(api).x} against ${wideCaret(landed).x}`);
+  }
+  // Right moves over a whole emoji, and the caret is never between its two code units.
+  await click(between(WIDE_FIRST_START, WIDE_FIRST_END, BELOW_HALF));
+  await pressKey(Key.KeyRight);
+  assert(statusPosition(api).column === WIDE_FIRST_END, `Right moves over the emoji, both its code units: ${textOf(api, 'code-status-position')}`);
+  assert(Math.abs(caretRect(api).x - wideCaret(WIDE_FIRST_END).x) <= COLUMN_TOLERANCE_PX, 'and the caret is after it');
+  // A selection over the three emoji: its band is under exactly them in the raster, however wide they are.
+  await click(between(WIDE_FIRST_START, WIDE_FIRST_END, BELOW_HALF));
+  await pressKey(Key.KeyRight, { shift: true }, EMOJI_COUNT);
+  await pressKey(Key.KeyC, command);
+  assert(verifierClipboard.get() === WIDE_COMMENT.slice(WIDE_FIRST_START, WIDE_RUN_END), `The three emoji are selected: ${JSON.stringify(verifierClipboard.get())}`);
+  const wideBand = api.textRanges(wideLine, WIDE_FIRST_START, WIDE_RUN_END)?.[0];
+  assert(wideBand !== undefined, 'The selected range is on the page');
+  const wideProblem = bandEdgesAre(rasterOf(owner, api), wideBand.y, wideBand.x, wideBand.x + wideBand.width, blend('#2563eb', 0x77 / LEVELS, THEME.background));
+  assert(wideProblem === undefined, `The selection band is under the three emoji and no more: ${wideProblem}`);
+  await capture('code-editor-08-wide', OVERFLOWING);
+
   // ---- Reset: back to the source, and the page with it ---------------------------------------------------------------------------------------------------
   await click(centerOf(node(api, 'code-reset').rect));
-  await waitUntil('the source again', () => [...drawnLines(api).keys()].every(number => sourceTextOfDrawnLine(api, number) === sourceLines[number - 1]), UPDATE_DEADLINE_MS);
+  await waitUntil('the source again', () => [...drawnLines(api).keys()].every(number => lineText(api, number) === sourceLines[number - 1]), UPDATE_DEADLINE_MS);
   await waitUntil('the page to be as it was', () => near(pageBackground(owner, api), hexLevels(PAGE_BACKGROUND_ORIGINAL)), UPDATE_DEADLINE_MS);
   await waitUntil('the type check to find nothing', () => textOf(api, 'code-status-check') === 'No problems', UPDATE_DEADLINE_MS);
   assert(textOf(api, 'inputs-next') === 'Next 3', `The counter is still 3 after the reset: a reset is an edit like any other: ${textOf(api, 'inputs-next')}`);

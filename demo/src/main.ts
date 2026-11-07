@@ -6,7 +6,7 @@ import {
 } from 'godot';
 import { createClassBinder } from 'godot.annotations';
 import { createRoot, readActivity, takeNativeProfile, type ReactRoot, type UIHandle } from '../../src';
-import { readNodeRect } from '../../src/native';
+import { findTag, readCaretRect, readNodeRect, readOffsetAtPoint, readRangeRects, type TextSide } from '../../src/native';
 import { App, getDemoLifecycle } from './app';
 import { setLabOwner } from './interaction-lab';
 import { demoStart, type DemoStart } from './launch';
@@ -65,6 +65,13 @@ export interface PassthroughCounts {
   unhandledPans: number;
   /** Unconsumed key presses (not echoes) by Godot keycode. */
   unhandledKeys: Record<number, number>;
+}
+
+/** The tag of the text with a test id, for the geometry queries the verifiers make through the demo's API (any text in the tree). */
+function textTag(surface: ReactUiRoot, testID: string): number {
+  const tag = findTag(surface, testID);
+  if (tag === undefined) throw new Error(`There is no element with test id ${testID}`);
+  return tag;
 }
 
 /** A text of the rich text lab by its test id, for the geometry queries the Web verifier makes through the demo's API. */
@@ -183,6 +190,10 @@ export default class Main extends Node {
       richTextCaret: (testID: string, offset: number, side: 'before' | 'after') => richTextHandle(testID).getCaretRect(offset, side) ?? null,
       richTextOffsetAt: (testID: string, x: number, y: number) => richTextHandle(testID).getOffsetAtPoint(x, y) ?? null,
       richTextRanges: (testID: string, start: number, end: number) => richTextHandle(testID).getRangeRects(start, end) ?? null,
+      /** Where the text with test id `testID` has its caret at `offset` (`getCaretRect`), a press at a point (`getOffsetAtPoint`) and a range (`getRangeRects`): the code editor's lines. */
+      textCaret: (testID: string, offset: number, side: TextSide) => readCaretRect(this.requireSurface(), textTag(this.requireSurface(), testID), offset, side) ?? null,
+      textOffsetAt: (testID: string, x: number, y: number) => readOffsetAtPoint(this.requireSurface(), textTag(this.requireSurface(), testID), x, y) ?? null,
+      textRanges: (testID: string, start: number, end: number) => readRangeRects(this.requireSurface(), textTag(this.requireSurface(), testID), start, end) ?? null,
       /** One page of the layout utilities lab (`layout-utilities-data.ts`), bare at the root's corner, or its transition page. */
       showLayoutUtilities: (page: LayoutUtilitiesPage) => this.requireRenderer().render(
         page === 'transitions' ? createElement(TransitionClassesLab) : createElement(LayoutUtilitiesLab, { page }),

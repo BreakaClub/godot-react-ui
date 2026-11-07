@@ -33,6 +33,33 @@ export function yOfLine(line: number, grid: Grid): number {
   return (line - 1) * grid.lineHeight;
 }
 
+/** Printable ASCII: what a monospace font has exactly one column for. */
+const ONE_COLUMN = /^[\u0020-\u007e]*$/u;
+/**
+ * The characters a monospace font draws two columns wide: East Asian wide and fullwidth forms, and the emoji planes. Ranges, not Unicode
+ * property escapes (`\p{...}`): the engine's JavaScript is built without them.
+ */
+const TWO_COLUMNS = /[\u1100-\u115f\u2600-\u27bf\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe6f\uff00-\uff60\uffe0-\uffe6\u{1f000}-\u{1faff}\u{20000}-\u{3fffd}]/u;
+const WIDE_COLUMNS = 2;
+/** Characters that take no column: combining marks, variation selectors, zero width space, joiners and marks. */
+const NO_COLUMN = /[\u0300-\u036f\u1ab0-\u1aff\u1dc0-\u1dff\u200b-\u200f\u20d0-\u20ff\ufe00-\ufe0f\ufe20-\ufe2f]/u;
+/** `tab-size` of the editor's text: the most columns a tab takes. */
+const TAB_COLUMNS = 8;
+
+/**
+ * About how many columns the text takes: a column for each character, two for a wide one, none for a combining mark, a tab stop for a tab.
+ * An estimate, for the width of the scrolling content; where a caret stands or a press lands is the `Text`'s to say (`LineLayout.onGrid`).
+ */
+export function displayColumns(text: string): number {
+  if (ONE_COLUMN.test(text)) return text.length;
+  let columns = 0;
+  for (const character of text) {
+    if (character === '\t') columns += TAB_COLUMNS;
+    else if (!NO_COLUMN.test(character)) columns += TWO_COLUMNS.test(character) ? WIDE_COLUMNS : 1;
+  }
+  return columns;
+}
+
 /** The line (from 1) under content row `y`, held to the lines there are. */
 export function lineAtY(y: number, grid: Grid, lineCount: number): number {
   return Math.min(lineCount, Math.max(1, Math.floor(y / grid.lineHeight) + 1));

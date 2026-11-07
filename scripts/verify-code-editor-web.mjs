@@ -11,16 +11,29 @@
 
 /** `md:` (README: Styles): from here the Code button is offered. */
 const PHONE_BREAKPOINT_PX = 768;
-/** A run's style that sets an underline. */
-const UNDERLINED = /"textDecorationLine":\s*"underline"/u;
-/** The colour of an inlay hint's text (demo/src/editor/theme.ts). */
-const INLAY_COLOUR = '#8aa0bd';
 const PROBE_COLUMNS = 400;
-/** The step the demo's fonts place glyphs at (`SubpixelPositioningOneQuarter`; demo/src/editor/font-grid.ts). */
-const GLYPH_POSITION_STEP_PX = 0.25;
 const COLUMN_TOLERANCE_PX = 1;
+/** How far the caret of a column on the grid may be from where the grid says: the paragraph's own advance is exact to a small fraction of a pixel. */
+const GRID_EXACT_PX = 0.05;
+/** The error colour (demo/src/editor/theme.ts). */
+const ERROR_COLOUR = '#f87171';
+/**
+ * A comment with three emoji (two code units each), two CJK characters (the Web build has no font with them, so the engine lays out its own
+ * boxes for them) and ASCII on both sides, and the offsets in it that the scenario uses: the first emoji starts and ends, and the three end.
+ */
+const WIDE_COMMENT = '// \u{1F600}\u{1F680}\u{1F3B2} \u65e5\u672c ok';
+const EMOJI_CODE_UNITS = 2;
+const EMOJI_COUNT = 3;
+const WIDE_FIRST_START = 3;
+const WIDE_FIRST_END = WIDE_FIRST_START + EMOJI_CODE_UNITS;
+const WIDE_RUN_END = WIDE_FIRST_START + EMOJI_COUNT * EMOJI_CODE_UNITS;
+/** Where in the span between two carets a press lands on the left one (under half) and on the right one (over half). */
+const BELOW_HALF = 0.3;
+const ABOVE_HALF = 0.7;
 const UPDATE_DEADLINE_MS = 12_000;
 const HOVER_WAIT_MS = 700;
+/** Longer than the click-count interval (500 ms): the next press begins a new sequence. */
+const CLICK_SEQUENCE_PAUSE_MS = 650;
 /** Typed at the end of a statement: not a statement. (A stray `}` in JSX text is not a syntax error to Bun's parser.) */
 const SYNTAX_JUNK = ' = = ;';
 const EMERALD_100 = '#d1fae5';
@@ -40,9 +53,10 @@ function positionOf(source, needle, occurrence = 0) {
 function helpers(context) {
   const { demo, page, frames, snapshot, find, check, nodeExists, text, waitUntil, pagePoint, centerOf } = context;
   const grid = async () => {
-    const probe = (await find('editor-grid-probe')).rect;
-    // The editor takes the measured advance to the step glyphs are placed at (demo/src/editor/view/grid-probe.tsx).
-    return { advance: Math.round(probe.width / PROBE_COLUMNS / GLYPH_POSITION_STEP_PX) * GLYPH_POSITION_STEP_PX, lineHeight: probe.height, gutterWidth: (await find('code-gutter')).rect.width };
+    // The advance the paragraph lays its glyphs out at: the distance between a caret at the start of the probe's line and one at its end, over its columns.
+    const start = await demo('textCaret', 'editor-grid-probe', 0, 'after');
+    const end = await demo('textCaret', 'editor-grid-probe', PROBE_COLUMNS, 'after');
+    return { advance: (end.x - start.x) / PROBE_COLUMNS, lineHeight: (await find('editor-grid-probe')).rect.height, gutterWidth: (await find('code-gutter')).rect.width };
   };
   const boundaryAt = async (line, column) => {
     const g = await grid();
@@ -54,10 +68,17 @@ function helpers(context) {
     return match === null ? undefined : { line: Number(match[1]), column: Number(match[2]) - 1 };
   };
   const lineText = async (line) => ((await nodeExists(`code-line-${line}`)) ? text(`code-line-${line}`) : undefined);
-  const childrenOf = async (testID) => {
-    const [data, entry] = await Promise.all([snapshot(), find(testID)]);
-    const byId = new Map(data.nodes.map((node) => [node.id, node]));
-    return entry.children.map((id) => byId.get(id)).filter((child) => child !== undefined);
+  /**
+   * The spans of the `Text` with `testID`: a line is one node, and what it is coloured by is these. `text` is the range's text (an inlay has none) and
+   * `inlay` the text it shows; the snapshot has every key of a span, null when unset, and a span here has only the ones that are set.
+   */
+  const spansOf = async (testID) => {
+    const entry = await find(testID);
+    // A blank line has no children, so no spans.
+    return (entry.props.spans ?? []).map((span) => ({
+      start: span.start, end: span.end, inlay: span.inlay ?? undefined, text: entry.text.slice(span.start, span.end),
+      style: Object.fromEntries(Object.entries(span.style ?? {}).filter(([, value]) => value !== null)),
+    }));
   };
   const press = async (key, modifiers = [], times = 1) => {
     for (let count = 0; count < times; count += 1) {
@@ -106,12 +127,10 @@ function helpers(context) {
   /** Waits until line `number` is an element: the window follows the caret when the browser delivers the scroll. */
   const lineDrawn = (number) => waitUntil(`line ${number} to be drawn`, () => nodeExists(`code-line-${number}`));
   const clipboard = () => page.evaluate(() => navigator.clipboard.readText());
-  // The text of a line without its inlay hints, which are drawn in it but are not in the source.
-  const sourceTextOfDrawnLine = async (line) => (await childrenOf(`code-line-${line}`)).filter((run) => run.presentation.color.slice(0, INLAY_COLOUR.length).toLowerCase() !== INLAY_COLOUR).map((run) => run.text).join('');
-  const underlinedRuns = async (line) => (await childrenOf(`code-line-${line}`)).filter((run) => UNDERLINED.test(JSON.stringify(run.props?.style ?? '')));
+  const underlinedSpans = async (line) => (await spansOf(`code-line-${line}`)).filter((span) => span.inlay === undefined && span.style.textDecorationLine === 'underline');
   return {
-    demo, page, frames, snapshot, find, check, nodeExists, text, waitUntil, centerOf, grid, boundaryAt, statusPosition, lineText, childrenOf, press, click, drag,
-    pageBackground, drawnLines, clipboard, underlinedRuns, sourceTextOfDrawnLine, lineDrawn,
+    demo, page, frames, snapshot, find, check, nodeExists, text, waitUntil, centerOf, grid, boundaryAt, statusPosition, lineText, spansOf, press, click, drag,
+    pageBackground, drawnLines, clipboard, underlinedSpans, lineDrawn,
   };
 }
 
@@ -149,23 +168,23 @@ export async function runCodeEditorScenario(context) {
   check('The first line is the source\'s', (await h.lineText(1)) === lines[0], await h.lineText(1));
   await capture('code-editor-01-open', { geometry: false });
 
-  // The grid is measured; every run stands on its column.
+  // The grid is measured; a line is one Text, and the caret of every column of it is on the grid.
   const grid = await h.grid();
   check('The advance is a monospace advance', grid.advance > 4 && grid.advance < 16, grid);
   const content = (await find('code-content')).rect;
-  let checkedRuns = 0;
+  let checkedCarets = 0;
   for (let line = 1; line <= 12; line += 1) {
-    let column = 0;
-    for (const run of await h.childrenOf(`code-line-${line}`)) {
-      if (run.text === '') continue;
-      const wanted = content.x + grid.gutterWidth + column * grid.advance;
-      check(`Line ${line}, column ${column} is on the grid`, near(run.rect.x, wanted), { at: run.rect.x, wanted });
-      column += run.text.length;
-      checkedRuns += 1;
+    const lineSource = lines[line - 1] ?? '';
+    const spans = (await h.spansOf(`code-line-${line}`)).filter((span) => span.inlay === undefined);
+    check(`Line ${line} reads as the source, and its spans lie in it, in order and apart`, (await h.lineText(line)) === lineSource
+      && spans.every((span, index) => span.start < span.end && span.end <= lineSource.length && (index === 0 || spans[index - 1].end <= span.start)), spans.map((span) => [span.start, span.end]));
+    for (let column = 0; column <= lineSource.length; column += 1) {
+      const caret = await demo('textCaret', `code-line-${line}`, column, 'after');
+      if (!near(caret.x, content.x + grid.gutterWidth + column * grid.advance, GRID_EXACT_PX)) check(`Line ${line}, column ${column} has its caret on the grid`, false, { at: caret.x, wanted: content.x + grid.gutterWidth + column * grid.advance });
+      checkedCarets += 1;
     }
-    check(`Line ${line}'s runs add up to the line`, column === (lines[line - 1] ?? '').length, { column });
   }
-  check('Runs were checked', checkedRuns > 20, { checkedRuns });
+  check('Every column of the first lines has its caret on the grid', checkedCarets > 200, { checkedCarets });
 
   // A press puts the caret on the column.
   for (const [line, column] of [[3, 0], [4, 7], [5, 20], [7, 33]]) {
@@ -230,7 +249,9 @@ export async function runCodeEditorScenario(context) {
   await waitUntil('the compiler\'s verdict', async () => (await text('code-status-run')).startsWith('Not applied'), UPDATE_DEADLINE_MS);
   check('The status names the place', /Syntax error at \d+:\d+/u.test(await text('code-status-run')), await text('code-status-run'));
   check('The last good page stays, with its state', (await text('inputs-next')) === 'Next 3' && (await h.pageBackground()) === EMERALD_100);
-  check('The gutter marks the line and a run is underlined', (await nodeExists(`code-marker-${brokenLine}`)) && (await h.underlinedRuns(brokenLine)).length > 0);
+  const brokenSpans = await h.underlinedSpans(brokenLine);
+  check('The gutter marks the line and a span is underlined, wavy', (await nodeExists(`code-marker-${brokenLine}`)) && brokenSpans.length > 0
+    && brokenSpans.every((span) => span.style.textDecorationStyle === 'wavy'), { marker: await nodeExists(`code-marker-${brokenLine}`), brokenSpans });
   await capture('code-editor-04-syntax-error', { geometry: false });
   await h.press('Backspace', [], SYNTAX_JUNK.length);
   await waitUntil('the page to run again', async () => (await text('code-status-run')).startsWith('Swapped in'), UPDATE_DEADLINE_MS);
@@ -246,9 +267,11 @@ export async function runCodeEditorScenario(context) {
   await page.keyboard.type(': number');
   // Declaring `label` a number makes every use of it as a class an error too: the first is the declaration.
   await waitUntil('the checker to find the errors', async () => /^\d+ errors?$/u.test(await text('code-status-check')), UPDATE_DEADLINE_MS);
-  const underlined = await h.underlinedRuns(labelAt.line);
-  check('The run "label" is underlined, and nothing else on the line', underlined.length === 1 && underlined[0].text === 'label', underlined.map((run) => run.text));
-  check('at the column tsc reports', near(underlined[0].rect.x, content.x + grid.gutterWidth + labelAt.column + 'const '.length * grid.advance, 1.5 * grid.advance) || near(underlined[0].rect.x, content.x + grid.gutterWidth + ('const '.length + labelAt.column) * grid.advance));
+  const underlined = await h.underlinedSpans(labelAt.line);
+  check('The span "label" is underlined, and nothing else on the line', underlined.length === 1 && underlined[0].text === 'label', underlined.map((span) => span.text));
+  check('The underline is wavy, in the error colour', underlined[0].style.textDecorationStyle === 'wavy' && String(underlined[0].style.textDecorationColor).slice(0, ERROR_COLOUR.length).toLowerCase() === ERROR_COLOUR, underlined[0].style);
+  const labelRange = (await demo('textRanges', `code-line-${labelAt.line}`, underlined[0].start, underlined[0].end))[0];
+  check('at the column tsc reports', near(labelRange.x, content.x + grid.gutterWidth + (labelAt.column + 'const '.length) * grid.advance, GRID_EXACT_PX), labelRange);
   await capture('code-editor-05-type-error', { geometry: false });
   await context.click('code-status-check');
   check('The problems list has it', (await nodeExists('code-problem-0')) && /TS2322/u.test(await text('code-problem-0')), await text('code-problem-0'));
@@ -271,7 +294,13 @@ export async function runCodeEditorScenario(context) {
   await h.click(await h.boundaryAt(labelAt.line, 0));
   await h.press('ArrowDown', [], sizesAt.line - labelAt.line);
   await h.lineDrawn(sizesAt.line);
-  await waitUntil('an inlay hint on the line of "sizes"', async () => (await h.childrenOf(`code-line-${sizesAt.line}`)).some((run) => run.text.startsWith(': ')), UPDATE_DEADLINE_MS);
+  await waitUntil('an inlay hint on the line of "sizes"', async () => (await h.spansOf(`code-line-${sizesAt.line}`)).some((span) => span.inlay?.startsWith(': ')), UPDATE_DEADLINE_MS);
+  const hint = (await h.spansOf(`code-line-${sizesAt.line}`)).find((span) => span.inlay?.startsWith(': '));
+  const hintOffset = sizesAt.column + 'const sizes'.length;
+  check('The hint stands right after the name, at an offset of the line\'s own text, which does not have it', hint.start === hintOffset && !((await h.lineText(sizesAt.line)) ?? '').includes(hint.inlay), hint);
+  const beforeHint = await demo('textCaret', `code-line-${sizesAt.line}`, hintOffset, 'before');
+  const afterHint = await demo('textCaret', `code-line-${sizesAt.line}`, hintOffset, 'after');
+  check('A caret can stand either side of it, its width apart', near(afterHint.x - beforeHint.x, hint.inlay.length * grid.advance, GRID_EXACT_PX), { before: beforeHint.x, after: afterHint.x });
   await capture('code-editor-07-inlay', { geometry: false });
 
   // Copy, cut and paste; undo.
@@ -295,20 +324,52 @@ export async function runCodeEditorScenario(context) {
   await h.press('Home');
   await waitUntil('the IME element holds browser focus', async () => page.evaluate(() => document.activeElement?.className === 'ime'));
   await cdp.send('Input.imeSetComposition', { text: 'に', selectionStart: 1, selectionEnd: 1 });
-  await waitUntil('the preedit is in the line', async () => (await h.childrenOf('code-line-2')).some((run) => run.text === 'に'));
-  const preedit = (await h.childrenOf('code-line-2')).find((run) => run.text === 'に');
-  check('and it is underlined, at the caret', UNDERLINED.test(JSON.stringify(preedit.props?.style ?? '')) && near(preedit.rect.x, content.x + grid.gutterWidth));
-  check('The preedit is not in the document yet: the other runs read as the source', (await h.childrenOf('code-line-2')).filter((run) => run.text !== 'に').map((run) => run.text).join('') === lines[1]);
+  await waitUntil('the preedit is in the line', async () => (await h.spansOf('code-line-2')).some((span) => span.inlay === 'に'));
+  const preedit = (await h.spansOf('code-line-2')).find((span) => span.inlay === 'に');
+  check('and it is underlined, at the caret', preedit.style.textDecorationLine === 'underline' && preedit.start === 0);
+  check('The preedit is not in the document yet: the line reads as the source', (await h.lineText(2)) === lines[1]);
+  check('The caret is after the preedit', near((await find('code-caret')).rect.x, (await demo('textCaret', 'code-line-2', 0, 'after')).x, COLUMN_TOLERANCE_PX));
   await capture('code-editor-08-preedit', { geometry: false });
   await cdp.send('Input.insertText', { text: 'に' });
   await waitUntil('the commit is in the text', async () => (await h.lineText(2)) === `に${lines[1]}`);
   await cdp.detach();
 
+  // A line with wide characters is placed by its text, not by the grid: where its caret is, what a press lands on, what a selection covers.
+  await toTop();
+  await h.click(await h.boundaryAt(3, 0));
+  await page.evaluate((comment) => navigator.clipboard.writeText(comment), WIDE_COMMENT);
+  await h.press('KeyV', ['Meta']);
+  await waitUntil('the comment is in the third line', async () => (await h.lineText(3)) === WIDE_COMMENT);
+  const wideCaret = async (offset) => demo('textCaret', 'code-line-3', offset, 'after');
+  const wideColumns = ((await wideCaret(WIDE_COMMENT.length)).x - (await wideCaret(0)).x) / grid.advance;
+  check('The line is one Text and its caret at the end is where the text puts it (the width in columns is recorded: a Web build has no font for these characters)', near((await find('code-caret')).rect.x, (await wideCaret(WIDE_COMMENT.length)).x, COLUMN_TOLERANCE_PX), { wideColumns, codeUnits: WIDE_COMMENT.length });
+  // A press at the place of the one before it, soon after, is a double click: each of these is begun after a pause.
+  const apart = () => new Promise((resolve) => setTimeout(resolve, CLICK_SEQUENCE_PAUSE_MS));
+  const wideY = (await find('code-line-3')).rect.y + grid.lineHeight / 2;
+  const between = async (from, to, share) => ({ x: (await wideCaret(from)).x + share * ((await wideCaret(to)).x - (await wideCaret(from)).x), y: wideY });
+  for (const [share, landed] of [[BELOW_HALF, WIDE_FIRST_START], [ABOVE_HALF, WIDE_FIRST_END]]) {
+    await apart(); await h.click(await between(WIDE_FIRST_START, WIDE_FIRST_END, share));
+    const position = await h.statusPosition();
+    check(`A press ${share * 100} percent across an emoji lands on offset ${landed}`, position?.line === 3 && position.column === landed, position);
+    check('and the caret is drawn where the text puts it', near((await find('code-caret')).rect.x, (await wideCaret(landed)).x, COLUMN_TOLERANCE_PX), (await find('code-caret')).rect);
+  }
+  await apart(); await h.click(await between(WIDE_FIRST_START, WIDE_FIRST_END, BELOW_HALF));
+  await h.press('ArrowRight');
+  check('Right moves over the emoji, both its code units', (await h.statusPosition())?.column === WIDE_FIRST_END, await h.statusPosition());
+  await apart(); await h.click(await between(WIDE_FIRST_START, WIDE_FIRST_END, BELOW_HALF));
+  await h.press('ArrowRight', ['Shift'], EMOJI_COUNT);
+  await h.press('KeyC', ['Meta']);
+  await frames();
+  check('The three emoji are on the clipboard', (await h.clipboard()) === WIDE_COMMENT.slice(WIDE_FIRST_START, WIDE_RUN_END), { clipboard: await h.clipboard(), status: await h.statusPosition() });
+  const wideSpans = (await h.spansOf('code-line-3')).filter((span) => span.inlay === undefined && String(span.style.backgroundColor ?? '').length > 0);
+  check('and the selection is the background of the span over exactly them', wideSpans.length === 1 && wideSpans[0].start === WIDE_FIRST_START && wideSpans[0].end === WIDE_RUN_END, wideSpans);
+  await capture('code-editor-09-wide', { geometry: false });
+
   // Reset puts every file back.
   await context.click('code-reset');
   await waitUntil('the page to be as it was', async () => (await h.pageBackground()) === PAGE_BACKGROUND, UPDATE_DEADLINE_MS);
   await waitUntil('the source again', async () => {
-    for (const number of (await h.drawnLines()).keys()) if ((await h.sourceTextOfDrawnLine(number)) !== lines[number - 1]) return false;
+    for (const number of (await h.drawnLines()).keys()) if ((await h.lineText(number)) !== lines[number - 1]) return false;
     return true;
   }, UPDATE_DEADLINE_MS);
   check('The counter kept its count through the reset', (await text('inputs-next')) === 'Next 3', await text('inputs-next'));
@@ -366,7 +427,7 @@ export async function runTouchCodeEditorScenario(context) {
   await waitUntil('a third letter follows the first two, not the keyboard\'s whole text again', async () => ((await h.lineText(4)) ?? '').includes('XYZ'));
   await page.keyboard.press('Backspace');
   await waitUntil('Backspace takes one off', async () => !((await h.lineText(4)) ?? '').includes('XYZ') && ((await h.lineText(4)) ?? '').includes('XY'));
-  await capture('code-editor-09-touch', { geometry: false });
+  await capture('code-editor-10-touch', { geometry: false });
   // A tap in another place moves the caret, and a pan scrolls the code and leaves the caret where it is.
   const other = await h.boundaryAt(6, 3);
   await tap({ x: other.x - grid.advance * 0.3, y: other.y });

@@ -3,6 +3,8 @@ import test from 'node:test';
 import { EditorSelection } from '@codemirror/state';
 import { ParseScheduler, SYNTAX_COLORS, PLAIN_TEXT_COLOR } from '../demo/src/editor/highlight';
 import { LineLayout } from '../demo/src/editor/line-layout';
+import { insertionsFor } from '../demo/src/editor/lines';
+import { displayColumns } from '../demo/src/editor/geometry';
 import { THEME } from '../demo/src/editor/theme';
 import type { EditorDiagnostic } from '../demo/src/editor/diagnostics';
 import { EditorController } from '../demo/src/editor/controller';
@@ -36,12 +38,38 @@ test('an inlay shifts the text after it, and a click on it puts the caret in fro
   assert.equal(layout.offsetAt(12 + ': readonly string[]'.length), 12);
 });
 
-test('the preedit goes in front of an inlay at the same offset and the caret after it', () => {
+test('the preedit goes in front of an inlay at the same offset, and a caret after is after both', () => {
   const layout = new LineLayout('ab', [{ offset: 1, text: ':T', kind: 'inlay' }, { offset: 1, text: 'xyz', kind: 'preedit' }]);
   assert.deepEqual(layout.insertions.map(piece => piece.kind), ['preedit', 'inlay']);
   assert.equal(layout.columnOf(1), 1);
-  assert.equal(layout.columnOf(1, 'after-preedit'), 4);
+  assert.equal(layout.columnOf(1, 'after'), 1 + 3 + 2, 'after the group of generated text at the offset, as a `Text` has it');
   assert.equal(layout.columnOf(2), 1 + 3 + 2 + 1);
+});
+
+test('a hint where the composition is shown is not shown while it is: the caret after the preedit is after all that stands there', () => {
+  const inlays = [{ at: 1, kind: 'type' as const, label: ': T' }, { at: 4, kind: 'type' as const, label: ': U' }];
+  assert.deepEqual(insertionsFor(0, 6, inlays, undefined).map(piece => [piece.offset, piece.text]), [[1, ': T'], [4, ': U']]);
+  assert.deepEqual(insertionsFor(0, 6, inlays, { at: 1, text: 'x' }).map(piece => [piece.offset, piece.text, piece.kind]), [[4, ': U', 'inlay'], [1, 'x', 'preedit']]);
+  assert.deepEqual(insertionsFor(0, 6, inlays, { at: 1, text: '' }).map(piece => piece.text), [': T', ': U'], 'a composition with nothing to show yet hides nothing');
+});
+
+test('a line is on the grid when every character is one column wide: printable ASCII, hint and preedit included', () => {
+  assert.equal(new LineLayout('const a = "b";', []).onGrid, true);
+  assert.equal(new LineLayout('', []).onGrid, true);
+  for (const wide of ['// \u65e5\u672c\u8a9e', '// \u{1F600}', 'e\u0301', '\tindent', 'caf\u00e9']) {
+    assert.equal(new LineLayout(wide, []).onGrid, false, `${JSON.stringify(wide)} is not on the grid`);
+  }
+  assert.equal(new LineLayout('ab', [{ offset: 1, text: ': T', kind: 'inlay' }]).onGrid, true);
+  assert.equal(new LineLayout('ab', [{ offset: 1, text: '\u2026', kind: 'inlay' }]).onGrid, false, 'a hint with a character of its own is not');
+  assert.equal(new LineLayout('ab', [{ offset: 1, text: '\u306b', kind: 'preedit' }]).onGrid, false, 'nor a preedit');
+});
+
+test('the width of a line for the scrolling content: a column a character, two for a wide one, none for a mark, a tab stop for a tab', () => {
+  assert.equal(displayColumns('abc'), 3);
+  assert.equal(displayColumns('\u65e5\u672c\u8a9e'), 6);
+  assert.equal(displayColumns('\u{1F600}'), 2, 'an emoji is two code units and two columns');
+  assert.equal(displayColumns('e\u0301'), 1, 'a mark adds none');
+  assert.equal(displayColumns('\tx'), 9);
 });
 
 test('keywords, numbers, comments and templates are coloured by the parse', () => {
@@ -52,7 +80,6 @@ test('keywords, numbers, comments and templates are coloured by the parse', () =
   assert.equal(colour('42'), SYNTAX_COLORS.number);
   assert.equal(colour('// done'), SYNTAX_COLORS.comment);
   assert.equal(first.segments.map(segment => segment.text).join(''), first.text, 'the segments are the line');
-  assert.equal(first.segments[0]?.column, 0);
   const third = lineOf(editor, 3);
   assert.ok(third.segments.some(segment => segment.color === SYNTAX_COLORS.string), 'the template literal is a string');
   assert.ok(third.segments.some(segment => segment.color === PLAIN_TEXT_COLOR));
@@ -64,15 +91,21 @@ test('a selection splits the segments and gives the part it covers a background;
   const selected = spec.segments.filter(segment => segment.background === THEME.selectionInactive);
   assert.equal(selected.map(segment => segment.text).join(''), 'nswer = 4', 'the editor has no focus yet');
   editor.editor.setFocused(true);
-  const focused = lineOf(editor, 1).segments.filter(segment => segment.background === THEME.selection);
+  const segments = lineOf(editor, 1).segments;
+  const focused = segments.filter(segment => segment.background === THEME.selection);
   assert.equal(focused.map(segment => segment.text).join(''), 'nswer = 4');
-  assert.equal(focused[0]?.column, 7);
+  const first = segments.findIndex(segment => segment.background === THEME.selection);
+  assert.equal(segments.slice(0, first).map(segment => segment.text).join(''), 'const a', 'it starts where the selection does');
 });
 
-test('a selection that goes on past the end of a line is marked on that line', () => {
+test('a selection that goes on past the end of a line is marked on that line, as one space of generated text after it', () => {
   const editor = openEditor('one <two\nthree> four');
-  assert.equal(lineOf(editor, 1).breakSelected, true);
-  assert.equal(lineOf(editor, 2).breakSelected, false);
+  editor.editor.setFocused(true);
+  const first = lineOf(editor, 1);
+  const last = first.segments.at(-1);
+  assert.deepEqual([last?.kind, last?.text, last?.background], ['break', ' ', THEME.selection]);
+  assert.equal(first.segments.filter(segment => segment.kind !== 'break').map(segment => segment.text).join(''), first.text, 'the line\'s own text is whole');
+  assert.equal(lineOf(editor, 2).segments.some(segment => segment.kind === 'break'), false);
 });
 
 test('a diagnostic underlines its range, wavy and in the colour of its severity, and marks the gutter', () => {
@@ -90,15 +123,16 @@ test('a diagnostic underlines its range, wavy and in the colour of its severity,
   assert.equal(second.segments.find(segment => segment.underline !== undefined)?.underline?.color, THEME.warning);
 });
 
-test('an inlay is a segment of its own at the right column, and the text after it is shifted', () => {
+test('an inlay is a segment of its own between the text before it and the text after it', () => {
   const editor = openEditor('const sizes = [];');
   assert.equal(editor.editor.setInlays(0, [{ at: 11, kind: 'type', label: ': string[]' }]), 'applied');
   const spec = lineOf(editor, 1);
-  const inlay = spec.segments.find(segment => segment.kind === 'inlay');
-  assert.deepEqual([inlay?.text, inlay?.column, inlay?.color], [': string[]', 11, THEME.inlayText]);
-  const after = spec.segments.filter(segment => segment.kind === 'text' && segment.column > 11);
-  assert.equal(after[0]?.column, 11 + ': string[]'.length);
-  assert.equal(after.map(segment => segment.text).join(''), ' = [];');
+  const index = spec.segments.findIndex(segment => segment.kind === 'inlay');
+  const inlay = spec.segments[index];
+  assert.deepEqual([inlay?.text, inlay?.color, inlay?.background], [': string[]', THEME.inlayText, THEME.inlayBackground]);
+  assert.equal(spec.segments.slice(0, index).map(segment => segment.text).join(''), 'const sizes');
+  assert.equal(spec.segments.slice(index + 1).map(segment => segment.text).join(''), ' = [];');
+  assert.equal(spec.segments.filter(segment => segment.kind === 'text').map(segment => segment.text).join(''), spec.text, 'the text segments are the document\'s line');
 });
 
 test('the preedit of a composition is a segment at the caret with a solid underline', () => {
@@ -106,9 +140,10 @@ test('the preedit of a composition is a segment at the caret with a solid underl
   editor.editor.compositionStart();
   editor.editor.compositionUpdate('に');
   const spec = lineOf(editor, 1);
-  const preedit = spec.segments.find(segment => segment.kind === 'preedit');
-  assert.deepEqual([preedit?.text, preedit?.column, preedit?.underline?.style], ['に', 2, 'solid']);
-  assert.equal(spec.segments.find(segment => segment.text === 'c')?.column, 3);
+  const index = spec.segments.findIndex(segment => segment.kind === 'preedit');
+  const preedit = spec.segments[index];
+  assert.deepEqual([preedit?.text, preedit?.underline?.style], ['に', 'solid']);
+  assert.deepEqual([spec.segments.slice(0, index), spec.segments.slice(index + 1)].map(side => side.map(segment => segment.text).join('')), ['ab', 'c']);
 });
 
 test('a line that did not change keeps its spec, whatever happened to the others', () => {
@@ -165,4 +200,17 @@ test('two neighbouring pieces of text in one style are one segment, so a line ha
     }
   }
   assert.equal(lineOf(editor, 2).segments.length, 1, 'four brackets in the punctuation colour are one run');
+});
+
+test('a caret says its offset, its side of the generated text there and whether its line is on the grid', () => {
+  const editor = openEditor('ab|c\n// 日本|\n');
+  const [first, second] = editor.editor.caretPlacements();
+  assert.deepEqual(first && [first.line, first.offset, first.side, first.onGrid, first.column], [1, 2, 'before', true, 2]);
+  assert.deepEqual(second && [second.line, second.offset, second.side, second.onGrid], [2, 5, 'before', false], 'a line with wide characters is not on the grid');
+  const composing = openEditor('ab|c');
+  composing.editor.compositionStart();
+  assert.equal(composing.editor.caretPlacements()[0]?.side, 'before', 'a composition with nothing to show yet leaves the caret where it was');
+  composing.editor.compositionUpdate('xy');
+  const [caret] = composing.editor.caretPlacements();
+  assert.deepEqual(caret && [caret.offset, caret.side, caret.column], [2, 'after', 4], 'after the preedit');
 });

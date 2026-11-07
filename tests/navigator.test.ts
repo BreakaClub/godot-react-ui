@@ -7,13 +7,22 @@ import { Navigator, type NavigatorProps } from '../demo/src/navigator';
 import { CASE_OPTIONS, setTransformCase } from '../demo/src/transform-lab';
 import { createTestRoot } from './recording-host';
 import type { CodeSupport } from '../demo/src/editor/lab-code';
+import { installMonospaceGeometry } from './monospace-text-geometry';
 import { TextInputHost } from './text-input-host';
 
 // The navigator (demo/src/navigator.tsx) against the fake host: what it lists, what it opens, how the keyboard moves it and what
 // it does with a lab that throws. Layout is native's and is checked in the interaction verifier's `navigator` section.
 
+/** What the code panel's grid probe measures its font with: a 12 px monospace font on 16 px lines. */
+const CODE_ADVANCE = 7.2;
+const CODE_LINE_HEIGHT = 16;
+
 function mount(props: NavigatorProps = {}) {
   const host = new TextInputHost();
+  installMonospaceGeometry(host, {
+    advance: CODE_ADVANCE, lineHeight: CODE_LINE_HEIGHT,
+    origin: tag => (host.nodes.get(tag)?.props.testID === 'editor-grid-probe' ? { x: 0, y: 0 } : undefined),
+  });
   const { root } = createTestRoot(host);
   root.render(h(Navigator, props));
   const tag = (testID: string): number => {

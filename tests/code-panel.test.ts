@@ -19,6 +19,7 @@ import { installRefreshHook, performRefresh, refreshHooks } from '../demo/src/li
 import { parseCompileResult, parseProject, type CheckOutcome, type Hover, type InlayHint } from '../demo/src/live-compile-protocol';
 import { LiveSession } from '../demo/src/live-compile-session';
 import { findLab, type InlineLab } from '../demo/src/labs';
+import { installMonospaceGeometry } from './monospace-text-geometry';
 import { createTestRoot } from './recording-host';
 import { TextInputHost } from './text-input-host';
 
@@ -33,8 +34,9 @@ const PROJECT = resolve(root, 'demo/live-compile/project.json');
 const NEEDS: string | false = !existsSync(CLI) ? 'live-compile-cli is not built: run `node scripts/build-live-compile.mjs --cli`'
   : !existsSync(PROJECT) ? 'demo/live-compile/project.json is missing: run `node scripts/live-compile-project.mjs`' : false;
 const FRAME_HEADER_BYTES = 4;
-const ADVANCE = 7.25;
-const LINE_HEIGHT = 20;
+/** The advance of the demo's mono font at 12 px, as the text measures it (a 26.6 fixed point number). */
+const ADVANCE = 7.203125;
+const LINE_HEIGHT = 16;
 const CONTENT = { x: 300, y: 200 };
 const VIEWPORT = { width: 640, height: 400 };
 const FIRST_LINE_TEXT_ID = 'code-line-1';
@@ -63,6 +65,18 @@ interface Scenario {
 function mount(): Scenario {
   const host = new TextInputHost();
   host.rectsByTestID.set('editor-grid-probe', { x: 0, y: 0, width: 400 * ADVANCE, height: LINE_HEIGHT });
+  installMonospaceGeometry(host, {
+    advance: ADVANCE,
+    lineHeight: LINE_HEIGHT,
+    origin: (target) => {
+      const node = host.nodes.get(target);
+      const id = node?.props.testID;
+      if (id === 'editor-grid-probe') return { x: 0, y: 0 };
+      if (typeof id !== 'string' || !/^code-line-\d+$/u.test(id)) return undefined;
+      const style = mergedStyle(node?.props.style);
+      return { x: CONTENT.x + Number(style.left), y: CONTENT.y + Number(style.top) };
+    },
+  });
   host.rectsByTestID.set('code-content', { ...CONTENT, width: VIEWPORT.width, height: 4000 });
   host.rectsByTestID.set('code-scroll', { x: CONTENT.x, y: CONTENT.y, ...VIEWPORT });
   host.scrollStatesByTestID.set('code-scroll', {
@@ -147,14 +161,20 @@ function propsOf(s: Scenario, testID: string): Record<string, unknown> {
   return entry.props;
 }
 
-function styleOf(s: Scenario, testID: string): Record<string, unknown> {
-  const style = propsOf(s, testID).style;
-  assert.ok(typeof style === 'object' && style !== null && 'layers' in style && Array.isArray(style.layers), `${testID} has a compiled style`);
+/** The longhands of a compiled style (its layers merged in order), or none for a node that has no style. */
+function mergedStyle(style: unknown): Record<string, unknown> {
   const merged: Record<string, unknown> = {};
+  if (typeof style !== 'object' || style === null || !('layers' in style) || !Array.isArray(style.layers)) return merged;
   for (const layer of style.layers) {
     if (typeof layer === 'object' && layer !== null && 'style' in layer && typeof layer.style === 'object' && layer.style !== null) Object.assign(merged, layer.style);
   }
   return merged;
+}
+
+function styleOf(s: Scenario, testID: string): Record<string, unknown> {
+  const style = propsOf(s, testID).style;
+  assert.ok(typeof style === 'object' && style !== null && 'layers' in style && Array.isArray(style.layers), `${testID} has a compiled style`);
+  return mergedStyle(style);
 }
 
 function workspace(s: Scenario) {
@@ -230,17 +250,65 @@ panelTest('a press puts the caret at the column under the pointer, within a pixe
   }
 });
 
+/** The number of the first blank line of the source, which a test types a line into. */
+function blankLine(s: Scenario): number {
+  const { doc } = workspace(s).active.controller.model;
+  for (let number = 1; number <= doc.lines; number += 1) if (doc.line(number).length === 0) return number;
+  throw new Error('the source has no blank line');
+}
+
+panelTest('a press on a line on the grid asks the text nothing: the grid is exact there', (s) => {
+  const queries = s.host.textQueries.length;
+  const at = pointAt(s, 4, 9);
+  click(s, at);
+  assert.equal(textOf(s, 'code-status-position'), 'Ln 4, Col 10');
+  assert.equal(s.host.textQueries.slice(queries).filter(query => query.method === 'getOffsetAtPoint').length, 0, 'no hit test of the text');
+  assert.equal(s.host.textQueries.slice(queries).filter(query => query.method === 'getCaretRect' && query.tag === tag(s, 'code-line-4')).length, 0, 'no caret query of the line');
+});
+
+panelTest('a line with wide characters is placed by its text: the caret, the press and the word under the pointer are where the text says', async (s) => {
+  const { controller } = workspace(s).active;
+  const number = blankLine(s);
+  const lineStart = controller.model.doc.line(number).from;
+  const WIDE_LINE = '// \u65e5\u672c\u8a9e \u{1F600} ok';
+  controller.model.dispatch({ changes: { from: lineStart, insert: WIDE_LINE }, selection: { anchor: lineStart + WIDE_LINE.length } });
+  assert.equal(controller.layoutOf(number).onGrid, false);
+  await pause(0);
+  const gutter = gutterWidthFor(controller.lineCount, ADVANCE);
+  // The text's columns: `// ` is 3, each of the three CJK characters 2, so the offset after the first two (5) is at column 7.
+  const wideEnd = '// \u65e5\u672c'.length;
+  const columnsBeforeWide = 3 + 2 * 2;
+  click(s, { x: CONTENT.x + gutter + columnsBeforeWide * ADVANCE, y: CONTENT.y + (number - 1) * LINE_HEIGHT + LINE_HEIGHT / 2 });
+  assert.equal(controller.model.state.selection.main.head, lineStart + wideEnd, 'a press between the second and third characters lands there');
+  assert.equal(textOf(s, 'code-status-position'), `Ln ${number}, Col ${wideEnd + 1}`);
+  const caret = styleOf(s, 'code-caret');
+  assert.ok(Math.abs(Number(caret.left) - (gutter + columnsBeforeWide * ADVANCE)) <= 0.01, `the caret is where the text puts offset ${wideEnd}: ${String(caret.left)}, not at column ${wideEnd}`);
+  assert.ok(Math.abs(Number(caret.left) - (gutter + wideEnd * ADVANCE)) > ADVANCE, 'which is not the grid\'s');
+  const sink = styleOf(s, 'editor-input-sink');
+  assert.equal(sink.left, caret.left, 'and the input is there too, for the IME');
+  // The end of the line: the emoji is two code units and two columns, and a caret is never between them.
+  controller.model.dispatch({ selection: { anchor: lineStart + WIDE_LINE.length } });
+  await pause(0);
+  const end = styleOf(s, 'code-caret');
+  const endColumns = 3 + 3 * 2 + 1 + 2 + ' ok'.length;
+  assert.ok(Math.abs(Number(end.left) - (gutter + endColumns * ADVANCE)) <= 0.01, `the caret at the end of the line is after ${endColumns} columns: ${String(end.left)}`);
+  // The word under the pointer comes from the text too: over the CJK characters, not at the column the grid would say.
+  const over = { x: CONTENT.x + gutter + (3 + 2 + 1) * ADVANCE, y: CONTENT.y + (number - 1) * LINE_HEIGHT + LINE_HEIGHT / 2 };
+  s.control.hovers = [{ start: lineStart + 3, end: lineStart + 6, name: 'wide', type: 'string' }];
+  s.host.events.push(s.host.pointerEvent(tag(s, 'code-content'), 'pointermove', over));
+  s.uiRoot.dispatchEvents();
+  await pause(HOVER_DELAY_MS + 100);
+  assert.equal(textOf(s, 'code-hover-type'), 'wide: string', 'the hover is of the word the pointer is over');
+});
+
 panelTest('a double click selects a word and the selection is drawn on the line', (s) => {
   const first = workspace(s).active.controller.model.doc.line(1).text;
   const start = first.indexOf('import') + 1;
   click(s, pointAt(s, 1, start + 2), { count: 2 });
   const { main } = workspace(s).active.controller.model.state.selection;
   assert.equal(workspace(s).active.controller.model.state.sliceDoc(main.from, main.to), 'import');
-  const row = s.host.nodes.get(tag(s, FIRST_LINE_TEXT_ID));
-  assert.ok(row);
-  const selected = row.children.map(child => s.host.nodes.get(child)).filter(entry => entry?.props.style !== undefined)
-    .filter(entry => JSON.stringify(entry?.props.style).includes(THEME.selection.slice(0, 7)));
-  assert.ok(selected.length > 0, 'a run of the line has the selection colour');
+  const selected = spansOf(s, 1).filter(span => String(span.style.backgroundColor).startsWith(THEME.selection.slice(0, 7)));
+  assert.deepEqual(selected.map(span => span.text), ['import'], 'the word is a span of the line with the selection colour behind it');
 });
 
 panelTest('typing is on the page after the pause, the counter keeps its count, and the status says what happened', async (s) => {
@@ -266,24 +334,31 @@ panelTest('typing is on the page after the pause, the counter keeps its count, a
   assert.equal(s.host.textInputs.get(tag(s, 'editor-input-sink'))?.value, SINK_TEXT, 'the input\'s own buffer is never edited');
 });
 
-/** The style of the run of line `number` that holds `text`, or undefined. */
-function runStyle(s: Scenario, number: number, text: string): Record<string, unknown> | undefined {
+/** A span of a line: the text it covers (empty for an inlay), the text it shows if it is an inlay, and its style longhands. */
+interface SpanOfLine {
+  readonly text: string;
+  readonly inlay: string | undefined;
+  readonly style: Record<string, unknown>;
+}
+
+/** The spans of the one `Text` that is line `number`: the line is a single node, and its text is the document's line without any hint. */
+function spansOf(s: Scenario, number: number): SpanOfLine[] {
   const row = s.host.nodes.get(tag(s, `code-line-${number}`));
-  assert.ok(row);
-  for (const child of row.children) {
-    const entry = s.host.nodes.get(child);
-    if (entry?.text === text && entry.props.style !== undefined) {
-      const merged: Record<string, unknown> = {};
-      const style: unknown = entry.props.style;
-      if (typeof style === 'object' && style !== null && 'layers' in style && Array.isArray(style.layers)) {
-        for (const layer of style.layers) {
-          if (typeof layer === 'object' && layer !== null && 'style' in layer && typeof layer.style === 'object' && layer.style !== null) Object.assign(merged, layer.style);
-        }
-      }
-      return merged;
-    }
-  }
-  return undefined;
+  assert.ok(row && row.kind === 'text', `line ${number} is one Text`);
+  assert.deepEqual(row.children, [], 'with no node in it: what it is made of is spans');
+  const { spans } = row.props;
+  assert.ok(Array.isArray(spans), `line ${number} has spans`);
+  return spans.map((span: unknown) => {
+    assert.ok(typeof span === 'object' && span !== null && 'start' in span && 'end' in span && typeof span.start === 'number' && typeof span.end === 'number');
+    const inlay = 'inlay' in span && typeof span.inlay === 'string' ? span.inlay : undefined;
+    const style = 'style' in span && typeof span.style === 'object' && span.style !== null ? { ...span.style } : {};
+    return { text: row.text.slice(span.start, span.end), inlay, style };
+  });
+}
+
+/** The style of the span of line `number` that covers `text`, or undefined. */
+function runStyle(s: Scenario, number: number, text: string): Record<string, unknown> | undefined {
+  return spansOf(s, number).find(span => span.inlay === undefined && span.text === text)?.style;
 }
 
 function lineOf(s: Scenario, needle: string): { readonly number: number; readonly column: number; readonly offset: number } {
@@ -319,9 +394,9 @@ panelTest('a syntax error keeps the last good page, is said in the status bar, a
   controller.setDiagnostics(controller.model.version, [immediate]);
   await pause(20);
   assert.ok(has(s, `code-marker-${line.number}`), 'and the gutter marks its line');
-  const underlined = s.host.nodes.get(tag(s, `code-line-${line.number}`))?.children
-    .map(child => s.host.nodes.get(child)).filter(entry => JSON.stringify(entry?.props.style).includes('textDecorationLine'));
-  assert.ok((underlined?.length ?? 0) > 0, 'a run of the line is underlined');
+  const underlined = spansOf(s, line.number).filter(span => span.style.textDecorationLine === 'underline');
+  assert.ok(underlined.length > 0, 'a span of the line is underlined');
+  assert.ok(underlined.every(span => span.style.textDecorationStyle === 'wavy'), 'wavy, as a compiler\'s mark is');
 });
 
 panelTest('a type error is underlined at the checker\'s range, marked in the gutter, counted, listed, and pressing it goes there', async (s) => {
@@ -342,7 +417,10 @@ panelTest('a type error is underlined at the checker\'s range, marked in the gut
   assert.equal(controller.model.text.slice(diagnostic.from, diagnostic.to), 'NICKNAME_MIN_LENGTH', 'mapped onto the text it meant, one line down');
   assert.equal(diagnostic.from, shifted.offset);
   const style = runStyle(s, shifted.number, 'NICKNAME_MIN_LENGTH');
-  assert.ok(style !== undefined && style.textDecorationLine === 'underline' && style.textDecorationColor === THEME.error, `underlined in the error colour: ${JSON.stringify(style)}`);
+  assert.ok(
+    style !== undefined && style.textDecorationLine === 'underline' && style.textDecorationStyle === 'wavy' && style.textDecorationColor === THEME.error,
+    `underlined wavy in the error colour: ${JSON.stringify(style)}`,
+  );
   assert.ok(has(s, `code-marker-${shifted.number}`));
   assert.equal(textOf(s, 'code-status-check'), '1 error');
   s.host.events.push(s.host.pointerEvent(tag(s, 'code-status-check'), 'click', {}));
@@ -361,10 +439,11 @@ panelTest('an inlay hint is in the line, shifts the text after it, and a hover o
   s.control.hovers = [{ start: at.offset, end: nameEnd, name: 'Button', type: 'string' }];
   controller.model.dispatch({ changes: { from: controller.model.doc.length, insert: ' ' } });
   await pause(SETTLE_MS);
-  const hint = runStyle(s, at.number, ': string');
-  assert.ok(hint !== undefined, 'the hint is a run of the line');
-  assert.equal(hint.color, THEME.inlayText);
-  assert.equal(hint.width, Math.ceil(': string'.length * ADVANCE), 'a whole number of pixels, as wide as the hint is painted');
+  const hint = spansOf(s, at.number).find(span => span.inlay === ': string');
+  assert.ok(hint !== undefined, 'the hint is an inlay span of the line');
+  assert.equal(hint.style.color, THEME.inlayText);
+  assert.equal(hint.text, '', 'it is not part of the line\'s text');
+  assert.equal(textOf(s, `code-line-${at.number}`), controller.model.doc.line(at.number).text, 'which is the document\'s line');
   // Hovering the name asks the checker, and shows the answer next to it.
   const over = pointAt(s, at.number, at.column + 2);
   s.host.events.push(s.host.pointerEvent(tag(s, 'code-content'), 'pointermove', { x: over.x + ADVANCE / 2, y: over.y }));

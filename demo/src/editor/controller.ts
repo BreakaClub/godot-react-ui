@@ -49,10 +49,19 @@ export interface CursorPosition {
   readonly column: number;
 }
 
-/** A caret as it is drawn: the line and the column of what is drawn at which it stands. */
+/**
+ * A caret as it is drawn. On a line that is `onGrid` it stands at `column` of what is drawn; on any other the line's own `Text` says where
+ * `offset` is (`getCaretRect(offset, side)`), and `column` is only a guess.
+ */
 export interface CaretPlacement {
   readonly line: number;
+  /** The column of what is drawn, hints and preedit counted. */
   readonly column: number;
+  /** The offset in the line's text. */
+  readonly offset: number;
+  /** Before the generated text at the offset (a hint), or after all of it: after the preedit while one is shown. */
+  readonly side: 'before' | 'after';
+  readonly onGrid: boolean;
   readonly main: boolean;
 }
 
@@ -184,11 +193,17 @@ export class EditorController {
   /** Where each selection's head is drawn: its line and column of what is drawn, the main one marked. */
   caretPlacements(): readonly CaretPlacement[] {
     const { selection } = this.model.state;
-    const composing = this.currentComposition !== undefined;
+    // The caret is after the preedit once one is shown; before that (a composition just begun) it is where it was.
+    const preeditShown = this.currentComposition !== undefined && this.currentComposition.text !== '';
     return selection.ranges.map((range, index) => {
       const line = this.model.doc.lineAt(range.head);
-      const side = composing && index === selection.mainIndex ? 'after-preedit' : 'before';
-      return { line: line.number, column: this.layoutOf(line.number).columnOf(range.head - line.from, side), main: index === selection.mainIndex };
+      const layout = this.layoutOf(line.number);
+      const offset = range.head - line.from;
+      const side = preeditShown && index === selection.mainIndex ? 'after' : 'before';
+      return {
+        line: line.number, column: layout.columnOf(offset, side), offset, side,
+        onGrid: layout.onGrid, main: index === selection.mainIndex,
+      };
     });
   }
 

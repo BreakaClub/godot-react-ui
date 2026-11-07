@@ -7,8 +7,9 @@ import { THEME } from './theme';
 
 /**
  * What one line of the editor shows, as plain data: the line cut into segments, each with its text, colour, background and
- * underline. The view turns segments into elements; it is the only part that changes when the line becomes one native `Text` with
- * spans (docs/tracks/code-editor-evaluation.md, section 6.2).
+ * underline. The view turns the segments of a line into the spans of one native `Text` (`view/code-line.tsx`): the text segments
+ * are spans over the line's own text, and the others (an inlay hint, the preedit of a composition, the selected line break) are
+ * generated text, which the `Text` shows but does not count in its offsets.
  */
 
 export type UnderlineStyle = 'solid' | 'wavy';
@@ -18,12 +19,13 @@ export interface Underline {
   readonly style: UnderlineStyle;
 }
 
+/** `break` is one space of generated text after the last character, drawn in the selection's colour where the selection goes on over the line break. */
+export type SegmentKind = 'text' | InsertionKind | 'break';
+
 export interface Segment {
-  readonly kind: 'text' | InsertionKind;
+  readonly kind: SegmentKind;
   /** The text as it is drawn. */
   readonly text: string;
-  /** The display column it starts at. */
-  readonly column: number;
   readonly color: HexColor;
   readonly background: HexColor | undefined;
   readonly underline: Underline | undefined;
@@ -34,8 +36,6 @@ export interface LineSpec {
   readonly text: string;
   readonly segments: readonly Segment[];
   readonly layout: LineLayout;
-  /** The selection goes on past the end of this line, over the line break. */
-  readonly breakSelected: boolean;
   /** The gravest problem on the line, for the gutter. */
   readonly severity: Severity | undefined;
 }
@@ -94,25 +94,31 @@ function sameUnderline(a: Underline | undefined, b: Underline | undefined): bool
 }
 
 function sameSegment(a: Segment, b: Segment): boolean {
-  return a.kind === b.kind && a.text === b.text && a.column === b.column && a.color === b.color && a.background === b.background && sameUnderline(a.underline, b.underline);
+  return a.kind === b.kind && a.text === b.text && a.color === b.color && a.background === b.background && sameUnderline(a.underline, b.underline);
 }
 
 export function sameLineSpec(a: LineSpec, b: LineSpec): boolean {
-  return a.number === b.number && a.text === b.text && a.breakSelected === b.breakSelected && a.severity === b.severity
+  return a.number === b.number && a.text === b.text && a.severity === b.severity
     && a.segments.length === b.segments.length && a.segments.every((segment, index) => {
       const other = b.segments[index];
       return other !== undefined && sameSegment(segment, other);
     });
 }
 
-/** The pieces a line shows that its text does not have: the inlay hints that stand in it and the preedit of a composition at the caret. */
+/**
+ * The pieces a line shows that its text does not have: the inlay hints that stand in it and the preedit of a composition at the caret.
+ * While a composition is shown, the hint that stands where it does is not: the caret is after the preedit, and a text has one place
+ * for a caret after generated text (`TextSide`), which is after all of it.
+ */
 export function insertionsFor(
   lineFrom: number, lineTo: number, inlays: readonly EditorInlay[], composition: Composition | undefined,
 ): Insertion[] {
+  const preeditAt = composition !== undefined && composition.text !== '' && composition.at >= lineFrom && composition.at <= lineTo
+    ? composition.at : undefined;
   const insertions: Insertion[] = inlays
-    .filter(inlay => inlay.at >= lineFrom && inlay.at <= lineTo)
+    .filter(inlay => inlay.at >= lineFrom && inlay.at <= lineTo && inlay.at !== preeditAt)
     .map(inlay => ({ offset: inlay.at - lineFrom, text: inlay.label, kind: 'inlay' as const }));
-  if (composition !== undefined && composition.at >= lineFrom && composition.at <= lineTo && composition.text !== '') {
+  if (composition !== undefined && preeditAt !== undefined) {
     insertions.push({ offset: composition.at - lineFrom, text: composition.text, kind: 'preedit' });
   }
   return insertions;
@@ -124,7 +130,6 @@ export function buildLine(inputs: LineInputs, number: number): LineSpec {
   const text = line.text;
   const spans = highlight.spans(tree, number, line.from, text);
   const selected = inLine(state.selection.ranges.filter(range => !range.empty), line.from, line.to);
-  const breakSelected = state.selection.ranges.some(range => !range.empty && range.from <= line.to && range.to > line.to);
   const diagnostics = inLine(inputs.diagnostics, line.from, line.to);
   const bracketRanges = inLine(inputs.brackets, line.from, line.to);
   const insertions = insertionsFor(line.from, line.to, inputs.inlays, composition);
@@ -151,7 +156,7 @@ export function buildLine(inputs: LineInputs, number: number): LineSpec {
     for (const insertion of layout.insertions) {
       if (insertion.offset !== offset) continue;
       push({
-        kind: insertion.kind, text: insertion.text, column: layout.columnOf(offset) + precedingWidth(layout, insertion),
+        kind: insertion.kind, text: insertion.text,
         color: insertion.kind === 'inlay' ? THEME.inlayText : PLAIN_TEXT_COLOR,
         background: insertion.kind === 'inlay' ? THEME.inlayBackground : undefined,
         underline: insertion.kind === 'preedit' ? { color: THEME.preeditUnderline, style: 'solid' } : undefined,
@@ -165,34 +170,21 @@ export function buildLine(inputs: LineInputs, number: number): LineSpec {
     const to = boundaries[index + 1];
     if (to === undefined || to <= from) continue;
     push({
-      kind: 'text', text: text.slice(from, to), column: layout.columnOf(from) + widthAt(layout, from),
+      kind: 'text', text: text.slice(from, to),
       color: colorAt(spans, from, to),
       background: selected.some(range => covers(range, from, to)) ? selectionColor : bracketRanges.some(range => covers(range, from, to)) ? THEME.bracketMatch : undefined,
       underline: underlineAt(diagnostics, from, to),
     });
   }
+  const breakSelected = state.selection.ranges.some(range => !range.empty && range.from <= line.to && range.to > line.to);
+  if (breakSelected) segments.push({ kind: 'break', text: ' ', color: PLAIN_TEXT_COLOR, background: selectionColor, underline: undefined });
   let severity: Severity | undefined;
   for (const diagnostic of inputs.diagnostics) {
     if (isProblem(diagnostic) && diagnostic.from <= line.to && diagnostic.to > line.from) {
       severity = severity === undefined ? diagnostic.severity : worse(severity, diagnostic.severity);
     }
   }
-  return { number, text, segments, layout, breakSelected, severity };
-}
-
-/** The width of the pieces that stand at `offset`: the source text there starts after them. */
-function widthAt(layout: LineLayout, offset: number): number {
-  return layout.insertions.filter(insertion => insertion.offset === offset).reduce((total, insertion) => total + insertion.text.length, 0);
-}
-
-/** The width of the pieces at the same offset that are drawn before `insertion`. */
-function precedingWidth(layout: LineLayout, insertion: Insertion): number {
-  let width = 0;
-  for (const other of layout.insertions) {
-    if (other === insertion) break;
-    if (other.offset === insertion.offset) width += other.text.length;
-  }
-  return width;
+  return { number, text, segments, layout, severity };
 }
 
 function colorAt(spans: readonly ColorSpan[], from: number, to: number): HexColor {

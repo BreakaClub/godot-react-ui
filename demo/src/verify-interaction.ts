@@ -54,6 +54,10 @@ export interface InteractionInspection extends DemoInspection {
   showRichText(props: RichTextLabProps): void;
   /** The lab navigator in place of the app, with `extraLabs` listed after the demo's own. */
   showNavigator(options?: NavigatorOptions): void;
+  /** The geometry queries of the text with a test id: where its caret is at an offset, what a point lands on, what a range covers (`verify-code-editor.ts`). */
+  textCaret(testID: string, offset: number, side: 'before' | 'after'): LayoutRect | null;
+  textOffsetAt(testID: string, x: number, y: number): { readonly offset: number; readonly side: 'before' | 'after' } | null;
+  textRanges(testID: string, start: number, end: number): LayoutRect[] | null;
   /** What Godot draws behind the root: two flat colours, a lit box in 3D, or nothing. */
   godotContent(kind: 'none' | '2d' | '3d'): void;
   /** Scale the root's Control. */
