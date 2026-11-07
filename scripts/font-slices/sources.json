@@ -1,0 +1,103 @@
+{
+  "family": "Noto Sans CJK",
+  "version": "2.004",
+  "release": {
+    "repository": "https://github.com/notofonts/noto-cjk",
+    "tag": "Sans2.004",
+    "page": "https://github.com/notofonts/noto-cjk/releases/tag/Sans2.004",
+    "published": "2022-01-27T07:11:21Z"
+  },
+  "archives": [
+    {
+      "language": "sc",
+      "file": "18_NotoSansSC.zip",
+      "url": "https://github.com/notofonts/noto-cjk/releases/download/Sans2.004/18_NotoSansSC.zip",
+      "bytes": 50077940,
+      "sha256": "4d107c09ada479d3e48b6e78c83835773cbd9214bf6e12cdb7b60f8e068292ec",
+      "font": {
+        "member": "NotoSansSC-Regular.otf",
+        "bytes": 8331336,
+        "sha256": "faa6c9df652116dde789d351359f3d7e5d2285a2b2a1f04a2d7244df706d5ea9"
+      },
+      "license": {
+        "member": "LICENSE",
+        "bytes": 4301,
+        "sha256": "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2"
+      }
+    },
+    {
+      "language": "tc",
+      "file": "19_NotoSansTC.zip",
+      "url": "https://github.com/notofonts/noto-cjk/releases/download/Sans2.004/19_NotoSansTC.zip",
+      "bytes": 34139452,
+      "sha256": "fbbcb216be8056a436c7ec142847f302bb1932d07bdad8b322f4953a389d7cbc",
+      "font": {
+        "member": "NotoSansTC-Regular.otf",
+        "bytes": 5683368,
+        "sha256": "5bab0cb3c1cf89dde07c4a95a4054b195afbcfe784d69d75c340780712237537"
+      },
+      "license": {
+        "member": "LICENSE",
+        "bytes": 4301,
+        "sha256": "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2"
+      }
+    },
+    {
+      "language": "jp",
+      "file": "16_NotoSansJP.zip",
+      "url": "https://github.com/notofonts/noto-cjk/releases/download/Sans2.004/16_NotoSansJP.zip",
+      "bytes": 27139567,
+      "sha256": "2bbdd2c20f30670b39ca735c96d75f1fdabdb348103e43b820cf17701fd22b18",
+      "font": {
+        "member": "NotoSansJP-Regular.otf",
+        "bytes": 4533028,
+        "sha256": "dff723ba59d57d136764a04b9b2d03205544f7cd785a711442d6d2d085ac5073"
+      },
+      "license": {
+        "member": "LICENSE",
+        "bytes": 4301,
+        "sha256": "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2"
+      }
+    },
+    {
+      "language": "kr",
+      "file": "17_NotoSansKR.zip",
+      "url": "https://github.com/notofonts/noto-cjk/releases/download/Sans2.004/17_NotoSansKR.zip",
+      "bytes": 26036461,
+      "sha256": "ac7eeb4e2b0d41de8ff31b2d6e1e2a41caf253fd5cefb380bfa1f40f1747b612",
+      "font": {
+        "member": "NotoSansKR-Regular.otf",
+        "bytes": 4644748,
+        "sha256": "69975a0ac8472717870aefeab0a4d52739308d90856b9955313b2ad5e0148d68"
+      },
+      "license": {
+        "member": "LICENSE",
+        "bytes": 4301,
+        "sha256": "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2"
+      }
+    }
+  ],
+  "emoji": {
+    "family": "Noto Color Emoji",
+    "version": "2.051",
+    "release": {
+      "repository": "https://github.com/googlefonts/noto-emoji",
+      "tag": "v2.051",
+      "page": "https://github.com/googlefonts/noto-emoji/releases/tag/v2.051",
+      "published": "2025-09-15T22:43:24Z",
+      "note": "The tag's release has no attached files; the font is the one in the tagged tree, fonts/Noto-COLRv1.ttf (the COLR version 1 vector build, which Godot's FreeType draws in colour; the CBDT bitmap build, fonts/NotoColorEmoji.ttf, draws as well but its slices weigh four times as much: docs/tracks/font-slices.md)."
+    },
+    "font": {
+      "file": "Noto-COLRv1.ttf",
+      "url": "https://raw.githubusercontent.com/googlefonts/noto-emoji/v2.051/fonts/Noto-COLRv1.ttf",
+      "bytes": 4991984,
+      "sha256": "0ae57fe58645638523ba35f388d93739d292539a9acb84df5700c81b1e1a28d2"
+    },
+    "license": {
+      "file": "LICENSE",
+      "url": "https://raw.githubusercontent.com/googlefonts/noto-emoji/v2.051/fonts/LICENSE",
+      "bytes": 4301,
+      "sha256": "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2"
+    }
+  }
+}
