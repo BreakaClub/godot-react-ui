@@ -38,6 +38,9 @@ export function sendTransition(target: 'from' | 'to'): void {
   notify();
 }
 
+// The Web verifier is a Node script driving Chrome: it switches cases through this, as the native verifier does through the exports.
+Reflect.set(globalThis, 'godotReactTransformLab', { setCase: setTransformCase, sendTransition });
+
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);
   return () => { listeners.delete(listener); };

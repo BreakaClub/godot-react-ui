@@ -19,6 +19,7 @@ import { runComboboxScenario, runTouchComboboxScenario } from './verify-combobox
 import { runFiltersScenario } from './verify-filters-web.mjs';
 import { runGlassScenario } from './verify-glass-web.mjs';
 import { runNavigatorScenario, runNavigatorStartScenario } from './verify-navigator-web.mjs';
+import { runTransformsScenario } from './verify-transforms-web.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 rejectUnknownArguments(process.argv.slice(2), { flags: ['--release'], prefixes: ['--only='] });
@@ -2874,6 +2875,9 @@ async function runWorkflow(viewport) {
   }
   if (wanted('navigator')) {
     await section('navigator', () => runNavigatorScenario({ demo, page, frames, snapshot, find, check, capture, click, moveTo, text, waitUntil, nodeExists }));
+  }
+  if (wanted('transforms')) {
+    await section('transforms', () => runTransformsScenario({ demo, page, frames, snapshot, find, check, capture, decodePng, moveTo, waitUntil, actionTimeoutMs: ACTION_TIMEOUT_MS }));
   }
 
   // This page keeps running across viewports (the native verifier gets a fresh process for each),

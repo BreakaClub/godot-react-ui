@@ -6,7 +6,7 @@
 //       of a content scale of two, at twice the pixels), as the native verifier has them, and writes <dir>/reference.json: the
 //       bounding rectangle of each case's card and its text, for the text-free comparison.
 //   node --import tsx scripts/transform-reference.mjs --golden
-//       Writes demo/src/transform-golden.ts: the rectangle Chrome reports for each shape case, and the matrix (about the origin)
+//       Writes demo/src/transform-golden.ts (and scripts/transform-golden.json for the Web verifier): the rectangle Chrome reports for each shape case, and the matrix (about the origin)
 //       of each transition case at the fractions the verifier samples. The native verifier holds the library to them.
 //   node --import tsx scripts/transform-reference.mjs --diff --native=<dir> [--chrome=<dir>] [--out=<dir>]
 //       Compares the native verifier's captures (<dir>/transforms-<case>-dpr<k>.png) with Chrome's per channel and writes
@@ -29,8 +29,9 @@ rejectUnknownArguments(process.argv.slice(2), { flags: ['--render', '--golden', 
 const root = resolve(import.meta.dirname, '..');
 const executablePath = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const argument = name => process.argv.find(value => value.startsWith(`--${name}=`))?.slice(name.length + 3);
-// The windows the native verifier has: landscape at ratio one, and its content-scale-two window (half the logical size).
-const WINDOWS = [['dpr1', 1120, 800, 1], ['dpr2', 560, 400, 2]];
+// The windows the native verifier has: landscape at ratio one, and its content-scale-two window (half the logical size); and the
+// Web verifier's retina window, which keeps the logical size and doubles the pixels.
+const WINDOWS = [['dpr1', 1120, 800, 1], ['dpr2', 560, 400, 2], ['web-dpr2', 1120, 800, 2]];
 const SETTLE_MS = 300;
 /** A text rectangle is grown by this (logical pixels) before the shape comparison leaves it out. */
 const TEXT_MASK_MARGIN = 3;
@@ -175,6 +176,8 @@ export const GOLDEN_ANCHOR_RECT: GoldenRect = ${JSON.stringify(anchorRect)};
 export const GOLDEN_TRANSITION_MATRICES: Readonly<Record<string, Readonly<Record<string, readonly number[]>>>> = ${JSON.stringify(matrices, null, 2)};
 `;
     await writeFile(resolve(root, 'demo/src/transform-golden.ts'), body);
+    // The Web verifier is a plain Node script and reads the same numbers as JSON.
+    await writeFile(resolve(root, 'scripts/transform-golden.json'), `${JSON.stringify({ rects, bar: barRect, anchor: anchorRect, matrices }, null, 2)}\n`);
     console.log(`Wrote demo/src/transform-golden.ts (${Object.keys(rects).length} rectangles, ${Object.keys(matrices).length} transitions)`);
   } finally {
     await browser.close();

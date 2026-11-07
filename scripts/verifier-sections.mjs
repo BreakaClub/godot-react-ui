@@ -16,7 +16,7 @@ export const NATIVE_OPT_IN_SECTIONS = ['filters-sizes', 'filters-cost', 'filters
 
 /** The Web verifier's sections, in the order they run: the native names it covers, and `touch`, its touch page. */
 export const WEB_INTERACTION_SECTIONS = [
-  'events', 'cooperation', 'pointers', 'keyboard', 'scroll', 'selection', 'drag', 'forms', 'combobox', 'hidpi', 'filters', 'glass', 'navigator', 'touch',
+  'events', 'cooperation', 'pointers', 'keyboard', 'scroll', 'selection', 'drag', 'forms', 'combobox', 'hidpi', 'filters', 'glass', 'navigator', 'transforms', 'touch',
 ];
 
 /** Every section name the arguments ask for, across all `--only=` arguments. */
