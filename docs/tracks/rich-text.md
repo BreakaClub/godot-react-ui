@@ -178,30 +178,76 @@ here; the exact round-dot construction (a dot's phase differs from dot to dot in
 
 ## Verification
 
-Everything below was run in this worktree on this branch. `rich-text` is a section of the native interaction verifier (`node scripts/verify.mjs
---interaction --only=rich-text --no-retry`, landscape and portrait windows, device pixel ratios 1 and 2, `demo/src/verify-rich-text.ts`) and of the Web one
+Run in this worktree, on this branch. `rich-text` is a section of the native interaction verifier (`node scripts/verify.mjs --interaction --only=rich-text
+--no-retry`: `demo/src/verify-rich-text.ts`; the landscape window at device pixel ratios 1 and 2, then the portrait window at ratio 1) and of the Web one
 (`scripts/verify-rich-text-web.mjs`).
 
-| Check | What it holds |
+| Check | Result |
 | --- | --- |
-| `cargo test` | 849 tests; the new ones: `text_span` (span validation, nesting and inheritance, the draw plan over fake glyph lists: colour by cluster start, ligature, fragments per line), `text_span/offsets` (display/source map around inlays), `text_decoration` (Chrome's geometry for every style and line, the baked wave's ink rows, dash fitting) and `text_style/flow` (where source characters go under transform and collapsing) |
-| `pnpm test` | JS: flattening, the commit payloads (a recolour sends `{ spans }` only), refusals by name, the handle methods |
+| `cargo test` | the new tests: `text_span` (validation, nesting and inheritance, the draw plan over fake glyph lists: colour by cluster start, a ligature, fragments per line), `text_span/offsets` (the display/source map around inlays), `text_decoration` (Chrome's rows for every style and line, the baked wave's ink rows, dash fitting, a centre line above the item's top), `text_style/flow` (where source characters go under case and collapsing) |
+| `pnpm test` | JS: flattening, the commit payloads (a recolour sends `{ spans }` only), refusals by name, the handle methods, the `decoration-*` classes |
 | `cargo clippy --all-targets -- -D warnings`, `pnpm test:types` | clean |
 | `cargo fmt --check` | flags three places in files this track did not change (`native/lib.rs` module order, `scroll.rs`, `text_input_godot/keys.rs`), as on `main` |
+| `--interaction --only=rich-text`, Breaka's engine | landscape 24,625 checks, portrait 12,347, both passed |
 
-The `rich-text` section, per window: every text of 12 pages (colours, columns, five decoration styles, overlines and lines through the text, inlays, changes) against
-the numbers Chrome reports for the same tree (`scripts/rich-text-golden.json`): the box, every line's left, right and baseline within 1 px; every source character's left
-and right edge from `getRangeRects` within 0.5 px (worst 0.25 px, mean 0.05 px over 1,437 characters, which is Chrome's own quarter pixel); every inlay's two carets; a
-click on each half of every character finds the boundary beside it and the side of an inlay; a click inside an inlay is on the nearer side; carets are zero-width and as
-tall as the line box; **monospace columns**: carets of `columns-plain`, `-spans`, `-single` and `-code` are on `column x advance` to 0.0000 px, the advance
-(8.40625 px) being Chrome's to 0.05; wraps (the two carets either side of a soft wrap, a click past the end of a line); refusals (`RangeError` past the end, backwards, inside a surrogate
-pair; an empty text's caret); drags across spans and across an inlay select and copy the source text, the highlight runs through the inlay (read in the picture); a double
-click on a word with a span boundary or an inlay in it; a scaled and a rotated text answer in the space they are drawn in; and a change of one span's colour is a commit of
-120 characters that shapes nothing (`paragraphBuilds` +0, `paragraphRepaints` +1, the picture is the new colour), where a change of its text is 141 characters and one shaped paragraph.
+What the section holds, per window and ratio: every text of 11 pages (colours, columns, five decoration styles, overlines, lines through the text, inlays, changes) against what
+Chrome reports for the same tree (`scripts/rich-text-golden.json`): each box, each line's left, right and baseline within 1 px; every source character's left and right edge as
+`getRangeRects` gives it within 0.5 px (worst 0.25 px, mean 0.05 px, over 1,437 characters, Chrome's own quarter pixel); both carets of every group of inlays; a click on each
+half of every character finds the boundary beside it and the side of an inlay; a click inside an inlay is on the nearer side; carets have no width and the line box's height;
+**monospace columns**: every caret of `columns-plain`, `-spans`, `-single` and `-code` is on `column x advance` to 0.0000 px, the advance (8.40625 px) Chrome's to 0.05 px; the
+two carets either side of a soft wrap and a click past the end of a line; `RangeError` past the end, backwards and inside a surrogate pair, and an empty text's caret; drags across
+spans and across an inlay select and copy the source text only, and the highlight runs through the inlay (read in the picture); a double click on a word with a span boundary in it
+and on one with an inlay in it; a scaled and a rotated text answer in the space they are drawn in (the middle of every character finds itself, every caret is at its character's
+edge); a change of one span's colour is a commit of 120 characters that shapes nothing (`paragraphBuilds` +0, `paragraphRepaints` +1, the picture has the new colour), and a change
+of its text is 141 characters and one shaped paragraph.
 
-Controls (each fails if the thing it controls is wrong): a text held to the numbers of another text; hit tests that expect the display text's offsets (the inlay counted as source);
-a selection expected to hold the inlay's text; the text change that must shape (the counter's other side). Throwaway mutations of the native code, each switched on by an
-environment variable, in the second table below.
+**Controls** (a check that must fail, failing): a text held to the numbers of another; hit tests that expect the display text's offsets (the inlay counted as source); a selection
+expected to hold the inlay's text; the text change that must shape (the other side of the repaint counter). Throwaway mutations of the native code, each switched on by an
+environment variable of a library built for it (`RICH_TEXT_MUTATION`; the patch was reverted and the library rebuilt):
+
+| Mutation | What failed |
+| --- | --- |
+| `display_of` ignores the side: a position before an inlay is the one after it | the numbers: `inlay-hint: character at 8: 79.25 to 154.91 against Chrome's 79.19 to 87.61` (the character before the inlay reaches through it), 26 numbers in all |
+| a change that only repaints always shapes the paragraph again | `A change of a span's colour shaped 1 paragraph(s) again` |
+| a glyph is drawn in the node's colour whatever its span says | `The span starts red: {"blue":0,"red":0}` (the picture has no red where the span is) |
+
+### Against Chrome, per channel (`scripts/rich-text-reference.mjs --diff`, `artifacts/rich-text-compare/`)
+
+Chrome renders the same tree as nested `<span>`s with `-webkit-font-smoothing: antialiased`; the library's raster is read back from the viewport texture. Per channel, the worst of the
+three channels of each pixel, over the cell of each text (its box and 3 px round it). Side by sides (Chrome, ours, the difference times four) are in `artifacts/rich-text-compare/<page>-dpr<N>.png`.
+
+| Group | Texts | Worst | Mean of the difference | 99th percentile | Pixels over 24 levels | Ink, ours over Chrome's |
+| --- | --- | --- | --- | --- | --- | --- |
+| decoration only (text transparent), ratio 1 | 41 | 217 | 0.26 | 109 | 0.35 % | 0.993 |
+| decoration only, ratio 2 | 41 | 217 | 0.18 | 54 | 0.24 % | 0.991 |
+| text, ratio 1 | 16 | 240 | 2.41 | 136 | 3.57 % | 1.005 |
+| text, ratio 2 | 16 | 240 | 6.06 | 195 | 6.12 % | 1.029 |
+
+By style, at ratios 1 and 2 (mean of the difference; share of pixels over 24 levels; worst): solid 0.011 and 0.012 (0.03 %, 0.01 %; 47 and 122: the two ends of a line, where Chrome antialiases a
+fractional edge and the library draws a rectangle), double 0.022 and 0.026, dotted 0.21 and 0.16 (0.33 %, 0.18 %), dashed 0.36 and 0.24 (0.54 %, 0.28 %: edges at a quarter pixel), wavy 0.34 and 0.22
+(0.47 %, 0.36 %; worst 109 to 122: a crest or trough tip pixel one sample away from Chrome's, as the model says). The `dotted` squares of 1 and 2 px are pixel-identical (0). Spans' glyphs are in
+Chrome's colours to 1 to 3 levels (`x` purple 147, 52, 234 against 149, 55, 234 at ratio 1, identical at ratio 2; the orange and the green identical). The text rows are dominated by glyph edges (a glyph placed a quarter of a pixel
+away differs in every edge pixel); the ink, which does not depend on that, is within 0.5 % (ratio 1) and 2.9 % (ratio 2) of Chrome's.
+
+What stays different: `auto` thickness on dotted and dashed lines (ink 0.67: Chrome strokes about 1.6 px with antialiased rows, the library draws whole pixels), the round dots of a 4 px dotted line (ink 0.88 and 0.96), the
+phase at a span seam of a wave (single pixels of 217), and the ends of a solid or double line (a fractional edge). Every one is a difference of fractions of a pixel in a few pixels of the picture.
+
+### What a code view costs (`GODOT_REACT_RICH_TEXT_FILE`, the same section)
+
+1,000 lines of highlighted TypeScript (a line is 1 to 14 spans) in one `View`, mounted in one commit, unwindowed, against the code editor evaluation's numbers (`code-editor-evaluation.md`, section 5; Breaka's engine,
+`--headless` there and a window here, so the native times are not strictly comparable):
+
+| | Nodes | JSON | JS flush | Native commit (mount, of it) |
+| --- | --- | --- | --- | --- |
+| evaluation, a `View` of `Text` runs per line | 10,427 | 1.44 MB | 377 to 430 ms | 363 to 406 ms (116 to 130) |
+| evaluation, one plain `Text` per line | 1,050 | 176 KB | 50 to 52 ms | 48 to 51 ms |
+| **this track, one `Text` with spans per line** | **995** | **381 KB (381 a line)** | **367 ms** | **360 ms (322)** |
+| this track, the same lines as plain strings | 995 | 209 KB (209 a line) | 66 ms | 64 ms (29) |
+
+A line is one node (0.995 with the file's own), and what the spans add to the commit is 172 characters a line (about 21 a span); the 209 characters of the plain line are its class string. A recolour of one span is
+120 characters. The time is what spans cost in React (an instance per span: 367 against 66 ms for a thousand lines) and, natively, the per-glyph drawing: a line with colours of its own is drawn glyph by glyph from the server's
+glyph list (`font_draw_glyph` per glyph, 30,000 for the file) where plain text goes through `TextParagraph::draw` inside the engine. A window of 40 lines costs about 15 ms to mount; a scroll by one line, one line's work. The way to make it
+cheaper if it matters is to draw runs of one colour with `shaped_text_draw` and a clip (not done: a ligature across a colour change would be lost) or to cache each line's glyph list.
 
 ## README text
 
