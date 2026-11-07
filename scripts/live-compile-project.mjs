@@ -15,12 +15,24 @@
 import { build } from 'esbuild';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
+import { homedir } from 'node:os';
 import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { zstdDecompressSync } from 'node:zlib';
 import { rejectUnknownArguments } from './arguments.mjs';
 
 rejectUnknownArguments(process.argv.slice(2));
+
+// Bun's lib bundle is zstd with dictionaries, which `node:zlib` reads from Node 24 (22.16 reports corruption). A run under an older Node
+// starts the newest Node 24 nodenv has and does the same there.
+const NODE_WITH_ZSTD_DICTIONARIES = 24;
+if (Number(process.versions.node.split('.')[0]) < NODE_WITH_ZSTD_DICTIONARIES) {
+  const versions = readdirSync(path.join(homedir(), '.nodenv/versions')).filter(version => version.startsWith(`${NODE_WITH_ZSTD_DICTIONARIES}.`)).sort();
+  const newest = versions.at(-1);
+  if (newest === undefined) throw new Error(`Bun's lib bundle needs Node ${NODE_WITH_ZSTD_DICTIONARIES} (zstd dictionaries in node:zlib), and nodenv has none`);
+  const again = spawnSync(path.join(homedir(), '.nodenv/versions', newest, 'bin/node'), [import.meta.filename, ...process.argv.slice(2)], { stdio: 'inherit' });
+  process.exit(again.status ?? 1);
+}
 
 const root = path.resolve(import.meta.dirname, '..');
 const OUTPUT = path.join(root, 'demo/live-compile/project.json');

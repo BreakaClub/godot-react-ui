@@ -10,6 +10,7 @@ demo/gen/godot/addons/godot-react-ui/bin/
 # live-compile: generated vendor trees, cargo targets and built modules (docs/tracks/live-compile.md)
 live-compile/vendor/
 live-compile/target/
+live-compile/target-stock/
 live-compile/out/
 demo/live-compile/
 demo/addons/live-compile/

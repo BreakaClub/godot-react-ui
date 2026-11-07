@@ -8,11 +8,13 @@ export const ONLY_PREFIX = '--only=';
 /** The native verifier's sections, in the order they run. */
 export const NATIVE_INTERACTION_SECTIONS = [
   'events', 'cooperation', 'pointers', 'keyboard', 'positioning', 'inputs', 'scroll', 'selection', 'drag', 'forms', 'combobox', 'hidpi', 'filters', 'glass',
-  'navigator', 'transforms', 'layout-utilities', 'filters-sizes', 'filters-cost', 'filters-faults',
+  'navigator', 'transforms', 'layout-utilities', 'filters-sizes', 'filters-cost', 'filters-faults', 'live-compile',
 ];
 
-/** Sections that measure or need a special build rather than verify: they run only when `--only=` names them, and a run without them is not partial. */
-export const NATIVE_OPT_IN_SECTIONS = ['filters-sizes', 'filters-cost', 'filters-faults'];
+/**
+ * Sections that measure or need a special build rather than verify (`live-compile` needs the checker and compiler extension, which has its
+ * own toolchain and build: `node scripts/build-live-compile.mjs`): they run only when `--only=` names them, and a run without them is not partial. */
+export const NATIVE_OPT_IN_SECTIONS = ['filters-sizes', 'filters-cost', 'filters-faults', 'live-compile'];
 
 /** The Web verifier's sections, in the order they run: the native names it covers, and `touch`, its touch page. */
 export const WEB_INTERACTION_SECTIONS = [

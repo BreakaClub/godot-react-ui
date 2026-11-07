@@ -21,6 +21,9 @@ import { TextStylesLab } from './text-styles-lab';
 import { observeInputFailure, runVerification } from './verify';
 import { BenchmarkApp, type BenchmarkProps } from './benchmark';
 import { runProbe } from './probe';
+import { openLiveSession } from './live-compile-open';
+import { verifyLiveCompile } from './verify-live-compile';
+import { installRefreshHook } from './live-compile-refresh';
 
 /** `--logical-viewport=WxH` (after `--`): the size the render target and the root have, whatever the window's. */
 const LOGICAL_VIEWPORT_ARGUMENT = '--logical-viewport=';
@@ -107,6 +110,8 @@ export default class Main extends Node {
         console.error(`There is no lab called "${this.start.lab}" (--lab=); the navigator lists the ids that work.`);
       }
     }
+    // React Fast Refresh (live-compile) listens on the DevTools hook the renderer registers with at its first root.
+    installRefreshHook();
     this.updateDisplayScale();
     const logical = userArgs.find(argument => argument.startsWith(LOGICAL_VIEWPORT_ARGUMENT));
     if (logical !== undefined) this.useLogicalViewport(logical.slice(LOGICAL_VIEWPORT_ARGUMENT.length));
@@ -143,6 +148,8 @@ export default class Main extends Node {
       },
       // A page in place of the app: the HUD over the backdrop Control (plan I1), the pointer lab (I2), ...
       showLab: (name: LabName) => this.requireRenderer().render(labElement(name)),
+      /** A lab compiled from its source and kept up to date as the source changes (`live-compile-session.ts`), for the `live-compile` section. */
+      openLiveSession: (labId: string, exportName: string) => openLiveSession({ root: this.requireRenderer(), labId, exportName }),
       /** The filters lab (plan Phase V1): rendered again with new props, so a change is an ordinary commit. */
       /** One page of the text styles lab (`text-styles-data.ts`). */
       showTextStyles: (page: string) => this.requireRenderer().render(createElement(TextStylesLab, { page })),
@@ -280,7 +287,11 @@ export default class Main extends Node {
       },
     };
     // This demo-only inspection surface is also available in the Web JS realm.
-    Object.assign(globalThis, { godotReactDemo: api });
+    Object.assign(globalThis, {
+      godotReactDemo: api,
+      // The `live-compile` section by itself, in this page, with no captures: how the Web verifier runs it (scripts/verify-live-compile-web.mjs).
+      godotReactLiveCompile: () => verifyLiveCompile(this, api, async () => {}),
+    });
     console.log('GODOT_REACT_DEMO_READY');
     const verify = userArgs.includes('--verify');
     const verifyMotion = userArgs.includes('--verify-motion');

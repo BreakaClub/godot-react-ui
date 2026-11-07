@@ -12,6 +12,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import ts from 'typescript';
 import { rejectUnknownArguments } from './arguments.mjs';
+import { INPUTS_LAB_PATH, SYNTAX_ERROR, THROW_IN_MODULE, THROW_IN_RENDER, TYPE_ERROR, HOOK_ORDER, RECOLOUR, anchorOffset, applyEdits } from './live-compile-edits.mjs';
 
 rejectUnknownArguments(process.argv.slice(2), { prefixes: ['--cli='] });
 const root = path.resolve(import.meta.dirname, '..');
@@ -112,6 +113,17 @@ const MUTATIONS = [
   ['forms', 'forms-lab.tsx', 'export function FormsLab', 'export function FormsLab(extra: number'],
 ];
 
+/**
+ * The `live-compile` section's own edits (scripts/live-compile-edits.mjs): the ones that leave the lab type-correct must leave `tsc` with
+ * nothing to say, and the type error must be where the section expects it, in both checkers.
+ */
+const SECTION_EDITS = [
+  ['recolour', applyEdits, RECOLOUR, 0],
+  ['hook order', applyEdits, HOOK_ORDER, 0],
+  ['throw in render', applyEdits, THROW_IN_RENDER, 0],
+  ['throw in module', applyEdits, THROW_IN_MODULE, 0],
+];
+
 const cliProcess = new Cli(cli);
 const ping = await cliProcess.request({ op: 'ping' });
 console.log(`checker: ${ping.name}, Bun ${ping.bunRevision.slice(0, 9)}; tsc ${ts.version}`);
@@ -140,6 +152,31 @@ for (const [id, file, search, replacement] of MUTATIONS) {
   const original = project.files.find(entry => entry.path === `/project/lab/${file}`).text;
   if (!original.includes(search)) throw new Error(`The mutation of ${file} finds nothing to replace: ${search}`);
   await runLab(id, `${id}: ${replacement.slice(0, 60).replace(/\n/g, ' ')}`, new Map([[`/project/lab/${file}`, original.replace(search, replacement)]]));
+}
+
+for (const [label, apply, edits, expected] of SECTION_EDITS) {
+  const original = project.files.find(entry => entry.path === INPUTS_LAB_PATH).text;
+  await runLab('inputs', `section edit: ${label}`, new Map([[INPUTS_LAB_PATH, apply(original, edits)]]));
+  const last = results.at(-1);
+  if (last.tsc !== expected) throw new Error(`The section edit "${label}" is meant to type-check and tsc reports ${last.tsc}`);
+}
+{
+  // The type error is reported where the section expects it, by both.
+  const original = project.files.find(entry => entry.path === INPUTS_LAB_PATH).text;
+  const edited = applyEdits(original, [TYPE_ERROR]);
+  await runLab('inputs', 'section edit: type error', new Map([[INPUTS_LAB_PATH, edited]]));
+  const expectedAt = anchorOffset(edited, TYPE_ERROR.anchor);
+  writeProject(new Map([[INPUTS_LAB_PATH, edited]]));
+  const atAnchor = tscDiagnostics(project.labs.inputs).filter(diagnostic => diagnostic.code === TYPE_ERROR.code && diagnostic.start === expectedAt);
+  if (atAnchor.length !== 1) throw new Error(`tsc does not report TS${TYPE_ERROR.code} at offset ${expectedAt} (${TYPE_ERROR.anchor}) in the section's type error`);
+  console.log(`section type error: TS${TYPE_ERROR.code} at offset ${expectedAt}, the same in both`);
+  // And the syntax error: tsc reports a syntax error at the anchor too.
+  const broken = applyEdits(original, [SYNTAX_ERROR]);
+  writeProject(new Map([[INPUTS_LAB_PATH, broken]]));
+  const syntax = tscDiagnostics(project.labs.inputs);
+  const at = anchorOffset(broken, SYNTAX_ERROR.anchor) + SYNTAX_ERROR.anchor.length - 1;
+  if (!syntax.some(diagnostic => diagnostic.start === at)) throw new Error(`tsc reports no syntax error at the semicolon (${at}) of the section's broken edit: ${JSON.stringify(syntax.slice(0, 3))}`);
+  console.log(`section syntax error: at offset ${at} (the semicolon), as in tsc`);
 }
 
 // The compiler's half: every source file of the project compiles, and what it makes is a function body that JavaScript parses.

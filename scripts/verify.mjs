@@ -4,6 +4,7 @@ import { importDemo } from './import-demo.mjs';
 import { argsWithoutEngine, selectEngine } from './engine.mjs';
 import { NATIVE_INTERACTION_SECTIONS, checkSectionNames, requestedSections } from './verifier-sections.mjs';
 import { runNativeVerifier, summarizeRuns } from './native-run.mjs';
+import { requireLiveCompile } from './live-compile-build.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 // The engine profile (`--engine=stock`, `GODOT_REACT_ENGINE=stock`; scripts/engine.mjs) picks the Godot binary,
@@ -57,6 +58,14 @@ if (faults && !requested.includes('filters-faults')) {
 }
 // Fail first if the binary or the installed library belongs to the other engine profile.
 engine.prepareNative({ faults });
+// The `live-compile` section needs the checker and compiler extension (its own build: docs/tracks/live-compile.md) and the project it opens,
+// which is made from the labs' sources as they are now.
+if (requested.includes('live-compile')) {
+  requireLiveCompile(engine);
+  const project = spawnSync('node', [resolve(root, 'scripts/live-compile-project.mjs')], { cwd: root, stdio: 'inherit' });
+  if (project.error) throw project.error;
+  if (project.status !== 0) process.exit(project.status ?? 1);
+}
 // Never launch runtime acceptance against missing or type-invalid JS artifacts.
 const build = spawnSync('pnpm', ['build'], {cwd:root, stdio:'inherit'});
 if (build.error) throw build.error;
