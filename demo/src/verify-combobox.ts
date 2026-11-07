@@ -1,7 +1,7 @@
 import {
   Engine, InputEventKey, InputEventMouseButton, InputEventMouseMotion, Key, MouseButton, MouseButtonMask, Node, Vector2, Window,
 } from 'godot';
-import type { LayoutRect, NativeSnapshot, NativeSnapshotNode } from '../../src/native';
+import type { LayoutRect, NativeSnapshotNode } from '../../src/native';
 import type { InteractionInspection } from './verify-interaction';
 import { assertionTally, parseVerifierEvent } from './verifier-input';
 import { typeText } from './verify-text-input';

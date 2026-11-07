@@ -667,6 +667,14 @@ test('Clear empties the choice and the text, keeps the focus in the input and cl
   assert.equal(m.has('clear'), false);
 });
 
+test('Clear pressed by an assistive technology, with the focus elsewhere, gives the input the focus', () => {
+  const m = mountFruits({ root: { defaultValue: 'apple' } });
+  assert.equal(m.host.focused, null);
+  click(m, 'clear');
+  assert.equal(focusedTestID(m), 'input');
+  assert.equal(inputText(m), '');
+});
+
 test('the trigger opens and closes the list and never takes focus from the input', () => {
   const m = mountFruits();
   focusInput(m);
@@ -863,6 +871,19 @@ test('a held Backspace does not eat the chips', () => {
   for (let repeat = 0; repeat < 5; repeat += 1) m.host.keyDown(m.root, 'Backspace', { repeat: true });
   assert.deepEqual(chips(m), ['apple', 'banana', 'date'], 'repeats remove nothing and move nothing');
   assert.equal(focusedTestID(m), 'chip-date');
+});
+
+test('a Backspace repeat that reaches the empty input moves onto no chip', () => {
+  const m = mountTags({ root: { defaultValue: ['apple', 'banana'] } });
+  focusInput(m);
+  type(m, 'a');
+  m.host.edit(m.root, 'deleteContentBackward');
+  assert.equal(inputText(m), '', 'the text went');
+  // Holding the key goes on to the empty input: that is a repeat of the press that emptied it, not a new one.
+  assert.equal(m.host.keyDown(m.root, 'Backspace', { repeat: true }).prevented, false);
+  assert.equal(focusedTestID(m), 'input');
+  assert.equal(key(m, 'Backspace').prevented, true, 'a press of its own does move onto the chip');
+  assert.equal(focusedTestID(m), 'chip-banana');
 });
 
 test('Backspace with text in the input edits the text, not the chips', () => {
@@ -1184,6 +1205,7 @@ test('a wheel over the list leaves it open; a wheel anywhere else closes it', as
   key(m, 'ArrowDown');
   assert.equal(m.host.wheelOver(m.root, m.tag('item-banana')).prevented, false, 'the list\'s own scroll is native\'s');
   assert.equal(m.host.wheelOver(m.root, m.tag('list')).prevented, false);
+  await settle();
   assert.equal(m.has('list'), true);
   m.host.wheelOver(m.root, m.tag('page'));
   await settle();
