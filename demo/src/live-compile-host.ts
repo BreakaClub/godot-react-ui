@@ -1,5 +1,7 @@
 import { FileAccess, LiveCompile, PackedStringArray, RefCounted } from 'godot';
-import { parseCompileResult, parseProject, parseReply, type CheckOutcome, type CompileResult, type Project, type ProjectFile } from './live-compile-protocol';
+import {
+  parseCompileResult, parseHover, parseInlayHints, parseProject, parseReply, type CheckOutcome, type CompileResult, type Hover, type InlayHint, type ParameterNames, type Project, type ProjectFile,
+} from './live-compile-protocol';
 
 // `LiveCompile` is the class of the live-compile extension (`live-compile/ext/lib.rs`, `demo/addons/live-compile/`). The extension is
 // built on request (`node scripts/build-live-compile.mjs`), so the generated typings do not describe it and a build without it has
@@ -13,7 +15,9 @@ declare module 'godot' {
     removeFile(path: string): void;
     compile(path: string, source: string, refresh: boolean): string;
     requestCheck(config: string, libDir: string): number;
+    requestQuery(requestJson: string): number;
     poll(): string;
+    start(): void;
   }
 }
 
@@ -31,6 +35,10 @@ export interface LiveCompileHost {
   setFiles(files: readonly ProjectFile[]): void;
   /** Starts a check of the project whose configuration file is `config`. A check not begun when the next is requested is superseded. */
   requestCheck(config: string, libDir: string): Promise<CheckOutcome>;
+  /** What is under `offset` (UTF-16) in the file at `path`, in the project the configuration `config` names: the name and its type. */
+  hover(config: string, libDir: string, path: string, offset: number): Promise<Hover | null>;
+  /** The inferred types of declarations and the parameter names of arguments between two UTF-16 offsets of a file. */
+  inlayHints(config: string, libDir: string, path: string, from: number, to: number, parameterNames: ParameterNames): Promise<InlayHint[]>;
   close(): void;
 }
 
@@ -40,6 +48,7 @@ const POLL_INTERVAL_MS = 1;
 export class ExtensionHost implements LiveCompileHost {
   private readonly service: LiveCompile;
   private readonly waiting = new Map<number, (outcome: CheckOutcome) => void>();
+  private readonly queries = new Map<number, (result: Record<string, unknown>) => void>();
   private polling = false;
   private closed = false;
 
@@ -68,9 +77,27 @@ export class ExtensionHost implements LiveCompileHost {
     });
   }
 
+  hover(config: string, libDir: string, path: string, offset: number): Promise<Hover | null> {
+    return this.query({ op: 'hover', config, libDir, path, offset }).then(parseHover);
+  }
+
+  inlayHints(config: string, libDir: string, path: string, from: number, to: number, parameterNames: ParameterNames): Promise<InlayHint[]> {
+    return this.query({ op: 'inlayHints', config, libDir, path, from, to, parameterNames }).then(parseInlayHints);
+  }
+
   close(): void {
     this.closed = true;
     this.waiting.clear();
+    this.queries.clear();
+  }
+
+  private query(request: Record<string, unknown>): Promise<Record<string, unknown>> {
+    if (this.closed) return Promise.reject(new Error('The live-compile host is closed'));
+    const id = this.service.requestQuery(JSON.stringify(request));
+    return new Promise(resolve => {
+      this.queries.set(id, resolve);
+      this.schedulePoll();
+    });
   }
 
   private schedulePoll(): void {
@@ -83,12 +110,19 @@ export class ExtensionHost implements LiveCompileHost {
     this.polling = false;
     for (let json = this.service.poll(); json !== ''; json = this.service.poll()) {
       const reply = parseReply(json);
+      if (reply.kind === 'query') {
+        const resolveQuery = this.queries.get(reply.id);
+        if (resolveQuery === undefined) throw new Error(`The service answered query ${reply.id}, which nobody is waiting for`);
+        this.queries.delete(reply.id);
+        resolveQuery(reply.result);
+        continue;
+      }
       const resolve = this.waiting.get(reply.id);
       if (resolve === undefined) throw new Error(`The service answered check ${reply.id}, which nobody is waiting for`);
       this.waiting.delete(reply.id);
       resolve(reply.outcome);
     }
-    if (this.waiting.size > 0) this.schedulePoll();
+    if (this.waiting.size > 0 || this.queries.size > 0) this.schedulePoll();
   }
 }
 
@@ -98,7 +132,10 @@ export function openExtensionHost(): ExtensionHost {
   if (typeof LiveCompile !== 'function') {
     throw new Error('The live-compile extension is not loaded: run "node scripts/build-live-compile.mjs", then import the project once (pnpm demo does)');
   }
-  return new ExtensionHost(new LiveCompile());
+  const service = new LiveCompile();
+  // The thread starts now, not at the first request that waits for it (a browser starts it from a pool of workers).
+  service.start();
+  return new ExtensionHost(service);
 }
 
 /** The project the build wrote, read from the Godot project (a file in the pack on the Web). */

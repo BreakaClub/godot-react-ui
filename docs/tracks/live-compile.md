@@ -79,7 +79,51 @@ was considered and not done: it would run the component's effects.
 
 ## What was built
 
-(see "Commands and results")
+```
+live-compile/                       its own cargo workspace and toolchain (nightly-2026-09-15); nothing in native/, src/ or Cargo.toml depends on it
+  scripts/vendor-bun.py             extracts 35 of Bun's crates at 408c9374b266 into vendor/ (generated, ignored); --verify
+  patches/, stubs/                  seven reviewed patches, two stand-in crates; every one is listed with its reason in the script
+  core/                             live_compile_core: Service::handle(request) -> JSON; check.rs, transpile.rs, lower.rs, services.rs;
+                                    main.rs is live-compile-cli (frames on stdin/stdout), wasm.rs the wasm32-unknown-unknown exports
+  ext/                              live_compile_ext: the GDExtension, class LiveCompile; one thread, a queue, a reply list
+  types/                            react-refresh/runtime's declarations (the package has none)
+demo/src/live-compile-protocol.ts   the JSON the library speaks, as types, with validators
+demo/src/live-compile-host.ts       LiveCompileHost: compile, setFile, requestCheck, hover, inlayHints, over the extension
+demo/src/live-compile-modules.ts    the module registry: namespaces, transactions, boundaries
+demo/src/live-compile-refresh.ts    React Fast Refresh runtime glue
+demo/src/live-compile-root.tsx      the error boundary the lab is mounted in
+demo/src/live-compile-session.ts    LiveSession: open, update, check, hover, inlayHints, unmount   <- what the editor calls
+demo/src/live-compile-open.ts       the session over this bundle's React and library
+demo/src/verify-live-compile.ts     the `live-compile` section
+scripts/live-compile-project.mjs    writes demo/live-compile/project.json (lab sources, declarations, lib files)
+scripts/build-live-compile.mjs      builds and installs the extension (and --cli the native process); stamp for the freshness guard
+scripts/build-live-compile-web.mjs  builds the Web side module
+scripts/live-compile-agreement.mjs  Bun's checker against tsc on every lab and on broken edits; compiles every lab file
+scripts/verify-live-compile-web.mjs the section in Chrome
+```
+
+### What the editor phase calls
+
+```ts
+const session = openLiveSession({ root, labId: 'inputs', exportName: 'InputsLab' }); // demo/src/live-compile-open.ts; throws, saying how, if the extension is not built
+session.open();                                       // sends the project to the checker, compiles and runs the lab, mounts it
+const report = session.update(path, text);            // on each change: compile, run, refresh. Synchronous; never throws for a bad edit
+report.outcome;       // 'swapped' | 'compile-failed' | 'evaluation-failed' | 'render-failed' (the last good page is on screen in all three)
+report.diagnostics;   // syntax errors, with UTF-16 start/end/line/character
+report.error;         // the message a module or a render threw
+report.timings;       // compileMs, swapMs, totalMs
+await report.check;   // the type check of this text: { kind: 'checked', report: { diagnostics: [{ pos, end, code, category, messageText, ... }] } } | 'superseded' | 'failed'
+await session.hover(path, offset);                    // { start, end, name, type } | null
+await session.inlayHints(path, from, to, 'literals'); // [{ position, kind: 'type' | 'parameter', label }]
+session.sourceOf(path); session.sources;              // the text a module last ran from; the lab's files, component first
+session.unmount();
+```
+
+A `LiveSession` is for one lab (`demo/src/labs.tsx`'s `sources`). `project.json` holds every lab, so switching lab is a new session.
+
+## Commands and results
+
+(see the report)
 
 ## README text
 

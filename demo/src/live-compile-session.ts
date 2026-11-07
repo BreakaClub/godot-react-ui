@@ -3,7 +3,7 @@ import type { ReactRoot } from 'godot-react-ui';
 import type { LiveCompileHost } from './live-compile-host';
 import { liveTree } from './live-compile-root';
 import { ModuleRegistry, type RefreshHooks } from './live-compile-modules';
-import type { CheckOutcome, CompileDiagnostic, CompileResult, Project } from './live-compile-protocol';
+import type { CheckOutcome, CompileDiagnostic, CompileResult, Hover, InlayHint, ParameterNames, Project } from './live-compile-protocol';
 
 /**
  * A page the person edits: one lab of the demo, mounted from its compiled source and kept up to date as the source changes.
@@ -132,6 +132,24 @@ export class LiveSession {
     return this.options.host.requestCheck(lab.config, this.options.project.libDir);
   }
 
+  /** What is under a UTF-16 offset of a source file: the name and its type. The checker has the text of the last `update`. */
+  hover(path: string, offset: number): Promise<Hover | null> {
+    const lab = this.lab();
+    return this.options.host.hover(lab.config, this.options.project.libDir, path, offset);
+  }
+
+  /** The inferred types and parameter names to draw between two UTF-16 offsets of a source file. */
+  inlayHints(path: string, from: number, to: number, parameterNames: ParameterNames = 'literals'): Promise<InlayHint[]> {
+    const lab = this.lab();
+    return this.options.host.inlayHints(lab.config, this.options.project.libDir, path, from, to, parameterNames);
+  }
+
+  private lab(): { readonly config: string } {
+    const lab = this.options.project.labs[this.options.labId];
+    if (lab === undefined) throw new Error(`The live-compile project has no lab ${this.options.labId}`);
+    return lab;
+  }
+
   update(path: string, text: string): UpdateReport {
     const { host, now, performRefresh } = this.options;
     const started = now();
@@ -164,12 +182,18 @@ export class LiveSession {
     }
     const failure = thrown ?? this.renderError;
     if (failure === undefined) return report('swapped', { evaluated: change.evaluated });
-    // The new components threw while they rendered: React has dropped what they were rendering. The last version that ran is
-    // registered again and rendered from a fresh boundary, so the page shows it (its state starts again: the tree that held it
-    // is gone).
+    // The new components threw while they rendered: React has dropped what they were rendering. The registry goes back to the instances it
+    // had, and the last version that ran is evaluated again from its source: Fast Refresh registers each function once, so its families
+    // can be given the old code only as new functions. The page then renders from a fresh boundary and shows that version (its state
+    // starts again: the tree that held it is gone).
     const evaluated = change.evaluated;
     change.revert();
     this.renderError = undefined;
+    for (const path of evaluated) {
+      const previous = this.registry.prepare(path, this.registry.sourceOf(path));
+      if (!previous.ok) throw new Error(`The last version of ${path} that ran does not run again: ${previous.phase === 'evaluate' ? previous.error.message : previous.diagnostics.map(diagnostic => diagnostic.message).join('; ')}`);
+      previous.change.register();
+    }
     performRefresh();
     this.epoch += 1;
     this.mount();

@@ -60,6 +60,24 @@ export interface CheckReport {
   readonly deepestStack: number;
 }
 
+/** What is under a position: the name there and its type, as TypeScript's quick info has them. `start` and `end` are UTF-16 offsets. */
+export interface Hover {
+  readonly start: number;
+  readonly end: number;
+  readonly name: string;
+  readonly type: string;
+}
+
+/** A hint drawn in the text: the type TypeScript inferred for a declaration (after its name), or the name of the parameter an argument is for (before it). */
+export interface InlayHint {
+  readonly position: number;
+  readonly kind: 'type' | 'parameter';
+  readonly label: string;
+}
+
+/** Which arguments get their parameter's name: none, the literals, or all but the ones that are the name. */
+export type ParameterNames = 'none' | 'literals' | 'all';
+
 /** What a `requestCheck` came to: its report, a failure, or that a newer check took its place before it began. */
 export type CheckOutcome =
   | { readonly kind: 'checked'; readonly report: CheckReport }
@@ -105,25 +123,28 @@ function isCheckReport(value: unknown): value is CheckReport {
     && isStringArray(value.incomplete) && typeof value.deepestStack === 'number';
 }
 
-/** A reply `poll` handed over: the id of the request it answers and what came of it. */
-export interface Reply {
-  readonly id: number;
-  readonly outcome: CheckOutcome;
-}
+/** A reply `poll` handed over: the id of the request it answers, and what came of it. */
+export type Reply =
+  | { readonly id: number; readonly kind: 'check'; readonly outcome: CheckOutcome }
+  | { readonly id: number; readonly kind: 'query'; readonly result: Record<string, unknown> };
 
 export function parseReply(json: string): Reply {
   const reply: unknown = JSON.parse(json);
-  if (!isRecord(reply) || typeof reply.id !== 'number' || reply.kind !== 'check') throw new Error(`A reply of the service is not a check's: ${json.slice(0, 200)}`);
+  if (!isRecord(reply) || typeof reply.id !== 'number' || (reply.kind !== 'check' && reply.kind !== 'query')) throw new Error(`A reply of the service is not one: ${json.slice(0, 200)}`);
+  if (reply.kind === 'query') {
+    if (!isRecord(reply.result)) throw new Error('A query has no result');
+    return { id: reply.id, kind: 'query', result: reply.result };
+  }
   if (reply.superseded === true) {
     if (typeof reply.by !== 'number') throw new Error('A superseded check says nothing of what superseded it');
-    return { id: reply.id, outcome: { kind: 'superseded', by: reply.by } };
+    return { id: reply.id, kind: 'check', outcome: { kind: 'superseded', by: reply.by } };
   }
   const result = reply.result;
   if (!isRecord(result)) throw new Error('A check has no result');
-  if (result.ok === true && isCheckReport(result.report)) return { id: reply.id, outcome: { kind: 'checked', report: result.report } };
+  if (result.ok === true && isCheckReport(result.report)) return { id: reply.id, kind: 'check', outcome: { kind: 'checked', report: result.report } };
   const first = Array.isArray(result.diagnostics) ? result.diagnostics[0] : undefined;
   const message = isCompileDiagnostic(first) ? first.message : `the check failed: ${JSON.stringify(result).slice(0, 300)}`;
-  return { id: reply.id, outcome: { kind: 'failed', message } };
+  return { id: reply.id, kind: 'check', outcome: { kind: 'failed', message } };
 }
 
 /** The project the editor opens: `scripts/live-compile-project.mjs` writes it. */
@@ -160,4 +181,24 @@ export function parseProject(json: string): Project {
     labs[id] = { config: lab.config, sources: lab.sources };
   }
   return { version: 1, libDir: value.libDir, files, labs };
+}
+
+export function parseHover(result: Record<string, unknown>): Hover | null {
+  if (result.ok !== true) throw new Error(`A hover failed: ${JSON.stringify(result).slice(0, 300)}`);
+  const hover = result.hover;
+  if (hover === null) return null;
+  if (!isRecord(hover) || typeof hover.start !== 'number' || typeof hover.end !== 'number' || typeof hover.name !== 'string' || typeof hover.type !== 'string') {
+    throw new Error('A hover has no span, name and type');
+  }
+  return { start: hover.start, end: hover.end, name: hover.name, type: hover.type };
+}
+
+export function parseInlayHints(result: Record<string, unknown>): InlayHint[] {
+  if (result.ok !== true || !Array.isArray(result.hints)) throw new Error(`Inlay hints failed: ${JSON.stringify(result).slice(0, 300)}`);
+  return result.hints.map((hint: unknown): InlayHint => {
+    if (!isRecord(hint) || typeof hint.position !== 'number' || (hint.kind !== 'type' && hint.kind !== 'parameter') || typeof hint.label !== 'string') {
+      throw new Error('An inlay hint has no position, kind and label');
+    }
+    return { position: hint.position, kind: hint.kind, label: hint.label };
+  });
 }

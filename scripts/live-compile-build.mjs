@@ -29,9 +29,14 @@ function filesUnder(directory) {
   return found;
 }
 
+/** The repository-relative paths of the files the extension is built from. */
+export function liveCompileSourceFiles() {
+  return [...SOURCE_DIRECTORIES.flatMap(filesUnder), ...SOURCE_FILES];
+}
+
 /** Everything the extension is built from, as the freshness guard hashes it: the sources, the patches, the toolchain and the profile's API dumps. */
 export function liveCompileInputs(engine) {
-  const paths = [...SOURCE_DIRECTORIES.flatMap(filesUnder), ...SOURCE_FILES];
+  const paths = liveCompileSourceFiles();
   const apiFiles = Object.values(engine.bindingEnvironment()).map(file => relative(root, file));
   return collectContentInputs({ root, paths: [...paths, ...apiFiles], features: [] });
 }

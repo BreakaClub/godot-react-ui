@@ -11,13 +11,13 @@
 // `scripts/live-compile-agreement.mjs` drives. The Bun sources are extracted from the checkout at the pinned revision into
 // live-compile/vendor (generated, ignored) when they are not there; the toolchain is Bun's nightly (live-compile/rust-toolchain.toml).
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, renameSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, renameSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { rejectUnknownArguments } from './arguments.mjs';
 import { selectEngine } from './engine.mjs';
 import { stampFor, writeStamp } from './freshness.mjs';
-import { BUN_CHECKOUT, INSTALLED_LIBRARY, INSTALLED_STAMP, INSTALL_DIRECTORY, LIBRARY_NAME, liveCompileInputs, targetDirectoryOf, writeGdextension } from './live-compile-build.mjs';
+import { BUN_CHECKOUT, INSTALLED_LIBRARY, INSTALLED_STAMP, INSTALL_DIRECTORY, LIBRARY_NAME, liveCompileInputs, liveCompileSourceFiles, targetDirectoryOf, writeGdextension } from './live-compile-build.mjs';
 
 rejectUnknownArguments(process.argv.slice(2), { flags: ['--cli'] });
 const root = resolve(import.meta.dirname, '..');
@@ -38,9 +38,16 @@ function run(command, args, options = {}) {
 
 console.log(`Engine profile ${engine.name}: ${engine.description}; target ${targetDirectory}`);
 if (!existsSync(resolve(workspace, 'vendor/bun/Cargo.toml'))) run('python3', ['scripts/vendor-bun.py', BUN_CHECKOUT]);
-const packages = ['-p', 'live_compile_ext', ...(process.argv.includes('--cli') ? ['-p', 'live_compile_core', '--bin', 'live-compile-cli'] : [])];
-run(cargo, ['build', '--locked', '--release', ...packages]);
+// Two builds, not one with both packages: `--bin live-compile-cli` selects the targets of every package named, and then the extension
+// (a library) is not built at all while the old one is installed under a new stamp.
+run(cargo, ['build', '--locked', '--release', '-p', 'live_compile_ext']);
+if (process.argv.includes('--cli')) run(cargo, ['build', '--locked', '--release', '-p', 'live_compile_core', '--bin', 'live-compile-cli']);
 
+// Cargo decides from modification times, which a restored file can defeat (docs/tracks/freshness.md): a library older than the newest source
+// it was built from was not built from it.
+const builtAt = statSync(resolve(targetDirectory, 'release', LIBRARY_NAME)).mtimeMs;
+const newest = liveCompileSourceFiles().map(file => ({ file, at: statSync(resolve(root, file)).mtimeMs })).sort((a, b) => b.at - a.at)[0];
+if (newest !== undefined && newest.at > builtAt) throw new Error(`The library cargo left is older than ${newest.file}: it was not built from the current sources. Run \`cargo clean -p live_compile_ext --release\` in live-compile/ and build again.`);
 mkdirSync(resolve(INSTALL_DIRECTORY, 'bin'), { recursive: true });
 // A rename swaps the directory entry: a running Godot that has the old library mapped keeps its inode.
 const staged = `${INSTALLED_LIBRARY}.${process.pid}.tmp`;

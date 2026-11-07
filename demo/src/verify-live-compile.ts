@@ -36,6 +36,8 @@ const LAB_ID = 'inputs';
 const EXPORT_NAME = 'InputsLab';
 const ROOT_TEST_ID = 'inputs-lab';
 const COUNTER_TEST_ID = 'inputs-next';
+/** The Controls lab's slider thumb is drawn past its track by design; every capture of the page says so (`verifyInputs`). */
+const OVERFLOWING = ['inputs-slider-thumb'];
 const SLATE_50 = '#f8fafc';
 const EMERALD_100 = '#d1fae5';
 const SKY_100 = '#e0f2fe';
@@ -205,7 +207,7 @@ export async function verifyLiveCompile(owner: Node, api: LiveCompileInspection,
   assert(JSON.stringify(compiled) === JSON.stringify(bundled), `The lab compiled from its source is the lab the bundle has (${compiled.length} nodes against ${bundled.length}); first difference at ${compiled.findIndex((line, index) => line !== bundled[index])}`);
   assert(backgroundOf(api) === bundledBackground && bundledBackground === SLATE_50, `and has its background: ${backgroundOf(api)}`);
   assert(paintIs(backgroundPaint(owner, api), SLATE_50), `and its pixels: ${backgroundPaint(owner, api).join(',')}`);
-  await capture('live-compile-01-compiled');
+  await capture('live-compile-01-compiled', OVERFLOWING);
   const original = session.sourceOf(INPUTS_LAB_PATH);
   assert(original.includes('bg-slate-50'), 'The session holds the lab\'s source');
 
@@ -217,6 +219,22 @@ export async function verifyLiveCompile(owner: Node, api: LiveCompileInspection,
   for (let index = 0; index < LATER_CHECKS; index += 1) later.push((await checkOf(session)).ms);
   facts.laterCheckMedianMs = round(percentile(later, MEDIAN), TENTH);
   facts.laterCheckWorstMs = round(Math.max(...later), TENTH);
+
+  // ---- Editor services over the same program: hover and inlay hints ---------------------------------------------------------
+  const hoverAt = original.indexOf('NICKNAME_MIN_LENGTH') + 2;
+  const hoverStarted = nowMs();
+  const hover = await session.hover(INPUTS_LAB_PATH, hoverAt);
+  facts.hoverMs = round(nowMs() - hoverStarted, TENTH);
+  assert(hover !== null && hover.name === 'NICKNAME_MIN_LENGTH' && hover.type === '3' && hover.start === hoverAt - 2, `Hovering a constant gives its name and type: ${JSON.stringify(hover)}`);
+  const stateHover = await session.hover(INPUTS_LAB_PATH, original.indexOf('const [state, setState]') + 'const ['.length);
+  assert(stateHover !== null && stateHover.name === 'state' && stateHover.type === 'InputsState', `and a state variable its declared type: ${JSON.stringify(stateHover)}`);
+  const hintsStarted = nowMs();
+  const hints = await session.inlayHints(INPUTS_LAB_PATH, 0, original.length, 'literals');
+  facts.inlayHintsMs = round(nowMs() - hintsStarted, TENTH);
+  assert(hints.some(hint => hint.kind === 'parameter' && hint.label === 'initialState:' && original.startsWith('false', hint.position)), `A literal argument gets its parameter's name: ${JSON.stringify(hints.slice(0, 3))}`);
+  assert(hints.some(hint => hint.kind === 'type' && hint.label === ': readonly Choice[]' && original.slice(hint.position - 5, hint.position) === 'sizes'), 'and a variable with no annotation the type TypeScript inferred');
+  assert(hints.every((hint, index) => index === 0 || (hints[index - 1]?.position ?? 0) <= hint.position), 'in the order of the text');
+  facts.inlayHints = hints.length;
 
   // ---- An edit reaches the pixels and the properties, and the counter keeps its count --------------------------------------
   for (let presses = 0; presses < 3; presses += 1) await pressCounter(api);
@@ -231,7 +249,7 @@ export async function verifyLiveCompile(owner: Node, api: LiveCompileInspection,
   assert(backgroundOf(api) === EMERALD_100, `The page's background property is the new class's colour: ${backgroundOf(api)}`);
   assert(allTexts(api).includes('Inputs, live') && !allTexts(api).includes('Inputs'), `The title reads the new text: ${allTexts(api).slice(0, 3).join(' / ')}`);
   assert(textOf(api, COUNTER_TEST_ID) === 'Next 3', `and the counter kept its count through the edit: ${textOf(api, COUNTER_TEST_ID)}`);
-  await capture('live-compile-02-edited');
+  await capture('live-compile-02-edited', OVERFLOWING);
   assert(diagnosticsOf((await checkOf(session)).outcome).length === 0, 'The edited page type-checks clean');
 
   // ---- A changed hook order starts the state again, without a crash -------------------------------------------------------
@@ -252,6 +270,7 @@ export async function verifyLiveCompile(owner: Node, api: LiveCompileInspection,
   await pressCounter(api);
   await pressCounter(api);
   const goodTexts = allTexts(api);
+  const withoutCount = (texts: readonly string[]): string[] => texts.map(text => text.replace(/^Next \d+$/u, 'Next N'));
   const goodFingerprint = fingerprint(api);
 
   const unchanged = async (what: string): Promise<void> => {
@@ -284,13 +303,13 @@ export async function verifyLiveCompile(owner: Node, api: LiveCompileInspection,
   assert(throwsInRender.outcome === 'render-failed' && throwsInRender.rolledBack && throwsInRender.error === 'live-compile-test-render', `A render that throws is rolled back, with its error: ${throwsInRender.outcome} ${throwsInRender.error}`);
   await settleFrames();
   assert(api.find('live-compile-error') === undefined, 'and no error page stays up');
-  assert(JSON.stringify(allTexts(api)) === JSON.stringify(goodTexts), `and the last good version is on screen (${allTexts(api).slice(0, 3).join(' / ')})`);
+  assert(JSON.stringify(withoutCount(allTexts(api))) === JSON.stringify(withoutCount(goodTexts)), `and the last good version is on screen (${allTexts(api).slice(0, 3).join(' / ')})`);
   assert(backgroundOf(api) === EMERALD_100 && paintIs(backgroundPaint(owner, api), EMERALD_100), 'with its colour');
   // The tree that threw was dropped, and the good one starts from its first render: the limit of React's recovery, recorded.
   assert(textOf(api, COUNTER_TEST_ID) === 'Next 0', `(its state starts again, as React keeps nothing of a tree whose render threw: ${textOf(api, COUNTER_TEST_ID)})`);
   await pressCounter(api);
   assert(textOf(api, COUNTER_TEST_ID) === 'Next 1', `and it works: ${textOf(api, COUNTER_TEST_ID)}`);
-  await capture('live-compile-03-rolled-back');
+  await capture('live-compile-03-rolled-back', OVERFLOWING);
   const afterRollback = session.update(INPUTS_LAB_PATH, recoloured);
   assert(afterRollback.outcome === 'swapped', `and the next good edit swaps in: ${afterRollback.outcome} ${afterRollback.error ?? ''}`);
   assert(textOf(api, COUNTER_TEST_ID) === 'Next 1', `keeping its count: ${textOf(api, COUNTER_TEST_ID)}`);

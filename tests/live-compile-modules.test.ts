@@ -110,7 +110,7 @@ test('a dependency that throws is named, and the edited module is not left half 
   assert.equal(modules.isLoaded('/c.ts'), false);
 });
 
-test('revert puts the previous modules back and registers their components again', () => {
+test('revert puts the previous modules back, and evaluating their source again makes functions Fast Refresh has not seen', () => {
   const registered: Registered[] = [];
   const modules = registry({ '/a.ts': `exports.A = function A() {}; $RefreshReg$(exports.A, 'A');` }, registered);
   const loaded = modules.load('/a.ts');
@@ -122,9 +122,13 @@ test('revert puts the previous modules back and registers their components again
   edited.change.register();
   assert.notEqual(modules.exportOf('/a.ts', 'A'), before);
   edited.change.revert();
-  assert.equal(modules.exportOf('/a.ts', 'A'), before);
+  assert.equal(modules.exportOf('/a.ts', 'A'), before, 'importers read the previous instance again');
+  assert.equal(registered.length, 2, 'and Fast Refresh was told nothing');
+  const again = modules.prepare('/a.ts', modules.sourceOf('/a.ts'));
+  assert.ok(again.ok);
+  again.change.register();
   assert.equal(registered.length, 3);
-  assert.equal(registered[2]?.type, before, 'the family is given its previous implementation again');
+  assert.notEqual(registered[2]?.type, before, 'the previous source gives a function of its own, which the family can be given');
   assert.equal(registered[2]?.id, '/a.ts A');
 });
 

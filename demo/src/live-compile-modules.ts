@@ -89,7 +89,11 @@ export interface Change {
   readonly evaluated: readonly string[];
   /** Tells React Fast Refresh about the new components. Call once, then ask the Fast Refresh runtime to refresh. */
   register(): void;
-  /** Puts the previous instances back and registers their components again, so that a refresh returns the page to them. */
+  /**
+   * Puts the previous instances back, so that importers read them again. It does not touch React Fast Refresh: its runtime registers each
+   * function once (a function it has seen is ignored), so the families cannot be handed their old functions back. To return the page to the
+   * previous version the caller evaluates the previous source again (`prepare`), which makes new functions, and registers those.
+   */
   revert(): void;
 }
 
@@ -310,12 +314,6 @@ class Transaction implements Change {
   }
 
   revert(): void {
-    const evaluated = [...this.steps].reverse();
-    for (const step of evaluated) step.record.instance = step.previous;
-    // The previous implementations are the families' again.
-    for (const step of evaluated) {
-      for (const registration of step.previous?.registrations ?? []) this.refresh.register(registration.type, registration.id);
-    }
-    this.steps.length = 0;
+    this.undo();
   }
 }
