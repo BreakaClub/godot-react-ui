@@ -129,6 +129,15 @@ getRangeRects(start: number, end: number): LayoutRect[] | undefined
 * Caret positions are by line box: a mixed-direction line has two carets at a direction change and `getCaretRect` returns the primary (left-to-right) one.
 * Bidirectional text, and text where spans split a grapheme cluster, were not checked against Chrome.
 
+## Not verified
+
+* **Web, stock engine.** The Web check is Breaka's engine (the debug export). The per-channel comparison with Chrome was run on the Web verifier's captures after it, not inside it. The stock profile's Web export was not built or run, and `live-compile`'s Web side module is Breaka-only anyway.
+* **A real high-density display.** Ratio 2 is the engine's content scale on a window, and Chrome's is puppeteer's emulated scale. Where a browser with zoom-for-dsf snaps lines in device pixels, Chrome's numbers may differ from the ones held here.
+* **Input methods, bidirectional text and mixed-direction carets.** Nothing here composes (no IME) and no right-to-left text was compared with Chrome; carets at a direction change are by line box only (see Limits).
+* **The accessibility tree itself.** The a11y name of a text with spans and inlays was read from the snapshot text (the inlay is absent, the source text is whole); no screen reader or platform tree was consulted.
+* **A grapheme cluster split by a span boundary** (a combining mark in its own span) and a ligature across a colour change in the live picture: the draw plan is unit tested over fake glyph lists (a ligature takes the colour of its cluster start), not compared with Chrome.
+* **The full suite.** Only the `rich-text` section was run on each engine and on the Web, with `pnpm test`, `pnpm test:types`, `cargo test` and `cargo clippy`. The other sections were not re-run after the rebase onto `web-load`.
+
 ## Decoration styles: what Chrome draws, read off its pixels
 
 Measured in headless Chrome 156 (puppeteer-core; JetBrains Mono at 12, 14, 16, 24 and 25 px, Open Sans at 16 px, device pixel ratios 1 and 2,
@@ -188,7 +197,11 @@ Run in this worktree, on this branch. `rich-text` is a section of the native int
 | `pnpm test` | JS: flattening, the commit payloads (a recolour sends `{ spans }` only), refusals by name, the handle methods, the `decoration-*` classes |
 | `cargo clippy --all-targets -- -D warnings`, `pnpm test:types` | clean |
 | `cargo fmt --check` | flags three places in files this track did not change (`native/lib.rs` module order, `scroll.rs`, `text_input_godot/keys.rs`), as on `main` |
-| `--interaction --only=rich-text`, Breaka's engine | landscape 24,625 checks, portrait 12,347, both passed |
+| `--interaction --only=rich-text`, Breaka's engine | landscape 24,967 checks, portrait 12,518, both passed |
+| `--interaction --only=rich-text --engine=stock` (Godot 4.7.2, upstream GodotJS) | landscape 24,967 checks, portrait 12,518, both passed: the same numbers as Breaka's engine. A first stock run reported the section passed and then failed on the demo's separate `live-compile` addon, which was still the Breaka build ("godot-rust compiled against newer Godot version"); `node scripts/build-live-compile.mjs --engine=stock` (3 m 25 s) fixed it, and Breaka's addon and native library were built again afterwards |
+| `--interaction --only=rich-text --renderer=mobile`, `--renderer=forward_plus` (Breaka's engine; the logs say "Forward Mobile" and "Forward+") | both passed, each landscape 24,967 checks and portrait 12,518: the same numbers as Compatibility |
+| `node scripts/verify-interaction-web.mjs --only=rich-text` (`pnpm build:web`, debug export, headless Chrome) | passed: 108 section checks, 120 assertions, 40 captures (landscape and portrait at ratio 1, retina landscape and portrait at ratio 2): every text, character and inlay where Chrome has it, a click on each half of each character, drags across spans and across an inlay, and a recolour that shapes no paragraph |
+| the Web captures against Chrome, per channel (`rich-text-reference.mjs --diff`, whole images, no crop) | ratio 1 (1120 x 800 window) and ratio 2 (the Web's retina window: 1120 x 800 logical, 2240 x 1600 pixels, against Chrome rendered in the same window, `web-dpr2`): the same numbers as the native windows, see "Against Chrome, per channel" |
 
 What the section holds, per window and ratio: every text of 11 pages (colours, columns, five decoration styles, overlines, lines through the text, inlays, changes) against what
 Chrome reports for the same tree (`scripts/rich-text-golden.json`): each box, each line's left, right and baseline within 1 px; every source character's left and right edge as
@@ -222,6 +235,19 @@ three channels of each pixel, over the cell of each text (its box and 3 px round
 | decoration only, ratio 2 | 41 | 217 | 0.18 | 54 | 0.24 % | 0.991 |
 | text, ratio 1 | 16 | 240 | 2.41 | 136 | 3.57 % | 1.005 |
 | text, ratio 2 | 16 | 240 | 6.06 | 195 | 6.12 % | 1.029 |
+
+The Web export's captures (`artifacts/web-interaction-verification/{landscape,retina-landscape}`, compared whole against Chrome rendered in the same window; side by sides in `artifacts/rich-text-compare-web/`) come out the same:
+
+| Group | Texts | Worst | Mean of the difference | 99th percentile | Pixels over 24 levels | Ink, ours over Chrome's |
+| --- | --- | --- | --- | --- | --- | --- |
+| Web, decoration only, ratio 1 | 41 | 217 | 0.258 | 109 | 0.349 % | 0.993 |
+| Web, text, ratio 1 | 16 | 240 | 2.407 | 136 | 3.573 % | 1.005 |
+| Web, decoration only, ratio 2 | 41 | 217 | 0.174 | 54 | 0.239 % | 0.991 |
+| Web, text, ratio 2 | 16 | 240 | 6.063 | 195 | 6.124 % | 1.029 |
+
+A Web capture at ratio 2 is the 1120 x 800 page with doubled pixels (2240 x 1600), and the native ratio-2 window is a 560 x 400 page (1120 x 800 pixels), so each is compared with
+Chrome in its own window (`dpr2` and `web-dpr2` in `scripts/rich-text-reference.mjs`), never with the other and never cropped. The Web's numbers equal the native ones (ratio 1 to the digit;
+ratio 2 native 0.18 and 6.06 against 0.174 and 6.063): the Web and native paths draw the same pixels.
 
 By style, at ratios 1 and 2 (mean of the difference; share of pixels over 24 levels; worst): solid 0.011 and 0.012 (0.03 %, 0.01 %; 47 and 122: the two ends of a line, where Chrome antialiases a
 fractional edge and the library draws a rectangle), double 0.022 and 0.026, dotted 0.21 and 0.16 (0.33 %, 0.18 %), dashed 0.36 and 0.24 (0.54 %, 0.28 %: edges at a quarter pixel), wavy 0.34 and 0.22

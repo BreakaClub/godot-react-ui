@@ -7,13 +7,16 @@
 //   node --import tsx scripts/rich-text-reference.mjs [--out=<dir>] [--page=<id>[,<id>]]
 //       Renders each page to <dir>/chrome-<page>-dpr<N>.png and writes <dir>/chrome-<page>-dpr<N>.json with, for each text, its box, its
 //       lines (left and right ends of the glyphs, top, baseline), where each character of the source is (left, right, line) and where
-//       each inlay is, for the two windows the native verifier has: 1120 x 800 at device pixel ratio 1, and 560 x 400 at ratio 2.
+//       each inlay is, for the windows the verifiers have: 1120 x 800 at device pixel ratio 1 and 560 x 400 at ratio 2 (the native ones), and
+//       1120 x 800 at ratio 2 (`web-dpr2`: the Web verifier's retina window keeps the logical size and doubles the pixels, so its capture is
+//       2240 x 1600; glass-reference.mjs calls it `web-retina-landscape`).
 //   node --import tsx scripts/rich-text-reference.mjs --golden
 //       Writes demo/src/rich-text-golden.ts and scripts/rich-text-golden.json: the numbers Chrome reports for every text. The native
 //       and Web verifiers hold the library to them; do not edit by hand.
 //   node --import tsx scripts/rich-text-reference.mjs --diff --native=<dir> [--chrome=<dir>] [--out=<dir>]
-//       Compares the native verifier's captures (<dir>/rich-text-<page>-dpr<N>.png) with Chrome's per channel, per text, and writes
-//       <out>/<page>-dpr<N>.png (Chrome, ours and their difference side by side) and <out>/report.json.
+//       Compares the verifier's captures (<dir>/rich-text-<page>-<window>.png, a window being dpr1, dpr2 or web-dpr2) with Chrome's per channel, per
+//       text, and writes <out>/<page>-<window>.png (Chrome, ours and their difference side by side) and <out>/report.json. A capture is compared
+//       whole and at its own size; the Web ones are `artifacts/web-interaction-verification/{landscape,retina-landscape}`.
 //
 // Input is none: the pages are static. No real OS input is generated and no window opens (headless).
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -33,7 +36,7 @@ rejectUnknownArguments(process.argv.slice(2).filter(value => value.startsWith('-
 const root = resolve(import.meta.dirname, '..');
 const executablePath = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const argument = name => process.argv.find(value => value.startsWith(`--${name}=`))?.slice(name.length + 3);
-const VIEWPORTS = [['dpr1', 1120, 800, 1], ['dpr2', 560, 400, 2]];
+const VIEWPORTS = [['dpr1', 1120, 800, 1], ['dpr2', 560, 400, 2], ['web-dpr2', 1120, 800, 2]];
 const SETTLE_MS = 200;
 const FAMILY_NAMES = { sans: 'OpenSans', serif: 'PTSerif', mono: 'JetBrainsMono' };
 /** A cell is compared with this much around it, in logical pixels. */
@@ -365,6 +368,7 @@ async function diff(nativeDirectory, chromeDirectory, outDirectory) {
   await mkdir(outDirectory, { recursive: true });
   const browser = await puppeteer.launch({ executablePath, headless: true, args: ['--no-first-run'] });
   const report = {};
+  const windows = {};
   try {
     const page = await browser.newPage();
     await page.setContent('<!doctype html><body></body>');
@@ -390,6 +394,7 @@ async function diff(nativeDirectory, chromeDirectory, outDirectory) {
         }
         const { results, diffPng } = await page.evaluate(measureImages, { cells, variants: { chrome: await dataUrl(resolve(chromeDirectory, `chrome-${stem}.png`)), ours }, visible: VISIBLE_LEVELS });
         report[stem] = results;
+        windows[stem] = name;
         const diffPath = resolve(outDirectory, `.diff-${stem}.png`);
         await writeFile(diffPath, Buffer.from(diffPng, 'base64'));
         const crop = { width: Math.ceil((chromeJson.pageRect.x + chromeJson.pageRect.width) * scale) + 8, height: Math.ceil((chromeJson.pageRect.y + chromeJson.pageRect.height) * scale) + 8 };
@@ -400,15 +405,15 @@ async function diff(nativeDirectory, chromeDirectory, outDirectory) {
     await browser.close();
   }
   await writeFile(resolve(outDirectory, 'report.json'), JSON.stringify(report, null, 1));
-  console.log(summary(report));
+  console.log(summary(report, windows));
 }
 
 /** One row per text kind and window: how far the pictures are, per channel, over all the texts of the kind. */
-function summary(report) {
+function summary(report, windows) {
   const rows = [['group', 'texts', 'worst', 'mean|d|', 'p99', 'share >24 levels', 'ink ours/Chrome']];
   for (const [name] of VIEWPORTS) {
     for (const [label, pick] of [['decoration only', decorationOnly], ['text', id => !decorationOnly(id)]]) {
-      const entries = Object.entries(report).filter(([stem]) => stem.endsWith(`-${name}`)).flatMap(([, results]) => Object.entries(results)).filter(([id]) => pick(id)).map(([, entry]) => entry);
+      const entries = Object.entries(report).filter(([stem]) => windows[stem] === name).flatMap(([, results]) => Object.entries(results)).filter(([id]) => pick(id)).map(([, entry]) => entry);
       if (entries.length === 0) continue;
       const count = entries.reduce((total, entry) => total + entry.count, 0);
       rows.push([`${label} ${name}`, String(entries.length), String(Math.max(...entries.map(entry => entry.worst))),
