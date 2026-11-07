@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
-  Button, ScrollView, Select, Text, TextInput, View,
+  Button, Portal, ScrollView, Select, Text, TextInput, View,
   type Style, type UIDragEvent, type UIHandle,
 } from 'godot-react-ui';
 import {
@@ -365,7 +365,10 @@ function ScrollPage() {
   );
 }
 
-/** A turned trigger, and a marker placed from its `getRect()` at the bottom right of the box round it, as a popover is. */
+/**
+ * A turned trigger, and a marker placed from its `getRect()` at the bottom right of the box round it, as a popover is: through a
+ * `Portal`, because `getRect()` is root-local, and only the overlay layer's frame is the root's wherever the lab is shown.
+ */
 function AnchorPage() {
   const { anchor: spec } = BEHAVIOUR;
   const trigger = useRef<UIHandle>(null);
@@ -384,7 +387,9 @@ function AnchorPage() {
         }}
       />
       {corner === undefined ? null : (
-        <View testID="anchor-marker" style={{ position: 'absolute', left: corner.left, top: corner.top, width: 8, height: 8, backgroundColor: '#be123c' }} />
+        <Portal>
+          <View testID="anchor-marker" style={{ position: 'absolute', left: corner.left, top: corner.top, width: 8, height: 8, backgroundColor: '#be123c' }} />
+        </Portal>
       )}
     </Stage>
   );

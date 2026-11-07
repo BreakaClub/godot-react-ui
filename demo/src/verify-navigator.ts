@@ -5,8 +5,14 @@ import type { LayoutRect, NativeSnapshot, NativeSnapshotNode } from '../../src/n
 import { GLASS_BLOB_IDS } from './glass-lab';
 import { LABS, labsInOrder, type InlineLab, type Lab } from './labs';
 import type { NavigatorOptions } from './main';
+import { setTransformCase } from './transform-lab';
 import { assertionTally, parseVerifierEvent } from './verifier-input';
 import { typeText } from './verify-text-input';
+
+/** The case the transforms lab opens on, put back after the anchor check, and how close the marker must stand to its corner. */
+const FIRST_TRANSFORM_CASE = 'shape:identity';
+const ANCHOR_SETTLE_FRAMES = 4;
+const ANCHOR_TOLERANCE_PX = 1;
 
 /**
  * The `navigator` section of the interaction verifier: the lab navigator (`navigator.tsx`) in a real window, driven by injected
@@ -313,6 +319,22 @@ async function checkPassthrough(api: NavigatorInspection): Promise<void> {
   assert(textOf(api, 'hud-status').startsWith('inventory 1'), `The HUD control works in the shell: ${textOf(api, 'hud-status')}`);
 }
 
+/**
+ * A lab that anchors to `getRect()` must hold in the shell: the rectangle is root-local, and the shell moves the lab off the root's corner,
+ * which a run of the lab alone in the window cannot see. Ben saw this one: the marker stood off by the sidebar's width and the header's height.
+ */
+async function checkAnchorInShell(api: NavigatorInspection): Promise<void> {
+  setTransformCase('anchor');
+  await frames(ANCHOR_SETTLE_FRAMES);
+  const trigger = node(api, 'anchor-trigger').rect;
+  const marker = node(api, 'anchor-marker').rect;
+  const off = { x: marker.x - (trigger.x + trigger.width), y: marker.y - (trigger.y + trigger.height) };
+  assert(Math.abs(off.x) <= ANCHOR_TOLERANCE_PX && Math.abs(off.y) <= ANCHOR_TOLERANCE_PX,
+    `The transforms lab's marker sits at the bottom right of the box round its trigger in the shell, not off by ${JSON.stringify(off)}`);
+  setTransformCase(FIRST_TRANSFORM_CASE);
+  await frames(ANCHOR_SETTLE_FRAMES);
+}
+
 async function walkLabs(api: NavigatorInspection, capture: NavigatorCapture, opened: string[], baselineNodes: number): Promise<void> {
   const baseline = labsToWalk().find(lab => lab.id === BASELINE_LAB);
   assert(baseline, `The registry has the baseline lab ${BASELINE_LAB}`);
@@ -324,6 +346,7 @@ async function walkLabs(api: NavigatorInspection, capture: NavigatorCapture, ope
     checkContentFit(api, lab);
     await capture(`navigator-${lab.id}`);
     if (lab.id === 'hud') await checkPassthrough(api);
+    if (lab.id === 'transforms') await checkAnchorInShell(api);
     if (lab.kind === 'window') await openWindowLab(api, lab, capture);
     if (lab.kind === 'scene') await openSceneLab(api, lab, opened);
     // Leaving it: back to the baseline lab, with the nodes it had and nothing still asking for frames.
