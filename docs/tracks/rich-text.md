@@ -6,8 +6,8 @@ features, with Chrome as the reference. The plan's non-goal "rich/nested text ru
 
 ## API for the editor
 
-Settled and committed before the native half is finished; the JS side below is implemented and unit tested (`tests/rich-text.test.ts`).
-The native queries answer once the native library is rebuilt from this branch.
+Implemented on the JS side (`tests/rich-text.test.ts`) and natively (`native/text_span.rs`, `text_geometry.rs`); verified by the `rich-text` section
+of the interaction verifier (see "Verification"). This section was committed before the native half was finished, and nothing in it changed since.
 
 ### Nested `Text` is one paragraph
 

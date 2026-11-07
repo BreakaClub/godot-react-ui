@@ -27,7 +27,7 @@ const SCRIPTS_WITH_OPTIONS = [
 ];
 
 /** Scripts run with tsx, which loads the TypeScript modules they import. */
-const TSX_SCRIPTS = ['glass-reference', 'transform-reference', 'text-styles-reference', 'tailwind-coverage', 'layout-utilities-reference', 'paint-reference'];
+const TSX_SCRIPTS = ['glass-reference', 'transform-reference', 'text-styles-reference', 'rich-text-reference', 'tailwind-coverage', 'layout-utilities-reference', 'paint-reference'];
 
 for (const script of [...SCRIPTS_WITH_OPTIONS, ...TSX_SCRIPTS]) {
   test(`scripts/${script}.mjs refuses an argument it does not take, before it does anything`, () => {
