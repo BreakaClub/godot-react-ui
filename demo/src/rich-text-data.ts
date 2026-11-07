@@ -86,6 +86,18 @@ const ONLY = 'font-mono text-sm whitespace-pre text-transparent';
 
 const DIGITS = '0123456789012345678901234567890123456789';
 
+/** One character on a line of its own, red: a missing-glyph box or a glyph, never beside other ink. */
+const GLYPH = 'text-base leading-6 whitespace-pre self-start';
+/** The family with no fallback (`BARE_FAMILY` in `demo-fonts.ts`): what it lacks is a hex box on every machine. */
+const BARE = `font-['bare'] ${GLYPH}`;
+/** A private-use character, which no demo font has. */
+const MISSING = '\uE000';
+const MISSING_OTHER = '\uE001';
+/** A Han character (U+4E2D): the demo's fonts have none, so it comes from a system font, or is a hex box where there is none. */
+const HAN = '\u4E2D';
+/** A Thai character (U+0E01): the demo's fonts have none, and the engine's own system lookup finds a font for it where the platform has one. */
+const THAI = '\u0E01';
+
 /** One row of the decorations page: 'abcdefghij' with 'cdefgh' in a span that is decorated. */
 function decorated(id: string, note: string, classes: string, only = true): RichSample {
   return {
@@ -227,6 +239,22 @@ export const PAGES: readonly RichPage[] = [
       { id: 'scaled', note: 'scaled by one and a half from its corner', className: `${CODE} origin-top-left scale-150`, runs: ['let ', span('text-red-600', 'count'), inlay('text-slate-500', ': number'), ' = 42;'], interact: true },
       { id: 'empty', note: 'a text with nothing in it: its caret is where its first character would be', className: CODE, runs: [], interact: true },
       { id: 'rotated', note: 'turned a quarter, about its centre', className: `${CODE} rotate-90 my-16 self-start`, runs: ['let ', span('text-red-600', 'count'), inlay('text-slate-500', ': number'), ' = 42;'], interact: true },
+    ],
+  },
+  {
+    id: 'glyphs',
+    title: 'Characters no font has',
+    chrome: false,
+    samples: [
+      { id: 'glyph-box-plain', note: 'a character no font has, in a plain text: the text server draws its hex box', className: `${BARE} text-red-600`, runs: [MISSING] },
+      { id: 'glyph-box-span', note: 'the same character inside a coloured span, which draws glyph by glyph: the same box, in the span\'s colour', className: `${BARE} text-slate-900`, runs: [span('text-red-600', MISSING)] },
+      { id: 'glyph-box-other', note: 'another character no font has: a box with other digits', className: `${BARE} text-red-600`, runs: [MISSING_OTHER] },
+      { id: 'glyph-han-plain', note: 'a Han character in a plain text: a system font, or its hex box where there is none', className: `font-sans ${GLYPH} text-red-600`, runs: [HAN] },
+      { id: 'glyph-han-span', note: 'the same Han character inside a coloured span', className: `font-sans ${GLYPH} text-slate-900`, runs: [span('text-red-600', HAN)] },
+      { id: 'glyph-han-tracked', note: 'the same Han character in letter-spaced text, which draws glyph by glyph with the font that does not track', className: `font-sans ${GLYPH} text-red-600 tracking-widest`, runs: [HAN] },
+      { id: 'glyph-thai-plain', note: 'a Thai character in a plain text: the font the text server finds on the system, or its hex box where there is none', className: `font-sans ${GLYPH} text-red-600`, runs: [THAI] },
+      { id: 'glyph-thai-tracked', note: 'the same Thai character in letter-spaced text: a font found by the text server is drawn as it is, without the tracking\'s emboldening', className: `font-sans ${GLYPH} text-red-600 tracking-widest`, runs: [THAI] },
+      { id: 'glyph-han-box', note: 'the Han character in the family with no fallback: its hex box', className: `${BARE} text-red-600`, runs: [HAN] },
     ],
   },
   {

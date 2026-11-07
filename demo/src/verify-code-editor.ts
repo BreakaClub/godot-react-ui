@@ -9,6 +9,7 @@ import type { NavigatorOptions } from './main';
 import { THEME } from './editor/theme';
 import { assertionTally, parseVerifierEvent, verifierClipboard } from './verifier-input';
 import { grab, settleFrames } from './verify-filters';
+import { fontsOfText } from './demo-fonts';
 import { click, drag, move, typeText } from './verify-text-input';
 
 /**
@@ -74,8 +75,8 @@ const FAR_COLUMN_TO = 106;
 /** A line of text this long has the columns above. */
 const LONG_LINE_COLUMNS = 110;
 /**
- * A comment with three emoji (two code units and about two columns each), two CJK characters (the demo's fonts have none and this machine
- * finds no fallback, so the engine lays them out as two-column boxes of their own) and ASCII on both sides.
+ * A comment with three emoji (two code units and about two columns each), two CJK characters (the demo's fonts have none: they come from
+ * the system font the faces fall back to, or are hex boxes where the platform has none, as on the Web) and ASCII on both sides.
  */
 const WIDE_COMMENT = '// \u{1F600}\u{1F680}\u{1F3B2} \u65e5\u672c ok';
 /** Offsets in `WIDE_COMMENT`: the first emoji starts and ends (an emoji is two code units), and the three end. */
@@ -84,6 +85,11 @@ const EMOJI_COUNT = 3;
 const WIDE_FIRST_START = 3;
 const WIDE_FIRST_END = WIDE_FIRST_START + EMOJI_CODE_UNITS;
 const WIDE_RUN_END = WIDE_FIRST_START + EMOJI_COUNT * EMOJI_CODE_UNITS;
+/** The two CJK characters follow the emoji and a space. */
+const CJK_START = WIDE_RUN_END + 1;
+const CJK_END = CJK_START + 2;
+/** Ink in the raster is a pixel with a channel above this level: every background the editor has (the page, the current line) is darker, a comment is not. */
+const INK_MIN_LEVEL = 0x60;
 /** Low surrogates: the second code unit of an emoji, where no caret can be. */
 const LOW_SURROGATE_START = 0xdc00;
 const LOW_SURROGATE_END = 0xdfff;
@@ -919,7 +925,22 @@ export async function verifyCodeEditor(owner: Node, api: CodeEditorInspection, c
   assert(wideBand !== undefined, 'The selected range is on the page');
   const wideProblem = bandEdgesAre(rasterOf(owner, api), wideBand.y, wideBand.x, wideBand.x + wideBand.width, blend('#2563eb', 0x77 / LEVELS, THEME.background));
   assert(wideProblem === undefined, `The selection band is under the three emoji and no more: ${wideProblem}`);
+  // The picture first: a check that fails leaves what it saw.
   await capture('code-editor-08-wide', OVERFLOWING);
+  // The two CJK characters have ink under them: glyphs of a system font where the platform has one (the text server resolves them to it), a hex box each where it has none.
+  const cjkFonts = fontsOfText('mono', WIDE_COMMENT.slice(CJK_START, CJK_END));
+  if (OS.getName() === 'macOS') assert(cjkFonts.length === 2 && cjkFonts.every(font => font !== undefined), `macOS has a system font with CJK characters, and the editor's font falls back to it: ${JSON.stringify(cjkFonts)}`);
+  const cjkBand = api.textRanges(wideLine, CJK_START, CJK_END)?.[0];
+  assert(cjkBand !== undefined, 'The CJK characters are on the page');
+  const cjkRaster = rasterOf(owner, api);
+  let cjkInk = 0;
+  for (let y = Math.floor(cjkBand.y); y < Math.ceil(cjkBand.y + cjkBand.height); y += 1) {
+    for (let x = Math.floor(cjkBand.x); x < Math.ceil(cjkBand.x + cjkBand.width); x += 1) {
+      if (Math.max(...cjkRaster.colourAt(x, y)) > INK_MIN_LEVEL) cjkInk += 1;
+    }
+  }
+  facts.cjk = { fonts: cjkFonts, inkPixels: cjkInk };
+  assert(cjkInk > 0, `There is ink under the CJK characters (${JSON.stringify(cjkFonts)}): nothing is drawn for them`);
 
   // ---- Reset: back to the source, and the page with it ---------------------------------------------------------------------------------------------------
   await click(centerOf(node(api, 'code-reset').rect));

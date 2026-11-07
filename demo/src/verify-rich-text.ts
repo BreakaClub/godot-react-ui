@@ -1,4 +1,4 @@
-import { Engine, Image, InputEventKey, Key, Node, OS, Vector2, Window } from 'godot';
+import { Engine, Image, InputEventKey, Key, Node, OS, TextServerManager, Vector2, Window } from 'godot';
 import type { NativeActivity, NativeProfile, RendererProfile, UIHandle, UISelection } from '../../src';
 import type { LayoutRect, NativeSnapshot, NativeSnapshotNode } from '../../src/native';
 import { GOLDEN_TEXTS, type GoldenInlay, type GoldenText } from './rich-text-golden';
@@ -8,6 +8,7 @@ import { richTextHandles } from './rich-text-lab';
 import { readOurText, type OurText } from './verify-text-styles';
 import { click, drag } from './verify-text-input';
 import { grab, settleFrames } from './verify-filters';
+import { fontsOfText } from './demo-fonts';
 import { assertionTally, parseVerifierEvent, verifierClipboard } from './verifier-input';
 
 /**
@@ -71,6 +72,24 @@ const TONE_LEVELS = 80;
 const SCALE_CLASS_FACTOR = 1.5;
 /** The lines of the file whose cost is measured. */
 const FILE_LINES = 1000;
+/** The page of characters no font has, and the page of the transformed texts: the two pages Chrome does not render. */
+const GLYPHS_PAGE = 'glyphs';
+const TRANSFORMED_PAGE = 'transformed';
+/** A pixel of the glyph samples is ink when its green level is below this share of white: they are red on white. */
+const INK_GREEN_BELOW = 0.5;
+/** A glyph is searched for this far (logical px) outside its text's box: a box or a glyph may reach past its advance. */
+const GLYPH_SCAN_MARGIN_PX = 4;
+/** How far a level (of 255) of one glyph's pixel may be from the same pixel of the same glyph drawn another way. */
+const GLYPH_TOLERANCE_LEVELS = 0;
+/** The font size of the glyph samples (`text-base`), which the text server sizes a hex box from. */
+const GLYPH_FONT_SIZE = 16;
+/** The rows of a hex box in units of its size (`TextServer::draw_hex_code_box`), so its size over this is the unit it is drawn in. */
+const HEX_BOX_ROWS = 15;
+/** The characters of the glyph samples (`rich-text-data.ts`): two no demo font has, and a Han character. */
+const MISSING_CHARACTER = 0xe000;
+const MISSING_OTHER_CHARACTER = 0xe001;
+const HAN_CHARACTER = 0x4e2d;
+const THAI_CHARACTER = 0x0e01;
 
 function assert(condition: unknown, message: string): asserts condition {
   assertionTally.count += 1;
@@ -703,6 +722,133 @@ function verifyTransforms(api: RichTextInspection): number {
   return checked;
 }
 
+// ---- Characters no font has --------------------------------------------------------------------------------------------------
+
+/** The pixels of a glyph sample from the top left of its ink to the bottom right of it. */
+interface Crop {
+  readonly width: number;
+  readonly height: number;
+  /** Red, green and blue of each pixel from the top left, in levels of 255. */
+  readonly levels: readonly number[];
+}
+
+/** The ink of `rect` (a text's box and a margin round it) in `image`, or `undefined` for none. */
+function inkCrop(image: Image, ratio: number, rect: LayoutRect): Crop | undefined {
+  const from = (value: number): number => Math.max(0, Math.floor((value - GLYPH_SCAN_MARGIN_PX) * ratio));
+  const to = (value: number): number => Math.ceil((value + GLYPH_SCAN_MARGIN_PX) * ratio);
+  const [x0, y0] = [from(rect.x), from(rect.y)];
+  const [x1, y1] = [Math.min(image.getWidth(), to(rect.x + rect.width)), Math.min(image.getHeight(), to(rect.y + rect.height))];
+  let [left, top, right, bottom] = [x1, y1, x0 - 1, y0 - 1];
+  for (let y = y0; y < y1; y += 1) {
+    for (let x = x0; x < x1; x += 1) {
+      if (image.getPixel(x, y).g >= INK_GREEN_BELOW) continue;
+      [left, top, right, bottom] = [Math.min(left, x), Math.min(top, y), Math.max(right, x), Math.max(bottom, y)];
+    }
+  }
+  if (right < left) return undefined;
+  const levels: number[] = [];
+  for (let y = top; y <= bottom; y += 1) {
+    for (let x = left; x <= right; x += 1) {
+      const color = image.getPixel(x, y);
+      levels.push(Math.round(color.r * LEVELS), Math.round(color.g * LEVELS), Math.round(color.b * LEVELS));
+    }
+  }
+  return { width: right - left + 1, height: bottom - top + 1, levels };
+}
+
+/** The most a level differs between two crops, or `Infinity` when they are not the same size. */
+function cropDifference(a: Crop, b: Crop): number {
+  if (a.width !== b.width || a.height !== b.height) return Infinity;
+  return a.levels.reduce((worst, level, index) => Math.max(worst, Math.abs(level - (b.levels[index] ?? 0))), 0);
+}
+
+/** Whether every pixel of the crop is white or red: no blue over red, which is the dark slate of the text round the span. */
+function isRedOnWhite(crop: Crop): boolean {
+  for (let index = 0; index < crop.levels.length; index += 3) {
+    if ((crop.levels[index + 2] ?? 0) > (crop.levels[index] ?? 0)) return false;
+  }
+  return true;
+}
+
+function sizeOf(crop: Crop): string {
+  return `${crop.width}x${crop.height}`;
+}
+
+/**
+ * The same character no font has, in a plain text and inside a coloured span, is the same hex box: the text server draws the first
+ * (`TextServer::shaped_text_draw`) and the library the second, glyph by glyph, with the branch for a glyph that has no font. The Han
+ * character is a glyph of the system font where the platform has one, in all three ways of drawing it (plain, span, letter-spaced), and
+ * the hex box that none has otherwise (the Web). Both are compared as rasters, cropped to their ink.
+ */
+async function verifyGlyphs(owner: Node, api: RichTextInspection, scale: number): Promise<void> {
+  const server = TextServerManager.getPrimaryInterface();
+  assert(server !== null, 'There is a text server');
+  const image = grab(owner);
+  const ratio = image.getWidth() / api.snapshot().width;
+  const crop = (id: string): Crop => {
+    const found = inkCrop(image, ratio, node(api, id).rect);
+    assert(found !== undefined, `${id}: nothing is drawn at ratio ${scale}`);
+    return found;
+  };
+  // What the text server does with the two characters, on this machine: the bare family has nothing behind it.
+  assert(fontsOfText('bare', String.fromCodePoint(MISSING_CHARACTER)).every(font => font === undefined), 'U+E000 has a font in the family with no fallback');
+  assert(fontsOfText('bare', String.fromCodePoint(HAN_CHARACTER)).every(font => font === undefined), 'U+4E2D has a font in the family with no fallback');
+  const han = fontsOfText('sans', String.fromCodePoint(HAN_CHARACTER));
+  assert(han.length === 1, `U+4E2D is ${han.length} glyphs`);
+  const hanFont = han[0];
+  if (OS.getName() === 'macOS') assert(hanFont !== undefined, 'macOS has system fonts with Han characters (Hiragino Sans GB), and the demo\'s faces fall back to one');
+  // The hex box the text server draws for a character: its ink is the box it measures, without the pixel its advance adds.
+  const boxOf = (character: number): { width: number; height: number } => {
+    const size = server.getHexCodeBoxSize(GLYPH_FONT_SIZE, character);
+    const unit = size.y / HEX_BOX_ROWS;
+    return { width: Math.round((size.x - unit) * ratio), height: Math.round(size.y * ratio) };
+  };
+  const plain = crop('glyph-box-plain');
+  const inSpan = crop('glyph-box-span');
+  const other = crop('glyph-box-other');
+  const expected = boxOf(MISSING_CHARACTER);
+  assert(plain.width === expected.width && plain.height === expected.height,
+    `glyph-box-plain: the hex box is ${sizeOf(plain)} px, the text server's box for U+E000 is ${expected.width}x${expected.height}`);
+  const boxDifference = cropDifference(plain, inSpan);
+  assert(boxDifference <= GLYPH_TOLERANCE_LEVELS,
+    `glyph-box-span: the hex box in a span is ${sizeOf(inSpan)} px and ${boxDifference} levels from the plain text's (${sizeOf(plain)}) at ratio ${scale}`);
+  assert(isRedOnWhite(plain) && isRedOnWhite(inSpan), 'The hex boxes are in the red of the text and of the span, not the text round the span');
+  await expectFailure('a hex box of another character passing as the same box', () => {
+    assert(cropDifference(plain, other) <= GLYPH_TOLERANCE_LEVELS, 'the control expects another character to draw the same box');
+  });
+  const hanPlain = crop('glyph-han-plain');
+  const hanSpan = crop('glyph-han-span');
+  const hanTracked = crop('glyph-han-tracked');
+  const hanBox = crop('glyph-han-box');
+  const hanBoxExpected = boxOf(HAN_CHARACTER);
+  assert(hanBox.width === hanBoxExpected.width && hanBox.height === hanBoxExpected.height, `glyph-han-box: ${sizeOf(hanBox)} px, the text server's box for U+4E2D is ${hanBoxExpected.width}x${hanBoxExpected.height}`);
+  const hanDifference = cropDifference(hanPlain, hanSpan);
+  const trackedDifference = cropDifference(hanPlain, hanTracked);
+  const hanAgainstBox = cropDifference(hanPlain, hanBox);
+  // A font the text server found by itself is not one of the face's, and the library draws a letter-spaced text with fonts that do not track:
+  // the glyph it finds must come out as it does in a plain text, not emboldened by the tracking the shaping font carries.
+  const thaiFont = fontsOfText('sans', String.fromCodePoint(THAI_CHARACTER))[0];
+  const thaiTrackedDifference = cropDifference(crop('glyph-thai-plain'), crop('glyph-thai-tracked'));
+  assert(thaiTrackedDifference <= GLYPH_TOLERANCE_LEVELS,
+    `glyph-thai-tracked: the glyph from ${thaiFont ?? 'no font'} in letter-spaced text is ${thaiTrackedDifference} levels from the plain text's at ratio ${scale}`);
+  if (hanFont === undefined) {
+    // No system font with Han characters: every way of drawing it is the box.
+    for (const [id, drawn] of [['glyph-han-plain', hanPlain], ['glyph-han-span', hanSpan], ['glyph-han-tracked', hanTracked]] as const) {
+      assert(cropDifference(drawn, hanBox) <= GLYPH_TOLERANCE_LEVELS, `${id}: with no font for U+4E2D it is the hex box, and it is ${sizeOf(drawn)} px against the box's ${sizeOf(hanBox)}`);
+    }
+  } else {
+    assert(hanAgainstBox > GLYPH_TOLERANCE_LEVELS, `glyph-han-plain: with ${hanFont} behind it U+4E2D is its hex box (${sizeOf(hanPlain)} px)`);
+    assert(hanDifference <= GLYPH_TOLERANCE_LEVELS, `glyph-han-span: the glyph from ${hanFont} in a span is ${hanDifference} levels from the plain text's at ratio ${scale}`);
+    assert(trackedDifference <= GLYPH_TOLERANCE_LEVELS, `glyph-han-tracked: the glyph from ${hanFont} in letter-spaced text is ${trackedDifference} levels from the plain text's at ratio ${scale}`);
+    assert(isRedOnWhite(hanPlain) && isRedOnWhite(hanSpan), 'The Han glyphs are in the red of the text and of the span');
+  }
+  console.log(`GODOT_REACT_RICH_TEXT_GLYPHS ${JSON.stringify({
+    scale, ratio, hanFont: hanFont ?? null, thaiFont: thaiFont ?? null, boxPixels: sizeOf(plain), hanPixels: sizeOf(hanPlain), boxDifference, hanDifference, trackedDifference,
+    thaiTrackedDifference, hanAgainstBox: Number.isFinite(hanAgainstBox) ? hanAgainstBox : 'another size',
+    withSystemFallback: fontsOfText('sans', String.fromCodePoint(MISSING_CHARACTER)),
+  })}`);
+}
+
 // ---- The cost of a file -------------------------------------------------------------------------------------------------------
 
 /** What mounting `lines` lines of a file costs, from the profiles of the commit that did it. */
@@ -772,8 +918,14 @@ async function verifyScale(owner: Node, api: RichTextInspection, capture: RichTe
         }
       }
       await capture(`rich-text-${page.id}-dpr${scale}`);
-    } else {
+    } else if (page.id === TRANSFORMED_PAGE) {
       queried += verifyTransforms(api);
+    } else if (page.id === GLYPHS_PAGE) {
+      // The picture first: a check that fails leaves what it saw.
+      await capture(`rich-text-${page.id}-dpr${scale}`);
+      await verifyGlyphs(owner, api, scale);
+    } else {
+      throw new Error(`The rich text page ${page.id} is not held to Chrome's numbers and has no check of its own`);
     }
   }
   await showPage(api, 'columns');
