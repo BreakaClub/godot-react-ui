@@ -55,6 +55,8 @@ interface Control {
 }
 
 interface Scenario {
+  /** How many times React committed the panel (a `Profiler` round it): a render that bails out does not commit. */
+  readonly renders: { count: number };
   readonly host: TextInputHost;
   readonly uiRoot: ReturnType<typeof createTestRoot>['root'];
   readonly code: LabCode;
@@ -121,12 +123,17 @@ function mount(): Scenario {
   const code = openLabCode(lab(), support);
   assert.equal(code.kind, 'live', code.kind === 'read-only' ? code.reason : '');
   const stage = code.kind === 'live' ? React.createElement(code.session.Lab) : null;
-  uiRoot.render(React.createElement(View, null, React.createElement(View, { testID: 'stage' }, stage), React.createElement(CodeEditor, { lab: lab(), code })));
+  const renders = { count: 0 };
+  const panel = React.createElement(CodeEditor, { lab: lab(), code });
+  uiRoot.render(React.createElement(
+    View, null, React.createElement(View, { testID: 'stage' }, stage),
+    React.createElement(React.Profiler, { id: 'code-panel', onRender: () => { renders.count += 1; } }, panel),
+  ));
   const scroller = host.findByTestId('code-scroll');
   const state = host.scrollStatesByTestID.get('code-scroll');
   assert.ok(scroller > 0 && state !== undefined, 'the scroll container is mounted');
   host.scrollStates.set(scroller, state);
-  return { host, uiRoot, code, clipboard, control };
+  return { renders, host, uiRoot, code, clipboard, control };
 }
 
 /** Native focuses the input when the panel opens (`autoFocus`) and tells JS: the fake host is told to do the same. */
@@ -232,6 +239,23 @@ panelTest('the panel shows the lab\'s source, and the lab on the stage is the li
   assert.ok(has(s, 'code-caret'), 'and the caret is drawn');
   assert.equal(textOf(s, 'code-status-position'), 'Ln 1, Col 1');
   assert.match(textOf(s, 'code-status-run'), /^Live\./u);
+});
+
+panelTest('a typed character renders the panel once: no state is set to the value it already holds', (s) => {
+  const type = (text: string): number => {
+    const before = s.renders.count;
+    s.host.type(s.uiRoot, text);
+    return s.renders.count - before;
+  };
+  // The first keys settle what a mount leaves (the grid measured, the scroll read); after them a key is one render.
+  type('a');
+  type('b');
+  assert.equal(type('c'), 1, 'a character is one render of the panel');
+  assert.equal(type('d'), 1);
+  const before = s.renders.count;
+  const down = s.host.keyDown(s.uiRoot, 'Backspace');
+  assert.equal(down.prevented, true, 'the editor handles Backspace on the key');
+  assert.equal(s.renders.count - before, 1, 'and a Backspace is one render of the panel');
 });
 
 panelTest('a press puts the caret at the column under the pointer, within a pixel', (s) => {

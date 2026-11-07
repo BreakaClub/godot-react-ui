@@ -19,6 +19,8 @@ export class HoverTracker<T> {
   private timer: ReturnType<typeof setTimeout> | undefined;
   private generation = 0;
   private current: HoverTarget | undefined;
+  /** Whether `show` was last given something to show, which `cancel` then takes back. */
+  private shown = false;
   private readonly delayMs: number;
   private readonly request: (target: HoverTarget) => Promise<T | undefined>;
   private readonly show: (value: T | undefined, target: HoverTarget | undefined) => void;
@@ -44,7 +46,9 @@ export class HoverTracker<T> {
     this.timer = setTimeout(() => {
       this.timer = undefined;
       this.request(target).then(value => {
-        if (generation === this.generation) this.show(value, target);
+        if (generation !== this.generation) return;
+        this.shown = value !== undefined;
+        this.show(value, target);
       }, (error: unknown) => {
         // A failed hover shows nothing; the failure is reported, not swallowed.
         console.error(`The hover at ${target.offset} failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -52,12 +56,17 @@ export class HoverTracker<T> {
     }, this.delayMs);
   }
 
-  /** Ends the wait, discards an answer on its way, and hides the tooltip. */
+  /**
+   * Ends the wait, discards an answer on its way, and hides the tooltip if one is shown. A key calls this, and a `show` that sets state to
+   * what it already is still renders the component that owns it again.
+   */
   cancel(): void {
     if (this.timer !== undefined) clearTimeout(this.timer);
     this.timer = undefined;
     this.generation += 1;
     this.current = undefined;
+    if (!this.shown) return;
+    this.shown = false;
     this.show(undefined, undefined);
   }
 }

@@ -130,6 +130,8 @@ export function EditorView({ workspace, file }: EditorViewProps) {
   // The `Text` of each line in view: asked where its text is when the line is not on the grid.
   const lineHandles = useRef(new Map<number, UIHandle>());
   const [measuredCarets, setMeasuredCarets] = useState<readonly MeasuredCaret[]>(NO_MEASURED_CARETS);
+  // What `measuredCarets` holds, to see whether a measurement changed it without setting state: setting an equal state still renders again.
+  const measuredCaretsRef = useRef<readonly MeasuredCaret[]>(NO_MEASURED_CARETS);
   const onLineHandle = useCallback((line: number, handle: UIHandle | null): void => {
     if (handle === null) lineHandles.current.delete(line);
     else lineHandles.current.set(line, handle);
@@ -189,7 +191,10 @@ export function EditorView({ workspace, file }: EditorViewProps) {
       const left = grid === undefined ? undefined : caretLeft(placement, grid);
       if (left !== undefined) next.push({ key: caretKey(placement), left });
     }
-    setMeasuredCarets(current => (sameMeasuredCarets(current, next) ? current : next.length === 0 ? NO_MEASURED_CARETS : next));
+    const measuredNow = next.length === 0 ? NO_MEASURED_CARETS : next;
+    if (sameMeasuredCarets(measuredCaretsRef.current, measuredNow)) return;
+    measuredCaretsRef.current = measuredNow;
+    setMeasuredCarets(measuredNow);
   });
 
   // Bring the caret into view when it moved because of what the person did.
