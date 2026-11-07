@@ -8,7 +8,7 @@ export const ONLY_PREFIX = '--only=';
 /** The native verifier's sections, in the order they run. */
 export const NATIVE_INTERACTION_SECTIONS = [
   'events', 'cooperation', 'pointers', 'keyboard', 'positioning', 'inputs', 'scroll', 'selection', 'drag', 'forms', 'hidpi', 'filters', 'glass',
-  'filters-sizes', 'filters-cost', 'filters-faults',
+  'navigator', 'filters-sizes', 'filters-cost', 'filters-faults',
 ];
 
 /** Sections that measure or need a special build rather than verify: they run only when `--only=` names them, and a run without them is not partial. */
@@ -16,7 +16,7 @@ export const NATIVE_OPT_IN_SECTIONS = ['filters-sizes', 'filters-cost', 'filters
 
 /** The Web verifier's sections, in the order they run: the native names it covers, and `touch`, its touch page. */
 export const WEB_INTERACTION_SECTIONS = [
-  'events', 'cooperation', 'pointers', 'keyboard', 'scroll', 'selection', 'drag', 'forms', 'hidpi', 'filters', 'glass', 'touch',
+  'events', 'cooperation', 'pointers', 'keyboard', 'scroll', 'selection', 'drag', 'forms', 'hidpi', 'filters', 'glass', 'navigator', 'touch',
 ];
 
 /** Every section name the arguments ask for, across all `--only=` arguments. */

@@ -238,24 +238,22 @@ function LaunchCard({ lab, onOpenWindow, onOpenScene }: LaunchCardProps) {
   const scene = lab.kind === 'scene';
   const unavailable = scene && onOpenScene === undefined;
   return (
-    <View testID="lab-launch" className="w-full h-full items-center justify-center p-6">
-      <View className="w-full max-w-md gap-4 rounded-2xl border border-slate-200 bg-white p-6">
-        <Text className="text-xs text-slate-500">{scene ? 'A SEPARATE SCENE' : 'NEEDS THE WHOLE WINDOW'}</Text>
-        <Text className="text-lg text-slate-900">{lab.title}</Text>
-        <Text className="text-sm text-slate-600">{lab.reason}</Text>
-        <Button
-          testID="lab-launch-open"
-          disabled={unavailable}
-          className={`self-start ${PRIMARY_BUTTON} disabled:opacity-50`}
-          onClick={() => { if (lab.kind === 'scene') onOpenScene?.(lab); else onOpenWindow(); }}
-        >
-          {scene ? 'Open the scene' : 'Open in the full window'}
-        </Button>
-        <Text className="text-xs text-slate-400">
-          {unavailable ? 'This host cannot change scene.'
-            : scene ? 'A button in the corner of the scene brings you back to the labs.' : 'Escape, or the Labs button in the corner, brings you back.'}
-        </Text>
-      </View>
+    <View testID="lab-launch" className="w-full max-w-md gap-4 rounded-2xl border border-slate-200 bg-white p-6">
+      <Text className="text-xs text-slate-500">{scene ? 'A SEPARATE SCENE' : 'NEEDS THE WHOLE WINDOW'}</Text>
+      <Text className="text-lg text-slate-900">{lab.title}</Text>
+      <Text className="text-sm text-slate-600">{lab.reason}</Text>
+      <Button
+        testID="lab-launch-open"
+        disabled={unavailable}
+        className={`self-start ${PRIMARY_BUTTON} disabled:opacity-50`}
+        onClick={() => { if (lab.kind === 'scene') onOpenScene?.(lab); else onOpenWindow(); }}
+      >
+        {scene ? 'Open the scene' : 'Open in the full window'}
+      </Button>
+      <Text className="text-xs text-slate-400">
+        {unavailable ? 'This host cannot change scene.'
+          : scene ? 'A button in the corner of the scene brings you back to the labs.' : 'Escape, or the Labs button in the corner, brings you back.'}
+      </Text>
     </View>
   );
 }
@@ -391,7 +389,12 @@ export function Navigator({ labs = LABS, initialLab, onLabChange, onOpenScene }:
   if (selected === undefined) {
     stage = <ScrollView testID="lab-scroll" className="absolute inset-0"><MissingLab id={missing ?? ''} labs={ordered} /></ScrollView>;
   } else if (selected.kind !== 'inline') {
-    stage = <View className="absolute inset-0"><LaunchCard key={selected.id} lab={selected} onOpenWindow={() => setWindowOpen(true)} onOpenScene={onOpenScene} /></View>;
+    // The card is centred in the area and scrolls in a window too short for it.
+    stage = (
+      <ScrollView key={selected.id} testID="lab-scroll" className="absolute inset-0" contentClassName="items-center justify-center p-6">
+        <LaunchCard lab={selected} onOpenWindow={() => setWindowOpen(true)} onOpenScene={onOpenScene} />
+      </ScrollView>
+    );
   } else if (game) {
     stage = <View key={selected.id} className="absolute inset-0"><LabPage lab={selected} /></View>;
   } else {

@@ -17,6 +17,7 @@ import { isolateBrowserClipboard } from './web-clipboard.mjs';
 import { startVerificationServer } from './web-verify.mjs';
 import { runFiltersScenario } from './verify-filters-web.mjs';
 import { runGlassScenario } from './verify-glass-web.mjs';
+import { runNavigatorScenario, runNavigatorStartScenario } from './verify-navigator-web.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 rejectUnknownArguments(process.argv.slice(2), { flags: ['--release'], prefixes: ['--only='] });
@@ -2864,6 +2865,9 @@ async function runWorkflow(viewport) {
   if (wanted('glass')) {
     await section('glass', () => runGlassScenario({ demo, page, frames, snapshot, find, check, capture, decodePng, moveTo, centerOf, click, pressAction, inputState, waitUntil, actionTimeoutMs: ACTION_TIMEOUT_MS }));
   }
+  if (wanted('navigator')) {
+    await section('navigator', () => runNavigatorScenario({ demo, page, frames, snapshot, find, check, capture, click, moveTo, text, waitUntil, nodeExists }));
+  }
 
   // This page keeps running across viewports (the native verifier gets a fresh process for each),
   // so leave a fresh root: the lab's log and click counters must not leak into the next viewport.
@@ -2916,6 +2920,14 @@ try {
     });
     await loadPage({ width: viewports[0].width, height: viewports[0].height, deviceScaleFactor: 1 });
     for (const viewport of viewports) await runWorkflow(viewport);
+    if (wanted('navigator')) {
+      // What the demo opens with is decided as it starts, so each start is a page of its own.
+      activeViewport = 'navigator-start';
+      await section('navigator', () => runNavigatorStartScenario({
+        browser, base: url, check, viewport: { width: viewports[0].width, height: viewports[0].height, deviceScaleFactor: 1 },
+        output: resolve(output, activeViewport),
+      }));
+    }
     if (wanted('touch') || wanted('drag')) await runTouchWorkflow();
     checkBrowserErrors();
     const empty = SECTIONS.filter((name) => wanted(name) && !(sectionChecks[name] > 0));

@@ -18,7 +18,7 @@ const INTERACTION_DEADLINE_MS = 300_000;
 const DEFAULT_DEADLINE_MS = 120_000;
 for (const argument of argsWithoutEngine(process.argv.slice(2))) {
   if (!['--motion', '--interaction', '--no-retry', '--faults'].includes(argument)
-    && !['--only=', '--renderer=', '--viewport='].some(prefix => argument.startsWith(prefix))) throw new Error(`Unknown argument: ${argument}`);
+    && !['--only=', '--renderer=', '--viewport=', '--lab='].some(prefix => argument.startsWith(prefix))) throw new Error(`Unknown argument: ${argument}`);
 }
 const motion = process.argv.includes('--motion');
 const interaction = process.argv.includes('--interaction');
@@ -31,6 +31,9 @@ const successMarker = motion ? 'GODOT_REACT_MOTION_VERIFY_PASSED'
 const RENDERERS = ['gl_compatibility', 'mobile', 'forward_plus'];
 const renderer = process.argv.find(argument => argument.startsWith('--renderer='))?.slice('--renderer='.length);
 if (renderer !== undefined && !RENDERERS.includes(renderer)) throw new Error(`--renderer=${renderer}: one of ${RENDERERS.join(', ')}`);
+// `--lab=<id>` starts the demo on that lab, as `pnpm demo --lab=<id>` does (demo/src/launch.ts); the `navigator` section then checks the
+// start itself, so it is for `--interaction --only=navigator`.
+const lab = process.argv.find(argument => argument.startsWith('--lab='))?.slice('--lab='.length);
 const viewport = process.argv.find(argument => argument.startsWith('--viewport='))?.slice('--viewport='.length);
 if (viewport !== undefined && !/^\d+x\d+$/u.test(viewport)) throw new Error(`--viewport=${viewport}: WxH`);
 const artifactRoot = engine.artifactPath(`${motion ? 'native-motion' : interaction ? 'native-interaction' : 'native'}${renderer === undefined || renderer === 'gl_compatibility' ? '' : `-${renderer}`}`);
@@ -41,6 +44,8 @@ const only = process.argv.filter(argument => argument.startsWith('--only='));
 // `--no-retry` runs each window once, whatever disturbed it: for negative controls, where a re-run would hide the very failure being looked for.
 const retry = !process.argv.includes('--no-retry');
 if (only.length > 0 && !interaction) throw new Error('--only=<section> applies to the interaction workflow (--interaction).');
+if (lab !== undefined && (!interaction || !only.includes('--only=navigator'))) throw new Error('--lab=<id> applies to --interaction --only=navigator: that section checks the start on a lab.');
+if (lab === '') throw new Error('--lab= needs the id of a lab');
 // A typo must fail here, before the build and the window, not inside Godot.
 const requested = requestedSections(process.argv.slice(2));
 checkSectionNames(requested, NATIVE_INTERACTION_SECTIONS);
@@ -63,7 +68,7 @@ for (const [name, resolution] of windows) {
   results.push(await runNativeVerifier({
     godot, project: resolve(root, 'demo'), output: resolve(artifactRoot, name), name, resolution,
     leading: renderer === undefined ? [] : ['--rendering-method', renderer],
-    scriptArgs: [userFlag, ...only, ...(viewport === undefined ? [] : [`--logical-viewport=${viewport}`])], successMarker, deadlineMs, retry,
+    scriptArgs: [userFlag, ...only, ...(lab === undefined ? [] : [`--lab=${lab}`]), ...(viewport === undefined ? [] : [`--logical-viewport=${viewport}`])], successMarker, deadlineMs, retry,
     // The library is checked again before every window, not only before the first: another session may rebuild it in between.
     beforeLaunch: () => engine.requireInstalledLibrary({ faults }),
     errorPattern: /ERROR:|Uncaught|\[panic /u,

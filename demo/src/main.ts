@@ -126,12 +126,13 @@ export default class Main extends Node {
       runProbe: () => runProbe(),
       benchmark: (props: BenchmarkProps) => this.requireRenderer().render(createElement(BenchmarkApp, props)),
       restoreDemo: () => this.requireRenderer().render(createElement(App)),
-      /**
-       * The lab navigator in place of the app (`navigator.tsx`), as a normal run opens it. `labs`, `initialLab` and the
-       * callbacks are its props; `onLabChange` is the owner's own (it remembers the lab) and is called after the caller's.
-       */
       /** The labs in the navigator's order, as plain data for a browser verifier (`scripts/verify-navigator-web.mjs`). */
       labs: () => labsInOrder(LABS).map(({ id, title, kind, group }) => ({ id, title, kind, group })),
+      /**
+       * The lab navigator in place of the app (`navigator.tsx`), as a normal run opens it. `initialLab` and the callbacks are its
+       * props, `extraLabs` are listed after the demo's own; `onLabChange` is the owner's too (it remembers the lab) and is called after
+       * the caller's.
+       */
       showNavigator: (options: NavigatorOptions = {}) => {
         // A navigator takes its `initialLab` only when it mounts, so each call mounts a new one.
         this.navigatorShown += 1;

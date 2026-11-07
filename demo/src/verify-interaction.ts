@@ -8,11 +8,12 @@ import type { LayoutRect, NativeScrollState, NativeSnapshot, NativeSnapshotNode 
 import type { BenchmarkProps } from './benchmark';
 import type { FiltersLabProps } from './filters-lab';
 import type { LabName } from './labs';
-import type { PassthroughCounts } from './main';
+import type { NavigatorOptions, PassthroughCounts } from './main';
 import { verifyHidpi } from './verify-hidpi';
 import { assertionTally, parseVerifierEvent, verifierClipboard } from './verifier-input';
 import { measureFilterCost, verifyFilterFaults, verifyFilterSizes, verifyFilters } from './verify-filters';
 import { GLASS_FAULT_CONTROLS, verifyGlass } from './verify-glass';
+import { verifyNavigator } from './verify-navigator';
 import { verifyTextInput } from './verify-text-input';
 import type { DemoInspection } from './verify';
 import {
@@ -30,6 +31,8 @@ export interface InteractionInspection extends DemoInspection {
   showLab(name: LabName): void;
   /** The filters lab, rendered again with new props (plan Phase V1). */
   showFilters(props: FiltersLabProps): void;
+  /** The lab navigator in place of the app, with `extraLabs` listed after the demo's own. */
+  showNavigator(options?: NavigatorOptions): void;
   /** What Godot draws behind the root: two flat colours, a lit box in 3D, or nothing. */
   godotContent(kind: 'none' | '2d' | '3d'): void;
   /** Scale the root's Control. */
@@ -3604,6 +3607,7 @@ export async function runInteractionVerification(owner: Node, api: InteractionIn
   if (sections.has('hidpi')) await timed('hidpi', () => verifyHidpi(owner, api, capture));
   if (sections.has('filters')) await timed('filters', () => verifyFilters(owner, api, capture));
   if (sections.has('glass')) await timed('glass', () => verifyGlass(owner, api, capture));
+  if (sections.has('navigator')) await timed('navigator', () => verifyNavigator(owner, api, capture));
   if (sections.has('filters-sizes')) await timed('filters-sizes', () => verifyFilterSizes(owner, api, capture));
   if (sections.has('filters-cost')) await timed('filters-cost', () => measureFilterCost(owner, api));
   if (sections.has('filters-faults')) await timed('filters-faults', () => verifyFilterFaults(owner, api, capture, GLASS_FAULT_CONTROLS));
