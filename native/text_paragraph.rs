@@ -582,9 +582,6 @@ impl StyledParagraph {
             &shaped.facts.lines,
         );
         for (index, (line, line_origin)) in shaped.lines.iter().zip(origins).enumerate() {
-            let rid = self
-                .paragraph
-                .get_line_rid(i32::try_from(index).map_err(|error| error.to_string())?);
             // The baseline is on a device pixel, as a browser draws it.
             let position = Vector2::new(
                 line_origin.x,
@@ -594,13 +591,15 @@ impl StyledParagraph {
             if glyphwise {
                 draw::draw_glyphs(
                     &mut server,
-                    rid,
                     position,
                     (clip_left, clip_left + clip_width),
                     &drawing,
                     line,
                 )?;
             } else {
+                let rid = self
+                    .paragraph
+                    .get_line_rid(i32::try_from(index).map_err(|error| error.to_string())?);
                 server
                     .shaped_text_draw_ex(rid, canvas, position)
                     .clip_l(f64::from(clip_left))
