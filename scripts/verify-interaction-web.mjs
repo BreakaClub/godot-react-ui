@@ -2910,7 +2910,7 @@ async function runWorkflow(viewport) {
     await section('navigator', () => runNavigatorScenario({ demo, page, frames, snapshot, find, check, capture, click, moveTo, text, waitUntil, nodeExists }));
   }
   if (wanted('transforms')) {
-    await section('transforms', () => runTransformsScenario({ demo, page, frames, snapshot, find, check, capture, decodePng, moveTo, waitUntil, actionTimeoutMs: ACTION_TIMEOUT_MS }));
+    await section('transforms', () => runTransformsScenario({ demo, page, frames, snapshot, find, check, capture, decodePng, moveTo, waitUntil, expectedConsoleErrors, actionTimeoutMs: ACTION_TIMEOUT_MS }));
   }
 
   if (wanted('paint')) {

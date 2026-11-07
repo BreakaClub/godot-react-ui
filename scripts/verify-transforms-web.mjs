@@ -17,6 +17,16 @@ const PROBE_INSET_PX = 3;
 const OUTSIDE_PX = 6;
 const WHEEL_TICK_PIXELS = 100;
 const WHEEL_PAGE_DIVISOR = 8;
+// Godot's Web display server turns a DOM wheel delta of `d` CSS pixels into `0.03 * d` wheel ticks (`MOUSE_WHEEL_PIXEL_FACTOR`,
+// `DisplayServerWeb::_mouse_wheel_callback`), and a native `ScrollContainer` notch is one tick; docs/INTERACTION_PLAN.md D13.
+const WHEEL_PIXEL_FACTOR = 0.03;
+// A wheel tick moves the offset by a fraction of a page, so what the offset reaches is exact; this only absorbs the f32 arithmetic and
+// the snapshot's rounding. It is well under the 0.51 px that three ticks of a list tilted 8 degrees differ from three ticks along the screen.
+const SCROLL_TOLERANCE_PX = 0.25;
+const TILT_DEGREES = 8;
+// The lab's scroll and input cases clip content in a turned frame on purpose; the library says so once per element, as two console lines
+// (the message and where it was raised), and the native section announces the same error before each (demo/src/verify-transforms.ts).
+const TURNED_CLIP_REPORT = [/clips its content \(overflow\) in a frame that a transform rotates or skews/, /at: godot_react_ui::.*transform_state/];
 const PROGRESS_MIN = 0.02;
 const PROGRESS_MAX = 0.98;
 const MIN_TRANSITION_SAMPLES = 12;
@@ -36,11 +46,17 @@ const HOVER = { left: 190, top: 110, width: 140, height: 90, scale: 1.25 };
 const apply = (m, x, y) => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
 
 export async function runTransformsScenario(context) {
-  const { demo, page, frames, snapshot, find, check, capture, decodePng, moveTo, waitUntil, actionTimeoutMs } = context;
+  const { demo, page, frames, snapshot, find, check, capture, decodePng, moveTo, waitUntil, expectedConsoleErrors, actionTimeoutMs } = context;
   const settle = async () => { for (let index = 0; index < SETTLE_FRAMES; index += 1) await frames(); };
   const showCase = async (name) => {
     await page.evaluate((value) => globalThis.godotReactTransformLab.setCase(value), name);
     await settle();
+  };
+  // A case that provokes the turned-clip report: it is expected, and a case that does not provoke it fails, since the report is what is checked.
+  const showCaseReportingTurnedClip = async (name) => {
+    expectedConsoleErrors.push(...TURNED_CLIP_REPORT);
+    await showCase(name);
+    await waitUntil(`the turned clip of the ${name} case to be reported`, () => expectedConsoleErrors.length === 0);
   };
   const dpr = await page.evaluate(() => globalThis.devicePixelRatio);
   const suffix = dpr === 1 ? 'dpr1' : 'web-dpr2';
@@ -131,23 +147,29 @@ export async function runTransformsScenario(context) {
     Math.abs(anchor.rect.x - (golden.anchor.x + golden.anchor.width)) <= RECT_TOLERANCE_PX && Math.abs(anchor.rect.y - (golden.anchor.y + golden.anchor.height)) <= RECT_TOLERANCE_PX, anchor.rect);
 
   // Scrolling inside a rotation.
-  await showCase('scroll');
+  await showCaseReportingTurnedClip('scroll');
   const tilted = await find('scroll-tilted');
   await moveTo({ x: tilted.rect.x + tilted.rect.width / 2, y: tilted.rect.y + tilted.rect.height / 2 });
+  // A CDP wheel notch of WHEEL_TICK_PIXELS arrives as that many CSS pixels at device pixel ratio 1 and as half as many at 2 (the
+  // same measurement as notchTicks() in verify-interaction-web.mjs), so it is `notch` ticks, not one.
+  const notch = WHEEL_TICK_PIXELS / dpr * WHEEL_PIXEL_FACTOR;
   await page.mouse.wheel({ deltaY: WHEEL_TICK_PIXELS });
   await settle();
   const top = (await find('scroll-tilted')).scroll.scrollTop;
   const tick = 140 / WHEEL_PAGE_DIVISOR;
-  check('A wheel tick over a vertical list tilted 8 degrees scrolls it about a tick', top > 0 && top <= tick + 1, { top, tick });
+  // The ticks are in screen axes and the list takes them along its own, turned by the tilt: down the screen is cos(tilt) down the list.
+  const expectedTop = notch * tick * Math.cos(TILT_DEGREES * Math.PI / 180);
+  check('A wheel notch over a vertical list tilted 8 degrees scrolls it by its ticks, along its own y', Math.abs(top - expectedTop) <= SCROLL_TOLERANCE_PX, { top, expectedTop, notch, tick });
   const quarter = await find('scroll-quarter');
   await moveTo({ x: quarter.rect.x + quarter.rect.width / 2, y: quarter.rect.y + quarter.rect.height / 2 });
   await page.mouse.wheel({ deltaY: WHEEL_TICK_PIXELS });
   await settle();
   const state = (await find('scroll-quarter')).scroll;
-  check('A wheel tick down the screen over a row turned a quarter scrolls it along its own x', Math.abs(state.scrollLeft - 160 / WHEEL_PAGE_DIVISOR) <= 1 && state.scrollTop === 0, state);
+  const expectedLeft = notch * 160 / WHEEL_PAGE_DIVISOR;
+  check('A wheel notch down the screen over a row turned a quarter scrolls it along its own x', Math.abs(state.scrollLeft - expectedLeft) <= SCROLL_TOLERANCE_PX && state.scrollTop === 0, { state, expectedLeft, notch });
 
   // A field in a turned, scaled card: a click lands where it is drawn and the caret is drawn there.
-  await showCase('input');
+  await showCaseReportingTurnedClip('input');
   const field = await find('input-field');
   const cardMatrix = (await find('input-card')).transform;
   const centreOf = (rect) => ({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 });

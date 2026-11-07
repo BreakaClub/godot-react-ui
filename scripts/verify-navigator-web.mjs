@@ -134,6 +134,18 @@ export async function runNavigatorScenario(context) {
     .map((entry) => entry.props.testID)
     .filter((id) => typeof id === 'string' && id.startsWith(wide ? 'lab-item-' : 'lab-menu-item-'))
     .map((id) => id.slice(wide ? 'lab-item-'.length : 'lab-menu-item-'.length));
+  // The labs the filter leaves, as a person sees them: the sidebar's list when the window is wide, and, when it is narrow, the lab menu,
+  // whose items exist only while it is open (the same as `shownLabs` in demo/src/verify-navigator.ts).
+  const shownLabs = async () => {
+    if (wide) return listed();
+    await click('lab-menu');
+    await waitUntil('the lab menu to open', () => maybe('lab-menu-list'));
+    await frames();
+    const items = await listed();
+    await page.keyboard.press('Escape');
+    await waitUntil('the lab menu to close', async () => !(await maybe('lab-menu-list')));
+    return items;
+  };
   await click(field);
   await page.keyboard.type('glass');
   await frames();
@@ -153,7 +165,8 @@ export async function runNavigatorScenario(context) {
   check('Filtering opens nothing', (await text('lab-title')) === baseline.title);
   await page.keyboard.press('Escape');
   await frames();
-  check('Escape in the filter clears it', (await listed()).length === labs.length);
+  const cleared = await shownLabs();
+  check('Escape in the filter clears it', JSON.stringify(cleared) === JSON.stringify(labs.map((lab) => lab.id)), { cleared, expected: labs.map((lab) => lab.id) });
   await park();
 
   // The keyboard.
@@ -198,13 +211,18 @@ export async function runNavigatorScenario(context) {
 
 /**
  * Opens `address` in a page of its own and returns it once the demo's inspection API exists. A console error fails the run, as the
- * verifier's own page's would; the engine's one startup diagnostic is not an error.
+ * verifier's own page's would; the engine's one startup diagnostic is not an error. `expected` holds a pattern for each console error
+ * the page is meant to log (once each, removed as it appears): the caller says afterwards whether any is left, which would mean the
+ * error the check is about never came.
  */
-async function openPage(browser, address, viewport, errors) {
+async function openPage(browser, address, viewport, errors, expected = []) {
   const page = await browser.newPage();
   await page.setViewport(viewport);
   page.on('console', (message) => {
-    if (message.type() === 'error' && !message.text().includes(EMSCRIPTEN_STARTUP_DIAGNOSTIC)) errors.push(message.text());
+    if (message.type() !== 'error' || message.text().includes(EMSCRIPTEN_STARTUP_DIAGNOSTIC)) return;
+    const announced = expected.findIndex((pattern) => pattern.test(message.text()));
+    if (announced >= 0) expected.splice(announced, 1);
+    else errors.push(message.text());
   });
   page.on('pageerror', (error) => errors.push(String(error)));
   await page.goto(address, { waitUntil: 'domcontentloaded' });
@@ -231,7 +249,7 @@ export async function runNavigatorStartScenario({ browser, base, check, viewport
   }, testID);
   const exists = (page, testID) => page.evaluate((id) => globalThis.godotReactDemo.find(id) !== undefined, testID);
   const frames = (page) => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(resolve)))));
-  const open = (query) => openPage(browser, new URL(query, base).href, viewport, errors);
+  const open = (query, expected) => openPage(browser, new URL(query, base).href, viewport, errors, expected);
 
   let page = await open('/');
   check('The bare address opens the playground the verifiers drive', await exists(page, 'app') && !(await exists(page, 'navigator')));
@@ -247,10 +265,13 @@ export async function runNavigatorStartScenario({ browser, base, check, viewport
   check('?lab=glass opens the navigator on the glass lab', (await text(page, 'lab-title')) === 'Frosted glass' && await exists(page, 'lab-launch'));
   await page.close();
 
-  page = await open('/?lab=no-such-lab');
+  // The demo also logs the unknown id as a console error when it starts (demo/src/main.ts), on purpose: it is the one error this page may log.
+  const unknownLabLogged = [/^There is no lab called "no-such-lab" \(--lab=\)/];
+  page = await open('/?lab=no-such-lab', unknownLabLogged);
   await frames(page);
   check('?lab= with an unknown id is an error on screen, not a default lab',
     await exists(page, 'lab-missing') && (await text(page, 'lab-missing-message')).includes('no-such-lab') && !(await exists(page, 'counter-lab')));
+  check('and the demo logs the unknown id as a console error, once', unknownLabLogged.length === 0, { notLogged: unknownLabLogged.map(String) });
   await page.close();
 
   // The scene lab: open the scene, then come back with the Godot button, and the navigator is on the same lab.
