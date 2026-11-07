@@ -22,7 +22,7 @@ test('the helper takes the listed flags, the listed prefixes and the engine sele
 
 /** Every script that takes options. `scripts/run.mjs` is not one: it hands its arguments to Godot, which decides what it takes. */
 const SCRIPTS_WITH_OPTIONS = [
-  'build', 'build-live-compile', 'build-live-compile-web', 'build-native', 'build-web', 'deploy-web', 'dev', 'generate-types', 'live-compile-agreement', 'live-compile-project', 'navigator-captures', 'probe-web', 'serve-web', 'test-types', 'verify', 'verify-a11y',
+  'build', 'build-live-compile', 'build-live-compile-web', 'build-native', 'build-web', 'check-site', 'deploy-web', 'dev', 'generate-types', 'live-compile-agreement', 'live-compile-project', 'navigator-captures', 'probe-web', 'serve-web', 'test-types', 'verify', 'verify-a11y',
   'verify-interaction-web', 'verify-live-compile-web', 'verify-motion-web', 'verify-text-layout', 'verify-web', 'verify-world', 'verify-world-web',
 ];
 

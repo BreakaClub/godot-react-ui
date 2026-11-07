@@ -5,6 +5,7 @@ import { delimiter, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { scrubOpenScripts } from './editor-session.mjs';
 import { argsWithoutEngine, CARGO_PACKAGE, selectEngine } from './engine.mjs';
+import { assertReleasePack, planReleaseStageOf, stageReleaseProject } from './release-stage.mjs';
 import { presetTemplate } from './web-content.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -144,7 +145,17 @@ if (!args.has('--wasm-only')) {
   // The export launches Godot's editor on the project, which restores the scripts of the last session and rewrites a TypeScript file
   // it has open: take TypeScript out of the saved layout first, as every other editor launch does (scripts/editor-session.mjs).
   scrubOpenScripts(join(root, 'demo'));
-  run(godot, ['--headless', '--audio-driver', 'Dummy', '--path', join(root, 'demo'), `--export-${mode}`, web.presetName, join(output, 'index.html')]);
+  // The release export is made from a copy of the project without the verification scripts and the source maps, so its pack holds what the deployed
+  // playground runs and no more; the debug export, which the Web verifiers use, is made from the project itself (docs/tracks/web-load.md).
+  const releasePlan = mode === 'release' ? planReleaseStageOf(join(root, 'demo')) : undefined;
+  const exportProject = releasePlan === undefined
+    ? join(root, 'demo')
+    : stageReleaseProject({ demoDirectory: join(root, 'demo'), stageDirectory: engine.artifactPath('web-release-project'), plan: releasePlan });
+  run(godot, ['--headless', '--audio-driver', 'Dummy', '--path', exportProject, `--export-${mode}`, web.presetName, join(output, 'index.html')]);
+  if (releasePlan !== undefined) {
+    const entries = assertReleasePack(join(output, 'index.pck'), releasePlan);
+    console.log(`Release pack: ${entries.length} files, no source maps; scripts ${releasePlan.keptScripts.join(', ')}; left out ${releasePlan.removedScripts.length} scripts and ${releasePlan.removedScenes.join(', ')}.`);
+  }
   const content = engine.webContentInputs(mode);
   if (content.digest !== contentBefore.digest) {
     throw new Error('The sources of the pack, shell or template changed while the export was made, so it cannot be recorded. Run `pnpm build:web --export-only` again.');

@@ -9,7 +9,7 @@
 		"enabled": true
 	},
 	"vars": {
-		"REACT_DEMO_R2_PREFIX": "react-demo/current"
+		"REACT_DEMO_R2_PREFIX": "react-demo/v2"
 	},
 	"r2_buckets": [
 		{

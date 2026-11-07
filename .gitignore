@@ -4,6 +4,7 @@ dist/
 demo/.godot/
 demo/addons/godot-react-ui/bin/
 artifacts/
+.wrangler/
 .DS_Store
 demo/gen/godot/addons/godot-react-ui/bin/
 

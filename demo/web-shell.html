@@ -89,8 +89,16 @@
       } else {
         engine.startGame({
           args,
+          // The loader counts the bytes it receives after the browser has decoded them (a compressed transfer arrives as the file's own
+          // bytes) against the sizes the export wrote in `fileSizes`, which are the files' own sizes: the percentage is right whatever the
+          // transfer encoding. It follows only the pack and the engine module; the side modules load beside them through Emscripten and
+          // are not counted, so the percentage can reach 100% while they are still arriving: the page then says what is happening instead
+          // of sitting on a number.
           onProgress(current, total) {
-            if (total > 0) status.textContent = `Loading the native UI playground… ${Math.round(current / total * 100)}%`;
+            if (total <= 0) return;
+            status.textContent = current >= total
+              ? 'Starting the native UI playground…'
+              : `Loading the native UI playground… ${Math.round(current / total * 100)}%`;
           },
         }).then(() => { status.hidden = true; }).catch(error => {
           console.error('GODOT_REACT_START_FAILED', error);

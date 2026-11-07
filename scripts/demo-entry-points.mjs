@@ -30,3 +30,10 @@ export const DEMO_ENTRY_POINTS = [
   'demo/src/live-compile-protocol.ts', 'demo/src/live-compile-modules.ts', 'demo/src/live-compile-refresh.ts', 'demo/src/live-compile-host.ts',
   'demo/src/live-compile-session.ts', 'demo/src/live-compile-open.ts', 'demo/src/verify-live-compile.ts',
 ];
+
+// The scripts the deployed playground starts as Godot scripts: the demo's owner (`main.tscn`), the autoload that starts another scene, and the
+// world-space scene's owner (the "World space" lab is a scene). Everything else in the list above is bundled into one of these, or only a
+// verifier runs it. The release Web export packs these and the compiled modules behind them, and nothing else (scripts/release-stage.mjs);
+// the debug export, which the Web verifiers use, packs every entry point. `tests/release-stage.test.ts` checks that every scene and autoload a
+// release script needs is one of these.
+export const DEMO_RELEASE_ENTRY_POINTS = ['demo/src/main.ts', 'demo/src/scene-launcher.ts', 'demo/src/world-main.ts'];
