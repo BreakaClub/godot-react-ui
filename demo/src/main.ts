@@ -67,14 +67,15 @@ export interface PassthroughCounts {
   unhandledKeys: Record<number, number>;
 }
 
-/** One Godot node owns the renderer and its lifetime on native and Web. */
-@bind()
+/** A text of the rich text lab by its test id, for the geometry queries the Web verifier makes through the demo's API. */
 function richTextHandle(testID: string): UIHandle {
   const handle = richTextHandles.get(testID);
   if (handle === undefined) throw new Error(`The rich text lab has no text ${testID}`);
   return handle;
 }
 
+/** One Godot node owns the renderer and its lifetime on native and Web. */
+@bind()
 export default class Main extends Node {
   private surface: ReactUiRoot | null = null;
   private renderer: ReactRoot | null = null;

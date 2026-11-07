@@ -188,12 +188,12 @@ impl StyledParagraph {
         text: RichText,
         style: &ShapingStyle,
         epoch: u64,
-    ) -> Result<(), RichText> {
+    ) -> Result<(), Box<RichText>> {
         let Some(rich) = self.rich.as_ref() else {
-            return Err(text);
+            return Err(Box::new(text));
         };
         if !rich.shapes_like(&text, style, epoch) {
-            return Err(text);
+            return Err(Box::new(text));
         }
         let fonts = rich.fonts.clone();
         self.rich = Some(Rc::new(rich::RichParagraph::new(text, fonts, style, epoch)));

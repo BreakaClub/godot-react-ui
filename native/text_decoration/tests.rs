@@ -248,10 +248,7 @@ fn a_round_dot_is_centred_and_symmetric() {
     let dot = dot(6.0);
     let size = dot.width;
     assert_eq!(dot.height, size);
-    assert!(
-        dot.alpha.iter().any(|alpha| *alpha == 255),
-        "its middle is solid"
-    );
+    assert!(dot.alpha.contains(&255), "its middle is solid");
     assert_eq!(dot.at(0, 0), 0, "its corner is empty");
     let rows: usize = (0..size)
         .filter(|y| (0..size).any(|x| dot.at(x, *y) > 0))

@@ -411,12 +411,12 @@ fn decorations_are_cut_at_the_lines_and_at_the_span_boundaries() {
     // On line 0: "b " (1..3), "cd" (3..5), " " (5..6); on line 1: "e" (6..7). The undecorated "a" and "f" have none.
     assert_eq!(summary, [(0, 1..3), (0, 3..5), (0, 5..6), (1, 6..7)]);
     assert!(
-        plan::fragments(&rich.segments, &[0..0]).is_empty(),
+        plan::fragments(&rich.segments, std::slice::from_ref(&(0..0))).is_empty(),
         "an empty line has no fragment"
     );
     let plain = super::tests::rich("ab", "[]");
     assert!(
-        plan::fragments(&plain.segments, &[0..2]).is_empty(),
+        plan::fragments(&plain.segments, std::slice::from_ref(&(0..2))).is_empty(),
         "no decoration, no fragment"
     );
 }

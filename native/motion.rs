@@ -770,7 +770,10 @@ impl ReactUiRoot {
             if let Some(paragraph) = node.visual.paragraph.as_ref() {
                 let duplicate = paragraph.duplicate();
                 probe
-                    .set_node_context(node.layout, Some(TextContext::Paragraph(duplicate)))
+                    .set_node_context(
+                        node.layout,
+                        Some(TextContext::Paragraph(Box::new(duplicate))),
+                    )
                     .expect("known probe handle");
             }
         }

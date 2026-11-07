@@ -1172,7 +1172,7 @@ impl ReactUiRoot {
         let rich = match rich {
             Some(rich) => match self.repaint_rich_paragraph(tag, rich, &style.shaping, epoch) {
                 Ok(()) => return false,
-                Err(rich) => Some(rich),
+                Err(rich) => Some(*rich),
             },
             None => None,
         };
@@ -1210,7 +1210,7 @@ impl ReactUiRoot {
             .visual
             .paragraph
             .clone()
-            .map(crate::TextContext::Paragraph);
+            .map(|paragraph| crate::TextContext::Paragraph(Box::new(paragraph)));
         let has = context.is_some();
         self.tree
             .set_node_context(node.layout, context)
@@ -1233,14 +1233,14 @@ impl ReactUiRoot {
         rich: RichText,
         style: &ShapingStyle,
         epoch: u64,
-    ) -> Result<(), RichText> {
+    ) -> Result<(), Box<RichText>> {
         let node = self
             .mounted
             .nodes
             .get_mut(&tag)
             .expect("a refreshed node is mounted");
         let Some(paragraph) = node.visual.paragraph.as_mut() else {
-            return Err(rich);
+            return Err(Box::new(rich));
         };
         paragraph.repaint_rich(rich, style, epoch)?;
         self.paragraph_generation += 1;

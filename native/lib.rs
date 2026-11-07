@@ -136,7 +136,7 @@ unsafe impl ExtensionLibrary for ReactUiExtension {}
 #[derive(Clone)]
 enum TextContext {
     /// A `Text` node: its shaped paragraph, wrapped to the width Taffy offers.
-    Paragraph(StyledParagraph),
+    Paragraph(Box<StyledParagraph>),
     /// A `TextInput`: a size that never depends on its value (plan 3.18), so typing does not lay out.
     Intrinsic(Vector2),
 }

@@ -61,7 +61,7 @@ impl ReactUiRoot {
     }
 
     /// The shown text of the node, which offsets in UTF-16 units are into.
-    fn shown_of<'a>(node: &'a crate::mount::MountedNode) -> &'a str {
+    fn shown_of(node: &crate::mount::MountedNode) -> &str {
         node.visual
             .shown_text(node.props.text.as_deref())
             .unwrap_or("")
