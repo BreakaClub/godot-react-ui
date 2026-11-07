@@ -44,3 +44,8 @@ export type {
   NativeTextInputState, LayoutRect,
 } from './native';
 export type { NativeEvent, NativeEventType, NativePointerType } from './native';
+export { createFontSliceLoader, installFontSlices } from './font-slices';
+export type {
+  FontFallbackHost, FontSlice, FontSliceFailure, FontSliceFailureKind, FontSliceFamily, FontSliceHost, FontSliceLoader, FontSliceManifest, FontSliceOptions,
+  FontSliceStatus,
+} from './font-slices';
