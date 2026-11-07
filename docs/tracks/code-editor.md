@@ -18,40 +18,58 @@ Press Code on a lab and its TSX opens beside the page: highlighted, with a gutte
 the edited component swaps in with its state kept where its hooks are the same. A syntax error keeps the last good page and is underlined and listed; a type error is underlined where `tsc`
 puts it and says so when hovered, with the type; inlay hints stand in the line. Everything below was run in this worktree (injected input only: no real mouse, keys or clipboard).
 
-Numbers from the section on the default engine (Breaka's Godot 4.8, landscape 1920 x 1080 logical, DPR 1; `artifacts/logs/native-code-editor-final1.log`, 2,555 assertions in 61 s; the portrait
-window runs 2 more: no Code button below 768 logical px):
+Moved onto rich-text (C6, C19-C21): a line is one `Text` with nested `Text` spans, diagnostics are wavy underlines, the hint, the preedit and the selected line break are inlays, and a line with wide
+characters is placed by its text. What was measured, before (a `Text` per run, 20 px lines, `cbf8407`) and after (spans, 16 px lines), on the default engine (Breaka's Godot 4.8, landscape 1920 x 1080
+logical, DPR 1), the same section, the keystroke being a character typed into the 85-column `className` line of the Controls lab. "Before" is four runs, "after" three; the time to ink swings 5 ms
+between runs of the same build on this machine, so read it by its range.
 
-| | |
-|---|---|
-| window mount (press Code to the first lines drawn) | 177 ms; 8 flushes, 409 commands; 444 nodes on the whole page |
-| grid | advance 7.25 px (12 px mono), line 20 px, gutter 44 px; 100 runs checked against `column * advance`, the caret within 0.3 px at every column tried |
-| keystroke to ink | median 25.9 ms, p95 32.4 ms (key injected, the next raster has the glyph) |
-| commit per keystroke | median 849 characters of commands, worst 1,364 (a line's runs and the caret, not the window) |
-| last key to the page | 256 ms (150 ms debounce, the swap, the commit) |
-| autoscroll while dragging past the edge | starts 50 ms after the pointer leaves |
-| idle, panel open, not focused | 0 busy samples over 2 s: the root asks for no frames |
+| | before: runs | after: spans |
+|---|---|---|
+| nodes on the whole page with the panel open | 446 | 301 |
+| commands to mount the panel | 409 | 251 |
+| window mount (press Code to the first lines drawn) | 171, 175, 203 ms | 149, 157, 162 ms |
+| commit per keystroke (characters of JSON; the line's text and every span of it now) | median 849, worst 1,364 | median 1,202 to 1,205, worst 1,493 to 1,497 |
+| a keystroke's handling in JS (the longest `events` sample) | 2.7 ms | 3.5 to 3.8 ms |
+| the native commit call of it | 0.72 to 0.78 ms | 1.5 to 1.7 ms |
+| keystroke to ink, median / p95 | 18.1 to 20.5 / 28.3 to 32.5 ms | 13.4 to 24.8 / 20.2 to 30.4 ms |
+| last key to the page | 232 to 239 ms | 227 to 237 ms |
+| autoscroll starts after the pointer leaves | 51 to 54 ms | 31 ms |
+| idle, panel open, not focused | 0 busy samples | 0 busy samples |
 
-On the stock engine (Godot 4.7.2, `--engine=stock`; the stock library and live-compile extension built first): the same section passes with the same 2,555 assertions
-(`artifacts/logs/stock-code-editor.log`); mount 179 ms, 409 commands, advance 7.25 px, keystroke to ink median 17.7 ms (p95 41 ms), last key to page 236 ms, 0 busy idle samples. The
-`live-compile` section (1,541 assertions, both orientations, memo cases included) and the `navigator` section also pass on it. Landscape and portrait windows both pass on both engines.
+Spans are kept. The page is a third smaller and mounts a few ms sooner, a keystroke is not slower to ink, and the columns, the waves, the inlays and the wide characters are the paragraph's. They cost more per
+keystroke on the wire: the line's whole `spans` array goes down with its text, about 80 characters a span, so a line with fifteen punctuation spans is 1,300; the 40 % more JSON is well under the budget
+(3,000) and not where the time is (JSON encoding is 0.01 ms). Two things measured on the way: the first spans build put the old probe's per-render caret queries on every keystroke (C20: 8.7 ms of JS and
+28 ms to ink), and with 20 px lines a selection was not contiguous (C21). Other facts of the same runs: advance 7.203125 px, line 16 px, gutter 44 px; every column of the first twelve lines has its caret on
+`column * advance` to 0.05 px (443 carets); a selection from column 100 to 106 of a long line has its edges in the raster where the grid says; the wave under a type error is red on 2 to 3 rows of pixels (a solid line is one);
+a comment with three emoji and two CJK characters has its carets up to 0.89 of a column off the grid, a press across an emoji lands on the nearer caret, Right moves over both code units, and the selection band
+is under exactly the three emoji in the raster.
+
+Sections, on both engines (`pnpm switch:engine` between them): default engine `code-editor` 3,546 assertions (landscape; the portrait window runs 2 more), `live-compile` 1,541, `navigator` 7,560; stock
+engine (Godot 4.7.2): the same three, 3,546, 1,541 and 7,560 (`artifacts/logs/rich-final-default-1.log`, `rich-stock-sections.log`). Stock: mount 151 ms, 251 commands, keystroke to ink median 15.8 ms (p95 28.7).
 
 Checked in the section: a press puts the caret within a pixel; drag, double, triple and Shift+click; the keys of the table (Alt/Ctrl word jumps and the rest; the Node tests run every bound
 command in four kinds of document); Copy, Cut and Paste (the section runs with the root's in-process clipboard, `setClipboardText`; the browser's real one is read in the Web scenario);
 IME preedit (composition events, native and Web) drawn underlined at the caret and committed; undo and redo; Reset; hiding and showing the panel keeps the text and the lab's state;
 the page's counter keeps its count through an edit; a class the library does not know is not sent and is underlined; a read-only fallback when the extension is missing.
 
-Negative controls. The section failed on real defects before it passed, each fixed at its cause (C5 click counts, C6 clipped glyphs and drifting runs, C14 the class that reset the counter,
+Negative controls. The spans build failed its own section before it passed, each time at the cause: a regex with Unicode property escapes that the engine's JavaScript rejects (the app did not load), a selection
+raster check at a pixel above the span's background (C21), a caret hiding the pixel next to a selection's end, and the probe's cost (C20: the keystroke breakdown showed 8.7 ms against 2.7). Two controls on the finished build, each restored after: the probe's advance rounded to a quarter pixel again (the old grid) fails the section at "The caret is at the pixel of its column: 468 against 466.67"
+(`artifacts/logs/neg-quantised-advance.log`), and `onGrid` forced true (every line on the grid) fails it at "The caret at the end of the line is where the text puts it: 409 against 415.42" on the line with emoji
+(`neg-all-on-grid.log`). The section failed on real defects before it passed, each fixed at its cause (C5 click counts, C6 clipped glyphs and drifting runs, C14 the class that reset the counter,
 the stale inlay mapping, the tooltip that stayed). 36 mutants of the model, controller, annotations and embedded session were run against the Node tests and all are killed (five survivors
 got tests). The live-compile memo cases fail natively with the family subscription removed ("The element the parent kept shows the edited component: kept v1"). The Web touch scenario failed
 on "Backspace takes one off" with the input empty and passes with C18's space in it (`artifacts/logs/web-code-editor6.log` before, `web-code-editor8.log` after).
 
-Web in Chrome (`node scripts/build-web.mjs --export-only`, then `node scripts/verify-interaction-web.mjs --only=code-editor`; `artifacts/logs/web-code-editor8.log`): 308 checks over the landscape
-page at DPR 1, the retina page at DPR 2, the portrait page (no button) and the touch-landscape page. The touch page taps a column (caret on its pixel, the engine's soft keyboard element
-focused), types `XY`, `Z`, presses Backspace through it (C18), taps elsewhere, and pans with a finger: the code scrolls and the caret stays.
+Web in Chrome (`node scripts/build-web.mjs --export-only`, then `node scripts/verify-interaction-web.mjs --only=code-editor`; `artifacts/logs/rich-web-final.log`, after a full `node scripts/build-web.mjs`): 132
+checks and 153 assertions over the landscape page at DPR 1, the retina page at DPR 2, the portrait page (no button) and the touch-landscape page. The touch page taps a column (caret on its pixel, the
+engine's soft keyboard element focused), types `XY`, `Z`, presses Backspace through it (C18), taps elsewhere, and pans with a finger. The Web checks the same caret per column of the first lines, the wavy
+underline, the hint's carets either side of it, the preedit as an inlay with the caret after it, and a line with emoji and CJK pasted from the browser's clipboard: a press lands on the nearer caret and the
+selection is the span over the three emoji. (The Web build has no font for the emoji or the CJK: the room is laid out, nothing is drawn.)
 
-Rasters are in `artifacts/code-editor/` (ignored by git): `native-dpr1-*` (7 states), `web-landscape-*` (DPR 1, 8 states incl. preedit), `web-retina-landscape-*` (DPR 2, the same 8) and
-`web-touch-landscape-code-editor-09-touch.png`. I looked at them: glyphs sit on the grid with no clipped letters, the selection is a band behind the text, the inlay pills and the
-underline are under the right runs, the tooltip shows TS2322 and the type, the gutter marks the problem line, and at DPR 2 the text is as sharp as the page's.
+Rasters are in `artifacts/code-editor/` (ignored by git): `native-dpr1-*` (8 states), `web-landscape-*` (DPR 1, 9 states incl. preedit and wide), `web-retina-landscape-*` (DPR 2, the same 9) and
+`web-touch-landscape-code-editor-10-touch.png`. I looked at them: no clipped glyphs, a multi-line selection is one block, the wave under `label` at DPR 2 is a crisp red wave under the right five letters
+and the syntax error's `=` `=` are waved, the inlay pills are under the hints, the tooltip shows TS2322 and the type, the gutter marks the problem line, the emoji are selected by a band exactly under them
+(native: Apple Color Emoji), and the CJK characters leave a gap (see the limits).
 
 ## Layout of the code
 
@@ -63,11 +81,11 @@ demo/src/editor/               hidden from Godot by .gdignore: no script resourc
   keymap.ts                    CodeMirror's defaultKeymap + historyKeymap matched against a UIKeyboardEvent, per platform
   controller.ts                EditorController: the keys, beforeinput, composition and pointer of one file; line specs for the view
   annotations.ts diagnostics.ts   results of the type checker mapped through the edits made since their text
-  highlight.ts lines.ts line-layout.ts   Lezer colours cached per line; a line as segments; the offset <-> column map with inlays and a preedit
+  highlight.ts lines.ts line-layout.ts   Lezer colours cached per line; a line as segments; the offset <-> column map of a line on the grid (printable ASCII)
   workspace.ts                 EditorWorkspace: the files of a lab, the debounced update of the live session, the check, hints and hover
   lab-code.ts                  openLabCode: a live session + workspace, or the read-only fallback with the reason
   geometry.ts pointer-selection.ts    columns, lines, windows; click, drag, word and line selection
-  view/                        the React part: editor-view, run-line (the seam for native spans), gutter, carets, hover tooltip, problems, status bar
+  view/                        the React part: editor-view, code-line (one Text with spans), gutter, carets, hover tooltip, problems, status bar
 demo/src/code-editor.tsx       the panel (tabs, Reset, the view, problems, status)
 demo/src/navigator.tsx         the Code button, useLabCode, the stage that keeps its place in the tree
 demo/src/live-compile-session.ts   LiveSession.Lab (embedded mode)       src/renderer.ts   UIRoot.flushSync
@@ -100,14 +118,30 @@ a paste of as many lines as selections gives each its line; tabs become spaces.
 **C5. Click counts are the editor's.** A `pointerdown` has `detail` 0 (as in the DOM; only `click` has a count), so `ClickSequence` counts presses by native's own rule
 (500 ms, 4 px). The first version read `detail` and a double click selected nothing: the section's "double click selects the word" failed on it.
 
-**C6. A run is placed at its column and is as wide as its glyphs are painted.** `GridProbe` lays out an invisible line of 400 characters in the editor's font; the advance is its width over
-400 and the line height its height. Three things the first captures of the section showed, each with the number:
-(1) at 12 px layout gives a character 7.205 px but the glyphs are painted 7.25 apart (the demo's fonts place glyphs at quarter pixels, `demo-fonts.ts`), so the advance is rounded to
-`GLYPH_POSITION_STEP_PX` (0.25, `editor/font-grid.ts`) and is 7.25, the grid of the paint; (2) layout makes every `Text` box a whole number of pixels, rounding down as often as up, and a box
-narrower than its glyphs makes the paragraph skip the last glyph (the capture read "impor", "InputsStat", "numbe", and a one-column run, `{`, vanished): a run's width is `ceil(chars * advance)`;
-(3) in a row those roundings add up (a run 18 columns in stood 1.3 px off its column), so each run is absolute at `left = column * advance` and a selection or inlay background is a box of its own
-under the text, exactly the columns it covers. A 12.5 px font would have made (1) and (2) go away (7.5 px) but native font sizes are integers (`font_size: Option<i32>`). All of this is a
-workaround for a line that is many `Text` runs; one native paragraph (rich-text spans, `getCaretRect`) has no such seam.
+**C6. A line is one `Text` with nested `Text` spans (rich-text), not a row of runs.** `view/code-line.tsx`: the `Text` holds the document's own line and each coloured range is a nested `Text`
+(only what is not in the line's own colour is a span, which keeps what a keystroke sends down). The selection and the bracket match are span backgrounds, a diagnostic is
+`textDecorationLine: underline` with `textDecorationStyle: wavy` in its severity's colour, and the inlay hint, the IME preedit and the selected line break are `inlay` spans: text the paragraph
+shows, measures and wraps but does not count, so a caret, a press or a range is at the document's offset. The first version was a run per segment, absolute at `column * advance` and `ceil`-wide,
+with the advance rounded to the quarter pixel the glyphs were painted at (7.25 where layout said 7.205); that was a workaround for the seam between boxes (clipped last glyphs, runs 1.3 px
+off their column) and went with it: the paragraph is one shaped line, `editor/font-grid.ts` is deleted, and the grid advance is the probe's own `getCaretRect(400) - getCaretRect(0)` over 400
+(7.203125 at 12 px: a 26.6 fixed-point number), not the width of a box that layout rounds to whole pixels. A paragraph whose glyphs are placed at quarter pixels has no drift: the caret of every
+column of the first twelve lines is on `column * advance` to 0.05 px (443 carets, native; the Web checks the same).
+
+**C19. The grid stays where it is exact; any other line is placed by its text.** On a line of printable ASCII a column is a code unit and a code unit is `advance` wide, so the caret, a press and
+the hover are `column * advance` and `round(x / advance)` and ask the text nothing (a Node test asserts a press on such a line makes no text query). A line with any other character, or a hint or
+preedit with one (CJK and emoji are two columns, a combining mark none, a tab goes to a tab stop, the hint's ellipsis is `…`), is `LineLayout.onGrid === false`: the editor asks that line's `Text` through
+its handle (`getCaretRect(offset, side)` for the caret and the input, `getOffsetAtPoint` for a press and the hover, `getRangeRects` for the tooltip's anchor), after the layout effect that follows
+the render for the caret (until it is measured, which is before paint, a caret is drawn at its grid column). A caret is on the `before` side of the group of generated
+text at its offset, and after it while a preedit is shown; the hint at the composition's offset is not shown during it, so that "after" is after the preedit and nothing else. The width of the scrolling
+content is an estimate (`displayColumns`: two columns for a wide character, none for a mark, a tab stop for a tab), because nothing needs it exact. The engine's JavaScript has no Unicode property
+escapes (`\p{Emoji}` throws "Invalid property name"), so these are ranges.
+
+**C20. The probe asks for its carets when its box changes, not on every render.** The first spans build kept the old probe, which measured after every render: three native calls, two of them
+`getCaretRect` on a 400-character paragraph. A keystroke renders the editor, so each cost about 6 ms (the keystroke's JS went from 2.7 ms to 8.7 ms and its key-to-ink from 18 to 28 ms). The
+probe now reads `getRect()` (cheap) every render and the carets only when the box is not the one it last measured them in.
+
+**C21. Lines are 16 px (`leading-4`), not 20.** A span's background is the font's own height (about 15 px for JetBrains Mono at 12 px), not the line box: with 20 px lines a selection over several
+lines was a stack of bands with a 4 px gap between them (read off the raster: rows 3 to 17 of a 20 px line). At 16 px (1.33 times the font size, as VS Code's) the bands touch and a multi-line selection is one block.
 
 **C7. Windowing is a division, not `@tanstack/virtual-core`.** Lines are a fixed height, so the lines to draw are `floor(scrollTop / lineHeight)` less an overscan to
 `ceil((scrollTop + height) / lineHeight)` plus one. virtual-core would need a duck-typed scroll element behind a cast, a timer for `isScrolling` and an animation-frame shim, to
@@ -162,9 +196,9 @@ whichever path the machine has: a machine without the extension checks the read-
 takes half of what is left: a 600 px portrait window has a 330 px panel and a keyboard over it. Editing code on a phone is not something Ben asked for ("the Code button shows on
 phones: decide"). A tablet (768 and wider) has the panel and its tap, caret and soft keyboard are checked on a touch page of that size. The section asserts the button's absence in the portrait window.
 
-**C17. Wavy underlines wait for `rich-text`.** The view draws a solid underline on the run (`textDecorationLine`), which the library has. `LineSpec`'s segments already say `wavy`; `RunLine` is the one
-file that changes when a line becomes one `Text` with spans. `rich-text` had not landed (no commits, no notes) when this was written, so nothing here uses spans, `getCaretRect`,
-`getOffsetAtPoint` or `getRangeRects`. Characters wider than a column or made of several code units (CJK, emoji, combining marks) are laid out on the one-column grid until it does.
+**C17. Wavy underlines, inlays and exact columns came with `rich-text` (C6, C19).** The first version drew a solid underline because a run could not have a wave; the diagnostics are now the
+paragraph's own waves (checked in the raster at DPR 1 and DPR 2: red on three rows of pixels under the range, where a solid line is one), and the preedit and hints are inlays. The look of the hint is kept: a
+span background and its colour. A span draws nothing for a character no font has (in a plain text the engine draws a hex box): see the limits.
 
 **C18. The input holds one zero-width space, for a soft keyboard's Backspace.** The first version's input was empty. On the Web a soft keyboard types into a hidden DOM element that
 holds the text of the focused input and sends *all* of it with every key (`GodotDisplayVK`, and `native/text_input_godot/web_keyboard.rs` keeps it in step with what native holds). An element
@@ -181,12 +215,19 @@ Not verified:
   also sends autocorrection (`insertReplacementText` of a whole word) and Android's composing text, which the controller treats as typed text or a composition but I have not seen.
 - Safari and Firefox on the Web for the editor (Chrome only).
 - A real IME. The composition events are synthesised (native and Web); no real OS input was generated, by the rules of the track.
-- Native at DPR 2. The Web retina page (DPR 2) is the evidence for the grid and the caret at that scale; a native window ran at 1.0.
+- Native at DPR 2. The Web retina page (DPR 2) is the evidence for the grid, the caret and the waves at that scale; a native window ran at 1.0.
 - The machine's real clipboard on the desktop (the section uses the root's in-process one); the browser's is read in the Web scenario.
+- Right-to-left or mixed-direction text in a line (rich-text's own limit: two carets at a direction change, the primary one answered), and a span that splits a grapheme cluster.
+- A line off the grid with a font that has CJK (none registered, none found; see the limits): the geometry of the missing-glyph boxes is verified, the glyphs are not.
+- The stock engine's Web export (rich-text's limit too: `live-compile`'s Web side module is Breaka-only).
 
 Limits:
-- A wavy underline is a solid one until `rich-text` lands (C17); so are the ranges, the caret and offsets, which are computed from a fixed grid, not asked of a paragraph.
-- A character wider than a column, or of several code units (CJK, emoji, combining marks), is laid out on the one-column grid.
+- The demo's fonts have no CJK, and on this machine the engine found no system fallback for it: in a plain text the characters are two-column hex boxes, and in a span (a comment, a string) they are
+  not drawn at all, only the room they take. The geometry of a line with them is verified (carets, presses, selection band, in the raster); the glyphs are not on screen. Emoji, which a fallback does
+  have, draw. Registering a CJK font is the owner's choice, as the demo registers its Latin ones.
+- The width of the scrolling content for a line off the grid is an estimate (`displayColumns`); a caret near the right end of such a line scrolls into view by the text's own caret, not the estimate.
+- Moving up and down keeps the column in code units (CodeMirror's goal column in a monospace `CommandTarget`), so over a line with wide characters the caret lands by code unit, not by x.
+- A span's background is the font's height, so a selection is only contiguous because the lines are (C21); a taller line height would show the gaps again.
 - A render that throws loses the page's state (React drops it); the class check (C14) covers the common case, a mistyped literal `className`, and nothing else.
 - Leaving a lab drops its edits: the session is kept while the lab stays selected, not across selections.
 - A type check older than the last 1,000 edits is dropped (the status bar says so).
@@ -197,8 +238,9 @@ Limits:
 ## README text
 
 **Code editor.** The lab navigator can reveal the TSX of the lab on the stage in an editor that is made of the library's own components: press Code, type, and the page above updates after a short
-pause, with its state kept where the hooks are the same. Bun's checker and compiler (the `live-compile` extension) report errors, types for a hover and inlay hints, drawn as underlines, a
+pause, with its state kept where the hooks are the same. Bun's checker and compiler (the `live-compile` extension) report errors, types for a hover and inlay hints, drawn as wavy underlines, a
 problems list and a status line; a syntax or type error leaves the last good page on the stage. The text lives in CodeMirror 6's headless `EditorState` (Lezer highlighting, history, several
-selections, CodeMirror's key table), and the view is a window of lines drawn as runs of `Text`, with a caret, a selection and a gutter. A focused `TextInput` at the caret takes the keyboard,
-the IME and the soft keyboard and is never edited: every key it receives is answered with a transaction. Without the extension the code is shown read-only, with the reason. See `demo/src/editor/`
-and `docs/tracks/code-editor.md`.
+selections, CodeMirror's key table). The view is a window of lines, each one `Text` with nested `Text` spans for its colours, its selection, its waves and its hints (rich text), with a caret and a gutter;
+on a line of printable ASCII the monospace grid places the caret and answers a press, and on any other line (emoji, CJK, combining marks) the line's own text does, through `getCaretRect`,
+`getOffsetAtPoint` and `getRangeRects`. A focused `TextInput` at the caret takes the keyboard, the IME and the soft keyboard and is never edited: every key it receives is answered with a transaction.
+Without the extension the code is shown read-only, with the reason. See `demo/src/editor/` and `docs/tracks/code-editor.md`.
