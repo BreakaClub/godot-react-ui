@@ -1437,10 +1437,11 @@ impl StyleSpec {
                 .and_then(align)
                 .unwrap_or(AlignItems::NORMAL),
             justify_self: self.justify_self.and_then(align),
+            // `normal`, CSS's initial value: flex items pack at the start, and a grid's `auto` tracks stretch.
             justify_content: self
                 .justify_content
                 .map(justify)
-                .unwrap_or(JustifyContent::FLEX_START),
+                .unwrap_or(JustifyContent::NORMAL),
             align_content: self
                 .align_content
                 .map(justify)

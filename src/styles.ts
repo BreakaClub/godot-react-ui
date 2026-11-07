@@ -205,6 +205,8 @@ interface CompiledToken {
   style: Readonly<UtilityStyle>;
   minWidth: number;
   states: readonly PseudoState[];
+  /** Layers that follow the class's own, each at a wider breakpoint (`container` sets a `maxWidth` per breakpoint). */
+  followers: readonly { minWidth: number; style: Readonly<UtilityStyle> }[];
 }
 const tokenCache = new Map<string, CompiledToken>();
 
@@ -551,7 +553,11 @@ function compileToken(token: string): CompiledToken {
     const hint = unsupportedHint(utility);
     throw new Error(`Unsupported utility class "${token}"${hint === undefined ? '' : `: ${hint}`}`);
   }
-  const compiled: CompiledToken = { style: Object.freeze(style), minWidth, states: Object.freeze(states) };
+  // `container` is `width: 100%` and, from each breakpoint up, that breakpoint's width as the `maxWidth` (Tailwind's component).
+  const followers = utility === 'container'
+    ? Object.values(BREAKPOINTS).map(width => ({ minWidth: Math.max(minWidth, width), style: Object.freeze({ maxWidth: width }) }))
+    : [];
+  const compiled: CompiledToken = { style: Object.freeze(style), minWidth, states: Object.freeze(states), followers };
   if (tokenCache.size >= TOKEN_CACHE_LIMIT) tokenCache.clear();
   tokenCache.set(token, compiled);
   return compiled;
@@ -723,6 +729,7 @@ export function compileStyle(className = '', inlineStyle?: StyleProp): CompiledS
     if (!token) continue;
     const compiled = compileToken(token);
     add(compiled.minWidth, compiled.states, compiled.style);
+    for (const follower of compiled.followers) add(follower.minWidth, compiled.states, follower.style);
   }
   const addInline = (style: StyleProp): void => {
     if (!style) return;

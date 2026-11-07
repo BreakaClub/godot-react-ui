@@ -240,75 +240,51 @@ export const LAYOUT_REFERENCE: Readonly<Record<string, Readonly<Record<string, R
    300,
    100
   ],
-  "sizes.intrinsic.min": [
-   528,
-   36,
-   48,
-   44
-  ],
-  "sizes.intrinsic.min.1": [
-   528,
-   36,
-   32,
-   12
-  ],
-  "sizes.intrinsic.min.2": [
-   528,
-   52,
-   40,
-   12
-  ],
-  "sizes.intrinsic.min.3": [
-   528,
-   68,
-   48,
-   12
-  ],
   "sizes.intrinsic.max": [
    528,
-   84,
+   36,
    128,
    12
   ],
   "sizes.intrinsic.max.1": [
    528,
-   84,
+   36,
    32,
    12
   ],
   "sizes.intrinsic.max.2": [
    564,
-   84,
+   36,
    40,
    12
   ],
   "sizes.intrinsic.max.3": [
    608,
-   84,
+   36,
    48,
    12
   ],
   "sizes.intrinsic.fit": [
    528,
-   100,
+   52,
    128,
    12
   ],
   "sizes.intrinsic.fit.1": [
    528,
-   100,
+   52,
    32,
    12
   ],
   "sizes.intrinsic.fit.2": [
    564,
-   100,
+   52,
    40,
    12
   ],
   "sizes.intrinsic.fit.3": [
    608,
-   100,
+   52,
    48,
    12
   ],
@@ -342,22 +318,40 @@ export const LAYOUT_REFERENCE: Readonly<Record<string, Readonly<Record<string, R
    48,
    12
   ],
-  "sizes.intrinsic-narrow.min": [
-   844,
-   68,
-   40,
-   28
+  "sizes.intrinsic-min": [
+   960,
+   36,
+   100,
+   100
   ],
-  "sizes.intrinsic-narrow.min.1": [
-   844,
-   68,
+  "sizes.intrinsic-min.min": [
+   960,
+   36,
+   48,
+   44
+  ],
+  "sizes.intrinsic-min.min.1": [
+   960,
+   36,
    32,
    12
   ],
-  "sizes.intrinsic-narrow.min.2": [
-   844,
-   84,
+  "sizes.intrinsic-min.min.2": [
+   960,
+   52,
    40,
+   12
+  ],
+  "sizes.intrinsic-min.min.3": [
+   960,
+   68,
+   48,
+   12
+  ],
+  "sizes.intrinsic-min.after": [
+   960,
+   84,
+   32,
    12
   ],
   "sizes.intrinsic-height": [
@@ -469,266 +463,266 @@ export const LAYOUT_REFERENCE: Readonly<Record<string, Readonly<Record<string, R
    11.5938
   ],
   "sizes.viewport": [
-   536.5469,
+   528,
    192,
    240,
    110
   ],
   "sizes.viewport.w": [
-   536.5469,
+   528,
    192,
    1120,
    16
   ],
   "sizes.viewport-more": [
-   16,
-   358,
+   784,
+   192,
    240,
    110
   ],
   "sizes.viewport-more.a": [
-   16,
-   358,
+   784,
+   192,
    560,
    16
   ],
   "sizes.viewport-more.b": [
-   580,
-   358,
+   1348,
+   192,
    16,
    80
   ],
   "sizes.viewport-more.c": [
-   600,
-   358,
+   1368,
+   192,
    16,
    40
   ],
   "sizes.viewport-more.d": [
-   620,
-   358,
+   1388,
+   192,
    16,
    16
   ],
   "sizes.screen-height": [
-   272,
+   16,
    358,
    240,
    60
   ],
   "sizes.screen-height.a": [
-   272,
+   16,
    358,
    16,
    800
   ],
   "sizes.screen-height.b": [
-   292,
+   36,
    358,
    16,
    800
   ],
   "sizes.screen-height.c": [
-   312,
+   56,
    358,
    16,
    16
   ],
   "sizes.min-w-0": [
-   528,
+   272,
    358,
    240,
    40
   ],
   "sizes.min-w-0.a": [
-   528,
+   272,
    358,
    200,
    40
   ],
   "sizes.min-w-0.a.1": [
-   528,
+   272,
    358,
    300,
    24
   ],
   "sizes.min-w-0.b": [
-   736,
+   480,
    358,
    32,
    24
   ],
   "sizes.min-w-auto": [
-   784,
+   528,
    358,
    240,
    40
   ],
   "sizes.min-w-auto.a": [
-   784,
+   528,
    358,
    300,
    40
   ],
   "sizes.min-w-auto.a.1": [
-   784,
+   528,
    358,
    300,
    24
   ],
   "sizes.min-w-auto.b": [
-   1092,
+   836,
    358,
    32,
    24
   ],
   "sizes.overflow-min": [
-   16,
-   504,
+   784,
+   358,
    240,
    80
   ],
   "sizes.overflow-min.row": [
-   16,
-   504,
+   784,
+   358,
    240,
    32
   ],
   "sizes.overflow-min.hidden": [
-   16,
-   504,
+   784,
+   358,
    200,
    32
   ],
   "sizes.overflow-min.hidden.1": [
-   16,
-   504,
+   784,
+   358,
    300,
    24
   ],
   "sizes.overflow-min.hidden-b": [
-   224,
-   504,
+   992,
+   358,
    32,
    24
   ],
   "sizes.overflow-min.row2": [
-   16,
-   544,
+   784,
+   398,
    240,
    32
   ],
   "sizes.overflow-min.clip": [
-   16,
-   544,
+   784,
+   398,
    300,
    32
   ],
   "sizes.overflow-min.clip.1": [
-   16,
-   544,
+   784,
+   398,
    300,
    24
   ],
   "sizes.overflow-min.clip-b": [
-   324,
-   544,
+   1092,
+   398,
    32,
    24
   ],
   "sizes.flex-growth": [
-   274.3438,
-   504,
+   16,
+   474,
    240,
    40
   ],
   "sizes.flex-growth.a": [
-   274.3438,
-   504,
+   16,
+   474,
    98.6719,
    24
   ],
   "sizes.flex-growth.b": [
-   373.0156,
-   504,
+   114.6719,
+   474,
    49.3281,
    24
   ],
   "sizes.flex-growth.c": [
-   422.3438,
-   504,
+   164,
+   474,
    32,
    24
   ],
   "sizes.flex-growth.d": [
-   454.3438,
-   504,
+   196,
+   474,
    60,
    24
   ],
   "sizes.flex-shorthand": [
-   530.3438,
-   504,
+   272,
+   474,
    240,
    40
   ],
   "sizes.flex-shorthand.a": [
-   530.3438,
-   504,
+   272,
+   474,
    105.5938,
    24
   ],
   "sizes.flex-shorthand.b": [
-   635.9375,
-   504,
+   377.5938,
+   474,
    67.2031,
    24
   ],
   "sizes.flex-shorthand.c": [
-   703.1406,
-   504,
+   444.7969,
+   474,
    35.2031,
    24
   ],
   "sizes.flex-shorthand.d": [
-   738.3438,
-   504,
+   480,
+   474,
    32,
    24
   ],
   "sizes.flex-1-column": [
-   786.3438,
-   504,
+   528,
+   474,
    240,
    0
   ],
   "sizes.flex-1-column.a": [
-   786.3438,
-   504,
+   528,
+   474,
    240,
    0
   ],
   "sizes.flex-1-column.b": [
-   786.3438,
-   504,
+   528,
+   474,
    240,
    0
   ],
   "sizes.flex-1-definite": [
-   16,
-   620,
+   784,
+   474,
    240,
    80
   ],
   "sizes.flex-1-definite.a": [
-   16,
-   620,
+   784,
+   474,
    240,
    40
   ],
   "sizes.flex-1-definite.b": [
-   16,
-   660,
+   784,
+   514,
    240,
    40
   ],
@@ -793,55 +787,55 @@ export const LAYOUT_REFERENCE: Readonly<Record<string, Readonly<Record<string, R
    48
   ],
   "grid.span-order": [
-   583.1406,
+   528,
    36,
    240,
    60
   ],
   "grid.span-order.a": [
-   644.1406,
+   589,
    36,
    118,
    28
   ],
   "grid.span-order.b": [
-   644.1406,
+   589,
    68,
    118,
    28
   ],
   "grid.flow-col": [
-   839.1406,
+   784,
    36,
    240,
    60
   ],
   "grid.flow-col.1": [
-   839.1406,
+   784,
    36,
    40,
    28
   ],
   "grid.flow-col.2": [
-   839.1406,
+   784,
    68,
    40,
    28
   ],
   "grid.flow-col.3": [
-   883.1406,
+   828,
    36,
    40,
    28
   ],
   "grid.flow-col.4": [
-   883.1406,
+   828,
    68,
    40,
    28
   ],
   "grid.flow-col.5": [
-   927.1406,
+   872,
    36,
    40,
    28
@@ -1051,61 +1045,61 @@ export const LAYOUT_REFERENCE: Readonly<Record<string, Readonly<Record<string, R
    24
   ],
   "grid.stretch-self": [
-   588.4063,
+   528,
    318,
    240,
    100
   ],
   "grid.stretch-self.a": [
-   674.4063,
+   614,
    318,
    32,
    24
   ],
   "grid.stretch-self.b": [
-   710.4063,
+   650,
    318,
    118,
    48
   ],
   "grid.stretch-self.c": [
-   674.4063,
+   614,
    370,
    32,
    48
   ],
   "grid.stretch-self.d": [
-   796.4063,
+   736,
    370,
    32,
    24
   ],
   "grid.content": [
-   844.4063,
+   784,
    318,
    240,
    100
   ],
   "grid.content.1": [
-   844.4063,
+   784,
    318,
    40,
    20
   ],
   "grid.content.2": [
-   888.4063,
+   828,
    318,
    40,
    20
   ],
   "grid.content.3": [
-   844.4063,
+   784,
    398,
    40,
    20
   ],
   "grid.content.4": [
-   888.4063,
+   828,
    398,
    40,
    20
@@ -1453,67 +1447,67 @@ export const LAYOUT_REFERENCE: Readonly<Record<string, Readonly<Record<string, R
    24
   ],
   "alignment.justify-normal": [
-   300.7188,
+   272,
    162,
    240,
    40
   ],
   "alignment.justify-normal.1": [
-   300.7188,
+   272,
    162,
    40,
    24
   ],
   "alignment.justify-normal.2": [
-   340.7188,
+   312,
    162,
    40,
    24
   ],
   "alignment.self": [
-   556.7188,
+   528,
    162,
    240,
    60
   ],
   "alignment.self.a": [
-   556.7188,
+   528,
    198,
    40,
    24
   ],
   "alignment.self.b": [
-   600.7188,
+   572,
    180,
    40,
    24
   ],
   "alignment.self.c": [
-   644.7188,
+   616,
    162,
    40,
    24
   ],
   "alignment.self.d": [
-   688.7188,
+   660,
    162,
    40,
    60
   ],
   "alignment.self-auto": [
-   812.7188,
+   784,
    162,
    240,
    60
   ],
   "alignment.self-auto.a": [
-   812.7188,
+   784,
    198,
    40,
    24
   ],
   "alignment.self-auto.b": [
-   856.7188,
+   828,
    162,
    40,
    24
@@ -1614,171 +1608,69 @@ export const LAYOUT_REFERENCE: Readonly<Record<string, Readonly<Record<string, R
    77.3281,
    24
   ],
-  "misc.aspect": [
-   16,
-   36,
-   240,
-   110
-  ],
-  "misc.aspect.a": [
-   16,
-   36,
-   38.7656,
-   38.7656
-  ],
-  "misc.aspect.b": [
-   62.7656,
-   36,
-   51.7031,
-   29.0781
-  ],
-  "misc.aspect.c": [
-   122.4688,
-   36,
-   38.7656,
-   29.0625
-  ],
-  "misc.aspect.d": [
-   169.2344,
-   36,
-   38.7656,
-   24
-  ],
-  "misc.aspect.e": [
-   216,
-   36,
-   40,
-   40
-  ],
-  "misc.box": [
-   303.0625,
-   36,
-   240,
-   80
-  ],
-  "misc.box.a": [
-   303.0625,
-   36,
-   104,
-   64
-  ],
-  "misc.box.b": [
-   415.0625,
-   36,
-   80,
-   40
-  ],
-  "misc.block": [
-   559.0625,
-   36,
-   240,
-   130
-  ],
-  "misc.block.a": [
-   559.0625,
-   36,
-   240,
-   24
-  ],
-  "misc.block.b": [
-   559.0625,
-   84,
-   240,
-   24
-  ],
-  "misc.block.c": [
-   639.0625,
-   108,
-   80,
-   24
-  ],
-  "misc.block.d": [
-   759.0625,
-   132,
-   40,
-   16
-  ],
-  "misc.flow-root": [
-   815.0625,
-   36,
-   240,
-   110
-  ],
-  "misc.flow-root.a": [
-   815.0625,
-   36,
-   240,
-   40
-  ],
-  "misc.flow-root.a.1": [
-   815.0625,
-   52,
-   240,
-   24
-  ],
-  "misc.flow-root.b": [
-   815.0625,
-   84,
-   240,
-   24
-  ],
-  "misc.block-collapse": [
-   16,
-   202,
-   240,
-   110
-  ],
-  "misc.block-collapse.a": [
-   16,
-   218,
-   240,
-   24
-  ],
-  "misc.block-collapse.a.1": [
-   16,
-   218,
-   240,
-   24
-  ],
-  "misc.block-collapse.b": [
-   16,
-   250,
-   240,
-   24
-  ],
   "misc.invisible": [
-   272,
-   202,
+   16,
+   36,
    240,
    80
   ],
   "misc.invisible.a": [
-   272,
-   202,
+   16,
+   36,
    64,
    40
   ],
   "misc.invisible.a.1": [
-   272,
-   202,
+   16,
+   36,
    32,
    16
   ],
   "misc.invisible.b": [
-   344,
-   202,
+   88,
+   36,
    64,
    40
   ],
+  "misc.clip": [
+   272,
+   36,
+   240,
+   60
+  ],
+  "misc.clip.a": [
+   272,
+   36,
+   64,
+   32
+  ],
+  "misc.clip.a.1": [
+   272,
+   36,
+   128,
+   32
+  ],
+  "misc.clip.b": [
+   344,
+   36,
+   64,
+   32
+  ],
+  "misc.clip.b.1": [
+   344,
+   36,
+   32,
+   32
+  ],
   "misc.hidden": [
    528,
-   202,
+   36,
    240,
    40
   ],
   "misc.hidden.a": [
    528,
-   202,
+   36,
    40,
    24
   ],
@@ -1790,39 +1682,141 @@ export const LAYOUT_REFERENCE: Readonly<Record<string, Readonly<Record<string, R
   ],
   "misc.hidden.c": [
    576,
-   202,
+   36,
    40,
    24
   ],
-  "misc.clip": [
+  "misc.aspect": [
    784,
-   202,
+   36,
+   300,
+   110
+  ],
+  "misc.aspect.a": [
+   784,
+   36,
+   48,
+   48
+  ],
+  "misc.aspect.b": [
+   840,
+   36,
+   64,
+   36
+  ],
+  "misc.aspect.c": [
+   912,
+   36,
+   48,
+   36
+  ],
+  "misc.aspect.d": [
+   968,
+   36,
+   48,
+   24
+  ],
+  "misc.aspect.e": [
+   1024,
+   36,
+   40,
+   40
+  ],
+  "misc.box": [
+   16,
+   182,
    240,
-   60
+   80
   ],
-  "misc.clip.a": [
-   784,
-   202,
-   64,
-   32
+  "misc.box.a": [
+   16,
+   182,
+   104,
+   64
   ],
-  "misc.clip.a.1": [
-   784,
-   202,
+  "misc.box.b": [
    128,
-   32
+   182,
+   80,
+   40
   ],
-  "misc.clip.b": [
-   856,
-   202,
-   64,
-   32
+  "misc.block": [
+   272,
+   182,
+   240,
+   130
   ],
-  "misc.clip.b.1": [
-   856,
-   202,
-   32,
-   32
+  "misc.block.a": [
+   272,
+   182,
+   240,
+   24
+  ],
+  "misc.block.b": [
+   272,
+   230,
+   240,
+   24
+  ],
+  "misc.block.c": [
+   352,
+   254,
+   80,
+   24
+  ],
+  "misc.block.d": [
+   472,
+   278,
+   40,
+   16
+  ],
+  "misc.flow-root": [
+   528,
+   182,
+   240,
+   110
+  ],
+  "misc.flow-root.a": [
+   528,
+   182,
+   240,
+   40
+  ],
+  "misc.flow-root.a.1": [
+   528,
+   198,
+   240,
+   24
+  ],
+  "misc.flow-root.b": [
+   528,
+   230,
+   240,
+   24
+  ],
+  "misc.block-collapse": [
+   784,
+   182,
+   240,
+   110
+  ],
+  "misc.block-collapse.a": [
+   784,
+   198,
+   240,
+   24
+  ],
+  "misc.block-collapse.a.1": [
+   784,
+   198,
+   240,
+   24
+  ],
+  "misc.block-collapse.b": [
+   784,
+   230,
+   240,
+   24
   ]
  },
  "600x900": {
@@ -2048,75 +2042,51 @@ export const LAYOUT_REFERENCE: Readonly<Record<string, Readonly<Record<string, R
    300,
    100
   ],
-  "sizes.intrinsic.min": [
-   528,
-   36,
-   48,
-   44
-  ],
-  "sizes.intrinsic.min.1": [
-   528,
-   36,
-   32,
-   12
-  ],
-  "sizes.intrinsic.min.2": [
-   528,
-   52,
-   40,
-   12
-  ],
-  "sizes.intrinsic.min.3": [
-   528,
-   68,
-   48,
-   12
-  ],
   "sizes.intrinsic.max": [
    528,
-   84,
+   36,
    128,
    12
   ],
   "sizes.intrinsic.max.1": [
    528,
-   84,
+   36,
    32,
    12
   ],
   "sizes.intrinsic.max.2": [
    564,
-   84,
+   36,
    40,
    12
   ],
   "sizes.intrinsic.max.3": [
    608,
-   84,
+   36,
    48,
    12
   ],
   "sizes.intrinsic.fit": [
    528,
-   100,
+   52,
    128,
    12
   ],
   "sizes.intrinsic.fit.1": [
    528,
-   100,
+   52,
    32,
    12
   ],
   "sizes.intrinsic.fit.2": [
    564,
-   100,
+   52,
    40,
    12
   ],
   "sizes.intrinsic.fit.3": [
    608,
-   100,
+   52,
    48,
    12
   ],
@@ -2150,22 +2120,40 @@ export const LAYOUT_REFERENCE: Readonly<Record<string, Readonly<Record<string, R
    48,
    12
   ],
-  "sizes.intrinsic-narrow.min": [
-   844,
-   68,
-   40,
-   28
+  "sizes.intrinsic-min": [
+   960,
+   36,
+   100,
+   100
   ],
-  "sizes.intrinsic-narrow.min.1": [
-   844,
-   68,
+  "sizes.intrinsic-min.min": [
+   960,
+   36,
+   48,
+   44
+  ],
+  "sizes.intrinsic-min.min.1": [
+   960,
+   36,
    32,
    12
   ],
-  "sizes.intrinsic-narrow.min.2": [
-   844,
-   84,
+  "sizes.intrinsic-min.min.2": [
+   960,
+   52,
    40,
+   12
+  ],
+  "sizes.intrinsic-min.min.3": [
+   960,
+   68,
+   48,
+   12
+  ],
+  "sizes.intrinsic-min.after": [
+   960,
+   84,
+   32,
    12
   ],
   "sizes.intrinsic-height": [
@@ -2277,266 +2265,266 @@ export const LAYOUT_REFERENCE: Readonly<Record<string, Readonly<Record<string, R
    11.5938
   ],
   "sizes.viewport": [
-   536.5469,
+   528,
    192,
    240,
    110
   ],
   "sizes.viewport.w": [
-   536.5469,
+   528,
    192,
    600,
    16
   ],
   "sizes.viewport-more": [
-   16,
-   358,
+   784,
+   192,
    240,
    110
   ],
   "sizes.viewport-more.a": [
-   16,
-   358,
+   784,
+   192,
    300,
    16
   ],
   "sizes.viewport-more.b": [
-   320,
-   358,
+   1088,
+   192,
    16,
    90
   ],
   "sizes.viewport-more.c": [
-   340,
-   358,
+   1108,
+   192,
    16,
    45
   ],
   "sizes.viewport-more.d": [
-   360,
-   358,
+   1128,
+   192,
    16,
    18
   ],
   "sizes.screen-height": [
-   272,
+   16,
    358,
    240,
    60
   ],
   "sizes.screen-height.a": [
-   272,
+   16,
    358,
    16,
    900
   ],
   "sizes.screen-height.b": [
-   292,
+   36,
    358,
    16,
    900
   ],
   "sizes.screen-height.c": [
-   312,
+   56,
    358,
    16,
    16
   ],
   "sizes.min-w-0": [
-   528,
+   272,
    358,
    240,
    40
   ],
   "sizes.min-w-0.a": [
-   528,
+   272,
    358,
    200,
    40
   ],
   "sizes.min-w-0.a.1": [
-   528,
+   272,
    358,
    300,
    24
   ],
   "sizes.min-w-0.b": [
-   736,
+   480,
    358,
    32,
    24
   ],
   "sizes.min-w-auto": [
-   784,
+   528,
    358,
    240,
    40
   ],
   "sizes.min-w-auto.a": [
-   784,
+   528,
    358,
    300,
    40
   ],
   "sizes.min-w-auto.a.1": [
-   784,
+   528,
    358,
    300,
    24
   ],
   "sizes.min-w-auto.b": [
-   1092,
+   836,
    358,
    32,
    24
   ],
   "sizes.overflow-min": [
-   16,
-   504,
+   784,
+   358,
    240,
    80
   ],
   "sizes.overflow-min.row": [
-   16,
-   504,
+   784,
+   358,
    240,
    32
   ],
   "sizes.overflow-min.hidden": [
-   16,
-   504,
+   784,
+   358,
    200,
    32
   ],
   "sizes.overflow-min.hidden.1": [
-   16,
-   504,
+   784,
+   358,
    300,
    24
   ],
   "sizes.overflow-min.hidden-b": [
-   224,
-   504,
+   992,
+   358,
    32,
    24
   ],
   "sizes.overflow-min.row2": [
-   16,
-   544,
+   784,
+   398,
    240,
    32
   ],
   "sizes.overflow-min.clip": [
-   16,
-   544,
+   784,
+   398,
    300,
    32
   ],
   "sizes.overflow-min.clip.1": [
-   16,
-   544,
+   784,
+   398,
    300,
    24
   ],
   "sizes.overflow-min.clip-b": [
-   324,
-   544,
+   1092,
+   398,
    32,
    24
   ],
   "sizes.flex-growth": [
-   274.3438,
-   504,
+   16,
+   474,
    240,
    40
   ],
   "sizes.flex-growth.a": [
-   274.3438,
-   504,
+   16,
+   474,
    98.6719,
    24
   ],
   "sizes.flex-growth.b": [
-   373.0156,
-   504,
+   114.6719,
+   474,
    49.3281,
    24
   ],
   "sizes.flex-growth.c": [
-   422.3438,
-   504,
+   164,
+   474,
    32,
    24
   ],
   "sizes.flex-growth.d": [
-   454.3438,
-   504,
+   196,
+   474,
    60,
    24
   ],
   "sizes.flex-shorthand": [
-   530.3438,
-   504,
+   272,
+   474,
    240,
    40
   ],
   "sizes.flex-shorthand.a": [
-   530.3438,
-   504,
+   272,
+   474,
    105.5938,
    24
   ],
   "sizes.flex-shorthand.b": [
-   635.9375,
-   504,
+   377.5938,
+   474,
    67.2031,
    24
   ],
   "sizes.flex-shorthand.c": [
-   703.1406,
-   504,
+   444.7969,
+   474,
    35.2031,
    24
   ],
   "sizes.flex-shorthand.d": [
-   738.3438,
-   504,
+   480,
+   474,
    32,
    24
   ],
   "sizes.flex-1-column": [
-   786.3438,
-   504,
+   528,
+   474,
    240,
    0
   ],
   "sizes.flex-1-column.a": [
-   786.3438,
-   504,
+   528,
+   474,
    240,
    0
   ],
   "sizes.flex-1-column.b": [
-   786.3438,
-   504,
+   528,
+   474,
    240,
    0
   ],
   "sizes.flex-1-definite": [
-   16,
-   620,
+   784,
+   474,
    240,
    80
   ],
   "sizes.flex-1-definite.a": [
-   16,
-   620,
+   784,
+   474,
    240,
    40
   ],
   "sizes.flex-1-definite.b": [
-   16,
-   660,
+   784,
+   514,
    240,
    40
   ],
@@ -2601,55 +2589,55 @@ export const LAYOUT_REFERENCE: Readonly<Record<string, Readonly<Record<string, R
    48
   ],
   "grid.span-order": [
-   583.1406,
+   528,
    36,
    240,
    60
   ],
   "grid.span-order.a": [
-   644.1406,
+   589,
    36,
    118,
    28
   ],
   "grid.span-order.b": [
-   644.1406,
+   589,
    68,
    118,
    28
   ],
   "grid.flow-col": [
-   839.1406,
+   784,
    36,
    240,
    60
   ],
   "grid.flow-col.1": [
-   839.1406,
+   784,
    36,
    40,
    28
   ],
   "grid.flow-col.2": [
-   839.1406,
+   784,
    68,
    40,
    28
   ],
   "grid.flow-col.3": [
-   883.1406,
+   828,
    36,
    40,
    28
   ],
   "grid.flow-col.4": [
-   883.1406,
+   828,
    68,
    40,
    28
   ],
   "grid.flow-col.5": [
-   927.1406,
+   872,
    36,
    40,
    28
@@ -2859,61 +2847,61 @@ export const LAYOUT_REFERENCE: Readonly<Record<string, Readonly<Record<string, R
    24
   ],
   "grid.stretch-self": [
-   588.4063,
+   528,
    318,
    240,
    100
   ],
   "grid.stretch-self.a": [
-   674.4063,
+   614,
    318,
    32,
    24
   ],
   "grid.stretch-self.b": [
-   710.4063,
+   650,
    318,
    118,
    48
   ],
   "grid.stretch-self.c": [
-   674.4063,
+   614,
    370,
    32,
    48
   ],
   "grid.stretch-self.d": [
-   796.4063,
+   736,
    370,
    32,
    24
   ],
   "grid.content": [
-   844.4063,
+   784,
    318,
    240,
    100
   ],
   "grid.content.1": [
-   844.4063,
+   784,
    318,
    40,
    20
   ],
   "grid.content.2": [
-   888.4063,
+   828,
    318,
    40,
    20
   ],
   "grid.content.3": [
-   844.4063,
+   784,
    398,
    40,
    20
   ],
   "grid.content.4": [
-   888.4063,
+   828,
    398,
    40,
    20
@@ -3261,67 +3249,67 @@ export const LAYOUT_REFERENCE: Readonly<Record<string, Readonly<Record<string, R
    24
   ],
   "alignment.justify-normal": [
-   300.7188,
+   272,
    162,
    240,
    40
   ],
   "alignment.justify-normal.1": [
-   300.7188,
+   272,
    162,
    40,
    24
   ],
   "alignment.justify-normal.2": [
-   340.7188,
+   312,
    162,
    40,
    24
   ],
   "alignment.self": [
-   556.7188,
+   528,
    162,
    240,
    60
   ],
   "alignment.self.a": [
-   556.7188,
+   528,
    198,
    40,
    24
   ],
   "alignment.self.b": [
-   600.7188,
+   572,
    180,
    40,
    24
   ],
   "alignment.self.c": [
-   644.7188,
+   616,
    162,
    40,
    24
   ],
   "alignment.self.d": [
-   688.7188,
+   660,
    162,
    40,
    60
   ],
   "alignment.self-auto": [
-   812.7188,
+   784,
    162,
    240,
    60
   ],
   "alignment.self-auto.a": [
-   812.7188,
+   784,
    198,
    40,
    24
   ],
   "alignment.self-auto.b": [
-   856.7188,
+   828,
    162,
    40,
    24
@@ -3422,171 +3410,69 @@ export const LAYOUT_REFERENCE: Readonly<Record<string, Readonly<Record<string, R
    77.3281,
    24
   ],
-  "misc.aspect": [
-   16,
-   36,
-   240,
-   110
-  ],
-  "misc.aspect.a": [
-   16,
-   36,
-   38.7656,
-   38.7656
-  ],
-  "misc.aspect.b": [
-   62.7656,
-   36,
-   51.7031,
-   29.0781
-  ],
-  "misc.aspect.c": [
-   122.4688,
-   36,
-   38.7656,
-   29.0625
-  ],
-  "misc.aspect.d": [
-   169.2344,
-   36,
-   38.7656,
-   24
-  ],
-  "misc.aspect.e": [
-   216,
-   36,
-   40,
-   40
-  ],
-  "misc.box": [
-   303.0625,
-   36,
-   240,
-   80
-  ],
-  "misc.box.a": [
-   303.0625,
-   36,
-   104,
-   64
-  ],
-  "misc.box.b": [
-   415.0625,
-   36,
-   80,
-   40
-  ],
-  "misc.block": [
-   559.0625,
-   36,
-   240,
-   130
-  ],
-  "misc.block.a": [
-   559.0625,
-   36,
-   240,
-   24
-  ],
-  "misc.block.b": [
-   559.0625,
-   84,
-   240,
-   24
-  ],
-  "misc.block.c": [
-   639.0625,
-   108,
-   80,
-   24
-  ],
-  "misc.block.d": [
-   759.0625,
-   132,
-   40,
-   16
-  ],
-  "misc.flow-root": [
-   815.0625,
-   36,
-   240,
-   110
-  ],
-  "misc.flow-root.a": [
-   815.0625,
-   36,
-   240,
-   40
-  ],
-  "misc.flow-root.a.1": [
-   815.0625,
-   52,
-   240,
-   24
-  ],
-  "misc.flow-root.b": [
-   815.0625,
-   84,
-   240,
-   24
-  ],
-  "misc.block-collapse": [
-   16,
-   202,
-   240,
-   110
-  ],
-  "misc.block-collapse.a": [
-   16,
-   218,
-   240,
-   24
-  ],
-  "misc.block-collapse.a.1": [
-   16,
-   218,
-   240,
-   24
-  ],
-  "misc.block-collapse.b": [
-   16,
-   250,
-   240,
-   24
-  ],
   "misc.invisible": [
-   272,
-   202,
+   16,
+   36,
    240,
    80
   ],
   "misc.invisible.a": [
-   272,
-   202,
+   16,
+   36,
    64,
    40
   ],
   "misc.invisible.a.1": [
-   272,
-   202,
+   16,
+   36,
    32,
    16
   ],
   "misc.invisible.b": [
-   344,
-   202,
+   88,
+   36,
    64,
    40
   ],
+  "misc.clip": [
+   272,
+   36,
+   240,
+   60
+  ],
+  "misc.clip.a": [
+   272,
+   36,
+   64,
+   32
+  ],
+  "misc.clip.a.1": [
+   272,
+   36,
+   128,
+   32
+  ],
+  "misc.clip.b": [
+   344,
+   36,
+   64,
+   32
+  ],
+  "misc.clip.b.1": [
+   344,
+   36,
+   32,
+   32
+  ],
   "misc.hidden": [
    528,
-   202,
+   36,
    240,
    40
   ],
   "misc.hidden.a": [
    528,
-   202,
+   36,
    40,
    24
   ],
@@ -3598,39 +3484,141 @@ export const LAYOUT_REFERENCE: Readonly<Record<string, Readonly<Record<string, R
   ],
   "misc.hidden.c": [
    576,
-   202,
+   36,
    40,
    24
   ],
-  "misc.clip": [
+  "misc.aspect": [
    784,
-   202,
+   36,
+   300,
+   110
+  ],
+  "misc.aspect.a": [
+   784,
+   36,
+   48,
+   48
+  ],
+  "misc.aspect.b": [
+   840,
+   36,
+   64,
+   36
+  ],
+  "misc.aspect.c": [
+   912,
+   36,
+   48,
+   36
+  ],
+  "misc.aspect.d": [
+   968,
+   36,
+   48,
+   24
+  ],
+  "misc.aspect.e": [
+   1024,
+   36,
+   40,
+   40
+  ],
+  "misc.box": [
+   16,
+   182,
    240,
-   60
+   80
   ],
-  "misc.clip.a": [
-   784,
-   202,
-   64,
-   32
+  "misc.box.a": [
+   16,
+   182,
+   104,
+   64
   ],
-  "misc.clip.a.1": [
-   784,
-   202,
+  "misc.box.b": [
    128,
-   32
+   182,
+   80,
+   40
   ],
-  "misc.clip.b": [
-   856,
-   202,
-   64,
-   32
+  "misc.block": [
+   272,
+   182,
+   240,
+   130
   ],
-  "misc.clip.b.1": [
-   856,
-   202,
-   32,
-   32
+  "misc.block.a": [
+   272,
+   182,
+   240,
+   24
+  ],
+  "misc.block.b": [
+   272,
+   230,
+   240,
+   24
+  ],
+  "misc.block.c": [
+   352,
+   254,
+   80,
+   24
+  ],
+  "misc.block.d": [
+   472,
+   278,
+   40,
+   16
+  ],
+  "misc.flow-root": [
+   528,
+   182,
+   240,
+   110
+  ],
+  "misc.flow-root.a": [
+   528,
+   182,
+   240,
+   40
+  ],
+  "misc.flow-root.a.1": [
+   528,
+   198,
+   240,
+   24
+  ],
+  "misc.flow-root.b": [
+   528,
+   230,
+   240,
+   24
+  ],
+  "misc.block-collapse": [
+   784,
+   182,
+   240,
+   110
+  ],
+  "misc.block-collapse.a": [
+   784,
+   198,
+   240,
+   24
+  ],
+  "misc.block-collapse.a.1": [
+   784,
+   198,
+   240,
+   24
+  ],
+  "misc.block-collapse.b": [
+   784,
+   230,
+   240,
+   24
   ]
  }
 };

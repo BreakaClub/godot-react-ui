@@ -137,6 +137,8 @@ interface PageReport {
   boxes: number;
   worst: number;
   mean: number;
+  /** The cases left out because the library is known to differ from Chrome there, with the reason. */
+  known: string[];
 }
 
 /** Every box of a page against Chrome's rectangle for it, at this window size. */
@@ -155,13 +157,19 @@ async function verifyPage(owner: Node, api: LayoutUtilitiesInspection, page: Lay
   const mismatches: RectMismatch[] = [];
   let total = 0;
   let worst = 0;
-  const boxes = pageBoxes(page);
+  const knownIds = new Set(page.cases.filter(entry => entry.known !== undefined).flatMap(entry => pageBoxes({ name: page.name, cases: [entry] }).map(box => box.id)));
+  const boxes = pageBoxes(page).filter(box => !knownIds.has(box.id));
   for (const box of boxes) {
     const found = byTestID.get(box.id);
     assert(found, `The ${page.name} page has no ${box.id}`);
     const expected = reference[box.id];
     assert(expected, `Chrome has no rectangle for ${box.id}`);
     const actual = [found.rect.x, found.rect.y, found.rect.width, found.rect.height];
+    // A `display: none` box has no place in Chrome (it reports the origin) and no size here.
+    if (expected[2] === 0 && expected[3] === 0) {
+      assert(found.rect.width === 0 && found.rect.height === 0, `${box.id} has no size, as in Chrome: [${actual.join(', ')}]`);
+      continue;
+    }
     const difference = compareEdges(actual, expected);
     total += difference;
     worst = Math.max(worst, difference);
@@ -174,7 +182,8 @@ async function verifyPage(owner: Node, api: LayoutUtilitiesInspection, page: Lay
     throw new Error(`${mismatches.length} of ${boxes.length} boxes on the ${page.name} page (window ${key}) are more than ${EDGE_TOLERANCE_PX} px from Chrome's:\n${lines.join('\n')}`);
   }
   savePicture(owner, `layout-utilities-${page.name}-${key}`);
-  return { page: page.name, boxes: boxes.length, worst: round(worst), mean: round(total / boxes.length) };
+  const known = page.cases.flatMap(entry => (entry.known === undefined ? [] : [`${entry.stage.id}: ${entry.known}`]));
+  return { page: page.name, boxes: boxes.length, worst: round(worst), mean: round(total / boxes.length), known };
 }
 
 /** What a rectangle cannot say: `invisible` paints nothing and takes no pointer but keeps a visible child; `overflow-clip` clips. */

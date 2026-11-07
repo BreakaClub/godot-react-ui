@@ -474,6 +474,11 @@ const STATIC: Readonly<Record<string, Style>> = {
   'overflow-clip': { overflow: 'clip' },
   'overflow-x-clip': { overflowX: 'clip' },
   'overflow-y-clip': { overflowY: 'clip' },
+  // `container` is `width: 100%`; `compileToken` (src/styles.ts) adds the `maxWidth` of each breakpoint after it.
+  container: { width: '100%' },
+  // `sr-only`: a 1 px box that takes no room and clips what it holds, which a screen reader still reads (there is no `clip`).
+  'sr-only': { position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', borderWidth: 0 },
+  'not-sr-only': { position: 'static', width: 'auto', height: 'auto', padding: 0, margin: 0, overflow: 'visible' },
   'box-border': { boxSizing: 'border-box' },
   'box-content': { boxSizing: 'content-box' },
   'self-auto': { alignSelf: 'auto' },

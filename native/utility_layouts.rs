@@ -479,3 +479,280 @@ fn the_fixture_resolves_to_the_layout_and_transition_the_classes_name() {
     assert_eq!(wide.grid_column_span, Some(2));
     assert_eq!(wide.width, Some(crate::props::Dimension::Num(600.0)));
 }
+
+/// The layout lab (`demo/src/layout-utilities-data.ts`) compiled by the JS class compiler, with Chrome's rectangle for every box.
+mod lab {
+    use std::collections::{BTreeMap, HashMap};
+
+    use serde::Deserialize as DeriveDeserialize;
+    use taffy::prelude::{AvailableSpace, NodeId, Size, TaffyTree};
+
+    use crate::computed_style::{ComputedStyle, InheritedStyle, resolve};
+    use crate::props::{StyleLayers, Viewport};
+
+    use super::conditions_for;
+
+    #[derive(DeriveDeserialize)]
+    struct LabBox {
+        id: String,
+        #[serde(rename = "className")]
+        class_name: String,
+        #[serde(default)]
+        children: Vec<LabBox>,
+    }
+
+    #[derive(DeriveDeserialize)]
+    struct LabCase {
+        title: String,
+        /// Why the library is known to differ from Chrome here; the case is left out of the comparison.
+        #[serde(default)]
+        known: Option<String>,
+        stage: LabBox,
+    }
+
+    #[derive(DeriveDeserialize)]
+    struct LabPage {
+        name: String,
+        cases: Vec<LabCase>,
+    }
+
+    #[derive(DeriveDeserialize)]
+    struct Lab {
+        #[serde(rename = "pageClass")]
+        page_class: String,
+        #[serde(rename = "captionClass")]
+        caption_class: String,
+        #[serde(rename = "cellClass")]
+        cell_class: String,
+        compiled: BTreeMap<String, StyleLayers>,
+        pages: Vec<LabPage>,
+        reference: BTreeMap<String, BTreeMap<String, [f32; 4]>>,
+    }
+
+    /// The tree a page makes, as the library mounts it: every node's Taffy style from its resolved computed style, and its
+    /// children listed in their `order`.
+    struct Built {
+        tree: TaffyTree<()>,
+        boxes: Vec<(String, NodeId)>,
+        /// The boxes of the cases that are known to differ from Chrome.
+        known: Vec<String>,
+    }
+
+    impl LabBox {
+        fn ids(&self) -> Vec<&str> {
+            std::iter::once(self.id.as_str())
+                .chain(self.children.iter().flat_map(LabBox::ids))
+                .collect()
+        }
+    }
+
+    fn build_box(
+        built: &mut Built,
+        lab: &Lab,
+        entry: &LabBox,
+        inherited: &InheritedStyle,
+        viewport: Viewport,
+    ) -> (NodeId, ComputedStyle) {
+        let computed = resolve(
+            Some(&lab.compiled[&entry.class_name]),
+            false,
+            inherited,
+            &conditions_for(viewport),
+        );
+        let below = computed.inherited();
+        let mut children: Vec<(NodeId, ComputedStyle)> = entry
+            .children
+            .iter()
+            .map(|child| build_box(built, lab, child, &below, viewport))
+            .collect();
+        children.sort_by_key(|(_, style)| style.order.unwrap_or(0));
+        let nodes: Vec<NodeId> = children.iter().map(|(node, _)| *node).collect();
+        let node = built
+            .tree
+            .new_with_children(computed.taffy_style().unwrap(), &nodes)
+            .unwrap();
+        built.boxes.push((entry.id.clone(), node));
+        (node, computed)
+    }
+
+    fn build_page(lab: &Lab, page: &LabPage, viewport: Viewport) -> (Built, NodeId) {
+        let mut built = Built {
+            tree: TaffyTree::new(),
+            boxes: Vec::new(),
+            known: Vec::new(),
+        };
+        let inherited = InheritedStyle::default();
+        let class_node =
+            |built: &mut Built, class_name: &str, inherited: &InheritedStyle, children: &[NodeId]| {
+                let computed = resolve(
+                    Some(&lab.compiled[class_name]),
+                    false,
+                    inherited,
+                    &conditions_for(viewport),
+                );
+                built
+                    .tree
+                    .new_with_children(computed.taffy_style().unwrap(), children)
+                    .unwrap()
+            };
+        let page_style = resolve(
+            Some(&lab.compiled[&lab.page_class]),
+            false,
+            &inherited,
+            &conditions_for(viewport),
+        );
+        let below = page_style.inherited();
+        let cells: Vec<NodeId> = page
+            .cases
+            .iter()
+            .map(|entry| {
+                let caption = class_node(&mut built, &lab.caption_class, &below, &[]);
+                let (stage, _) = build_box(&mut built, lab, &entry.stage, &below, viewport);
+                assert!(!entry.title.is_empty());
+                built.known.extend(
+                    entry
+                        .known
+                        .iter()
+                        .flat_map(|_| entry.stage.ids())
+                        .map(str::to_string),
+                );
+                class_node(&mut built, &lab.cell_class, &below, &[caption, stage])
+            })
+            .collect();
+        let page_node = built
+            .tree
+            .new_with_children(page_style.taffy_style().unwrap(), &cells)
+            .unwrap();
+        // The layer root of `ReactUiRoot::flush_layout`: Taffy's default style, as big as the viewport.
+        let root = built
+            .tree
+            .new_with_children(
+                taffy::Style {
+                    size: Size {
+                        width: taffy::prelude::length(viewport.width),
+                        height: taffy::prelude::length(viewport.height),
+                    },
+                    ..taffy::Style::default()
+                },
+                &[page_node],
+            )
+            .unwrap();
+        (built, root)
+    }
+
+    /// Absolute rectangle of every node under `node`, whose parent is at `origin`.
+    fn absolute(
+        tree: &TaffyTree<()>,
+        node: NodeId,
+        origin: (f32, f32),
+        into: &mut HashMap<NodeId, [f32; 4]>,
+    ) {
+        let layout = tree.layout(node).unwrap();
+        let here = (origin.0 + layout.location.x, origin.1 + layout.location.y);
+        into.insert(
+            node,
+            [here.0, here.1, layout.size.width, layout.size.height],
+        );
+        for child in tree.children(node).unwrap() {
+            absolute(tree, child, here, into);
+        }
+    }
+
+    const EDGE_TOLERANCE: f32 = 0.5;
+
+    /// Every box of every page, at both window sizes, within half a pixel of Chrome on each edge. A difference names the box, its
+    /// classes and both rectangles.
+    #[test]
+    fn taffy_lays_the_lab_out_as_chrome_does() {
+        let lab: Lab =
+            serde_json::from_str(include_str!("../tests/fixtures/layout-utilities-lab.json"))
+                .expect("the lab fixture parses");
+        let mut checked = 0;
+        let mut mismatches = Vec::new();
+        for (size, reference) in &lab.reference {
+            let (width, height) = size.split_once('x').expect("a WxH key");
+            let viewport = Viewport {
+                width: width.parse().unwrap(),
+                height: height.parse().unwrap(),
+            };
+            for page in &lab.pages {
+                let (mut built, root) = build_page(&lab, page, viewport);
+                built
+                    .tree
+                    .compute_layout(
+                        root,
+                        Size {
+                            width: AvailableSpace::Definite(viewport.width),
+                            height: AvailableSpace::Definite(viewport.height),
+                        },
+                    )
+                    .unwrap();
+                let mut rects = HashMap::new();
+                absolute(&built.tree, root, (0.0, 0.0), &mut rects);
+                for (id, node) in &built.boxes {
+                    if built.known.contains(id) {
+                        continue;
+                    }
+                    let actual = rects[node];
+                    let expected = reference[id];
+                    // A `display: none` box has no place in Chrome (it reports the origin), only no size.
+                    if expected[2] == 0.0 && expected[3] == 0.0 {
+                        checked += 1;
+                        if actual[2] != 0.0 || actual[3] != 0.0 {
+                            mismatches.push(format!("{size} {} [{id}]: taffy {actual:?} should have no size", page.name));
+                        }
+                        continue;
+                    }
+                    let edges = |rect: [f32; 4]| [rect[0], rect[1], rect[0] + rect[2], rect[1] + rect[3]];
+                    let difference = edges(actual)
+                        .into_iter()
+                        .zip(edges(expected))
+                        .map(|(left, right)| (left - right).abs())
+                        .fold(0.0, f32::max);
+                    checked += 1;
+                    if difference > EDGE_TOLERANCE + 0.001 {
+                        mismatches.push(format!(
+                            "{size} {} [{id}]: taffy {actual:?} chrome {expected:?}",
+                            page.name
+                        ));
+                    }
+                }
+            }
+        }
+        assert!(checked > 500, "{checked} boxes checked");
+        assert!(
+            mismatches.is_empty(),
+            "{} of {checked} boxes differ from Chrome:\n{}",
+            mismatches.len(),
+            mismatches.join("\n")
+        );
+    }
+}
+
+fn conditions_for(viewport: Viewport) -> StyleConditions {
+    StyleConditions {
+        viewport,
+        states: PseudoStates::NONE,
+    }
+}
+
+/// A pin on a known difference (`known` in `demo/src/layout-utilities-data.ts`, "flex-1 in a column of unknown height"): Tailwind's
+/// `flex-1` is `1 1 0%`, and Chrome takes a percentage basis against a container with no height as the content, which an empty
+/// box with a `height` of its own does not have, so it lays both boxes out at nothing. Taffy resolves it as a length and shares the
+/// container's height out by the boxes' own heights, as it does for a basis of `0px`. The case differs only where the container's
+/// height is unknown; with a known height (`sizes.flex-1-definite`) the engines agree. When Taffy changes this the assertion fails and
+/// the known case can go.
+#[test]
+fn flex_one_in_a_column_of_unknown_height_is_not_chromes() {
+    let heights = |basis: &str| {
+        let mut scene = Scene::new();
+        let a = scene.leaf(&format!(r#"{{"height":16,"flexGrow":1,"flexShrink":1,"flexBasis":{basis}}}"#));
+        let b = scene.leaf(&format!(r#"{{"height":24,"flexGrow":1,"flexShrink":1,"flexBasis":{basis}}}"#));
+        let column = scene.node(r#"{"width":240}"#, &[a, b]);
+        let root = scene.node(r#"{"alignItems":"flex-start"}"#, &[column]);
+        scene.compute(root, 400.0, 400.0);
+        [scene.rect(a)[3], scene.rect(b)[3], scene.rect(column)[3]]
+    };
+    assert_eq!(heights(r#""0%""#), [20.0, 20.0, 40.0]);
+    assert_eq!(heights("0"), [20.0, 20.0, 40.0]);
+}

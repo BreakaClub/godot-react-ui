@@ -1,0 +1,7950 @@
+{
+  "pageClass": "flex-row flex-wrap content-start gap-4 p-4 bg-slate-100 shrink-0 self-start w-[1120px]",
+  "captionClass": "absolute top-0 left-0 h-4 w-full overflow-hidden text-[10px] text-slate-500",
+  "cellClass": "relative pt-5 shrink-0",
+  "compiled": {
+    "flex-row flex-wrap content-start gap-4 p-4 bg-slate-100 shrink-0 self-start w-[1120px]": {
+      "layers": [
+        {
+          "style": {
+            "alignContent": "flex-start",
+            "alignSelf": "flex-start",
+            "backgroundColor": "#f1f5f9",
+            "columnGap": 16,
+            "flexDirection": "row",
+            "flexShrink": 0,
+            "flexWrap": "wrap",
+            "paddingBottom": 16,
+            "paddingLeft": 16,
+            "paddingRight": 16,
+            "paddingTop": 16,
+            "rowGap": 16,
+            "width": 1120
+          }
+        }
+      ]
+    },
+    "absolute top-0 left-0 h-4 w-full overflow-hidden text-[10px] text-slate-500": {
+      "layers": [
+        {
+          "style": {
+            "color": "#64748b",
+            "fontSize": 10,
+            "height": 16,
+            "left": 0,
+            "overflowX": "hidden",
+            "overflowY": "hidden",
+            "position": "absolute",
+            "top": 0,
+            "width": "100%"
+          }
+        }
+      ]
+    },
+    "relative pt-5 shrink-0": {
+      "layers": [
+        {
+          "style": {
+            "flexShrink": 0,
+            "paddingTop": 20,
+            "position": "relative"
+          }
+        }
+      ]
+    },
+    "w-[240px] h-[110px] bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#e2e8f0",
+            "height": 110,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "h-6 w-12 mx-auto bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "height": 24,
+            "marginLeft": "auto",
+            "marginRight": "auto",
+            "width": 48
+          }
+        }
+      ]
+    },
+    "h-6 w-12 ml-auto bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#10b981",
+            "height": 24,
+            "marginLeft": "auto",
+            "width": 48
+          }
+        }
+      ]
+    },
+    "h-6 w-12 mr-auto bg-rose-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f43f5e",
+            "height": 24,
+            "marginRight": "auto",
+            "width": 48
+          }
+        }
+      ]
+    },
+    "w-[240px] h-[80px] flex-row bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#e2e8f0",
+            "flexDirection": "row",
+            "height": 80,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "w-10 h-6 bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "height": 24,
+            "width": 40
+          }
+        }
+      ]
+    },
+    "w-10 h-6 ml-auto my-auto bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#10b981",
+            "height": 24,
+            "marginBottom": "auto",
+            "marginLeft": "auto",
+            "marginTop": "auto",
+            "width": 40
+          }
+        }
+      ]
+    },
+    "w-10 h-6 m-auto bg-rose-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f43f5e",
+            "height": 24,
+            "marginBottom": "auto",
+            "marginLeft": "auto",
+            "marginRight": "auto",
+            "marginTop": "auto",
+            "width": 40
+          }
+        }
+      ]
+    },
+    "w-16 h-8 m-auto bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "height": 32,
+            "marginBottom": "auto",
+            "marginLeft": "auto",
+            "marginRight": "auto",
+            "marginTop": "auto",
+            "width": 64
+          }
+        }
+      ]
+    },
+    "w-[240px] h-[110px] p-4 bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#e2e8f0",
+            "height": 110,
+            "paddingBottom": 16,
+            "paddingLeft": 16,
+            "paddingRight": 16,
+            "paddingTop": 16,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "h-6 -mx-2 bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "height": 24,
+            "marginLeft": -8,
+            "marginRight": -8
+          }
+        }
+      ]
+    },
+    "h-6 w-20 -mt-3 bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#10b981",
+            "height": 24,
+            "marginTop": -12,
+            "width": 80
+          }
+        }
+      ]
+    },
+    "h-6 w-20 -mb-3 bg-rose-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f43f5e",
+            "height": 24,
+            "marginBottom": -12,
+            "width": 80
+          }
+        }
+      ]
+    },
+    "h-3 w-20 bg-amber-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f59e0b",
+            "height": 12,
+            "width": 80
+          }
+        }
+      ]
+    },
+    "h-6 w-12 m-[10%] bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "height": 24,
+            "marginBottom": "10%",
+            "marginLeft": "10%",
+            "marginRight": "10%",
+            "marginTop": "10%",
+            "width": 48
+          }
+        }
+      ]
+    },
+    "h-4 w-12 ml-[5%] mt-[2%] bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#10b981",
+            "height": 16,
+            "marginLeft": "5%",
+            "marginTop": "2%",
+            "width": 48
+          }
+        }
+      ]
+    },
+    "w-[240px] h-[40px] flex-row ps-2 pe-4 bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#e2e8f0",
+            "flexDirection": "row",
+            "height": 40,
+            "paddingLeft": 8,
+            "paddingRight": 16,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "w-10 h-6 ms-4 me-2 bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "height": 24,
+            "marginLeft": 16,
+            "marginRight": 8,
+            "width": 40
+          }
+        }
+      ]
+    },
+    "w-10 h-6 -ms-1 bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#10b981",
+            "height": 24,
+            "marginLeft": -4,
+            "width": 40
+          }
+        }
+      ]
+    },
+    "w-[240px] h-[110px] p-[1rem] gap-[0.5rem] bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 8,
+            "height": 110,
+            "paddingBottom": 16,
+            "paddingLeft": 16,
+            "paddingRight": 16,
+            "paddingTop": 16,
+            "rowGap": 8,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "h-4 mt-[3px] bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "height": 16,
+            "marginTop": 3
+          }
+        }
+      ]
+    },
+    "h-4 bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#10b981",
+            "height": 16
+          }
+        }
+      ]
+    },
+    "w-[240px] h-[80px] bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#e2e8f0",
+            "height": 80,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "h-6 w-16 m-4 mx-auto bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "height": 24,
+            "marginBottom": 16,
+            "marginLeft": "auto",
+            "marginRight": "auto",
+            "marginTop": 16,
+            "width": 64
+          }
+        }
+      ]
+    },
+    "w-[240px] h-[120px] bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#e2e8f0",
+            "height": 120,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "w-1/2 h-4 bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "height": 16,
+            "width": "50%"
+          }
+        }
+      ]
+    },
+    "w-1/3 h-4 bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#10b981",
+            "height": 16,
+            "width": "33.33333333333333%"
+          }
+        }
+      ]
+    },
+    "w-full h-4 bg-rose-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f43f5e",
+            "height": 16,
+            "width": "100%"
+          }
+        }
+      ]
+    },
+    "w-[25%] h-1/2 bg-amber-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f59e0b",
+            "height": "50%",
+            "width": "25%"
+          }
+        }
+      ]
+    },
+    "w-[240px] h-[110px] flex-row items-start gap-2 bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "alignItems": "flex-start",
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 8,
+            "flexDirection": "row",
+            "height": 110,
+            "rowGap": 8,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "size-8 bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "height": 32,
+            "width": 32
+          }
+        }
+      ]
+    },
+    "size-1/2 bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#10b981",
+            "height": "50%",
+            "width": "50%"
+          }
+        }
+      ]
+    },
+    "size-[3rem] bg-rose-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f43f5e",
+            "height": 48,
+            "width": 48
+          }
+        }
+      ]
+    },
+    "size-px bg-amber-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f59e0b",
+            "height": 1,
+            "width": 1
+          }
+        }
+      ]
+    },
+    "w-[300px] h-[100px] items-start gap-1 bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "alignItems": "flex-start",
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 4,
+            "height": 100,
+            "rowGap": 4,
+            "width": 300
+          }
+        }
+      ]
+    },
+    "flex-row flex-wrap gap-1 w-max bg-slate-300": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#cbd5e1",
+            "columnGap": 4,
+            "flexDirection": "row",
+            "flexWrap": "wrap",
+            "rowGap": 4,
+            "width": "max-content"
+          }
+        }
+      ]
+    },
+    "w-8 h-3 bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "height": 12,
+            "width": 32
+          }
+        }
+      ]
+    },
+    "w-10 h-3 bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#10b981",
+            "height": 12,
+            "width": 40
+          }
+        }
+      ]
+    },
+    "w-12 h-3 bg-rose-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f43f5e",
+            "height": 12,
+            "width": 48
+          }
+        }
+      ]
+    },
+    "flex-row flex-wrap gap-1 w-fit bg-slate-300": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#cbd5e1",
+            "columnGap": 4,
+            "flexDirection": "row",
+            "flexWrap": "wrap",
+            "rowGap": 4,
+            "width": "fit-content"
+          }
+        }
+      ]
+    },
+    "w-[100px] h-[100px] items-start gap-1 bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "alignItems": "flex-start",
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 4,
+            "height": 100,
+            "rowGap": 4,
+            "width": 100
+          }
+        }
+      ]
+    },
+    "flex-row flex-wrap gap-1 w-min bg-slate-300": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#cbd5e1",
+            "columnGap": 4,
+            "flexDirection": "row",
+            "flexWrap": "wrap",
+            "rowGap": 4,
+            "width": "min-content"
+          }
+        }
+      ]
+    },
+    "w-8 h-3 bg-amber-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f59e0b",
+            "height": 12,
+            "width": 32
+          }
+        }
+      ]
+    },
+    "h-fit w-12 bg-slate-300": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#cbd5e1",
+            "height": "fit-content",
+            "width": 48
+          }
+        }
+      ]
+    },
+    "h-4 bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "height": 16
+          }
+        }
+      ]
+    },
+    "h-6 bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#10b981",
+            "height": 24
+          }
+        }
+      ]
+    },
+    "h-min w-12 bg-slate-300": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#cbd5e1",
+            "height": "min-content",
+            "width": 48
+          }
+        }
+      ]
+    },
+    "h-max w-12 bg-slate-300": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#cbd5e1",
+            "height": "max-content",
+            "width": 48
+          }
+        }
+      ]
+    },
+    "w-[240px] h-[130px] gap-1 bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 4,
+            "height": 130,
+            "rowGap": 4,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "w-4 min-w-[100px] h-4 bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "height": 16,
+            "minWidth": 100,
+            "width": 16
+          }
+        }
+      ]
+    },
+    "w-full max-w-[80px] h-4 bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#10b981",
+            "height": 16,
+            "maxWidth": 80,
+            "width": "100%"
+          }
+        }
+      ]
+    },
+    "w-full max-w-xs h-4 bg-rose-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f43f5e",
+            "height": 16,
+            "maxWidth": 320,
+            "width": "100%"
+          }
+        }
+      ]
+    },
+    "w-[500px] max-w-full h-4 bg-amber-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f59e0b",
+            "height": 16,
+            "maxWidth": "100%",
+            "width": 500
+          }
+        }
+      ]
+    },
+    "h-20 max-h-8 w-8 bg-sky-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#0ea5e9",
+            "height": 80,
+            "maxHeight": 32,
+            "width": 32
+          }
+        }
+      ]
+    },
+    "h-2 min-h-[1rem] w-8 bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "height": 8,
+            "minHeight": 16,
+            "width": 32
+          }
+        }
+      ]
+    },
+    "w-24 h-4 max-w-none bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#10b981",
+            "height": 16,
+            "maxWidth": "auto",
+            "width": 96
+          }
+        }
+      ]
+    },
+    "w-[240px] h-[110px] flex-row items-start overflow-hidden bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "alignItems": "flex-start",
+            "backgroundColor": "#e2e8f0",
+            "flexDirection": "row",
+            "height": 110,
+            "overflowX": "hidden",
+            "overflowY": "hidden",
+            "width": 240
+          }
+        }
+      ]
+    },
+    "w-screen h-4 shrink-0 bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "flexShrink": 0,
+            "height": 16,
+            "width": "100vw"
+          }
+        }
+      ]
+    },
+    "w-[240px] h-[110px] flex-row items-start gap-1 overflow-hidden bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "alignItems": "flex-start",
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 4,
+            "flexDirection": "row",
+            "height": 110,
+            "overflowX": "hidden",
+            "overflowY": "hidden",
+            "rowGap": 4,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "w-[50vw] h-4 shrink-0 bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "flexShrink": 0,
+            "height": 16,
+            "width": "50vw"
+          }
+        }
+      ]
+    },
+    "w-4 h-[10vh] shrink-0 bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#10b981",
+            "flexShrink": 0,
+            "height": "10vh",
+            "width": 16
+          }
+        }
+      ]
+    },
+    "w-4 min-h-[5vh] shrink-0 bg-rose-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f43f5e",
+            "flexShrink": 0,
+            "minHeight": "5vh",
+            "width": 16
+          }
+        }
+      ]
+    },
+    "w-4 h-screen max-h-[2vh] shrink-0 bg-amber-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f59e0b",
+            "flexShrink": 0,
+            "height": "100vh",
+            "maxHeight": "2vh",
+            "width": 16
+          }
+        }
+      ]
+    },
+    "w-[240px] h-[60px] flex-row items-start gap-1 overflow-hidden bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "alignItems": "flex-start",
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 4,
+            "flexDirection": "row",
+            "height": 60,
+            "overflowX": "hidden",
+            "overflowY": "hidden",
+            "rowGap": 4,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "w-4 h-screen shrink-0 bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "flexShrink": 0,
+            "height": "100vh",
+            "width": 16
+          }
+        }
+      ]
+    },
+    "w-4 min-h-screen shrink-0 bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#10b981",
+            "flexShrink": 0,
+            "minHeight": "100vh",
+            "width": 16
+          }
+        }
+      ]
+    },
+    "w-4 h-4 max-h-screen shrink-0 bg-rose-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f43f5e",
+            "flexShrink": 0,
+            "height": 16,
+            "maxHeight": "100vh",
+            "width": 16
+          }
+        }
+      ]
+    },
+    "w-[240px] h-[40px] flex-row gap-2 bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 8,
+            "flexDirection": "row",
+            "height": 40,
+            "rowGap": 8,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "flex-row min-w-0 bg-slate-300": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#cbd5e1",
+            "flexDirection": "row",
+            "minWidth": 0
+          }
+        }
+      ]
+    },
+    "w-[300px] h-6 shrink-0 bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "flexShrink": 0,
+            "height": 24,
+            "width": 300
+          }
+        }
+      ]
+    },
+    "w-8 h-6 shrink-0 bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#10b981",
+            "flexShrink": 0,
+            "height": 24,
+            "width": 32
+          }
+        }
+      ]
+    },
+    "flex-row bg-slate-300": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#cbd5e1",
+            "flexDirection": "row"
+          }
+        }
+      ]
+    },
+    "w-[240px] h-[80px] gap-2 bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 8,
+            "height": 80,
+            "rowGap": 8,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "flex-row gap-2 h-8": {
+      "layers": [
+        {
+          "style": {
+            "columnGap": 8,
+            "flexDirection": "row",
+            "height": 32,
+            "rowGap": 8
+          }
+        }
+      ]
+    },
+    "flex-row overflow-hidden bg-slate-300": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#cbd5e1",
+            "flexDirection": "row",
+            "overflowX": "hidden",
+            "overflowY": "hidden"
+          }
+        }
+      ]
+    },
+    "flex-row overflow-clip bg-slate-300": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#cbd5e1",
+            "flexDirection": "row",
+            "overflowX": "clip",
+            "overflowY": "clip"
+          }
+        }
+      ]
+    },
+    "w-[240px] h-[40px] flex-row bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#e2e8f0",
+            "flexDirection": "row",
+            "height": 40,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "grow-[2] h-6 bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "flexGrow": 2,
+            "height": 24
+          }
+        }
+      ]
+    },
+    "grow h-6 bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#10b981",
+            "flexGrow": 1,
+            "height": 24
+          }
+        }
+      ]
+    },
+    "grow-0 w-8 h-6 bg-rose-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f43f5e",
+            "flexGrow": 0,
+            "height": 24,
+            "width": 32
+          }
+        }
+      ]
+    },
+    "basis-1/4 shrink-0 h-6 bg-amber-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f59e0b",
+            "flexBasis": "25%",
+            "flexShrink": 0,
+            "height": 24
+          }
+        }
+      ]
+    },
+    "flex-[3] h-6 bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "flexBasis": "0%",
+            "flexGrow": 3,
+            "flexShrink": 1,
+            "height": 24
+          }
+        }
+      ]
+    },
+    "flex-[1_1_auto] w-8 h-6 bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#10b981",
+            "flexBasis": "auto",
+            "flexGrow": 1,
+            "flexShrink": 1,
+            "height": 24,
+            "width": 32
+          }
+        }
+      ]
+    },
+    "flex-1 h-6 bg-rose-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f43f5e",
+            "flexBasis": 0,
+            "flexGrow": 1,
+            "flexShrink": 1,
+            "height": 24
+          }
+        }
+      ]
+    },
+    "flex-none w-8 h-6 bg-amber-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f59e0b",
+            "flexBasis": "auto",
+            "flexGrow": 0,
+            "flexShrink": 0,
+            "height": 24,
+            "width": 32
+          }
+        }
+      ]
+    },
+    "w-[240px] bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#e2e8f0",
+            "width": 240
+          }
+        }
+      ]
+    },
+    "flex-1 h-4 bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "flexBasis": 0,
+            "flexGrow": 1,
+            "flexShrink": 1,
+            "height": 16
+          }
+        }
+      ]
+    },
+    "flex-1 h-6 bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#10b981",
+            "flexBasis": 0,
+            "flexGrow": 1,
+            "flexShrink": 1,
+            "height": 24
+          }
+        }
+      ]
+    },
+    "flex-1 bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "flexBasis": 0,
+            "flexGrow": 1,
+            "flexShrink": 1
+          }
+        }
+      ]
+    },
+    "flex-1 bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#10b981",
+            "flexBasis": 0,
+            "flexGrow": 1,
+            "flexShrink": 1
+          }
+        }
+      ]
+    },
+    "grid grid-cols-[100px_1fr_auto] gap-1 w-[240px] h-[60px] bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 4,
+            "display": "grid",
+            "gridTemplateColumns": [
+              100,
+              "1fr",
+              "auto"
+            ],
+            "height": 60,
+            "rowGap": 4,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "h-6 bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "height": 24
+          }
+        }
+      ]
+    },
+    "h-6 w-10 bg-rose-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f43f5e",
+            "height": 24,
+            "width": 40
+          }
+        }
+      ]
+    },
+    "h-6 col-span-2 bg-amber-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f59e0b",
+            "gridColumnSpan": 2,
+            "height": 24
+          }
+        }
+      ]
+    },
+    "grid grid-cols-3 grid-rows-2 gap-1 w-[240px] h-[100px] bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 4,
+            "display": "grid",
+            "gridTemplateColumns": 3,
+            "gridTemplateRows": 2,
+            "height": 100,
+            "rowGap": 4,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "col-span-2 bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "gridColumnSpan": 2
+          }
+        }
+      ]
+    },
+    "row-span-2 bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#10b981",
+            "gridRowSpan": 2
+          }
+        }
+      ]
+    },
+    "bg-rose-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f43f5e"
+          }
+        }
+      ]
+    },
+    "col-start-2 bg-amber-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f59e0b",
+            "gridColumnStart": 2
+          }
+        }
+      ]
+    },
+    "grid grid-cols-4 grid-rows-2 gap-1 w-[240px] h-[60px] bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 4,
+            "display": "grid",
+            "gridTemplateColumns": 4,
+            "gridTemplateRows": 2,
+            "height": 60,
+            "rowGap": 4,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "col-start-2 col-span-2 bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "gridColumnSpan": 2,
+            "gridColumnStart": 2
+          }
+        }
+      ]
+    },
+    "col-span-2 col-start-2 bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#10b981",
+            "gridColumnSpan": 2,
+            "gridColumnStart": 2
+          }
+        }
+      ]
+    },
+    "grid grid-flow-col grid-rows-2 auto-cols-[40px] gap-1 w-[240px] h-[60px] bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 4,
+            "display": "grid",
+            "gridAutoColumns": [
+              40
+            ],
+            "gridAutoFlow": "column",
+            "gridTemplateRows": 2,
+            "height": 60,
+            "rowGap": 4,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "h-full bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "height": "100%"
+          }
+        }
+      ]
+    },
+    "h-full bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#10b981",
+            "height": "100%"
+          }
+        }
+      ]
+    },
+    "h-full bg-rose-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f43f5e",
+            "height": "100%"
+          }
+        }
+      ]
+    },
+    "h-full bg-amber-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f59e0b",
+            "height": "100%"
+          }
+        }
+      ]
+    },
+    "h-full bg-sky-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#0ea5e9",
+            "height": "100%"
+          }
+        }
+      ]
+    },
+    "grid grid-cols-2 auto-rows-[24px] gap-1 w-[240px] h-[110px] content-start bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "alignContent": "flex-start",
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 4,
+            "display": "grid",
+            "gridAutoRows": [
+              24
+            ],
+            "gridTemplateColumns": 2,
+            "height": 110,
+            "rowGap": 4,
+            "width": 240
+          }
+        }
+      ]
+    },
+    " bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1"
+          }
+        }
+      ]
+    },
+    " bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#10b981"
+          }
+        }
+      ]
+    },
+    " bg-rose-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f43f5e"
+          }
+        }
+      ]
+    },
+    " bg-amber-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f59e0b"
+          }
+        }
+      ]
+    },
+    " bg-sky-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#0ea5e9"
+          }
+        }
+      ]
+    },
+    "grid grid-cols-[repeat(auto-fill,minmax(60px,1fr))] gap-1 w-[240px] h-[80px] content-start bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "alignContent": "flex-start",
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 4,
+            "display": "grid",
+            "gridTemplateColumns": [
+              {
+                "repeat": "auto-fill",
+                "tracks": [
+                  {
+                    "minmax": [
+                      60,
+                      "1fr"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "height": 80,
+            "rowGap": 4,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "h-6 bg-rose-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f43f5e",
+            "height": 24
+          }
+        }
+      ]
+    },
+    "h-6 bg-amber-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f59e0b",
+            "height": 24
+          }
+        }
+      ]
+    },
+    "h-6 bg-sky-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#0ea5e9",
+            "height": 24
+          }
+        }
+      ]
+    },
+    "grid grid-cols-[1fr_2fr] gap-1 w-[240px] h-[110px] content-start bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "alignContent": "flex-start",
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 4,
+            "display": "grid",
+            "gridTemplateColumns": [
+              "1fr",
+              "2fr"
+            ],
+            "height": 110,
+            "rowGap": 4,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "col-span-full h-4 bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "gridColumnEnd": -1,
+            "gridColumnStart": 1,
+            "height": 16
+          }
+        }
+      ]
+    },
+    "col-start-2 row-span-2 bg-rose-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f43f5e",
+            "gridColumnStart": 2,
+            "gridRowSpan": 2
+          }
+        }
+      ]
+    },
+    "grid grid-cols-3 grid-flow-row-dense gap-1 w-[240px] h-[80px] content-start bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "alignContent": "flex-start",
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 4,
+            "display": "grid",
+            "gridAutoFlow": "row-dense",
+            "gridTemplateColumns": 3,
+            "height": 80,
+            "rowGap": 4,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "col-span-2 h-6 bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "gridColumnSpan": 2,
+            "height": 24
+          }
+        }
+      ]
+    },
+    "col-span-2 h-6 bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#10b981",
+            "gridColumnSpan": 2,
+            "height": 24
+          }
+        }
+      ]
+    },
+    "grid grid-cols-3 gap-1 w-[240px] h-[80px] content-start bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "alignContent": "flex-start",
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 4,
+            "display": "grid",
+            "gridTemplateColumns": 3,
+            "height": 80,
+            "rowGap": 4,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "grid grid-cols-2 grid-rows-2 place-items-center gap-1 w-[240px] h-[100px] bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "alignItems": "center",
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 4,
+            "display": "grid",
+            "gridTemplateColumns": 2,
+            "gridTemplateRows": 2,
+            "height": 100,
+            "justifyItems": "center",
+            "rowGap": 4,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "w-8 h-6 bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "height": 24,
+            "width": 32
+          }
+        }
+      ]
+    },
+    "w-8 h-6 justify-self-end bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#10b981",
+            "height": 24,
+            "justifySelf": "end",
+            "width": 32
+          }
+        }
+      ]
+    },
+    "w-8 h-6 self-end bg-rose-500": {
+      "layers": [
+        {
+          "style": {
+            "alignSelf": "flex-end",
+            "backgroundColor": "#f43f5e",
+            "height": 24,
+            "width": 32
+          }
+        }
+      ]
+    },
+    "w-8 h-6 place-self-start bg-amber-500": {
+      "layers": [
+        {
+          "style": {
+            "alignSelf": "start",
+            "backgroundColor": "#f59e0b",
+            "height": 24,
+            "justifySelf": "start",
+            "width": 32
+          }
+        }
+      ]
+    },
+    "grid grid-cols-2 grid-rows-2 justify-items-end gap-1 w-[240px] h-[100px] bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 4,
+            "display": "grid",
+            "gridTemplateColumns": 2,
+            "gridTemplateRows": 2,
+            "height": 100,
+            "justifyItems": "end",
+            "rowGap": 4,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "place-self-stretch bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "alignSelf": "stretch",
+            "backgroundColor": "#10b981",
+            "justifySelf": "stretch"
+          }
+        }
+      ]
+    },
+    "w-8 bg-rose-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f43f5e",
+            "width": 32
+          }
+        }
+      ]
+    },
+    "w-8 h-6 justify-self-auto bg-amber-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f59e0b",
+            "height": 24,
+            "justifySelf": "auto",
+            "width": 32
+          }
+        }
+      ]
+    },
+    "grid grid-cols-[40px_40px] grid-rows-[20px_20px] content-between gap-1 w-[240px] h-[100px] bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "alignContent": "space-between",
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 4,
+            "display": "grid",
+            "gridTemplateColumns": [
+              40,
+              40
+            ],
+            "gridTemplateRows": [
+              20,
+              20
+            ],
+            "height": 100,
+            "rowGap": 4,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "grid grid-cols-[40px_40px] grid-rows-[20px_20px] place-content-center gap-1 w-[240px] h-[100px] bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "alignContent": "center",
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 4,
+            "display": "grid",
+            "gridTemplateColumns": [
+              40,
+              40
+            ],
+            "gridTemplateRows": [
+              20,
+              20
+            ],
+            "height": 100,
+            "justifyContent": "center",
+            "rowGap": 4,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "grid grid-cols-[auto_auto] gap-1 w-[240px] h-[40px] bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 4,
+            "display": "grid",
+            "gridTemplateColumns": [
+              "auto",
+              "auto"
+            ],
+            "height": 40,
+            "rowGap": 4,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "w-20 h-6 bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#10b981",
+            "height": 24,
+            "width": 80
+          }
+        }
+      ]
+    },
+    "grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)_fit-content(30px)] gap-1 w-[240px] h-[40px] bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 4,
+            "display": "grid",
+            "gridTemplateColumns": [
+              {
+                "minmax": [
+                  0,
+                  "1fr"
+                ]
+              },
+              {
+                "minmax": [
+                  0,
+                  "2fr"
+                ]
+              },
+              {
+                "fitContent": 30
+              }
+            ],
+            "height": 40,
+            "rowGap": 4,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "w-20 h-6 bg-rose-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f43f5e",
+            "height": 24,
+            "width": 80
+          }
+        }
+      ]
+    },
+    "grid grid-rows-[auto_1fr] grid-cols-none gap-1 w-[240px] h-[100px] bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 4,
+            "display": "grid",
+            "gridTemplateColumns": [],
+            "gridTemplateRows": [
+              "auto",
+              "1fr"
+            ],
+            "height": 100,
+            "rowGap": 4,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#10b981"
+          }
+        }
+      ]
+    },
+    "grid grid-cols-[min-content_max-content] gap-1 w-[240px] h-[40px] bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 4,
+            "display": "grid",
+            "gridTemplateColumns": [
+              "min-content",
+              "max-content"
+            ],
+            "height": 40,
+            "rowGap": 4,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "flex-row flex-wrap w-fit bg-slate-300": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#cbd5e1",
+            "flexDirection": "row",
+            "flexWrap": "wrap",
+            "width": "fit-content"
+          }
+        }
+      ]
+    },
+    "w-8 h-4 bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "height": 16,
+            "width": 32
+          }
+        }
+      ]
+    },
+    "w-10 h-4 bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#10b981",
+            "height": 16,
+            "width": 40
+          }
+        }
+      ]
+    },
+    "w-8 h-4 bg-rose-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f43f5e",
+            "height": 16,
+            "width": 32
+          }
+        }
+      ]
+    },
+    "w-10 h-4 bg-amber-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f59e0b",
+            "height": 16,
+            "width": 40
+          }
+        }
+      ]
+    },
+    "w-[110px] h-[90px] flex-row flex-wrap content-start gap-x-1 bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "alignContent": "flex-start",
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 4,
+            "flexDirection": "row",
+            "flexWrap": "wrap",
+            "height": 90,
+            "width": 110
+          }
+        }
+      ]
+    },
+    "w-12 h-4 bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "height": 16,
+            "width": 48
+          }
+        }
+      ]
+    },
+    "w-12 h-4 bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#10b981",
+            "height": 16,
+            "width": 48
+          }
+        }
+      ]
+    },
+    "w-12 h-4 bg-rose-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f43f5e",
+            "height": 16,
+            "width": 48
+          }
+        }
+      ]
+    },
+    "w-[110px] h-[90px] flex-row flex-wrap content-center gap-x-1 bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "alignContent": "center",
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 4,
+            "flexDirection": "row",
+            "flexWrap": "wrap",
+            "height": 90,
+            "width": 110
+          }
+        }
+      ]
+    },
+    "w-[110px] h-[90px] flex-row flex-wrap content-end gap-x-1 bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "alignContent": "flex-end",
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 4,
+            "flexDirection": "row",
+            "flexWrap": "wrap",
+            "height": 90,
+            "width": 110
+          }
+        }
+      ]
+    },
+    "w-[110px] h-[90px] flex-row flex-wrap content-between gap-x-1 bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "alignContent": "space-between",
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 4,
+            "flexDirection": "row",
+            "flexWrap": "wrap",
+            "height": 90,
+            "width": 110
+          }
+        }
+      ]
+    },
+    "w-[110px] h-[90px] flex-row flex-wrap content-around gap-x-1 bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "alignContent": "space-around",
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 4,
+            "flexDirection": "row",
+            "flexWrap": "wrap",
+            "height": 90,
+            "width": 110
+          }
+        }
+      ]
+    },
+    "w-[110px] h-[90px] flex-row flex-wrap content-evenly gap-x-1 bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "alignContent": "space-evenly",
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 4,
+            "flexDirection": "row",
+            "flexWrap": "wrap",
+            "height": 90,
+            "width": 110
+          }
+        }
+      ]
+    },
+    "w-[110px] h-[90px] flex-row flex-wrap content-stretch gap-x-1 bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "alignContent": "stretch",
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 4,
+            "flexDirection": "row",
+            "flexWrap": "wrap",
+            "height": 90,
+            "width": 110
+          }
+        }
+      ]
+    },
+    "w-[110px] h-[90px] flex-row flex-wrap content-normal gap-x-1 bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "alignContent": "normal",
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 4,
+            "flexDirection": "row",
+            "flexWrap": "wrap",
+            "height": 90,
+            "width": 110
+          }
+        }
+      ]
+    },
+    "w-[240px] h-[40px] flex-row justify-stretch bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#e2e8f0",
+            "flexDirection": "row",
+            "height": 40,
+            "justifyContent": "stretch",
+            "width": 240
+          }
+        }
+      ]
+    },
+    "w-10 h-6 bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#10b981",
+            "height": 24,
+            "width": 40
+          }
+        }
+      ]
+    },
+    "w-[240px] h-[40px] flex-row justify-normal bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#e2e8f0",
+            "flexDirection": "row",
+            "height": 40,
+            "justifyContent": "normal",
+            "width": 240
+          }
+        }
+      ]
+    },
+    "w-[240px] h-[60px] flex-row items-start gap-1 bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "alignItems": "flex-start",
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 4,
+            "flexDirection": "row",
+            "height": 60,
+            "rowGap": 4,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "w-10 h-6 self-end bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "alignSelf": "flex-end",
+            "backgroundColor": "#6366f1",
+            "height": 24,
+            "width": 40
+          }
+        }
+      ]
+    },
+    "w-10 h-6 self-center bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "alignSelf": "center",
+            "backgroundColor": "#10b981",
+            "height": 24,
+            "width": 40
+          }
+        }
+      ]
+    },
+    "w-10 h-6 self-auto bg-rose-500": {
+      "layers": [
+        {
+          "style": {
+            "alignSelf": "auto",
+            "backgroundColor": "#f43f5e",
+            "height": 24,
+            "width": 40
+          }
+        }
+      ]
+    },
+    "w-10 self-stretch bg-amber-500": {
+      "layers": [
+        {
+          "style": {
+            "alignSelf": "stretch",
+            "backgroundColor": "#f59e0b",
+            "width": 40
+          }
+        }
+      ]
+    },
+    "w-[240px] h-[60px] flex-row items-end gap-1 bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "alignItems": "flex-end",
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 4,
+            "flexDirection": "row",
+            "height": 60,
+            "rowGap": 4,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "w-10 h-6 self-auto bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "alignSelf": "auto",
+            "backgroundColor": "#6366f1",
+            "height": 24,
+            "width": 40
+          }
+        }
+      ]
+    },
+    "w-10 h-6 self-start bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "alignSelf": "flex-start",
+            "backgroundColor": "#10b981",
+            "height": 24,
+            "width": 40
+          }
+        }
+      ]
+    },
+    "w-[240px] h-[30px] flex-row gap-1 bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 4,
+            "flexDirection": "row",
+            "height": 30,
+            "rowGap": 4,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "order-3 w-8 h-6 bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "height": 24,
+            "order": 3,
+            "width": 32
+          }
+        }
+      ]
+    },
+    "order-1 w-10 h-6 bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#10b981",
+            "height": 24,
+            "order": 1,
+            "width": 40
+          }
+        }
+      ]
+    },
+    "order-2 w-12 h-6 bg-rose-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f43f5e",
+            "height": 24,
+            "order": 2,
+            "width": 48
+          }
+        }
+      ]
+    },
+    "order-first w-6 h-6 bg-amber-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f59e0b",
+            "height": 24,
+            "order": -9999,
+            "width": 24
+          }
+        }
+      ]
+    },
+    "-order-1 w-4 h-6 bg-sky-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#0ea5e9",
+            "height": 24,
+            "order": -1,
+            "width": 16
+          }
+        }
+      ]
+    },
+    "w-[240px] h-[110px] gap-1 bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 4,
+            "height": 110,
+            "rowGap": 4,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "order-last h-4 bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "height": 16,
+            "order": 9999
+          }
+        }
+      ]
+    },
+    "order-none h-4 bg-rose-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f43f5e",
+            "height": 16,
+            "order": 0
+          }
+        }
+      ]
+    },
+    "order-[-2] h-3 bg-amber-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f59e0b",
+            "height": 12,
+            "order": -2
+          }
+        }
+      ]
+    },
+    "grid grid-cols-3 gap-1 w-[240px] h-[60px] bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 4,
+            "display": "grid",
+            "gridTemplateColumns": 3,
+            "height": 60,
+            "rowGap": 4,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "order-3 h-6 bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "height": 24,
+            "order": 3
+          }
+        }
+      ]
+    },
+    "order-1 h-6 bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#10b981",
+            "height": 24,
+            "order": 1
+          }
+        }
+      ]
+    },
+    "order-2 h-6 bg-rose-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f43f5e",
+            "height": 24,
+            "order": 2
+          }
+        }
+      ]
+    },
+    "w-[240px] h-[80px] flex-row items-start gap-2 bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "alignItems": "flex-start",
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 8,
+            "flexDirection": "row",
+            "height": 80,
+            "rowGap": 8,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "invisible w-16 h-10 bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "height": 40,
+            "visibility": "hidden",
+            "width": 64
+          }
+        }
+      ]
+    },
+    "visible w-8 h-4 bg-rose-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f43f5e",
+            "height": 16,
+            "visibility": "visible",
+            "width": 32
+          }
+        }
+      ]
+    },
+    "w-16 h-10 bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#10b981",
+            "height": 40,
+            "width": 64
+          }
+        }
+      ]
+    },
+    "w-[240px] h-[60px] flex-row items-start gap-2 bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "alignItems": "flex-start",
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 8,
+            "flexDirection": "row",
+            "height": 60,
+            "rowGap": 8,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "w-16 h-8 overflow-clip bg-slate-300": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#cbd5e1",
+            "height": 32,
+            "overflowX": "clip",
+            "overflowY": "clip",
+            "width": 64
+          }
+        }
+      ]
+    },
+    "w-32 h-12 bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "height": 48,
+            "width": 128
+          }
+        }
+      ]
+    },
+    "w-16 h-8 overflow-visible bg-slate-300": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#cbd5e1",
+            "height": 32,
+            "overflowX": "visible",
+            "overflowY": "visible",
+            "width": 64
+          }
+        }
+      ]
+    },
+    "w-8 h-12 bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#10b981",
+            "height": 48,
+            "width": 32
+          }
+        }
+      ]
+    },
+    "hidden w-10 h-6 bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#10b981",
+            "display": "none",
+            "height": 24,
+            "width": 40
+          }
+        }
+      ]
+    },
+    "w-10 h-6 bg-rose-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f43f5e",
+            "height": 24,
+            "width": 40
+          }
+        }
+      ]
+    },
+    "w-[300px] h-[110px] flex-row items-start gap-2 bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "alignItems": "flex-start",
+            "backgroundColor": "#e2e8f0",
+            "columnGap": 8,
+            "flexDirection": "row",
+            "height": 110,
+            "rowGap": 8,
+            "width": 300
+          }
+        }
+      ]
+    },
+    "w-12 aspect-square bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "aspectRatio": 1,
+            "backgroundColor": "#6366f1",
+            "width": 48
+          }
+        }
+      ]
+    },
+    "w-16 aspect-video bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "aspectRatio": 1.7777777777777777,
+            "backgroundColor": "#10b981",
+            "width": 64
+          }
+        }
+      ]
+    },
+    "w-12 aspect-[4/3] bg-rose-500": {
+      "layers": [
+        {
+          "style": {
+            "aspectRatio": 1.3333333333333333,
+            "backgroundColor": "#f43f5e",
+            "width": 48
+          }
+        }
+      ]
+    },
+    "w-12 h-6 aspect-auto bg-amber-500": {
+      "layers": [
+        {
+          "style": {
+            "aspectRatio": "auto",
+            "backgroundColor": "#f59e0b",
+            "height": 24,
+            "width": 48
+          }
+        }
+      ]
+    },
+    "h-10 aspect-square bg-sky-500": {
+      "layers": [
+        {
+          "style": {
+            "aspectRatio": 1,
+            "backgroundColor": "#0ea5e9",
+            "height": 40
+          }
+        }
+      ]
+    },
+    "w-20 h-10 p-2 border-4 box-content bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "borderWidth": 4,
+            "boxSizing": "content-box",
+            "height": 40,
+            "paddingBottom": 8,
+            "paddingLeft": 8,
+            "paddingRight": 8,
+            "paddingTop": 8,
+            "width": 80
+          }
+        }
+      ]
+    },
+    "w-20 h-10 p-2 border-4 box-border bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#10b981",
+            "borderWidth": 4,
+            "boxSizing": "border-box",
+            "height": 40,
+            "paddingBottom": 8,
+            "paddingLeft": 8,
+            "paddingRight": 8,
+            "paddingTop": 8,
+            "width": 80
+          }
+        }
+      ]
+    },
+    "block w-[240px] h-[130px] bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#e2e8f0",
+            "display": "block",
+            "height": 130,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "h-6 mb-4 bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "height": 24,
+            "marginBottom": 16
+          }
+        }
+      ]
+    },
+    "h-6 mt-6 bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#10b981",
+            "height": 24,
+            "marginTop": 24
+          }
+        }
+      ]
+    },
+    "h-6 w-20 mx-auto bg-rose-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f43f5e",
+            "height": 24,
+            "marginLeft": "auto",
+            "marginRight": "auto",
+            "width": 80
+          }
+        }
+      ]
+    },
+    "h-4 ml-auto w-10 bg-amber-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#f59e0b",
+            "height": 16,
+            "marginLeft": "auto",
+            "width": 40
+          }
+        }
+      ]
+    },
+    "block w-[240px] h-[110px] bg-slate-200": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#e2e8f0",
+            "display": "block",
+            "height": 110,
+            "width": 240
+          }
+        }
+      ]
+    },
+    "flow-root bg-slate-300": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#cbd5e1",
+            "display": "flow-root"
+          }
+        }
+      ]
+    },
+    "h-6 mt-4 bg-indigo-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#6366f1",
+            "height": 24,
+            "marginTop": 16
+          }
+        }
+      ]
+    },
+    "h-6 mt-2 bg-emerald-500": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#10b981",
+            "height": 24,
+            "marginTop": 8
+          }
+        }
+      ]
+    },
+    "block bg-slate-300": {
+      "layers": [
+        {
+          "style": {
+            "backgroundColor": "#cbd5e1",
+            "display": "block"
+          }
+        }
+      ]
+    }
+  },
+  "pages": [
+    {
+      "name": "margins",
+      "cases": [
+        {
+          "title": "mx-auto, ml-auto, mr-auto",
+          "stage": {
+            "id": "margins.auto-column",
+            "className": "w-[240px] h-[110px] bg-slate-200",
+            "children": [
+              {
+                "id": "margins.auto-column.a",
+                "className": "h-6 w-12 mx-auto bg-indigo-500"
+              },
+              {
+                "id": "margins.auto-column.b",
+                "className": "h-6 w-12 ml-auto bg-emerald-500"
+              },
+              {
+                "id": "margins.auto-column.c",
+                "className": "h-6 w-12 mr-auto bg-rose-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "row: ml-auto, my-auto, m-auto",
+          "stage": {
+            "id": "margins.auto-row",
+            "className": "w-[240px] h-[80px] flex-row bg-slate-200",
+            "children": [
+              {
+                "id": "margins.auto-row.a",
+                "className": "w-10 h-6 bg-indigo-500"
+              },
+              {
+                "id": "margins.auto-row.b",
+                "className": "w-10 h-6 ml-auto my-auto bg-emerald-500"
+              },
+              {
+                "id": "margins.auto-row.c",
+                "className": "w-10 h-6 m-auto bg-rose-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "m-auto centres both ways",
+          "stage": {
+            "id": "margins.auto-single",
+            "className": "w-[240px] h-[80px] flex-row bg-slate-200",
+            "children": [
+              {
+                "id": "margins.auto-single.a",
+                "className": "w-16 h-8 m-auto bg-indigo-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "-mx-2, -mt-3, -mb-3",
+          "stage": {
+            "id": "margins.negative",
+            "className": "w-[240px] h-[110px] p-4 bg-slate-200",
+            "children": [
+              {
+                "id": "margins.negative.a",
+                "className": "h-6 -mx-2 bg-indigo-500"
+              },
+              {
+                "id": "margins.negative.b",
+                "className": "h-6 w-20 -mt-3 bg-emerald-500"
+              },
+              {
+                "id": "margins.negative.c",
+                "className": "h-6 w-20 -mb-3 bg-rose-500"
+              },
+              {
+                "id": "margins.negative.d",
+                "className": "h-3 w-20 bg-amber-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "m-[10%] and ml-[5%] mt-[2%]",
+          "stage": {
+            "id": "margins.percent",
+            "className": "w-[240px] h-[110px] bg-slate-200",
+            "children": [
+              {
+                "id": "margins.percent.a",
+                "className": "h-6 w-12 m-[10%] bg-indigo-500"
+              },
+              {
+                "id": "margins.percent.b",
+                "className": "h-4 w-12 ml-[5%] mt-[2%] bg-emerald-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "ms-4 me-2 ps-2 pe-4",
+          "stage": {
+            "id": "margins.logical",
+            "className": "w-[240px] h-[40px] flex-row ps-2 pe-4 bg-slate-200",
+            "children": [
+              {
+                "id": "margins.logical.a",
+                "className": "w-10 h-6 ms-4 me-2 bg-indigo-500"
+              },
+              {
+                "id": "margins.logical.b",
+                "className": "w-10 h-6 -ms-1 bg-emerald-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "p-[1rem] gap-[0.5rem] mt-[3px]",
+          "stage": {
+            "id": "margins.arbitrary",
+            "className": "w-[240px] h-[110px] p-[1rem] gap-[0.5rem] bg-slate-200",
+            "children": [
+              {
+                "id": "margins.arbitrary.a",
+                "className": "h-4 mt-[3px] bg-indigo-500"
+              },
+              {
+                "id": "margins.arbitrary.b",
+                "className": "h-4 bg-emerald-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "m-4 mx-auto: the later class wins",
+          "stage": {
+            "id": "margins.override",
+            "className": "w-[240px] h-[80px] bg-slate-200",
+            "children": [
+              {
+                "id": "margins.override.a",
+                "className": "h-6 w-16 m-4 mx-auto bg-indigo-500"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "sizes",
+      "cases": [
+        {
+          "title": "w-1/2, w-1/3, w-full, w-[25%], h-1/2",
+          "stage": {
+            "id": "sizes.fractions",
+            "className": "w-[240px] h-[120px] bg-slate-200",
+            "children": [
+              {
+                "id": "sizes.fractions.a",
+                "className": "w-1/2 h-4 bg-indigo-500"
+              },
+              {
+                "id": "sizes.fractions.b",
+                "className": "w-1/3 h-4 bg-emerald-500"
+              },
+              {
+                "id": "sizes.fractions.c",
+                "className": "w-full h-4 bg-rose-500"
+              },
+              {
+                "id": "sizes.fractions.d",
+                "className": "w-[25%] h-1/2 bg-amber-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "size-8, size-1/2, size-[3rem], size-px",
+          "stage": {
+            "id": "sizes.size",
+            "className": "w-[240px] h-[110px] flex-row items-start gap-2 bg-slate-200",
+            "children": [
+              {
+                "id": "sizes.size.a",
+                "className": "size-8 bg-indigo-500"
+              },
+              {
+                "id": "sizes.size.b",
+                "className": "size-1/2 bg-emerald-500"
+              },
+              {
+                "id": "sizes.size.c",
+                "className": "size-[3rem] bg-rose-500"
+              },
+              {
+                "id": "sizes.size.d",
+                "className": "size-px bg-amber-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "w-min, w-max, w-fit",
+          "stage": {
+            "id": "sizes.intrinsic",
+            "className": "w-[300px] h-[100px] items-start gap-1 bg-slate-200",
+            "children": [
+              {
+                "id": "sizes.intrinsic.max",
+                "className": "flex-row flex-wrap gap-1 w-max bg-slate-300",
+                "children": [
+                  {
+                    "id": "sizes.intrinsic.max.1",
+                    "className": "w-8 h-3 bg-indigo-500"
+                  },
+                  {
+                    "id": "sizes.intrinsic.max.2",
+                    "className": "w-10 h-3 bg-emerald-500"
+                  },
+                  {
+                    "id": "sizes.intrinsic.max.3",
+                    "className": "w-12 h-3 bg-rose-500"
+                  }
+                ]
+              },
+              {
+                "id": "sizes.intrinsic.fit",
+                "className": "flex-row flex-wrap gap-1 w-fit bg-slate-300",
+                "children": [
+                  {
+                    "id": "sizes.intrinsic.fit.1",
+                    "className": "w-8 h-3 bg-indigo-500"
+                  },
+                  {
+                    "id": "sizes.intrinsic.fit.2",
+                    "className": "w-10 h-3 bg-emerald-500"
+                  },
+                  {
+                    "id": "sizes.intrinsic.fit.3",
+                    "className": "w-12 h-3 bg-rose-500"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "title": "w-fit in 100 px: as much as there is",
+          "stage": {
+            "id": "sizes.intrinsic-narrow",
+            "className": "w-[100px] h-[100px] items-start gap-1 bg-slate-200",
+            "children": [
+              {
+                "id": "sizes.intrinsic-narrow.fit",
+                "className": "flex-row flex-wrap gap-1 w-fit bg-slate-300",
+                "children": [
+                  {
+                    "id": "sizes.intrinsic-narrow.fit.1",
+                    "className": "w-8 h-3 bg-indigo-500"
+                  },
+                  {
+                    "id": "sizes.intrinsic-narrow.fit.2",
+                    "className": "w-10 h-3 bg-emerald-500"
+                  },
+                  {
+                    "id": "sizes.intrinsic-narrow.fit.3",
+                    "className": "w-12 h-3 bg-rose-500"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "title": "w-min on a wrapping row: the height is Taffy's",
+          "stage": {
+            "id": "sizes.intrinsic-min",
+            "className": "w-[100px] h-[100px] items-start gap-1 bg-slate-200",
+            "children": [
+              {
+                "id": "sizes.intrinsic-min.min",
+                "className": "flex-row flex-wrap gap-1 w-min bg-slate-300",
+                "children": [
+                  {
+                    "id": "sizes.intrinsic-min.min.1",
+                    "className": "w-8 h-3 bg-indigo-500"
+                  },
+                  {
+                    "id": "sizes.intrinsic-min.min.2",
+                    "className": "w-10 h-3 bg-emerald-500"
+                  },
+                  {
+                    "id": "sizes.intrinsic-min.min.3",
+                    "className": "w-12 h-3 bg-rose-500"
+                  }
+                ]
+              },
+              {
+                "id": "sizes.intrinsic-min.after",
+                "className": "w-8 h-3 bg-amber-500"
+              }
+            ]
+          },
+          "known": "Taffy sizes a wrapping flex container of width min-content one line high, so its height and what follows it are off"
+        },
+        {
+          "title": "h-fit, h-min, h-max on content",
+          "stage": {
+            "id": "sizes.intrinsic-height",
+            "className": "w-[240px] h-[110px] flex-row items-start gap-2 bg-slate-200",
+            "children": [
+              {
+                "id": "sizes.intrinsic-height.fit",
+                "className": "h-fit w-12 bg-slate-300",
+                "children": [
+                  {
+                    "id": "sizes.intrinsic-height.fit.1",
+                    "className": "h-4 bg-indigo-500"
+                  },
+                  {
+                    "id": "sizes.intrinsic-height.fit.2",
+                    "className": "h-6 bg-emerald-500"
+                  }
+                ]
+              },
+              {
+                "id": "sizes.intrinsic-height.min",
+                "className": "h-min w-12 bg-slate-300",
+                "children": [
+                  {
+                    "id": "sizes.intrinsic-height.min.1",
+                    "className": "h-4 bg-indigo-500"
+                  },
+                  {
+                    "id": "sizes.intrinsic-height.min.2",
+                    "className": "h-6 bg-emerald-500"
+                  }
+                ]
+              },
+              {
+                "id": "sizes.intrinsic-height.max",
+                "className": "h-max w-12 bg-slate-300",
+                "children": [
+                  {
+                    "id": "sizes.intrinsic-height.max.1",
+                    "className": "h-4 bg-indigo-500"
+                  },
+                  {
+                    "id": "sizes.intrinsic-height.max.2",
+                    "className": "h-6 bg-emerald-500"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "title": "min-w, max-w, max-w-xs, max-w-full, max-h, min-h",
+          "stage": {
+            "id": "sizes.limits",
+            "className": "w-[240px] h-[130px] gap-1 bg-slate-200",
+            "children": [
+              {
+                "id": "sizes.limits.a",
+                "className": "w-4 min-w-[100px] h-4 bg-indigo-500"
+              },
+              {
+                "id": "sizes.limits.b",
+                "className": "w-full max-w-[80px] h-4 bg-emerald-500"
+              },
+              {
+                "id": "sizes.limits.c",
+                "className": "w-full max-w-xs h-4 bg-rose-500"
+              },
+              {
+                "id": "sizes.limits.d",
+                "className": "w-[500px] max-w-full h-4 bg-amber-500"
+              },
+              {
+                "id": "sizes.limits.e",
+                "className": "h-20 max-h-8 w-8 bg-sky-500"
+              },
+              {
+                "id": "sizes.limits.f",
+                "className": "h-2 min-h-[1rem] w-8 bg-indigo-500"
+              },
+              {
+                "id": "sizes.limits.g",
+                "className": "w-24 h-4 max-w-none bg-emerald-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "w-screen, w-[50vw], h-screen, h-[10vh], min-h-[5vh], max-h-[2vh]",
+          "stage": {
+            "id": "sizes.viewport",
+            "className": "w-[240px] h-[110px] flex-row items-start overflow-hidden bg-slate-200",
+            "children": [
+              {
+                "id": "sizes.viewport.w",
+                "className": "w-screen h-4 shrink-0 bg-indigo-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "w-[50vw], h-[10vh], min-h-[5vh], max-h-[2vh]",
+          "stage": {
+            "id": "sizes.viewport-more",
+            "className": "w-[240px] h-[110px] flex-row items-start gap-1 overflow-hidden bg-slate-200",
+            "children": [
+              {
+                "id": "sizes.viewport-more.a",
+                "className": "w-[50vw] h-4 shrink-0 bg-indigo-500"
+              },
+              {
+                "id": "sizes.viewport-more.b",
+                "className": "w-4 h-[10vh] shrink-0 bg-emerald-500"
+              },
+              {
+                "id": "sizes.viewport-more.c",
+                "className": "w-4 min-h-[5vh] shrink-0 bg-rose-500"
+              },
+              {
+                "id": "sizes.viewport-more.d",
+                "className": "w-4 h-screen max-h-[2vh] shrink-0 bg-amber-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "h-screen and min-h-screen",
+          "stage": {
+            "id": "sizes.screen-height",
+            "className": "w-[240px] h-[60px] flex-row items-start gap-1 overflow-hidden bg-slate-200",
+            "children": [
+              {
+                "id": "sizes.screen-height.a",
+                "className": "w-4 h-screen shrink-0 bg-indigo-500"
+              },
+              {
+                "id": "sizes.screen-height.b",
+                "className": "w-4 min-h-screen shrink-0 bg-emerald-500"
+              },
+              {
+                "id": "sizes.screen-height.c",
+                "className": "w-4 h-4 max-h-screen shrink-0 bg-rose-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "min-w-0 lets a flex item give way",
+          "stage": {
+            "id": "sizes.min-w-0",
+            "className": "w-[240px] h-[40px] flex-row gap-2 bg-slate-200",
+            "children": [
+              {
+                "id": "sizes.min-w-0.a",
+                "className": "flex-row min-w-0 bg-slate-300",
+                "children": [
+                  {
+                    "id": "sizes.min-w-0.a.1",
+                    "className": "w-[300px] h-6 shrink-0 bg-indigo-500"
+                  }
+                ]
+              },
+              {
+                "id": "sizes.min-w-0.b",
+                "className": "w-8 h-6 shrink-0 bg-emerald-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "without it the item keeps its content",
+          "stage": {
+            "id": "sizes.min-w-auto",
+            "className": "w-[240px] h-[40px] flex-row gap-2 bg-slate-200",
+            "children": [
+              {
+                "id": "sizes.min-w-auto.a",
+                "className": "flex-row bg-slate-300",
+                "children": [
+                  {
+                    "id": "sizes.min-w-auto.a.1",
+                    "className": "w-[300px] h-6 shrink-0 bg-indigo-500"
+                  }
+                ]
+              },
+              {
+                "id": "sizes.min-w-auto.b",
+                "className": "w-8 h-6 shrink-0 bg-emerald-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "overflow-hidden gives way, overflow-clip does not",
+          "stage": {
+            "id": "sizes.overflow-min",
+            "className": "w-[240px] h-[80px] gap-2 bg-slate-200",
+            "children": [
+              {
+                "id": "sizes.overflow-min.row",
+                "className": "flex-row gap-2 h-8",
+                "children": [
+                  {
+                    "id": "sizes.overflow-min.hidden",
+                    "className": "flex-row overflow-hidden bg-slate-300",
+                    "children": [
+                      {
+                        "id": "sizes.overflow-min.hidden.1",
+                        "className": "w-[300px] h-6 shrink-0 bg-indigo-500"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "sizes.overflow-min.hidden-b",
+                    "className": "w-8 h-6 shrink-0 bg-emerald-500"
+                  }
+                ]
+              },
+              {
+                "id": "sizes.overflow-min.row2",
+                "className": "flex-row gap-2 h-8",
+                "children": [
+                  {
+                    "id": "sizes.overflow-min.clip",
+                    "className": "flex-row overflow-clip bg-slate-300",
+                    "children": [
+                      {
+                        "id": "sizes.overflow-min.clip.1",
+                        "className": "w-[300px] h-6 shrink-0 bg-indigo-500"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "sizes.overflow-min.clip-b",
+                    "className": "w-8 h-6 shrink-0 bg-emerald-500"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "title": "grow-[2], grow, grow-0, basis-1/4, flex-[3]",
+          "stage": {
+            "id": "sizes.flex-growth",
+            "className": "w-[240px] h-[40px] flex-row bg-slate-200",
+            "children": [
+              {
+                "id": "sizes.flex-growth.a",
+                "className": "grow-[2] h-6 bg-indigo-500"
+              },
+              {
+                "id": "sizes.flex-growth.b",
+                "className": "grow h-6 bg-emerald-500"
+              },
+              {
+                "id": "sizes.flex-growth.c",
+                "className": "grow-0 w-8 h-6 bg-rose-500"
+              },
+              {
+                "id": "sizes.flex-growth.d",
+                "className": "basis-1/4 shrink-0 h-6 bg-amber-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "flex-[3], flex-[1_1_auto], flex-1, flex-none",
+          "stage": {
+            "id": "sizes.flex-shorthand",
+            "className": "w-[240px] h-[40px] flex-row bg-slate-200",
+            "children": [
+              {
+                "id": "sizes.flex-shorthand.a",
+                "className": "flex-[3] h-6 bg-indigo-500"
+              },
+              {
+                "id": "sizes.flex-shorthand.b",
+                "className": "flex-[1_1_auto] w-8 h-6 bg-emerald-500"
+              },
+              {
+                "id": "sizes.flex-shorthand.c",
+                "className": "flex-1 h-6 bg-rose-500"
+              },
+              {
+                "id": "sizes.flex-shorthand.d",
+                "className": "flex-none w-8 h-6 bg-amber-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "flex-1 in a column of unknown height",
+          "stage": {
+            "id": "sizes.flex-1-column",
+            "className": "w-[240px] bg-slate-200",
+            "children": [
+              {
+                "id": "sizes.flex-1-column.a",
+                "className": "flex-1 h-4 bg-indigo-500"
+              },
+              {
+                "id": "sizes.flex-1-column.b",
+                "className": "flex-1 h-6 bg-emerald-500"
+              }
+            ]
+          },
+          "known": "Chrome takes the 0% of flex-1 against an unknown height as the content (nothing) and Taffy shares the height by the boxes' own"
+        },
+        {
+          "title": "flex-1 in a column of known height",
+          "stage": {
+            "id": "sizes.flex-1-definite",
+            "className": "w-[240px] h-[80px] bg-slate-200",
+            "children": [
+              {
+                "id": "sizes.flex-1-definite.a",
+                "className": "flex-1 bg-indigo-500"
+              },
+              {
+                "id": "sizes.flex-1-definite.b",
+                "className": "flex-1 bg-emerald-500"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "grid",
+      "cases": [
+        {
+          "title": "grid-cols-[100px_1fr_auto] gap-1",
+          "stage": {
+            "id": "grid.tracks",
+            "className": "grid grid-cols-[100px_1fr_auto] gap-1 w-[240px] h-[60px] bg-slate-200",
+            "children": [
+              {
+                "id": "grid.tracks.a",
+                "className": "h-6 bg-indigo-500"
+              },
+              {
+                "id": "grid.tracks.b",
+                "className": "h-6 bg-emerald-500"
+              },
+              {
+                "id": "grid.tracks.c",
+                "className": "h-6 w-10 bg-rose-500"
+              },
+              {
+                "id": "grid.tracks.d",
+                "className": "h-6 col-span-2 bg-amber-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "grid-cols-3 grid-rows-2: col-span-2, row-span-2, col-start-2",
+          "stage": {
+            "id": "grid.spans",
+            "className": "grid grid-cols-3 grid-rows-2 gap-1 w-[240px] h-[100px] bg-slate-200",
+            "children": [
+              {
+                "id": "grid.spans.a",
+                "className": "col-span-2 bg-indigo-500"
+              },
+              {
+                "id": "grid.spans.b",
+                "className": "row-span-2 bg-emerald-500"
+              },
+              {
+                "id": "grid.spans.c",
+                "className": "bg-rose-500"
+              },
+              {
+                "id": "grid.spans.d",
+                "className": "col-start-2 bg-amber-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "col-start-2 col-span-2 in both orders",
+          "stage": {
+            "id": "grid.span-order",
+            "className": "grid grid-cols-4 grid-rows-2 gap-1 w-[240px] h-[60px] bg-slate-200",
+            "children": [
+              {
+                "id": "grid.span-order.a",
+                "className": "col-start-2 col-span-2 bg-indigo-500"
+              },
+              {
+                "id": "grid.span-order.b",
+                "className": "col-span-2 col-start-2 bg-emerald-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "grid-flow-col grid-rows-2 auto-cols-[40px]",
+          "stage": {
+            "id": "grid.flow-col",
+            "className": "grid grid-flow-col grid-rows-2 auto-cols-[40px] gap-1 w-[240px] h-[60px] bg-slate-200",
+            "children": [
+              {
+                "id": "grid.flow-col.1",
+                "className": "h-full bg-indigo-500"
+              },
+              {
+                "id": "grid.flow-col.2",
+                "className": "h-full bg-emerald-500"
+              },
+              {
+                "id": "grid.flow-col.3",
+                "className": "h-full bg-rose-500"
+              },
+              {
+                "id": "grid.flow-col.4",
+                "className": "h-full bg-amber-500"
+              },
+              {
+                "id": "grid.flow-col.5",
+                "className": "h-full bg-sky-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "auto-rows-[24px] grid-cols-2",
+          "stage": {
+            "id": "grid.auto-rows",
+            "className": "grid grid-cols-2 auto-rows-[24px] gap-1 w-[240px] h-[110px] content-start bg-slate-200",
+            "children": [
+              {
+                "id": "grid.auto-rows.1",
+                "className": " bg-indigo-500"
+              },
+              {
+                "id": "grid.auto-rows.2",
+                "className": " bg-emerald-500"
+              },
+              {
+                "id": "grid.auto-rows.3",
+                "className": " bg-rose-500"
+              },
+              {
+                "id": "grid.auto-rows.4",
+                "className": " bg-amber-500"
+              },
+              {
+                "id": "grid.auto-rows.5",
+                "className": " bg-sky-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "repeat(auto-fill, minmax(60px, 1fr))",
+          "stage": {
+            "id": "grid.auto-fill",
+            "className": "grid grid-cols-[repeat(auto-fill,minmax(60px,1fr))] gap-1 w-[240px] h-[80px] content-start bg-slate-200",
+            "children": [
+              {
+                "id": "grid.auto-fill.1",
+                "className": "h-6 bg-indigo-500"
+              },
+              {
+                "id": "grid.auto-fill.2",
+                "className": "h-6 bg-emerald-500"
+              },
+              {
+                "id": "grid.auto-fill.3",
+                "className": "h-6 bg-rose-500"
+              },
+              {
+                "id": "grid.auto-fill.4",
+                "className": "h-6 bg-amber-500"
+              },
+              {
+                "id": "grid.auto-fill.5",
+                "className": "h-6 bg-sky-500"
+              },
+              {
+                "id": "grid.auto-fill.6",
+                "className": "h-6 bg-indigo-500"
+              },
+              {
+                "id": "grid.auto-fill.7",
+                "className": "h-6 bg-emerald-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "col-span-full, col-start-2 row-span-2",
+          "stage": {
+            "id": "grid.full-span",
+            "className": "grid grid-cols-[1fr_2fr] gap-1 w-[240px] h-[110px] content-start bg-slate-200",
+            "children": [
+              {
+                "id": "grid.full-span.a",
+                "className": "col-span-full h-4 bg-indigo-500"
+              },
+              {
+                "id": "grid.full-span.b",
+                "className": "h-6 bg-emerald-500"
+              },
+              {
+                "id": "grid.full-span.c",
+                "className": "col-start-2 row-span-2 bg-rose-500"
+              },
+              {
+                "id": "grid.full-span.d",
+                "className": "h-6 bg-amber-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "grid-flow-row-dense fills the hole",
+          "stage": {
+            "id": "grid.dense",
+            "className": "grid grid-cols-3 grid-flow-row-dense gap-1 w-[240px] h-[80px] content-start bg-slate-200",
+            "children": [
+              {
+                "id": "grid.dense.a",
+                "className": "col-span-2 h-6 bg-indigo-500"
+              },
+              {
+                "id": "grid.dense.b",
+                "className": "col-span-2 h-6 bg-emerald-500"
+              },
+              {
+                "id": "grid.dense.c",
+                "className": "h-6 bg-rose-500"
+              },
+              {
+                "id": "grid.dense.d",
+                "className": "h-6 bg-amber-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "without dense the hole stays",
+          "stage": {
+            "id": "grid.sparse",
+            "className": "grid grid-cols-3 gap-1 w-[240px] h-[80px] content-start bg-slate-200",
+            "children": [
+              {
+                "id": "grid.sparse.a",
+                "className": "col-span-2 h-6 bg-indigo-500"
+              },
+              {
+                "id": "grid.sparse.b",
+                "className": "col-span-2 h-6 bg-emerald-500"
+              },
+              {
+                "id": "grid.sparse.c",
+                "className": "h-6 bg-rose-500"
+              },
+              {
+                "id": "grid.sparse.d",
+                "className": "h-6 bg-amber-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "place-items-center, justify-self-end, self-end, place-self-start",
+          "stage": {
+            "id": "grid.place-items",
+            "className": "grid grid-cols-2 grid-rows-2 place-items-center gap-1 w-[240px] h-[100px] bg-slate-200",
+            "children": [
+              {
+                "id": "grid.place-items.a",
+                "className": "w-8 h-6 bg-indigo-500"
+              },
+              {
+                "id": "grid.place-items.b",
+                "className": "w-8 h-6 justify-self-end bg-emerald-500"
+              },
+              {
+                "id": "grid.place-items.c",
+                "className": "w-8 h-6 self-end bg-rose-500"
+              },
+              {
+                "id": "grid.place-items.d",
+                "className": "w-8 h-6 place-self-start bg-amber-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "place-self-stretch and justify-items-end",
+          "stage": {
+            "id": "grid.stretch-self",
+            "className": "grid grid-cols-2 grid-rows-2 justify-items-end gap-1 w-[240px] h-[100px] bg-slate-200",
+            "children": [
+              {
+                "id": "grid.stretch-self.a",
+                "className": "w-8 h-6 bg-indigo-500"
+              },
+              {
+                "id": "grid.stretch-self.b",
+                "className": "place-self-stretch bg-emerald-500"
+              },
+              {
+                "id": "grid.stretch-self.c",
+                "className": "w-8 bg-rose-500"
+              },
+              {
+                "id": "grid.stretch-self.d",
+                "className": "w-8 h-6 justify-self-auto bg-amber-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "content-between and place-content-center",
+          "stage": {
+            "id": "grid.content",
+            "className": "grid grid-cols-[40px_40px] grid-rows-[20px_20px] content-between gap-1 w-[240px] h-[100px] bg-slate-200",
+            "children": [
+              {
+                "id": "grid.content.1",
+                "className": " bg-indigo-500"
+              },
+              {
+                "id": "grid.content.2",
+                "className": " bg-emerald-500"
+              },
+              {
+                "id": "grid.content.3",
+                "className": " bg-rose-500"
+              },
+              {
+                "id": "grid.content.4",
+                "className": " bg-amber-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "place-content-center",
+          "stage": {
+            "id": "grid.place-content",
+            "className": "grid grid-cols-[40px_40px] grid-rows-[20px_20px] place-content-center gap-1 w-[240px] h-[100px] bg-slate-200",
+            "children": [
+              {
+                "id": "grid.place-content.1",
+                "className": " bg-indigo-500"
+              },
+              {
+                "id": "grid.place-content.2",
+                "className": " bg-emerald-500"
+              },
+              {
+                "id": "grid.place-content.3",
+                "className": " bg-rose-500"
+              },
+              {
+                "id": "grid.place-content.4",
+                "className": " bg-amber-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "grid-cols-[auto_auto] stretches its auto tracks",
+          "stage": {
+            "id": "grid.auto-tracks",
+            "className": "grid grid-cols-[auto_auto] gap-1 w-[240px] h-[40px] bg-slate-200",
+            "children": [
+              {
+                "id": "grid.auto-tracks.a",
+                "className": "w-10 h-6 bg-indigo-500"
+              },
+              {
+                "id": "grid.auto-tracks.b",
+                "className": "w-20 h-6 bg-emerald-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "minmax(0,1fr) minmax(0,2fr) and fit-content",
+          "stage": {
+            "id": "grid.minmax",
+            "className": "grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)_fit-content(30px)] gap-1 w-[240px] h-[40px] bg-slate-200",
+            "children": [
+              {
+                "id": "grid.minmax.a",
+                "className": "h-6 bg-indigo-500"
+              },
+              {
+                "id": "grid.minmax.b",
+                "className": "h-6 bg-emerald-500"
+              },
+              {
+                "id": "grid.minmax.c",
+                "className": "w-20 h-6 bg-rose-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "grid-rows-[auto_1fr] and grid-cols-none",
+          "stage": {
+            "id": "grid.rows",
+            "className": "grid grid-rows-[auto_1fr] grid-cols-none gap-1 w-[240px] h-[100px] bg-slate-200",
+            "children": [
+              {
+                "id": "grid.rows.a",
+                "className": "h-6 bg-indigo-500"
+              },
+              {
+                "id": "grid.rows.b",
+                "className": "bg-emerald-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "grid-cols-[min-content_max-content]",
+          "stage": {
+            "id": "grid.min-content",
+            "className": "grid grid-cols-[min-content_max-content] gap-1 w-[240px] h-[40px] bg-slate-200",
+            "children": [
+              {
+                "id": "grid.min-content.a",
+                "className": "flex-row flex-wrap w-fit bg-slate-300",
+                "children": [
+                  {
+                    "id": "grid.min-content.a.1",
+                    "className": "w-8 h-4 bg-indigo-500"
+                  },
+                  {
+                    "id": "grid.min-content.a.2",
+                    "className": "w-10 h-4 bg-emerald-500"
+                  }
+                ]
+              },
+              {
+                "id": "grid.min-content.b",
+                "className": "flex-row bg-slate-300",
+                "children": [
+                  {
+                    "id": "grid.min-content.b.1",
+                    "className": "w-8 h-4 bg-rose-500"
+                  },
+                  {
+                    "id": "grid.min-content.b.2",
+                    "className": "w-10 h-4 bg-amber-500"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "alignment",
+      "cases": [
+        {
+          "title": "content-start",
+          "stage": {
+            "id": "alignment.content-start",
+            "className": "w-[110px] h-[90px] flex-row flex-wrap content-start gap-x-1 bg-slate-200",
+            "children": [
+              {
+                "id": "alignment.content-start.1",
+                "className": "w-12 h-4 bg-indigo-500"
+              },
+              {
+                "id": "alignment.content-start.2",
+                "className": "w-12 h-4 bg-emerald-500"
+              },
+              {
+                "id": "alignment.content-start.3",
+                "className": "w-12 h-4 bg-rose-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "content-center",
+          "stage": {
+            "id": "alignment.content-center",
+            "className": "w-[110px] h-[90px] flex-row flex-wrap content-center gap-x-1 bg-slate-200",
+            "children": [
+              {
+                "id": "alignment.content-center.1",
+                "className": "w-12 h-4 bg-indigo-500"
+              },
+              {
+                "id": "alignment.content-center.2",
+                "className": "w-12 h-4 bg-emerald-500"
+              },
+              {
+                "id": "alignment.content-center.3",
+                "className": "w-12 h-4 bg-rose-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "content-end",
+          "stage": {
+            "id": "alignment.content-end",
+            "className": "w-[110px] h-[90px] flex-row flex-wrap content-end gap-x-1 bg-slate-200",
+            "children": [
+              {
+                "id": "alignment.content-end.1",
+                "className": "w-12 h-4 bg-indigo-500"
+              },
+              {
+                "id": "alignment.content-end.2",
+                "className": "w-12 h-4 bg-emerald-500"
+              },
+              {
+                "id": "alignment.content-end.3",
+                "className": "w-12 h-4 bg-rose-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "content-between",
+          "stage": {
+            "id": "alignment.content-between",
+            "className": "w-[110px] h-[90px] flex-row flex-wrap content-between gap-x-1 bg-slate-200",
+            "children": [
+              {
+                "id": "alignment.content-between.1",
+                "className": "w-12 h-4 bg-indigo-500"
+              },
+              {
+                "id": "alignment.content-between.2",
+                "className": "w-12 h-4 bg-emerald-500"
+              },
+              {
+                "id": "alignment.content-between.3",
+                "className": "w-12 h-4 bg-rose-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "content-around",
+          "stage": {
+            "id": "alignment.content-around",
+            "className": "w-[110px] h-[90px] flex-row flex-wrap content-around gap-x-1 bg-slate-200",
+            "children": [
+              {
+                "id": "alignment.content-around.1",
+                "className": "w-12 h-4 bg-indigo-500"
+              },
+              {
+                "id": "alignment.content-around.2",
+                "className": "w-12 h-4 bg-emerald-500"
+              },
+              {
+                "id": "alignment.content-around.3",
+                "className": "w-12 h-4 bg-rose-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "content-evenly",
+          "stage": {
+            "id": "alignment.content-evenly",
+            "className": "w-[110px] h-[90px] flex-row flex-wrap content-evenly gap-x-1 bg-slate-200",
+            "children": [
+              {
+                "id": "alignment.content-evenly.1",
+                "className": "w-12 h-4 bg-indigo-500"
+              },
+              {
+                "id": "alignment.content-evenly.2",
+                "className": "w-12 h-4 bg-emerald-500"
+              },
+              {
+                "id": "alignment.content-evenly.3",
+                "className": "w-12 h-4 bg-rose-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "content-stretch",
+          "stage": {
+            "id": "alignment.content-stretch",
+            "className": "w-[110px] h-[90px] flex-row flex-wrap content-stretch gap-x-1 bg-slate-200",
+            "children": [
+              {
+                "id": "alignment.content-stretch.1",
+                "className": "w-12 h-4 bg-indigo-500"
+              },
+              {
+                "id": "alignment.content-stretch.2",
+                "className": "w-12 h-4 bg-emerald-500"
+              },
+              {
+                "id": "alignment.content-stretch.3",
+                "className": "w-12 h-4 bg-rose-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "content-normal",
+          "stage": {
+            "id": "alignment.content-normal",
+            "className": "w-[110px] h-[90px] flex-row flex-wrap content-normal gap-x-1 bg-slate-200",
+            "children": [
+              {
+                "id": "alignment.content-normal.1",
+                "className": "w-12 h-4 bg-indigo-500"
+              },
+              {
+                "id": "alignment.content-normal.2",
+                "className": "w-12 h-4 bg-emerald-500"
+              },
+              {
+                "id": "alignment.content-normal.3",
+                "className": "w-12 h-4 bg-rose-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "justify-stretch and justify-normal change nothing in flex",
+          "stage": {
+            "id": "alignment.justify-stretch",
+            "className": "w-[240px] h-[40px] flex-row justify-stretch bg-slate-200",
+            "children": [
+              {
+                "id": "alignment.justify-stretch.1",
+                "className": "w-10 h-6 bg-indigo-500"
+              },
+              {
+                "id": "alignment.justify-stretch.2",
+                "className": "w-10 h-6 bg-emerald-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "justify-normal",
+          "stage": {
+            "id": "alignment.justify-normal",
+            "className": "w-[240px] h-[40px] flex-row justify-normal bg-slate-200",
+            "children": [
+              {
+                "id": "alignment.justify-normal.1",
+                "className": "w-10 h-6 bg-indigo-500"
+              },
+              {
+                "id": "alignment.justify-normal.2",
+                "className": "w-10 h-6 bg-emerald-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "self-end, self-center, self-auto, self-stretch",
+          "stage": {
+            "id": "alignment.self",
+            "className": "w-[240px] h-[60px] flex-row items-start gap-1 bg-slate-200",
+            "children": [
+              {
+                "id": "alignment.self.a",
+                "className": "w-10 h-6 self-end bg-indigo-500"
+              },
+              {
+                "id": "alignment.self.b",
+                "className": "w-10 h-6 self-center bg-emerald-500"
+              },
+              {
+                "id": "alignment.self.c",
+                "className": "w-10 h-6 self-auto bg-rose-500"
+              },
+              {
+                "id": "alignment.self.d",
+                "className": "w-10 self-stretch bg-amber-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "self-auto follows items-end",
+          "stage": {
+            "id": "alignment.self-auto",
+            "className": "w-[240px] h-[60px] flex-row items-end gap-1 bg-slate-200",
+            "children": [
+              {
+                "id": "alignment.self-auto.a",
+                "className": "w-10 h-6 self-auto bg-indigo-500"
+              },
+              {
+                "id": "alignment.self-auto.b",
+                "className": "w-10 h-6 self-start bg-emerald-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "order-3, order-1, order-2, order-first, -order-1",
+          "stage": {
+            "id": "alignment.order",
+            "className": "w-[240px] h-[30px] flex-row gap-1 bg-slate-200",
+            "children": [
+              {
+                "id": "alignment.order.a",
+                "className": "order-3 w-8 h-6 bg-indigo-500"
+              },
+              {
+                "id": "alignment.order.b",
+                "className": "order-1 w-10 h-6 bg-emerald-500"
+              },
+              {
+                "id": "alignment.order.c",
+                "className": "order-2 w-12 h-6 bg-rose-500"
+              },
+              {
+                "id": "alignment.order.d",
+                "className": "order-first w-6 h-6 bg-amber-500"
+              },
+              {
+                "id": "alignment.order.e",
+                "className": "-order-1 w-4 h-6 bg-sky-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "order in a column and order-last",
+          "stage": {
+            "id": "alignment.order-column",
+            "className": "w-[240px] h-[110px] gap-1 bg-slate-200",
+            "children": [
+              {
+                "id": "alignment.order-column.a",
+                "className": "order-last h-4 bg-indigo-500"
+              },
+              {
+                "id": "alignment.order-column.b",
+                "className": "h-6 bg-emerald-500"
+              },
+              {
+                "id": "alignment.order-column.c",
+                "className": "order-none h-4 bg-rose-500"
+              },
+              {
+                "id": "alignment.order-column.d",
+                "className": "order-[-2] h-3 bg-amber-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "order places grid items",
+          "stage": {
+            "id": "alignment.order-grid",
+            "className": "grid grid-cols-3 gap-1 w-[240px] h-[60px] bg-slate-200",
+            "children": [
+              {
+                "id": "alignment.order-grid.a",
+                "className": "order-3 h-6 bg-indigo-500"
+              },
+              {
+                "id": "alignment.order-grid.b",
+                "className": "order-1 h-6 bg-emerald-500"
+              },
+              {
+                "id": "alignment.order-grid.c",
+                "className": "order-2 h-6 bg-rose-500"
+              },
+              {
+                "id": "alignment.order-grid.d",
+                "className": "h-6 bg-amber-500"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "misc",
+      "cases": [
+        {
+          "title": "invisible keeps layout, a visible child inside shows",
+          "stage": {
+            "id": "misc.invisible",
+            "className": "w-[240px] h-[80px] flex-row items-start gap-2 bg-slate-200",
+            "children": [
+              {
+                "id": "misc.invisible.a",
+                "className": "invisible w-16 h-10 bg-indigo-500",
+                "children": [
+                  {
+                    "id": "misc.invisible.a.1",
+                    "className": "visible w-8 h-4 bg-rose-500"
+                  }
+                ]
+              },
+              {
+                "id": "misc.invisible.b",
+                "className": "w-16 h-10 bg-emerald-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "overflow-clip clips the child to the box",
+          "stage": {
+            "id": "misc.clip",
+            "className": "w-[240px] h-[60px] flex-row items-start gap-2 bg-slate-200",
+            "children": [
+              {
+                "id": "misc.clip.a",
+                "className": "w-16 h-8 overflow-clip bg-slate-300",
+                "children": [
+                  {
+                    "id": "misc.clip.a.1",
+                    "className": "w-32 h-12 bg-indigo-500"
+                  }
+                ]
+              },
+              {
+                "id": "misc.clip.b",
+                "className": "w-16 h-8 overflow-visible bg-slate-300",
+                "children": [
+                  {
+                    "id": "misc.clip.b.1",
+                    "className": "w-8 h-12 bg-emerald-500"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "title": "hidden takes no space",
+          "stage": {
+            "id": "misc.hidden",
+            "className": "w-[240px] h-[40px] flex-row gap-2 bg-slate-200",
+            "children": [
+              {
+                "id": "misc.hidden.a",
+                "className": "w-10 h-6 bg-indigo-500"
+              },
+              {
+                "id": "misc.hidden.b",
+                "className": "hidden w-10 h-6 bg-emerald-500"
+              },
+              {
+                "id": "misc.hidden.c",
+                "className": "w-10 h-6 bg-rose-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "aspect-square, aspect-video, aspect-[4/3], aspect-auto",
+          "stage": {
+            "id": "misc.aspect",
+            "className": "w-[300px] h-[110px] flex-row items-start gap-2 bg-slate-200",
+            "children": [
+              {
+                "id": "misc.aspect.a",
+                "className": "w-12 aspect-square bg-indigo-500"
+              },
+              {
+                "id": "misc.aspect.b",
+                "className": "w-16 aspect-video bg-emerald-500"
+              },
+              {
+                "id": "misc.aspect.c",
+                "className": "w-12 aspect-[4/3] bg-rose-500"
+              },
+              {
+                "id": "misc.aspect.d",
+                "className": "w-12 h-6 aspect-auto bg-amber-500"
+              },
+              {
+                "id": "misc.aspect.e",
+                "className": "h-10 aspect-square bg-sky-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "box-content and box-border",
+          "stage": {
+            "id": "misc.box",
+            "className": "w-[240px] h-[80px] flex-row items-start gap-2 bg-slate-200",
+            "children": [
+              {
+                "id": "misc.box.a",
+                "className": "w-20 h-10 p-2 border-4 box-content bg-indigo-500"
+              },
+              {
+                "id": "misc.box.b",
+                "className": "w-20 h-10 p-2 border-4 box-border bg-emerald-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "block: margins collapse, auto centres, children fill",
+          "stage": {
+            "id": "misc.block",
+            "className": "block w-[240px] h-[130px] bg-slate-200",
+            "children": [
+              {
+                "id": "misc.block.a",
+                "className": "h-6 mb-4 bg-indigo-500"
+              },
+              {
+                "id": "misc.block.b",
+                "className": "h-6 mt-6 bg-emerald-500"
+              },
+              {
+                "id": "misc.block.c",
+                "className": "h-6 w-20 mx-auto bg-rose-500"
+              },
+              {
+                "id": "misc.block.d",
+                "className": "h-4 ml-auto w-10 bg-amber-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "flow-root contains the margin of its child",
+          "stage": {
+            "id": "misc.flow-root",
+            "className": "block w-[240px] h-[110px] bg-slate-200",
+            "children": [
+              {
+                "id": "misc.flow-root.a",
+                "className": "flow-root bg-slate-300",
+                "children": [
+                  {
+                    "id": "misc.flow-root.a.1",
+                    "className": "h-6 mt-4 bg-indigo-500"
+                  }
+                ]
+              },
+              {
+                "id": "misc.flow-root.b",
+                "className": "h-6 mt-2 bg-emerald-500"
+              }
+            ]
+          }
+        },
+        {
+          "title": "a block parent and child share the margin",
+          "stage": {
+            "id": "misc.block-collapse",
+            "className": "block w-[240px] h-[110px] bg-slate-200",
+            "children": [
+              {
+                "id": "misc.block-collapse.a",
+                "className": "block bg-slate-300",
+                "children": [
+                  {
+                    "id": "misc.block-collapse.a.1",
+                    "className": "h-6 mt-4 bg-indigo-500"
+                  }
+                ]
+              },
+              {
+                "id": "misc.block-collapse.b",
+                "className": "h-6 mt-2 bg-emerald-500"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "reference": {
+    "1120x800": {
+      "margins.auto-column": [
+        16,
+        36,
+        240,
+        110
+      ],
+      "margins.auto-column.a": [
+        112,
+        36,
+        48,
+        24
+      ],
+      "margins.auto-column.b": [
+        208,
+        60,
+        48,
+        24
+      ],
+      "margins.auto-column.c": [
+        16,
+        84,
+        48,
+        24
+      ],
+      "margins.auto-row": [
+        272,
+        36,
+        240,
+        80
+      ],
+      "margins.auto-row.a": [
+        272,
+        36,
+        40,
+        24
+      ],
+      "margins.auto-row.b": [
+        352,
+        64,
+        40,
+        24
+      ],
+      "margins.auto-row.c": [
+        432,
+        64,
+        40,
+        24
+      ],
+      "margins.auto-single": [
+        528,
+        36,
+        240,
+        80
+      ],
+      "margins.auto-single.a": [
+        616,
+        60,
+        64,
+        32
+      ],
+      "margins.negative": [
+        784,
+        36,
+        240,
+        110
+      ],
+      "margins.negative.a": [
+        792,
+        52,
+        224,
+        24
+      ],
+      "margins.negative.b": [
+        800,
+        64,
+        80,
+        24
+      ],
+      "margins.negative.c": [
+        800,
+        88,
+        80,
+        24
+      ],
+      "margins.negative.d": [
+        800,
+        100,
+        80,
+        12
+      ],
+      "margins.percent": [
+        16,
+        182,
+        240,
+        110
+      ],
+      "margins.percent.a": [
+        40,
+        206,
+        48,
+        24
+      ],
+      "margins.percent.b": [
+        28,
+        258.7969,
+        48,
+        16
+      ],
+      "margins.logical": [
+        272,
+        182,
+        240,
+        40
+      ],
+      "margins.logical.a": [
+        296,
+        182,
+        40,
+        24
+      ],
+      "margins.logical.b": [
+        340,
+        182,
+        40,
+        24
+      ],
+      "margins.arbitrary": [
+        528,
+        182,
+        240,
+        110
+      ],
+      "margins.arbitrary.a": [
+        544,
+        201,
+        208,
+        16
+      ],
+      "margins.arbitrary.b": [
+        544,
+        225,
+        208,
+        16
+      ],
+      "margins.override": [
+        784,
+        182,
+        240,
+        80
+      ],
+      "margins.override.a": [
+        872,
+        198,
+        64,
+        24
+      ],
+      "sizes.fractions": [
+        16,
+        36,
+        240,
+        120
+      ],
+      "sizes.fractions.a": [
+        16,
+        36,
+        120,
+        16
+      ],
+      "sizes.fractions.b": [
+        16,
+        52,
+        79.9844,
+        16
+      ],
+      "sizes.fractions.c": [
+        16,
+        68,
+        240,
+        16
+      ],
+      "sizes.fractions.d": [
+        16,
+        84,
+        60,
+        60
+      ],
+      "sizes.size": [
+        272,
+        36,
+        240,
+        110
+      ],
+      "sizes.size.a": [
+        272,
+        36,
+        32,
+        32
+      ],
+      "sizes.size.b": [
+        312,
+        36,
+        120,
+        55
+      ],
+      "sizes.size.c": [
+        440,
+        36,
+        48,
+        48
+      ],
+      "sizes.size.d": [
+        496,
+        36,
+        1,
+        1
+      ],
+      "sizes.intrinsic": [
+        528,
+        36,
+        300,
+        100
+      ],
+      "sizes.intrinsic.max": [
+        528,
+        36,
+        128,
+        12
+      ],
+      "sizes.intrinsic.max.1": [
+        528,
+        36,
+        32,
+        12
+      ],
+      "sizes.intrinsic.max.2": [
+        564,
+        36,
+        40,
+        12
+      ],
+      "sizes.intrinsic.max.3": [
+        608,
+        36,
+        48,
+        12
+      ],
+      "sizes.intrinsic.fit": [
+        528,
+        52,
+        128,
+        12
+      ],
+      "sizes.intrinsic.fit.1": [
+        528,
+        52,
+        32,
+        12
+      ],
+      "sizes.intrinsic.fit.2": [
+        564,
+        52,
+        40,
+        12
+      ],
+      "sizes.intrinsic.fit.3": [
+        608,
+        52,
+        48,
+        12
+      ],
+      "sizes.intrinsic-narrow": [
+        844,
+        36,
+        100,
+        100
+      ],
+      "sizes.intrinsic-narrow.fit": [
+        844,
+        36,
+        100,
+        28
+      ],
+      "sizes.intrinsic-narrow.fit.1": [
+        844,
+        36,
+        32,
+        12
+      ],
+      "sizes.intrinsic-narrow.fit.2": [
+        880,
+        36,
+        40,
+        12
+      ],
+      "sizes.intrinsic-narrow.fit.3": [
+        844,
+        52,
+        48,
+        12
+      ],
+      "sizes.intrinsic-min": [
+        960,
+        36,
+        100,
+        100
+      ],
+      "sizes.intrinsic-min.min": [
+        960,
+        36,
+        48,
+        44
+      ],
+      "sizes.intrinsic-min.min.1": [
+        960,
+        36,
+        32,
+        12
+      ],
+      "sizes.intrinsic-min.min.2": [
+        960,
+        52,
+        40,
+        12
+      ],
+      "sizes.intrinsic-min.min.3": [
+        960,
+        68,
+        48,
+        12
+      ],
+      "sizes.intrinsic-min.after": [
+        960,
+        84,
+        32,
+        12
+      ],
+      "sizes.intrinsic-height": [
+        16,
+        192,
+        240,
+        110
+      ],
+      "sizes.intrinsic-height.fit": [
+        16,
+        192,
+        48,
+        40
+      ],
+      "sizes.intrinsic-height.fit.1": [
+        16,
+        192,
+        48,
+        16
+      ],
+      "sizes.intrinsic-height.fit.2": [
+        16,
+        208,
+        48,
+        24
+      ],
+      "sizes.intrinsic-height.min": [
+        72,
+        192,
+        48,
+        40
+      ],
+      "sizes.intrinsic-height.min.1": [
+        72,
+        192,
+        48,
+        16
+      ],
+      "sizes.intrinsic-height.min.2": [
+        72,
+        208,
+        48,
+        24
+      ],
+      "sizes.intrinsic-height.max": [
+        128,
+        192,
+        48,
+        40
+      ],
+      "sizes.intrinsic-height.max.1": [
+        128,
+        192,
+        48,
+        16
+      ],
+      "sizes.intrinsic-height.max.2": [
+        128,
+        208,
+        48,
+        24
+      ],
+      "sizes.limits": [
+        272,
+        192,
+        240,
+        130
+      ],
+      "sizes.limits.a": [
+        272,
+        192,
+        100,
+        11.6094
+      ],
+      "sizes.limits.b": [
+        272,
+        207.6094,
+        80,
+        11.5938
+      ],
+      "sizes.limits.c": [
+        272,
+        223.2031,
+        240,
+        11.6094
+      ],
+      "sizes.limits.d": [
+        272,
+        238.8125,
+        240,
+        11.5938
+      ],
+      "sizes.limits.e": [
+        272,
+        254.4063,
+        32,
+        32
+      ],
+      "sizes.limits.f": [
+        272,
+        290.4063,
+        32,
+        16
+      ],
+      "sizes.limits.g": [
+        272,
+        310.4063,
+        96,
+        11.5938
+      ],
+      "sizes.viewport": [
+        528,
+        192,
+        240,
+        110
+      ],
+      "sizes.viewport.w": [
+        528,
+        192,
+        1120,
+        16
+      ],
+      "sizes.viewport-more": [
+        784,
+        192,
+        240,
+        110
+      ],
+      "sizes.viewport-more.a": [
+        784,
+        192,
+        560,
+        16
+      ],
+      "sizes.viewport-more.b": [
+        1348,
+        192,
+        16,
+        80
+      ],
+      "sizes.viewport-more.c": [
+        1368,
+        192,
+        16,
+        40
+      ],
+      "sizes.viewport-more.d": [
+        1388,
+        192,
+        16,
+        16
+      ],
+      "sizes.screen-height": [
+        16,
+        358,
+        240,
+        60
+      ],
+      "sizes.screen-height.a": [
+        16,
+        358,
+        16,
+        800
+      ],
+      "sizes.screen-height.b": [
+        36,
+        358,
+        16,
+        800
+      ],
+      "sizes.screen-height.c": [
+        56,
+        358,
+        16,
+        16
+      ],
+      "sizes.min-w-0": [
+        272,
+        358,
+        240,
+        40
+      ],
+      "sizes.min-w-0.a": [
+        272,
+        358,
+        200,
+        40
+      ],
+      "sizes.min-w-0.a.1": [
+        272,
+        358,
+        300,
+        24
+      ],
+      "sizes.min-w-0.b": [
+        480,
+        358,
+        32,
+        24
+      ],
+      "sizes.min-w-auto": [
+        528,
+        358,
+        240,
+        40
+      ],
+      "sizes.min-w-auto.a": [
+        528,
+        358,
+        300,
+        40
+      ],
+      "sizes.min-w-auto.a.1": [
+        528,
+        358,
+        300,
+        24
+      ],
+      "sizes.min-w-auto.b": [
+        836,
+        358,
+        32,
+        24
+      ],
+      "sizes.overflow-min": [
+        784,
+        358,
+        240,
+        80
+      ],
+      "sizes.overflow-min.row": [
+        784,
+        358,
+        240,
+        32
+      ],
+      "sizes.overflow-min.hidden": [
+        784,
+        358,
+        200,
+        32
+      ],
+      "sizes.overflow-min.hidden.1": [
+        784,
+        358,
+        300,
+        24
+      ],
+      "sizes.overflow-min.hidden-b": [
+        992,
+        358,
+        32,
+        24
+      ],
+      "sizes.overflow-min.row2": [
+        784,
+        398,
+        240,
+        32
+      ],
+      "sizes.overflow-min.clip": [
+        784,
+        398,
+        300,
+        32
+      ],
+      "sizes.overflow-min.clip.1": [
+        784,
+        398,
+        300,
+        24
+      ],
+      "sizes.overflow-min.clip-b": [
+        1092,
+        398,
+        32,
+        24
+      ],
+      "sizes.flex-growth": [
+        16,
+        474,
+        240,
+        40
+      ],
+      "sizes.flex-growth.a": [
+        16,
+        474,
+        98.6719,
+        24
+      ],
+      "sizes.flex-growth.b": [
+        114.6719,
+        474,
+        49.3281,
+        24
+      ],
+      "sizes.flex-growth.c": [
+        164,
+        474,
+        32,
+        24
+      ],
+      "sizes.flex-growth.d": [
+        196,
+        474,
+        60,
+        24
+      ],
+      "sizes.flex-shorthand": [
+        272,
+        474,
+        240,
+        40
+      ],
+      "sizes.flex-shorthand.a": [
+        272,
+        474,
+        105.5938,
+        24
+      ],
+      "sizes.flex-shorthand.b": [
+        377.5938,
+        474,
+        67.2031,
+        24
+      ],
+      "sizes.flex-shorthand.c": [
+        444.7969,
+        474,
+        35.2031,
+        24
+      ],
+      "sizes.flex-shorthand.d": [
+        480,
+        474,
+        32,
+        24
+      ],
+      "sizes.flex-1-column": [
+        528,
+        474,
+        240,
+        0
+      ],
+      "sizes.flex-1-column.a": [
+        528,
+        474,
+        240,
+        0
+      ],
+      "sizes.flex-1-column.b": [
+        528,
+        474,
+        240,
+        0
+      ],
+      "sizes.flex-1-definite": [
+        784,
+        474,
+        240,
+        80
+      ],
+      "sizes.flex-1-definite.a": [
+        784,
+        474,
+        240,
+        40
+      ],
+      "sizes.flex-1-definite.b": [
+        784,
+        514,
+        240,
+        40
+      ],
+      "grid.tracks": [
+        16,
+        36,
+        240,
+        60
+      ],
+      "grid.tracks.a": [
+        16,
+        36,
+        100,
+        24
+      ],
+      "grid.tracks.b": [
+        120,
+        36,
+        92,
+        24
+      ],
+      "grid.tracks.c": [
+        216,
+        36,
+        40,
+        24
+      ],
+      "grid.tracks.d": [
+        16,
+        68,
+        196,
+        24
+      ],
+      "grid.spans": [
+        272,
+        36,
+        240,
+        100
+      ],
+      "grid.spans.a": [
+        272,
+        36,
+        158.6563,
+        48
+      ],
+      "grid.spans.b": [
+        434.6563,
+        36,
+        77.3438,
+        100
+      ],
+      "grid.spans.c": [
+        272,
+        88,
+        77.3281,
+        48
+      ],
+      "grid.spans.d": [
+        353.3281,
+        88,
+        77.3281,
+        48
+      ],
+      "grid.span-order": [
+        528,
+        36,
+        240,
+        60
+      ],
+      "grid.span-order.a": [
+        589,
+        36,
+        118,
+        28
+      ],
+      "grid.span-order.b": [
+        589,
+        68,
+        118,
+        28
+      ],
+      "grid.flow-col": [
+        784,
+        36,
+        240,
+        60
+      ],
+      "grid.flow-col.1": [
+        784,
+        36,
+        40,
+        28
+      ],
+      "grid.flow-col.2": [
+        784,
+        68,
+        40,
+        28
+      ],
+      "grid.flow-col.3": [
+        828,
+        36,
+        40,
+        28
+      ],
+      "grid.flow-col.4": [
+        828,
+        68,
+        40,
+        28
+      ],
+      "grid.flow-col.5": [
+        872,
+        36,
+        40,
+        28
+      ],
+      "grid.auto-rows": [
+        16,
+        172,
+        240,
+        110
+      ],
+      "grid.auto-rows.1": [
+        16,
+        172,
+        118,
+        24
+      ],
+      "grid.auto-rows.2": [
+        138,
+        172,
+        118,
+        24
+      ],
+      "grid.auto-rows.3": [
+        16,
+        200,
+        118,
+        24
+      ],
+      "grid.auto-rows.4": [
+        138,
+        200,
+        118,
+        24
+      ],
+      "grid.auto-rows.5": [
+        16,
+        228,
+        118,
+        24
+      ],
+      "grid.auto-fill": [
+        272,
+        172,
+        240,
+        80
+      ],
+      "grid.auto-fill.1": [
+        272,
+        172,
+        77.3281,
+        24
+      ],
+      "grid.auto-fill.2": [
+        353.3281,
+        172,
+        77.3281,
+        24
+      ],
+      "grid.auto-fill.3": [
+        434.6563,
+        172,
+        77.3438,
+        24
+      ],
+      "grid.auto-fill.4": [
+        272,
+        200,
+        77.3281,
+        24
+      ],
+      "grid.auto-fill.5": [
+        353.3281,
+        200,
+        77.3281,
+        24
+      ],
+      "grid.auto-fill.6": [
+        434.6563,
+        200,
+        77.3438,
+        24
+      ],
+      "grid.auto-fill.7": [
+        272,
+        228,
+        77.3281,
+        24
+      ],
+      "grid.full-span": [
+        528,
+        172,
+        240,
+        110
+      ],
+      "grid.full-span.a": [
+        528,
+        172,
+        240,
+        16
+      ],
+      "grid.full-span.b": [
+        528,
+        192,
+        78.6563,
+        24
+      ],
+      "grid.full-span.c": [
+        610.6563,
+        192,
+        157.3438,
+        52
+      ],
+      "grid.full-span.d": [
+        528,
+        220,
+        78.6563,
+        24
+      ],
+      "grid.dense": [
+        784,
+        172,
+        240,
+        80
+      ],
+      "grid.dense.a": [
+        784,
+        172,
+        158.6563,
+        24
+      ],
+      "grid.dense.b": [
+        784,
+        200,
+        158.6563,
+        24
+      ],
+      "grid.dense.c": [
+        946.6563,
+        172,
+        77.3438,
+        24
+      ],
+      "grid.dense.d": [
+        946.6563,
+        200,
+        77.3438,
+        24
+      ],
+      "grid.sparse": [
+        16,
+        318,
+        240,
+        80
+      ],
+      "grid.sparse.a": [
+        16,
+        318,
+        158.6563,
+        24
+      ],
+      "grid.sparse.b": [
+        16,
+        346,
+        158.6563,
+        24
+      ],
+      "grid.sparse.c": [
+        178.6563,
+        346,
+        77.3438,
+        24
+      ],
+      "grid.sparse.d": [
+        16,
+        374,
+        77.3281,
+        24
+      ],
+      "grid.place-items": [
+        272,
+        318,
+        240,
+        100
+      ],
+      "grid.place-items.a": [
+        315,
+        330,
+        32,
+        24
+      ],
+      "grid.place-items.b": [
+        480,
+        330,
+        32,
+        24
+      ],
+      "grid.place-items.c": [
+        315,
+        394,
+        32,
+        24
+      ],
+      "grid.place-items.d": [
+        394,
+        370,
+        32,
+        24
+      ],
+      "grid.stretch-self": [
+        528,
+        318,
+        240,
+        100
+      ],
+      "grid.stretch-self.a": [
+        614,
+        318,
+        32,
+        24
+      ],
+      "grid.stretch-self.b": [
+        650,
+        318,
+        118,
+        48
+      ],
+      "grid.stretch-self.c": [
+        614,
+        370,
+        32,
+        48
+      ],
+      "grid.stretch-self.d": [
+        736,
+        370,
+        32,
+        24
+      ],
+      "grid.content": [
+        784,
+        318,
+        240,
+        100
+      ],
+      "grid.content.1": [
+        784,
+        318,
+        40,
+        20
+      ],
+      "grid.content.2": [
+        828,
+        318,
+        40,
+        20
+      ],
+      "grid.content.3": [
+        784,
+        398,
+        40,
+        20
+      ],
+      "grid.content.4": [
+        828,
+        398,
+        40,
+        20
+      ],
+      "grid.place-content": [
+        16,
+        454,
+        240,
+        100
+      ],
+      "grid.place-content.1": [
+        94,
+        482,
+        40,
+        20
+      ],
+      "grid.place-content.2": [
+        138,
+        482,
+        40,
+        20
+      ],
+      "grid.place-content.3": [
+        94,
+        506,
+        40,
+        20
+      ],
+      "grid.place-content.4": [
+        138,
+        506,
+        40,
+        20
+      ],
+      "grid.auto-tracks": [
+        272,
+        454,
+        240,
+        40
+      ],
+      "grid.auto-tracks.a": [
+        272,
+        454,
+        40,
+        24
+      ],
+      "grid.auto-tracks.b": [
+        374,
+        454,
+        80,
+        24
+      ],
+      "grid.minmax": [
+        528,
+        454,
+        240,
+        40
+      ],
+      "grid.minmax.a": [
+        528,
+        454,
+        50.6563,
+        24
+      ],
+      "grid.minmax.b": [
+        582.6563,
+        454,
+        101.3438,
+        24
+      ],
+      "grid.minmax.c": [
+        688,
+        454,
+        80,
+        24
+      ],
+      "grid.rows": [
+        784,
+        454,
+        240,
+        100
+      ],
+      "grid.rows.a": [
+        784,
+        454,
+        240,
+        24
+      ],
+      "grid.rows.b": [
+        784,
+        482,
+        240,
+        72
+      ],
+      "grid.min-content": [
+        16,
+        590,
+        240,
+        40
+      ],
+      "grid.min-content.a": [
+        16,
+        590,
+        40,
+        40
+      ],
+      "grid.min-content.a.1": [
+        16,
+        590,
+        32,
+        16
+      ],
+      "grid.min-content.a.2": [
+        16,
+        610,
+        40,
+        16
+      ],
+      "grid.min-content.b": [
+        60,
+        590,
+        72,
+        40
+      ],
+      "grid.min-content.b.1": [
+        60,
+        590,
+        32,
+        16
+      ],
+      "grid.min-content.b.2": [
+        92,
+        590,
+        40,
+        16
+      ],
+      "alignment.content-start": [
+        16,
+        36,
+        110,
+        90
+      ],
+      "alignment.content-start.1": [
+        16,
+        36,
+        48,
+        16
+      ],
+      "alignment.content-start.2": [
+        68,
+        36,
+        48,
+        16
+      ],
+      "alignment.content-start.3": [
+        16,
+        52,
+        48,
+        16
+      ],
+      "alignment.content-center": [
+        142,
+        36,
+        110,
+        90
+      ],
+      "alignment.content-center.1": [
+        142,
+        65,
+        48,
+        16
+      ],
+      "alignment.content-center.2": [
+        194,
+        65,
+        48,
+        16
+      ],
+      "alignment.content-center.3": [
+        142,
+        81,
+        48,
+        16
+      ],
+      "alignment.content-end": [
+        268,
+        36,
+        110,
+        90
+      ],
+      "alignment.content-end.1": [
+        268,
+        94,
+        48,
+        16
+      ],
+      "alignment.content-end.2": [
+        320,
+        94,
+        48,
+        16
+      ],
+      "alignment.content-end.3": [
+        268,
+        110,
+        48,
+        16
+      ],
+      "alignment.content-between": [
+        394,
+        36,
+        110,
+        90
+      ],
+      "alignment.content-between.1": [
+        394,
+        36,
+        48,
+        16
+      ],
+      "alignment.content-between.2": [
+        446,
+        36,
+        48,
+        16
+      ],
+      "alignment.content-between.3": [
+        394,
+        110,
+        48,
+        16
+      ],
+      "alignment.content-around": [
+        520,
+        36,
+        110,
+        90
+      ],
+      "alignment.content-around.1": [
+        520,
+        50.5,
+        48,
+        16
+      ],
+      "alignment.content-around.2": [
+        572,
+        50.5,
+        48,
+        16
+      ],
+      "alignment.content-around.3": [
+        520,
+        95.5,
+        48,
+        16
+      ],
+      "alignment.content-evenly": [
+        646,
+        36,
+        110,
+        90
+      ],
+      "alignment.content-evenly.1": [
+        646,
+        55.3281,
+        48,
+        16
+      ],
+      "alignment.content-evenly.2": [
+        698,
+        55.3281,
+        48,
+        16
+      ],
+      "alignment.content-evenly.3": [
+        646,
+        90.6563,
+        48,
+        16
+      ],
+      "alignment.content-stretch": [
+        772,
+        36,
+        110,
+        90
+      ],
+      "alignment.content-stretch.1": [
+        772,
+        36,
+        48,
+        16
+      ],
+      "alignment.content-stretch.2": [
+        824,
+        36,
+        48,
+        16
+      ],
+      "alignment.content-stretch.3": [
+        772,
+        81,
+        48,
+        16
+      ],
+      "alignment.content-normal": [
+        898,
+        36,
+        110,
+        90
+      ],
+      "alignment.content-normal.1": [
+        898,
+        36,
+        48,
+        16
+      ],
+      "alignment.content-normal.2": [
+        950,
+        36,
+        48,
+        16
+      ],
+      "alignment.content-normal.3": [
+        898,
+        81,
+        48,
+        16
+      ],
+      "alignment.justify-stretch": [
+        16,
+        162,
+        240,
+        40
+      ],
+      "alignment.justify-stretch.1": [
+        16,
+        162,
+        40,
+        24
+      ],
+      "alignment.justify-stretch.2": [
+        56,
+        162,
+        40,
+        24
+      ],
+      "alignment.justify-normal": [
+        272,
+        162,
+        240,
+        40
+      ],
+      "alignment.justify-normal.1": [
+        272,
+        162,
+        40,
+        24
+      ],
+      "alignment.justify-normal.2": [
+        312,
+        162,
+        40,
+        24
+      ],
+      "alignment.self": [
+        528,
+        162,
+        240,
+        60
+      ],
+      "alignment.self.a": [
+        528,
+        198,
+        40,
+        24
+      ],
+      "alignment.self.b": [
+        572,
+        180,
+        40,
+        24
+      ],
+      "alignment.self.c": [
+        616,
+        162,
+        40,
+        24
+      ],
+      "alignment.self.d": [
+        660,
+        162,
+        40,
+        60
+      ],
+      "alignment.self-auto": [
+        784,
+        162,
+        240,
+        60
+      ],
+      "alignment.self-auto.a": [
+        784,
+        198,
+        40,
+        24
+      ],
+      "alignment.self-auto.b": [
+        828,
+        162,
+        40,
+        24
+      ],
+      "alignment.order": [
+        16,
+        258,
+        240,
+        30
+      ],
+      "alignment.order.a": [
+        160,
+        258,
+        32,
+        24
+      ],
+      "alignment.order.b": [
+        64,
+        258,
+        40,
+        24
+      ],
+      "alignment.order.c": [
+        108,
+        258,
+        48,
+        24
+      ],
+      "alignment.order.d": [
+        16,
+        258,
+        24,
+        24
+      ],
+      "alignment.order.e": [
+        44,
+        258,
+        16,
+        24
+      ],
+      "alignment.order-column": [
+        272,
+        258,
+        240,
+        110
+      ],
+      "alignment.order-column.a": [
+        272,
+        322,
+        240,
+        16
+      ],
+      "alignment.order-column.b": [
+        272,
+        274,
+        240,
+        24
+      ],
+      "alignment.order-column.c": [
+        272,
+        302,
+        240,
+        16
+      ],
+      "alignment.order-column.d": [
+        272,
+        258,
+        240,
+        12
+      ],
+      "alignment.order-grid": [
+        528,
+        258,
+        240,
+        60
+      ],
+      "alignment.order-grid.a": [
+        528,
+        290,
+        77.3281,
+        24
+      ],
+      "alignment.order-grid.b": [
+        609.3281,
+        258,
+        77.3281,
+        24
+      ],
+      "alignment.order-grid.c": [
+        690.6563,
+        258,
+        77.3438,
+        24
+      ],
+      "alignment.order-grid.d": [
+        528,
+        258,
+        77.3281,
+        24
+      ],
+      "misc.invisible": [
+        16,
+        36,
+        240,
+        80
+      ],
+      "misc.invisible.a": [
+        16,
+        36,
+        64,
+        40
+      ],
+      "misc.invisible.a.1": [
+        16,
+        36,
+        32,
+        16
+      ],
+      "misc.invisible.b": [
+        88,
+        36,
+        64,
+        40
+      ],
+      "misc.clip": [
+        272,
+        36,
+        240,
+        60
+      ],
+      "misc.clip.a": [
+        272,
+        36,
+        64,
+        32
+      ],
+      "misc.clip.a.1": [
+        272,
+        36,
+        128,
+        32
+      ],
+      "misc.clip.b": [
+        344,
+        36,
+        64,
+        32
+      ],
+      "misc.clip.b.1": [
+        344,
+        36,
+        32,
+        32
+      ],
+      "misc.hidden": [
+        528,
+        36,
+        240,
+        40
+      ],
+      "misc.hidden.a": [
+        528,
+        36,
+        40,
+        24
+      ],
+      "misc.hidden.b": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "misc.hidden.c": [
+        576,
+        36,
+        40,
+        24
+      ],
+      "misc.aspect": [
+        784,
+        36,
+        300,
+        110
+      ],
+      "misc.aspect.a": [
+        784,
+        36,
+        48,
+        48
+      ],
+      "misc.aspect.b": [
+        840,
+        36,
+        64,
+        36
+      ],
+      "misc.aspect.c": [
+        912,
+        36,
+        48,
+        36
+      ],
+      "misc.aspect.d": [
+        968,
+        36,
+        48,
+        24
+      ],
+      "misc.aspect.e": [
+        1024,
+        36,
+        40,
+        40
+      ],
+      "misc.box": [
+        16,
+        182,
+        240,
+        80
+      ],
+      "misc.box.a": [
+        16,
+        182,
+        104,
+        64
+      ],
+      "misc.box.b": [
+        128,
+        182,
+        80,
+        40
+      ],
+      "misc.block": [
+        272,
+        182,
+        240,
+        130
+      ],
+      "misc.block.a": [
+        272,
+        182,
+        240,
+        24
+      ],
+      "misc.block.b": [
+        272,
+        230,
+        240,
+        24
+      ],
+      "misc.block.c": [
+        352,
+        254,
+        80,
+        24
+      ],
+      "misc.block.d": [
+        472,
+        278,
+        40,
+        16
+      ],
+      "misc.flow-root": [
+        528,
+        182,
+        240,
+        110
+      ],
+      "misc.flow-root.a": [
+        528,
+        182,
+        240,
+        40
+      ],
+      "misc.flow-root.a.1": [
+        528,
+        198,
+        240,
+        24
+      ],
+      "misc.flow-root.b": [
+        528,
+        230,
+        240,
+        24
+      ],
+      "misc.block-collapse": [
+        784,
+        182,
+        240,
+        110
+      ],
+      "misc.block-collapse.a": [
+        784,
+        198,
+        240,
+        24
+      ],
+      "misc.block-collapse.a.1": [
+        784,
+        198,
+        240,
+        24
+      ],
+      "misc.block-collapse.b": [
+        784,
+        230,
+        240,
+        24
+      ]
+    },
+    "600x900": {
+      "margins.auto-column": [
+        16,
+        36,
+        240,
+        110
+      ],
+      "margins.auto-column.a": [
+        112,
+        36,
+        48,
+        24
+      ],
+      "margins.auto-column.b": [
+        208,
+        60,
+        48,
+        24
+      ],
+      "margins.auto-column.c": [
+        16,
+        84,
+        48,
+        24
+      ],
+      "margins.auto-row": [
+        272,
+        36,
+        240,
+        80
+      ],
+      "margins.auto-row.a": [
+        272,
+        36,
+        40,
+        24
+      ],
+      "margins.auto-row.b": [
+        352,
+        64,
+        40,
+        24
+      ],
+      "margins.auto-row.c": [
+        432,
+        64,
+        40,
+        24
+      ],
+      "margins.auto-single": [
+        528,
+        36,
+        240,
+        80
+      ],
+      "margins.auto-single.a": [
+        616,
+        60,
+        64,
+        32
+      ],
+      "margins.negative": [
+        784,
+        36,
+        240,
+        110
+      ],
+      "margins.negative.a": [
+        792,
+        52,
+        224,
+        24
+      ],
+      "margins.negative.b": [
+        800,
+        64,
+        80,
+        24
+      ],
+      "margins.negative.c": [
+        800,
+        88,
+        80,
+        24
+      ],
+      "margins.negative.d": [
+        800,
+        100,
+        80,
+        12
+      ],
+      "margins.percent": [
+        16,
+        182,
+        240,
+        110
+      ],
+      "margins.percent.a": [
+        40,
+        206,
+        48,
+        24
+      ],
+      "margins.percent.b": [
+        28,
+        258.7969,
+        48,
+        16
+      ],
+      "margins.logical": [
+        272,
+        182,
+        240,
+        40
+      ],
+      "margins.logical.a": [
+        296,
+        182,
+        40,
+        24
+      ],
+      "margins.logical.b": [
+        340,
+        182,
+        40,
+        24
+      ],
+      "margins.arbitrary": [
+        528,
+        182,
+        240,
+        110
+      ],
+      "margins.arbitrary.a": [
+        544,
+        201,
+        208,
+        16
+      ],
+      "margins.arbitrary.b": [
+        544,
+        225,
+        208,
+        16
+      ],
+      "margins.override": [
+        784,
+        182,
+        240,
+        80
+      ],
+      "margins.override.a": [
+        872,
+        198,
+        64,
+        24
+      ],
+      "sizes.fractions": [
+        16,
+        36,
+        240,
+        120
+      ],
+      "sizes.fractions.a": [
+        16,
+        36,
+        120,
+        16
+      ],
+      "sizes.fractions.b": [
+        16,
+        52,
+        79.9844,
+        16
+      ],
+      "sizes.fractions.c": [
+        16,
+        68,
+        240,
+        16
+      ],
+      "sizes.fractions.d": [
+        16,
+        84,
+        60,
+        60
+      ],
+      "sizes.size": [
+        272,
+        36,
+        240,
+        110
+      ],
+      "sizes.size.a": [
+        272,
+        36,
+        32,
+        32
+      ],
+      "sizes.size.b": [
+        312,
+        36,
+        120,
+        55
+      ],
+      "sizes.size.c": [
+        440,
+        36,
+        48,
+        48
+      ],
+      "sizes.size.d": [
+        496,
+        36,
+        1,
+        1
+      ],
+      "sizes.intrinsic": [
+        528,
+        36,
+        300,
+        100
+      ],
+      "sizes.intrinsic.max": [
+        528,
+        36,
+        128,
+        12
+      ],
+      "sizes.intrinsic.max.1": [
+        528,
+        36,
+        32,
+        12
+      ],
+      "sizes.intrinsic.max.2": [
+        564,
+        36,
+        40,
+        12
+      ],
+      "sizes.intrinsic.max.3": [
+        608,
+        36,
+        48,
+        12
+      ],
+      "sizes.intrinsic.fit": [
+        528,
+        52,
+        128,
+        12
+      ],
+      "sizes.intrinsic.fit.1": [
+        528,
+        52,
+        32,
+        12
+      ],
+      "sizes.intrinsic.fit.2": [
+        564,
+        52,
+        40,
+        12
+      ],
+      "sizes.intrinsic.fit.3": [
+        608,
+        52,
+        48,
+        12
+      ],
+      "sizes.intrinsic-narrow": [
+        844,
+        36,
+        100,
+        100
+      ],
+      "sizes.intrinsic-narrow.fit": [
+        844,
+        36,
+        100,
+        28
+      ],
+      "sizes.intrinsic-narrow.fit.1": [
+        844,
+        36,
+        32,
+        12
+      ],
+      "sizes.intrinsic-narrow.fit.2": [
+        880,
+        36,
+        40,
+        12
+      ],
+      "sizes.intrinsic-narrow.fit.3": [
+        844,
+        52,
+        48,
+        12
+      ],
+      "sizes.intrinsic-min": [
+        960,
+        36,
+        100,
+        100
+      ],
+      "sizes.intrinsic-min.min": [
+        960,
+        36,
+        48,
+        44
+      ],
+      "sizes.intrinsic-min.min.1": [
+        960,
+        36,
+        32,
+        12
+      ],
+      "sizes.intrinsic-min.min.2": [
+        960,
+        52,
+        40,
+        12
+      ],
+      "sizes.intrinsic-min.min.3": [
+        960,
+        68,
+        48,
+        12
+      ],
+      "sizes.intrinsic-min.after": [
+        960,
+        84,
+        32,
+        12
+      ],
+      "sizes.intrinsic-height": [
+        16,
+        192,
+        240,
+        110
+      ],
+      "sizes.intrinsic-height.fit": [
+        16,
+        192,
+        48,
+        40
+      ],
+      "sizes.intrinsic-height.fit.1": [
+        16,
+        192,
+        48,
+        16
+      ],
+      "sizes.intrinsic-height.fit.2": [
+        16,
+        208,
+        48,
+        24
+      ],
+      "sizes.intrinsic-height.min": [
+        72,
+        192,
+        48,
+        40
+      ],
+      "sizes.intrinsic-height.min.1": [
+        72,
+        192,
+        48,
+        16
+      ],
+      "sizes.intrinsic-height.min.2": [
+        72,
+        208,
+        48,
+        24
+      ],
+      "sizes.intrinsic-height.max": [
+        128,
+        192,
+        48,
+        40
+      ],
+      "sizes.intrinsic-height.max.1": [
+        128,
+        192,
+        48,
+        16
+      ],
+      "sizes.intrinsic-height.max.2": [
+        128,
+        208,
+        48,
+        24
+      ],
+      "sizes.limits": [
+        272,
+        192,
+        240,
+        130
+      ],
+      "sizes.limits.a": [
+        272,
+        192,
+        100,
+        11.6094
+      ],
+      "sizes.limits.b": [
+        272,
+        207.6094,
+        80,
+        11.5938
+      ],
+      "sizes.limits.c": [
+        272,
+        223.2031,
+        240,
+        11.6094
+      ],
+      "sizes.limits.d": [
+        272,
+        238.8125,
+        240,
+        11.5938
+      ],
+      "sizes.limits.e": [
+        272,
+        254.4063,
+        32,
+        32
+      ],
+      "sizes.limits.f": [
+        272,
+        290.4063,
+        32,
+        16
+      ],
+      "sizes.limits.g": [
+        272,
+        310.4063,
+        96,
+        11.5938
+      ],
+      "sizes.viewport": [
+        528,
+        192,
+        240,
+        110
+      ],
+      "sizes.viewport.w": [
+        528,
+        192,
+        600,
+        16
+      ],
+      "sizes.viewport-more": [
+        784,
+        192,
+        240,
+        110
+      ],
+      "sizes.viewport-more.a": [
+        784,
+        192,
+        300,
+        16
+      ],
+      "sizes.viewport-more.b": [
+        1088,
+        192,
+        16,
+        90
+      ],
+      "sizes.viewport-more.c": [
+        1108,
+        192,
+        16,
+        45
+      ],
+      "sizes.viewport-more.d": [
+        1128,
+        192,
+        16,
+        18
+      ],
+      "sizes.screen-height": [
+        16,
+        358,
+        240,
+        60
+      ],
+      "sizes.screen-height.a": [
+        16,
+        358,
+        16,
+        900
+      ],
+      "sizes.screen-height.b": [
+        36,
+        358,
+        16,
+        900
+      ],
+      "sizes.screen-height.c": [
+        56,
+        358,
+        16,
+        16
+      ],
+      "sizes.min-w-0": [
+        272,
+        358,
+        240,
+        40
+      ],
+      "sizes.min-w-0.a": [
+        272,
+        358,
+        200,
+        40
+      ],
+      "sizes.min-w-0.a.1": [
+        272,
+        358,
+        300,
+        24
+      ],
+      "sizes.min-w-0.b": [
+        480,
+        358,
+        32,
+        24
+      ],
+      "sizes.min-w-auto": [
+        528,
+        358,
+        240,
+        40
+      ],
+      "sizes.min-w-auto.a": [
+        528,
+        358,
+        300,
+        40
+      ],
+      "sizes.min-w-auto.a.1": [
+        528,
+        358,
+        300,
+        24
+      ],
+      "sizes.min-w-auto.b": [
+        836,
+        358,
+        32,
+        24
+      ],
+      "sizes.overflow-min": [
+        784,
+        358,
+        240,
+        80
+      ],
+      "sizes.overflow-min.row": [
+        784,
+        358,
+        240,
+        32
+      ],
+      "sizes.overflow-min.hidden": [
+        784,
+        358,
+        200,
+        32
+      ],
+      "sizes.overflow-min.hidden.1": [
+        784,
+        358,
+        300,
+        24
+      ],
+      "sizes.overflow-min.hidden-b": [
+        992,
+        358,
+        32,
+        24
+      ],
+      "sizes.overflow-min.row2": [
+        784,
+        398,
+        240,
+        32
+      ],
+      "sizes.overflow-min.clip": [
+        784,
+        398,
+        300,
+        32
+      ],
+      "sizes.overflow-min.clip.1": [
+        784,
+        398,
+        300,
+        24
+      ],
+      "sizes.overflow-min.clip-b": [
+        1092,
+        398,
+        32,
+        24
+      ],
+      "sizes.flex-growth": [
+        16,
+        474,
+        240,
+        40
+      ],
+      "sizes.flex-growth.a": [
+        16,
+        474,
+        98.6719,
+        24
+      ],
+      "sizes.flex-growth.b": [
+        114.6719,
+        474,
+        49.3281,
+        24
+      ],
+      "sizes.flex-growth.c": [
+        164,
+        474,
+        32,
+        24
+      ],
+      "sizes.flex-growth.d": [
+        196,
+        474,
+        60,
+        24
+      ],
+      "sizes.flex-shorthand": [
+        272,
+        474,
+        240,
+        40
+      ],
+      "sizes.flex-shorthand.a": [
+        272,
+        474,
+        105.5938,
+        24
+      ],
+      "sizes.flex-shorthand.b": [
+        377.5938,
+        474,
+        67.2031,
+        24
+      ],
+      "sizes.flex-shorthand.c": [
+        444.7969,
+        474,
+        35.2031,
+        24
+      ],
+      "sizes.flex-shorthand.d": [
+        480,
+        474,
+        32,
+        24
+      ],
+      "sizes.flex-1-column": [
+        528,
+        474,
+        240,
+        0
+      ],
+      "sizes.flex-1-column.a": [
+        528,
+        474,
+        240,
+        0
+      ],
+      "sizes.flex-1-column.b": [
+        528,
+        474,
+        240,
+        0
+      ],
+      "sizes.flex-1-definite": [
+        784,
+        474,
+        240,
+        80
+      ],
+      "sizes.flex-1-definite.a": [
+        784,
+        474,
+        240,
+        40
+      ],
+      "sizes.flex-1-definite.b": [
+        784,
+        514,
+        240,
+        40
+      ],
+      "grid.tracks": [
+        16,
+        36,
+        240,
+        60
+      ],
+      "grid.tracks.a": [
+        16,
+        36,
+        100,
+        24
+      ],
+      "grid.tracks.b": [
+        120,
+        36,
+        92,
+        24
+      ],
+      "grid.tracks.c": [
+        216,
+        36,
+        40,
+        24
+      ],
+      "grid.tracks.d": [
+        16,
+        68,
+        196,
+        24
+      ],
+      "grid.spans": [
+        272,
+        36,
+        240,
+        100
+      ],
+      "grid.spans.a": [
+        272,
+        36,
+        158.6563,
+        48
+      ],
+      "grid.spans.b": [
+        434.6563,
+        36,
+        77.3438,
+        100
+      ],
+      "grid.spans.c": [
+        272,
+        88,
+        77.3281,
+        48
+      ],
+      "grid.spans.d": [
+        353.3281,
+        88,
+        77.3281,
+        48
+      ],
+      "grid.span-order": [
+        528,
+        36,
+        240,
+        60
+      ],
+      "grid.span-order.a": [
+        589,
+        36,
+        118,
+        28
+      ],
+      "grid.span-order.b": [
+        589,
+        68,
+        118,
+        28
+      ],
+      "grid.flow-col": [
+        784,
+        36,
+        240,
+        60
+      ],
+      "grid.flow-col.1": [
+        784,
+        36,
+        40,
+        28
+      ],
+      "grid.flow-col.2": [
+        784,
+        68,
+        40,
+        28
+      ],
+      "grid.flow-col.3": [
+        828,
+        36,
+        40,
+        28
+      ],
+      "grid.flow-col.4": [
+        828,
+        68,
+        40,
+        28
+      ],
+      "grid.flow-col.5": [
+        872,
+        36,
+        40,
+        28
+      ],
+      "grid.auto-rows": [
+        16,
+        172,
+        240,
+        110
+      ],
+      "grid.auto-rows.1": [
+        16,
+        172,
+        118,
+        24
+      ],
+      "grid.auto-rows.2": [
+        138,
+        172,
+        118,
+        24
+      ],
+      "grid.auto-rows.3": [
+        16,
+        200,
+        118,
+        24
+      ],
+      "grid.auto-rows.4": [
+        138,
+        200,
+        118,
+        24
+      ],
+      "grid.auto-rows.5": [
+        16,
+        228,
+        118,
+        24
+      ],
+      "grid.auto-fill": [
+        272,
+        172,
+        240,
+        80
+      ],
+      "grid.auto-fill.1": [
+        272,
+        172,
+        77.3281,
+        24
+      ],
+      "grid.auto-fill.2": [
+        353.3281,
+        172,
+        77.3281,
+        24
+      ],
+      "grid.auto-fill.3": [
+        434.6563,
+        172,
+        77.3438,
+        24
+      ],
+      "grid.auto-fill.4": [
+        272,
+        200,
+        77.3281,
+        24
+      ],
+      "grid.auto-fill.5": [
+        353.3281,
+        200,
+        77.3281,
+        24
+      ],
+      "grid.auto-fill.6": [
+        434.6563,
+        200,
+        77.3438,
+        24
+      ],
+      "grid.auto-fill.7": [
+        272,
+        228,
+        77.3281,
+        24
+      ],
+      "grid.full-span": [
+        528,
+        172,
+        240,
+        110
+      ],
+      "grid.full-span.a": [
+        528,
+        172,
+        240,
+        16
+      ],
+      "grid.full-span.b": [
+        528,
+        192,
+        78.6563,
+        24
+      ],
+      "grid.full-span.c": [
+        610.6563,
+        192,
+        157.3438,
+        52
+      ],
+      "grid.full-span.d": [
+        528,
+        220,
+        78.6563,
+        24
+      ],
+      "grid.dense": [
+        784,
+        172,
+        240,
+        80
+      ],
+      "grid.dense.a": [
+        784,
+        172,
+        158.6563,
+        24
+      ],
+      "grid.dense.b": [
+        784,
+        200,
+        158.6563,
+        24
+      ],
+      "grid.dense.c": [
+        946.6563,
+        172,
+        77.3438,
+        24
+      ],
+      "grid.dense.d": [
+        946.6563,
+        200,
+        77.3438,
+        24
+      ],
+      "grid.sparse": [
+        16,
+        318,
+        240,
+        80
+      ],
+      "grid.sparse.a": [
+        16,
+        318,
+        158.6563,
+        24
+      ],
+      "grid.sparse.b": [
+        16,
+        346,
+        158.6563,
+        24
+      ],
+      "grid.sparse.c": [
+        178.6563,
+        346,
+        77.3438,
+        24
+      ],
+      "grid.sparse.d": [
+        16,
+        374,
+        77.3281,
+        24
+      ],
+      "grid.place-items": [
+        272,
+        318,
+        240,
+        100
+      ],
+      "grid.place-items.a": [
+        315,
+        330,
+        32,
+        24
+      ],
+      "grid.place-items.b": [
+        480,
+        330,
+        32,
+        24
+      ],
+      "grid.place-items.c": [
+        315,
+        394,
+        32,
+        24
+      ],
+      "grid.place-items.d": [
+        394,
+        370,
+        32,
+        24
+      ],
+      "grid.stretch-self": [
+        528,
+        318,
+        240,
+        100
+      ],
+      "grid.stretch-self.a": [
+        614,
+        318,
+        32,
+        24
+      ],
+      "grid.stretch-self.b": [
+        650,
+        318,
+        118,
+        48
+      ],
+      "grid.stretch-self.c": [
+        614,
+        370,
+        32,
+        48
+      ],
+      "grid.stretch-self.d": [
+        736,
+        370,
+        32,
+        24
+      ],
+      "grid.content": [
+        784,
+        318,
+        240,
+        100
+      ],
+      "grid.content.1": [
+        784,
+        318,
+        40,
+        20
+      ],
+      "grid.content.2": [
+        828,
+        318,
+        40,
+        20
+      ],
+      "grid.content.3": [
+        784,
+        398,
+        40,
+        20
+      ],
+      "grid.content.4": [
+        828,
+        398,
+        40,
+        20
+      ],
+      "grid.place-content": [
+        16,
+        454,
+        240,
+        100
+      ],
+      "grid.place-content.1": [
+        94,
+        482,
+        40,
+        20
+      ],
+      "grid.place-content.2": [
+        138,
+        482,
+        40,
+        20
+      ],
+      "grid.place-content.3": [
+        94,
+        506,
+        40,
+        20
+      ],
+      "grid.place-content.4": [
+        138,
+        506,
+        40,
+        20
+      ],
+      "grid.auto-tracks": [
+        272,
+        454,
+        240,
+        40
+      ],
+      "grid.auto-tracks.a": [
+        272,
+        454,
+        40,
+        24
+      ],
+      "grid.auto-tracks.b": [
+        374,
+        454,
+        80,
+        24
+      ],
+      "grid.minmax": [
+        528,
+        454,
+        240,
+        40
+      ],
+      "grid.minmax.a": [
+        528,
+        454,
+        50.6563,
+        24
+      ],
+      "grid.minmax.b": [
+        582.6563,
+        454,
+        101.3438,
+        24
+      ],
+      "grid.minmax.c": [
+        688,
+        454,
+        80,
+        24
+      ],
+      "grid.rows": [
+        784,
+        454,
+        240,
+        100
+      ],
+      "grid.rows.a": [
+        784,
+        454,
+        240,
+        24
+      ],
+      "grid.rows.b": [
+        784,
+        482,
+        240,
+        72
+      ],
+      "grid.min-content": [
+        16,
+        590,
+        240,
+        40
+      ],
+      "grid.min-content.a": [
+        16,
+        590,
+        40,
+        40
+      ],
+      "grid.min-content.a.1": [
+        16,
+        590,
+        32,
+        16
+      ],
+      "grid.min-content.a.2": [
+        16,
+        610,
+        40,
+        16
+      ],
+      "grid.min-content.b": [
+        60,
+        590,
+        72,
+        40
+      ],
+      "grid.min-content.b.1": [
+        60,
+        590,
+        32,
+        16
+      ],
+      "grid.min-content.b.2": [
+        92,
+        590,
+        40,
+        16
+      ],
+      "alignment.content-start": [
+        16,
+        36,
+        110,
+        90
+      ],
+      "alignment.content-start.1": [
+        16,
+        36,
+        48,
+        16
+      ],
+      "alignment.content-start.2": [
+        68,
+        36,
+        48,
+        16
+      ],
+      "alignment.content-start.3": [
+        16,
+        52,
+        48,
+        16
+      ],
+      "alignment.content-center": [
+        142,
+        36,
+        110,
+        90
+      ],
+      "alignment.content-center.1": [
+        142,
+        65,
+        48,
+        16
+      ],
+      "alignment.content-center.2": [
+        194,
+        65,
+        48,
+        16
+      ],
+      "alignment.content-center.3": [
+        142,
+        81,
+        48,
+        16
+      ],
+      "alignment.content-end": [
+        268,
+        36,
+        110,
+        90
+      ],
+      "alignment.content-end.1": [
+        268,
+        94,
+        48,
+        16
+      ],
+      "alignment.content-end.2": [
+        320,
+        94,
+        48,
+        16
+      ],
+      "alignment.content-end.3": [
+        268,
+        110,
+        48,
+        16
+      ],
+      "alignment.content-between": [
+        394,
+        36,
+        110,
+        90
+      ],
+      "alignment.content-between.1": [
+        394,
+        36,
+        48,
+        16
+      ],
+      "alignment.content-between.2": [
+        446,
+        36,
+        48,
+        16
+      ],
+      "alignment.content-between.3": [
+        394,
+        110,
+        48,
+        16
+      ],
+      "alignment.content-around": [
+        520,
+        36,
+        110,
+        90
+      ],
+      "alignment.content-around.1": [
+        520,
+        50.5,
+        48,
+        16
+      ],
+      "alignment.content-around.2": [
+        572,
+        50.5,
+        48,
+        16
+      ],
+      "alignment.content-around.3": [
+        520,
+        95.5,
+        48,
+        16
+      ],
+      "alignment.content-evenly": [
+        646,
+        36,
+        110,
+        90
+      ],
+      "alignment.content-evenly.1": [
+        646,
+        55.3281,
+        48,
+        16
+      ],
+      "alignment.content-evenly.2": [
+        698,
+        55.3281,
+        48,
+        16
+      ],
+      "alignment.content-evenly.3": [
+        646,
+        90.6563,
+        48,
+        16
+      ],
+      "alignment.content-stretch": [
+        772,
+        36,
+        110,
+        90
+      ],
+      "alignment.content-stretch.1": [
+        772,
+        36,
+        48,
+        16
+      ],
+      "alignment.content-stretch.2": [
+        824,
+        36,
+        48,
+        16
+      ],
+      "alignment.content-stretch.3": [
+        772,
+        81,
+        48,
+        16
+      ],
+      "alignment.content-normal": [
+        898,
+        36,
+        110,
+        90
+      ],
+      "alignment.content-normal.1": [
+        898,
+        36,
+        48,
+        16
+      ],
+      "alignment.content-normal.2": [
+        950,
+        36,
+        48,
+        16
+      ],
+      "alignment.content-normal.3": [
+        898,
+        81,
+        48,
+        16
+      ],
+      "alignment.justify-stretch": [
+        16,
+        162,
+        240,
+        40
+      ],
+      "alignment.justify-stretch.1": [
+        16,
+        162,
+        40,
+        24
+      ],
+      "alignment.justify-stretch.2": [
+        56,
+        162,
+        40,
+        24
+      ],
+      "alignment.justify-normal": [
+        272,
+        162,
+        240,
+        40
+      ],
+      "alignment.justify-normal.1": [
+        272,
+        162,
+        40,
+        24
+      ],
+      "alignment.justify-normal.2": [
+        312,
+        162,
+        40,
+        24
+      ],
+      "alignment.self": [
+        528,
+        162,
+        240,
+        60
+      ],
+      "alignment.self.a": [
+        528,
+        198,
+        40,
+        24
+      ],
+      "alignment.self.b": [
+        572,
+        180,
+        40,
+        24
+      ],
+      "alignment.self.c": [
+        616,
+        162,
+        40,
+        24
+      ],
+      "alignment.self.d": [
+        660,
+        162,
+        40,
+        60
+      ],
+      "alignment.self-auto": [
+        784,
+        162,
+        240,
+        60
+      ],
+      "alignment.self-auto.a": [
+        784,
+        198,
+        40,
+        24
+      ],
+      "alignment.self-auto.b": [
+        828,
+        162,
+        40,
+        24
+      ],
+      "alignment.order": [
+        16,
+        258,
+        240,
+        30
+      ],
+      "alignment.order.a": [
+        160,
+        258,
+        32,
+        24
+      ],
+      "alignment.order.b": [
+        64,
+        258,
+        40,
+        24
+      ],
+      "alignment.order.c": [
+        108,
+        258,
+        48,
+        24
+      ],
+      "alignment.order.d": [
+        16,
+        258,
+        24,
+        24
+      ],
+      "alignment.order.e": [
+        44,
+        258,
+        16,
+        24
+      ],
+      "alignment.order-column": [
+        272,
+        258,
+        240,
+        110
+      ],
+      "alignment.order-column.a": [
+        272,
+        322,
+        240,
+        16
+      ],
+      "alignment.order-column.b": [
+        272,
+        274,
+        240,
+        24
+      ],
+      "alignment.order-column.c": [
+        272,
+        302,
+        240,
+        16
+      ],
+      "alignment.order-column.d": [
+        272,
+        258,
+        240,
+        12
+      ],
+      "alignment.order-grid": [
+        528,
+        258,
+        240,
+        60
+      ],
+      "alignment.order-grid.a": [
+        528,
+        290,
+        77.3281,
+        24
+      ],
+      "alignment.order-grid.b": [
+        609.3281,
+        258,
+        77.3281,
+        24
+      ],
+      "alignment.order-grid.c": [
+        690.6563,
+        258,
+        77.3438,
+        24
+      ],
+      "alignment.order-grid.d": [
+        528,
+        258,
+        77.3281,
+        24
+      ],
+      "misc.invisible": [
+        16,
+        36,
+        240,
+        80
+      ],
+      "misc.invisible.a": [
+        16,
+        36,
+        64,
+        40
+      ],
+      "misc.invisible.a.1": [
+        16,
+        36,
+        32,
+        16
+      ],
+      "misc.invisible.b": [
+        88,
+        36,
+        64,
+        40
+      ],
+      "misc.clip": [
+        272,
+        36,
+        240,
+        60
+      ],
+      "misc.clip.a": [
+        272,
+        36,
+        64,
+        32
+      ],
+      "misc.clip.a.1": [
+        272,
+        36,
+        128,
+        32
+      ],
+      "misc.clip.b": [
+        344,
+        36,
+        64,
+        32
+      ],
+      "misc.clip.b.1": [
+        344,
+        36,
+        32,
+        32
+      ],
+      "misc.hidden": [
+        528,
+        36,
+        240,
+        40
+      ],
+      "misc.hidden.a": [
+        528,
+        36,
+        40,
+        24
+      ],
+      "misc.hidden.b": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "misc.hidden.c": [
+        576,
+        36,
+        40,
+        24
+      ],
+      "misc.aspect": [
+        784,
+        36,
+        300,
+        110
+      ],
+      "misc.aspect.a": [
+        784,
+        36,
+        48,
+        48
+      ],
+      "misc.aspect.b": [
+        840,
+        36,
+        64,
+        36
+      ],
+      "misc.aspect.c": [
+        912,
+        36,
+        48,
+        36
+      ],
+      "misc.aspect.d": [
+        968,
+        36,
+        48,
+        24
+      ],
+      "misc.aspect.e": [
+        1024,
+        36,
+        40,
+        40
+      ],
+      "misc.box": [
+        16,
+        182,
+        240,
+        80
+      ],
+      "misc.box.a": [
+        16,
+        182,
+        104,
+        64
+      ],
+      "misc.box.b": [
+        128,
+        182,
+        80,
+        40
+      ],
+      "misc.block": [
+        272,
+        182,
+        240,
+        130
+      ],
+      "misc.block.a": [
+        272,
+        182,
+        240,
+        24
+      ],
+      "misc.block.b": [
+        272,
+        230,
+        240,
+        24
+      ],
+      "misc.block.c": [
+        352,
+        254,
+        80,
+        24
+      ],
+      "misc.block.d": [
+        472,
+        278,
+        40,
+        16
+      ],
+      "misc.flow-root": [
+        528,
+        182,
+        240,
+        110
+      ],
+      "misc.flow-root.a": [
+        528,
+        182,
+        240,
+        40
+      ],
+      "misc.flow-root.a.1": [
+        528,
+        198,
+        240,
+        24
+      ],
+      "misc.flow-root.b": [
+        528,
+        230,
+        240,
+        24
+      ],
+      "misc.block-collapse": [
+        784,
+        182,
+        240,
+        110
+      ],
+      "misc.block-collapse.a": [
+        784,
+        198,
+        240,
+        24
+      ],
+      "misc.block-collapse.a.1": [
+        784,
+        198,
+        240,
+        24
+      ],
+      "misc.block-collapse.b": [
+        784,
+        230,
+        240,
+        24
+      ]
+    }
+  }
+}

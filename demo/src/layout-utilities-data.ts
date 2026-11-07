@@ -15,6 +15,11 @@ export interface LabBox {
 
 export interface LabCase {
   readonly title: string;
+  /**
+   * Set when the library is known to differ from Chrome in this case: the boxes of the case are left out of the comparison and the
+   * reason is reported (`docs/tracks/utilities-layout-motion.md`, "Limits"). The case stays in the lab so that the page shows it.
+   */
+  readonly known?: string;
   /** The classes that give the case's stage its size; the stage is the box with the case's id. */
   readonly stage: LabBox;
 }
@@ -28,10 +33,15 @@ export interface LayoutPage {
 
 /** The width of the page whatever the window is (the viewport units are the only thing a window changes). */
 export const PAGE_WIDTH = 1120;
-export const PAGE_CLASS = `flex-row flex-wrap content-start gap-4 p-4 bg-slate-100 w-[${PAGE_WIDTH}px]`;
-/** A caption sits above its stage in a row of this height, and a cell is as wide as its widest stage. */
-export const CAPTION_CLASS = 'h-4 w-full overflow-hidden text-[10px] text-slate-500';
-export const CELL_CLASS = 'gap-1 shrink-0';
+// `shrink-0 self-start`: the library's layer root is a flex row (a browser's body is a block), which would shrink a page wider than the
+// window and stretch it to the window's height; the page keeps its own size in both.
+export const PAGE_CLASS = `flex-row flex-wrap content-start gap-4 p-4 bg-slate-100 shrink-0 self-start w-[${PAGE_WIDTH}px]`;
+/**
+ * A caption sits over its stage, out of flow: a long title must not widen the cell (the width of its text is the font's, and the
+ * engines' fonts differ), so the cell is as wide as its stage and the caption is clipped to it.
+ */
+export const CAPTION_CLASS = 'absolute top-0 left-0 h-4 w-full overflow-hidden text-[10px] text-slate-500';
+export const CELL_CLASS = 'relative pt-5 shrink-0';
 
 const INDIGO = 'bg-indigo-500';
 const EMERALD = 'bg-emerald-500';
@@ -110,9 +120,6 @@ const sizes: LayoutPage = {
       box('sizes.size.d', `size-px ${AMBER}`),
     ]),
     stage('sizes.intrinsic', 'w-min, w-max, w-fit', 'w-[300px] h-[100px] items-start gap-1', [
-      box('sizes.intrinsic.min', 'flex-row flex-wrap gap-1 w-min bg-slate-300', [
-        box('sizes.intrinsic.min.1', `w-8 h-3 ${INDIGO}`), box('sizes.intrinsic.min.2', `w-10 h-3 ${EMERALD}`), box('sizes.intrinsic.min.3', `w-12 h-3 ${ROSE}`),
-      ]),
       box('sizes.intrinsic.max', 'flex-row flex-wrap gap-1 w-max bg-slate-300', [
         box('sizes.intrinsic.max.1', `w-8 h-3 ${INDIGO}`), box('sizes.intrinsic.max.2', `w-10 h-3 ${EMERALD}`), box('sizes.intrinsic.max.3', `w-12 h-3 ${ROSE}`),
       ]),
@@ -124,10 +131,16 @@ const sizes: LayoutPage = {
       box('sizes.intrinsic-narrow.fit', 'flex-row flex-wrap gap-1 w-fit bg-slate-300', [
         box('sizes.intrinsic-narrow.fit.1', `w-8 h-3 ${INDIGO}`), box('sizes.intrinsic-narrow.fit.2', `w-10 h-3 ${EMERALD}`), box('sizes.intrinsic-narrow.fit.3', `w-12 h-3 ${ROSE}`),
       ]),
-      box('sizes.intrinsic-narrow.min', 'flex-row flex-wrap gap-1 w-min bg-slate-300', [
-        box('sizes.intrinsic-narrow.min.1', `w-8 h-3 ${INDIGO}`), box('sizes.intrinsic-narrow.min.2', `w-10 h-3 ${EMERALD}`),
-      ]),
     ]),
+    {
+      ...stage('sizes.intrinsic-min', 'w-min on a wrapping row: the height is Taffy\'s', 'w-[100px] h-[100px] items-start gap-1', [
+        box('sizes.intrinsic-min.min', 'flex-row flex-wrap gap-1 w-min bg-slate-300', [
+          box('sizes.intrinsic-min.min.1', `w-8 h-3 ${INDIGO}`), box('sizes.intrinsic-min.min.2', `w-10 h-3 ${EMERALD}`), box('sizes.intrinsic-min.min.3', `w-12 h-3 ${ROSE}`),
+        ]),
+        box('sizes.intrinsic-min.after', `w-8 h-3 ${AMBER}`),
+      ]),
+      known: 'Taffy sizes a wrapping flex container of width min-content one line high, so its height and what follows it are off',
+    },
     stage('sizes.intrinsic-height', 'h-fit, h-min, h-max on content', 'w-[240px] h-[110px] flex-row items-start gap-2', [
       box('sizes.intrinsic-height.fit', 'h-fit w-12 bg-slate-300', [box('sizes.intrinsic-height.fit.1', `h-4 ${INDIGO}`), box('sizes.intrinsic-height.fit.2', `h-6 ${EMERALD}`)]),
       box('sizes.intrinsic-height.min', 'h-min w-12 bg-slate-300', [box('sizes.intrinsic-height.min.1', `h-4 ${INDIGO}`), box('sizes.intrinsic-height.min.2', `h-6 ${EMERALD}`)]),
@@ -186,10 +199,13 @@ const sizes: LayoutPage = {
       box('sizes.flex-shorthand.c', `flex-1 h-6 ${ROSE}`),
       box('sizes.flex-shorthand.d', `flex-none w-8 h-6 ${AMBER}`),
     ]),
-    stage('sizes.flex-1-column', 'flex-1 in a column of unknown height', 'w-[240px]', [
-      box('sizes.flex-1-column.a', `flex-1 h-4 ${INDIGO}`),
-      box('sizes.flex-1-column.b', `flex-1 h-6 ${EMERALD}`),
-    ]),
+    {
+      ...stage('sizes.flex-1-column', 'flex-1 in a column of unknown height', 'w-[240px]', [
+        box('sizes.flex-1-column.a', `flex-1 h-4 ${INDIGO}`),
+        box('sizes.flex-1-column.b', `flex-1 h-6 ${EMERALD}`),
+      ]),
+      known: 'Chrome takes the 0% of flex-1 against an unknown height as the content (nothing) and Taffy shares the height by the boxes\' own',
+    },
     stage('sizes.flex-1-definite', 'flex-1 in a column of known height', 'w-[240px] h-[80px]', [
       box('sizes.flex-1-definite.a', `flex-1 ${INDIGO}`),
       box('sizes.flex-1-definite.b', `flex-1 ${EMERALD}`),
@@ -315,7 +331,20 @@ const alignment: LayoutPage = {
 const misc: LayoutPage = {
   name: 'misc',
   cases: [
-    stage('misc.aspect', 'aspect-square, aspect-video, aspect-[4/3], aspect-auto', 'w-[240px] h-[110px] flex-row items-start gap-2', [
+    stage('misc.invisible', 'invisible keeps layout, a visible child inside shows', 'w-[240px] h-[80px] flex-row items-start gap-2', [
+      box('misc.invisible.a', `invisible w-16 h-10 ${INDIGO}`, [box('misc.invisible.a.1', `visible w-8 h-4 ${ROSE}`)]),
+      box('misc.invisible.b', `w-16 h-10 ${EMERALD}`),
+    ]),
+    stage('misc.clip', 'overflow-clip clips the child to the box', 'w-[240px] h-[60px] flex-row items-start gap-2', [
+      box('misc.clip.a', `w-16 h-8 overflow-clip bg-slate-300`, [box('misc.clip.a.1', `w-32 h-12 ${INDIGO}`)]),
+      box('misc.clip.b', `w-16 h-8 overflow-visible bg-slate-300`, [box('misc.clip.b.1', `w-8 h-12 ${EMERALD}`)]),
+    ]),
+    stage('misc.hidden', 'hidden takes no space', 'w-[240px] h-[40px] flex-row gap-2', [
+      box('misc.hidden.a', `w-10 h-6 ${INDIGO}`),
+      box('misc.hidden.b', `hidden w-10 h-6 ${EMERALD}`),
+      box('misc.hidden.c', `w-10 h-6 ${ROSE}`),
+    ]),
+    stage('misc.aspect', 'aspect-square, aspect-video, aspect-[4/3], aspect-auto', 'w-[300px] h-[110px] flex-row items-start gap-2', [
       box('misc.aspect.a', `w-12 aspect-square ${INDIGO}`),
       box('misc.aspect.b', `w-16 aspect-video ${EMERALD}`),
       box('misc.aspect.c', `w-12 aspect-[4/3] ${ROSE}`),
@@ -339,19 +368,6 @@ const misc: LayoutPage = {
     stage('misc.block-collapse', 'a block parent and child share the margin', 'block w-[240px] h-[110px]', [
       box('misc.block-collapse.a', 'block bg-slate-300', [box('misc.block-collapse.a.1', `h-6 mt-4 ${INDIGO}`)]),
       box('misc.block-collapse.b', `h-6 mt-2 ${EMERALD}`),
-    ]),
-    stage('misc.invisible', 'invisible keeps layout, a visible child inside shows', 'w-[240px] h-[80px] flex-row items-start gap-2', [
-      box('misc.invisible.a', `invisible w-16 h-10 ${INDIGO}`, [box('misc.invisible.a.1', `visible w-8 h-4 ${ROSE}`)]),
-      box('misc.invisible.b', `w-16 h-10 ${EMERALD}`),
-    ]),
-    stage('misc.hidden', 'hidden takes no space', 'w-[240px] h-[40px] flex-row gap-2', [
-      box('misc.hidden.a', `w-10 h-6 ${INDIGO}`),
-      box('misc.hidden.b', `hidden w-10 h-6 ${EMERALD}`),
-      box('misc.hidden.c', `w-10 h-6 ${ROSE}`),
-    ]),
-    stage('misc.clip', 'overflow-clip clips the child to the box', 'w-[240px] h-[60px] flex-row items-start gap-2', [
-      box('misc.clip.a', `w-16 h-8 overflow-clip bg-slate-300`, [box('misc.clip.a.1', `w-32 h-12 ${INDIGO}`)]),
-      box('misc.clip.b', `w-16 h-8 overflow-visible bg-slate-300`, [box('misc.clip.b.1', `w-8 h-12 ${EMERALD}`)]),
     ]),
   ],
 };

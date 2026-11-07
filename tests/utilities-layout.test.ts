@@ -3,6 +3,8 @@ import { test } from 'node:test';
 import { compileStyle } from '../src/styles';
 import { TRANSITION_PROPERTIES } from '../src/types';
 import type { Style, StyleProp } from '../src/types';
+import { LAYOUT_PAGES, PAGE_CLASS, CAPTION_CLASS, CELL_CLASS, pageBoxes } from '../demo/src/layout-utilities-data';
+import { LAYOUT_REFERENCE } from '../demo/src/layout-utilities-reference';
 import { checkFixture } from './fixtures';
 
 // ---- Layout and transition utilities (track utilities-layout-motion) ----
@@ -217,6 +219,25 @@ test('visibility, clipping and the block display values', () => {
   assertUnsupported(['collapse'], /use invisible to keep the layout/);
 });
 
+test('container is full width with each breakpoint\'s width as the limit, and sr-only is a 1 px clipped box', () => {
+  assert.deepEqual(layersOf('container'), [
+    { style: { width: '100%' } },
+    { minWidth: 640, style: { maxWidth: 640 } },
+    { minWidth: 768, style: { maxWidth: 768 } },
+    { minWidth: 1024, style: { maxWidth: 1024 } },
+    { minWidth: 1280, style: { maxWidth: 1280 } },
+    { minWidth: 1536, style: { maxWidth: 1536 } },
+  ]);
+  // Behind a breakpoint it starts there, and a later class still overrides (mx-auto and a limit of the author's own).
+  assert.deepEqual(layersOf('md:container')[0], { minWidth: 768, style: { maxWidth: 768, width: '100%' } });
+  assert.deepEqual(layersOf('container mx-auto max-w-xl').at(-1), { style: { marginLeft: 'auto', marginRight: 'auto', maxWidth: 576 } });
+  assert.deepEqual(styleOf('sr-only'), {
+    borderWidth: 0, height: 1, marginBottom: -1, marginLeft: -1, marginRight: -1, marginTop: -1, overflowX: 'hidden', overflowY: 'hidden',
+    paddingBottom: 0, paddingLeft: 0, paddingRight: 0, paddingTop: 0, position: 'absolute', width: 1,
+  });
+  assert.equal(styleOf('not-sr-only')?.position, 'static');
+});
+
 test('the utilities with no honest mapping say what to use instead', () => {
   const hints: Record<string, RegExp> = {
     'space-y-4': /use gap-y-<n> \(or gap-<n>\) on the container/,
@@ -345,4 +366,27 @@ test('compiled layout and transition styles match the native contract fixture, w
     transition: { properties: 'all', durationMs: 90, easing: { cubicBezier: [0.5, 0, 0.5, 1] } },
   };
   checkFixture('utilities-layout-inline-style.json', compileStyle('', inline));
+});
+
+// ---- The lab as data, for Taffy against Chrome (native/utility_layouts.rs) ----
+
+test('the layout lab compiles to the fixture the Rust tests lay out and compare with Chrome\'s rectangles', () => {
+  const compiled: Record<string, unknown> = {};
+  const addClasses = (className: string): void => {
+    compiled[className] = compileStyle(className);
+  };
+  [PAGE_CLASS, CAPTION_CLASS, CELL_CLASS].forEach(addClasses);
+  for (const page of LAYOUT_PAGES) pageBoxes(page).forEach((box) => addClasses(box.className));
+  const fixture = {
+    pageClass: PAGE_CLASS, captionClass: CAPTION_CLASS, cellClass: CELL_CLASS, compiled,
+    pages: LAYOUT_PAGES.map((page) => ({ name: page.name, cases: page.cases })),
+    reference: LAYOUT_REFERENCE,
+  };
+  checkFixture('layout-utilities-lab.json', fixture);
+  // Every box of every page has a Chrome rectangle at both window sizes, and the pages have no id twice.
+  const ids = LAYOUT_PAGES.flatMap((page) => pageBoxes(page).map((box) => box.id));
+  assert.equal(new Set(ids).size, ids.length, 'ids are unique');
+  for (const [size, rects] of Object.entries(LAYOUT_REFERENCE)) {
+    for (const id of ids) assert.ok(rects[id], `${size} has a rectangle for ${id}`);
+  }
 });
