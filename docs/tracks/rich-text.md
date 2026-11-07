@@ -95,6 +95,40 @@ getRangeRects(start: number, end: number): LayoutRect[] | undefined
   index work for a case nobody asked for; refusing it by name is honest and can be relaxed later.
 * **`TextHandle` is not a type.** The three queries are on `UIHandle`, as `scrollTo` is, so existing `ref`s typed `UIHandle` keep working.
 
+## Decisions (native)
+
+* **Spans resolve like nested inline elements** (`native/text_span.rs`, Godot-free, 30 unit tests): a span's style inherits colour and the text
+  longhands from the span it is in through the same `InheritedText`/`settle` the style engine uses for nodes, so a decoration propagates, takes the colour
+  and thickness of the span that set it and `currentcolor` is that span's. A segment's colour is `None` unless a span set one, so a node's own colour (which a
+  transition may be moving) still paints text no span coloured.
+* **One shaped paragraph, one font per run.** The display text (shown text with the inlays spliced in) is shaped with one `TextParagraph::add_string` per run
+  of one font (`StyledParagraph::build_rich`). Colour changes do not split a run, so a colour-only highlight is one string. `fontSize`, letter spacing and
+  text transform per span are refused by name: they change the line box or the length of the text.
+* **Glyph colour by cluster start**, the loop `RichTextLabel` has (`draw.rs`, `ColorRuns`): a ligature takes the colour of its first character. A paragraph with
+  no per-glyph colours, decorations or tracking still goes through `TextParagraph::draw`, so plain text and an unused feature cost nothing.
+* **Offsets.** `text_span/offsets.rs` is the display/source map (tested: groups of inlays at one offset, ends of a range, inside a group). The document (selection
+  model, copy, accessibility, the three queries) is in shown-text offsets; `text_style/flow.rs` now also says where each source character went when `text-transform`
+  or white space collapsing changed the text (`shown_text_mapped`), so spans stay on the right characters under `whitespace-normal` and `uppercase`.
+* **A selection highlight covers an inlay strictly inside the range and none at its ends**; a click inside an inlay is on the nearer side; a double click on a
+  word that has an inlay in it selects the word's source characters (`abc` + inlay `def` + `ghi` selects `abcghi`).
+* **No re-shaping for a repaint.** `refresh_paragraph` resolves the spans again on any `spans`, colour or decoration change, and hands the paragraph the new paint
+  data when the display text, the font runs, the shaping style and the font book's epoch (bumped by `registerFontFace`) are what it was shaped from
+  (`repaint_rich`). `paragraphBuilds` and `paragraphRepaints` in `getActivity` count the two.
+* **Decorations per fragment** (`decorated_fragments`): the segments with decorations, cut at line breaks, with their extent from the layout's selection rectangles,
+  because that is what Chrome does (a wave restarts at every span). A text with no spans is one fragment per line, as before.
+* **Baked pictures for a wave and for round dots** (`text_decoration/raster.rs`), leased from the same cache as shadow masks (`box_draw::acquire_baked`), one
+  per stroke width and pixel ratio, tiled along the line; at a fractional ratio several periods are baked so the picture is a whole number of device pixels.
+* **A span's styles are unconditional.** See above; `hover:` and breakpoint classes on a span throw. The parent text restyles through the ordinary path, and a text
+  with spans re-resolves them when its colour or decorations change (`motion.rs`).
+
+## Limits
+
+* Spans take colour, background, family, weight, style and decoration only; no font size, letter spacing, case or numerals per span.
+* An inlay holds plain text, and a nested `Text` has no ref, handler, role or test id (it is not an element).
+* The pattern of `auto` thickness on a dotted or dashed line, and dash and dot positions between device pixels, differ from Chrome as noted under "Decoration styles".
+* Caret positions are by line box: a mixed-direction line has two carets at a direction change and `getCaretRect` returns the primary (left-to-right) one.
+* Bidirectional text, and text where spans split a grapheme cluster, were not checked against Chrome.
+
 ## Decoration styles: what Chrome draws, read off its pixels
 
 Measured in headless Chrome 156 (puppeteer-core; JetBrains Mono at 12, 14, 16, 24 and 25 px, Open Sans at 16 px, device pixel ratios 1 and 2,
