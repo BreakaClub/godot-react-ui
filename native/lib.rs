@@ -20,8 +20,8 @@ mod focus;
 // The faces a root draws text with: the registry `registerFontFace` fills and CSS font matching over it.
 mod fonts;
 mod geometry;
-mod grid_style;
 mod gradient;
+mod grid_style;
 mod keyboard_input;
 mod keymap;
 mod layout;

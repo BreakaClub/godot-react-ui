@@ -466,8 +466,17 @@ mod tests {
             fallback_chord_action(Key::V, true, false, false, false),
             Some(TextAction::Paste)
         );
-        assert_eq!(fallback_chord_action(Key::C, false, false, false, false), None);
-        assert_eq!(fallback_chord_action(Key::C, true, true, false, false), None);
-        assert_eq!(fallback_chord_action(Key::C, true, false, true, false), None);
+        assert_eq!(
+            fallback_chord_action(Key::C, false, false, false, false),
+            None
+        );
+        assert_eq!(
+            fallback_chord_action(Key::C, true, true, false, false),
+            None
+        );
+        assert_eq!(
+            fallback_chord_action(Key::C, true, false, true, false),
+            None
+        );
     }
 }

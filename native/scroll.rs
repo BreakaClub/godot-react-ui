@@ -1257,7 +1257,10 @@ mod tests {
             ScrollInput::Ticks(horizontal_ticks)
         );
         let mut carousel_links = [link(ranges(200.0, 0.0), Vec2::ZERO)];
-        scroll_chain(&mut carousel_links, ScrollInput::wheel(horizontal_ticks, true));
+        scroll_chain(
+            &mut carousel_links,
+            ScrollInput::wheel(horizontal_ticks, true),
+        );
         assert_eq!(carousel_links[0].offset, Vec2::new(TICK_X_PX, 0.0));
     }
 
