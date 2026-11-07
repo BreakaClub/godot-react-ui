@@ -141,3 +141,14 @@ Rows are CSS px from the baseline, y down.
 Left out, with the reason: `auto` thickness on a dotted or dashed line is a stroke of about `round(2w)/2` px with antialiased rows (Chrome),
 drawn here as the nearest whole pixels; dash and dot x positions are quantised to a quarter device pixel in Chrome and to a device pixel
 here; the exact round-dot construction (a dot's phase differs from dot to dot in Chrome).
+
+## README text
+
+> **Rich text.** A `Text` with nested `Text` is one attributed paragraph, as in React Native: `<Text>const <Text className="text-purple-600">x</Text> = 1</Text>` is one
+> native node with a styled range. A span sets colour, background colour, font family, weight and slant and the text decoration (`underline`, `overline`, `line-through`;
+> `decoration-solid|double|dotted|dashed|wavy`, thickness, colour, `underline-offset`), inherits from the span it is in, and is drawn per glyph over one shaped
+> paragraph, so monospace columns are exact. Decorations are drawn as Chrome draws them, wavy included. `<Text inlay>` is generated text (a type hint): shown,
+> measured and wrapped, but not part of the text: offsets, the selection, copy and the accessible name skip it, and a caret can sit on either side of it. Every `Text`
+> handle answers `getCaretRect(offset, side)`, `getOffsetAtPoint(x, y)` and `getRangeRects(start, end)` in the root-local space of `getRect()`, right under transforms and at
+> any pixel ratio. A change to one span's colour is a commit of a few hundred characters that paints without shaping again. Details and the Chrome comparison:
+> `docs/tracks/rich-text.md`.
