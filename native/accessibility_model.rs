@@ -252,6 +252,8 @@ pub(crate) struct AxNode<'a> {
     pub(crate) height: f32,
     /// `display: none`, or `hidden` (Suspense): no box, nothing to read.
     pub(crate) display_none: bool,
+    /// `visibility: hidden`: the element itself is left out of the tree, and a visible descendant is not.
+    pub(crate) invisible: bool,
     pub(crate) clips_children: bool,
     /// `Some` for a scroll container (`overflow` is `scroll` or `auto` on an axis), whether or not it
     /// has anything to scroll right now.
@@ -363,7 +365,11 @@ fn visit(
     }
     let real_disabled = parent_real_disabled || node.props.is_disabled();
     let disabled = parent_disabled || real_disabled || node.props.aria_disabled == Some(true);
-    let resolved = resolve_role(node.kind, node.props).or_else(|| scroll_view_role(&node));
+    let resolved = if node.invisible {
+        None
+    } else {
+        resolve_role(node.kind, node.props).or_else(|| scroll_view_role(&node))
+    };
     let child_parent = if let Some(resolved) = resolved {
         entries.push(AxEntry {
             tag,
@@ -490,6 +496,12 @@ fn collect_text(source: &impl AxSource, tag: u32, parts: &mut Vec<String>) {
         return;
     };
     if node.display_none || node.props.aria_hidden == Some(true) {
+        return;
+    }
+    if node.invisible {
+        for child in node.children {
+            collect_text(source, *child, parts);
+        }
         return;
     }
     if let Some(label) = node
@@ -992,6 +1004,7 @@ mod tests {
         /// Root-local position, then size.
         rect: [f32; 4],
         display_none: bool,
+        invisible: bool,
         scroll: Option<AxScroll>,
         in_scrollable: bool,
         text_field: Option<AxTextField>,
@@ -1020,6 +1033,7 @@ mod tests {
                     children: children.to_vec(),
                     rect: [0.0, 0.0, 10.0, 10.0],
                     display_none: false,
+                    invisible: false,
                     scroll: None,
                     in_scrollable: false,
                     text_field: None,
@@ -1057,6 +1071,7 @@ mod tests {
                 width: node.rect[2],
                 height: node.rect[3],
                 display_none: node.display_none,
+                invisible: node.invisible,
                 clips_children: false,
                 scroll: node.scroll,
                 in_scrollable: node.in_scrollable,
@@ -1162,6 +1177,21 @@ mod tests {
         assert_eq!(
             entries(&tree),
             vec![(1, None, AxRole::Container), (3, Some(1), AxRole::Button)]
+        );
+    }
+
+    #[test]
+    fn hidden_visibility_leaves_the_element_out_but_not_a_visible_descendant() {
+        let mut tree = Tree::new(&[1]);
+        tree.add(1, Kind::View, PropsSpec::default(), &[2]);
+        tree.add(2, Kind::Button, PropsSpec::default(), &[3]);
+        tree.add(3, Kind::Button, PropsSpec::default(), &[]);
+        tree.nodes.get_mut(&2).unwrap().invisible = true;
+        let tags: Vec<u32> = entries(&tree).iter().map(|entry| entry.0).collect();
+        assert_eq!(
+            tags,
+            vec![3],
+            "the hidden button is gone, the visible one inside it stays"
         );
     }
 

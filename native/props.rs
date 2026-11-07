@@ -11,10 +11,10 @@ use serde::de::{Deserialize, Deserializer};
 use serde::{Deserialize as DeriveDeserialize, Serialize};
 use taffy::geometry::{Point, Rect, Size};
 use taffy::style::{
-    AlignItems, Display, FlexDirection, FlexWrap, JustifyContent, LengthPercentage,
-    LengthPercentageAuto, Overflow, Position,
+    AlignContent, AlignItems, BoxSizing, Display, FlexDirection, FlexWrap, JustifyContent,
+    LengthPercentage, LengthPercentageAuto, Overflow, Position,
 };
-use taffy::style_helpers::{auto, fr, length, minmax};
+use taffy::style_helpers::auto;
 
 use crate::filter::{FilterKind, FilterList, FilterParts};
 use crate::text_style::spec::{MAX_FONT_WEIGHT, MIN_FONT_WEIGHT};
@@ -25,6 +25,14 @@ use crate::text_style::{
     WordBreakSpec,
 };
 use crate::transform::{TransformList, TransformOriginSpec, TransformParts};
+use crate::grid_style::{
+    AutoKeyword, GridAutoFlowSpec, GridLineSpec, GridTemplateSpec, GridTrackSpec, auto_tracks,
+    placement, validate_auto_tracks,
+};
+pub use crate::transition::Easing;
+use crate::transition::{
+    PropertiesKeyword, TransitionParts, TransitionProperties, merge_transition,
+};
 
 /// The `tabIndex` values the plan allows (3.13): `0` in the tab order, `-1` focusable only.
 pub const TAB_INDICES: [i32; 2] = [0, -1];
@@ -63,6 +71,11 @@ pub enum Dimension {
 pub enum DisplaySpec {
     Flex,
     Grid,
+    /// CSS block layout (Taffy's): children stack, vertical margins collapse, a block child fills the width.
+    Block,
+    /// As `Block`, and it contains its floats and its margins (a block formatting context).
+    #[serde(rename = "flow-root")]
+    FlowRoot,
     None,
 }
 
@@ -93,6 +106,8 @@ pub enum AlignSpec {
     Baseline,
     FlexStart,
     FlexEnd,
+    /// Only `alignSelf` and `justifySelf` take it: the container's `alignItems` or `justifyItems` decides.
+    Auto,
 }
 
 #[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq)]
@@ -106,6 +121,34 @@ pub enum JustifySpec {
     SpaceEvenly,
     FlexStart,
     FlexEnd,
+    Stretch,
+    /// CSS `normal`: `stretch` for a grid's tracks and `flex-start` for flex items.
+    Normal,
+}
+
+/// `visibility`: `hidden` paints nothing and takes no pointer but keeps its layout. It is inherited, and a
+/// child may be `visible` inside a `hidden` parent.
+#[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum VisibilitySpec {
+    Visible,
+    Hidden,
+}
+
+/// `box-sizing`: whether `width`, `height` and their limits include the padding and border.
+#[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum BoxSizingSpec {
+    BorderBox,
+    ContentBox,
+}
+
+/// `aspect-ratio`: width over height, or `auto` for none.
+#[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq)]
+#[serde(untagged)]
+pub enum AspectRatioSpec {
+    Ratio(f32),
+    Auto(AutoKeyword),
 }
 
 #[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq)]
@@ -128,6 +171,9 @@ pub enum TransitionProperty {
     Height,
     Opacity,
     BackgroundColor,
+    /// The text colour, which children inherit: their text follows it while it animates.
+    Color,
+    BorderColor,
     /// Interpolated per function, a missing function from its identity (CSS Filter Effects).
     Filter,
     BackdropFilter,
@@ -136,14 +182,35 @@ pub enum TransitionProperty {
     Transform,
 }
 
-#[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
-pub enum Easing {
-    Linear,
-    Ease,
-    EaseIn,
-    EaseOut,
-    EaseInOut,
+impl TransitionProperty {
+    /// Every property `transition-property: all` animates. A property a track adds to this enum goes here too
+    /// (`transitions_name_every_property` fails to compile until the new variant is placed).
+    pub const ANIMATABLE: [TransitionProperty; 9] = [
+        TransitionProperty::Width,
+        TransitionProperty::Height,
+        TransitionProperty::Opacity,
+        TransitionProperty::BackgroundColor,
+        TransitionProperty::Color,
+        TransitionProperty::BorderColor,
+        TransitionProperty::Filter,
+        TransitionProperty::BackdropFilter,
+        TransitionProperty::Transform,
+    ];
+
+    /// The CSS property Stylo animates for it.
+    pub(crate) fn css_name(self) -> &'static str {
+        match self {
+            TransitionProperty::Width => "width",
+            TransitionProperty::Height => "height",
+            TransitionProperty::Opacity => "opacity",
+            TransitionProperty::BackgroundColor => "background-color",
+            TransitionProperty::Color => "color",
+            TransitionProperty::BorderColor => "border-color",
+            TransitionProperty::Filter => "filter",
+            TransitionProperty::BackdropFilter => "backdrop-filter",
+            TransitionProperty::Transform => "transform",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq)]
@@ -161,6 +228,9 @@ pub enum InterpolateSize {
 pub enum OverflowSpec {
     Visible,
     Hidden,
+    /// Clips like `Hidden`, but is not a scroll container: a flex item's automatic minimum size stays its
+    /// content's, and nothing can scroll it.
+    Clip,
     Scroll,
     Auto,
 }
@@ -373,7 +443,7 @@ pub enum OrientationSpec {
 #[derive(Clone, Debug, DeriveDeserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TransitionSpec {
-    pub properties: Vec<TransitionProperty>,
+    pub properties: TransitionProperties,
     pub duration_ms: f64,
     pub delay_ms: Option<f64>,
     pub easing: Option<Easing>,
@@ -381,16 +451,20 @@ pub struct TransitionSpec {
 
 impl TransitionSpec {
     pub fn validate(&self) -> Result<(), String> {
-        if self.properties.is_empty() {
-            return Err("transition.properties must not be empty".into());
-        }
-        let mut unique = BTreeSet::new();
-        if self
-            .properties
-            .iter()
-            .any(|property| !unique.insert(*property))
-        {
-            return Err("transition.properties must not contain duplicates".into());
+        match &self.properties {
+            TransitionProperties::List(list) => {
+                if list.is_empty() {
+                    return Err("transition.properties must not be empty".into());
+                }
+                let mut unique = BTreeSet::new();
+                if list.iter().any(|property| !unique.insert(*property)) {
+                    return Err("transition.properties must not contain duplicates".into());
+                }
+            }
+            TransitionProperties::Keyword(PropertiesKeyword::None) => {
+                return Err("transition.properties must not be none; leave transition out".into());
+            }
+            TransitionProperties::Keyword(PropertiesKeyword::All) => {}
         }
         if !self.duration_ms.is_finite() || self.duration_ms < 0.0 {
             return Err("transition.durationMs must be a finite nonnegative number".into());
@@ -401,7 +475,7 @@ impl TransitionSpec {
         {
             return Err("transition.delayMs must be a finite nonnegative number".into());
         }
-        Ok(())
+        self.easing.map_or(Ok(()), Easing::validate)
     }
 }
 
@@ -482,14 +556,36 @@ pub struct StyleSpec {
     pub padding_right: Option<f32>,
     pub padding_bottom: Option<f32>,
     pub padding_left: Option<f32>,
-    pub margin_top: Option<f32>,
-    pub margin_right: Option<f32>,
-    pub margin_bottom: Option<f32>,
-    pub margin_left: Option<f32>,
+    /// Pixels, a percentage of the containing block's width, or `auto`; either number may be negative.
+    pub margin_top: Option<Inset>,
+    pub margin_right: Option<Inset>,
+    pub margin_bottom: Option<Inset>,
+    pub margin_left: Option<Inset>,
     pub align_items: Option<AlignSpec>,
     pub align_self: Option<AlignSpec>,
     pub justify_content: Option<JustifySpec>,
-    pub grid_template_columns: Option<u16>,
+    pub align_content: Option<JustifySpec>,
+    pub justify_items: Option<AlignSpec>,
+    pub justify_self: Option<AlignSpec>,
+    /// The position among the siblings in layout (not in painting or hit testing).
+    pub order: Option<i32>,
+    pub aspect_ratio: Option<AspectRatioSpec>,
+    pub box_sizing: Option<BoxSizingSpec>,
+    /// Inherited.
+    pub visibility: Option<VisibilitySpec>,
+    pub grid_template_columns: Option<GridTemplateSpec>,
+    pub grid_template_rows: Option<GridTemplateSpec>,
+    pub grid_auto_flow: Option<GridAutoFlowSpec>,
+    pub grid_auto_columns: Option<Vec<GridTrackSpec>>,
+    pub grid_auto_rows: Option<Vec<GridTrackSpec>>,
+    /// A grid item's area: lines and a span per axis, which `placement` resolves as the CSS cascade of
+    /// Tailwind's `col-span-*`, `col-start-*` and `col-end-*` does (an explicit line beats the span).
+    pub grid_column_start: Option<GridLineSpec>,
+    pub grid_column_end: Option<GridLineSpec>,
+    pub grid_column_span: Option<u16>,
+    pub grid_row_start: Option<GridLineSpec>,
+    pub grid_row_end: Option<GridLineSpec>,
+    pub grid_row_span: Option<u16>,
     pub background_color: Option<String>,
     pub color: Option<String>,
     pub font_size: Option<i32>,
@@ -538,6 +634,9 @@ pub struct StyleSpec {
     pub opacity: Option<f32>,
     pub text_align: Option<TextAlignSpec>,
     pub transition: Option<TransitionSpec>,
+    /// The `transition-*` longhands the utility classes set (`transition-colors`, `duration-200`, `ease-in-out`);
+    /// each merges on its own across layers, and the computed style resolves them into `transition`.
+    pub transition_parts: Option<TransitionParts>,
     pub interpolate_size: Option<InterpolateSize>,
     pub overflow_x: Option<OverflowSpec>,
     pub overflow_y: Option<OverflowSpec>,
@@ -681,48 +780,140 @@ pub(crate) enum ParsedDimension {
     Auto,
 }
 
+/// What a size (`width`, `height`, `flexBasis` and the limits) says: a [`ParsedDimension`], an intrinsic
+/// keyword, or a share of the viewport.
+pub(crate) enum ParsedSize {
+    Length(f32),
+    Percent(f32),
+    Auto,
+    MinContent,
+    MaxContent,
+    FitContent,
+    /// A fraction of the viewport's width (`50vw` is 0.5).
+    ViewportWidth(f32),
+    ViewportHeight(f32),
+}
+
+/// A fraction of the viewport's size, which a style resolves to pixels before layout
+/// ([`StyleSpec::resolve_viewport_units`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Viewport {
+    pub width: f32,
+    pub height: f32,
+}
+
 impl Dimension {
-    pub(crate) fn value(&self) -> Result<ParsedDimension, String> {
+    pub(crate) fn value(&self) -> Result<ParsedSize, String> {
         match self {
             Self::Num(value) if value.is_finite() && *value >= 0.0 => {
-                Ok(ParsedDimension::Length(*value))
+                Ok(ParsedSize::Length(*value))
             }
             Self::Num(_) => Err("dimension must be a finite nonnegative number".into()),
-            Self::Text(value) if value == "auto" => Ok(ParsedDimension::Auto),
-            Self::Text(value) => {
-                let percent = value
-                    .strip_suffix('%')
-                    .and_then(|number| number.parse::<f32>().ok())
-                    .filter(|number| number.is_finite() && *number >= 0.0)
-                    .ok_or_else(|| {
-                        format!(
-                            "invalid dimension {value:?}; expected auto or a nonnegative percentage"
-                        )
-                    })?;
-                Ok(ParsedDimension::Percent(percent / 100.0))
+            Self::Text(value) => match value.as_str() {
+                "auto" => Ok(ParsedSize::Auto),
+                "min-content" => Ok(ParsedSize::MinContent),
+                "max-content" => Ok(ParsedSize::MaxContent),
+                "fit-content" => Ok(ParsedSize::FitContent),
+                _ => {
+                    let number = |suffix: &str| {
+                        value
+                            .strip_suffix(suffix)
+                            .and_then(|digits| digits.parse::<f32>().ok())
+                            .filter(|number| number.is_finite() && *number >= 0.0)
+                    };
+                    if let Some(percent) = number("%") {
+                        Ok(ParsedSize::Percent(percent / 100.0))
+                    } else if let Some(percent) = number("vw") {
+                        Ok(ParsedSize::ViewportWidth(percent / 100.0))
+                    } else if let Some(percent) = number("vh") {
+                        Ok(ParsedSize::ViewportHeight(percent / 100.0))
+                    } else {
+                        Err(format!(
+                            "invalid dimension {value:?}; expected auto, min-content, max-content, fit-content, a nonnegative percentage or a nonnegative vw or vh"
+                        ))
+                    }
+                }
+            },
+        }
+    }
+
+    /// Whether this is an intrinsic keyword, which Taffy accepts for a size and not for its limits.
+    pub(crate) fn is_keyword(&self) -> bool {
+        matches!(
+            self.value(),
+            Ok(ParsedSize::MinContent | ParsedSize::MaxContent | ParsedSize::FitContent)
+        )
+    }
+
+    /// The percentage as a fraction, if this is one.
+    pub(crate) fn percent(&self) -> Option<f32> {
+        match self.value() {
+            Ok(ParsedSize::Percent(fraction)) => Some(fraction),
+            _ => None,
+        }
+    }
+
+    /// The pixels a viewport share is, for a viewport this big.
+    fn resolved(&self, viewport: Viewport) -> Option<Dimension> {
+        match self.value() {
+            Ok(ParsedSize::ViewportWidth(fraction)) => {
+                Some(Dimension::Num(fraction * viewport.width))
             }
+            Ok(ParsedSize::ViewportHeight(fraction)) => {
+                Some(Dimension::Num(fraction * viewport.height))
+            }
+            _ => None,
         }
     }
 }
 
+const UNRESOLVED_VIEWPORT_UNIT: &str =
+    "a viewport unit reached layout unresolved (computed styles resolve vw and vh first)";
+
 pub(crate) fn dimension(value: &Option<Dimension>) -> Result<taffy::style::Dimension, String> {
     Ok(match value.as_ref().map(Dimension::value).transpose()? {
-        Some(ParsedDimension::Length(value)) => taffy::style::Dimension::length(value),
-        Some(ParsedDimension::Percent(value)) => taffy::style::Dimension::percent(value),
-        Some(ParsedDimension::Auto) | None => auto(),
+        Some(ParsedSize::Length(value)) => taffy::style::Dimension::length(value),
+        Some(ParsedSize::Percent(value)) => taffy::style::Dimension::percent(value),
+        Some(ParsedSize::MinContent) => taffy::style::Dimension::min_content(),
+        Some(ParsedSize::MaxContent) => taffy::style::Dimension::max_content(),
+        Some(ParsedSize::FitContent) => taffy::style::Dimension::fit_content(),
+        Some(ParsedSize::ViewportWidth(_) | ParsedSize::ViewportHeight(_)) => {
+            return Err(UNRESOLVED_VIEWPORT_UNIT.into());
+        }
+        Some(ParsedSize::Auto) | None => auto(),
     })
 }
 
+/// A lower or upper limit of a size. Taffy's limits take no intrinsic keyword (`min_size` and `max_size` are
+/// `LengthPercentageAuto`), so `min-content` and the like are refused instead of being read as `auto`.
 pub(crate) fn bound(value: &Option<Dimension>) -> Result<LengthPercentageAuto, String> {
     Ok(match value.as_ref().map(Dimension::value).transpose()? {
-        Some(ParsedDimension::Length(value)) => LengthPercentageAuto::length(value),
-        Some(ParsedDimension::Percent(value)) => LengthPercentageAuto::percent(value),
-        Some(ParsedDimension::Auto) | None => auto(),
+        Some(ParsedSize::Length(value)) => LengthPercentageAuto::length(value),
+        Some(ParsedSize::Percent(value)) => LengthPercentageAuto::percent(value),
+        Some(ParsedSize::MinContent | ParsedSize::MaxContent | ParsedSize::FitContent) => {
+            return Err("an intrinsic size keyword cannot limit a size (Taffy's minimum and maximum take lengths and percentages); use width or height".into());
+        }
+        Some(ParsedSize::ViewportWidth(_) | ParsedSize::ViewportHeight(_)) => {
+            return Err(UNRESOLVED_VIEWPORT_UNIT.into());
+        }
+        Some(ParsedSize::Auto) | None => auto(),
     })
 }
 
-pub(crate) fn align(value: AlignSpec) -> AlignItems {
-    match value {
+/// A margin: its pixels, percentage or `auto` (an unset one is zero).
+pub(crate) fn margin(value: &Option<Inset>) -> Result<LengthPercentageAuto, String> {
+    Ok(match value.as_ref().map(Inset::value).transpose()? {
+        Some(ParsedDimension::Length(value)) => LengthPercentageAuto::length(value),
+        Some(ParsedDimension::Percent(value)) => LengthPercentageAuto::percent(value),
+        Some(ParsedDimension::Auto) => auto(),
+        None => LengthPercentageAuto::length(0.0),
+    })
+}
+
+/// Taffy's alignment for a value; `None` for `auto`, which is "whatever the container's items say" and which
+/// only the `self` properties accept.
+pub(crate) fn align(value: AlignSpec) -> Option<AlignItems> {
+    Some(match value {
         AlignSpec::Start => AlignItems::START,
         AlignSpec::End => AlignItems::END,
         AlignSpec::Center => AlignItems::CENTER,
@@ -730,7 +921,8 @@ pub(crate) fn align(value: AlignSpec) -> AlignItems {
         AlignSpec::Baseline => AlignItems::BASELINE,
         AlignSpec::FlexStart => AlignItems::FLEX_START,
         AlignSpec::FlexEnd => AlignItems::FLEX_END,
-    }
+        AlignSpec::Auto => return None,
+    })
 }
 
 pub(crate) fn justify(value: JustifySpec) -> JustifyContent {
@@ -743,6 +935,8 @@ pub(crate) fn justify(value: JustifySpec) -> JustifyContent {
         JustifySpec::SpaceEvenly => JustifyContent::SPACE_EVENLY,
         JustifySpec::FlexStart => JustifyContent::FLEX_START,
         JustifySpec::FlexEnd => JustifyContent::FLEX_END,
+        JustifySpec::Stretch => JustifyContent::STRETCH,
+        JustifySpec::Normal => JustifyContent::NORMAL,
     }
 }
 
@@ -753,6 +947,7 @@ fn overflow(value: Option<OverflowSpec>) -> Overflow {
     match value.unwrap_or(OverflowSpec::Visible) {
         OverflowSpec::Visible => Overflow::Visible,
         OverflowSpec::Hidden => Overflow::Hidden,
+        OverflowSpec::Clip => Overflow::Clip,
         // Taffy has no `auto`. `Scroll` reserves a scrollbar's width, and the style's `scrollbar_width`
         // is zero (its default; we never set it), so it lays out exactly as `Hidden` does, which is what
         // overlay scrollbars need (taffy `style/mod.rs`, the doc of `Overflow::Scroll`).
@@ -768,6 +963,8 @@ impl StyleSpec {
             ($($field:ident),+ $(,)?) => {{
                 let StyleSpec {
                     $($field,)+
+                    transition,
+                    transition_parts,
                     filter,
                     filter_parts,
                     backdrop_filter,
@@ -783,6 +980,12 @@ impl StyleSpec {
                         self.$field = $field.clone();
                     }
                 )+
+                merge_transition(
+                    &mut self.transition,
+                    &mut self.transition_parts,
+                    transition,
+                    transition_parts,
+                );
                 merge_filter(&mut self.filter, &mut self.filter_parts, filter, filter_parts);
                 merge_filter(
                     &mut self.backdrop_filter,
@@ -824,7 +1027,24 @@ impl StyleSpec {
             align_items,
             align_self,
             justify_content,
+            align_content,
+            justify_items,
+            justify_self,
+            order,
+            aspect_ratio,
+            box_sizing,
+            visibility,
             grid_template_columns,
+            grid_template_rows,
+            grid_auto_flow,
+            grid_auto_columns,
+            grid_auto_rows,
+            grid_column_start,
+            grid_column_end,
+            grid_column_span,
+            grid_row_start,
+            grid_row_end,
+            grid_row_span,
             background_color,
             color,
             font_size,
@@ -853,7 +1073,6 @@ impl StyleSpec {
             border_color,
             opacity,
             text_align,
-            transition,
             interpolate_size,
             overflow_x,
             overflow_y,
@@ -877,21 +1096,72 @@ impl StyleSpec {
         );
     }
 
+    /// The sizes that can be a share of the viewport.
+    fn viewport_sized(&mut self) -> [&mut Option<Dimension>; 7] {
+        [
+            &mut self.width,
+            &mut self.height,
+            &mut self.min_width,
+            &mut self.min_height,
+            &mut self.max_width,
+            &mut self.max_height,
+            &mut self.flex_basis,
+        ]
+    }
+
+    /// Whether a size is in `vw` or `vh`, so the style must be resolved again when the viewport changes.
+    pub fn uses_viewport_units(&self) -> bool {
+        self.clone()
+            .viewport_sized()
+            .into_iter()
+            .flatten()
+            .any(|size| {
+                matches!(
+                    size.value(),
+                    Ok(ParsedSize::ViewportWidth(_) | ParsedSize::ViewportHeight(_))
+                )
+            })
+    }
+
+    /// Replace every `vw` and `vh` size with the pixels it is for this viewport. Layout takes no viewport
+    /// units; a computed style is resolved before it reaches it, and again when the viewport resizes.
+    pub fn resolve_viewport_units(&mut self, viewport: Viewport) {
+        for size in self.viewport_sized() {
+            if let Some(pixels) = size.as_ref().and_then(|size| size.resolved(viewport)) {
+                *size = Some(pixels);
+            }
+        }
+    }
+
     pub fn validate(&self) -> Result<(), String> {
         if let Some(transition) = &self.transition {
             transition.validate()?;
         }
+        if let Some(parts) = &self.transition_parts {
+            parts.validate()?;
+        }
         for (name, value) in [
             ("width", &self.width),
             ("height", &self.height),
-            ("minWidth", &self.min_width),
-            ("minHeight", &self.min_height),
-            ("maxWidth", &self.max_width),
-            ("maxHeight", &self.max_height),
             ("flexBasis", &self.flex_basis),
         ] {
             if let Some(value) = value {
                 value.value().map_err(|error| format!("{name}: {error}"))?;
+            }
+        }
+        for (name, value) in [
+            ("minWidth", &self.min_width),
+            ("minHeight", &self.min_height),
+            ("maxWidth", &self.max_width),
+            ("maxHeight", &self.max_height),
+        ] {
+            if let Some(value) = value {
+                value.value().map_err(|error| format!("{name}: {error}"))?;
+                if value.is_keyword() {
+                    return Err(format!(
+                        "{name}: min-content, max-content and fit-content size a box; they cannot limit one (use width or height)"
+                    ));
+                }
             }
         }
         for (name, value) in [
@@ -921,13 +1191,65 @@ impl StyleSpec {
             }
         }
         for (name, value) in [
-            ("marginTop", self.margin_top),
-            ("marginRight", self.margin_right),
-            ("marginBottom", self.margin_bottom),
-            ("marginLeft", self.margin_left),
+            ("marginTop", &self.margin_top),
+            ("marginRight", &self.margin_right),
+            ("marginBottom", &self.margin_bottom),
+            ("marginLeft", &self.margin_left),
         ] {
-            if value.is_some_and(|value| !value.is_finite()) {
-                return Err(format!("{name} must be finite"));
+            if let Some(value) = value {
+                value.value().map_err(|error| format!("{name}: {error}"))?;
+            }
+        }
+        for (name, value) in [
+            ("alignItems", self.align_items),
+            ("justifyItems", self.justify_items),
+        ] {
+            if value == Some(AlignSpec::Auto) {
+                return Err(format!(
+                    "{name} does not take auto (alignSelf and justifySelf do)"
+                ));
+            }
+        }
+        if let Some(AspectRatioSpec::Ratio(ratio)) = self.aspect_ratio
+            && (!ratio.is_finite() || ratio <= 0.0)
+        {
+            return Err("aspectRatio must be a positive finite number or auto".into());
+        }
+        for (name, template) in [
+            ("gridTemplateColumns", &self.grid_template_columns),
+            ("gridTemplateRows", &self.grid_template_rows),
+        ] {
+            if let Some(template) = template {
+                template
+                    .validate()
+                    .map_err(|error| format!("{name}: {error}"))?;
+            }
+        }
+        for (name, tracks) in [
+            ("gridAutoColumns", &self.grid_auto_columns),
+            ("gridAutoRows", &self.grid_auto_rows),
+        ] {
+            if let Some(tracks) = tracks {
+                validate_auto_tracks(tracks).map_err(|error| format!("{name}: {error}"))?;
+            }
+        }
+        for (name, line) in [
+            ("gridColumnStart", self.grid_column_start),
+            ("gridColumnEnd", self.grid_column_end),
+            ("gridRowStart", self.grid_row_start),
+            ("gridRowEnd", self.grid_row_end),
+        ] {
+            if let Some(line) = line {
+                line.validate()
+                    .map_err(|error| format!("{name}: {error}"))?;
+            }
+        }
+        for (name, span) in [
+            ("gridColumnSpan", self.grid_column_span),
+            ("gridRowSpan", self.grid_row_span),
+        ] {
+            if span == Some(0) {
+                return Err(format!("{name} must be a positive integer"));
             }
         }
         if self
@@ -984,9 +1306,6 @@ impl StyleSpec {
             return Err("fontFamily must name a family".into());
         }
         self.validate_text()?;
-        if self.grid_template_columns == Some(0) {
-            return Err("gridTemplateColumns must be a positive integer".into());
-        }
         for (name, value) in [
             ("backgroundColor", &self.background_color),
             ("color", &self.color),
@@ -1048,7 +1367,17 @@ impl StyleSpec {
             display: match self.display.unwrap_or(DisplaySpec::Flex) {
                 DisplaySpec::Flex => Display::Flex,
                 DisplaySpec::Grid => Display::Grid,
+                DisplaySpec::Block => Display::Block,
+                DisplaySpec::FlowRoot => Display::FlowRoot,
                 DisplaySpec::None => Display::None,
+            },
+            box_sizing: match self.box_sizing.unwrap_or(BoxSizingSpec::BorderBox) {
+                BoxSizingSpec::BorderBox => BoxSizing::BorderBox,
+                BoxSizingSpec::ContentBox => BoxSizing::ContentBox,
+            },
+            aspect_ratio: match self.aspect_ratio {
+                Some(AspectRatioSpec::Ratio(ratio)) => Some(ratio),
+                Some(AspectRatioSpec::Auto(AutoKeyword::Auto)) | None => None,
             },
             size: Size {
                 width: dimension(&self.width)?,
@@ -1087,10 +1416,10 @@ impl StyleSpec {
                 bottom: LengthPercentage::length(self.padding_bottom.unwrap_or(0.0)),
             },
             margin: Rect {
-                left: LengthPercentageAuto::length(self.margin_left.unwrap_or(0.0)),
-                right: LengthPercentageAuto::length(self.margin_right.unwrap_or(0.0)),
-                top: LengthPercentageAuto::length(self.margin_top.unwrap_or(0.0)),
-                bottom: LengthPercentageAuto::length(self.margin_bottom.unwrap_or(0.0)),
+                left: margin(&self.margin_left)?,
+                right: margin(&self.margin_right)?,
+                top: margin(&self.margin_top)?,
+                bottom: margin(&self.margin_bottom)?,
             },
             border: Rect {
                 left: border,
@@ -1098,19 +1427,58 @@ impl StyleSpec {
                 top: border,
                 bottom: border,
             },
-            align_items: self.align_items.map(align).unwrap_or(AlignItems::STRETCH),
-            align_self: self.align_self.map(align),
+            align_items: self
+                .align_items
+                .and_then(align)
+                .unwrap_or(AlignItems::STRETCH),
+            align_self: self.align_self.and_then(align),
+            justify_items: self
+                .justify_items
+                .and_then(align)
+                .unwrap_or(AlignItems::NORMAL),
+            justify_self: self.justify_self.and_then(align),
             justify_content: self
                 .justify_content
                 .map(justify)
                 .unwrap_or(JustifyContent::FLEX_START),
-            grid_template_columns: self
-                .grid_template_columns
-                .map(|count| vec![minmax(length(0.0), fr(1.0)); usize::from(count)])
+            align_content: self
+                .align_content
+                .map(justify)
+                .unwrap_or(AlignContent::NORMAL),
+            grid_template_columns: template_components(&self.grid_template_columns)?,
+            grid_template_rows: template_components(&self.grid_template_rows)?,
+            grid_auto_flow: self.grid_auto_flow.map(Into::into).unwrap_or_default(),
+            grid_auto_columns: self
+                .grid_auto_columns
+                .as_deref()
+                .map(auto_tracks)
+                .transpose()?
                 .unwrap_or_default(),
+            grid_auto_rows: self
+                .grid_auto_rows
+                .as_deref()
+                .map(auto_tracks)
+                .transpose()?
+                .unwrap_or_default(),
+            grid_column: placement(
+                self.grid_column_start,
+                self.grid_column_end,
+                self.grid_column_span,
+            ),
+            grid_row: placement(self.grid_row_start, self.grid_row_end, self.grid_row_span),
             ..taffy::Style::default()
         })
     }
+}
+
+fn template_components(
+    template: &Option<GridTemplateSpec>,
+) -> Result<Vec<taffy::style::GridTemplateComponent<String>>, String> {
+    template
+        .as_ref()
+        .map(GridTemplateSpec::components)
+        .transpose()
+        .map(Option::unwrap_or_default)
 }
 
 /// `keyboardType`: which on-screen keyboard a text input asks for, one to one with
@@ -1505,9 +1873,15 @@ mod tests {
         "width":1,"height":2,"minWidth":3,"minHeight":4,"maxWidth":5,"maxHeight":6,
         "display":"grid","flexDirection":"row","flexWrap":"wrap","flexGrow":1,"flexShrink":2,
         "flexBasis":7,"rowGap":8,"columnGap":9,"paddingTop":1,"paddingRight":2,"paddingBottom":3,
-        "paddingLeft":4,"marginTop":1,"marginRight":2,"marginBottom":3,"marginLeft":4,
+        "paddingLeft":4,"marginTop":-1,"marginRight":"auto","marginBottom":"5%","marginLeft":4,
         "alignItems":"center","alignSelf":"end","justifyContent":"space-between",
-        "gridTemplateColumns":3,"backgroundColor":"#fff","color":"#000","fontSize":12,
+        "alignContent":"stretch","justifyItems":"center","justifySelf":"auto","order":-2,
+        "aspectRatio":1.5,"boxSizing":"content-box","visibility":"hidden",
+        "gridTemplateColumns":3,"gridTemplateRows":["auto",{"minmax":[0,"1fr"]}],
+        "gridAutoFlow":"column-dense","gridAutoColumns":["min-content"],"gridAutoRows":[40],
+        "gridColumnStart":2,"gridColumnEnd":"auto","gridColumnSpan":2,
+        "gridRowStart":-1,"gridRowEnd":3,"gridRowSpan":1,
+        "backgroundColor":"#fff","color":"#000","fontSize":12,
         "borderRadius":4,"borderWidth":1,"borderColor":"#123","opacity":0.5,"textAlign":"right",
         "transition":{"properties":["width"],"durationMs":10},"interpolateSize":"allow-keywords",
         "overflowX":"hidden","overflowY":"hidden","pointerEvents":"none","cursor":"ew-resize",
@@ -1565,8 +1939,8 @@ mod tests {
         style.validate().unwrap();
         let transition = style.transition.as_ref().unwrap();
         assert_eq!(
-            transition.properties,
-            vec![
+            transition.properties.animated(),
+            [
                 TransitionProperty::Height,
                 TransitionProperty::BackgroundColor
             ]
@@ -1602,7 +1976,7 @@ mod tests {
         }
         for invalid in [f64::INFINITY, f64::NEG_INFINITY, f64::NAN] {
             let mut transition = TransitionSpec {
-                properties: vec![TransitionProperty::Width],
+                properties: TransitionProperties::List(vec![TransitionProperty::Width]),
                 duration_ms: invalid,
                 delay_ms: None,
                 easing: None,
@@ -1658,7 +2032,7 @@ mod tests {
             assert_eq!(parsed.touch_action, Some(expected));
         }
         for json in [
-            r#"{"overflowX":"clip"}"#,
+            r#"{"overflowX":"overlay"}"#,
             r#"{"overscrollBehavior":"none"}"#,
             r#"{"scrollbarWidth":"thin"}"#,
             r#"{"touchAction":"manipulation"}"#,
@@ -2094,6 +2468,78 @@ mod tests {
         let before = base.clone();
         base.merge(&StyleSpec::default());
         assert_eq!(base, before, "an empty layer changes nothing");
+    }
+
+    #[test]
+    fn layout_properties_parse_and_the_invalid_ones_are_refused_before_mounting() {
+        for json in [
+            r#"{"marginLeft":"auto","marginTop":-8,"marginBottom":"-5%"}"#,
+            r#"{"width":"fit-content","height":"min-content","flexBasis":"max-content"}"#,
+            r#"{"width":"100vw","minHeight":"100vh","maxWidth":"50vw"}"#,
+            r#"{"alignSelf":"auto","justifySelf":"auto","justifyItems":"start","alignContent":"normal"}"#,
+            r#"{"aspectRatio":"auto"}"#,
+            r#"{"display":"block"}"#,
+            r#"{"display":"flow-root","overflowX":"clip"}"#,
+            r#"{"gridTemplateColumns":[],"gridTemplateRows":[100,"1fr",{"repeat":2,"tracks":["auto"]}]}"#,
+            r#"{"gridColumnStart":"auto","gridColumnEnd":-1,"gridRowSpan":3}"#,
+        ] {
+            let parsed = style(json);
+            parsed
+                .validate()
+                .unwrap_or_else(|error| panic!("{json}: {error}"));
+            // The viewport sizes are layout's only once resolved.
+            let mut resolved = parsed.clone();
+            resolved.resolve_viewport_units(Viewport {
+                width: 10.0,
+                height: 10.0,
+            });
+            resolved
+                .taffy_style()
+                .unwrap_or_else(|error| panic!("{json}: {error}"));
+        }
+        for (json, mentions) in [
+            (r#"{"marginLeft":"calc(1px)"}"#, "marginLeft"),
+            (r#"{"marginTop":"min-content"}"#, "marginTop"),
+            (r#"{"minWidth":"max-content"}"#, "minWidth"),
+            (r#"{"maxHeight":"fit-content"}"#, "maxHeight"),
+            (r#"{"width":"-5vw"}"#, "width"),
+            (r#"{"alignItems":"auto"}"#, "alignItems"),
+            (r#"{"justifyItems":"auto"}"#, "justifyItems"),
+            (r#"{"aspectRatio":0}"#, "aspectRatio"),
+            (r#"{"aspectRatio":-1}"#, "aspectRatio"),
+            (r#"{"gridTemplateColumns":0}"#, "gridTemplateColumns"),
+            (r#"{"gridTemplateRows":["2gr"]}"#, "gridTemplateRows"),
+            (
+                r#"{"gridAutoColumns":[{"repeat":2,"tracks":[10]}]}"#,
+                "gridAutoColumns",
+            ),
+            (r#"{"gridColumnStart":0}"#, "gridColumnStart"),
+            (r#"{"gridRowSpan":0}"#, "gridRowSpan"),
+        ] {
+            let error = style(json).validate().unwrap_err();
+            assert!(error.contains(mentions), "{json}: {error}");
+        }
+        for json in [
+            r#"{"visibility":"collapse"}"#,
+            r#"{"boxSizing":"padding-box"}"#,
+            r#"{"gridAutoFlow":"dense"}"#,
+            r#"{"gridColumnStart":"span 2"}"#,
+            r#"{"display":"inline"}"#,
+            r#"{"order":1.5}"#,
+        ] {
+            assert!(serde_json::from_str::<StyleSpec>(json).is_err(), "{json}");
+        }
+    }
+
+    #[test]
+    fn auto_margins_and_negative_ones_reach_taffy_and_an_unset_one_is_zero() {
+        let taffy = style(r#"{"marginLeft":"auto","marginTop":-8,"marginBottom":"25%"}"#)
+            .taffy_style()
+            .unwrap();
+        assert!(taffy.margin.left.is_auto());
+        assert_eq!(taffy.margin.top, LengthPercentageAuto::length(-8.0));
+        assert_eq!(taffy.margin.bottom, LengthPercentageAuto::percent(0.25));
+        assert_eq!(taffy.margin.right, LengthPercentageAuto::length(0.0));
     }
 
     #[test]

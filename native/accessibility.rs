@@ -154,6 +154,7 @@ impl AxSource for Mounted {
             width: rect.width,
             height: rect.height,
             display_none: node.computed.display == Some(DisplaySpec::None),
+            invisible: node.computed.is_invisible(),
             clips_children: node.clips_content(),
             scroll: node.is_scroll_container().then(|| AxScroll {
                 x: scroll_axis(node, affine, Axis::X),

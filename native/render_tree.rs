@@ -411,6 +411,22 @@ impl RenderNode {
         true
     }
 
+    /// Draw nothing in the text and caret items. Returns true if either had something.
+    pub(crate) fn clear_edit_items(&mut self) -> bool {
+        let Some(items) = &self.edit_items else {
+            return false;
+        };
+        if self.edit_text_key.is_none() && self.caret_key.is_none() {
+            return false;
+        }
+        let mut rs = server();
+        rs.canvas_item_clear(items.text);
+        rs.canvas_item_clear(items.caret);
+        self.edit_text_key = None;
+        self.caret_key = None;
+        true
+    }
+
     /// Re-record the caret when `key` differs from what it last drew (`None`: no caret).
     pub(crate) fn record_edit_caret(
         &mut self,
@@ -1105,17 +1121,21 @@ impl ReactUiRoot {
     fn paint_node(&mut self, tag: u32) -> (bool, bool) {
         self.ensure_raster_scale(tag);
         let oversampling = self.node_oversampling(tag);
-        let motion = self
-            .sampled
-            .get(&tag)
-            .map(|sampled| (sampled.opacity, sampled.background_color));
+        let motion = self.sampled.get(&tag).map(|sampled| {
+            (
+                sampled.opacity,
+                sampled.background_color,
+                sampled.border_color,
+            )
+        });
+        let text_color = self.presented_text_color(tag);
         let highlight = self.selecting.highlight_of(tag);
         let Some(node) = self.mounted.nodes.get_mut(&tag) else {
             return (false, false);
         };
         let style = &node.computed;
         node.render
-            .set_opacity(motion.map_or(style.opacity.unwrap_or(1.0), |(opacity, _)| opacity));
+            .set_opacity(motion.map_or(style.opacity.unwrap_or(1.0), |(opacity, _, _)| opacity));
         // The clip applies to everything below, so it holds even when the box itself is empty:
         // a closed accordion clips its children to nothing.
         let clip = node
@@ -1129,19 +1149,25 @@ impl ReactUiRoot {
             return (false, false);
         };
         let size = node.geometry.size;
-        if size.x <= 0.0 || size.y <= 0.0 {
+        // `visibility: hidden` paints nothing of the element's own (its children, which may be visible, still
+        // paint, clipped as before) and keeps its place in layout.
+        if size.x <= 0.0 || size.y <= 0.0 || node.computed.is_invisible() {
             return (node.render.clear_box(), node.render.clear_content());
         }
         let style = &node.computed;
         let background = match motion {
-            Some((_, [r, g, b, a])) => Color::from_rgba(r, g, b, a),
+            Some((_, [r, g, b, a], _)) => Color::from_rgba(r, g, b, a),
             None => parse_color(style.background_color.as_deref(), Color::TRANSPARENT_BLACK),
+        };
+        let border_color = match motion {
+            Some((_, _, [r, g, b, a])) => Color::from_rgba(r, g, b, a),
+            None => parse_color(style.border_color.as_deref(), Color::TRANSPARENT_BLACK),
         };
         let radius = style.border_radius.unwrap_or(0.0).round() as i32;
         let box_key = BoxKey {
             size,
             background,
-            border_color: parse_color(style.border_color.as_deref(), Color::TRANSPARENT_BLACK),
+            border_color,
             border_width: style.border_width.unwrap_or(0.0).round() as i32,
             radius,
             oversampling: if radius > 0 {
@@ -1159,7 +1185,8 @@ impl ReactUiRoot {
             Some(paragraph) => {
                 let key = ContentKey {
                     generation: node.visual.generation,
-                    color: parse_color(style.color.as_deref(), Color::WHITE),
+                    color: text_color
+                        .unwrap_or_else(|| parse_color(style.color.as_deref(), Color::WHITE)),
                     content_width: node.geometry.content_width(),
                     origin: node.geometry.content_origin(),
                     selection: highlight.map(|range| highlight_paint(style, range)),

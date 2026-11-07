@@ -229,6 +229,7 @@ impl ReactUiRoot {
                             .shown_text(node.props.text.as_deref())
                             .map_or(0, |text| text.chars().count()),
                         selectable: !blocked
+                            && !node.computed.is_invisible()
                             && node.computed.user_select == Some(UserSelectSpec::Text),
                     });
                 }

@@ -23,7 +23,9 @@ use crate::focus::FocusTree;
 use crate::geometry::{BoxRect, intersects};
 use crate::pointer::ButtonTree;
 use crate::profile::{Sample, micros};
-use crate::props::{CursorSpec, Kind, OverflowSpec, PositionSpec, PropsSpec, ScrollbarWidthSpec};
+use crate::props::{
+    CursorSpec, Kind, OverflowSpec, PositionSpec, PropsSpec, ScrollbarWidthSpec, Viewport,
+};
 use crate::render_tree::RenderNode;
 use crate::scroll::{self, ScrollRange, ScrollRanges, ScrollState, Scrollbars};
 use crate::scroll_input::to_vector;
@@ -369,13 +371,17 @@ impl Mounted {
     /// focus ask this, and an element scrolled out of its container's view still counts
     /// (`ScrollMode::Reachable`).
     pub(crate) fn visible_for_input(&self, tag: u32, viewport: BoxRect) -> bool {
-        stacking::absolute_geometry(self, tag, viewport, ScrollMode::Reachable).is_some_and(
-            |(rect, clip)| {
-                rect.width > 0.0
-                    && rect.height > 0.0
-                    && clip.is_none_or(|clip| intersects(rect, clip))
-            },
-        )
+        // A `visibility: hidden` element has its area but cannot be focused.
+        self.nodes
+            .get(&tag)
+            .is_some_and(|node| !node.computed.is_invisible())
+            && stacking::absolute_geometry(self, tag, viewport, ScrollMode::Reachable).is_some_and(
+                |(rect, clip)| {
+                    rect.width > 0.0
+                        && rect.height > 0.0
+                        && clip.is_none_or(|clip| intersects(rect, clip))
+                },
+            )
     }
 
     /// The topmost element at `point` (root-local), descending the paint tree in reverse paint order,
@@ -749,7 +755,11 @@ impl ReactUiRoot {
                 .map(|insertion| insertion.tag)
                 .filter(|tag| self.mounted.nodes.contains_key(tag)),
         );
-        let changes = restyle(&mut overlay, dirty, self.viewport_size.x);
+        let viewport = Viewport {
+            width: self.viewport_size.x,
+            height: self.viewport_size.y,
+        };
+        let changes = restyle(&mut overlay, dirty, viewport);
         self.validate_motion(&overlay, &changes)?;
         Ok(DryRun {
             changes,
@@ -786,6 +796,8 @@ impl ReactUiRoot {
     }
 
     fn remove_child(&mut self, removal: &Removal) {
+        self.restore_layout_order(removal.parent);
+        self.order_dirty.insert(removal.parent);
         let handle = match removal.parent {
             Parent::Layer(layer) => {
                 let tag = self.mounted.roots[layer].remove(removal.index);
@@ -827,6 +839,8 @@ impl ReactUiRoot {
     }
 
     fn insert_child(&mut self, insertion: &Insertion) {
+        self.restore_layout_order(insertion.parent);
+        self.order_dirty.insert(insertion.parent);
         let (parent_layout, parent_item) = match insertion.parent {
             Parent::Layer(layer) => (self.layer_roots[layer], self.layer_item(layer)),
             Parent::Node(parent) => {

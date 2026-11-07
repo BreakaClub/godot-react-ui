@@ -28,7 +28,8 @@ use crate::text_style::TextStyle;
 use crate::{MILLISECONDS_PER_SECOND, ReactUiRoot, TextContext};
 
 const HEX_COLOR_CHANNEL_MAX: f32 = 255.0;
-const PERCENTAGE_SCALE: f32 = 100.0;
+/// A colour farther than this (the largest channel difference, half of one 8-bit step) from its target is still moving.
+const COLOR_MOVING_THRESHOLD: f32 = 0.5 / HEX_COLOR_CHANNEL_MAX;
 
 #[derive(Clone)]
 pub(crate) struct IntrinsicTrack {
@@ -60,10 +61,14 @@ pub(crate) struct TransitionRecord {
     duration_ms: f64,
 }
 
-/// Why a style change cannot be animated: the axis it concerns and a message for the author.
+/// Why a style change cannot be animated: the axis it concerns and a message for the author. Under
+/// `transition-property: all` a change that cannot animate just jumps, as in CSS, so it is `quiet`: applied
+/// without animation and neither rejected nor reported. An explicit list that names the property gets the
+/// report.
 pub(crate) struct MotionViolation {
     axis: DimensionAxis,
     message: String,
+    quiet: bool,
 }
 
 impl ReactUiRoot {
@@ -86,7 +91,8 @@ impl ReactUiRoot {
             "contentRecords":self.stats.content_records,"effects":self.effects_activity()})
     }
 
-    /// The opacity, background colour and size a node is presenting right now.
+    /// The opacity, colours and size a node is presenting right now (the text colour is the one its text paints
+    /// in, which a transition on an ancestor may be moving).
     pub(crate) fn presentation_json(&self, tag: u32) -> serde_json::Value {
         let node = &self.mounted.nodes[&tag];
         let sampled = self.sampled.get(&tag);
@@ -98,7 +104,11 @@ impl ReactUiRoot {
             "widthIsAuto":layout_style.size.width.is_auto(),"heightIsAuto":layout_style.size.height.is_auto(),
             "opacity":sampled.map(|v|v.opacity).unwrap_or(node.computed.opacity.unwrap_or(1.0)),
             "backgroundColor":sampled.map(|v|color_hex(v.background_color)).unwrap_or_else(||
-                color_hex(color_components(parse_color(node.computed.background_color.as_deref(), Color::TRANSPARENT_BLACK))))})
+                color_hex(color_components(parse_color(node.computed.background_color.as_deref(), Color::TRANSPARENT_BLACK)))),
+            "color":color_hex(color_components(self.presented_text_color(tag).unwrap_or_else(||
+                parse_color(node.computed.color.as_deref(), Color::WHITE)))),
+            "borderColor":sampled.map(|v|color_hex(v.border_color)).unwrap_or_else(||
+                border_color_hex(&node.computed))})
     }
 
     /// The size of the box a node's percentages resolve against: its parent's content box.
@@ -149,7 +159,10 @@ impl ReactUiRoot {
             let Some(previous) = before else {
                 continue;
             };
-            if let Some(violation) = motion_violation(tree, change.tag, previous, next) {
+            if let Some(violation) = motion_violations(tree, change.tag, previous, next)
+                .into_iter()
+                .find(|violation| !violation.quiet)
+            {
                 return Err(violation.message);
             }
         }
@@ -199,23 +212,25 @@ impl ReactUiRoot {
             if transition.duration_ms == 0.0 {
                 continue;
             }
-            let violation = motion_violation(&self.mounted, change.tag, previous, next);
-            if let Some(violation) = &violation {
+            let violations = motion_violations(&self.mounted, change.tag, previous, next);
+            for violation in &violations {
                 // A commit is validated before it is mounted, so this is a state change (hover,
                 // focus, a breakpoint) that cannot be rejected: apply it without animation.
-                godot_error!(
-                    "ReactUiRoot: node {} changes without a transition: {}",
-                    change.tag,
-                    violation.message
-                );
+                if !violation.quiet {
+                    godot_error!(
+                        "ReactUiRoot: node {} changes without a transition: {}",
+                        change.tag,
+                        violation.message
+                    );
+                }
                 immediate.insert((change.tag, violation.axis));
             }
-            for property in &transition.properties {
+            for property in transition.properties.animated() {
                 if !property_changed(previous, next, *property) {
                     continue;
                 }
                 if let Some(axis) = property_axis(*property) {
-                    if violation.as_ref().is_some_and(|v| v.axis == axis) {
+                    if violations.iter().any(|v| v.axis == axis) {
                         continue;
                     }
                     let old = dimension_value(previous, axis);
@@ -342,6 +357,15 @@ impl ReactUiRoot {
                 || previous.inside_transform != node.computed.inside_transform
         }) {
             self.paint_reeval.insert(tag);
+        }
+        // A change of `order` lists the node's siblings again before the next layout.
+        if change
+            .previous
+            .as_ref()
+            .is_some_and(|previous| previous.order != node.computed.order)
+            && let Some(parent) = node.parent
+        {
+            self.order_dirty.insert(parent);
         }
         let layout_changed = previous_authored.as_ref() != Some(&authored);
         if layout_changed {
@@ -512,8 +536,12 @@ impl ReactUiRoot {
                 .expect("computed styles are built from validated layers");
             match (value.width.to_taffy(), value.height.to_taffy()) {
                 (Ok(width), Ok(height)) => {
-                    style.size.width = width;
-                    style.size.height = height;
+                    if let Some(width) = width {
+                        style.size.width = width;
+                    }
+                    if let Some(height) = height {
+                        style.size.height = height;
+                    }
                 }
                 (Err(error), _) | (_, Err(error)) => {
                     godot_error!("ReactUiRoot: node {tag} keeps its authored size: {error}");
@@ -531,6 +559,78 @@ impl ReactUiRoot {
         for tag in transformed {
             self.refresh_transform(tag);
         }
+        self.refresh_inherited_text_paint();
+    }
+
+    /// The text colour a node paints in while a transition moves it: its own sample if it transitions `color`,
+    /// else the nearest ancestor's it inherits (every node between them has the same computed colour, so none
+    /// set its own). `None` when no transition is moving the colour it paints in.
+    pub(crate) fn presented_text_color(&self, tag: u32) -> Option<Color> {
+        if self.sampled.is_empty() {
+            return None;
+        }
+        let own = &self.mounted.nodes.get(&tag)?.computed.color;
+        let mut current = tag;
+        loop {
+            let node = self.mounted.nodes.get(&current)?;
+            if let Some(sample) = self.sampled.get(&current)
+                && transitions_color(&node.computed)
+            {
+                let [r, g, b, a] = sample.color;
+                return Some(Color::from_rgba(r, g, b, a));
+            }
+            let Some(Parent::Node(parent)) = node.parent else {
+                return None;
+            };
+            if &self.mounted.nodes.get(&parent)?.computed.color != own {
+                return None;
+            }
+            current = parent;
+        }
+    }
+
+    /// The text below a node whose colour is moving follows it (CSS inheritance of an animated value), so it is
+    /// painted again while the colour moves and once more when it stops. Nothing runs while no colour moves.
+    fn refresh_inherited_text_paint(&mut self) {
+        let moving: BTreeSet<u32> = self
+            .sampled
+            .iter()
+            .filter(|(tag, sample)| {
+                self.mounted.nodes.get(*tag).is_some_and(|node| {
+                    transitions_color(&node.computed)
+                        && color_distance(
+                            sample.color,
+                            color_components(parse_color(
+                                node.computed.color.as_deref(),
+                                Color::WHITE,
+                            )),
+                        ) > COLOR_MOVING_THRESHOLD
+                })
+            })
+            .map(|(tag, _)| *tag)
+            .collect();
+        let affected: Vec<u32> = moving.union(&self.moving_text_colors).copied().collect();
+        for tag in affected {
+            let Some(node) = self.mounted.nodes.get(&tag) else {
+                continue;
+            };
+            let colour = node.computed.color.as_ref();
+            let mut stack: Vec<u32> = node.children.clone();
+            while let Some(child) = stack.pop() {
+                let Some(node) = self.mounted.nodes.get(&child) else {
+                    continue;
+                };
+                // A descendant that set its own colour, and what is below it, does not follow.
+                if node.computed.color.as_ref() != colour {
+                    continue;
+                }
+                if node.visual.paragraph.is_some() {
+                    self.paint_dirty.insert(child);
+                }
+                stack.extend(node.children.iter().copied());
+            }
+        }
+        self.moving_text_colors = moving;
     }
 
     fn current_motion_value(&self, tag: u32, property: TransitionProperty) -> MotionValue {
@@ -562,6 +662,16 @@ impl ReactUiRoot {
                             Color::TRANSPARENT_BLACK,
                         )))
                     }),
+            ),
+            TransitionProperty::Color => MotionValue::Color(
+                sample
+                    .map(|v| color_hex(v.color))
+                    .unwrap_or_else(|| text_color_hex(&node.computed)),
+            ),
+            TransitionProperty::BorderColor => MotionValue::Color(
+                sample
+                    .map(|v| color_hex(v.border_color))
+                    .unwrap_or_else(|| border_color_hex(&node.computed)),
             ),
             TransitionProperty::Filter => MotionValue::Filter(
                 sample
@@ -609,6 +719,8 @@ impl ReactUiRoot {
             TransitionProperty::BackgroundColor => MotionValue::Color(color_hex(color_components(
                 parse_color(style.background_color.as_deref(), Color::TRANSPARENT_BLACK),
             ))),
+            TransitionProperty::Color => MotionValue::Color(text_color_hex(style)),
+            TransitionProperty::BorderColor => MotionValue::Color(border_color_hex(style)),
             TransitionProperty::Filter => MotionValue::Filter(resolved_filter(style).to_css()),
             TransitionProperty::BackdropFilter => {
                 MotionValue::Filter(resolved_backdrop_filter(style).to_css())
@@ -824,6 +936,24 @@ fn color_components(color: Color) -> [f32; 4] {
     [color.r, color.g, color.b, color.a]
 }
 
+/// The largest difference in a channel between two colours.
+fn color_distance(left: [f32; 4], right: [f32; 4]) -> f32 {
+    left.iter()
+        .zip(right)
+        .map(|(left, right)| (left - right).abs())
+        .fold(0.0, f32::max)
+}
+
+/// Whether a node's transition animates its text colour.
+fn transitions_color(style: &StyleSpec) -> bool {
+    style.transition.as_ref().is_some_and(|transition| {
+        transition
+            .properties
+            .animated()
+            .contains(&TransitionProperty::Color)
+    })
+}
+
 pub(crate) fn color_hex(color: [f32; 4]) -> String {
     format!(
         "#{:02x}{:02x}{:02x}{:02x}",
@@ -845,6 +975,8 @@ fn property_axis(property: TransitionProperty) -> Option<DimensionAxis> {
         TransitionProperty::Height => Some(DimensionAxis::Height),
         TransitionProperty::Opacity
         | TransitionProperty::BackgroundColor
+        | TransitionProperty::Color
+        | TransitionProperty::BorderColor
         | TransitionProperty::Filter
         | TransitionProperty::BackdropFilter
         | TransitionProperty::Transform => None,
@@ -860,19 +992,28 @@ fn dimension_value(style: &StyleSpec, axis: DimensionAxis) -> Dimension {
 fn is_auto(value: &Dimension) -> bool {
     matches!(value,Dimension::Text(text) if text=="auto")
 }
+/// The pixels a size is, if it is a length or a percentage of `basis`; `auto` and the intrinsic keywords have
+/// none of their own.
 fn resolve_dimension(value: &Dimension, basis: f32) -> Option<f32> {
     match value {
         Dimension::Num(value) => Some(*value),
-        Dimension::Text(value) if value == "auto" => None,
-        Dimension::Text(value) => Some(
-            value
-                .trim_end_matches('%')
-                .parse::<f32>()
-                .expect("validated percentage")
-                * basis
-                / PERCENTAGE_SCALE,
-        ),
+        Dimension::Text(_) => value.percent().map(|fraction| fraction * basis),
     }
+}
+
+/// The text colour of a style as `#rrggbbaa` (white when nothing set one, as paint does).
+fn text_color_hex(style: &StyleSpec) -> String {
+    color_hex(color_components(parse_color(
+        style.color.as_deref(),
+        Color::WHITE,
+    )))
+}
+
+fn border_color_hex(style: &StyleSpec) -> String {
+    color_hex(color_components(parse_color(
+        style.border_color.as_deref(),
+        Color::TRANSPARENT_BLACK,
+    )))
 }
 fn property_changed(old: &StyleSpec, new: &StyleSpec, property: TransitionProperty) -> bool {
     match property {
@@ -880,6 +1021,8 @@ fn property_changed(old: &StyleSpec, new: &StyleSpec, property: TransitionProper
         TransitionProperty::Height => old.height != new.height,
         TransitionProperty::Opacity => old.opacity != new.opacity,
         TransitionProperty::BackgroundColor => old.background_color != new.background_color,
+        TransitionProperty::Color => old.color != new.color,
+        TransitionProperty::BorderColor => old.border_color != new.border_color,
         TransitionProperty::Filter => resolved_filter(old) != resolved_filter(new),
         TransitionProperty::BackdropFilter => {
             resolved_backdrop_filter(old) != resolved_backdrop_filter(new)
@@ -922,20 +1065,23 @@ fn effective_interpolate_size(style: &ComputedStyle) -> InterpolateSize {
         .unwrap_or(InterpolateSize::NumericOnly)
 }
 
-/// The first reason `previous` to `next` cannot be animated by this prototype's motion engine, if
-/// any: direct pixel/percentage transitions, and intrinsic transitions on a flex main axis that
-/// can grow or shrink.
-fn motion_violation<T: StyleTree>(
+/// Every reason `previous` to `next` cannot be animated by this prototype's motion engine: direct
+/// pixel/percentage transitions, and intrinsic transitions on a flex main axis that can grow or shrink.
+fn motion_violations<T: StyleTree>(
     tree: &T,
     tag: u32,
     previous: &StyleSpec,
     next: &ComputedStyle,
-) -> Option<MotionViolation> {
-    let transition = next.transition.as_ref()?;
+) -> Vec<MotionViolation> {
+    let mut violations = Vec::new();
+    let Some(transition) = next.transition.as_ref() else {
+        return violations;
+    };
     if transition.duration_ms == 0.0 {
-        return None;
+        return violations;
     }
-    for property in &transition.properties {
+    let quiet = transition.properties.is_all();
+    for property in transition.properties.animated() {
         let Some(axis) = property_axis(*property) else {
             continue;
         };
@@ -944,14 +1090,21 @@ fn motion_violation<T: StyleTree>(
         }
         let before = dimension_value(previous, axis);
         let after = dimension_value(next, axis);
-        if matches!((&before,&after), (Dimension::Num(_),Dimension::Text(value)) | (Dimension::Text(value),Dimension::Num(_)) if value != "auto")
+        // Pixels and a percentage interpolate in CSS (through calc), but not through Taffy here. An intrinsic
+        // keyword on either side does not interpolate in CSS either, so that one just jumps.
+        if matches!(
+            (&before, &after),
+            (Dimension::Num(_), Dimension::Text(_)) | (Dimension::Text(_), Dimension::Num(_))
+        ) && (before.percent().is_some() || after.percent().is_some())
         {
-            return Some(MotionViolation {
+            violations.push(MotionViolation {
                 axis,
                 message: format!(
                     "node {tag}: {axis:?} transitions between pixels and percentages require a calc-aware layout tree; this prototype supports same-unit numeric transitions and native allow-keywords transitions"
                 ),
+                quiet,
             });
+            continue;
         }
         if !is_auto(&before) && !is_auto(&after) {
             continue;
@@ -971,20 +1124,224 @@ fn motion_violation<T: StyleTree>(
         );
         let main_axis =
             (row && axis == DimensionAxis::Width) || (!row && axis == DimensionAxis::Height);
-        if parent_style.display != Some(DisplaySpec::Grid)
+        let flex_parent = matches!(parent_style.display, None | Some(DisplaySpec::Flex));
+        if flex_parent
             && main_axis
             && (next.flex_grow.unwrap_or(0.0) != 0.0
                 || next.flex_shrink.unwrap_or(1.0) != 0.0
                 || previous.flex_grow.unwrap_or(0.0) != 0.0
                 || previous.flex_shrink.unwrap_or(1.0) != 0.0)
         {
-            return Some(MotionViolation {
+            violations.push(MotionViolation {
                 axis,
                 message: format!(
                     "node {tag}: intrinsic {axis:?} transitions on a flex main axis require flexGrow:0 and flexShrink:0; animating a used size must not apply flex distribution twice"
                 ),
+                quiet,
             });
         }
     }
-    None
+    violations
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use super::*;
+    use crate::computed_style::StyleInputs;
+    use crate::props::TransitionSpec;
+    use crate::transition::TransitionProperties;
+
+    /// A parent (tag 1) and a child (tag 2), as the tree `motion_violations` consults.
+    struct Pair {
+        computed: BTreeMap<u32, ComputedStyle>,
+        children: Vec<u32>,
+    }
+
+    impl StyleTree for Pair {
+        fn style_parent(&self, tag: u32) -> Option<u32> {
+            (tag == 2).then_some(1)
+        }
+
+        fn style_children(&self, _tag: u32) -> &[u32] {
+            &self.children
+        }
+
+        fn style_inputs(&self, _tag: u32) -> StyleInputs<'_> {
+            unreachable!("violations only read computed styles")
+        }
+
+        fn computed(&self, tag: u32) -> Option<&ComputedStyle> {
+            self.computed.get(&tag)
+        }
+
+        fn store_computed(&mut self, tag: u32, computed: ComputedStyle) -> Option<ComputedStyle> {
+            self.computed.insert(tag, computed)
+        }
+    }
+
+    fn spec(json: &str) -> StyleSpec {
+        serde_json::from_str(json).expect("test style must parse")
+    }
+
+    fn transition(properties: &str) -> String {
+        format!(r#""transition":{{"properties":{properties},"durationMs":200}}"#)
+    }
+
+    /// The violations of changing the child from `before` to `after`, under `parent` and the child's transition.
+    fn violations(
+        parent: &str,
+        properties: &str,
+        before: &str,
+        after: &str,
+    ) -> Vec<MotionViolation> {
+        let child = |extra: &str| spec(&format!(r#"{{{},{extra}}}"#, transition(properties)));
+        let tree = Pair {
+            computed: BTreeMap::from([
+                (1, ComputedStyle(spec(parent))),
+                (2, ComputedStyle(child(after))),
+            ]),
+            children: vec![2],
+        };
+        let previous = child(before);
+        let next = tree.computed[&2].clone();
+        motion_violations(&tree, 2, &previous, &next)
+    }
+
+    #[test]
+    fn an_explicit_property_that_cannot_animate_is_reported_and_all_jumps_quietly() {
+        let explicit = violations("{}", r#"["width"]"#, r#""width":100"#, r#""width":"50%""#);
+        assert_eq!(explicit.len(), 1);
+        assert!(!explicit[0].quiet, "naming the property asks for it");
+        assert!(explicit[0].message.contains("pixels and percentages"));
+
+        let all = violations("{}", r#""all""#, r#""width":100"#, r#""width":"50%""#);
+        assert_eq!(
+            all.len(),
+            1,
+            "it still cannot animate, so it is applied at once"
+        );
+        assert!(all[0].quiet, "but transition-all does not report it");
+
+        // Both axes at once are both found, so both jump.
+        let both = violations(
+            "{}",
+            r#""all""#,
+            r#""width":100,"height":100"#,
+            r#""width":"50%","height":"50%""#,
+        );
+        assert_eq!(both.len(), 2);
+    }
+
+    #[test]
+    fn an_intrinsic_keyword_on_either_side_just_jumps_in_css_and_here() {
+        for (before, after) in [
+            (r#""width":100"#, r#""width":"fit-content""#),
+            (r#""width":"min-content""#, r#""width":100"#),
+            (r#""width":"max-content""#, r#""width":"50%""#),
+        ] {
+            assert!(
+                violations("{}", r#"["width"]"#, before, after).is_empty(),
+                "{before} -> {after}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_intrinsic_flex_main_axis_is_reported_for_a_list_and_quiet_for_all() {
+        let growing = r#""interpolateSize":"allow-keywords","flexGrow":1"#;
+        let list = violations(
+            r#"{"flexDirection":"row"}"#,
+            r#"["width"]"#,
+            &format!(r#""width":"auto",{growing}"#),
+            &format!(r#""width":100,{growing}"#),
+        );
+        assert_eq!(list.len(), 1);
+        assert!(!list[0].quiet);
+        assert!(list[0].message.contains("flex main axis"));
+
+        let all = violations(
+            r#"{"flexDirection":"row"}"#,
+            r#""all""#,
+            &format!(r#""width":"auto",{growing}"#),
+            &format!(r#""width":100,{growing}"#),
+        );
+        assert_eq!((all.len(), all[0].quiet), (1, true));
+
+        // A grid or a block parent has no flex main axis to apply twice.
+        for parent in [r#"{"display":"grid"}"#, r#"{"display":"block"}"#] {
+            assert!(
+                violations(
+                    parent,
+                    r#"["width"]"#,
+                    &format!(r#""width":"auto",{growing}"#),
+                    &format!(r#""width":100,{growing}"#),
+                )
+                .is_empty(),
+                "{parent}"
+            );
+        }
+    }
+
+    #[test]
+    fn colours_are_properties_motion_can_name() {
+        let spec = TransitionSpec {
+            properties: TransitionProperties::List(vec![
+                TransitionProperty::Color,
+                TransitionProperty::BorderColor,
+            ]),
+            duration_ms: 100.0,
+            delay_ms: None,
+            easing: None,
+        };
+        let old = StyleSpec {
+            color: Some("#fff".into()),
+            border_color: Some("#000".into()),
+            ..StyleSpec::default()
+        };
+        let new = StyleSpec {
+            color: Some("#fff".into()),
+            border_color: Some("#f00".into()),
+            ..StyleSpec::default()
+        };
+        let moved: Vec<_> = spec
+            .properties
+            .animated()
+            .iter()
+            .filter(|property| property_changed(&old, &new, **property))
+            .collect();
+        assert_eq!(moved, vec![&TransitionProperty::BorderColor]);
+    }
+
+    #[test]
+    fn every_transition_property_is_animatable_or_a_compile_error() {
+        // An exhaustive match: a property a track adds fails to compile here until it is placed, and the list it
+        // belongs to (`TransitionProperty::ANIMATABLE`) is then checked.
+        fn animatable(property: TransitionProperty) -> bool {
+            match property {
+                TransitionProperty::Width
+                | TransitionProperty::Height
+                | TransitionProperty::Opacity
+                | TransitionProperty::BackgroundColor
+                | TransitionProperty::Color
+                | TransitionProperty::BorderColor
+                | TransitionProperty::Filter
+                | TransitionProperty::BackdropFilter
+                | TransitionProperty::Transform => {
+                    TransitionProperty::ANIMATABLE.contains(&property)
+                }
+            }
+        }
+        assert!(TransitionProperty::ANIMATABLE.into_iter().all(animatable));
+        let names: BTreeSet<_> = TransitionProperty::ANIMATABLE
+            .iter()
+            .map(|property| property.css_name())
+            .collect();
+        assert_eq!(
+            names.len(),
+            TransitionProperty::ANIMATABLE.len(),
+            "css names are distinct"
+        );
+    }
 }

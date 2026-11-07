@@ -16,6 +16,7 @@ use crate::filter::{DropShadow, FilterFunction, FilterList, Rgba};
 use crate::paint::parse_color;
 use crate::props::{Dimension, DisplaySpec, Easing, StyleSpec, TransitionProperty, TransitionSpec};
 use crate::transform::ComputedTransformValue;
+use crate::transition::TransitionProperties;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum DimensionAxis {
@@ -58,6 +59,8 @@ pub struct DimensionOverrides {
 pub enum SampledDimension {
     Auto,
     LengthPercentage(LengthPercentage),
+    /// `min-content`, `max-content` or `fit-content`: nothing to interpolate, so the authored size stands.
+    Intrinsic,
 }
 
 impl SampledDimension {
@@ -67,34 +70,38 @@ impl SampledDimension {
 
     pub fn as_px(&self) -> Option<f32> {
         match self {
-            Self::Auto => None,
+            Self::Auto | Self::Intrinsic => None,
             Self::LengthPercentage(value) => value.to_length().map(|length| length.px()),
         }
     }
 
     pub fn as_percentage(&self) -> Option<f32> {
         match self {
-            Self::Auto => None,
+            Self::Auto | Self::Intrinsic => None,
             Self::LengthPercentage(value) => value.to_percentage().map(|percentage| percentage.0),
         }
     }
 
     pub fn resolve(&self, parent_basis: f32) -> Option<f32> {
         match self {
-            Self::Auto => None,
+            Self::Auto | Self::Intrinsic => None,
             Self::LengthPercentage(value) => {
                 Some(value.resolve(CSSPixelLength::new(parent_basis)).px())
             }
         }
     }
 
-    pub fn to_taffy(&self) -> Result<taffy::Dimension, String> {
-        if self.is_auto() {
-            Ok(taffy::style_helpers::auto())
+    /// The size to lay out with, or `None` to keep the authored one (an intrinsic keyword has no pixels of
+    /// its own; Stylo cannot interpolate it, so it never animates).
+    pub fn to_taffy(&self) -> Result<Option<taffy::Dimension>, String> {
+        if matches!(self, Self::Intrinsic) {
+            Ok(None)
+        } else if self.is_auto() {
+            Ok(Some(taffy::style_helpers::auto()))
         } else if let Some(px) = self.as_px() {
-            Ok(taffy::Dimension::length(px))
+            Ok(Some(taffy::Dimension::length(px)))
         } else if let Some(percentage) = self.as_percentage() {
-            Ok(taffy::Dimension::percent(percentage))
+            Ok(Some(taffy::Dimension::percent(percentage)))
         } else {
             // TaffyTree does not resolve Stylo calc pointers. Resolving against
             // the previous frame's parent size would silently introduce lag when
@@ -112,6 +119,9 @@ pub struct SampledStyle {
     pub opacity: f32,
     /// Non-premultiplied sRGB, matching Godot Color components.
     pub background_color: [f32; 4],
+    /// The text colour and the border colour, in the same form.
+    pub color: [f32; 4],
+    pub border_color: [f32; 4],
     /// The sampled `filter` and `backdrop-filter`, per function (Stylo interpolates a list function by
     /// function and a missing function from its identity), with every shadow colour concrete.
     pub filter: FilterList,
@@ -127,6 +137,8 @@ struct AppliedStyle {
     height: Dimension,
     opacity: f32,
     background_color: String,
+    color: String,
+    border_color: String,
     /// The resolved lists as CSS text (`none` for no filter); `currentcolor` is already the element's
     /// colour.
     filter: String,
@@ -136,6 +148,9 @@ struct AppliedStyle {
     hidden: bool,
     transition: Option<TransitionSpec>,
 }
+
+/// The text colour nothing set: white, this library's default (`paint::parse_color` callers pass white too).
+const DEFAULT_COLOR: &str = "#ffffff";
 
 /// The element's text colour, which a `drop-shadow()` without a colour uses (this library's default is
 /// white).
@@ -168,6 +183,11 @@ impl AppliedStyle {
             opacity: style.opacity.unwrap_or(1.0),
             background_color: style
                 .background_color
+                .clone()
+                .unwrap_or_else(|| "#00000000".into()),
+            color: style.color.clone().unwrap_or_else(|| DEFAULT_COLOR.into()),
+            border_color: style
+                .border_color
                 .clone()
                 .unwrap_or_else(|| "#00000000".into()),
             filter: style
@@ -422,6 +442,12 @@ impl StyleEngine {
         if previous.is_none_or(|previous| previous.background_color != next.background_color) {
             mutator.set_style_property(native_id, "background-color", &next.background_color);
         }
+        if previous.is_none_or(|previous| previous.color != next.color) {
+            mutator.set_style_property(native_id, "color", &next.color);
+        }
+        if previous.is_none_or(|previous| previous.border_color != next.border_color) {
+            mutator.set_style_property(native_id, "border-color", &next.border_color);
+        }
         if previous.is_none_or(|previous| previous.filter != next.filter) {
             mutator.set_style_property(native_id, "filter", &next.filter);
         }
@@ -459,10 +485,10 @@ impl StyleEngine {
                 .transition
                 .as_ref()
                 .and_then(|transition| transition.easing)
-                .unwrap_or(Easing::Ease);
+                .unwrap_or(Easing::INITIAL);
             mutator.set_style_property(native_id, "transition-duration", &format!("{duration}ms"));
             mutator.set_style_property(native_id, "transition-delay", &format!("{delay}ms"));
-            mutator.set_style_property(native_id, "transition-timing-function", easing_css(easing));
+            mutator.set_style_property(native_id, "transition-timing-function", &easing.css());
         }
     }
 
@@ -494,12 +520,19 @@ impl StyleEngine {
             .background_color
             .resolve_to_absolute(&current_color)
             .into_srgb_legacy();
+        let border = computed
+            .get_border()
+            .border_top_color
+            .resolve_to_absolute(&current_color)
+            .into_srgb_legacy();
         let effects = computed.get_effects();
         Ok(SampledStyle {
             width: sampled_dimension(&position.width)?,
             height: sampled_dimension(&position.height)?,
             opacity: effects.opacity,
             background_color: *background.raw_components(),
+            color: *current_color.into_srgb_legacy().raw_components(),
+            border_color: *border.raw_components(),
             filter: sampled_filters(&effects.filter.0, &current_color)?,
             backdrop_filter: sampled_filters(&effects.backdrop_filter.0, &current_color)?,
             transform: computed.get_box().transform.clone(),
@@ -548,6 +581,7 @@ fn sampled_dimension(value: &Size) -> Result<SampledDimension, String> {
     match value {
         Size::Auto => Ok(SampledDimension::Auto),
         Size::LengthPercentage(value) => Ok(SampledDimension::LengthPercentage(value.0.clone())),
+        Size::MinContent | Size::MaxContent | Size::FitContent => Ok(SampledDimension::Intrinsic),
         other => Err(format!("unsupported sampled dimension {other:?}")),
     }
 }
@@ -576,34 +610,17 @@ fn transition_properties(
     let Some(transition) = transition else {
         return "none".into();
     };
-    let properties: Vec<_> = transition
-        .properties
+    // `all` is written out as the properties it means, so what Stylo animates is exactly what native reads
+    // back, and a blocked one can be left out.
+    let properties: Vec<_> = TransitionProperties::animated(&transition.properties)
         .iter()
         .filter(|property| !blocked.contains(property))
-        .map(|property| match property {
-            TransitionProperty::Width => "width",
-            TransitionProperty::Height => "height",
-            TransitionProperty::Opacity => "opacity",
-            TransitionProperty::BackgroundColor => "background-color",
-            TransitionProperty::Filter => "filter",
-            TransitionProperty::BackdropFilter => "backdrop-filter",
-            TransitionProperty::Transform => "transform",
-        })
+        .map(|property| property.css_name())
         .collect();
     if properties.is_empty() {
         "none".into()
     } else {
         properties.join(", ")
-    }
-}
-
-fn easing_css(easing: Easing) -> &'static str {
-    match easing {
-        Easing::Linear => "linear",
-        Easing::Ease => "ease",
-        Easing::EaseIn => "ease-in",
-        Easing::EaseOut => "ease-out",
-        Easing::EaseInOut => "ease-in-out",
     }
 }
 

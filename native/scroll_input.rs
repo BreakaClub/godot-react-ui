@@ -334,14 +334,17 @@ impl ReactUiRoot {
             })
         };
         let thumbs = [thumb(bars.x), thumb(bars.y)];
-        let key = thumbs.iter().any(Option::is_some).then(|| OverlayKey {
-            thumbs,
-            color: parse_color(
-                node.computed.scrollbar_color.as_deref(),
-                parse_color(Some(DEFAULT_SCROLLBAR_COLOR), Color::TRANSPARENT_BLACK),
-            ),
-            oversampling,
-        });
+        let key =
+            (thumbs.iter().any(Option::is_some) && !node.computed.is_invisible()).then(|| {
+                OverlayKey {
+                    thumbs,
+                    color: parse_color(
+                        node.computed.scrollbar_color.as_deref(),
+                        parse_color(Some(DEFAULT_SCROLLBAR_COLOR), Color::TRANSPARENT_BLACK),
+                    ),
+                    oversampling,
+                }
+            });
         let style = self.scrollbar_style.get_or_insert_with(|| {
             let mut style = StyleBoxFlat::new_gd();
             style.set_corner_radius_all(SCROLLBAR_THUMB_RADIUS_PX);

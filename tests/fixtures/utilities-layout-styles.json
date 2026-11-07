@@ -1,0 +1,242 @@
+[
+  {
+    "className": "mx-auto -mt-2 m-[10%] ms-4",
+    "compiled": {
+      "layers": [
+        {
+          "style": {
+            "marginBottom": "10%",
+            "marginLeft": 16,
+            "marginRight": "10%",
+            "marginTop": "10%"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "className": "w-screen h-fit min-h-screen max-w-screen-md basis-1/3 size-8",
+    "compiled": {
+      "layers": [
+        {
+          "style": {
+            "flexBasis": "33.33333333333333%",
+            "height": 32,
+            "maxWidth": 768,
+            "minHeight": "100vh",
+            "width": 32
+          }
+        }
+      ]
+    }
+  },
+  {
+    "className": "grid grid-cols-[200px_minmax(0,1fr)_auto] grid-rows-2 auto-cols-fr auto-rows-[100px_200px] grid-flow-col-dense gap-2",
+    "compiled": {
+      "layers": [
+        {
+          "style": {
+            "columnGap": 8,
+            "display": "grid",
+            "gridAutoColumns": [
+              {
+                "minmax": [
+                  0,
+                  "1fr"
+                ]
+              }
+            ],
+            "gridAutoFlow": "column-dense",
+            "gridAutoRows": [
+              100,
+              200
+            ],
+            "gridTemplateColumns": [
+              200,
+              {
+                "minmax": [
+                  0,
+                  "1fr"
+                ]
+              },
+              "auto"
+            ],
+            "gridTemplateRows": 2,
+            "rowGap": 8
+          }
+        }
+      ]
+    }
+  },
+  {
+    "className": "grid-cols-[repeat(auto-fill,minmax(120px,1fr))] grid-cols-none",
+    "compiled": {
+      "layers": [
+        {
+          "style": {
+            "gridTemplateColumns": []
+          }
+        }
+      ]
+    }
+  },
+  {
+    "className": "col-span-2 col-start-3 row-span-full row-end-auto",
+    "compiled": {
+      "layers": [
+        {
+          "style": {
+            "gridColumnSpan": 2,
+            "gridColumnStart": 3,
+            "gridRowEnd": "auto",
+            "gridRowStart": 1
+          }
+        }
+      ]
+    }
+  },
+  {
+    "className": "content-between justify-items-center justify-self-end place-self-stretch self-auto justify-stretch",
+    "compiled": {
+      "layers": [
+        {
+          "style": {
+            "alignContent": "space-between",
+            "alignSelf": "auto",
+            "justifyContent": "stretch",
+            "justifyItems": "center",
+            "justifySelf": "stretch"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "className": "order-2 -order-1 aspect-video box-content invisible overflow-clip block flow-root",
+    "compiled": {
+      "layers": [
+        {
+          "style": {
+            "aspectRatio": 1.7777777777777777,
+            "boxSizing": "content-box",
+            "display": "flow-root",
+            "order": -1,
+            "overflowX": "clip",
+            "overflowY": "clip",
+            "visibility": "hidden"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "className": "transition-colors duration-200 ease-in-out hover:duration-500 delay-75",
+    "compiled": {
+      "layers": [
+        {
+          "style": {
+            "transitionParts": {
+              "properties": [
+                "color",
+                "backgroundColor",
+                "borderColor"
+              ],
+              "durationMs": 200,
+              "easing": {
+                "cubicBezier": [
+                  0.4,
+                  0,
+                  0.2,
+                  1
+                ]
+              }
+            }
+          }
+        },
+        {
+          "states": [
+            "hover"
+          ],
+          "style": {
+            "transitionParts": {
+              "durationMs": 500
+            }
+          }
+        },
+        {
+          "style": {
+            "transitionParts": {
+              "delayMs": 75
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "className": "transition-all duration-300",
+    "compiled": {
+      "layers": [
+        {
+          "style": {
+            "transitionParts": {
+              "properties": "all",
+              "durationMs": 300,
+              "easing": {
+                "cubicBezier": [
+                  0.4,
+                  0,
+                  0.2,
+                  1
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "className": "duration-150 ease-[cubic-bezier(0.1,0.2,0.3,0.4)] transition-none",
+    "compiled": {
+      "layers": [
+        {
+          "style": {
+            "transitionParts": {
+              "durationMs": 150,
+              "easing": {
+                "cubicBezier": [
+                  0.1,
+                  0.2,
+                  0.3,
+                  0.4
+                ]
+              },
+              "properties": "none"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "className": "md:grid-cols-3 md:col-span-2 lg:w-[50vw]",
+    "compiled": {
+      "layers": [
+        {
+          "minWidth": 768,
+          "style": {
+            "gridColumnSpan": 2,
+            "gridTemplateColumns": 3
+          }
+        },
+        {
+          "minWidth": 1024,
+          "style": {
+            "width": "50vw"
+          }
+        }
+      ]
+    }
+  }
+]

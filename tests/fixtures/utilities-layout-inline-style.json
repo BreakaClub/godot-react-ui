@@ -1,0 +1,34 @@
+{
+  "layers": [
+    {
+      "style": {
+        "alignSelf": "auto",
+        "gridTemplateColumns": [
+          {
+            "minmax": [
+              0,
+              "1fr"
+            ]
+          }
+        ],
+        "marginBottom": "auto",
+        "marginLeft": "auto",
+        "marginRight": "auto",
+        "marginTop": "auto",
+        "transition": {
+          "properties": "all",
+          "durationMs": 90,
+          "easing": {
+            "cubicBezier": [
+              0.5,
+              0,
+              0.5,
+              1
+            ]
+          }
+        },
+        "width": "min-content"
+      }
+    }
+  ]
+}

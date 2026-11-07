@@ -888,6 +888,9 @@ impl ReactUiRoot {
         };
         let current = current_color(&node.computed);
         let drawable = node.geometry.size.x > 0.0 && node.geometry.size.y > 0.0;
+        // A `visibility: hidden` element draws no glass of its own. Its `filter` still applies to the visible
+        // descendants it may have, as in CSS.
+        let backdrop_drawable = drawable && !node.computed.is_invisible();
         let blocker = if has_filters {
             self.group_ancestor(tag)
         } else {
@@ -896,7 +899,7 @@ impl ReactUiRoot {
         let filter_effect = FilterEffect::compose(&filter, current);
         let backdrop_effect = FilterEffect::compose(&backdrop, current);
         let wants_filter = drawable && !filter_effect.is_none();
-        let wants_backdrop = drawable && !backdrop_effect.is_none();
+        let wants_backdrop = backdrop_drawable && !backdrop_effect.is_none();
         // An element's own group is not above it: its backdrop is drawn outside the wrapper (`render_tree.rs`), so an element
         // can have both `filter` and `backdrop-filter`.
         let blocked = blocker.is_some() && (wants_filter || wants_backdrop);

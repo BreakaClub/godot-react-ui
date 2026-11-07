@@ -12,7 +12,7 @@ use std::ops::{Bound, Deref};
 
 use crate::props::{
     CursorSpec, DisplaySpec, InterpolateSize, PointerEventsSpec, PseudoState, StyleLayer,
-    StyleLayers, StyleSpec, TextAlignSpec, UserSelectSpec,
+    StyleLayers, StyleSpec, TextAlignSpec, UserSelectSpec, Viewport, VisibilitySpec,
 };
 use crate::text_style::{InheritedText, settle};
 
@@ -62,8 +62,8 @@ impl PseudoStates {
 /// What the layers' conditions are tested against for one node.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct StyleConditions {
-    /// Logical viewport width in pixels.
-    pub viewport_width: f32,
+    /// The logical viewport in pixels: its width decides the breakpoints, and both sides the `vw` and `vh` sizes.
+    pub viewport: Viewport,
     pub states: PseudoStates,
 }
 
@@ -81,8 +81,8 @@ impl Deref for ComputedStyle {
 }
 
 /// The properties a node passes on to its children: `color`, `fontSize`, `textAlign`,
-/// `interpolateSize`, `pointerEvents`, `cursor`, `scrollbarColor`, `userSelect`, `selectionColor`, `caretColor`
-/// and `placeholderColor` (plan 3.6).
+/// `interpolateSize`, `pointerEvents`, `cursor`, `scrollbarColor`, `userSelect`, `selectionColor`, `caretColor`,
+/// `placeholderColor` and `visibility` (plan 3.6).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct InheritedStyle {
     pub color: Option<String>,
@@ -101,6 +101,7 @@ pub struct InheritedStyle {
     pub inside_transform: bool,
     /// The inherited text longhands and the decorations that propagate (`text_style.rs`).
     pub text: InheritedText,
+    pub visibility: Option<VisibilitySpec>,
 }
 
 impl ComputedStyle {
@@ -119,20 +120,28 @@ impl ComputedStyle {
             placeholder_color: self.0.placeholder_color.clone(),
             inside_transform: self.0.inside_transform || self.0.is_transformed(),
             text: InheritedText::of(&self.0),
+            visibility: self.0.visibility,
         }
     }
 
     /// Whether this element can itself be the target of a pointer. `pointer-events: none` only
-    /// removes the element: its children are tested on their own computed value.
+    /// removes the element: its children are tested on their own computed value. A `hidden` element is
+    /// not a target either (and a `visible` child inside it still is).
     pub fn is_pointer_target(&self) -> bool {
-        self.0.pointer_events != Some(PointerEventsSpec::None)
+        self.0.pointer_events != Some(PointerEventsSpec::None) && !self.is_invisible()
+    }
+
+    /// `visibility: hidden`: the element paints nothing of its own and cannot be focused or hit, and its
+    /// layout is unchanged.
+    pub fn is_invisible(&self) -> bool {
+        self.0.visibility == Some(VisibilitySpec::Hidden)
     }
 }
 
 fn applies(layer: &StyleLayer, conditions: &StyleConditions) -> bool {
     layer
         .min_width
-        .is_none_or(|width| conditions.viewport_width >= width)
+        .is_none_or(|width| conditions.viewport.width >= width)
         && layer
             .states
             .iter()
@@ -159,6 +168,7 @@ pub fn resolve(
         caret_color: inherited.caret_color.clone(),
         placeholder_color: inherited.placeholder_color.clone(),
         inside_transform: inherited.inside_transform,
+        visibility: inherited.visibility,
         ..StyleSpec::default()
     };
     inherited.text.inherit_into(&mut spec);
@@ -173,6 +183,11 @@ pub fn resolve(
     if hidden {
         spec.display = Some(DisplaySpec::None);
     }
+    // Longhands the `transition-*` classes set become the transition they declare.
+    if let Some(parts) = spec.transition_parts.take() {
+        spec.transition = parts.resolve();
+    }
+    spec.resolve_viewport_units(conditions.viewport);
     ComputedStyle(spec)
 }
 
@@ -230,18 +245,23 @@ impl InteractionState {
     }
 }
 
-/// The nodes that use a `minWidth` threshold, so a resize restyles only those.
+/// The nodes that use a `minWidth` threshold, so a resize restyles only those, and the nodes that size
+/// themselves in `vw` or `vh`, which a resize restyles whenever the viewport's size changes.
 #[derive(Debug, Default)]
 pub struct BreakpointIndex {
     /// Keyed by the bit pattern of the (finite, nonnegative) threshold, which orders like the
     /// float itself.
     thresholds: BTreeMap<u32, BTreeSet<u32>>,
+    viewport_sized: BTreeSet<u32>,
 }
 
 impl BreakpointIndex {
     pub fn register(&mut self, tag: u32, layers: Option<&StyleLayers>) {
         for width in Self::widths(layers) {
             self.thresholds.entry(width).or_default().insert(tag);
+        }
+        if Self::uses_viewport_units(layers) {
+            self.viewport_sized.insert(tag);
         }
     }
 
@@ -255,6 +275,21 @@ impl BreakpointIndex {
                 }
             }
         }
+        self.viewport_sized.remove(&tag);
+    }
+
+    /// The nodes with a `vw` or `vh` size.
+    pub fn viewport_sized(&self) -> &BTreeSet<u32> {
+        &self.viewport_sized
+    }
+
+    fn uses_viewport_units(layers: Option<&StyleLayers>) -> bool {
+        layers.is_some_and(|layers| {
+            layers
+                .layers
+                .iter()
+                .any(|layer| layer.style.uses_viewport_units())
+        })
     }
 
     /// The nodes with a layer whose condition `width >= minWidth` differs between the two widths.
@@ -334,7 +369,7 @@ pub struct StyleChange {
 pub fn restyle<T: StyleTree>(
     tree: &mut T,
     dirty: impl IntoIterator<Item = u32>,
-    viewport_width: f32,
+    viewport: Viewport,
 ) -> Vec<StyleChange> {
     // Ordered by depth so a parent is always resolved before any of its descendants.
     let mut pending: BTreeSet<(usize, u32)> = dirty
@@ -350,7 +385,7 @@ pub fn restyle<T: StyleTree>(
             .unwrap_or_default();
         let inputs = tree.style_inputs(tag);
         let conditions = StyleConditions {
-            viewport_width,
+            viewport,
             states: inputs.states,
         };
         let previous = tree.computed(tag);
@@ -364,7 +399,7 @@ pub fn restyle<T: StyleTree>(
                 inputs.hidden,
                 &inherited,
                 &StyleConditions {
-                    viewport_width,
+                    viewport,
                     states: inputs.states.with(PseudoState::Starting),
                 },
             );
@@ -421,10 +456,20 @@ mod tests {
     use std::cell::RefCell;
 
     use super::*;
+    use crate::grid_style::GridTemplateSpec;
+    use crate::props::{Dimension, TransitionProperty};
 
     const WIDE: f32 = 1120.0;
     const NARROW: f32 = 600.0;
     const MD: f32 = 768.0;
+    const HEIGHT: f32 = 800.0;
+
+    fn viewport(width: f32) -> Viewport {
+        Viewport {
+            width,
+            height: HEIGHT,
+        }
+    }
 
     fn layers(json: &str) -> StyleLayers {
         let layers: StyleLayers = serde_json::from_str(json).expect("test layers must parse");
@@ -434,7 +479,7 @@ mod tests {
 
     fn conditions(width: f32, states: &[PseudoState]) -> StyleConditions {
         StyleConditions {
-            viewport_width: width,
+            viewport: viewport(width),
             states: PseudoStates::from_slice(states),
         }
     }
@@ -475,17 +520,23 @@ mod tests {
         );
         assert_eq!(
             computed(&layers, NARROW, &[]).grid_template_columns,
-            Some(2)
+            Some(GridTemplateSpec::Count(2))
         );
-        assert_eq!(computed(&layers, MD, &[]).grid_template_columns, Some(3));
-        assert_eq!(computed(&layers, WIDE, &[]).grid_template_columns, Some(4));
+        assert_eq!(
+            computed(&layers, MD, &[]).grid_template_columns,
+            Some(GridTemplateSpec::Count(3))
+        );
+        assert_eq!(
+            computed(&layers, WIDE, &[]).grid_template_columns,
+            Some(GridTemplateSpec::Count(4))
+        );
         assert_eq!(
             computed(&layers, NARROW, &[]).grid_template_columns,
-            Some(2)
+            Some(GridTemplateSpec::Count(2))
         );
         assert_eq!(
             computed(&layers, MD - 0.5, &[]).grid_template_columns,
-            Some(2),
+            Some(GridTemplateSpec::Count(2)),
             "the threshold is inclusive"
         );
     }
@@ -560,6 +611,7 @@ mod tests {
             placeholder_color: Some("#94a3b8".into()),
             inside_transform: false,
             text: InheritedText::default(),
+            visibility: None,
         };
         let none = StyleLayers::default();
         let child = resolve(Some(&none), false, &inherited, &conditions(WIDE, &[]));
@@ -620,6 +672,99 @@ mod tests {
         assert_eq!(below.overscroll_behavior, None);
         assert_eq!(below.scrollbar_width, None);
         assert_eq!(below.touch_action, None);
+    }
+
+    #[test]
+    fn hidden_visibility_is_inherited_and_a_child_can_show_itself_again() {
+        let hidden = InheritedStyle {
+            visibility: Some(VisibilitySpec::Hidden),
+            ..InheritedStyle::default()
+        };
+        let none = StyleLayers::default();
+        let child = resolve(Some(&none), false, &hidden, &conditions(WIDE, &[]));
+        assert!(child.is_invisible());
+        assert!(
+            !child.is_pointer_target(),
+            "a hidden element takes no pointer"
+        );
+        let visible = layers(r#"{"layers":[{"style":{"visibility":"visible"}}]}"#);
+        let shown = resolve(Some(&visible), false, &hidden, &conditions(WIDE, &[]));
+        assert!(!shown.is_invisible());
+        assert!(shown.is_pointer_target());
+        assert_eq!(shown.inherited().visibility, Some(VisibilitySpec::Visible));
+        assert!(
+            !resolve(
+                None,
+                false,
+                &InheritedStyle::default(),
+                &conditions(WIDE, &[])
+            )
+            .is_invisible()
+        );
+    }
+
+    #[test]
+    fn viewport_sizes_resolve_to_pixels_against_the_viewport_given() {
+        let sized = layers(
+            r#"{"layers":[{"style":{"width":"100vw","height":"50vh","minHeight":"100vh","flexBasis":"25vw","maxWidth":"80%"}}]}"#,
+        );
+        let style = computed(&sized, WIDE, &[]);
+        assert_eq!(style.width, Some(Dimension::Num(WIDE)));
+        assert_eq!(style.height, Some(Dimension::Num(HEIGHT / 2.0)));
+        assert_eq!(style.min_height, Some(Dimension::Num(HEIGHT)));
+        assert_eq!(style.flex_basis, Some(Dimension::Num(WIDE / 4.0)));
+        assert_eq!(
+            style.max_width,
+            Some(Dimension::Text("80%".into())),
+            "a percentage is layout's, not the viewport's"
+        );
+        assert_eq!(
+            computed(&sized, NARROW, &[]).width,
+            Some(Dimension::Num(NARROW))
+        );
+        assert!(
+            style.taffy_style().is_ok(),
+            "a resolved style reaches layout"
+        );
+    }
+
+    #[test]
+    fn transition_longhands_resolve_into_the_computed_transition() {
+        let classes = layers(
+            r#"{"layers":[
+                {"style":{"transitionParts":{"properties":["color"],"durationMs":150}}},
+                {"states":["hover"],"style":{"transitionParts":{"durationMs":500}}}
+            ]}"#,
+        );
+        let rest = computed(&classes, WIDE, &[]);
+        assert_eq!(rest.transition.as_ref().unwrap().duration_ms, 150.0);
+        assert_eq!(rest.transition_parts, None, "the longhands are consumed");
+        let hovered = computed(&classes, WIDE, &[PseudoState::Hover]);
+        let transition = hovered.transition.as_ref().unwrap();
+        assert_eq!(transition.duration_ms, 500.0);
+        assert_eq!(
+            transition.properties.animated(),
+            [TransitionProperty::Color]
+        );
+        // No duration, no transition: the node is not a motion node.
+        let only_easing =
+            layers(r#"{"layers":[{"style":{"transitionParts":{"easing":"linear"}}}]}"#);
+        assert_eq!(computed(&only_easing, WIDE, &[]).transition, None);
+    }
+
+    #[test]
+    fn nodes_with_viewport_sizes_are_indexed_for_a_resize() {
+        let mut index = BreakpointIndex::default();
+        let sized = layers(r#"{"layers":[{"style":{"height":"100vh"}}]}"#);
+        let plain = layers(r#"{"layers":[{"style":{"height":"100%"}}]}"#);
+        index.register(1, Some(&sized));
+        index.register(2, Some(&plain));
+        assert_eq!(
+            index.viewport_sized().iter().copied().collect::<Vec<_>>(),
+            vec![1]
+        );
+        index.unregister(1, Some(&sized));
+        assert!(index.viewport_sized().is_empty());
     }
 
     #[test]
@@ -832,7 +977,7 @@ mod tests {
             (3, r##"{"layers":[{"style":{"fontSize":10}}]}"##),
         ]);
         // Passed deepest first; the result is still top-down.
-        let changes = restyle(&mut tree, [3, 4, 2, 1], WIDE);
+        let changes = restyle(&mut tree, [3, 4, 2, 1], viewport(WIDE));
         assert_eq!(tags(&changes), vec![1, 2, 4, 3]);
         assert!(changes.iter().all(|change| change.previous.is_none()));
         let color = |tag: u32| tree.nodes[&tag].computed.as_ref().unwrap().color.clone();
@@ -861,12 +1006,12 @@ mod tests {
                 r##"{"layers":[{"style":{"backgroundColor":"#111"},"states":[]},{"states":["hover"],"style":{"backgroundColor":"#222"}}]}"##,
             ),
         ]);
-        restyle(&mut tree, [1, 2, 3, 4], WIDE);
+        restyle(&mut tree, [1, 2, 3, 4], viewport(WIDE));
         tree.take_resolved();
 
         // Node 2 changes a paint property only: its children's inputs are unchanged.
         tree.nodes.get_mut(&2).unwrap().states = PseudoStates::NONE.with(PseudoState::Hover);
-        let changes = restyle(&mut tree, [2], WIDE);
+        let changes = restyle(&mut tree, [2], viewport(WIDE));
         assert_eq!(tags(&changes), vec![2]);
         assert_eq!(
             changes[0]
@@ -880,7 +1025,7 @@ mod tests {
         assert_eq!(tree.take_resolved(), vec![2], "no descendant was visited");
 
         // Nothing changed: nothing is reported.
-        assert!(restyle(&mut tree, [2], WIDE).is_empty());
+        assert!(restyle(&mut tree, [2], viewport(WIDE)).is_empty());
         assert_eq!(tree.take_resolved(), vec![2]);
     }
 
@@ -893,10 +1038,10 @@ mod tests {
             ),
             (2, r##"{"layers":[{"style":{"color":"#ccc"}}]}"##),
         ]);
-        restyle(&mut tree, [1, 2, 3, 4], WIDE);
+        restyle(&mut tree, [1, 2, 3, 4], viewport(WIDE));
         tree.take_resolved();
         tree.nodes.get_mut(&1).unwrap().states = PseudoStates::NONE.with(PseudoState::Hover);
-        let changes = restyle(&mut tree, [1], WIDE);
+        let changes = restyle(&mut tree, [1], viewport(WIDE));
         // 4 inherits the new color. 2 overrides it, so its computed style is unchanged and the
         // recursion stops: 3, which only inherits from 2, is never visited.
         assert_eq!(tags(&changes), vec![1, 4]);
@@ -917,11 +1062,11 @@ mod tests {
         for tag in [2, 4] {
             index.register(tag, Some(&tree.nodes[&tag].layers));
         }
-        restyle(&mut tree, [1, 2, 3, 4], WIDE);
+        restyle(&mut tree, [1, 2, 3, 4], viewport(WIDE));
         tree.take_resolved();
         let affected = index.crossed(WIDE, NARROW);
         assert_eq!(affected.into_iter().collect::<Vec<_>>(), vec![2]);
-        let changes = restyle(&mut tree, [2], NARROW);
+        let changes = restyle(&mut tree, [2], viewport(NARROW));
         assert_eq!(tags(&changes), vec![2]);
         assert_eq!(
             tree.nodes[&2]
@@ -929,7 +1074,7 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .grid_template_columns,
-            Some(2)
+            Some(GridTemplateSpec::Count(2))
         );
         assert_eq!(tree.take_resolved(), vec![2]);
     }
@@ -937,9 +1082,9 @@ mod tests {
     #[test]
     fn hiding_a_node_restyles_it_as_display_none() {
         let mut tree = TestTree::new(&[]);
-        restyle(&mut tree, [1, 2, 3, 4], WIDE);
+        restyle(&mut tree, [1, 2, 3, 4], viewport(WIDE));
         tree.nodes.get_mut(&2).unwrap().hidden = true;
-        let changes = restyle(&mut tree, [2], WIDE);
+        let changes = restyle(&mut tree, [2], viewport(WIDE));
         assert_eq!(tags(&changes), vec![2]);
         assert_eq!(
             tree.nodes[&2].computed.as_ref().unwrap().display,
@@ -966,7 +1111,7 @@ mod tests {
                 {"states":["hover"],"style":{"backgroundColor":"#222222"}}
             ]}"##,
         )]);
-        let changes = restyle(&mut tree, [1, 2, 3, 4], WIDE);
+        let changes = restyle(&mut tree, [1, 2, 3, 4], viewport(WIDE));
         let node2 = changes.iter().find(|change| change.tag == 2).unwrap();
         assert!(node2.previous.is_none());
         let starting = node2
@@ -981,17 +1126,17 @@ mod tests {
 
         // An ordinary state change on a mounted node does not re-apply `starting:`.
         tree.nodes.get_mut(&2).unwrap().states = PseudoStates::NONE.with(PseudoState::Hover);
-        let hovered = restyle(&mut tree, [2], WIDE);
+        let hovered = restyle(&mut tree, [2], viewport(WIDE));
         assert_eq!(hovered.len(), 1);
         assert!(hovered[0].starting.is_none());
 
         // Hiding (`display: none`) and showing again resolves `@starting-style` again, as in CSS Transitions 2.
         tree.nodes.get_mut(&2).unwrap().states = PseudoStates::NONE;
         tree.nodes.get_mut(&2).unwrap().hidden = true;
-        let hidden = restyle(&mut tree, [2], WIDE);
+        let hidden = restyle(&mut tree, [2], viewport(WIDE));
         assert!(hidden[0].starting.is_none());
         tree.nodes.get_mut(&2).unwrap().hidden = false;
-        let shown = restyle(&mut tree, [2], WIDE);
+        let shown = restyle(&mut tree, [2], viewport(WIDE));
         let reshown = shown[0]
             .starting
             .as_ref()

@@ -164,6 +164,14 @@ impl ReactUiRoot {
         if node.text_input.is_none() || !node.render.has_scroller() {
             return Ok(false);
         }
+        if node.computed.is_invisible() {
+            // `visibility: hidden` paints nothing of the field's own: no text, selection or caret.
+            return Ok(self
+                .mounted
+                .nodes
+                .get_mut(&tag)
+                .is_some_and(|node| node.render.clear_edit_items()));
+        }
         let layout = self.display_layout(tag)?;
         let focused = self.focused == Some(tag) && !self.text_inputs.window_unfocused;
         let (drawing, caret) = self.text_drawing(tag, &layout, focused)?;

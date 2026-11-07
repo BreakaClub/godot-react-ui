@@ -7,6 +7,7 @@ use taffy::prelude::{AvailableSpace, NodeId, Size, TaffyTree};
 use taffy::tree::OofPositioningArea;
 
 use crate::commit::LAYER_COUNT;
+use crate::diff::Parent;
 use crate::profile::micros;
 use crate::text_paragraph::Offered;
 use crate::{ReactUiRoot, TextContext};
@@ -65,12 +66,72 @@ pub(crate) fn compute_tree(tree: &mut TaffyTree<TextContext>, root: NodeId, size
 }
 
 impl ReactUiRoot {
+    /// The layout nodes of a parent's children in document order, and the node itself.
+    fn layout_children(&self, parent: Parent) -> Option<(NodeId, Vec<u32>)> {
+        match parent {
+            Parent::Layer(layer) => {
+                Some((self.layer_roots[layer], self.mounted.roots[layer].clone()))
+            }
+            Parent::Node(tag) => {
+                let node = self.mounted.nodes.get(&tag)?;
+                Some((node.layout, node.children.clone()))
+            }
+        }
+    }
+
+    /// Put a parent's layout child list back in document order. Taffy lists children in the order they are laid
+    /// out, so `order` is applied by listing them sorted (`apply_layout_order`); the mounted tree changes its
+    /// children by their document index, so it calls this first.
+    pub(crate) fn restore_layout_order(&mut self, parent: Parent) {
+        if !self.ordered_parents.remove(&parent) {
+            return;
+        }
+        let Some((handle, children)) = self.layout_children(parent) else {
+            return;
+        };
+        let nodes: Vec<NodeId> = children
+            .iter()
+            .map(|tag| self.mounted.nodes[tag].layout)
+            .collect();
+        self.tree
+            .set_children(handle, &nodes)
+            .expect("the layout nodes are mounted");
+    }
+
+    /// List a parent's children to Taffy in their `order` (CSS `order`: lower first, ties in document order),
+    /// which flex and grid layout then follow. Painting and hit testing keep document order.
+    fn apply_layout_order(&mut self, parent: Parent) {
+        let Some((handle, children)) = self.layout_children(parent) else {
+            return;
+        };
+        let order_of = |tag: &u32| self.mounted.nodes[tag].computed.order.unwrap_or(0);
+        if children.iter().all(|tag| order_of(tag) == 0) {
+            self.restore_layout_order(parent);
+            return;
+        }
+        let mut sorted = children.clone();
+        sorted.sort_by_key(order_of);
+        let nodes: Vec<NodeId> = sorted
+            .iter()
+            .map(|tag| self.mounted.nodes[tag].layout)
+            .collect();
+        self.tree
+            .set_children(handle, &nodes)
+            .expect("the layout nodes are mounted");
+        self.ordered_parents.insert(parent);
+        // Their places changed, whatever their own styles did.
+        self.layout_dirty.extend(children);
+    }
+
     /// Lay out every layer whose tree changed, update the geometry of the nodes that moved or
     /// resized, drop focus and press from anything that became invisible, re-hit-test the pointer
     /// and paint what changed (plan 3.3, "Layout" to "Events").
     pub(crate) fn flush_layout(&mut self) {
         let layout_passes_before = self.stats.layout_passes;
         self.viewport_size = self.base().get_size();
+        for parent in std::mem::take(&mut self.order_dirty) {
+            self.apply_layout_order(parent);
+        }
         for root in self.layer_roots {
             let root_style = taffy::Style {
                 size: Size {

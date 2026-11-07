@@ -16,6 +16,7 @@ mod focus;
 // The faces a root draws text with: the registry `registerFontFace` fills and CSS font matching over it.
 mod fonts;
 mod geometry;
+mod grid_style;
 mod keyboard_input;
 mod keymap;
 mod layout;
@@ -54,6 +55,9 @@ mod text_offsets;
 mod text_paragraph;
 mod transform;
 mod transform_state;
+mod transition;
+#[cfg(test)]
+mod utility_layouts;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Instant;
@@ -92,7 +96,7 @@ use pointer::{
 };
 use pointer_state::{ClickCounter, PointerTable};
 use profile::{Profiler, micros};
-use props::{PseudoState, TransitionProperty};
+use props::{PseudoState, TransitionProperty, Viewport};
 use render_tree::{Oversampling, RingKey, RootItem};
 use scroll_input::ScrollInputState;
 use selection_input::SelectionState;
@@ -175,6 +179,10 @@ pub struct ReactUiRoot {
     drag: DragRuntime,
     /// Nodes whose layout inputs changed since the last geometry pass.
     layout_dirty: BTreeSet<u32>,
+    /// Parents whose Taffy child list is in `order` rather than document order, and parents whose list must
+    /// be put in `order` before the next layout (`layout.rs`).
+    ordered_parents: BTreeSet<Parent>,
+    order_dirty: BTreeSet<Parent>,
     /// Nodes whose canvas items may need re-recording.
     paint_dirty: BTreeSet<u32>,
     /// Nodes whose paint parent or sort position must be re-examined: a new tree parent, a changed
@@ -200,7 +208,7 @@ pub struct ReactUiRoot {
     fonts: FontBook,
     viewport_size: Vector2,
     /// The viewport width the computed styles were last resolved for.
-    styled_width: f32,
+    styled_viewport: Viewport,
     hovered: Option<u32>,
     focused: Option<u32>,
     pressed: Option<u32>,
@@ -233,6 +241,9 @@ pub struct ReactUiRoot {
     /// Nodes whose computed style has a `transition`, and their latest Stylo samples.
     motion_nodes: BTreeSet<u32>,
     sampled: BTreeMap<u32, SampledStyle>,
+    /// The nodes whose text colour was moving when motion last applied, so the text that inherits it paints
+    /// once more when it stops (`motion.rs`).
+    moving_text_colors: BTreeSet<u32>,
     intrinsic: BTreeMap<(u32, DimensionAxis), IntrinsicTrack>,
     overrides: BTreeMap<u32, DimensionOverrides>,
     transitions: BTreeMap<(u32, TransitionProperty), TransitionRecord>,
@@ -270,6 +281,8 @@ impl IControl for ReactUiRoot {
             selecting: SelectionState::default(),
             drag: DragRuntime::default(),
             layout_dirty: BTreeSet::new(),
+            ordered_parents: BTreeSet::new(),
+            order_dirty: BTreeSet::new(),
             paint_dirty: BTreeSet::new(),
             paint_reeval: BTreeSet::new(),
             paint_dirty_parents: BTreeSet::new(),
@@ -283,7 +296,10 @@ impl IControl for ReactUiRoot {
             font: None,
             fonts: FontBook::default(),
             viewport_size: Vector2::ZERO,
-            styled_width: 0.0,
+            styled_viewport: Viewport {
+                width: 0.0,
+                height: 0.0,
+            },
             hovered: None,
             focused: None,
             pressed: None,
@@ -306,6 +322,7 @@ impl IControl for ReactUiRoot {
             style_engine: StyleEngine::new(),
             motion_nodes: BTreeSet::new(),
             sampled: BTreeMap::new(),
+            moving_text_colors: BTreeSet::new(),
             intrinsic: BTreeMap::new(),
             overrides: BTreeMap::new(),
             transitions: BTreeMap::new(),
@@ -948,12 +965,23 @@ impl ReactUiRoot {
     /// Read the Control's size and restyle the nodes whose breakpoints it crossed.
     fn sync_viewport(&mut self) {
         let size = self.base().get_size();
-        let previous_width = self.styled_width;
+        let previous = self.styled_viewport;
+        let current = Viewport {
+            width: size.x,
+            height: size.y,
+        };
         self.viewport_size = size;
-        self.styled_width = size.x;
-        let crossed = self.mounted.breakpoints.crossed(previous_width, size.x);
-        if !crossed.is_empty() {
-            let changes = restyle(&mut self.mounted, crossed, size.x);
+        self.styled_viewport = current;
+        let mut dirty = self
+            .mounted
+            .breakpoints
+            .crossed(previous.width, current.width);
+        // A size in `vw` or `vh` changes with every pixel of the viewport, not only across a breakpoint.
+        if previous != current {
+            dirty.extend(self.mounted.breakpoints.viewport_sized());
+        }
+        if !dirty.is_empty() {
+            let changes = restyle(&mut self.mounted, dirty, current);
             self.publish_style_changes(&changes);
         }
     }
@@ -1058,7 +1086,7 @@ impl ReactUiRoot {
         if dirty.is_empty() {
             return;
         }
-        let changes = restyle(&mut self.mounted, dirty, self.styled_width);
+        let changes = restyle(&mut self.mounted, dirty, self.styled_viewport);
         self.publish_style_changes(&changes);
     }
 
