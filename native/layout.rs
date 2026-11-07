@@ -8,6 +8,7 @@ use taffy::tree::OofPositioningArea;
 
 use crate::commit::LAYER_COUNT;
 use crate::profile::micros;
+use crate::text_paragraph::Offered;
 use crate::{ReactUiRoot, TextContext};
 
 pub(crate) fn compute_tree(tree: &mut TaffyTree<TextContext>, root: NodeId, size: Vector2) {
@@ -27,12 +28,14 @@ pub(crate) fn compute_tree(tree: &mut TaffyTree<TextContext>, root: NodeId, size
                         None => return Size::ZERO,
                         Some(TextContext::Paragraph(paragraph)) => {
                             let mut paragraph = paragraph.clone();
-                            paragraph.set_width(known.width.unwrap_or(match available.width {
-                                AvailableSpace::Definite(width) => width,
-                                AvailableSpace::MinContent => 0.0,
-                                AvailableSpace::MaxContent => -1.0,
-                            }));
-                            paragraph.get_size()
+                            let offered = match (known.width, available.width) {
+                                (Some(width), _) | (None, AvailableSpace::Definite(width)) => {
+                                    Offered::Definite(width)
+                                }
+                                (None, AvailableSpace::MinContent) => Offered::MinContent,
+                                (None, AvailableSpace::MaxContent) => Offered::MaxContent,
+                            };
+                            paragraph.measure(offered)
                         }
                         // A text input is the same size whatever it holds and however wide it is
                         // offered (a long value scrolls, it does not widen the field).

@@ -46,7 +46,8 @@
               {
                 "style": {
                   "color": "#ffffff",
-                  "fontSize": 18
+                  "fontSize": 18,
+                  "lineHeight": 28
                 }
               }
             ]

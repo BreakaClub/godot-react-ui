@@ -13,6 +13,8 @@ mod filter;
 mod filter_faults;
 mod filter_render;
 mod focus;
+// The faces a root draws text with: the registry `registerFontFace` fills and CSS font matching over it.
+mod fonts;
 mod geometry;
 mod keyboard_input;
 mod keymap;
@@ -36,6 +38,8 @@ mod selection_input;
 mod snapshot;
 mod stacking;
 mod style_engine;
+// The text longhands, their inheritance and the arithmetic of line boxes and font matching (Godot-free).
+mod text_style;
 mod text_input;
 // `<TextInput>` on the mounted tree: key, pointer, IME and virtual keyboard input, painting.
 mod text_input_godot;
@@ -46,6 +50,8 @@ mod text_layout;
 mod text_layout_probe;
 // UTF-16 offsets against code point indices: text selection sends them to JS, text inputs both ways.
 mod text_offsets;
+// A node's shaped text: Godot's `TextParagraph` configured from the text style, measured, drawn and decorated.
+mod text_paragraph;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Instant;
@@ -55,7 +61,7 @@ use godot::classes::notify::ControlNotification;
 use godot::classes::{
     Control, Font, IControl, InputEvent, InputEventKey, InputEventMouseButton,
     InputEventMouseMotion, InputEventPanGesture, InputEventScreenDrag, InputEventScreenTouch,
-    InputEventWithModifiers, StyleBoxFlat, TextParagraph, ThemeDb, Time,
+    InputEventWithModifiers, StyleBoxFlat, ThemeDb, Time,
 };
 use godot::global::{Key, MouseButtonMask};
 use godot::obj::EngineEnum;
@@ -75,6 +81,7 @@ use events::{
 };
 use filter_render::Effects;
 use focus::Modality;
+use fonts::FontBook;
 use motion::{IntrinsicTrack, TransitionRecord};
 use mount::Mounted;
 use pointer::{
@@ -88,6 +95,7 @@ use render_tree::{Oversampling, RingKey, RootItem};
 use scroll_input::ScrollInputState;
 use selection_input::SelectionState;
 use style_engine::{DimensionAxis, DimensionOverrides, SampledStyle, StyleEngine};
+use text_paragraph::StyledParagraph;
 use text_input_godot::TextInputRoot;
 
 const DEFAULT_FONT_SIZE: i32 = 16;
@@ -107,7 +115,7 @@ unsafe impl ExtensionLibrary for ReactUiExtension {}
 #[derive(Clone)]
 enum TextContext {
     /// A `Text` node: its shaped paragraph, wrapped to the width Taffy offers.
-    Paragraph(Gd<TextParagraph>),
+    Paragraph(StyledParagraph),
     /// A `TextInput`: a size that never depends on its value (plan 3.18), so typing does not lay out.
     Intrinsic(Vector2),
 }
@@ -186,6 +194,8 @@ pub struct ReactUiRoot {
     /// Nonzero while native is inside an `events_ready` emission; nested input only queues.
     dispatch_depth: u32,
     font: Option<Gd<Font>>,
+    /// The faces registered for this root (`register_font_face`) and the fonts made from them.
+    fonts: FontBook,
     viewport_size: Vector2,
     /// The viewport width the computed styles were last resolved for.
     styled_width: f32,
@@ -267,6 +277,7 @@ impl IControl for ReactUiRoot {
             events: EventQueue::new(),
             dispatch_depth: 0,
             font: None,
+            fonts: FontBook::default(),
             viewport_size: Vector2::ZERO,
             styled_width: 0.0,
             hovered: None,
@@ -319,6 +330,7 @@ impl IControl for ReactUiRoot {
             .base()
             .get_theme_default_font()
             .or_else(|| ThemeDb::singleton().get_fallback_font());
+        self.fonts.set_theme_font(self.font.clone());
         let mut ring = StyleBoxFlat::new_gd();
         ring.set_draw_center(false);
         ring.set_border_width_all(FOCUS_RING_WIDTH);
@@ -543,6 +555,30 @@ impl ReactUiRoot {
     }
 
     /// The tags the last successful commit deleted, for JS to forget.
+    /// Register `font` as a face of `family` for CSS font matching (`fontFamily`, `fontWeight`, `fontStyle`). A static face
+    /// covers one weight (`weight_min == weight_max`); a variable font covers the range of its `wght` axis. Text that names
+    /// the family is drawn with the face closest to its weight and style; a bold or italic the family lacks is made up, as a
+    /// browser does. Text that names no registered family keeps the theme font. An empty string means success; anything else
+    /// says why nothing changed.
+    #[func]
+    fn register_font_face(
+        &mut self,
+        family: GString,
+        weight_min: i64,
+        weight_max: i64,
+        italic: bool,
+        font: Gd<Font>,
+    ) -> GString {
+        let (Ok(weight_min), Ok(weight_max)) = (u16::try_from(weight_min), u16::try_from(weight_max)) else {
+            return GString::from(&format!("font weights {weight_min}..={weight_max} are not CSS weights"));
+        };
+        if let Err(error) = self.fonts.register(&family.to_string(), weight_min, weight_max, italic, font) {
+            return GString::from(&error);
+        }
+        self.refresh_font_users();
+        GString::new()
+    }
+
     #[func]
     fn take_commit_deletions(&mut self) -> PackedInt64Array {
         std::mem::take(&mut self.deletions)

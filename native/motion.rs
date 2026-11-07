@@ -20,9 +20,11 @@ use crate::layout::compute_tree;
 use crate::paint::parse_color;
 use crate::profile::{Sample, micros};
 use crate::props::{
-    Dimension, DisplaySpec, FlexDirectionSpec, InterpolateSize, StyleSpec, TransitionProperty,
+    Dimension, DisplaySpec, FlexDirectionSpec, InterpolateSize, OverflowSpec, StyleSpec,
+    TransitionProperty,
 };
 use crate::style_engine::{DimensionAxis, DimensionOverrides, blocked_properties, current_color};
+use crate::text_style::TextStyle;
 use crate::{MILLISECONDS_PER_SECOND, ReactUiRoot, TextContext};
 
 const HEX_COLOR_CHANNEL_MAX: f32 = 255.0;
@@ -329,10 +331,17 @@ impl ReactUiRoot {
             self.layout_dirty.insert(tag);
             self.content_generation += 1;
         }
-        let shaping_changed = change.previous.as_ref().is_none_or(|previous| {
-            previous.font_size != node.computed.font_size
-                || previous.text_align != node.computed.text_align
-        });
+        let text_style = |computed: &ComputedStyle| {
+            TextStyle::of(computed, computed.overflow_x.is_some_and(OverflowSpec::clips))
+        };
+        let now = text_style(&node.computed);
+        let previous_text = change.previous.as_ref().map(text_style);
+        let shaping_changed = previous_text
+            .as_ref()
+            .is_none_or(|previous| previous.shaping != now.shaping);
+        let decorations_changed = previous_text
+            .as_ref()
+            .is_some_and(|previous| previous.decorations != now.decorations);
         let has_text = node.props.text.is_some() || node.visual.paragraph.is_some();
         if node.computed.transition.is_some() {
             self.motion_nodes.insert(tag);
@@ -343,6 +352,13 @@ impl ReactUiRoot {
         self.paint_dirty.insert(tag);
         if shaping_changed && has_text && rebuilt.insert(tag) {
             self.refresh_paragraph(tag);
+        } else if decorations_changed {
+            // Only the lines drawn over the text differ: the text is not shaped again, but it is drawn again.
+            if let Some(paragraph) = node.visual.paragraph.as_mut() {
+                paragraph.set_decorations(now.decorations);
+                self.paragraph_generation += 1;
+                node.visual.generation = self.paragraph_generation;
+            }
         }
     }
 
@@ -566,9 +582,7 @@ impl ReactUiRoot {
         // A text input's context is a plain size, which the clone carries as it is.
         for node in self.mounted.nodes.values() {
             if let Some(paragraph) = node.visual.paragraph.as_ref() {
-                let duplicate = paragraph
-                    .duplicate()
-                    .expect("TextParagraph duplicate is available");
+                let duplicate = paragraph.duplicate();
                 probe
                     .set_node_context(node.layout, Some(TextContext::Paragraph(duplicate)))
                     .expect("known probe handle");

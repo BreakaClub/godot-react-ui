@@ -14,6 +14,7 @@ use crate::props::{
     CursorSpec, DisplaySpec, InterpolateSize, PointerEventsSpec, PseudoState, StyleLayer,
     StyleLayers, StyleSpec, TextAlignSpec, UserSelectSpec,
 };
+use crate::text_style::{InheritedText, settle};
 
 /// The pseudo-states that hold for one node, as a small bit set.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -94,6 +95,8 @@ pub struct InheritedStyle {
     pub selection_color: Option<String>,
     pub caret_color: Option<String>,
     pub placeholder_color: Option<String>,
+    /// The inherited text longhands and the decorations that propagate (`text_style.rs`).
+    pub text: InheritedText,
 }
 
 impl ComputedStyle {
@@ -110,6 +113,7 @@ impl ComputedStyle {
             selection_color: self.0.selection_color.clone(),
             caret_color: self.0.caret_color.clone(),
             placeholder_color: self.0.placeholder_color.clone(),
+            text: InheritedText::of(&self.0),
         }
     }
 
@@ -151,6 +155,7 @@ pub fn resolve(
         placeholder_color: inherited.placeholder_color.clone(),
         ..StyleSpec::default()
     };
+    inherited.text.inherit_into(&mut spec);
     if let Some(layers) = layers {
         for layer in &layers.layers {
             if applies(layer, conditions) {
@@ -158,6 +163,7 @@ pub fn resolve(
             }
         }
     }
+    settle(&mut spec);
     if hidden {
         spec.display = Some(DisplaySpec::None);
     }
@@ -522,6 +528,7 @@ mod tests {
             selection_color: Some("#3b82f659".into()),
             caret_color: Some("#ef4444".into()),
             placeholder_color: Some("#94a3b8".into()),
+            text: InheritedText::default(),
         };
         let none = StyleLayers::default();
         let child = resolve(Some(&none), false, &inherited, &conditions(WIDE, &[]));

@@ -72,8 +72,9 @@ impl Metrics {
 pub(crate) fn horizontal_alignment(align: Option<TextAlignSpec>) -> HorizontalAlignment {
     match align {
         Some(TextAlignSpec::Center) => HorizontalAlignment::CENTER,
-        Some(TextAlignSpec::Right) => HorizontalAlignment::RIGHT,
-        Some(TextAlignSpec::Left) | None => HorizontalAlignment::LEFT,
+        Some(TextAlignSpec::Right | TextAlignSpec::End) => HorizontalAlignment::RIGHT,
+        // A line of a text input is never justified: it is one line, the last, which a justified paragraph leaves alone.
+        Some(TextAlignSpec::Left | TextAlignSpec::Start | TextAlignSpec::Justify) | None => HorizontalAlignment::LEFT,
     }
 }
 

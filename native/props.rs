@@ -17,6 +17,13 @@ use taffy::style::{
 use taffy::style_helpers::{auto, fr, length, minmax};
 
 use crate::filter::{FilterKind, FilterList, FilterParts};
+use crate::text_style::spec::{MAX_FONT_WEIGHT, MIN_FONT_WEIGHT};
+use crate::text_style::{
+    DecorationLines, DecorationThicknessSpec, FontStyleSpec, LetterSpacingSpec, LineClampSpec,
+    LineHeightSpec, NumericFigureSpec, NumericFractionSpec, NumericSpacingSpec, OverflowWrapSpec,
+    TextDecoration, TextOverflowSpec, TextTransformSpec, UnderlineOffsetSpec, WhiteSpaceSpec,
+    WordBreakSpec,
+};
 
 /// The `tabIndex` values the plan allows (3.13): `0` in the tab order, `-1` focusable only.
 pub const TAB_INDICES: [i32; 2] = [0, -1];
@@ -106,6 +113,11 @@ pub enum TextAlignSpec {
     Left,
     Center,
     Right,
+    Justify,
+    /// `left`, as there is no `direction` to make it otherwise.
+    Start,
+    /// `right`, likewise.
+    End,
 }
 
 #[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -475,6 +487,45 @@ pub struct StyleSpec {
     pub background_color: Option<String>,
     pub color: Option<String>,
     pub font_size: Option<i32>,
+    /// Inherited. A comma separated list of families, as written.
+    pub font_family: Option<String>,
+    /// Inherited. A CSS weight, 1 to 1000; the compiler turns the keywords into numbers.
+    pub font_weight: Option<u16>,
+    /// Inherited.
+    pub font_style: Option<FontStyleSpec>,
+    /// Inherited. See [`LineHeightSpec`]; a computed value is px, a unitless factor, or `normal`.
+    pub line_height: Option<LineHeightSpec>,
+    /// Inherited. A computed value is px.
+    pub letter_spacing: Option<LetterSpacingSpec>,
+    /// Inherited.
+    pub text_transform: Option<TextTransformSpec>,
+    /// Not inherited: the lines this element decorates its text with; they propagate through
+    /// [`StyleSpec::text_decorations`].
+    pub text_decoration_line: Option<DecorationLines>,
+    pub text_decoration_color: Option<String>,
+    pub text_decoration_thickness: Option<DecorationThicknessSpec>,
+    /// Inherited.
+    pub text_underline_offset: Option<UnderlineOffsetSpec>,
+    /// Not inherited.
+    pub text_overflow: Option<TextOverflowSpec>,
+    /// Inherited. Unset behaves as `pre-wrap` (React Native's `Text`), so existing text is unchanged.
+    pub white_space: Option<WhiteSpaceSpec>,
+    /// Inherited.
+    pub word_break: Option<WordBreakSpec>,
+    /// Inherited.
+    pub overflow_wrap: Option<OverflowWrapSpec>,
+    /// Not inherited.
+    pub line_clamp: Option<LineClampSpec>,
+    /// Inherited, as are the four numeral longhands below.
+    pub numeric_figure: Option<NumericFigureSpec>,
+    pub numeric_spacing: Option<NumericSpacingSpec>,
+    pub numeric_fraction: Option<NumericFractionSpec>,
+    pub ordinal: Option<bool>,
+    pub slashed_zero: Option<bool>,
+    /// Computed only (never on the wire): the decorations that apply to this element's text, those it
+    /// inherited from the elements above it and its own.
+    #[serde(skip)]
+    pub text_decorations: Vec<TextDecoration>,
     pub border_radius: Option<f32>,
     pub border_width: Option<f32>,
     pub border_color: Option<String>,
@@ -677,6 +728,8 @@ impl StyleSpec {
                     filter_parts,
                     backdrop_filter,
                     backdrop_filter_parts,
+                    // Computed from the layers, never merged from one.
+                    text_decorations: _,
                 } = other;
                 $(
                     if $field.is_some() {
@@ -722,6 +775,26 @@ impl StyleSpec {
             background_color,
             color,
             font_size,
+            font_family,
+            font_weight,
+            font_style,
+            line_height,
+            letter_spacing,
+            text_transform,
+            text_decoration_line,
+            text_decoration_color,
+            text_decoration_thickness,
+            text_underline_offset,
+            text_overflow,
+            white_space,
+            word_break,
+            overflow_wrap,
+            line_clamp,
+            numeric_figure,
+            numeric_spacing,
+            numeric_fraction,
+            ordinal,
+            slashed_zero,
             border_radius,
             border_width,
             border_color,
@@ -836,6 +909,20 @@ impl StyleSpec {
         if self.font_size.is_some_and(|value| value <= 0) {
             return Err("fontSize must be a positive integer".into());
         }
+        if self
+            .font_weight
+            .is_some_and(|weight| !(MIN_FONT_WEIGHT..=MAX_FONT_WEIGHT).contains(&weight))
+        {
+            return Err(format!(
+                "fontWeight must be between {MIN_FONT_WEIGHT} and {MAX_FONT_WEIGHT}"
+            ));
+        }
+        if self.font_family.as_deref().is_some_and(|family| {
+            crate::text_style::resolve::family_list(family).is_empty()
+        }) {
+            return Err("fontFamily must name a family".into());
+        }
+        self.validate_text()?;
         if self.grid_template_columns == Some(0) {
             return Err("gridTemplateColumns must be a positive integer".into());
         }
@@ -847,6 +934,7 @@ impl StyleSpec {
             ("selectionColor", &self.selection_color),
             ("caretColor", &self.caret_color),
             ("placeholderColor", &self.placeholder_color),
+            ("textDecorationColor", &self.text_decoration_color),
         ] {
             if let Some(value) = value {
                 let Some(hex) = value.strip_prefix('#') else {
