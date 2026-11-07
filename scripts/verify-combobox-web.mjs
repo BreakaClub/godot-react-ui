@@ -212,19 +212,27 @@ export async function runComboboxScenario(context) {
   await press('ArrowUp');
   await waitUntil('ArrowUp starts at the last option', async () => (await activeOption('bottom')) === 'option-60');
   check('and the list scrolled to show it', (await find('cb-bottom-list')).scroll.scrollTop > 0);
+  // The pointer comes to rest over the list and the keys choose another option; a wheel tick then scrolls the list under the
+  // resting pointer, and the active option is the keys', not the one now under the pointer (as the native section).
   const pageTop = (await find('combobox-page')).scroll.scrollTop;
+  await moveTo(await centerOf('cb-bottom-list'));
+  await waitUntil('a move of the pointer over an option makes it active', async () => (await activeOption('bottom')) !== 'option-60');
+  await press('ArrowUp');
+  const chosenByKey = await activeOption('bottom');
   const scrolled = (await find('cb-bottom-list')).scroll.scrollTop;
-  await wheelAt(await centerOf('cb-bottom-list'), 0, -100);
+  // No `wheelAt`: it moves the pointer first, and the point here is a pointer that does not move.
+  await page.mouse.wheel({ deltaX: 0, deltaY: -100 });
+  await frames();
   await waitUntil('a wheel over the list scrolls it', async () => (await find('cb-bottom-list')).scroll.scrollTop < scrolled);
-  check('and leaves the list open, the active option alone and the page where it was', !(await closed('bottom'))
-    && (await activeOption('bottom')) === 'option-60' && (await find('combobox-page')).scroll.scrollTop === pageTop);
+  const afterWheel = { open: !(await closed('bottom')), active: await activeOption('bottom'), pageTop: (await find('combobox-page')).scroll.scrollTop };
+  check('and leaves the list open, the keys\' option active and the page where it was', afterWheel.open
+    && afterWheel.active === chosenByKey && afterWheel.pageTop === pageTop, { afterWheel, chosenByKey, pageTop });
   await capture(`combobox-flipped-${viewport.name}`);
   await press('Escape');
   await click('cb-title');
 
   // ---- Resizing the page under an open list --------------------------------------------------------------------------------
   // (The Web page's size is the browser's; the native section resizes the root's Control.)
-  void moveTo;
 }
 
 /**

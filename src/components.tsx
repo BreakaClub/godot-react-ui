@@ -1,5 +1,5 @@
 import {
-  Children, createElement, forwardRef, useCallback, useContext, useLayoutEffect, useRef, useSyncExternalStore, type ReactNode,
+  Children, createElement, forwardRef, useCallback, useContext, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode,
 } from 'react';
 import type {
   UIAccessibilityActionEvent, UIBeforeInputEvent, UICompositionEvent, UIDragEndEvent, UIDragEvent, UIEventMap, UIFocusEvent,
@@ -7,7 +7,7 @@ import type {
 } from './events';
 import type { LayoutRect, NativeEventType, NativeScrollState } from './native';
 import {
-  createOverlayPortal, OverlayContext, readRootSize, readTextSelection, watchRootEvent, watchRootSize, watchTextSelection,
+  createOverlayPortal, createPortalContainer, OverlayContext, readRootSize, readTextSelection, watchRootEvent, watchRootSize, watchTextSelection,
   type RootSize,
 } from './renderer';
 import type { KeyboardType } from './props';
@@ -284,7 +284,8 @@ Button.displayName = 'Button';
 export function Portal({ children }: { children?: ReactNode }): ReactNode {
   const overlay = useContext(OverlayContext);
   if (overlay === null) throw new Error('<Portal> must be rendered inside a root created by createRoot');
-  return createOverlayPortal(children, overlay);
+  const [container] = useState(() => createPortalContainer(overlay));
+  return createOverlayPortal(children, container);
 }
 
 /**

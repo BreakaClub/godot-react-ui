@@ -301,6 +301,55 @@ test('Portal commits to the overlay layer and unmounts with its owner', () => {
   assert.deepEqual(host.layerRoots, [[], []]);
 });
 
+test('portals share the overlay layer: closing or updating one leaves the others, and the later one is on top', () => {
+  const host = new RecordingHost();
+  const root = createRoot(host, { subscribeToEvents: NO_SUBSCRIPTION });
+  const tree = (first: boolean, second: boolean, text = 'menu') => h(View, { testID: 'main' },
+    first && h(Portal, { key: 'first' }, h(View, { testID: 'first' }, h(Text, null, text))),
+    second && h(Portal, { key: 'second' }, h(View, { testID: 'second' })));
+  const idOf = (testID: string): number => {
+    const found = root.findByTestID(testID);
+    assert.ok(found, `${testID} is mounted`);
+    return found.id;
+  };
+
+  root.render(tree(true, true));
+  const second = idOf('second');
+  assert.deepEqual(host.layerRoots[1], [idOf('first'), second], 'each portal keeps its own children in the layer');
+
+  root.render(tree(true, true, 'changed'));
+  assert.deepEqual(host.layerRoots[1], [idOf('first'), second], 'an update to one portal leaves the other mounted');
+
+  root.render(tree(false, true));
+  assert.equal(root.findByTestID('first'), undefined, 'closing a portal deletes its nodes');
+  assert.equal(idOf('second'), second, 'and the other portal keeps its element');
+  assert.deepEqual(host.layerRoots[1], [second]);
+
+  root.render(tree(true, true));
+  assert.deepEqual(host.layerRoots[1], [second, idOf('first')], 'what opened last paints over what was already open');
+
+  root.unmount();
+  assert.equal(host.nodes.size, 1);
+  assert.deepEqual(host.layerRoots, [[], []]);
+});
+
+test('a portal inside a portal is its own share of the layer, as a list in a dialog is', () => {
+  const host = new RecordingHost();
+  const root = createRoot(host, { subscribeToEvents: NO_SUBSCRIPTION });
+  const tree = (inner: boolean) => h(View, null, h(Portal, null,
+    h(View, { testID: 'dialog' }, inner && h(Portal, null, h(View, { testID: 'list' })))));
+  root.render(tree(false));
+  const dialog = root.findByTestID('dialog')?.id;
+  assert.ok(dialog);
+  root.render(tree(true));
+  const list = root.findByTestID('list')?.id;
+  assert.ok(list);
+  assert.deepEqual(host.layerRoots[1], [dialog, list]);
+  root.render(tree(false));
+  assert.equal(root.findByTestID('list'), undefined);
+  assert.deepEqual(host.layerRoots[1], [dialog], 'closing the inner one leaves the dialog');
+});
+
 test('hiding a subtree for Suspense is a prop, and showing it again resets the prop', async () => {
   const host = new RecordingHost();
   const root = createRoot(host, { subscribeToEvents: NO_SUBSCRIPTION });

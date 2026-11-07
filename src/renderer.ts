@@ -48,12 +48,29 @@ interface Instance extends CommitNode<Instance> {
 }
 
 /** One tree of instances native mounts as a layer; React calls its callbacks with this. */
-interface Container {
+interface LayerContainer {
+  readonly kind: 'layer';
   readonly root: RootState;
   readonly layer: number;
   /** The layer's top-level tags as of the last successful commit. */
   rootTags: number[];
+  /** The portals with something in them, oldest first: what the overlay layer's top level is, so what opened last paints on top. */
+  readonly portals: PortalContainer[];
 }
+
+/**
+ * One `<Portal>`'s share of the overlay layer. React's persistent mode replaces a portal's container's whole child list whenever that
+ * portal changes, and empties it when the portal is deleted (`emptyPortalContainer`), so portals that shared one container erased
+ * each other: a second open popover, or a list in a dialog.
+ */
+interface PortalContainer {
+  readonly kind: 'portal';
+  readonly root: RootState;
+  readonly overlay: LayerContainer;
+  children: readonly Instance[];
+}
+
+type Container = LayerContainer | PortalContainer;
 
 interface RootState {
   readonly host: NativeHost;
@@ -65,9 +82,9 @@ interface RootState {
   readonly committed: Map<number, Instance>;
   /** Public handles, stable across clones, dropped when native deletes the tag. */
   readonly handles: Map<number, UIHandle>;
-  readonly main: Container;
+  readonly main: LayerContainer;
   /** Created with the first render. */
-  overlay: Container | undefined;
+  overlay: LayerContainer | undefined;
   unmounted: boolean;
   failure: Error | undefined;
   /** True while `dispatchEvents` drains native events; a nested call returns at once. */
@@ -376,7 +393,7 @@ function recordFailure(root: RootState, error: Error): void {
  * result. A native error leaves `committed` as it was, so the next commit diffs from the last
  * accepted state (plan 3.9).
  */
-function replaceContainerChildren(container: Container, children: Instance[]): void {
+function commitLayer(container: LayerContainer, children: readonly Instance[]): void {
   const root = container.root;
   try {
     const started = root.profiler.start();
@@ -416,6 +433,22 @@ function replaceContainerChildren(container: Container, children: Instance[]): v
     // React has finished its own bookkeeping; the previous native tree stays mounted.
     recordFailure(root, error instanceof Error ? error : new Error(String(error)));
   }
+}
+
+function replaceContainerChildren(container: Container, children: Instance[]): void {
+  if (container.kind === 'layer') {
+    commitLayer(container, children);
+    return;
+  }
+  const { overlay } = container;
+  container.children = children;
+  const index = overlay.portals.indexOf(container);
+  if (children.length === 0) {
+    if (index !== -1) overlay.portals.splice(index, 1);
+  } else if (index === -1) {
+    overlay.portals.push(container);
+  }
+  commitLayer(overlay, overlay.portals.flatMap((portal) => portal.children));
 }
 
 let updatePriority: Reconciler.EventPriority = NoEventPriority;
@@ -506,10 +539,15 @@ const hostConfig = {
 const reconciler = Reconciler(hostConfig);
 
 /** What `<Portal>` renders into: the overlay layer of the root that rendered it. */
-export const OverlayContext = createContext<Container | null>(null);
+export const OverlayContext = createContext<LayerContainer | null>(null);
+
+/** A `<Portal>`'s own share of `overlay`. It has to last as long as the `<Portal>`: React remounts a portal whose container changes. */
+export function createPortalContainer(overlay: LayerContainer): PortalContainer {
+  return { kind: 'portal', root: overlay.root, overlay, children: [] };
+}
 
 /** Render `children` into the overlay layer, which always covers the main layer. */
-export function createOverlayPortal(children: ReactNode, overlay: Container): ReactNode {
+export function createOverlayPortal(children: ReactNode, overlay: PortalContainer): ReactNode {
   // @types/react-reconciler 0.33 declares createPortal's result as its own `ReactPortal` shape,
   // which lacks the `type` and `props` members React 19's types give a portal element, although it
   // is the very object React's `createPortal` returns (`$$typeof: react.portal`). This assertion
@@ -611,7 +649,7 @@ export function createRoot(host: NativeHost, options: RootOptions): UIRoot {
   const state: RootState = {
     host, report, profiler: new RendererProfiler(options.profile ?? false, options.now),
     nextTag: 1, committed: new Map(), handles: new Map(),
-    main: { get root() { return state; }, layer: MAIN_LAYER, rootTags: [] },
+    main: { kind: 'layer', get root() { return state; }, layer: MAIN_LAYER, rootTags: [], portals: [] },
     overlay: undefined, unmounted: false, failure: undefined,
     dispatching: false, listeners: new RootListeners(), drags: new DragSessions(), unsubscribe: undefined,
     documentOrder: undefined, size: undefined, sizeListeners: new Set(), selectionCache: undefined,
@@ -632,8 +670,8 @@ export function createRoot(host: NativeHost, options: RootOptions): UIRoot {
   const fiberRoot = reconciler.createContainer(
     state.main, ConcurrentRoot, null, false, null, '', onUncaughtError, report, report, () => {},
   );
-  const overlay = (): Container => {
-    state.overlay ??= { get root() { return state; }, layer: OVERLAY_LAYER, rootTags: [] };
+  const overlay = (): LayerContainer => {
+    state.overlay ??= { kind: 'layer', get root() { return state; }, layer: OVERLAY_LAYER, rootTags: [], portals: [] };
     return state.overlay;
   };
 

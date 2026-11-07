@@ -487,7 +487,11 @@ async function verifyTags(api: Api): Promise<void> {
 async function verifyBottom(api: Api): Promise<void> {
   const control = () => node(api, 'cb-bottom').rect;
   const list = () => node(api, 'cb-bottom-list');
+  // One press moves from an open combobox to another: the first closes and the second opens.
+  await press(centreOf(node(api, 'cb-tags-input').rect));
+  assert(isOpen(api, 'tags'), 'A press opens the chips combobox');
   await press(centreOf(node(api, 'cb-bottom-input').rect));
+  assert(!isOpen(api, 'tags'), 'A press on another combobox closes the open one');
   assert(isOpen(api, 'bottom'), 'The bottom combobox opens');
   assert(list().rect.y + list().rect.height <= control().y + GEOMETRY_TOLERANCE, `Too low for its list, the list opens above the control: list ${JSON.stringify(list().rect)}, control ${JSON.stringify(control())}`);
   near(list().rect.y + list().rect.height, control().y - LIST_GAP, 'The flipped list is a gap above the control');
