@@ -631,3 +631,37 @@ pub(crate) fn outline(
         leases,
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn shape(radius: i32) -> BoxShape {
+        BoxShape::new(Vector2::new(100.0, 50.0), [2; 4], [radius; 4], 2.0)
+    }
+
+    /// A box on the pixel grid keeps the feather it always had: one device pixel round a curve and none along edges that sit on pixels.
+    #[test]
+    fn a_box_on_the_grid_keeps_its_feathers() {
+        let rounded = shape(8);
+        let square = shape(0);
+        assert_eq!(
+            rounded.feather_of(&rounded.border_box()),
+            Feather::isotropic(FEATHER_PX)
+        );
+        assert_eq!(square.feather_of(&square.border_box()), Feather::NONE);
+    }
+
+    /// Under a transform the feather is the transform's, whatever the corners, in the shape's device pixels (the key holds it in
+    /// logical pixels).
+    #[test]
+    fn a_box_under_a_transform_has_the_feather_it_was_given_in_its_own_pixels() {
+        let feather = Feather::from_axes([0.5, 0.0], [0.0, 1.25]);
+        for radius in [0, 8] {
+            let moved = shape(radius).with_feather(Some(feather));
+            assert_eq!(moved.feather_of(&moved.border_box()), feather.scaled(2.0));
+            assert_eq!(moved.feather_of(&moved.padding_box()), feather.scaled(2.0));
+        }
+        assert_eq!(shape(8).with_feather(None).feather, None);
+    }
+}
