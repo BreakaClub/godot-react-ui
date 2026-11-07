@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Button, Text, View } from 'godot-react-ui';
 import { FONT_SAMPLES, sampleNamed, type FontSample } from './font-slices-data';
-import { currentFontSlices, subscribeToFontSlices, type FontSlicesView } from './font-slices-store';
+import { currentFontSlices, requestFontsFor, subscribeToFontSlices, type FontSlicesView } from './font-slices-store';
 
 export interface FontSlicesLabProps {
   /** Show this sample alone, bare, as the verifier does; without it the lab has its buttons. */
   sample?: string;
 }
 
-const TEXT_CLASS = 'text-2xl leading-8 text-slate-900';
+const TEXT_CLASS = 'font-sans text-2xl leading-8 text-slate-900';
 const BYTES_PER_KIBIBYTE = 1024;
 
 /** The loader's state as the lab shows it, and re-read whenever the loader says it moved. */
@@ -54,6 +54,8 @@ export function FontSlicesLab({ sample: only }: FontSlicesLabProps) {
   const [chosen, setChosen] = useState(FONT_SAMPLES[0]?.id ?? '');
   const view = useFontSlices();
   const sample = sampleNamed(only ?? chosen);
+  // Until the root reports the characters its text has no glyph for (native work that waits on the missing-glyph track), the lab asks for them.
+  useEffect(() => { requestFontsFor(sample.text); }, [sample]);
   return (
     <View testID="fs-page" className="flex-1 gap-3 bg-white p-4">
       {only === undefined && (

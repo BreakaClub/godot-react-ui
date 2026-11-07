@@ -19,6 +19,9 @@ import { FiltersLab, type FiltersLabProps } from './filters-lab';
 import { selectionLabControls } from './selection-lab';
 import { LayoutUtilitiesLab, TransitionClassesLab, type LayoutUtilitiesPage } from './layout-utilities-lab';
 import { RichTextLab, richTextHandles, type RichTextLabProps } from './rich-text-lab';
+import { installDemoFontSlices, type DemoFontSlices } from './font-fallback';
+import { FontSlicesLab, type FontSlicesLabProps } from './font-slices-lab';
+import { currentFontSlices, installedFontSlices } from './font-slices-store';
 import { TextStylesLab } from './text-styles-lab';
 import { observeInputFailure, runVerification } from './verify';
 import { BenchmarkApp, type BenchmarkProps } from './benchmark';
@@ -39,6 +42,12 @@ import { VerifierInputIsolation, injectsOwnInput } from './verifier-input';
 const bind = createClassBinder();
 const MICROSECONDS_PER_MILLISECOND = 1000;
 const BACKDROP_COLOR = new Color(0.86, 0.9, 0.84, 1);
+/** What a verifier may configure the font slice loader with: the language the text is in, and where the manifest is. */
+interface FontSliceSettings {
+  readonly language?: string;
+  readonly manifestUrl?: string;
+}
+
 /** What the verifier may ask of the navigator: its props, and labs of its own after the demo's (the registry here is this bundle's, not the verifier's). */
 export type NavigatorOptions = Omit<NavigatorProps, 'labs'> & { extraLabs?: readonly Lab[] };
 
@@ -109,6 +118,9 @@ export default class Main extends Node {
   private navigatorShown = 0;
   /** The pending return of the navigator's root after a lab took it away (`recoverRoot`); at most one. */
   private recovery: ReturnType<typeof setTimeout> | null = null;
+  /** The loader of fonts for characters no registered font has (the Web only: `docs/tracks/font-slices.md`), and what it was last configured with. */
+  private fontSlices: DemoFontSlices | undefined = undefined;
+  private fontSliceOptions: FontSliceSettings | null = {};
 
   override _ready(): void {
     const args = OS.getCmdlineUserArgs();
@@ -187,6 +199,16 @@ export default class Main extends Node {
       showTextStyles: (page: string) => this.requireRenderer().render(createElement(TextStylesLab, { page })),
       /** One page of the rich text lab (`rich-text-data.ts`) bare, with the tone its changing samples have; rendered again with another tone it is an ordinary commit. */
       showRichText: (props: RichTextLabProps) => this.requireRenderer().render(createElement(RichTextLab, props)),
+      showFontSlices: (props: FontSlicesLabProps) => this.requireRenderer().render(createElement(FontSlicesLab, props)),
+      /** The font slice loader's state (`installed` is false natively, and with the loader taken away): what a verifier reads. */
+      fontSlices: () => currentFontSlices(),
+      /** Resolves when everything the loader was asked for has been fetched and added or has failed. */
+      fontSlicesIdle: () => installedFontSlices()?.loader.whenIdle() ?? Promise.resolve(),
+      /** Install the loader again with other options (a new one starts with nothing fetched), or take it away with `null`: a verifier's controls. */
+      configureFontSlices: (options: FontSliceSettings | null) => {
+        this.fontSliceOptions = options;
+        this.installFontSlices();
+      },
       /** The geometry queries of a text of the rich text lab by its test id (`getCaretRect`, `getOffsetAtPoint`, `getRangeRects`), for the Web verifier. */
       richTextCaret: (testID: string, offset: number, side: 'before' | 'after') => richTextHandle(testID).getCaretRect(offset, side) ?? null,
       richTextOffsetAt: (testID: string, x: number, y: number) => richTextHandle(testID).getOffsetAtPoint(x, y) ?? null,
@@ -521,6 +543,7 @@ export default class Main extends Node {
     surface.setName('ReactSurface');
     this.addChild(surface);
     registerDemoFonts(surface);
+    this.fontSlices = this.fontSliceOptions === null ? undefined : installDemoFontSlices(surface, this.fontSliceOptions);
     this.sizeToViewport();
     surface.size = new Vector2(this.width, this.height);
     this.surface = surface;
@@ -619,8 +642,18 @@ export default class Main extends Node {
     this.recovery = null;
   }
 
+  /** (Re)install the loader of fonts for characters no font has, as `fontSliceOptions` says; the Web has no system fonts to fall back to, native has. */
+  private installFontSlices(): void {
+    this.fontSlices?.dispose();
+    this.fontSlices = undefined;
+    if (this.fontSliceOptions === null || !this.surface) return;
+    this.fontSlices = installDemoFontSlices(this.surface, this.fontSliceOptions);
+  }
+
   private unmount(): void {
     if (!this.renderer || !this.surface) throw new Error('Demo is not mounted');
+    this.fontSlices?.dispose();
+    this.fontSlices = undefined;
     setLabOwner(undefined);
     this.renderer.unmount();
     this.renderer = null;

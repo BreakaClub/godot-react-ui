@@ -7,7 +7,6 @@ export interface FontSliceResponse {
   readonly ok: boolean;
   readonly status: number;
   readonly statusText: string;
-  text(): Promise<string>;
   arrayBuffer(): Promise<ArrayBuffer>;
 }
 
@@ -173,7 +172,7 @@ function toHex(bytes: ArrayBuffer): string {
 function isResponse(value: unknown): value is FontSliceResponse {
   return typeof value === 'object' && value !== null
     && typeof Reflect.get(value, 'ok') === 'boolean' && typeof Reflect.get(value, 'status') === 'number' && typeof Reflect.get(value, 'statusText') === 'string'
-    && typeof Reflect.get(value, 'text') === 'function' && typeof Reflect.get(value, 'arrayBuffer') === 'function';
+    && typeof Reflect.get(value, 'arrayBuffer') === 'function';
 }
 
 function defaultFetch(): FontSliceFetch {
@@ -276,9 +275,9 @@ export function createFontSliceLoader<Font>(host: FontFallbackHost<Font>, option
 
   async function loadManifest(): Promise<FontSliceManifest | undefined> {
     try {
-      const body = await fetched(options.manifestUrl, response => response.text());
-      bytesFetched += body.length;
-      const manifest = parseFontSliceManifest(JSON.parse(body));
+      const bytes = await fetched(options.manifestUrl, response => response.arrayBuffer());
+      bytesFetched += bytes.byteLength;
+      const manifest = parseFontSliceManifest(JSON.parse(new TextDecoder().decode(bytes)));
       manifestState = { kind: 'ready', manifest };
       changed();
       return manifest;

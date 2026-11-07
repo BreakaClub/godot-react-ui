@@ -41,6 +41,11 @@ export const FONT_SAMPLES: readonly FontSample[] = [
     pieces: [['Smile 😀 rainbow ', ''], ['🌈 thumbs up 👍🏽', 'text-red-600'], [' rocket 🚀 flag 🇦🇺', '']],
   },
   {
+    id: 'emoji-only', label: 'Emoji only', language: 'en',
+    text: '😀🌈👍🏽🚀🇦🇺',
+    pieces: [['😀🌈', ''], ['👍🏽', 'text-red-600'], ['🚀🇦🇺', '']],
+  },
+  {
     id: 'mixed', label: 'Mixed', language: 'ja',
     text: 'Open Sans と 日本語 and 한국어 and 😀 in one line.',
     pieces: [['Open Sans と ', ''], ['日本語 and 한국어', 'text-red-600'], [' and 😀 in one line.', '']],

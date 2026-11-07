@@ -21,6 +21,7 @@ import { runFiltersScenario } from './verify-filters-web.mjs';
 import { runGlassScenario } from './verify-glass-web.mjs';
 import { runCodeEditorScenario, runTouchCodeEditorScenario } from './verify-code-editor-web.mjs';
 import { runNavigatorScenario, runNavigatorStartScenario } from './verify-navigator-web.mjs';
+import { runFontSlicesScenario } from './verify-font-slices-web.mjs';
 import { runRichTextScenario } from './verify-rich-text-web.mjs';
 import { runTextStylesScenario } from './verify-text-styles-web.mjs';
 import { runTransformsScenario } from './verify-transforms-web.mjs';
@@ -3010,6 +3011,14 @@ try {
       await section('navigator', () => runNavigatorStartScenario({
         browser, base: url, check, viewport: { width: viewports[0].width, height: viewports[0].height, deviceScaleFactor: 1 },
         output: resolve(output, activeViewport),
+      }));
+    }
+    if (wanted('font-slices')) {
+      // Each group is a page of its own: what a page has fetched and added is state that outlives a lab.
+      activeViewport = 'font-slices';
+      await section('font-slices', () => runFontSlicesScenario({
+        browser, base: url, check, viewport: { width: viewports[0].width, height: viewports[0].height },
+        exportDirectory: engine.artifactPath(`web-${engine.webMode()}`),
       }));
     }
     if (wanted('touch') || wanted('drag') || wanted('combobox') || wanted('dropdown-touch') || wanted('code-editor')) await runTouchWorkflow();

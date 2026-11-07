@@ -98,7 +98,6 @@ function makeWorld(): World & { manifest: string; slice(id: string): { path: str
         ok: status === 200,
         status,
         statusText: status === 200 ? 'OK' : 'Not Found',
-        text: () => Promise.resolve(new TextDecoder().decode(served)),
         arrayBuffer: () => Promise.resolve(copy),
       };
     } finally {
