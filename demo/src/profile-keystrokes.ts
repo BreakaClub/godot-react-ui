@@ -2,6 +2,7 @@ import { Engine, FileAccess, InputEventKey, InputEventMouseButton, Key, MouseBut
 import type { LayoutRect, NativeProfile, NativeSnapshot, NativeSnapshotNode } from '../../src/native';
 import type { RendererProfile } from '../../src/profile';
 import { GLYPH_POSITION_STEP_PX } from './editor/font-grid';
+import { ExhaustiveCheckError } from './editor/exhaustive';
 import { TYPING_SITES, runKeystrokeBench, summarizeAll } from './editor/keystroke-bench';
 import type { NavigatorOptions } from './main';
 import { parseVerifierEvent } from './verifier-input';
@@ -31,15 +32,19 @@ export interface KeystrokeProfileInspection {
 }
 
 export interface BurstRequest {
-  /** Characters typed, and then as many Backspaces. */
+  /** Characters typed, and then as many Backspaces; with `move`, as many presses of Right and then of Left instead. */
   readonly inserts: number;
+  /** Move the caret with the arrow keys instead of typing: a keystroke that changes the selection and not the text. */
+  readonly move?: boolean;
   /** Whether the renderer's and the native library's profilers are on while it runs. */
   readonly rendererProfile: boolean;
+  /** Frames between one keystroke and the next (1 unless said; typing by a person leaves many, and the caches go cold in them). */
+  readonly gapFrames?: number;
 }
 
 /** One key press and release: how long `Input.parseInputEvent` took for each (everything the key causes happens inside it) and what the profilers saw. */
 export interface KeystrokeRecord {
-  readonly kind: 'insert' | 'delete';
+  readonly kind: 'insert' | 'delete' | 'right' | 'left';
   readonly pressUs: number;
   readonly releaseUs: number;
   readonly press: ProfileDigest | null;
@@ -145,9 +150,9 @@ function digest(api: KeystrokeProfileInspection, before: Readonly<Record<string,
   const reconciles: number[] = [];
   const flushes: number[][] = [];
   for (const sample of js.samples) {
-    if (sample.kind === 'events') events.push(sample.durationMs);
-    else if (sample.kind === 'reconcile') reconciles.push(sample.durationMs);
-    else flushes.push([sample.walkMs, sample.jsonEncodeMs, sample.nativeCallMs, sample.fullFlushMs, sample.visitedNodes, sample.commandCount, sample.jsonChars]);
+    if (sample.kind === 'flush') flushes.push([sample.walkMs, sample.jsonEncodeMs, sample.nativeCallMs, sample.fullFlushMs, sample.visitedNodes, sample.commandCount, sample.jsonChars]);
+    else if (sample.kind === 'events') events.push(sample.durationMs);
+    else reconciles.push(sample.durationMs);
   }
   const batches: number[][] = [];
   const draws: number[] = [];
@@ -249,16 +254,26 @@ export function installKeystrokeProfile(owner: Node, api: KeystrokeProfileInspec
     return { site: site.name, line, column, lines: source.split('\n').length, window: mountedLines() };
   }
 
+  function pressKeyOf(kind: KeystrokeRecord['kind'], character: string, pressed: boolean): void {
+    switch (kind) {
+      case 'insert': characterEvent(character, pressed); return;
+      case 'delete': keyEvent(Key.KeyBackspace, pressed); return;
+      case 'right': keyEvent(Key.KeyRight, pressed); return;
+      case 'left': keyEvent(Key.KeyLeft, pressed); return;
+      default: throw new ExhaustiveCheckError(kind);
+    }
+  }
+
   /** One keystroke: a frame first, as there is in typing, then the press and the release, each timed from outside and read from the profilers. */
-  async function keystroke(kind: 'insert' | 'delete', character: string, profiled: boolean): Promise<KeystrokeRecord> {
-    await frames(1);
+  async function keystroke(kind: KeystrokeRecord['kind'], character: string, profiled: boolean, gapFrames: number): Promise<KeystrokeRecord> {
+    await frames(gapFrames);
     const before = profiled ? countersOf(api.takeProfile().native) : {};
     const pressStart = nowUs();
-    if (kind === 'insert') characterEvent(character, true); else keyEvent(Key.KeyBackspace, true);
+    pressKeyOf(kind, character, true);
     const pressUs = nowUs() - pressStart;
     const press = profiled ? digest(api, before) : null;
     const releaseStart = nowUs();
-    if (kind === 'insert') characterEvent(character, false); else keyEvent(Key.KeyBackspace, false);
+    pressKeyOf(kind, character, false);
     const releaseUs = nowUs() - releaseStart;
     const release = profiled ? digest(api, {}) : null;
     return { kind, pressUs, releaseUs, press, release };
@@ -269,10 +284,12 @@ export function installKeystrokeProfile(owner: Node, api: KeystrokeProfileInspec
     assert(request.inserts > 0, 'A burst types at least one character');
     api.profile(request.rendererProfile);
     const records: KeystrokeRecord[] = [];
+    const gapFrames = request.gapFrames ?? 1;
+    const [forward, back] = request.move === true ? (['right', 'left'] as const) : (['insert', 'delete'] as const);
     for (let index = 0; index < request.inserts; index += 1) {
-      records.push(await keystroke('insert', TYPED.charAt(index % TYPED.length), request.rendererProfile));
+      records.push(await keystroke(forward, TYPED.charAt(index % TYPED.length), request.rendererProfile, gapFrames));
     }
-    for (let index = 0; index < request.inserts; index += 1) records.push(await keystroke('delete', '', request.rendererProfile));
+    for (let index = 0; index < request.inserts; index += 1) records.push(await keystroke(back, '', request.rendererProfile, gapFrames));
     api.profile(false);
     return records;
   }

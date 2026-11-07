@@ -2,9 +2,11 @@
 // the keystrokes (docs/tracks/keystroke-profile.md). Only the Profiler domain is used: the Debugger domain deoptimises.
 //
 //   node scripts/profile-keystrokes.mjs [--site=attribute|function] [--warmup=200] [--bursts=25] [--inserts=8]
-//                                       [--cpu=25|off|enabled] [--coverage] [--standalone] [--no-inspector] [--bench] [--out=<directory>] [--engine=stock]
+//                                       [--cpu=25|off|enabled] [--coverage] [--standalone] [--no-inspector] [--bench] [--move] [--out=<directory>] [--engine=stock]
 //
 // - `--standalone` attaches no client at all: the demo runs the steps itself and prints the keystrokes (the run the profiler's cost is measured against).
+// - `--gap=<frames>` leaves that many frames between keystrokes (default 1; a burst must stay under the workspace's 600 ms, so use few inserts).
+// - `--move` presses Right and Left instead of typing: a keystroke that moves the caret and changes no text.
 // - `--no-inspector` also turns the inspector off in the demo (debugger port 0).
 // - `--bench` runs the editor's data work without React or native (demo/src/editor/keystroke-bench.ts) inside the demo's V8, for the typing site and
 //   the window of lines the panel mounted, and writes `bench-godot.json`; nothing is profiled.
@@ -14,7 +16,8 @@
 // - `--coverage` takes precise coverage with call counts for each burst instead of a CPU profile (how many times each function ran).
 // - Everything is event driven: a burst is one `Runtime.evaluate` that resolves when it is done. The only timers are the hang guards.
 import { spawn } from 'node:child_process';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { loadavg } from 'node:os';
 import { resolve } from 'node:path';
@@ -39,7 +42,7 @@ function option(name, fallback) {
 }
 
 for (const argument of argsWithoutEngine(process.argv.slice(2))) {
-  if (!['--site=', '--warmup=', '--bursts=', '--inserts=', '--cpu=', '--keystrokes=', '--bench-warmup=', '--renderer-profile=', '--coverage', '--standalone', '--no-inspector', '--bench', '--out='].some(prefix => argument.startsWith(prefix))) {
+  if (!['--site=', '--warmup=', '--bursts=', '--inserts=', '--cpu=', '--keystrokes=', '--bench-warmup=', '--renderer-profile=', '--coverage', '--standalone', '--no-inspector', '--bench', '--move', '--gap=', '--out='].some(prefix => argument.startsWith(prefix))) {
     throw new Error(`Unknown argument: ${argument}`);
   }
 }
@@ -51,6 +54,8 @@ const cpu = option('cpu', String(DEFAULT_SAMPLING_US));
 const coverage = process.argv.includes('--coverage');
 const standalone = process.argv.includes('--standalone');
 const rendererProfile = option('renderer-profile', 'on') !== 'off';
+const move = process.argv.includes('--move');
+const gap = Number(option('gap', 1));
 const inspectorOff = process.argv.includes('--no-inspector');
 const output = resolve(root, option('out', `artifacts/keystroke-profile/${site}-${standalone ? 'standalone' : cpu}${coverage ? '-coverage' : ''}`));
 mkdirSync(output, { recursive: true });
@@ -73,6 +78,22 @@ function freePort() {
 const engine = selectEngine();
 engine.prepareNative();
 importDemo(engine.godot);
+
+/**
+ * The bundle the run was made with, kept by its hash beside the runs: a CPU profile and a coverage report name positions in `main.js`, and the
+ * analysis needs the source map and the text of that very bundle, not whatever the next build leaves in `demo/.godot`.
+ */
+function keepBundle() {
+  const directory = resolve(root, 'demo/.godot/GodotJS/src');
+  const hash = createHash('sha256').update(readFileSync(resolve(directory, 'main.js'))).digest('hex').slice(0, 12);
+  const kept = resolve(root, 'artifacts/keystroke-profile/bundles');
+  mkdirSync(kept, { recursive: true });
+  for (const name of ['main.js', 'main.js.map']) {
+    if (!existsSync(resolve(kept, `${hash}.${name}`))) copyFileSync(resolve(directory, name), resolve(kept, `${hash}.${name}`));
+  }
+  return hash;
+}
+const bundle = keepBundle();
 const inspectorPort = await freePort();
 // The project's settings are overridden by `override.cfg` beside `project.godot`; this run's copy is removed when it ends.
 const overrideFile = resolve(root, 'demo/override.cfg');
@@ -166,7 +187,7 @@ if (standalone) {
   if (line === undefined) throw new Error('The standalone run printed no result');
   const records = JSON.parse(line.slice(line.indexOf(RESULT_MARKER) + RESULT_MARKER.length + 1));
   writeFileSync(resolve(output, 'records.json'), JSON.stringify(records));
-  writeFileSync(resolve(output, 'meta.json'), JSON.stringify({ site, standalone: true, inspectorOff, rendererProfile, warmup, bursts, inserts, loadAverage: loadavg(), engine: engine.name }));
+  writeFileSync(resolve(output, 'meta.json'), JSON.stringify({ site, standalone: true, bundle, inspectorOff, rendererProfile, warmup, bursts, inserts, loadAverage: loadavg(), engine: engine.name }));
   console.log(`wrote ${records.length} keystrokes to ${output}`);
   process.exit(quietWindowProblem(log) === undefined ? 0 : 1);
 }
@@ -177,6 +198,9 @@ try {
   const url = targets[0]?.webSocketDebuggerUrl;
   if (url === undefined) throw new Error(`The inspector on port ${inspectorPort} lists no target: ${JSON.stringify(targets)}`);
   console.log(`inspector: ${url}`);
+  const versionResponse = await fetch(`http://127.0.0.1:${inspectorPort}/json/version`).catch(() => undefined);
+  const inspectorVersion = versionResponse === undefined || !versionResponse.ok ? undefined : await versionResponse.json().catch(() => undefined);
+  console.log(`engine's V8: ${JSON.stringify(inspectorVersion)}`);
   const cdp = await Cdp.connect(url);
   await cdp.send('Runtime.enable');
   const identity = await cdp.evaluate('typeof globalThis.godotReactKeystrokeProfile');
@@ -205,7 +229,7 @@ try {
   const warmed = await cdp.evaluate(`godotReactKeystrokeProfile.warmup(${warmup})`);
   console.log(`warm-up: ${warmed} keystrokes`);
   const records = [];
-  const call = `godotReactKeystrokeProfile.burst({ inserts: ${inserts}, rendererProfile: ${rendererProfile} }).then(records => JSON.stringify(records))`;
+  const call = `godotReactKeystrokeProfile.burst({ inserts: ${inserts}, move: ${move}, gapFrames: ${gap}, rendererProfile: ${rendererProfile} }).then(records => JSON.stringify(records))`;
   for (let index = 0; index < bursts; index += 1) {
     if (sampling !== undefined && !coverage) await cdp.send('Profiler.start');
     if (coverage) {
@@ -226,7 +250,7 @@ try {
     await cdp.evaluate('godotReactKeystrokeProfile.settle()');
   }
   writeFileSync(resolve(output, 'records.json'), JSON.stringify(records));
-  writeFileSync(resolve(output, 'meta.json'), JSON.stringify({ site, warmup, bursts, inserts, cpu, rendererProfile, coverage, prepared, engine: engine.name, loadAverage: loadavg(), inspectorPort }));
+  writeFileSync(resolve(output, 'meta.json'), JSON.stringify({ site, warmup, bursts, inserts, cpu, rendererProfile, move, gap, bundle, inspectorVersion, coverage, prepared, engine: engine.name, loadAverage: loadavg(), inspectorPort }));
   console.log(`wrote ${records.length} keystrokes to ${output}`);
   await cdp.evaluate('godotReactKeystrokeProfile.finish()').catch(() => undefined);
 } catch (error) {

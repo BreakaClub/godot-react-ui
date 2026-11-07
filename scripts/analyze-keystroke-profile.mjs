@@ -29,10 +29,24 @@ const MAX_SAMPLE_INTERVALS = 2.5;
 
 // ---- Source maps ------------------------------------------------------------------------------------------------------------------------
 
+/**
+ * The bundle a run was made with: `profile-keystrokes.mjs` keeps each one by its hash in `artifacts/keystroke-profile/bundles` and names it in the
+ * run's `meta.json`. A run made before that falls back to what `demo/.godot` holds now, which is only right if nothing was built since.
+ */
+const bundleHash = (() => {
+  const file = resolve(directories[0] ?? '.', 'meta.json');
+  return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')).bundle : undefined;
+})();
+const keptBundle = name => (bundleHash === undefined ? undefined : resolve(root, 'artifacts/keystroke-profile/bundles', `${bundleHash}.${name}`));
+const bundlePath = (url, name) => {
+  const kept = keptBundle(name);
+  return kept !== undefined && existsSync(kept) ? kept : (name === 'main.js' ? url : `${url}.map`);
+};
+
 const maps = new Map();
 function mapFor(url) {
   if (!maps.has(url)) {
-    const file = url.startsWith('/') ? `${url}.map` : undefined;
+    const file = url.startsWith('/') ? bundlePath(url, 'main.js.map') : undefined;
     maps.set(url, file !== undefined && existsSync(file) ? new SourceMap(JSON.parse(readFileSync(file, 'utf8'))) : undefined);
   }
   return maps.get(url);
@@ -64,7 +78,7 @@ function frameOf(callFrame) {
     // The bundler renames a function that shares its name with another one in the bundle (`keyEvent2`); the map keeps the name written.
     if (callFrame.functionName !== '' && typeof entry.name === 'string' && entry.name !== '') name = entry.name;
   }
-  found = { name, file, line, id: `${name} ${file}:${line}`, native: callFrame.url === '' };
+  found = { name, raw: callFrame.functionName, file, line, id: `${name} ${file}:${line}`, native: callFrame.url === '' };
   frameCache.set(key, found);
   return found;
 }
@@ -96,11 +110,6 @@ const PHASES = [
   ['commit: after the call (freeze, deletions)', frame => named(frame, 'commitLayer', 'commitPayload') || frame.nativeFrom === 'readDeletions'],
   ['native readEvents (drainEvents + JSON.parse)', frame => named(frame, 'readEvents', 'nativeEvent') || frame.nativeFrom === 'readEvents'],
   ['native resolveEvent (answers the blocked native key handler)', frame => named(frame, 'resolveEvent') || frame.nativeFrom === 'resolveEvent'],
-  ['highlight (lezer highlightTree, colour spans)', frame => isPackage(frame, '@lezer/highlight') || inFile(frame, 'demo/src/editor/highlight.ts') && named(frame, 'colorSpans', 'spans', 'sameSpans')],
-  ['parse (lezer incremental parse inside the transaction)', frame => isPackage(frame, '@lezer/lr') || isPackage(frame, '@lezer/common') || isPackage(frame, '@lezer/javascript')
-    || isPackage(frame, '@codemirror/language') && !named(frame, 'matchBrackets', 'matchPlainBrackets', 'findHandle', 'indentOnInput')
-    || inFile(frame, 'demo/src/editor/highlight.ts') && named(frame, 'treeFor')],
-  ['CodeMirror transaction (state, commands, history, brackets)', frame => isPackage(frame, '@codemirror/state') || isPackage(frame, '@codemirror/commands') || named(frame, 'matchBrackets', 'matchPlainBrackets', 'findHandle', 'indentOnInput')],
   ['editor: lines (buildLine, line layout, caches)', frame => inFile(frame, 'demo/src/editor/lines.ts') || inFile(frame, 'demo/src/editor/line-layout.ts')
     || inFile(frame, 'demo/src/editor/controller.ts') && named(frame, 'lines', 'layoutOf', 'caretPlacements')],
   ['editor: controller, commands, keymap, model', frame => frame.file.startsWith('demo/src/editor/') && !frame.file.includes('/view/')],
@@ -115,9 +124,35 @@ const PHASES = [
   ['native: Input.parseInputEvent outside JS (the engine routes the key, ReactUiRoot turns it into events)', frame => frame.native],
 ];
 
+/** The packages of CodeMirror and lezer: what they cost depends on what asked for it, so the phase comes from the ancestors. */
+const LIBRARY = ['@lezer/', '@codemirror/'];
+/** The packages that parse (and walk the tree they made), as against the ones that keep the state, the history and the commands. */
+const PARSING = ['@lezer/lr', '@lezer/common', '@lezer/javascript', '@codemirror/language'];
+
+/**
+ * The phase of a frame inside CodeMirror or lezer, from the nearest ancestor that says why it ran: the colour spans (the highlighter and the
+ * tree cursor it walks), the transaction (the model's `dispatch`: the parse the language does with it, and the state, history and commands), the
+ * editor's parse scheduler, the bracket match, or the building of the lines (document reads).
+ */
+function libraryPhase(frames, index) {
+  for (let up = index; up >= 0; up -= 1) {
+    const ancestor = frames[up];
+    if (ancestor.name === 'colorSpans' && ancestor.file.endsWith('editor/highlight.ts')) return 'highlight (lezer highlightTree, colour spans)';
+    if (ancestor.name === 'treeFor' && ancestor.file.endsWith('editor/highlight.ts')) return 'parse (lezer incremental parse inside the transaction)';
+    if (ancestor.name === 'matchedBrackets') return 'CodeMirror transaction (state, commands, history, brackets)';
+    if (ancestor.name === 'dispatch' && ancestor.file.endsWith('editor/model.ts')) {
+      return PARSING.some(prefix => frames[index].file.startsWith(prefix))
+        ? 'parse (lezer incremental parse inside the transaction)' : 'CodeMirror transaction (state, commands, history, brackets)';
+    }
+    if (ancestor.name === 'buildLine' || ancestor.name === 'lines' && ancestor.file.endsWith('editor/controller.ts')) return 'editor: lines (buildLine, line layout, caches)';
+  }
+  return 'CodeMirror transaction (state, commands, history, brackets)';
+}
+
 function classify(frames) {
   // `frames` is root first.
   for (let index = frames.length - 1; index >= 0; index -= 1) {
+    if (LIBRARY.some(prefix => frames[index].file.startsWith(prefix))) return libraryPhase(frames, index);
     const frame = { ...frames[index], parent: frames[index - 1]?.name };
     for (const [name, test] of PHASES) {
       if (test(frame)) return name;
@@ -168,8 +203,7 @@ function* samplesOf(profile) {
   }
 }
 
-const DRIVER_FILE = 'demo/src/profile-keystrokes.ts';
-const KEY_FUNCTIONS = ['characterEvent', 'keyEvent'];
+const KEY_FUNCTION = /^(characterEvent|keyEvent\d*)$/u;
 
 function fmt(value, digits = 3) {
   return value.toFixed(digits);
@@ -190,15 +224,19 @@ function analyseProfiles(keystrokes) {
   const outside = new Map();
   let inKeys = 0;
   let outsideKeys = 0;
+  let gcInside = 0;
+  let gcOutside = 0;
   let wall = 0;
   let sampleCount = 0;
   for (const profile of profiles) {
     wall += profile.endTime - profile.startTime;
     for (const { stack, duration } of samplesOf(profile)) {
       sampleCount += 1;
-      const keyAt = stack.findIndex(frame => frame.file === DRIVER_FILE && KEY_FUNCTIONS.includes(frame.name));
+      // The injection functions are found by the name the bundle gave them (`keyEvent2` when another is called `keyEvent`), whatever the map says.
+      const keyAt = stack.findIndex(frame => !frame.native && KEY_FUNCTION.test(frame.raw));
       if (keyAt < 0) {
         outsideKeys += duration;
+        if (stack.at(-1).name === '(garbage collector)') gcOutside += duration;
         const leaf = stack.at(-1);
         const root = stack[1] ?? stack[0];
         const label = leaf.name.startsWith('(') ? leaf.name : `${root.name} ${root.file}:${root.line}`;
@@ -206,6 +244,7 @@ function analyseProfiles(keystrokes) {
         continue;
       }
       inKeys += duration;
+      if (stack.at(-1).name === '(garbage collector)') gcInside += duration;
       // From the injection function itself, so that building the InputEvent (self time of `characterEvent`) is the harness's.
       const inside = stack.slice(keyAt);
       const phase = classify(inside);
@@ -220,6 +259,7 @@ function analyseProfiles(keystrokes) {
   output.push(`CPU profiles: ${profiles.length}, ${sampleCount} samples, ${fmt(wall / MICROSECONDS_PER_MILLISECOND / 1000, 1)} s of profile; ${keystrokes} keystrokes.`);
   output.push(`Inside the key injection: ${fmt(per(inKeys))} ms per keystroke; the rest of the burst (frames between keys, timers, the driver): ${fmt(per(outsideKeys))} ms per keystroke.`);
   const phaseRows = [...phases].sort((a, b) => b[1] - a[1]).map(([name, value]) => [name, fmt(per(value)), `${fmt((value / inKeys) * 100, 1)} %`]);
+  output.push(`\nGarbage collection: ${fmt(per(gcInside))} ms per keystroke inside the key injection (in the phase table as GC), ${fmt(per(gcOutside))} ms per keystroke in the rest of the burst (scavenges that the keystrokes' allocations bring on between keys).`);
   output.push(`\n### Phases (each sample in exactly one)\n\n${table(['Phase', 'ms per keystroke', 'Share'], [...phaseRows, ['**Total**', `**${fmt(per(inKeys))}**`, '100 %']])}`);
   const rowsOf = (map, limit) => [...map].sort((a, b) => b[1] - a[1]).slice(0, limit).map(([id, value]) => [`\`${id}\``, fmt(per(value)), `${fmt((value / inKeys) * 100, 1)} %`]);
   output.push(`\n### Functions by self time\n\n${table(['Function', 'ms per keystroke', 'Share'], rowsOf(self, top))}`);
@@ -244,7 +284,7 @@ function analyseRecords() {
   const output = [];
   const rows = [];
   const measures = {};
-  for (const kind of ['insert', 'delete']) {
+  for (const kind of ['insert', 'delete', 'right', 'left']) {
     const of = records.filter(record => record.kind === kind);
     if (of.length === 0) continue;
     const profiled = of.filter(record => record.press !== null);
@@ -303,7 +343,7 @@ function analyseCoverage(keystrokes) {
     for (const script of taken.result) {
       if (!script.url.endsWith('/main.js')) continue;
       const map = mapFor(script.url);
-      const source = readFileSync(script.url, 'utf8');
+      const source = readFileSync(bundlePath(script.url, 'main.js'), 'utf8');
       const starts = [0];
       for (let index = 0; index < source.length; index += 1) if (source.charCodeAt(index) === 10) starts.push(index + 1);
       const position = offset => {
