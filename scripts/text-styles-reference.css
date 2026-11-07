@@ -173,6 +173,16 @@
   width: 480px
 }
 
+.w-\[540px\] {
+  width: 540px
+}
+
+.select-text {
+  -webkit-user-select: text;
+     -moz-user-select: text;
+          user-select: text
+}
+
 .flex-row {
   flex-direction: row
 }
@@ -187,6 +197,10 @@
 
 .gap-2 {
   gap: 0.5rem
+}
+
+.self-start {
+  align-self: flex-start
 }
 
 .overflow-hidden {

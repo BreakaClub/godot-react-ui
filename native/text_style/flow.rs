@@ -37,18 +37,20 @@ fn owned_if_changed(source: &str, transformed: String) -> Cow<'_, str> {
     }
 }
 
-/// Characters that continue a word when a letter follows them and precedes them: the apostrophes of "don't" and the dots of
-/// "e.g." (Unicode word boundaries WB6 and WB7, MidLetter and MidNumLet).
-const WORD_JOINERS: [char; 4] = ['\'', '\u{2019}', '.', ':'];
+/// Characters that continue a word when a letter follows them and one precedes them: the apostrophes of "don't" and the middle
+/// dot of "l·l". Chrome's `capitalize` (read off its output, `docs/tracks/utilities-text.md`) goes no further than those: a
+/// full stop, a hyphen or a colon starts a new word ("e.g." is "E.G."), though Unicode's word boundaries would keep "e.g" whole.
+const WORD_JOINERS: [char; 3] = ['\'', '\u{2019}', '\u{b7}'];
 
-/// `text-transform: capitalize`: the first cased letter of each word is titlecased. A word is a run of letters and digits,
-/// with a joiner between two letters inside it.
+/// `text-transform: capitalize`: the first cased letter of each word is titlecased. A word is a run of letters, digits and
+/// underscores, with a joiner between two letters inside it.
 fn capitalize(source: &str) -> String {
     let characters: Vec<char> = source.chars().collect();
     let mut shown = String::with_capacity(source.len());
     let mut in_word = false;
     for (index, &character) in characters.iter().enumerate() {
         let continues = character.is_alphanumeric()
+            || character == '_'
             || (in_word
                 && WORD_JOINERS.contains(&character)
                 && characters
@@ -164,12 +166,23 @@ mod tests {
         let capitalized = |text: &str| shown(text, Case::Capitalize, Space::Pre);
         assert_eq!(capitalized("the quick brown fox"), "The Quick Brown Fox");
         assert_eq!(capitalized("don't stop"), "Don't Stop");
-        assert_eq!(capitalized("e.g. this"), "E.g. This");
+        assert_eq!(
+            capitalized("e.g. this"),
+            "E.G. This",
+            "a full stop starts a word in Chrome"
+        );
+        assert_eq!(
+            capitalized("a'b 'c d_1x a_b _c"),
+            "A'b 'C D_1x A_b _c",
+            "Chrome's output for apostrophes, underscores and digits"
+        );
+        assert_eq!(capitalized("a\u{b7}b \u{b7}c a:b"), "A\u{b7}b \u{b7}C A:B");
         assert_eq!(capitalized("hello-world"), "Hello-World");
         assert_eq!(capitalized("3rd place"), "3rd Place");
         assert_eq!(capitalized("ÉCOLE élève"), "ÉCOLE Élève");
         assert_eq!(capitalized("ßa"), "Ssa");
         assert_eq!(capitalized("x:"), "X:");
+        assert_eq!(capitalized("a1b 1c"), "A1b 1c", "a digit is part of a word");
         assert_eq!(capitalized("  spaced  out "), "  Spaced  Out ");
     }
 

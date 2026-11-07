@@ -513,6 +513,23 @@ fn a_line_wider_than_the_box_overflows_by_direction_and_alignment() {
     assert_eq!(origins(40.0, TextAlignment::Left, 0.0, &rtl)[0].0, 5.0);
 }
 
+#[test]
+fn justified_lines_start_at_the_left_edge_or_end_at_the_right_by_direction() {
+    // `HORIZONTAL_ALIGNMENT_FILL`: the paragraph stretched each line to the box, so a left-to-right line is placed at the left
+    // edge whatever its width, and a right-to-left one against the right edge (`TextParagraph::draw`, case FILL).
+    let lines = [
+        facts(100.0, TextDirection::Ltr),
+        facts(100.0, TextDirection::Rtl),
+        facts(60.0, TextDirection::Ltr),
+        facts(60.0, TextDirection::Rtl),
+    ];
+    let x: Vec<f32> = origins(100.0, TextAlignment::Fill, 0.0, &lines)
+        .iter()
+        .map(|origin| origin.0)
+        .collect();
+    assert_eq!(x, [5.0, 5.0, 5.0, 45.0]);
+}
+
 // ---- building the layout ----
 
 #[test]

@@ -155,7 +155,8 @@ fn lay_out(
     paragraph: &StyledParagraph,
     geometry: &NodeGeometry,
 ) -> Result<GodotTextLayout, TextLayoutError> {
-    let source = GodotParagraph::lay_out(paragraph.paragraph(), geometry.content_width())?;
+    let source =
+        GodotParagraph::lay_out(paragraph.paragraph(), geometry.content_width())?.hanging_spaces();
     TextLayout::new(
         source,
         geometry.content_origin(),
@@ -1009,13 +1010,69 @@ mod tests {
 
     #[test]
     fn selection_chord_accepts_both_ctrl_and_meta_without_alt_or_shift() {
-        assert!(is_selection_chord(Key::C, true, false, false, false, Key::C));
-        assert!(is_selection_chord(Key::C, false, false, false, true, Key::C));
-        assert!(is_selection_chord(Key::A, true, false, false, false, Key::A));
-        assert!(is_selection_chord(Key::A, false, false, false, true, Key::A));
-        assert!(!is_selection_chord(Key::C, false, false, false, false, Key::C));
-        assert!(!is_selection_chord(Key::C, true, true, false, false, Key::C));
-        assert!(!is_selection_chord(Key::C, true, false, true, false, Key::C));
-        assert!(!is_selection_chord(Key::X, true, false, false, false, Key::C));
+        assert!(is_selection_chord(
+            Key::C,
+            true,
+            false,
+            false,
+            false,
+            Key::C
+        ));
+        assert!(is_selection_chord(
+            Key::C,
+            false,
+            false,
+            false,
+            true,
+            Key::C
+        ));
+        assert!(is_selection_chord(
+            Key::A,
+            true,
+            false,
+            false,
+            false,
+            Key::A
+        ));
+        assert!(is_selection_chord(
+            Key::A,
+            false,
+            false,
+            false,
+            true,
+            Key::A
+        ));
+        assert!(!is_selection_chord(
+            Key::C,
+            false,
+            false,
+            false,
+            false,
+            Key::C
+        ));
+        assert!(!is_selection_chord(
+            Key::C,
+            true,
+            true,
+            false,
+            false,
+            Key::C
+        ));
+        assert!(!is_selection_chord(
+            Key::C,
+            true,
+            false,
+            true,
+            false,
+            Key::C
+        ));
+        assert!(!is_selection_chord(
+            Key::X,
+            true,
+            false,
+            false,
+            false,
+            Key::C
+        ));
     }
 }

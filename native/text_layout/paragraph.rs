@@ -34,6 +34,9 @@ pub(crate) struct GodotParagraph {
     paragraph: Gd<TextParagraph>,
     server: Gd<TextServer>,
     stamp: Stamp,
+    /// Whether the white space a line ends with hangs past it and is left out of the line's width (see
+    /// [`GodotParagraph::hanging_spaces`]).
+    hangs: bool,
 }
 
 impl GodotParagraph {
@@ -66,7 +69,17 @@ impl GodotParagraph {
             paragraph,
             server,
             stamp,
+            hangs: false,
         })
+    }
+
+    /// Measure each line without the white space it ends with, as a browser does for the text of an element: that space hangs
+    /// past the line's edge, so a right or centre aligned line ends or is centred on its glyphs. The default is the server's
+    /// width, which counts it and is what `TextParagraph::draw` aligns by; a caller that asks for this draws the text where the
+    /// layout puts it (`StyledParagraph::draw`), not with `TextParagraph::draw`.
+    pub(crate) fn hanging_spaces(mut self) -> Self {
+        self.hangs = true;
+        self
     }
 
     /// What of `paragraph` a layout is built from. A paragraph that hides lines (`max_lines_visible`) is laid out as the lines
@@ -170,7 +183,11 @@ impl ParagraphSource for GodotParagraph {
                 end,
                 ascent: self.paragraph.get_line_ascent(index),
                 descent: self.paragraph.get_line_descent(index),
-                width: self.paragraph.get_line_width(index),
+                width: if self.hangs {
+                    visible_line_width(&self.server, rid)?
+                } else {
+                    self.paragraph.get_line_width(index)
+                },
                 // The inferred direction of a shaped text is never AUTO.
                 direction: if direction == Direction::RTL {
                     TextDirection::Rtl
@@ -271,6 +288,36 @@ impl ParagraphSource for GodotParagraph {
         let position = self.server.shaped_text_hit_test_position(rid, f64::from(x));
         Ok(usize::try_from(position).ok())
     }
+}
+
+/// The width of a shaped line's glyphs without the white space it ends with: what a browser measures and aligns. A line's
+/// `shaped_text_get_width` counts that space and is rounded up to a whole pixel, so the advances are added up instead; a line cut
+/// short by an ellipsis or a trim has the server's width.
+fn visible_line_width(server: &Gd<TextServer>, line: Rid) -> Result<f32, TextLayoutError> {
+    let problem = TextLayoutError::MalformedServerData(ServerDataProblem::Glyphs);
+    let space = i64::try_from(GraphemeFlag::SPACE.ord()).map_err(|_| problem)?;
+    let mut advances = Vec::new();
+    for glyph in server.shaped_text_get_glyphs(line).iter_shared() {
+        let flags = dictionary_int(&glyph, "flags").ok_or(problem)?;
+        let repeat = dictionary_int(&glyph, "repeat").ok_or(problem)?;
+        let advance = glyph
+            .get("advance")
+            .and_then(|value| value.try_to::<f32>().ok())
+            .ok_or(problem)?;
+        advances.push((flags & space != 0, advance * repeat as f32));
+    }
+    let hanging: f32 = advances
+        .iter()
+        .rev()
+        .take_while(|(is_space, _)| *is_space)
+        .map(|(_, advance)| advance)
+        .sum();
+    if server.shaped_text_get_trim_pos(line) >= 0 || server.shaped_text_get_ellipsis_pos(line) >= 0
+    {
+        return Ok(server.shaped_text_get_width(line) as f32 - hanging);
+    }
+    let total: f32 = advances.iter().map(|(_, advance)| advance).sum();
+    Ok((total - hanging).max(0.0))
 }
 
 fn alignment_of(paragraph: &Gd<TextParagraph>) -> TextAlignment {

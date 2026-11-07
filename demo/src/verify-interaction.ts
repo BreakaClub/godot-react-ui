@@ -16,6 +16,7 @@ import { measureFilterCost, verifyFilterFaults, verifyFilterSizes, verifyFilters
 import { GLASS_FAULT_CONTROLS, verifyGlass } from './verify-glass';
 import { verifyLiveCompile } from './verify-live-compile';
 import { verifyNavigator } from './verify-navigator';
+import { verifyTextStyles } from './verify-text-styles';
 import { verifyTransformFaults, verifyTransforms } from './verify-transforms';
 import type { LayoutUtilitiesPage } from './layout-utilities-lab';
 import { verifyLayoutUtilities } from './verify-layout-utilities';
@@ -43,6 +44,9 @@ export interface InteractionInspection extends DemoInspection {
   showPaintPage(page: string): void;
   /** The filters lab, rendered again with new props (plan Phase V1). */
   showFilters(props: FiltersLabProps): void;
+  /** One page of the text styles lab, and the lines of a text as the native layout has them (`ReactUiRoot.getTextLines`). */
+  showTextStyles(page: string): void;
+  textLines(testID: string): unknown;
   /** The lab navigator in place of the app, with `extraLabs` listed after the demo's own. */
   showNavigator(options?: NavigatorOptions): void;
   /** What Godot draws behind the root: two flat colours, a lit box in 3D, or nothing. */
@@ -3624,6 +3628,7 @@ export async function runInteractionVerification(owner: Node, api: InteractionIn
   if (sections.has('transforms')) await timed('transforms', () => verifyTransforms(owner, api, capture));
   if (sections.has('paint')) await timed('paint', () => verifyPaint(owner, api, capture));
   if (sections.has('layout-utilities')) await timed('layout-utilities', () => verifyLayoutUtilities(owner, api));
+  if (sections.has('text-styles')) await timed('text-styles', () => verifyTextStyles(owner, api, capture));
   if (sections.has('live-compile')) await timed('live-compile', () => verifyLiveCompile(owner, api, capture));
   if (sections.has('filters-sizes')) await timed('filters-sizes', () => verifyFilterSizes(owner, api, capture));
   if (sections.has('filters-cost')) await timed('filters-cost', () => measureFilterCost(owner, api));

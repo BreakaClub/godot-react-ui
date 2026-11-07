@@ -20,6 +20,8 @@ export interface TextSample {
   themeFont?: boolean;
   /** Wrapped in a parent that has this class (decoration, which propagates). */
   parentClassName?: string;
+  /** The verifier selects in this text with the pointer and copies it, so the reference records where each character is. */
+  selection?: boolean;
 }
 
 export interface TextPage {
@@ -31,9 +33,9 @@ export interface TextPage {
 }
 
 /** The classes every page has: a column of cells, black on white, as wide as the narrowest window the lab is shown in (a retina one). */
-const PAGE = 'flex flex-col gap-2 p-2 text-black bg-white w-[540px]';
+const PAGE = 'flex flex-col gap-2 p-2 text-black bg-white w-[540px] self-start select-text';
 /** Pages that lay their cells out as a wrapping row. */
-const GRID = 'flex flex-row flex-wrap gap-2 p-2 text-black bg-white w-[540px]';
+const GRID = 'flex flex-row flex-wrap gap-2 p-2 text-black bg-white w-[540px] self-start select-text';
 const WIDE = 'flex flex-col w-[480px]';
 const NARROW = 'flex flex-col w-[220px]';
 const QUOTE = 'The quick brown fox jumps over the lazy dog and keeps on running';
@@ -51,7 +53,7 @@ function leadings(names: readonly string[], prefix: string): TextSample[] {
   }));
 }
 
-export const PAGES: readonly TextPage[] = [
+const PAGES_AS_WRITTEN: readonly TextPage[] = [
   {
     id: 'weights-sans', title: 'Open Sans, a variable font: weights', className: PAGE,
     samples: weights('sans', ['thin', 'extralight', 'light', 'normal', 'medium', 'semibold', 'bold', 'extrabold', 'black']),
@@ -112,7 +114,11 @@ export const PAGES: readonly TextPage[] = [
       { id: 'tracking-neg', note: 'tracking-[-0.5px]', className: 'text-base tracking-[-0.5px]', text: 'Letter spacing, negative', cellClassName: WIDE },
       { id: 'tracking-caps', note: 'uppercase tracking-widest text-xs', className: 'text-xs uppercase tracking-widest', text: 'Section heading', cellClassName: WIDE },
       { id: 'tracking-odd', note: 'text-[13px] tracking-wide', className: 'text-[13px] tracking-wide', text: 'Odd size, fractional spacing 0.325 px', cellClassName: WIDE },
-      { id: 'tracking-wrap', note: 'wrapped, tracking-wide', className: 'text-sm tracking-wide', text: QUOTE, cellClassName: NARROW },
+      // 200 px: every line ends well clear of the edge, so Chrome and the library wrap it the same way.
+      { id: 'tracking-wrap', note: 'wrapped, tracking-wide', className: 'text-sm tracking-wide', text: QUOTE, cellClassName: 'flex flex-col w-[200px]' },
+      // 220 px: "over" ends 0.5 px inside the edge and the space after it does not fit. Chrome lets that space hang past the edge
+      // and keeps "over" on the line; the text server counts the space and breaks before the word (docs/tracks/utilities-text.md).
+      { id: 'tracking-wrap-edge', note: 'wrapped at a width the next space does not fit', className: 'text-sm tracking-wide', text: QUOTE, cellClassName: NARROW },
       { id: 'tracking-center', note: 'centred, tracking-widest', className: 'text-sm text-center tracking-widest', text: 'Centred', cellClassName: NARROW },
       { id: 'tracking-right', note: 'right, tracking-wider', className: 'text-sm text-right tracking-wider', text: 'Right aligned', cellClassName: NARROW },
     ],
@@ -179,6 +185,16 @@ export const PAGES: readonly TextPage[] = [
     ],
   },
 ];
+
+/** The texts the verifier selects in with the pointer and copies: a weight, tracking (one line, wrapped), line height, two case transforms, a slant. */
+const SELECTION_IDS: readonly string[] = [
+  'weight-sans-bold', 'tracking-widest-base', 'tracking-normal-base', 'tracking-wrap', 'leading-relaxed', 'case-upper', 'case-capitalize', 'italic-serif',
+];
+
+export const PAGES: readonly TextPage[] = PAGES_AS_WRITTEN.map(page => ({
+  ...page,
+  samples: page.samples.map(sample => (SELECTION_IDS.includes(sample.id) ? { ...sample, selection: true } : sample)),
+}));
 
 /**
  * The classes a sample's text has: its own, and the sans family unless it names another or is for the theme font. (The page

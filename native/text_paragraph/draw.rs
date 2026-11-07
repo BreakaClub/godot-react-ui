@@ -1,9 +1,8 @@
 //! Drawing a line of text the way `TextServer::shaped_text_draw` does, with the glyphs of one font and the shaping of another
 //! (letter-spacing), and the decoration lines over and under the text.
 
-use godot::classes::text_server::{Direction, GraphemeFlag};
+use godot::classes::text_server::Direction;
 use godot::classes::{RenderingServer, TextServer};
-use godot::obj::EngineBitfield;
 use godot::prelude::*;
 
 use crate::paint::parse_color;
@@ -12,7 +11,6 @@ use crate::text_style::metrics::{Band, DecorationFont, Decorator};
 
 /// A glyph of a shaped line, as `shaped_text_get_glyphs` describes it.
 struct Glyph {
-    flags: i64,
     repeat: i64,
     advance: f32,
     offset: Vector2,
@@ -33,7 +31,6 @@ fn glyph_of(dictionary: &VarDictionary) -> Result<Glyph, String> {
             .map_err(|error| format!("glyph {name}: {error}"))
     };
     Ok(Glyph {
-        flags: integer("flags")?,
         repeat: integer("repeat")?,
         advance: field("advance")?
             .try_to::<f32>()
@@ -152,22 +149,6 @@ pub(super) fn draw_glyphs(
         }
     }
     Ok(())
-}
-
-/// The width of the white space a line ends with, which a browser lets hang past the line's edge and does not decorate.
-pub(super) fn trailing_space_width(server: &Gd<TextServer>, line: Rid) -> Result<f32, String> {
-    let space = i64::try_from(GraphemeFlag::SPACE.ord()).map_err(|error| error.to_string())?;
-    let glyphs = server
-        .shaped_text_get_glyphs(line)
-        .iter_shared()
-        .map(|dictionary| glyph_of(&dictionary))
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(glyphs
-        .iter()
-        .rev()
-        .take_while(|glyph| glyph.flags & space != 0)
-        .map(|glyph| glyph.advance * glyph.repeat as f32)
-        .sum())
 }
 
 /// A line of text as far as its decorations are concerned.

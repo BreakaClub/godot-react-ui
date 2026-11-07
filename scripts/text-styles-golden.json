@@ -1,0 +1,3936 @@
+{
+ "weight-sans-thin": {
+  "page": "weights-sans",
+  "box": {
+   "x": 8,
+   "y": 8,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 219.313,
+    "top": 9,
+    "baseline": 26
+   }
+  ],
+  "copy": "Hamburgefonstiv 0123456789"
+ },
+ "weight-sans-extralight": {
+  "page": "weights-sans",
+  "box": {
+   "x": 8,
+   "y": 40,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 219.313,
+    "top": 41,
+    "baseline": 58
+   }
+  ],
+  "copy": "Hamburgefonstiv 0123456789"
+ },
+ "weight-sans-light": {
+  "page": "weights-sans",
+  "box": {
+   "x": 8,
+   "y": 72,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 219.313,
+    "top": 73,
+    "baseline": 90
+   }
+  ],
+  "copy": "Hamburgefonstiv 0123456789"
+ },
+ "weight-sans-normal": {
+  "page": "weights-sans",
+  "box": {
+   "x": 8,
+   "y": 104,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 225.141,
+    "top": 105,
+    "baseline": 122
+   }
+  ],
+  "copy": "Hamburgefonstiv 0123456789"
+ },
+ "weight-sans-medium": {
+  "page": "weights-sans",
+  "box": {
+   "x": 8,
+   "y": 136,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 227.641,
+    "top": 137,
+    "baseline": 154
+   }
+  ],
+  "copy": "Hamburgefonstiv 0123456789"
+ },
+ "weight-sans-semibold": {
+  "page": "weights-sans",
+  "box": {
+   "x": 8,
+   "y": 168,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 230.156,
+    "top": 169,
+    "baseline": 186
+   }
+  ],
+  "copy": "Hamburgefonstiv 0123456789"
+ },
+ "weight-sans-bold": {
+  "page": "weights-sans",
+  "box": {
+   "x": 8,
+   "y": 200,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 235.156,
+    "top": 201,
+    "baseline": 218
+   }
+  ],
+  "copy": "Hamburgefonstiv 0123456789",
+  "chars": [
+   [
+    8,
+    20.25,
+    0
+   ],
+   [
+    20.234,
+    29.906,
+    0
+   ],
+   [
+    29.906,
+    45.625,
+    0
+   ],
+   [
+    45.609,
+    55.75,
+    0
+   ],
+   [
+    55.734,
+    66.266,
+    0
+   ],
+   [
+    66.25,
+    73.531,
+    0
+   ],
+   [
+    73.516,
+    82.563,
+    0
+   ],
+   [
+    82.563,
+    92.016,
+    0
+   ],
+   [
+    92.016,
+    98.219,
+    0
+   ],
+   [
+    98.203,
+    108.125,
+    0
+   ],
+   [
+    108.109,
+    118.641,
+    0
+   ],
+   [
+    118.625,
+    126.594,
+    0
+   ],
+   [
+    126.578,
+    133.531,
+    0
+   ],
+   [
+    133.531,
+    138.422,
+    0
+   ],
+   [
+    138.406,
+    147.516,
+    0
+   ],
+   [
+    147.516,
+    151.672,
+    0
+   ],
+   [
+    151.672,
+    160.828,
+    0
+   ],
+   [
+    160.813,
+    169.969,
+    0
+   ],
+   [
+    169.969,
+    179.125,
+    0
+   ],
+   [
+    179.109,
+    188.266,
+    0
+   ],
+   [
+    188.266,
+    197.422,
+    0
+   ],
+   [
+    197.406,
+    206.563,
+    0
+   ],
+   [
+    206.563,
+    215.719,
+    0
+   ],
+   [
+    215.703,
+    224.859,
+    0
+   ],
+   [
+    224.859,
+    234.016,
+    0
+   ],
+   [
+    234,
+    243.156,
+    0
+   ]
+  ]
+ },
+ "weight-sans-extrabold": {
+  "page": "weights-sans",
+  "box": {
+   "x": 8,
+   "y": 232,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 242.375,
+    "top": 233,
+    "baseline": 250
+   }
+  ],
+  "copy": "Hamburgefonstiv 0123456789"
+ },
+ "weight-sans-black": {
+  "page": "weights-sans",
+  "box": {
+   "x": 8,
+   "y": 264,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 242.375,
+    "top": 265,
+    "baseline": 282
+   }
+  ],
+  "copy": "Hamburgefonstiv 0123456789"
+ },
+ "weight-serif-light": {
+  "page": "weights-faces",
+  "box": {
+   "x": 8,
+   "y": 8,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 212.547,
+    "top": 9,
+    "baseline": 26
+   }
+  ],
+  "copy": "Hamburgefonstiv 0123456789"
+ },
+ "weight-serif-normal": {
+  "page": "weights-faces",
+  "box": {
+   "x": 8,
+   "y": 40,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 212.547,
+    "top": 41,
+    "baseline": 58
+   }
+  ],
+  "copy": "Hamburgefonstiv 0123456789"
+ },
+ "weight-serif-medium": {
+  "page": "weights-faces",
+  "box": {
+   "x": 8,
+   "y": 72,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 212.547,
+    "top": 73,
+    "baseline": 90
+   }
+  ],
+  "copy": "Hamburgefonstiv 0123456789"
+ },
+ "weight-serif-semibold": {
+  "page": "weights-faces",
+  "box": {
+   "x": 8,
+   "y": 104,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 227.672,
+    "top": 105,
+    "baseline": 122
+   }
+  ],
+  "copy": "Hamburgefonstiv 0123456789"
+ },
+ "weight-serif-bold": {
+  "page": "weights-faces",
+  "box": {
+   "x": 8,
+   "y": 136,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 227.672,
+    "top": 137,
+    "baseline": 154
+   }
+  ],
+  "copy": "Hamburgefonstiv 0123456789"
+ },
+ "weight-serif-black": {
+  "page": "weights-faces",
+  "box": {
+   "x": 8,
+   "y": 168,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 227.672,
+    "top": 169,
+    "baseline": 186
+   }
+  ],
+  "copy": "Hamburgefonstiv 0123456789"
+ },
+ "weight-mono-thin": {
+  "page": "weights-faces",
+  "box": {
+   "x": 8,
+   "y": 200,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 249.609,
+    "top": 201,
+    "baseline": 217
+   }
+  ],
+  "copy": "Hamburgefonstiv 0123456789"
+ },
+ "weight-mono-normal": {
+  "page": "weights-faces",
+  "box": {
+   "x": 8,
+   "y": 232,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 249.609,
+    "top": 233,
+    "baseline": 249
+   }
+  ],
+  "copy": "Hamburgefonstiv 0123456789"
+ },
+ "weight-mono-bold": {
+  "page": "weights-faces",
+  "box": {
+   "x": 8,
+   "y": 264,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 249.609,
+    "top": 265,
+    "baseline": 281
+   }
+  ],
+  "copy": "Hamburgefonstiv 0123456789"
+ },
+ "weight-mono-extrabold": {
+  "page": "weights-faces",
+  "box": {
+   "x": 8,
+   "y": 296,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 249.609,
+    "top": 297,
+    "baseline": 313
+   }
+  ],
+  "copy": "Hamburgefonstiv 0123456789"
+ },
+ "italic-sans": {
+  "page": "styles",
+  "box": {
+   "x": 8,
+   "y": 8,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 214.016,
+    "top": 9,
+    "baseline": 26
+   }
+  ],
+  "copy": "Hamburgefonstiv 0123456789"
+ },
+ "italic-sans-bold": {
+  "page": "styles",
+  "box": {
+   "x": 8,
+   "y": 40,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 223.031,
+    "top": 41,
+    "baseline": 58
+   }
+  ],
+  "copy": "Hamburgefonstiv 0123456789"
+ },
+ "italic-serif": {
+  "page": "styles",
+  "box": {
+   "x": 8,
+   "y": 72,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 212.547,
+    "top": 73,
+    "baseline": 90
+   }
+  ],
+  "copy": "Hamburgefonstiv 0123456789",
+  "chars": [
+   [
+    8,
+    19.656,
+    0
+   ],
+   [
+    19.641,
+    27.734,
+    0
+   ],
+   [
+    27.719,
+    41.547,
+    0
+   ],
+   [
+    41.531,
+    50.266,
+    0
+   ],
+   [
+    50.25,
+    59.453,
+    0
+   ],
+   [
+    59.438,
+    65.594,
+    0
+   ],
+   [
+    65.578,
+    74,
+    0
+   ],
+   [
+    73.984,
+    82.063,
+    0
+   ],
+   [
+    82.047,
+    87.234,
+    0
+   ],
+   [
+    87.219,
+    96.094,
+    0
+   ],
+   [
+    96.078,
+    105.594,
+    0
+   ],
+   [
+    105.578,
+    112.516,
+    0
+   ],
+   [
+    112.5,
+    118.453,
+    0
+   ],
+   [
+    118.438,
+    123.266,
+    0
+   ],
+   [
+    123.25,
+    131.391,
+    0
+   ],
+   [
+    131.375,
+    135.266,
+    0
+   ],
+   [
+    135.25,
+    143.797,
+    0
+   ],
+   [
+    143.781,
+    152.328,
+    0
+   ],
+   [
+    152.313,
+    160.859,
+    0
+   ],
+   [
+    160.844,
+    169.391,
+    0
+   ],
+   [
+    169.375,
+    177.906,
+    0
+   ],
+   [
+    177.891,
+    186.438,
+    0
+   ],
+   [
+    186.422,
+    194.969,
+    0
+   ],
+   [
+    194.953,
+    203.5,
+    0
+   ],
+   [
+    203.484,
+    212.031,
+    0
+   ],
+   [
+    212.016,
+    220.547,
+    0
+   ]
+  ]
+ },
+ "italic-serif-bold": {
+  "page": "styles",
+  "box": {
+   "x": 8,
+   "y": 104,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 227.672,
+    "top": 105,
+    "baseline": 122
+   }
+  ],
+  "copy": "Hamburgefonstiv 0123456789"
+ },
+ "italic-mono": {
+  "page": "styles",
+  "box": {
+   "x": 8,
+   "y": 136,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 249.609,
+    "top": 137,
+    "baseline": 153
+   }
+  ],
+  "copy": "Hamburgefonstiv 0123456789"
+ },
+ "italic-mono-bold": {
+  "page": "styles",
+  "box": {
+   "x": 8,
+   "y": 168,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 249.609,
+    "top": 169,
+    "baseline": 185
+   }
+  ],
+  "copy": "Hamburgefonstiv 0123456789"
+ },
+ "italic-not": {
+  "page": "styles",
+  "box": {
+   "x": 8,
+   "y": 200,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 225.141,
+    "top": 201,
+    "baseline": 218
+   }
+  ],
+  "copy": "Hamburgefonstiv 0123456789"
+ },
+ "theme-normal": {
+  "page": "styles",
+  "box": {
+   "x": 8,
+   "y": 232,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 230.156,
+    "top": 233,
+    "baseline": 250
+   }
+  ],
+  "copy": "Hamburgefonstiv 0123456789"
+ },
+ "theme-bold": {
+  "page": "styles",
+  "box": {
+   "x": 8,
+   "y": 264,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 230.156,
+    "top": 265,
+    "baseline": 282
+   }
+  ],
+  "copy": "Hamburgefonstiv 0123456789"
+ },
+ "theme-italic": {
+  "page": "styles",
+  "box": {
+   "x": 8,
+   "y": 296,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 230.156,
+    "top": 297,
+    "baseline": 314
+   }
+  ],
+  "copy": "Hamburgefonstiv 0123456789"
+ },
+ "leading-none": {
+  "page": "leading",
+  "box": {
+   "x": 8,
+   "y": 8,
+   "width": 220,
+   "height": 42
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 209.016,
+    "top": 5,
+    "baseline": 20
+   },
+   {
+    "x": 8,
+    "width": 169.359,
+    "top": 19,
+    "baseline": 34
+   },
+   {
+    "x": 8,
+    "width": 51.203,
+    "top": 33,
+    "baseline": 48
+   }
+  ],
+  "copy": "The quick brown fox jumps over the lazy dog and keeps on running"
+ },
+ "leading-tight": {
+  "page": "leading",
+  "box": {
+   "x": 236,
+   "y": 8,
+   "width": 220,
+   "height": 52.5
+  },
+  "lines": [
+   {
+    "x": 236,
+    "width": 209.016,
+    "top": 7,
+    "baseline": 22
+   },
+   {
+    "x": 236,
+    "width": 169.359,
+    "top": 24.5,
+    "baseline": 39.5
+   },
+   {
+    "x": 236,
+    "width": 51.203,
+    "top": 42,
+    "baseline": 57
+   }
+  ],
+  "copy": "The quick brown fox jumps over the lazy dog and keeps on running"
+ },
+ "leading-snug": {
+  "page": "leading",
+  "box": {
+   "x": 8,
+   "y": 68.5,
+   "width": 220,
+   "height": 57.75
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 209.016,
+    "top": 68.5,
+    "baseline": 83.5
+   },
+   {
+    "x": 8,
+    "width": 169.359,
+    "top": 87.75,
+    "baseline": 102.75
+   },
+   {
+    "x": 8,
+    "width": 51.203,
+    "top": 107,
+    "baseline": 122
+   }
+  ],
+  "copy": "The quick brown fox jumps over the lazy dog and keeps on running"
+ },
+ "leading-normal": {
+  "page": "leading",
+  "box": {
+   "x": 236,
+   "y": 68.5,
+   "width": 220,
+   "height": 63
+  },
+  "lines": [
+   {
+    "x": 236,
+    "width": 209.016,
+    "top": 69.5,
+    "baseline": 84.5
+   },
+   {
+    "x": 236,
+    "width": 169.359,
+    "top": 90.5,
+    "baseline": 105.5
+   },
+   {
+    "x": 236,
+    "width": 51.203,
+    "top": 111.5,
+    "baseline": 126.5
+   }
+  ],
+  "copy": "The quick brown fox jumps over the lazy dog and keeps on running"
+ },
+ "leading-relaxed": {
+  "page": "leading",
+  "box": {
+   "x": 8,
+   "y": 139.5,
+   "width": 220,
+   "height": 68.25
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 209.016,
+    "top": 140.5,
+    "baseline": 155.5
+   },
+   {
+    "x": 8,
+    "width": 169.359,
+    "top": 163.25,
+    "baseline": 178.25
+   },
+   {
+    "x": 8,
+    "width": 51.203,
+    "top": 186,
+    "baseline": 201
+   }
+  ],
+  "copy": "The quick brown fox jumps over the lazy dog and keeps on running",
+  "chars": [
+   [
+    8,
+    15.719,
+    0
+   ],
+   [
+    15.703,
+    24.297,
+    0
+   ],
+   [
+    24.297,
+    32.172,
+    0
+   ],
+   [
+    32.156,
+    35.797,
+    0
+   ],
+   [
+    35.781,
+    44.375,
+    0
+   ],
+   [
+    44.359,
+    52.953,
+    0
+   ],
+   [
+    52.938,
+    56.484,
+    0
+   ],
+   [
+    56.469,
+    63.188,
+    0
+   ],
+   [
+    63.172,
+    70.547,
+    0
+   ],
+   [
+    70.531,
+    74.188,
+    0
+   ],
+   [
+    74.172,
+    82.75,
+    0
+   ],
+   [
+    82.734,
+    88.469,
+    0
+   ],
+   [
+    88.453,
+    96.891,
+    0
+   ],
+   [
+    96.875,
+    107.75,
+    0
+   ],
+   [
+    107.734,
+    116.328,
+    0
+   ],
+   [
+    116.313,
+    119.969,
+    0
+   ],
+   [
+    119.953,
+    124.672,
+    0
+   ],
+   [
+    124.656,
+    133.094,
+    0
+   ],
+   [
+    133.078,
+    140.422,
+    0
+   ],
+   [
+    140.406,
+    144.063,
+    0
+   ],
+   [
+    144.047,
+    147.594,
+    0
+   ],
+   [
+    147.578,
+    156.188,
+    0
+   ],
+   [
+    156.172,
+    169.141,
+    0
+   ],
+   [
+    169.125,
+    177.703,
+    0
+   ],
+   [
+    177.688,
+    184.375,
+    0
+   ],
+   [
+    184.359,
+    188.016,
+    0
+   ],
+   [
+    188,
+    196.438,
+    0
+   ],
+   [
+    196.422,
+    203.438,
+    0
+   ],
+   [
+    203.422,
+    211.297,
+    0
+   ],
+   [
+    211.281,
+    217.016,
+    0
+   ],
+   [
+    217,
+    217,
+    0
+   ],
+   [
+    8,
+    13,
+    1
+   ],
+   [
+    12.984,
+    21.578,
+    1
+   ],
+   [
+    21.563,
+    29.438,
+    1
+   ],
+   [
+    29.438,
+    33.078,
+    1
+   ],
+   [
+    33.063,
+    36.609,
+    1
+   ],
+   [
+    36.594,
+    44.391,
+    1
+   ],
+   [
+    44.375,
+    50.953,
+    1
+   ],
+   [
+    50.938,
+    57.969,
+    1
+   ],
+   [
+    57.953,
+    61.609,
+    1
+   ],
+   [
+    61.594,
+    70.172,
+    1
+   ],
+   [
+    70.156,
+    78.594,
+    1
+   ],
+   [
+    78.578,
+    86.203,
+    1
+   ],
+   [
+    86.188,
+    89.828,
+    1
+   ],
+   [
+    89.813,
+    97.609,
+    1
+   ],
+   [
+    97.594,
+    106.203,
+    1
+   ],
+   [
+    106.188,
+    114.766,
+    1
+   ],
+   [
+    114.75,
+    118.406,
+    1
+   ],
+   [
+    118.391,
+    125.75,
+    1
+   ],
+   [
+    125.734,
+    133.625,
+    1
+   ],
+   [
+    133.609,
+    141.484,
+    1
+   ],
+   [
+    141.469,
+    150.047,
+    1
+   ],
+   [
+    150.031,
+    156.719,
+    1
+   ],
+   [
+    156.703,
+    160.359,
+    1
+   ],
+   [
+    160.344,
+    168.781,
+    1
+   ],
+   [
+    168.766,
+    177.359,
+    1
+   ],
+   [
+    177.344,
+    177.344,
+    1
+   ],
+   [
+    8,
+    13.734,
+    2
+   ],
+   [
+    13.719,
+    22.313,
+    2
+   ],
+   [
+    22.297,
+    30.906,
+    2
+   ],
+   [
+    30.891,
+    39.484,
+    2
+   ],
+   [
+    39.469,
+    43.016,
+    2
+   ],
+   [
+    43,
+    51.609,
+    2
+   ],
+   [
+    51.594,
+    59.203,
+    2
+   ]
+  ]
+ },
+ "leading-loose": {
+  "page": "leading",
+  "box": {
+   "x": 236,
+   "y": 139.5,
+   "width": 220,
+   "height": 84
+  },
+  "lines": [
+   {
+    "x": 236,
+    "width": 209.016,
+    "top": 143.5,
+    "baseline": 158.5
+   },
+   {
+    "x": 236,
+    "width": 169.359,
+    "top": 171.5,
+    "baseline": 186.5
+   },
+   {
+    "x": 236,
+    "width": 51.203,
+    "top": 199.5,
+    "baseline": 214.5
+   }
+  ],
+  "copy": "The quick brown fox jumps over the lazy dog and keeps on running"
+ },
+ "leading-3": {
+  "page": "leading-lengths",
+  "box": {
+   "x": 8,
+   "y": 8,
+   "width": 110,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 104.109,
+    "top": 5,
+    "baseline": 18
+   },
+   {
+    "x": 8,
+    "width": 64.953,
+    "top": 17,
+    "baseline": 30
+   }
+  ],
+  "copy": "Two or three short lines of text"
+ },
+ "leading-4": {
+  "page": "leading-lengths",
+  "box": {
+   "x": 126,
+   "y": 8,
+   "width": 110,
+   "height": 32
+  },
+  "lines": [
+   {
+    "x": 126,
+    "width": 104.109,
+    "top": 7,
+    "baseline": 20
+   },
+   {
+    "x": 126,
+    "width": 64.953,
+    "top": 23,
+    "baseline": 36
+   }
+  ],
+  "copy": "Two or three short lines of text"
+ },
+ "leading-5": {
+  "page": "leading-lengths",
+  "box": {
+   "x": 244,
+   "y": 8,
+   "width": 110,
+   "height": 40
+  },
+  "lines": [
+   {
+    "x": 244,
+    "width": 104.109,
+    "top": 9,
+    "baseline": 22
+   },
+   {
+    "x": 244,
+    "width": 64.953,
+    "top": 29,
+    "baseline": 42
+   }
+  ],
+  "copy": "Two or three short lines of text"
+ },
+ "leading-6": {
+  "page": "leading-lengths",
+  "box": {
+   "x": 362,
+   "y": 8,
+   "width": 110,
+   "height": 48
+  },
+  "lines": [
+   {
+    "x": 362,
+    "width": 104.109,
+    "top": 11,
+    "baseline": 24
+   },
+   {
+    "x": 362,
+    "width": 64.953,
+    "top": 35,
+    "baseline": 48
+   }
+  ],
+  "copy": "Two or three short lines of text"
+ },
+ "leading-7": {
+  "page": "leading-lengths",
+  "box": {
+   "x": 8,
+   "y": 64,
+   "width": 110,
+   "height": 56
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 104.109,
+    "top": 69,
+    "baseline": 82
+   },
+   {
+    "x": 8,
+    "width": 64.953,
+    "top": 97,
+    "baseline": 110
+   }
+  ],
+  "copy": "Two or three short lines of text"
+ },
+ "leading-8": {
+  "page": "leading-lengths",
+  "box": {
+   "x": 126,
+   "y": 64,
+   "width": 110,
+   "height": 64
+  },
+  "lines": [
+   {
+    "x": 126,
+    "width": 104.109,
+    "top": 71,
+    "baseline": 84
+   },
+   {
+    "x": 126,
+    "width": 64.953,
+    "top": 103,
+    "baseline": 116
+   }
+  ],
+  "copy": "Two or three short lines of text"
+ },
+ "leading-9": {
+  "page": "leading-lengths",
+  "box": {
+   "x": 244,
+   "y": 64,
+   "width": 110,
+   "height": 72
+  },
+  "lines": [
+   {
+    "x": 244,
+    "width": 104.109,
+    "top": 73,
+    "baseline": 86
+   },
+   {
+    "x": 244,
+    "width": 64.953,
+    "top": 109,
+    "baseline": 122
+   }
+  ],
+  "copy": "Two or three short lines of text"
+ },
+ "leading-10": {
+  "page": "leading-lengths",
+  "box": {
+   "x": 362,
+   "y": 64,
+   "width": 110,
+   "height": 80
+  },
+  "lines": [
+   {
+    "x": 362,
+    "width": 104.109,
+    "top": 75,
+    "baseline": 88
+   },
+   {
+    "x": 362,
+    "width": 64.953,
+    "top": 115,
+    "baseline": 128
+   }
+  ],
+  "copy": "Two or three short lines of text"
+ },
+ "leading-_1_4_": {
+  "page": "leading-lengths",
+  "box": {
+   "x": 8,
+   "y": 152,
+   "width": 110,
+   "height": 33.594
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 104.109,
+    "top": 151,
+    "baseline": 164
+   },
+   {
+    "x": 8,
+    "width": 64.953,
+    "top": 167.797,
+    "baseline": 180.797
+   }
+  ],
+  "copy": "Two or three short lines of text"
+ },
+ "leading-_22px_": {
+  "page": "leading-lengths",
+  "box": {
+   "x": 126,
+   "y": 152,
+   "width": 110,
+   "height": 44
+  },
+  "lines": [
+   {
+    "x": 126,
+    "width": 104.109,
+    "top": 154,
+    "baseline": 167
+   },
+   {
+    "x": 126,
+    "width": 64.953,
+    "top": 176,
+    "baseline": 189
+   }
+  ],
+  "copy": "Two or three short lines of text"
+ },
+ "leading-slash-6": {
+  "page": "leading-lengths",
+  "box": {
+   "x": 244,
+   "y": 152,
+   "width": 220,
+   "height": 72
+  },
+  "lines": [
+   {
+    "x": 244,
+    "width": 209.016,
+    "top": 154,
+    "baseline": 169
+   },
+   {
+    "x": 244,
+    "width": 169.359,
+    "top": 178,
+    "baseline": 193
+   },
+   {
+    "x": 244,
+    "width": 51.203,
+    "top": 202,
+    "baseline": 217
+   }
+  ],
+  "copy": "The quick brown fox jumps over the lazy dog and keeps on running"
+ },
+ "leading-slash-loose": {
+  "page": "leading-lengths",
+  "box": {
+   "x": 8,
+   "y": 232,
+   "width": 220,
+   "height": 84
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 209.016,
+    "top": 236,
+    "baseline": 251
+   },
+   {
+    "x": 8,
+    "width": 169.359,
+    "top": 264,
+    "baseline": 279
+   },
+   {
+    "x": 8,
+    "width": 51.203,
+    "top": 292,
+    "baseline": 307
+   }
+  ],
+  "copy": "The quick brown fox jumps over the lazy dog and keeps on running"
+ },
+ "size-xs": {
+  "page": "sizes",
+  "box": {
+   "x": 8,
+   "y": 8,
+   "width": 480,
+   "height": 16
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 206.906,
+    "top": 7,
+    "baseline": 20
+   }
+  ],
+  "copy": "Sphinx of black quartz, judge my vow"
+ },
+ "size-sm": {
+  "page": "sizes",
+  "box": {
+   "x": 8,
+   "y": 32,
+   "width": 480,
+   "height": 20
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 241.391,
+    "top": 32,
+    "baseline": 47
+   }
+  ],
+  "copy": "Sphinx of black quartz, judge my vow"
+ },
+ "size-base": {
+  "page": "sizes",
+  "box": {
+   "x": 8,
+   "y": 60,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 275.875,
+    "top": 61,
+    "baseline": 78
+   }
+  ],
+  "copy": "Sphinx of black quartz, judge my vow"
+ },
+ "size-lg": {
+  "page": "sizes",
+  "box": {
+   "x": 8,
+   "y": 92,
+   "width": 480,
+   "height": 28
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 310.359,
+    "top": 94,
+    "baseline": 113
+   }
+  ],
+  "copy": "Sphinx of black quartz, judge my vow"
+ },
+ "size-xl": {
+  "page": "sizes",
+  "box": {
+   "x": 8,
+   "y": 128,
+   "width": 480,
+   "height": 28
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 344.844,
+    "top": 128,
+    "baseline": 149
+   }
+  ],
+  "copy": "Sphinx of black quartz, judge my vow"
+ },
+ "size-2xl": {
+  "page": "sizes",
+  "box": {
+   "x": 8,
+   "y": 164,
+   "width": 480,
+   "height": 32
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 413.813,
+    "top": 163,
+    "baseline": 189
+   }
+  ],
+  "copy": "Sphinx of black quartz, judge my vow"
+ },
+ "size-3xl": {
+  "page": "sizes",
+  "box": {
+   "x": 8,
+   "y": 204,
+   "width": 480,
+   "height": 72
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 453.188,
+    "top": 201,
+    "baseline": 233
+   },
+   {
+    "x": 8,
+    "width": 56.281,
+    "top": 237,
+    "baseline": 269
+   }
+  ],
+  "copy": "Sphinx of black quartz, judge my vow"
+ },
+ "tracking-tighter-sm": {
+  "page": "tracking",
+  "box": {
+   "x": 8,
+   "y": 8,
+   "width": 230,
+   "height": 20
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 102.141,
+    "top": 8,
+    "baseline": 23
+   }
+  ],
+  "copy": "Typography 0123"
+ },
+ "tracking-tighter-base": {
+  "page": "tracking",
+  "box": {
+   "x": 246,
+   "y": 8,
+   "width": 230,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 246,
+    "width": 116.734,
+    "top": 9,
+    "baseline": 26
+   }
+  ],
+  "copy": "Typography 0123"
+ },
+ "tracking-tight-sm": {
+  "page": "tracking",
+  "box": {
+   "x": 8,
+   "y": 40,
+   "width": 230,
+   "height": 20
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 107.391,
+    "top": 40,
+    "baseline": 55
+   }
+  ],
+  "copy": "Typography 0123"
+ },
+ "tracking-tight-base": {
+  "page": "tracking",
+  "box": {
+   "x": 246,
+   "y": 40,
+   "width": 230,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 246,
+    "width": 122.734,
+    "top": 41,
+    "baseline": 58
+   }
+  ],
+  "copy": "Typography 0123"
+ },
+ "tracking-normal-sm": {
+  "page": "tracking",
+  "box": {
+   "x": 8,
+   "y": 72,
+   "width": 230,
+   "height": 20
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 112.641,
+    "top": 72,
+    "baseline": 87
+   }
+  ],
+  "copy": "Typography 0123"
+ },
+ "tracking-normal-base": {
+  "page": "tracking",
+  "box": {
+   "x": 246,
+   "y": 72,
+   "width": 230,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 246,
+    "width": 128.734,
+    "top": 73,
+    "baseline": 90
+   }
+  ],
+  "copy": "Typography 0123",
+  "chars": [
+   [
+    246,
+    254.813,
+    0
+   ],
+   [
+    254.813,
+    262.828,
+    0
+   ],
+   [
+    262.828,
+    272.625,
+    0
+   ],
+   [
+    272.609,
+    282.25,
+    0
+   ],
+   [
+    282.234,
+    290.938,
+    0
+   ],
+   [
+    290.922,
+    297.469,
+    0
+   ],
+   [
+    297.469,
+    306.359,
+    0
+   ],
+   [
+    306.359,
+    316.156,
+    0
+   ],
+   [
+    316.141,
+    325.969,
+    0
+   ],
+   [
+    325.953,
+    333.984,
+    0
+   ],
+   [
+    333.969,
+    338.141,
+    0
+   ],
+   [
+    338.125,
+    347.281,
+    0
+   ],
+   [
+    347.281,
+    356.438,
+    0
+   ],
+   [
+    356.422,
+    365.578,
+    0
+   ],
+   [
+    365.578,
+    374.734,
+    0
+   ]
+  ]
+ },
+ "tracking-wide-sm": {
+  "page": "tracking",
+  "box": {
+   "x": 8,
+   "y": 104,
+   "width": 230,
+   "height": 20
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 117.891,
+    "top": 104,
+    "baseline": 119
+   }
+  ],
+  "copy": "Typography 0123"
+ },
+ "tracking-wide-base": {
+  "page": "tracking",
+  "box": {
+   "x": 246,
+   "y": 104,
+   "width": 230,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 246,
+    "width": 134.734,
+    "top": 105,
+    "baseline": 122
+   }
+  ],
+  "copy": "Typography 0123"
+ },
+ "tracking-wider-sm": {
+  "page": "tracking",
+  "box": {
+   "x": 8,
+   "y": 136,
+   "width": 230,
+   "height": 20
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 123.141,
+    "top": 136,
+    "baseline": 151
+   }
+  ],
+  "copy": "Typography 0123"
+ },
+ "tracking-wider-base": {
+  "page": "tracking",
+  "box": {
+   "x": 246,
+   "y": 136,
+   "width": 230,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 246,
+    "width": 140.734,
+    "top": 137,
+    "baseline": 154
+   }
+  ],
+  "copy": "Typography 0123"
+ },
+ "tracking-widest-sm": {
+  "page": "tracking",
+  "box": {
+   "x": 8,
+   "y": 168,
+   "width": 230,
+   "height": 20
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 133.641,
+    "top": 168,
+    "baseline": 183
+   }
+  ],
+  "copy": "Typography 0123"
+ },
+ "tracking-widest-base": {
+  "page": "tracking",
+  "box": {
+   "x": 246,
+   "y": 168,
+   "width": 230,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 246,
+    "width": 152.734,
+    "top": 169,
+    "baseline": 186
+   }
+  ],
+  "copy": "Typography 0123",
+  "chars": [
+   [
+    246,
+    256.422,
+    0
+   ],
+   [
+    256.406,
+    266.031,
+    0
+   ],
+   [
+    266.016,
+    277.422,
+    0
+   ],
+   [
+    277.406,
+    288.656,
+    0
+   ],
+   [
+    288.641,
+    298.938,
+    0
+   ],
+   [
+    298.922,
+    307.078,
+    0
+   ],
+   [
+    307.063,
+    317.563,
+    0
+   ],
+   [
+    317.547,
+    328.953,
+    0
+   ],
+   [
+    328.938,
+    340.375,
+    0
+   ],
+   [
+    340.359,
+    349.984,
+    0
+   ],
+   [
+    349.969,
+    355.734,
+    0
+   ],
+   [
+    355.719,
+    366.484,
+    0
+   ],
+   [
+    366.469,
+    377.234,
+    0
+   ],
+   [
+    377.219,
+    387.984,
+    0
+   ],
+   [
+    387.969,
+    398.734,
+    0
+   ]
+  ]
+ },
+ "tracking-em": {
+  "page": "tracking-more",
+  "box": {
+   "x": 8,
+   "y": 8,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 166.891,
+    "top": 9,
+    "baseline": 26
+   }
+  ],
+  "copy": "Letter spacing in em"
+ },
+ "tracking-px": {
+  "page": "tracking-more",
+  "box": {
+   "x": 8,
+   "y": 40,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 165.266,
+    "top": 41,
+    "baseline": 58
+   }
+  ],
+  "copy": "Letter spacing in px"
+ },
+ "tracking-neg": {
+  "page": "tracking-more",
+  "box": {
+   "x": 8,
+   "y": 72,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 164.328,
+    "top": 73,
+    "baseline": 90
+   }
+  ],
+  "copy": "Letter spacing, negative"
+ },
+ "tracking-caps": {
+  "page": "tracking-more",
+  "box": {
+   "x": 8,
+   "y": 104,
+   "width": 480,
+   "height": 16
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 123.188,
+    "top": 103,
+    "baseline": 116
+   }
+  ],
+  "copy": "SECTION HEADING"
+ },
+ "tracking-odd": {
+  "page": "tracking-more",
+  "box": {
+   "x": 8,
+   "y": 128,
+   "width": 480,
+   "height": 18
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 232.344,
+    "top": 128,
+    "baseline": 142
+   }
+  ],
+  "copy": "Odd size, fractional spacing 0.325 px"
+ },
+ "tracking-wrap": {
+  "page": "tracking-more",
+  "box": {
+   "x": 8,
+   "y": 154,
+   "width": 200,
+   "height": 60
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 185.125,
+    "top": 154,
+    "baseline": 169
+   },
+   {
+    "x": 8,
+    "width": 190.797,
+    "top": 174,
+    "baseline": 189
+   },
+   {
+    "x": 8,
+    "width": 75.359,
+    "top": 194,
+    "baseline": 209
+   }
+  ],
+  "copy": "The quick brown fox jumps over the lazy dog and keeps on running",
+  "chars": [
+   [
+    8,
+    16.063,
+    0
+   ],
+   [
+    16.047,
+    25,
+    0
+   ],
+   [
+    24.984,
+    33.219,
+    0
+   ],
+   [
+    33.203,
+    37.203,
+    0
+   ],
+   [
+    37.188,
+    46.125,
+    0
+   ],
+   [
+    46.109,
+    55.047,
+    0
+   ],
+   [
+    55.031,
+    58.938,
+    0
+   ],
+   [
+    58.922,
+    66,
+    0
+   ],
+   [
+    65.984,
+    73.703,
+    0
+   ],
+   [
+    73.688,
+    77.688,
+    0
+   ],
+   [
+    77.672,
+    86.609,
+    0
+   ],
+   [
+    86.594,
+    92.672,
+    0
+   ],
+   [
+    92.656,
+    101.453,
+    0
+   ],
+   [
+    101.438,
+    112.641,
+    0
+   ],
+   [
+    112.625,
+    121.578,
+    0
+   ],
+   [
+    121.563,
+    125.563,
+    0
+   ],
+   [
+    125.547,
+    130.625,
+    0
+   ],
+   [
+    130.609,
+    139.406,
+    0
+   ],
+   [
+    139.391,
+    147.078,
+    0
+   ],
+   [
+    147.063,
+    151.063,
+    0
+   ],
+   [
+    151.047,
+    154.953,
+    0
+   ],
+   [
+    154.938,
+    163.891,
+    0
+   ],
+   [
+    163.875,
+    177.188,
+    0
+   ],
+   [
+    177.172,
+    186.109,
+    0
+   ],
+   [
+    186.094,
+    193.125,
+    0
+   ],
+   [
+    193.109,
+    193.109,
+    0
+   ],
+   [
+    8,
+    16.781,
+    1
+   ],
+   [
+    16.766,
+    24.125,
+    1
+   ],
+   [
+    24.109,
+    32.328,
+    1
+   ],
+   [
+    32.313,
+    38.406,
+    1
+   ],
+   [
+    38.391,
+    42.391,
+    1
+   ],
+   [
+    42.375,
+    47.734,
+    1
+   ],
+   [
+    47.719,
+    56.672,
+    1
+   ],
+   [
+    56.656,
+    64.875,
+    1
+   ],
+   [
+    64.859,
+    68.859,
+    1
+   ],
+   [
+    68.844,
+    72.75,
+    1
+   ],
+   [
+    72.734,
+    80.875,
+    1
+   ],
+   [
+    80.859,
+    87.797,
+    1
+   ],
+   [
+    87.781,
+    95.156,
+    1
+   ],
+   [
+    95.141,
+    99.141,
+    1
+   ],
+   [
+    99.125,
+    108.063,
+    1
+   ],
+   [
+    108.047,
+    116.828,
+    1
+   ],
+   [
+    116.813,
+    124.781,
+    1
+   ],
+   [
+    124.766,
+    128.766,
+    1
+   ],
+   [
+    128.75,
+    136.891,
+    1
+   ],
+   [
+    136.875,
+    145.828,
+    1
+   ],
+   [
+    145.813,
+    154.75,
+    1
+   ],
+   [
+    154.734,
+    158.734,
+    1
+   ],
+   [
+    158.719,
+    166.438,
+    1
+   ],
+   [
+    166.422,
+    174.656,
+    1
+   ],
+   [
+    174.641,
+    182.859,
+    1
+   ],
+   [
+    182.844,
+    191.781,
+    1
+   ],
+   [
+    191.766,
+    198.797,
+    1
+   ],
+   [
+    198.781,
+    198.781,
+    1
+   ],
+   [
+    8,
+    16.781,
+    2
+   ],
+   [
+    16.766,
+    25.719,
+    2
+   ],
+   [
+    25.703,
+    29.703,
+    2
+   ],
+   [
+    29.688,
+    35.781,
+    2
+   ],
+   [
+    35.766,
+    44.703,
+    2
+   ],
+   [
+    44.688,
+    53.641,
+    2
+   ],
+   [
+    53.625,
+    62.578,
+    2
+   ],
+   [
+    62.563,
+    66.469,
+    2
+   ],
+   [
+    66.453,
+    75.406,
+    2
+   ],
+   [
+    75.391,
+    83.359,
+    2
+   ]
+  ]
+ },
+ "tracking-wrap-edge": {
+  "page": "tracking-more",
+  "box": {
+   "x": 8,
+   "y": 222,
+   "width": 220,
+   "height": 60
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 219.516,
+    "top": 222,
+    "baseline": 237
+   },
+   {
+    "x": 8,
+    "width": 178.109,
+    "top": 242,
+    "baseline": 257
+   },
+   {
+    "x": 8,
+    "width": 53.656,
+    "top": 262,
+    "baseline": 277
+   }
+  ],
+  "copy": "The quick brown fox jumps over the lazy dog and keeps on running"
+ },
+ "tracking-center": {
+  "page": "tracking-more",
+  "box": {
+   "x": 8,
+   "y": 290,
+   "width": 220,
+   "height": 20
+  },
+  "lines": [
+   {
+    "x": 86.891,
+    "width": 62.219,
+    "top": 290,
+    "baseline": 305
+   }
+  ],
+  "copy": "Centred"
+ },
+ "tracking-right": {
+  "page": "tracking-more",
+  "box": {
+   "x": 8,
+   "y": 318,
+   "width": 220,
+   "height": 20
+  },
+  "lines": [
+   {
+    "x": 134.438,
+    "width": 93.563,
+    "top": 318,
+    "baseline": 333
+   }
+  ],
+  "copy": "Right aligned"
+ },
+ "case-upper": {
+  "page": "case",
+  "box": {
+   "x": 8,
+   "y": 8,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 270.281,
+    "top": 9,
+    "baseline": 26
+   }
+  ],
+  "copy": "STRASSE, DON'T STOP: ÉCOLE ÉLÈVE",
+  "chars": [
+   [
+    8,
+    16.781,
+    0
+   ],
+   [
+    16.766,
+    25.594,
+    0
+   ],
+   [
+    25.578,
+    35.469,
+    0
+   ],
+   [
+    35.453,
+    45.578,
+    0
+   ],
+   [
+    45.578,
+    63.125,
+    0
+   ],
+   [
+    63.125,
+    72.016,
+    0
+   ],
+   [
+    72.016,
+    76.156,
+    0
+   ],
+   [
+    76.156,
+    80.313,
+    0
+   ],
+   [
+    80.313,
+    91.922,
+    0
+   ],
+   [
+    91.922,
+    104.375,
+    0
+   ],
+   [
+    104.359,
+    116.422,
+    0
+   ],
+   [
+    116.406,
+    119.922,
+    0
+   ],
+   [
+    119.922,
+    128.734,
+    0
+   ],
+   [
+    128.734,
+    132.891,
+    0
+   ],
+   [
+    132.891,
+    141.672,
+    0
+   ],
+   [
+    141.656,
+    150.484,
+    0
+   ],
+   [
+    150.469,
+    162.922,
+    0
+   ],
+   [
+    162.922,
+    172.547,
+    0
+   ],
+   [
+    172.547,
+    176.75,
+    0
+   ],
+   [
+    176.75,
+    180.906,
+    0
+   ],
+   [
+    180.906,
+    189.797,
+    0
+   ],
+   [
+    189.797,
+    199.875,
+    0
+   ],
+   [
+    199.875,
+    212.328,
+    0
+   ],
+   [
+    212.313,
+    220.672,
+    0
+   ],
+   [
+    220.672,
+    229.563,
+    0
+   ],
+   [
+    229.563,
+    233.719,
+    0
+   ],
+   [
+    233.719,
+    242.609,
+    0
+   ],
+   [
+    242.609,
+    250.969,
+    0
+   ],
+   [
+    250.953,
+    259.859,
+    0
+   ],
+   [
+    259.844,
+    269.391,
+    0
+   ],
+   [
+    269.391,
+    278.281,
+    0
+   ]
+  ]
+ },
+ "case-lower": {
+  "page": "case",
+  "box": {
+   "x": 8,
+   "y": 40,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 222.141,
+    "top": 41,
+    "baseline": 58
+   }
+  ],
+  "copy": "straße, don't stop: école élève"
+ },
+ "case-capitalize": {
+  "page": "case",
+  "box": {
+   "x": 8,
+   "y": 72,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 403.5,
+    "top": 73,
+    "baseline": 90
+   }
+  ],
+  "copy": "The Quick Brown Fox, Don't Stop: Hello-World E.G. 3rd",
+  "chars": [
+   [
+    8,
+    16.813,
+    0
+   ],
+   [
+    16.813,
+    26.625,
+    0
+   ],
+   [
+    26.625,
+    35.609,
+    0
+   ],
+   [
+    35.609,
+    39.766,
+    0
+   ],
+   [
+    39.766,
+    52.219,
+    0
+   ],
+   [
+    52.203,
+    62.031,
+    0
+   ],
+   [
+    62.016,
+    66.063,
+    0
+   ],
+   [
+    66.063,
+    73.734,
+    0
+   ],
+   [
+    73.719,
+    82.141,
+    0
+   ],
+   [
+    82.125,
+    86.297,
+    0
+   ],
+   [
+    86.281,
+    96.625,
+    0
+   ],
+   [
+    96.625,
+    103.172,
+    0
+   ],
+   [
+    103.156,
+    112.797,
+    0
+   ],
+   [
+    112.781,
+    125.188,
+    0
+   ],
+   [
+    125.188,
+    135,
+    0
+   ],
+   [
+    135,
+    139.156,
+    0
+   ],
+   [
+    139.156,
+    147.422,
+    0
+   ],
+   [
+    147.406,
+    157.047,
+    0
+   ],
+   [
+    157.031,
+    165.422,
+    0
+   ],
+   [
+    165.406,
+    169.563,
+    0
+   ],
+   [
+    169.547,
+    173.719,
+    0
+   ],
+   [
+    173.703,
+    185.328,
+    0
+   ],
+   [
+    185.313,
+    194.953,
+    0
+   ],
+   [
+    194.938,
+    204.766,
+    0
+   ],
+   [
+    204.75,
+    208.266,
+    0
+   ],
+   [
+    208.266,
+    213.969,
+    0
+   ],
+   [
+    213.969,
+    218.125,
+    0
+   ],
+   [
+    218.125,
+    226.906,
+    0
+   ],
+   [
+    226.891,
+    232.609,
+    0
+   ],
+   [
+    232.594,
+    242.234,
+    0
+   ],
+   [
+    242.219,
+    252.016,
+    0
+   ],
+   [
+    252.016,
+    256.219,
+    0
+   ],
+   [
+    256.219,
+    260.375,
+    0
+   ],
+   [
+    260.375,
+    272.172,
+    0
+   ],
+   [
+    272.172,
+    281.156,
+    0
+   ],
+   [
+    281.156,
+    285.203,
+    0
+   ],
+   [
+    285.188,
+    289.234,
+    0
+   ],
+   [
+    289.234,
+    298.859,
+    0
+   ],
+   [
+    298.859,
+    304.016,
+    0
+   ],
+   [
+    304,
+    318.781,
+    0
+   ],
+   [
+    318.781,
+    328.406,
+    0
+   ],
+   [
+    328.406,
+    334.953,
+    0
+   ],
+   [
+    334.938,
+    338.984,
+    0
+   ],
+   [
+    338.984,
+    348.781,
+    0
+   ],
+   [
+    348.766,
+    352.938,
+    0
+   ],
+   [
+    352.922,
+    361.828,
+    0
+   ],
+   [
+    361.813,
+    366.031,
+    0
+   ],
+   [
+    366.016,
+    377.656,
+    0
+   ],
+   [
+    377.656,
+    381.859,
+    0
+   ],
+   [
+    381.859,
+    386.016,
+    0
+   ],
+   [
+    386.016,
+    395.172,
+    0
+   ],
+   [
+    395.156,
+    401.703,
+    0
+   ],
+   [
+    401.703,
+    411.5,
+    0
+   ]
+  ]
+ },
+ "case-normal": {
+  "page": "case",
+  "box": {
+   "x": 8,
+   "y": 104,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 106.438,
+    "top": 105,
+    "baseline": 122
+   }
+  ],
+  "copy": "Left as written"
+ },
+ "case-wrap": {
+  "page": "case",
+  "box": {
+   "x": 8,
+   "y": 136,
+   "width": 220,
+   "height": 60
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 203.656,
+    "top": 136,
+    "baseline": 151
+   },
+   {
+    "x": 8,
+    "width": 212.672,
+    "top": 156,
+    "baseline": 171
+   },
+   {
+    "x": 8,
+    "width": 89.641,
+    "top": 176,
+    "baseline": 191
+   }
+  ],
+  "copy": "THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG AND KEEPS ON RUNNING"
+ },
+ "deco-underline": {
+  "page": "decoration",
+  "box": {
+   "x": 8,
+   "y": 8,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 196.969,
+    "top": 9,
+    "baseline": 26
+   }
+  ],
+  "copy": "Underlined text with gjpqy"
+ },
+ "deco-overline": {
+  "page": "decoration",
+  "box": {
+   "x": 8,
+   "y": 40,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 105.547,
+    "top": 41,
+    "baseline": 58
+   }
+  ],
+  "copy": "Overlined text"
+ },
+ "deco-line-through": {
+  "page": "decoration",
+  "box": {
+   "x": 8,
+   "y": 72,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 143.969,
+    "top": 73,
+    "baseline": 90
+   }
+  ],
+  "copy": "Struck through text"
+ },
+ "deco-colour": {
+  "page": "decoration",
+  "box": {
+   "x": 8,
+   "y": 104,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 104.625,
+    "top": 105,
+    "baseline": 122
+   }
+  ],
+  "copy": "Red underline"
+ },
+ "deco-thick-2": {
+  "page": "decoration",
+  "box": {
+   "x": 8,
+   "y": 136,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 77.844,
+    "top": 137,
+    "baseline": 154
+   }
+  ],
+  "copy": "Two pixels"
+ },
+ "deco-thick-4": {
+  "page": "decoration",
+  "box": {
+   "x": 8,
+   "y": 168,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 167.766,
+    "top": 169,
+    "baseline": 186
+   }
+  ],
+  "copy": "Four pixels, offset four"
+ },
+ "deco-large": {
+  "page": "decoration",
+  "box": {
+   "x": 8,
+   "y": 200,
+   "width": 480,
+   "height": 40
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 148.344,
+    "top": 195,
+    "baseline": 233
+   }
+  ],
+  "copy": "Large Gg"
+ },
+ "deco-wrap": {
+  "page": "decoration",
+  "box": {
+   "x": 8,
+   "y": 248,
+   "width": 220,
+   "height": 60
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 209.016,
+    "top": 248,
+    "baseline": 263
+   },
+   {
+    "x": 8,
+    "width": 169.359,
+    "top": 268,
+    "baseline": 283
+   },
+   {
+    "x": 8,
+    "width": 51.203,
+    "top": 288,
+    "baseline": 303
+   }
+  ],
+  "copy": "The quick brown fox jumps over the lazy dog and keeps on running"
+ },
+ "deco-inherited": {
+  "page": "decoration",
+  "box": {
+   "x": 8,
+   "y": 316,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 237.859,
+    "top": 317,
+    "baseline": 334
+   }
+  ],
+  "copy": "The parent is underlined in blue"
+ },
+ "deco-none": {
+  "page": "decoration",
+  "box": {
+   "x": 8,
+   "y": 348,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 279.031,
+    "top": 349,
+    "baseline": 366
+   }
+  ],
+  "copy": "No underline cannot undo the parent"
+ },
+ "truncate": {
+  "page": "overflow",
+  "box": {
+   "x": 8,
+   "y": 8,
+   "width": 200,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 499.25,
+    "top": 9,
+    "baseline": 26
+   }
+  ],
+  "copy": "The quick brown fox jumps over the lazy dog and keeps on running"
+ },
+ "ellipsis": {
+  "page": "overflow",
+  "box": {
+   "x": 8,
+   "y": 40,
+   "width": 200,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 499.25,
+    "top": 41,
+    "baseline": 58
+   }
+  ],
+  "copy": "The quick brown fox jumps over the lazy dog and keeps on running"
+ },
+ "clip": {
+  "page": "overflow",
+  "box": {
+   "x": 8,
+   "y": 72,
+   "width": 200,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 499.25,
+    "top": 73,
+    "baseline": 90
+   }
+  ],
+  "copy": "The quick brown fox jumps over the lazy dog and keeps on running"
+ },
+ "clamp-1": {
+  "page": "overflow",
+  "box": {
+   "x": 8,
+   "y": 104,
+   "width": 220,
+   "height": 20
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 209.016,
+    "top": 104,
+    "baseline": 119
+   },
+   {
+    "x": 8,
+    "width": 169.359,
+    "top": 124,
+    "baseline": 139
+   },
+   {
+    "x": 8,
+    "width": 190.938,
+    "top": 144,
+    "baseline": 159
+   },
+   {
+    "x": 8,
+    "width": 183.359,
+    "top": 164,
+    "baseline": 179
+   },
+   {
+    "x": 8,
+    "width": 117.484,
+    "top": 184,
+    "baseline": 199
+   }
+  ],
+  "copy": "The quick brown fox jumps over the lazy dog and keeps on running. The quick brown fox jumps over the lazy dog and keeps on running."
+ },
+ "clamp-2": {
+  "page": "overflow",
+  "box": {
+   "x": 8,
+   "y": 132,
+   "width": 220,
+   "height": 40
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 209.016,
+    "top": 132,
+    "baseline": 147
+   },
+   {
+    "x": 8,
+    "width": 169.359,
+    "top": 152,
+    "baseline": 167
+   },
+   {
+    "x": 8,
+    "width": 190.938,
+    "top": 172,
+    "baseline": 187
+   },
+   {
+    "x": 8,
+    "width": 183.359,
+    "top": 192,
+    "baseline": 207
+   },
+   {
+    "x": 8,
+    "width": 117.484,
+    "top": 212,
+    "baseline": 227
+   }
+  ],
+  "copy": "The quick brown fox jumps over the lazy dog and keeps on running. The quick brown fox jumps over the lazy dog and keeps on running."
+ },
+ "clamp-3": {
+  "page": "overflow",
+  "box": {
+   "x": 8,
+   "y": 180,
+   "width": 220,
+   "height": 60
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 209.016,
+    "top": 180,
+    "baseline": 195
+   },
+   {
+    "x": 8,
+    "width": 169.359,
+    "top": 200,
+    "baseline": 215
+   },
+   {
+    "x": 8,
+    "width": 190.938,
+    "top": 220,
+    "baseline": 235
+   },
+   {
+    "x": 8,
+    "width": 183.359,
+    "top": 240,
+    "baseline": 255
+   },
+   {
+    "x": 8,
+    "width": 117.484,
+    "top": 260,
+    "baseline": 275
+   }
+  ],
+  "copy": "The quick brown fox jumps over the lazy dog and keeps on running. The quick brown fox jumps over the lazy dog and keeps on running."
+ },
+ "clamp-none": {
+  "page": "overflow",
+  "box": {
+   "x": 8,
+   "y": 248,
+   "width": 220,
+   "height": 60
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 209.016,
+    "top": 248,
+    "baseline": 263
+   },
+   {
+    "x": 8,
+    "width": 169.359,
+    "top": 268,
+    "baseline": 283
+   },
+   {
+    "x": 8,
+    "width": 54.891,
+    "top": 288,
+    "baseline": 303
+   }
+  ],
+  "copy": "The quick brown fox jumps over the lazy dog and keeps on running."
+ },
+ "space-normal": {
+  "page": "whitespace",
+  "box": {
+   "x": 8,
+   "y": 8,
+   "width": 150,
+   "height": 40
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 117.578,
+    "top": 8,
+    "baseline": 23
+   },
+   {
+    "x": 8,
+    "width": 118.5,
+    "top": 28,
+    "baseline": 43
+   }
+  ],
+  "copy": "A line with runs of space and a break"
+ },
+ "space-nowrap": {
+  "page": "whitespace",
+  "box": {
+   "x": 166,
+   "y": 8,
+   "width": 150,
+   "height": 20
+  },
+  "lines": [
+   {
+    "x": 166,
+    "width": 239.703,
+    "top": 8,
+    "baseline": 23
+   }
+  ],
+  "copy": "A line with runs of space and a break"
+ },
+ "space-pre": {
+  "page": "whitespace",
+  "box": {
+   "x": 324,
+   "y": 8,
+   "width": 150,
+   "height": 60
+  },
+  "lines": [
+   {
+    "x": 324,
+    "width": 78.516,
+    "top": 8,
+    "baseline": 23
+   },
+   {
+    "x": 334.906,
+    "width": 87.563,
+    "top": 28,
+    "baseline": 43
+   },
+   {
+    "x": 324,
+    "width": 77.281,
+    "top": 48,
+    "baseline": 63
+   }
+  ],
+  "copy": "A  line   with\n   runs of space\nand a break"
+ },
+ "space-pre-line": {
+  "page": "whitespace",
+  "box": {
+   "x": 8,
+   "y": 76,
+   "width": 150,
+   "height": 60
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 67.609,
+    "top": 76,
+    "baseline": 91
+   },
+   {
+    "x": 8,
+    "width": 87.563,
+    "top": 96,
+    "baseline": 111
+   },
+   {
+    "x": 8,
+    "width": 77.281,
+    "top": 116,
+    "baseline": 131
+   }
+  ],
+  "copy": "A line with\nruns of space\nand a break"
+ },
+ "space-pre-wrap": {
+  "page": "whitespace",
+  "box": {
+   "x": 166,
+   "y": 76,
+   "width": 150,
+   "height": 60
+  },
+  "lines": [
+   {
+    "x": 166,
+    "width": 78.516,
+    "top": 76,
+    "baseline": 91
+   },
+   {
+    "x": 176.922,
+    "width": 87.563,
+    "top": 96,
+    "baseline": 111
+   },
+   {
+    "x": 166,
+    "width": 77.281,
+    "top": 116,
+    "baseline": 131
+   }
+  ],
+  "copy": "A  line   with\n   runs of space\nand a break"
+ },
+ "break-normal": {
+  "page": "whitespace",
+  "box": {
+   "x": 324,
+   "y": 76,
+   "width": 100,
+   "height": 60
+  },
+  "lines": [
+   {
+    "x": 324,
+    "width": 40.094,
+    "top": 76,
+    "baseline": 91
+   },
+   {
+    "x": 324,
+    "width": 180.422,
+    "top": 96,
+    "baseline": 111
+   },
+   {
+    "x": 324,
+    "width": 33.563,
+    "top": 116,
+    "baseline": 131
+   }
+  ],
+  "copy": "A very Pneumonoultramicroscopic word"
+ },
+ "break-words": {
+  "page": "whitespace",
+  "box": {
+   "x": 432,
+   "y": 76,
+   "width": 100,
+   "height": 80
+  },
+  "lines": [
+   {
+    "x": 432,
+    "width": 40.094,
+    "top": 76,
+    "baseline": 91
+   },
+   {
+    "x": 432,
+    "width": 94.688,
+    "top": 96,
+    "baseline": 111
+   },
+   {
+    "x": 432,
+    "width": 85.734,
+    "top": 116,
+    "baseline": 131
+   },
+   {
+    "x": 432,
+    "width": 33.563,
+    "top": 136,
+    "baseline": 151
+   }
+  ],
+  "copy": "A very Pneumonoultramicroscopic word"
+ },
+ "break-all": {
+  "page": "whitespace",
+  "box": {
+   "x": 8,
+   "y": 164,
+   "width": 100,
+   "height": 60
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 98.563,
+    "top": 164,
+    "baseline": 179
+   },
+   {
+    "x": 8,
+    "width": 98.344,
+    "top": 184,
+    "baseline": 199
+   },
+   {
+    "x": 8,
+    "width": 64.422,
+    "top": 204,
+    "baseline": 219
+   }
+  ],
+  "copy": "A very Pneumonoultramicroscopic word"
+ },
+ "justify": {
+  "page": "whitespace",
+  "box": {
+   "x": 116,
+   "y": 164,
+   "width": 220,
+   "height": 100
+  },
+  "lines": [
+   {
+    "x": 116,
+    "width": 220,
+    "top": 164,
+    "baseline": 179
+   },
+   {
+    "x": 116,
+    "width": 220,
+    "top": 184,
+    "baseline": 199
+   },
+   {
+    "x": 116,
+    "width": 220,
+    "top": 204,
+    "baseline": 219
+   },
+   {
+    "x": 116,
+    "width": 220,
+    "top": 224,
+    "baseline": 239
+   },
+   {
+    "x": 116,
+    "width": 117.484,
+    "top": 244,
+    "baseline": 259
+   }
+  ],
+  "copy": "The quick brown fox jumps over the lazy dog and keeps on running. The quick brown fox jumps over the lazy dog and keeps on running."
+ },
+ "align-end": {
+  "page": "whitespace",
+  "box": {
+   "x": 8,
+   "y": 272,
+   "width": 220,
+   "height": 60
+  },
+  "lines": [
+   {
+    "x": 18.984,
+    "width": 209.016,
+    "top": 272,
+    "baseline": 287
+   },
+   {
+    "x": 58.641,
+    "width": 169.359,
+    "top": 292,
+    "baseline": 307
+   },
+   {
+    "x": 176.797,
+    "width": 51.203,
+    "top": 312,
+    "baseline": 327
+   }
+  ],
+  "copy": "The quick brown fox jumps over the lazy dog and keeps on running"
+ },
+ "nums-proportional": {
+  "page": "numerals",
+  "box": {
+   "x": 8,
+   "y": 8,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 118.094,
+    "top": 9,
+    "baseline": 26
+   }
+  ],
+  "copy": "1111 8888 0000"
+ },
+ "nums-tabular": {
+  "page": "numerals",
+  "box": {
+   "x": 8,
+   "y": 40,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 118.094,
+    "top": 41,
+    "baseline": 58
+   }
+  ],
+  "copy": "1111 8888 0000"
+ },
+ "nums-tabular-lining": {
+  "page": "numerals",
+  "box": {
+   "x": 8,
+   "y": 72,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 118.094,
+    "top": 73,
+    "baseline": 90
+   }
+  ],
+  "copy": "1111 8888 0000"
+ },
+ "nums-oldstyle": {
+  "page": "numerals",
+  "box": {
+   "x": 8,
+   "y": 104,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 87.188,
+    "top": 105,
+    "baseline": 122
+   }
+  ],
+  "copy": "1234567890"
+ },
+ "nums-zero": {
+  "page": "numerals",
+  "box": {
+   "x": 8,
+   "y": 136,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 76.813,
+    "top": 137,
+    "baseline": 153
+   }
+  ],
+  "copy": "0O 1l 10"
+ },
+ "nums-antialiased": {
+  "page": "numerals",
+  "box": {
+   "x": 8,
+   "y": 168,
+   "width": 480,
+   "height": 24
+  },
+  "lines": [
+   {
+    "x": 8,
+    "width": 225.141,
+    "top": 169,
+    "baseline": 186
+   }
+  ],
+  "copy": "Hamburgefonstiv 0123456789"
+ }
+}

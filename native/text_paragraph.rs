@@ -75,8 +75,11 @@ impl StyledParagraph {
         paragraph.set_alignment(alignment_of(style.alignment));
         if style.alignment == Alignment::Justify {
             // The last line of a justified paragraph is not stretched.
+            // Justification stretches the glyphs to the edge and lets the space a line ends with hang past it, as CSS does.
             paragraph.set_justification_flags(
-                JustificationFlag::WORD_BOUND | JustificationFlag::SKIP_LAST_LINE,
+                JustificationFlag::WORD_BOUND
+                    | JustificationFlag::SKIP_LAST_LINE
+                    | JustificationFlag::TRIM_EDGE_SPACES,
             );
         }
         if style.ellipsis {
@@ -225,7 +228,12 @@ impl StyledParagraph {
     ) {
         self.paragraph.set_width(width);
         let fractional_lines = self.line_box.is_some_and(|line_box| line_box.gap != 0.0);
-        if !self.font.tracked && self.decorations.is_empty() && !fractional_lines {
+        // `TextParagraph::draw` aligns a line by its width with the space it ends with; the layout aligns it without (as a
+        // browser lets that space hang), so a centred or right aligned text that wraps is drawn where the layout puts its
+        // lines. A text on one line has no space at a wrap to hang.
+        let hangs = matches!(self.style.alignment, Alignment::Center | Alignment::Right)
+            && self.paragraph.get_line_count() > 1;
+        if !self.font.tracked && self.decorations.is_empty() && !fractional_lines && !hangs {
             self.paragraph
                 .draw_ex(canvas, origin)
                 .color(color)
@@ -246,8 +254,9 @@ impl StyledParagraph {
         color: Color,
         oversampling: f32,
     ) -> Result<(), String> {
-        let source =
-            GodotParagraph::lay_out(&self.paragraph, width).map_err(|error| error.to_string())?;
+        let source = GodotParagraph::lay_out(&self.paragraph, width)
+            .map_err(|error| error.to_string())?
+            .hanging_spaces();
         let layout = TextLayout::new(source, origin, self.extents_of_empty_line())
             .map_err(|error| error.to_string())?;
         let mut server: Gd<TextServer> = TextServerManager::singleton()
@@ -271,21 +280,13 @@ impl StyledParagraph {
                 .done(),
         );
         let mut decorated = Vec::new();
-        for (index, line) in layout.lines().iter().enumerate() {
+        for line in layout.lines() {
             if line.after_final_break || line.range.is_empty() {
                 continue;
             }
-            let rid = self
-                .paragraph
-                .get_line_rid(i32::try_from(index).map_err(|error| error.to_string())?);
-            let hanging = if self.decorations.is_empty() {
-                0.0
-            } else {
-                draw::trailing_space_width(&server, rid)?
-            };
             decorated.push(draw::DecoratedLine {
                 origin: line.origin,
-                width: (line.width - hanging).max(0.0),
+                width: line.width,
             });
         }
         draw::draw_decorations(
