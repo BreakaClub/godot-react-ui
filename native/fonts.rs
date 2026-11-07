@@ -94,6 +94,8 @@ pub(crate) struct FontBook {
     theme: Option<Gd<Font>>,
     faces: Vec<Face>,
     variations: HashMap<VariationKey, Gd<FontVariation>>,
+    /// Changes whenever a face is registered: a text shaped before it may be shaped with other fonts now.
+    epoch: u64,
 }
 
 fn tag(bytes: &[u8; 4]) -> i64 {
@@ -104,6 +106,11 @@ impl FontBook {
     /// The font text uses when nothing names another. It stays the one the root took from its theme.
     pub(crate) fn set_theme_font(&mut self, font: Option<Gd<Font>>) {
         self.theme = font;
+    }
+
+    /// A number that changes with every registered face (see [`FontBook::register`]).
+    pub(crate) fn epoch(&self) -> u64 {
+        self.epoch
     }
 
     /// Register `font` as a face of `family` covering weights `weight_min..=weight_max` (one weight for a static face, the axis'
@@ -143,6 +150,7 @@ impl FontBook {
         }
         // Variations are made from the faces; a replaced face's are stale.
         self.variations.clear();
+        self.epoch += 1;
         Ok(())
     }
 

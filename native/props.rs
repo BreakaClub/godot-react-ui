@@ -25,11 +25,12 @@ use crate::grid_style::{
 use crate::gradient::{BackgroundImage, GradientParts};
 use crate::text_style::spec::{MAX_FONT_WEIGHT, MIN_FONT_WEIGHT};
 use crate::text_style::{
-    DecorationLines, DecorationThicknessSpec, FontStyleSpec, LetterSpacingSpec, LineClampSpec,
+    DecorationLines, DecorationStyleSpec, DecorationThicknessSpec, FontStyleSpec, LetterSpacingSpec, LineClampSpec,
     LineHeightSpec, NumericFigureSpec, NumericFractionSpec, NumericSpacingSpec, OverflowWrapSpec,
     TextDecoration, TextOverflowSpec, TextTransformSpec, UnderlineOffsetSpec, WhiteSpaceSpec,
     WordBreakSpec,
 };
+use crate::text_span::{SpanSpec, validate_spans};
 use crate::transform::{TransformList, TransformOriginSpec, TransformParts};
 pub use crate::transition::Easing;
 use crate::transition::{
@@ -620,6 +621,8 @@ pub struct StyleSpec {
     /// [`StyleSpec::text_decorations`].
     pub text_decoration_line: Option<DecorationLines>,
     pub text_decoration_color: Option<String>,
+    /// Not inherited; propagates with the decoration it belongs to ([`TextDecoration::style`]).
+    pub text_decoration_style: Option<DecorationStyleSpec>,
     pub text_decoration_thickness: Option<DecorationThicknessSpec>,
     /// Inherited.
     pub text_underline_offset: Option<UnderlineOffsetSpec>,
@@ -1156,6 +1159,7 @@ impl StyleSpec {
             text_transform,
             text_decoration_line,
             text_decoration_color,
+            text_decoration_style,
             text_decoration_thickness,
             text_underline_offset,
             text_overflow,
@@ -1652,6 +1656,8 @@ pub enum KeyboardTypeSpec {
 pub struct PropsSpec {
     pub style: Option<StyleLayers>,
     pub text: Option<String>,
+    /// `Text` only: the styled ranges and inlays of `text` (nested `Text` in JS), see [`crate::text_span`].
+    pub spans: Option<Vec<SpanSpec>>,
     pub disabled: Option<bool>,
     /// Set by Suspense while a boundary shows its fallback; the node and its subtree take no space.
     pub hidden: Option<bool>,
@@ -1748,6 +1754,8 @@ pub struct PropsDiff {
     #[serde(default)]
     pub text: Patch<String>,
     #[serde(default)]
+    pub spans: Patch<Vec<SpanSpec>>,
+    #[serde(default)]
     pub disabled: Patch<bool>,
     #[serde(default)]
     pub hidden: Patch<bool>,
@@ -1827,6 +1835,7 @@ impl PropsSpec {
         PropsSpec {
             style: diff.style.apply(&self.style),
             text: diff.text.apply(&self.text),
+            spans: diff.spans.apply(&self.spans),
             disabled: diff.disabled.apply(&self.disabled),
             hidden: diff.hidden.apply(&self.hidden),
             test_id: diff.test_id.apply(&self.test_id),
@@ -1874,6 +1883,13 @@ impl PropsSpec {
         }
         if self.text.is_some() && kind != Kind::Text {
             return Err("text is only valid on text nodes".into());
+        }
+        if let Some(spans) = &self.spans {
+            if kind != Kind::Text {
+                return Err("spans is only valid on text nodes".into());
+            }
+            validate_spans(spans, self.text.as_deref().unwrap_or(""))
+                .map_err(|error| format!("spans: {error}"))?;
         }
         if let Some(index) = self.tab_index
             && !TAB_INDICES.contains(&index)

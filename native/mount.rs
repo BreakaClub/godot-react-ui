@@ -33,8 +33,10 @@ use crate::stacking::{self, Frame, PaintTree, ScrollFrame, ScrollMode, Stacking,
 use crate::text_input::EditConfig;
 use crate::text_input_godot::TextInputState;
 use crate::text_paragraph::StyledParagraph;
+use crate::text_span::{self, RichText};
+use crate::text_style::flow::shown_text_mapped;
+use crate::text_style::resolve::ShapingStyle;
 use crate::text_style::TextStyle;
-use crate::text_style::flow::shown_text;
 use crate::transform::{Affine2, NodeTransform};
 use crate::{CORNER_DETAIL, ReactUiRoot};
 
@@ -930,7 +932,7 @@ impl ReactUiRoot {
         self.style_engine.insert(tag);
         self.layout_dirty.insert(tag);
         self.paint_dirty.insert(tag);
-        if props.text.is_some() || kind == Kind::TextInput {
+        if props.text.is_some() || props.spans.is_some() || kind == Kind::TextInput {
             self.pending_text.insert(tag);
         }
     }
@@ -951,8 +953,11 @@ impl ReactUiRoot {
         }
         self.mounted
             .index_test_id(tag, previous.test_id.as_deref(), props.test_id.as_deref());
-        if previous.text != props.text {
+        if previous.text != props.text || previous.spans != props.spans {
             self.pending_text.insert(tag);
+        }
+        // Spans restyle and add generated text; the offsets of the selection are those of the source, which they leave alone.
+        if previous.text != props.text {
             self.selection_node_changed(tag);
         }
         if self.sync_text_input_props(tag, &previous) {
@@ -1144,18 +1149,44 @@ impl ReactUiRoot {
             node.computed.overflow_x.is_some_and(OverflowSpec::clips),
         );
         let source = node.props.text.as_deref().unwrap_or("");
-        let shown =
-            shown_text(source, style.shaping.transform, style.shaping.white_space).into_owned();
-        let shown_override = (shown != source).then(|| shown.clone());
-        let font = self
-            .fonts
-            .resolve(&style.shaping)
-            .expect("a root with a theme font resolves every font request");
-        let paragraph = (!shown.is_empty()).then(|| {
-            let mut paragraph = StyledParagraph::build(&shown, &style.shaping, font);
-            paragraph.set_decorations(style.decorations);
-            paragraph
-        });
+        let shown = shown_text_mapped(source, style.shaping.transform, style.shaping.white_space);
+        let shown_override = (shown.text != source).then(|| shown.text.to_string());
+        let rich = node
+            .props
+            .spans
+            .as_deref()
+            .filter(|spans| !spans.is_empty())
+            .map(|spans| {
+                text_span::resolve(&node.computed.0, source, &shown.text, shown.positions.as_deref(), spans)
+                    .expect("spans were validated against the text with the commit that brought them")
+            });
+        let shown = shown.text.into_owned();
+        let epoch = self.fonts.epoch();
+        // Spans that change only what is painted (a colour, a background, a decoration) leave the shaped paragraph as it is.
+        let rich = match rich {
+            Some(rich) => match self.repaint_rich_paragraph(tag, rich, &style.shaping, epoch) {
+                Ok(()) => return false,
+                Err(rich) => Some(rich),
+            },
+            None => None,
+        };
+        let paragraph = match rich {
+            Some(rich) => self.shape_rich(rich, &style.shaping, epoch),
+            None => {
+                let font = self
+                    .fonts
+                    .resolve(&style.shaping)
+                    .expect("a root with a theme font resolves every font request");
+                (!shown.is_empty()).then(|| {
+                    let mut paragraph = StyledParagraph::build(&shown, &style.shaping, font);
+                    paragraph.set_decorations(style.decorations);
+                    paragraph
+                })
+            }
+        };
+        if paragraph.is_some() {
+            self.stats.paragraph_builds += 1;
+        }
         let node = self
             .mounted
             .nodes
@@ -1188,6 +1219,58 @@ impl ReactUiRoot {
         had || has
     }
 
+    /// Give a node's paragraph the spans `rich` resolved, if shaping them gives what it already holds. Hands `rich` back when the
+    /// paragraph has to be shaped again.
+    fn repaint_rich_paragraph(
+        &mut self,
+        tag: u32,
+        rich: RichText,
+        style: &ShapingStyle,
+        epoch: u64,
+    ) -> Result<(), RichText> {
+        let node = self
+            .mounted
+            .nodes
+            .get_mut(&tag)
+            .expect("a refreshed node is mounted");
+        let Some(paragraph) = node.visual.paragraph.as_mut() else {
+            return Err(rich);
+        };
+        paragraph.repaint_rich(rich, style, epoch)?;
+        self.paragraph_generation += 1;
+        node.visual.generation = self.paragraph_generation;
+        self.paint_dirty.insert(tag);
+        self.content_generation += 1;
+        self.stats.paragraph_repaints += 1;
+        Ok(())
+    }
+
+    /// The paragraph that shapes `rich`: one font per run of fonts, resolved against the node's own style.
+    fn shape_rich(&mut self, rich: RichText, style: &ShapingStyle, epoch: u64) -> Option<StyledParagraph> {
+        if rich.display.is_empty() {
+            return None;
+        }
+        let base = self
+            .fonts
+            .resolve(style)
+            .expect("a root with a theme font resolves every font request");
+        let fonts = rich
+            .font_runs
+            .iter()
+            .map(|run| {
+                self.fonts
+                    .resolve(&ShapingStyle {
+                        families: run.font.families.clone(),
+                        weight: run.font.weight,
+                        italic: run.font.italic,
+                        ..style.clone()
+                    })
+                    .expect("a root with a theme font resolves every font request")
+            })
+            .collect();
+        Some(StyledParagraph::build_rich(rich, fonts, style, base, epoch))
+    }
+
     /// The text nodes that name a font family: the ones a newly registered face can change.
     pub(crate) fn refresh_font_users(&mut self) {
         let users: Vec<u32> = self
@@ -1196,7 +1279,9 @@ impl ReactUiRoot {
             .iter()
             .filter(|(_, node)| {
                 node.computed.font_family.is_some()
-                    && (node.props.text.is_some() || node.kind == Kind::TextInput)
+                    && (node.props.text.is_some()
+                        || node.props.spans.is_some()
+                        || node.kind == Kind::TextInput)
             })
             .map(|(tag, _)| *tag)
             .collect();

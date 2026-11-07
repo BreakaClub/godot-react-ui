@@ -5,12 +5,18 @@ use godot::classes::text_server::Direction;
 use godot::classes::{RenderingServer, TextServer};
 use godot::prelude::*;
 
+use crate::box_draw::{Lease, acquire_baked, begin, end};
 use crate::paint::parse_color;
+use crate::text_decoration::raster::{dot, wave_layout, wave_tile};
+use crate::text_decoration::{DotsPlan, Fragment, LineKind, Shape, WavePlan, shapes};
+use crate::text_span::plan::ColorRuns;
 use crate::text_style::TextDecoration;
-use crate::text_style::metrics::{Band, DecorationFont, Decorator};
+use crate::text_style::metrics::DecorationFont;
 
 /// A glyph of a shaped line, as `shaped_text_get_glyphs` describes it.
 struct Glyph {
+    /// Where the glyph's cluster starts in the paragraph's text.
+    start: i64,
     repeat: i64,
     advance: f32,
     offset: Vector2,
@@ -31,6 +37,7 @@ fn glyph_of(dictionary: &VarDictionary) -> Result<Glyph, String> {
             .map_err(|error| format!("glyph {name}: {error}"))
     };
     Ok(Glyph {
+        start: integer("start")?,
         repeat: integer("repeat")?,
         advance: field("advance")?
             .try_to::<f32>()
@@ -49,13 +56,25 @@ fn glyph_of(dictionary: &VarDictionary) -> Result<Glyph, String> {
 /// What to draw a line with.
 pub(super) struct LineDrawing<'a> {
     pub(super) canvas: Rid,
+    /// The text colour, and the colour of any glyph that `colors` leaves to it.
     pub(super) color: Color,
+    /// The colour of a glyph by where its cluster starts, when spans give some glyphs their own.
+    pub(super) colors: Option<&'a ColorRuns<Color>>,
     pub(super) oversampling: f32,
     /// The rid each glyph's font is drawn as: the shaping font's and the drawing font's, in the same order.
     pub(super) fonts: &'a [(Rid, Rid)],
 }
 
 impl LineDrawing<'_> {
+    /// The colour glyph `glyph` is drawn in.
+    fn color_of(&self, glyph: &Glyph) -> Color {
+        usize::try_from(glyph.start)
+            .ok()
+            .and_then(|start| self.colors?.at(start))
+            .copied()
+            .unwrap_or(self.color)
+    }
+
     fn drawn_as(&self, font: Rid) -> Rid {
         self.fonts
             .iter()
@@ -92,7 +111,7 @@ pub(super) fn draw_glyphs(
         Vec::new()
     };
     let mut pen = 0.0_f32;
-    let draw = |server: &mut Gd<TextServer>, glyph: &Glyph, pen: &mut f32| {
+    let draw = |server: &mut Gd<TextServer>, glyph: &Glyph, color: Color, pen: &mut f32| {
         server
             .font_draw_glyph_ex(
                 drawing.drawn_as(glyph.font),
@@ -101,7 +120,7 @@ pub(super) fn draw_glyphs(
                 position + Vector2::new(*pen, 0.0) + glyph.offset,
                 glyph.index,
             )
-            .color(drawing.color)
+            .color(color)
             .oversampling(drawing.oversampling)
             .done();
         *pen += glyph.advance;
@@ -109,7 +128,7 @@ pub(super) fn draw_glyphs(
     if rtl && ellipsis_at >= 0 {
         for glyph in ellipsis.iter().rev() {
             for _ in 0..glyph.repeat {
-                draw(server, glyph, &mut pen);
+                draw(server, glyph, drawing.color, &mut pen);
             }
         }
     }
@@ -137,26 +156,18 @@ pub(super) fn draw_glyphs(
                 // The server draws a hex box for a character the fonts cannot show; this draws none.
                 pen += glyph.advance;
             } else {
-                draw(server, glyph, &mut pen);
+                draw(server, glyph, drawing.color_of(glyph), &mut pen);
             }
         }
     }
     if !rtl && ellipsis_at >= 0 {
         for glyph in &ellipsis {
             for _ in 0..glyph.repeat {
-                draw(server, glyph, &mut pen);
+                draw(server, glyph, drawing.color, &mut pen);
             }
         }
     }
     Ok(())
-}
-
-/// A line of text as far as its decorations are concerned.
-pub(super) struct DecoratedLine {
-    /// The left end of the line's glyphs on the baseline.
-    pub(super) origin: Vector2,
-    /// The glyphs' width, trailing white space not counted.
-    pub(super) width: f32,
 }
 
 /// The font's numbers the decoration lines are placed with.
@@ -177,58 +188,127 @@ pub(super) enum Layer {
     Over,
 }
 
-/// Draw the decorations of `layer` for `lines`, each decoration in its own colour, with its edges on the device pixel grid of
-/// `scale`.
+/// A stretch of one text run on one line, and the decorations it is drawn with.
+pub(super) struct DecoratedFragment {
+    pub(super) fragment: Fragment,
+    pub(super) decorations: Vec<TextDecoration>,
+}
+
+/// Draw the decorations of `layer` for `fragments`, each decoration in its own colour and style, with its edges on the device
+/// pixel grid of `scale`. The pictures baked for a wave or a dot are leased into `leases`, which the caller keeps while the
+/// item shows them.
 pub(super) fn draw_decorations(
     canvas: Rid,
-    decorations: &[TextDecoration],
-    lines: &[DecoratedLine],
+    fragments: &[DecoratedFragment],
     font: DecorationFont,
     scale: f32,
     layer: Layer,
+    leases: &mut Vec<Lease>,
 ) {
     let mut server = RenderingServer::singleton();
-    for decoration in decorations {
-        let color = parse_color(Some(&decoration.color), Color::WHITE);
-        let decorator = Decorator::new(
-            font,
-            decoration.thickness,
-            decoration.underline_offset,
-            scale,
-        );
-        let bands: [(bool, Layer, Option<Band>); 3] = [
-            (
-                decoration.lines.underline,
-                Layer::Behind,
-                decorator.underline(),
-            ),
-            (
-                decoration.lines.overline,
-                Layer::Behind,
-                decorator.overline(),
-            ),
-            (
-                decoration.lines.line_through,
-                Layer::Over,
-                decorator.line_through(),
-            ),
-        ];
-        for (wanted, band_layer, band) in bands {
-            let (true, true, Some(band)) = (wanted, band_layer == layer, band) else {
-                continue;
-            };
-            for line in lines {
-                // The baseline is on the device grid too, as it is where Chrome draws.
-                let baseline = (line.origin.y * scale).round() / scale;
-                server.canvas_item_add_rect(
-                    canvas,
-                    Rect2::new(
-                        Vector2::new(line.origin.x, baseline + band.top),
-                        Vector2::new(line.width, band.height),
-                    ),
-                    color,
-                );
+    for decorated in fragments {
+        for decoration in &decorated.decorations {
+            let color = parse_color(Some(&decoration.color), Color::WHITE);
+            let lines: [(LineKind, bool, Layer); 3] = [
+                (LineKind::Underline, decoration.lines.underline, Layer::Behind),
+                (LineKind::Overline, decoration.lines.overline, Layer::Behind),
+                (LineKind::LineThrough, decoration.lines.line_through, Layer::Over),
+            ];
+            for (kind, wanted, line_layer) in lines {
+                if !wanted || line_layer != layer {
+                    continue;
+                }
+                for shape in shapes(decoration, kind, font, scale, decorated.fragment) {
+                    match shape {
+                        Shape::Rect(rect) => server.canvas_item_add_rect(
+                            canvas,
+                            Rect2::new(
+                                Vector2::new(rect.x, rect.y),
+                                Vector2::new(rect.width, rect.height),
+                            ),
+                            color,
+                        ),
+                        Shape::Wave(wave) => draw_wave(canvas, &wave, color, scale, leases),
+                        Shape::Dots(dots) => draw_dots(canvas, &dots, color, scale, leases),
+                    }
+                }
             }
         }
     }
+}
+
+/// Picture kinds in a baked picture's cache key.
+const WAVE_PICTURE: u32 = 1;
+const DOT_PICTURE: u32 = 2;
+/// A baked wave keeps the fraction of a device pixel its centre line is down to this many parts.
+const CENTER_FRACTION_PARTS: f32 = 64.0;
+
+fn draw_wave(canvas: Rid, plan: &WavePlan, color: Color, scale: f32, leases: &mut Vec<Lease>) {
+    let layout = wave_layout(&plan.wave, scale);
+    let center = plan.center * scale;
+    let parts = (center.fract() * CENTER_FRACTION_PARTS).round();
+    // A fraction that rounds up to a whole pixel is the next row's.
+    let (row, parts) = if parts >= CENTER_FRACTION_PARTS {
+        (center.floor() + 1.0, 0.0)
+    } else {
+        (center.floor(), parts)
+    };
+    let (lease, texture, width, height) = acquire_baked(
+        vec![
+            WAVE_PICTURE,
+            plan.wave.width.to_bits(),
+            scale.to_bits(),
+            parts as u32,
+        ],
+        || wave_tile(&plan.wave, scale, parts / CENTER_FRACTION_PARTS).raster,
+    );
+    leases.push(lease);
+    let left = (plan.left * scale).round();
+    let right = (plan.right * scale).round();
+    let top = row - layout.rows_above as f32;
+    let mut server = RenderingServer::singleton();
+    begin(canvas, scale);
+    let mut x = left;
+    while x < right {
+        let drawn = (width as f32).min(right - x);
+        server
+            .canvas_item_add_texture_rect_region_ex(
+                canvas,
+                Rect2::new(Vector2::new(x, top), Vector2::new(drawn, height as f32)),
+                texture,
+                Rect2::new(Vector2::ZERO, Vector2::new(drawn, height as f32)),
+            )
+            .modulate(color)
+            .done();
+        x += width as f32;
+    }
+    end(canvas);
+}
+
+fn draw_dots(canvas: Rid, plan: &DotsPlan, color: Color, scale: f32, leases: &mut Vec<Lease>) {
+    let diameter = plan.diameter * scale;
+    let (lease, texture, width, height) = acquire_baked(
+        vec![DOT_PICTURE, diameter.to_bits()],
+        || dot(diameter),
+    );
+    leases.push(lease);
+    let mut server = RenderingServer::singleton();
+    begin(canvas, scale);
+    let top = (plan.center_y * scale - height as f32 / 2.0).round();
+    for center in &plan.centers {
+        if *center + plan.diameter / 2.0 > plan.clip_right + 1e-3 {
+            continue;
+        }
+        let left = (center * scale - width as f32 / 2.0).round();
+        server
+            .canvas_item_add_texture_rect_region_ex(
+                canvas,
+                Rect2::new(Vector2::new(left, top), Vector2::new(width as f32, height as f32)),
+                texture,
+                Rect2::new(Vector2::ZERO, Vector2::new(width as f32, height as f32)),
+            )
+            .modulate(color)
+            .done();
+    }
+    end(canvas);
 }

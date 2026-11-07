@@ -2,7 +2,7 @@
 //! into px where they are set (`settle`), and the typed view shaping and painting read (`TextStyle`).
 
 use super::spec::{
-    DecorationLines, DecorationThickness, DecorationThicknessSpec, FontStyleSpec,
+    DecorationLines, DecorationStyleSpec, DecorationThickness, DecorationThicknessSpec, FontStyleSpec,
     LetterSpacingSpec, LineClampSpec, LineHeightSpec, LineHeightValue, NumericFigureSpec,
     NumericFractionSpec, NumericSpacingSpec, OverflowWrapSpec, TextLength, TextOverflowSpec,
     TextTransformSpec, UnderlineOffsetSpec, WhiteSpaceSpec, WordBreakSpec,
@@ -19,6 +19,8 @@ const DEFAULT_TEXT_COLOR: &str = "#ffffff";
 pub struct TextDecoration {
     pub lines: DecorationLines,
     pub color: String,
+    /// How the lines are drawn: solid, double, dotted, dashed or wavy.
+    pub style: DecorationStyleSpec,
     pub thickness: DecorationThickness,
     /// px below the underline's natural place; `None` is the font's own.
     pub underline_offset: Option<f32>,
@@ -125,6 +127,7 @@ pub fn settle(style: &mut StyleSpec) {
                 .clone()
                 .or_else(|| style.color.clone())
                 .unwrap_or_else(|| DEFAULT_TEXT_COLOR.to_string()),
+            style: style.text_decoration_style.unwrap_or_default(),
             thickness: style
                 .text_decoration_thickness
                 .as_ref()

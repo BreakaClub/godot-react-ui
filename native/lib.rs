@@ -62,6 +62,12 @@ mod text_layout_probe;
 mod text_offsets;
 // A node's shaped text: Godot's `TextParagraph` configured from the text style, measured, drawn and decorated.
 mod text_paragraph;
+// Decoration lines in the five CSS styles, Chrome's geometry and antialiasing.
+mod text_decoration;
+// Where a `Text`'s text is, for JS: caret rectangles, hit tests and range rectangles over its paragraph.
+mod text_geometry;
+// The spans of a `Text`: nested `Text` in JS is one attributed paragraph, with inlays and per-span styles.
+mod text_span;
 mod transform;
 mod transform_state;
 mod transition;
@@ -156,6 +162,9 @@ struct Stats {
     /// Canvas-item command lists re-recorded: a box (background and border) or a content (text).
     box_records: u64,
     content_records: u64,
+    /// Text paragraphs shaped, and paragraphs whose spans changed only what is painted (shaped as they were).
+    paragraph_builds: u64,
+    paragraph_repaints: u64,
     /// Scroll containers whose offset changed (input, a command, a flick or a layout re-clamp), and
     /// scrollbar overlays re-recorded. Scrolling changes these and nothing above.
     scroll_updates: u64,
@@ -374,7 +383,7 @@ impl IControl for ReactUiRoot {
             .mounted
             .nodes
             .iter()
-            .filter(|(_, node)| node.props.text.is_some())
+            .filter(|(_, node)| node.props.text.is_some() || node.props.spans.is_some())
             .map(|(tag, _)| *tag)
             .collect();
         self.pending_text.extend(with_text);
@@ -924,6 +933,38 @@ impl ReactUiRoot {
     fn get_text_lines(&self, tag: i64) -> GString {
         let json = match u32::try_from(tag) {
             Ok(tag) => self.text_lines_json(tag),
+            Err(_) => serde_json::Value::Null,
+        };
+        json.to_string().as_str().into()
+    }
+
+    /// Where a caret at UTF-16 `offset` of text node `tag` is, as a root-local rectangle (`text_geometry.rs`); `side` is -1 for
+    /// before the generated text (an inlay) or the end of a soft wrapped line, 1 for after. JSON: the rectangle, `null` for a node
+    /// that is not a mounted `Text`, or `{"error": reason}`.
+    #[func]
+    fn get_caret_rect(&mut self, tag: i64, offset: i64, side: i64) -> GString {
+        let json = match u32::try_from(tag) {
+            Ok(tag) => self.caret_rect_json(tag, offset, side),
+            Err(_) => serde_json::Value::Null,
+        };
+        json.to_string().as_str().into()
+    }
+
+    /// The caret position nearest to the root-local point `(x, y)` in text node `tag`: `{"offset", "side"}`, `null` or `{"error"}`.
+    #[func]
+    fn get_offset_at_point(&self, tag: i64, x: f64, y: f64) -> GString {
+        let json = match u32::try_from(tag) {
+            Ok(tag) => self.offset_at_point_json(tag, x, y),
+            Err(_) => serde_json::Value::Null,
+        };
+        json.to_string().as_str().into()
+    }
+
+    /// The root-local rectangles UTF-16 `start..end` of text node `tag` covers: `{"rects": [...]}`, `null` or `{"error"}`.
+    #[func]
+    fn get_range_rects(&self, tag: i64, start: i64, end: i64) -> GString {
+        let json = match u32::try_from(tag) {
+            Ok(tag) => self.range_rects_json(tag, start, end),
             Err(_) => serde_json::Value::Null,
         };
         json.to_string().as_str().into()

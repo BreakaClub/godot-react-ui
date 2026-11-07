@@ -178,6 +178,18 @@ impl Serialize for DecorationLines {
     }
 }
 
+/// CSS `text-decoration-style`: how the decoration lines are drawn.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum DecorationStyleSpec {
+    #[default]
+    Solid,
+    Double,
+    Dotted,
+    Dashed,
+    Wavy,
+}
+
 /// `text-decoration-thickness`: px, `auto` or `from-font`.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(untagged)]

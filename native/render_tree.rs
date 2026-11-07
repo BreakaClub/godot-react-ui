@@ -272,6 +272,8 @@ pub(crate) struct RenderNode {
     /// The cached textures (shadow masks, gradient ramps) the recorded box draws from; they live while this holds them.
     leases: Vec<Lease>,
     outline_leases: Vec<Lease>,
+    /// The pictures the recorded text's decorations (a wave, round dots) draw from; they live while this holds them.
+    content_leases: Vec<Lease>,
     /// Draws the outline over the element's content; exists while the element has one.
     outline_item: Option<Rid>,
     outline_key: Option<OutlineKey>,
@@ -317,6 +319,7 @@ impl RenderNode {
             caret_key: None,
             leases: Vec::new(),
             outline_leases: Vec::new(),
+            content_leases: Vec::new(),
             outline_item: None,
             outline_key: None,
         }
@@ -961,8 +964,16 @@ impl RenderNode {
             return false;
         }
         server().canvas_item_clear(self.content_item);
+        let mut leases = Vec::new();
         if let Some(paragraph) = paragraph {
             paragraph.set_width(key.content_width);
+            // A span's background is under the selection, which is under the text.
+            paragraph.draw_backgrounds(
+                self.content_item,
+                key.origin,
+                key.content_width,
+                key.oversampling.factor(),
+            );
             if let Some(selection) = key.selection {
                 crate::selection_input::draw_highlight(
                     self.content_item,
@@ -970,7 +981,7 @@ impl RenderNode {
                     selection.color,
                 );
             }
-            paragraph.draw(
+            leases = paragraph.draw(
                 self.content_item,
                 key.origin,
                 key.content_width,
@@ -978,6 +989,8 @@ impl RenderNode {
                 key.oversampling.factor(),
             );
         }
+        // The pictures the new recording uses were taken before the old ones are let go, so one both use stays.
+        self.content_leases = leases;
         self.assert_clip();
         self.content_key = Some(key);
         true
@@ -989,6 +1002,7 @@ impl RenderNode {
             return false;
         }
         server().canvas_item_clear(self.content_item);
+        self.content_leases.clear();
         self.assert_clip();
         self.content_key = None;
         true

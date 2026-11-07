@@ -64,6 +64,8 @@ struct RampKey {
 enum CacheKey {
     Mask(MaskKey),
     Ramp(RampKey),
+    /// A picture the text decorations bake (`text_decoration/raster.rs`): what it depends on, as numbers.
+    Baked(Vec<u32>),
 }
 
 struct Entry {
@@ -136,6 +138,22 @@ fn acquire(
     })
 }
 
+/// The texture of a baked alpha picture for `key`, made by `make` if no one holds one, and a lease on it. The picture is white
+/// with the alpha it was baked with, so it is tinted by the colour it is drawn in.
+pub(crate) fn acquire_baked(
+    key: Vec<u32>,
+    make: impl FnOnce() -> crate::text_decoration::raster::Raster,
+) -> (Lease, Rid, usize, usize) {
+    acquire(CacheKey::Baked(key), || {
+        let raster = make();
+        let mut bytes = Vec::with_capacity(raster.alpha.len() * 4);
+        for alpha in &raster.alpha {
+            bytes.extend_from_slice(&[u8::MAX, u8::MAX, u8::MAX, *alpha]);
+        }
+        (bytes, raster.width, raster.height)
+    })
+}
+
 /// How many textures the cache holds (a measure for the verifier: a tree with nothing to draw holds none).
 pub(crate) fn cached_textures() -> usize {
     CACHE.with(|cache| cache.borrow().entries.len())
@@ -194,7 +212,7 @@ impl BoxShape {
 }
 
 /// Start recording in device pixels, with the texture state the shapes below need.
-fn begin(item: Rid, scale: f32) {
+pub(crate) fn begin(item: Rid, scale: f32) {
     let mut rs = server();
     // The canvas item's own state: a project that defaults to nearest filtering or repeating textures does not change
     // how a ramp or a mask is read.
@@ -212,7 +230,7 @@ fn begin(item: Rid, scale: f32) {
 }
 
 /// Go back to logical pixels.
-fn end(item: Rid) {
+pub(crate) fn end(item: Rid) {
     server().canvas_item_add_set_transform(item, Transform2D::IDENTITY);
 }
 

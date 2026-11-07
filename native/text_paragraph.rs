@@ -3,14 +3,22 @@
 //! lines, the way a clipped line ends. Everything that reads or draws a node's text goes through [`StyledParagraph`].
 
 mod draw;
+mod rich;
+
+use std::rc::Rc;
 
 use godot::classes::text_server::{JustificationFlag, LineBreakFlag, OverrunBehavior, SpacingType};
-use godot::classes::{TextParagraph, TextServer, TextServerManager};
+use godot::classes::{RenderingServer, TextParagraph, TextServer, TextServerManager};
 use godot::global::HorizontalAlignment;
 use godot::prelude::*;
 
+use crate::box_draw::Lease;
 use crate::fonts::ResolvedFont;
-use crate::text_layout::{GodotParagraph, LineExtents, TextLayout};
+use crate::text_decoration::Fragment;
+use crate::text_layout::{GodotParagraph, GodotTextLayout, LineExtents, TextLayout};
+use crate::text_span::RichText;
+use crate::text_span::offsets::OffsetMap;
+use crate::text_span::plan::fragments;
 use crate::text_style::TextDecoration;
 use crate::text_style::metrics::LineBox;
 use crate::text_style::resolve::{Alignment, LineHeight, ShapingStyle, Wrapping};
@@ -41,6 +49,9 @@ pub(crate) struct StyledParagraph {
     line_box: Option<LineBox>,
     /// The decoration lines drawn over the text.
     decorations: Vec<TextDecoration>,
+    /// The spans of a text made of nested `Text`: its fonts, colours, backgrounds and decorations per fragment. With them the
+    /// decorations are the segments' (the node's own are in each), and `decorations` is empty.
+    rich: Option<Rc<rich::RichParagraph>>,
 }
 
 fn alignment_of(alignment: Alignment) -> HorizontalAlignment {
@@ -73,6 +84,42 @@ impl StyledParagraph {
     /// The paragraph for `text`, which is already what is shown (`text_style::flow::shown_text`). An empty text gives a
     /// paragraph with no lines, which a text input needs to place a caret in an empty value; a `Text` has none.
     pub(crate) fn build(text: &str, style: &ShapingStyle, font: ResolvedFont) -> Self {
+        let mut paragraph = Self::configured(style);
+        if !text.is_empty() {
+            assert!(
+                paragraph.add_string(text, &font.shape, style.font_size),
+                "Godot rejected validated text/font"
+            );
+        }
+        Self::finished(paragraph, text, style, font, None)
+    }
+
+    /// The paragraph for a text with spans (`text_span::resolve`): the display text, shaped in `fonts`, one per font run of
+    /// `text`. `base` is the node's own font, which the metrics of an empty line and of a decoration are taken from. `epoch` is
+    /// the font book's, to tell later whether the fonts could have changed.
+    pub(crate) fn build_rich(
+        text: RichText,
+        fonts: Vec<ResolvedFont>,
+        style: &ShapingStyle,
+        base: ResolvedFont,
+        epoch: u64,
+    ) -> Self {
+        let mut paragraph = Self::configured(style);
+        let characters: Vec<char> = text.display.chars().collect();
+        for (run, font) in text.font_runs.iter().zip(&fonts) {
+            let piece: String = characters[run.range.clone()].iter().collect();
+            assert!(
+                paragraph.add_string(&piece, &font.shape, style.font_size),
+                "Godot rejected validated text/font"
+            );
+        }
+        let display = text.display.clone();
+        let rich = rich::RichParagraph::new(text, fonts, style, epoch);
+        Self::finished(paragraph, &display, style, base, Some(Rc::new(rich)))
+    }
+
+    /// An empty `TextParagraph` set up for `style`: how it breaks, aligns, justifies, ellipsizes and clamps.
+    fn configured(style: &ShapingStyle) -> Gd<TextParagraph> {
         let mut paragraph = TextParagraph::new_gd();
         paragraph.set_break_flags(break_flags(style.wrapping, true));
         paragraph.set_alignment(alignment_of(style.alignment));
@@ -91,12 +138,17 @@ impl StyledParagraph {
         if let Some(lines) = style.line_clamp {
             paragraph.set_max_lines_visible(i32::try_from(lines).unwrap_or(i32::MAX));
         }
-        if !text.is_empty() {
-            assert!(
-                paragraph.add_string(text, &font.shape, style.font_size),
-                "Godot rejected validated text/font"
-            );
-        }
+        paragraph
+    }
+
+    /// What is done to a paragraph once its text is in: the line box of `line-height`, and tab stops.
+    fn finished(
+        mut paragraph: Gd<TextParagraph>,
+        text: &str,
+        style: &ShapingStyle,
+        font: ResolvedFont,
+        rich: Option<Rc<rich::RichParagraph>>,
+    ) -> Self {
         let line_box = Self::line_box_of(style, &font);
         if let Some(line_box) = line_box {
             let mut server = TextServerManager::singleton()
@@ -124,7 +176,33 @@ impl StyledParagraph {
             style: style.clone(),
             line_box,
             decorations: Vec::new(),
+            rich,
         }
+    }
+
+    /// Give this paragraph the spans of `text` without shaping it again, if shaping them gives what it holds: the same characters
+    /// in the same fonts at the same style. The colours, backgrounds and decorations are what changed. Hands `text` back when it
+    /// has to be shaped again.
+    pub(crate) fn repaint_rich(&mut self, text: RichText, style: &ShapingStyle, epoch: u64) -> Result<(), RichText> {
+        let Some(rich) = self.rich.as_ref() else {
+            return Err(text);
+        };
+        if !rich.shapes_like(&text, style, epoch) {
+            return Err(text);
+        }
+        let fonts = rich.fonts.clone();
+        self.rich = Some(Rc::new(rich::RichParagraph::new(text, fonts, style, epoch)));
+        Ok(())
+    }
+
+    /// The offsets of this paragraph's inlays, if it has spans.
+    pub(crate) fn offset_map(&self) -> Option<&OffsetMap> {
+        self.rich.as_ref().map(|rich| &rich.text.map)
+    }
+
+    /// The spans' text, if it has them.
+    pub(crate) fn rich_text(&self) -> Option<&RichText> {
+        self.rich.as_ref().map(|rich| &rich.text)
     }
 
     fn line_box_of(style: &ShapingStyle, font: &ResolvedFont) -> Option<LineBox> {
@@ -216,11 +294,62 @@ impl StyledParagraph {
         size
     }
 
-    /// Draw the text with its first line's top left at `origin` in `canvas`, `width` wide, and its decoration lines.
+    /// The layout of this paragraph as it is drawn at `origin`, `width` wide, with the white space a line ends with left out
+    /// of its width (as a browser lets it hang).
+    fn layout(&self, origin: Vector2, width: f32) -> Result<GodotTextLayout, String> {
+        let source = GodotParagraph::lay_out(&self.paragraph, width)
+            .map_err(|error| error.to_string())?
+            .hanging_spaces();
+        TextLayout::new(source, origin, self.extents_of_empty_line()).map_err(|error| error.to_string())
+    }
+
+    /// Draw the backgrounds of the spans: under the selection highlight and under the text. A span's background fills the
+    /// content area of its text (the font's rounded ascent above the baseline, its descent below), not the line box, and its
+    /// edges are whole logical pixels, as Chrome paints it.
+    pub(crate) fn draw_backgrounds(&mut self, canvas: Rid, origin: Vector2, width: f32, oversampling: f32) {
+        let Some(rich) = self.rich.clone() else {
+            return;
+        };
+        if rich.backgrounds.is_empty() {
+            return;
+        }
+        self.paragraph.set_width(width);
+        let result = self.layout(origin, width).and_then(|layout| {
+            let (ascent, descent) = self.font.extents();
+            let (above, below) = (ascent.round(), descent.round());
+            let mut server = RenderingServer::singleton();
+            for (range, color) in &rich.backgrounds {
+                for run in layout
+                    .selection_rects(range.start, range.end)
+                    .map_err(|error| error.to_string())?
+                {
+                    let line = layout.line(run.line).map_err(|error| error.to_string())?;
+                    let baseline = (line.origin.y * oversampling).round() / oversampling;
+                    let left = run.rect.position.x.round();
+                    let right = (run.rect.position.x + run.rect.size.x).round();
+                    server.canvas_item_add_rect(
+                        canvas,
+                        Rect2::new(
+                            Vector2::new(left, baseline - above),
+                            Vector2::new(right - left, above + below),
+                        ),
+                        *color,
+                    );
+                }
+            }
+            Ok(())
+        });
+        if let Err(error) = result {
+            godot_error!("StyledParagraph: cannot draw the backgrounds: {error}");
+        }
+    }
+
+    /// Draw the text with its first line's top left at `origin` in `canvas`, `width` wide, and its decoration lines. Returns the
+    /// baked pictures the decorations use, which the caller keeps for as long as the item shows them.
     ///
     /// A paragraph that needs nothing `TextParagraph::draw` does not do is drawn by it. One that does (its glyphs are not
-    /// those of the font that shaped it, it has decorations, or its lines are not on whole pixels) is drawn line by line from
-    /// its layout, which places the lines as `TextParagraph::draw` does.
+    /// those of the font that shaped it, some are in colours of their own, it has decorations, or its lines are not on whole
+    /// pixels) is drawn line by line from its layout, which places the lines as `TextParagraph::draw` does.
     pub(crate) fn draw(
         &mut self,
         canvas: Rid,
@@ -228,7 +357,7 @@ impl StyledParagraph {
         width: f32,
         color: Color,
         oversampling: f32,
-    ) {
+    ) -> Vec<Lease> {
         self.paragraph.set_width(width);
         let fractional_lines = self.line_box.is_some_and(|line_box| line_box.gap != 0.0);
         // `TextParagraph::draw` aligns a line by its width with the space it ends with; the layout aligns it without (as a
@@ -241,8 +370,8 @@ impl StyledParagraph {
         // each baseline to a device pixel.
         let baselines_off_device_pixels =
             (oversampling - oversampling.round()).abs() > WHOLE_OVERSAMPLING_TOLERANCE;
-        if !self.font.tracked
-            && self.decorations.is_empty()
+        if !self.draws_glyphs()
+            && !self.is_decorated()
             && !fractional_lines
             && !hangs
             && !baselines_off_device_pixels
@@ -252,11 +381,74 @@ impl StyledParagraph {
                 .color(color)
                 .oversampling(oversampling)
                 .done();
-            return;
+            return Vec::new();
         }
-        if let Err(error) = self.draw_lines(canvas, origin, width, color, oversampling) {
-            godot_error!("StyledParagraph: cannot draw the text: {error}");
+        match self.draw_lines(canvas, origin, width, color, oversampling) {
+            Ok(leases) => leases,
+            Err(error) => {
+                godot_error!("StyledParagraph: cannot draw the text: {error}");
+                Vec::new()
+            }
         }
+    }
+
+    /// Whether the glyphs are drawn one at a time: the font tracks, or spans give some a colour of their own.
+    fn draws_glyphs(&self) -> bool {
+        self.font.tracked || self.rich.as_ref().is_some_and(|rich| rich.draws_glyphs())
+    }
+
+    fn is_decorated(&self) -> bool {
+        !self.decorations.is_empty() || self.rich.as_ref().is_some_and(|rich| rich.is_decorated())
+    }
+
+    /// The fragments the decorations are drawn per. Without spans a line is one; with them each stretch of a span on a line is
+    /// (a pattern starts again at every one).
+    fn decorated_fragments(
+        &self,
+        layout: &GodotTextLayout,
+        oversampling: f32,
+    ) -> Result<Vec<draw::DecoratedFragment>, String> {
+        let baseline = |line: &crate::text_layout::Line| (line.origin.y * oversampling).round() / oversampling;
+        let Some(rich) = &self.rich else {
+            return Ok(layout
+                .lines()
+                .iter()
+                .filter(|line| !line.after_final_break && !line.range.is_empty())
+                .map(|line| draw::DecoratedFragment {
+                    fragment: Fragment {
+                        left: line.origin.x,
+                        right: line.origin.x + line.width,
+                        baseline: baseline(line),
+                    },
+                    decorations: self.decorations.clone(),
+                })
+                .collect());
+        };
+        let lines: Vec<std::ops::Range<usize>> = layout
+            .lines()
+            .iter()
+            .map(|line| if line.after_final_break { 0..0 } else { line.range.clone() })
+            .collect();
+        let mut found = Vec::new();
+        for piece in fragments(&rich.text.segments, &lines) {
+            let runs = layout
+                .selection_rects(piece.range.start, piece.range.end)
+                .map_err(|error| error.to_string())?;
+            let mut extent: Option<(f32, f32)> = None;
+            for run in runs.iter().filter(|run| run.line == piece.line) {
+                let (left, right) = (run.rect.position.x, run.rect.position.x + run.rect.size.x);
+                extent = Some(extent.map_or((left, right), |(from, to)| (from.min(left), to.max(right))));
+            }
+            let Some((left, right)) = extent else {
+                continue;
+            };
+            let line = layout.line(piece.line).map_err(|error| error.to_string())?;
+            found.push(draw::DecoratedFragment {
+                fragment: Fragment { left, right, baseline: baseline(line) },
+                decorations: rich.text.segments[piece.segment].style.decorations.clone(),
+            });
+        }
+        Ok(found)
     }
 
     fn draw_lines(
@@ -266,12 +458,8 @@ impl StyledParagraph {
         width: f32,
         color: Color,
         oversampling: f32,
-    ) -> Result<(), String> {
-        let source = GodotParagraph::lay_out(&self.paragraph, width)
-            .map_err(|error| error.to_string())?
-            .hanging_spaces();
-        let layout = TextLayout::new(source, origin, self.extents_of_empty_line())
-            .map_err(|error| error.to_string())?;
+    ) -> Result<Vec<Lease>, String> {
+        let layout = self.layout(origin, width)?;
         let mut server: Gd<TextServer> = TextServerManager::singleton()
             .get_primary_interface()
             .ok_or("there is no text server")?;
@@ -292,34 +480,32 @@ impl StyledParagraph {
                 .font_size(size)
                 .done(),
         );
-        let mut decorated = Vec::new();
-        for line in layout.lines() {
-            if line.after_final_break || line.range.is_empty() {
-                continue;
-            }
-            decorated.push(draw::DecoratedLine {
-                origin: line.origin,
-                width: line.width,
-            });
-        }
+        let mut leases = Vec::new();
+        let fragments = self.decorated_fragments(&layout, oversampling)?;
         draw::draw_decorations(
             canvas,
-            &self.decorations,
-            &decorated,
+            &fragments,
             decoration_font,
             oversampling,
             draw::Layer::Behind,
+            &mut leases,
         );
-        let fonts: Vec<(Rid, Rid)> = self
-            .font
-            .shape
-            .get_rids()
-            .iter_shared()
-            .zip(self.font.draw.get_rids().iter_shared())
+        // The rids each glyph's font is drawn as: the node's font and, with spans, the fonts of the other runs.
+        let fonts: Vec<(Rid, Rid)> = std::iter::once(&self.font)
+            .chain(self.rich.iter().flat_map(|rich| rich.fonts.iter()))
+            .flat_map(|font| {
+                font.shape
+                    .get_rids()
+                    .iter_shared()
+                    .zip(font.draw.get_rids().iter_shared())
+                    .collect::<Vec<_>>()
+            })
             .collect();
+        let glyphwise = self.draws_glyphs();
         let drawing = draw::LineDrawing {
             canvas,
             color,
+            colors: self.rich.as_ref().map(|rich| &rich.colors),
             oversampling,
             fonts: &fonts,
         };
@@ -336,7 +522,7 @@ impl StyledParagraph {
                 (line.origin.y * oversampling).round() / oversampling,
             );
             let clip_left = (origin.x - line.origin.x).max(0.0);
-            if self.font.tracked {
+            if glyphwise {
                 draw::draw_glyphs(
                     &mut server,
                     rid,
@@ -356,12 +542,12 @@ impl StyledParagraph {
         }
         draw::draw_decorations(
             canvas,
-            &self.decorations,
-            &decorated,
+            &fragments,
             decoration_font,
             oversampling,
             draw::Layer::Over,
+            &mut leases,
         );
-        Ok(())
+        Ok(leases)
     }
 }

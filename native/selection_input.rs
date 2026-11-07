@@ -40,6 +40,7 @@ use crate::selection::{Document, SelectableNode, SelectionError, SelectionPoint,
 use crate::text_layout::{GodotParagraph, GodotTextLayout, TextLayout, TextLayoutError};
 use crate::text_offsets::code_point_to_utf16;
 use crate::text_paragraph::StyledParagraph;
+use crate::text_span::offsets::{OffsetMap, Side};
 use crate::{ReactUiRoot, event_time_ms};
 
 /// The clicks that select a word and a whole node's text (`PointerData::detail`; further clicks of one
@@ -151,7 +152,7 @@ pub(crate) fn drag_target(nodes: &[(u32, BoxRect)], point: Vector2) -> Option<Dr
 
 /// The layout of `paragraph` as it is drawn into its node's content item. Build one per gesture or
 /// paint and drop it (`text_layout.rs`).
-fn lay_out(
+pub(crate) fn lay_out(
     paragraph: &StyledParagraph,
     geometry: &NodeGeometry,
 ) -> Result<GodotTextLayout, TextLayoutError> {
@@ -173,11 +174,29 @@ pub(crate) fn highlight_rects(
     end: usize,
 ) -> Result<Vec<Rect2>, TextLayoutError> {
     let layout = lay_out(paragraph, geometry)?;
+    // The selection is in the shown text; the paragraph also holds its inlays, which a selection covers when it is across them.
+    let range = paragraph
+        .offset_map()
+        .map_or(start..end, |map| map.display_range(start..end));
     Ok(layout
-        .selection_rects(start, end)?
+        .selection_rects(range.start, range.end.max(range.start))?
         .into_iter()
         .map(|run| run.rect)
         .collect())
+}
+
+/// The word at source offset `source`, as source offsets: the layout finds it in the display text, which holds the inlays.
+fn word_range_in_source(
+    layout: &GodotTextLayout,
+    map: Option<&OffsetMap>,
+    source: usize,
+) -> Result<(usize, usize), TextLayoutError> {
+    let Some(map) = map else {
+        return layout.word_range_at(source);
+    };
+    let (start, end) = layout.word_range_at(map.display_of(source, Side::After))?;
+    let range = map.source_range(start..end);
+    Ok((range.start, range.end))
 }
 
 /// The highlight a node's content item paints for `range`, in the node's `selection-color`.
@@ -329,6 +348,18 @@ impl ReactUiRoot {
             .map_err(|error| format!("node {tag}: {error}"))
     }
 
+    /// The offset map of node `tag`'s paragraph, if it has inlays.
+    fn offset_map_of(&self, tag: u32) -> Option<&OffsetMap> {
+        self.mounted
+            .nodes
+            .get(&tag)?
+            .visual
+            .paragraph
+            .as_ref()?
+            .offset_map()
+            .filter(|map| map.has_inlays())
+    }
+
     /// The lines of node `tag`'s text as they are drawn, in root-local coordinates, for a verifier to compare with another
     /// renderer's: the text shown, and for each line its code point range, the left end and the baseline of its glyphs, its
     /// ascent, descent and width. `null` for a node that is not mounted or shows no text.
@@ -363,7 +394,14 @@ impl ReactUiRoot {
             .selection_text_of(tag)
             .map(str::to_owned)
             .unwrap_or_default();
-        serde_json::json!({ "text": shown, "lines": lines })
+        let display = self
+            .mounted
+            .nodes
+            .get(&tag)
+            .and_then(|node| node.visual.paragraph.as_ref())
+            .and_then(StyledParagraph::rich_text)
+            .map(|rich| rich.display.clone());
+        serde_json::json!({ "text": shown, "display": display.unwrap_or_else(|| shown.clone()), "lines": lines })
     }
 
     /// The selection point under `position` (root-local) in text node `tag`: its layout's hit test, and
@@ -381,9 +419,12 @@ impl ReactUiRoot {
         let Some(layout) = self.text_layout_of(tag)? else {
             return Ok((SelectionPoint { tag, offset: 0 }, None));
         };
-        if layout.text_len() != len {
+        // The paragraph holds the node's inlays too: the document counts the text, the layout the text and the inlays.
+        let map = self.offset_map_of(tag);
+        let expected = map.map_or(len, OffsetMap::display_len);
+        if layout.text_len() != expected {
             return Err(format!(
-                "node {tag}: the layout has {} code points but the document counted {len}",
+                "node {tag}: the layout has {} code points but the document counted {expected}",
                 layout.text_len()
             ));
         }
@@ -395,6 +436,8 @@ impl ReactUiRoot {
         let offset = layout
             .hit_test(local)
             .map_err(|error| format!("node {tag}: {error}"))?;
+        // A point on generated text selects at the source offset it sits at.
+        let offset = map.map_or(offset, |map| map.source_of(offset));
         Ok((SelectionPoint { tag, offset }, Some(layout)))
     }
 
@@ -590,13 +633,14 @@ impl ReactUiRoot {
                 return false;
             }
         };
+        let map = self.offset_map_of(tag).cloned();
         let selection = &mut self.selecting.selection;
         let result = if self.pointer_modifiers.shift_key {
             selection.extend(&document, point)
         } else if detail == WORD_CLICK_DETAIL {
             let word = match layout
                 .as_ref()
-                .map(|layout| layout.word_range_at(point.offset))
+                .map(|layout| word_range_in_source(layout, map.as_ref(), point.offset))
             {
                 Some(Ok(word)) => word,
                 Some(Err(error)) => {
