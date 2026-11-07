@@ -12,6 +12,9 @@
 import { readFileSync, readdirSync, existsSync, writeFileSync } from 'node:fs';
 import { SourceMap } from 'node:module';
 import { resolve, relative } from 'node:path';
+import { rejectUnknownArguments } from './arguments.mjs';
+
+rejectUnknownArguments(process.argv.slice(2).filter(argument => argument.startsWith('--')), { prefixes: ['--top=', '--json='] });
 
 const root = resolve(import.meta.dirname, '..');
 const directories = process.argv.slice(2).filter(argument => !argument.startsWith('--')).map(argument => resolve(argument));

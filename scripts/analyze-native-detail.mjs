@@ -7,6 +7,9 @@
 // threes and the second of each is the press. A timer is inclusive of the timers inside it (their names say where they nest).
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { rejectUnknownArguments } from './arguments.mjs';
+
+rejectUnknownArguments(process.argv.slice(2).filter(argument => argument.startsWith('--')), { prefixes: ['--kind='] });
 
 const MEDIAN = 0.5;
 const PERCENTILE_95 = 0.95;

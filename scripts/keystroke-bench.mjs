@@ -11,6 +11,9 @@ import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
 import puppeteer from 'puppeteer-core';
+import { rejectUnknownArguments } from './arguments.mjs';
+
+rejectUnknownArguments(process.argv.slice(2), { prefixes: ['--site=', '--keystrokes=', '--warmup=', '--first=', '--last=', '--out='] });
 
 const root = resolve(import.meta.dirname, '..');
 const executablePath = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
@@ -57,7 +60,9 @@ try {
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
   await page.addScriptTag({ content: code });
   const isolated = await page.evaluate(() => crossOriginIsolated);
-  const version = await browser.version();
+  const session = await browser.target().createCDPSession();
+  const { jsVersion, product } = await session.send('Browser.getVersion');
+  const version = `${product}, V8 ${jsVersion}`;
   results.chrome = { version, crossOriginIsolated: isolated, summary: await page.evaluate(chromeOptions => KeystrokeBench.bench(chromeOptions), options) };
 } finally {
   await browser.close();

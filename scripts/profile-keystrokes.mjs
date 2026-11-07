@@ -22,7 +22,8 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSyn
 import { createServer } from 'node:net';
 import { loadavg } from 'node:os';
 import { resolve } from 'node:path';
-import { argsWithoutEngine, selectEngine } from './engine.mjs';
+import { rejectUnknownArguments } from './arguments.mjs';
+import { selectEngine } from './engine.mjs';
 import { importDemo } from './import-demo.mjs';
 import { quietLaunch, quietWindowProblem } from './quiet-window.mjs';
 
@@ -42,11 +43,10 @@ function option(name, fallback) {
   return found === undefined ? fallback : found.slice(name.length + 3);
 }
 
-for (const argument of argsWithoutEngine(process.argv.slice(2))) {
-  if (!['--site=', '--warmup=', '--bursts=', '--inserts=', '--cpu=', '--keystrokes=', '--bench-warmup=', '--renderer-profile=', '--coverage', '--standalone', '--no-inspector', '--bench', '--move', '--gap=', '--after-prepare=', '--out='].some(prefix => argument.startsWith(prefix))) {
-    throw new Error(`Unknown argument: ${argument}`);
-  }
-}
+rejectUnknownArguments(process.argv.slice(2), {
+  flags: ['--coverage', '--standalone', '--no-inspector', '--bench', '--move'],
+  prefixes: ['--site=', '--warmup=', '--bursts=', '--inserts=', '--cpu=', '--keystrokes=', '--bench-warmup=', '--renderer-profile=', '--gap=', '--after-prepare=', '--out='],
+});
 const site = option('site', 'attribute');
 const warmup = Number(option('warmup', DEFAULT_WARMUP));
 const bursts = Number(option('bursts', DEFAULT_BURSTS));

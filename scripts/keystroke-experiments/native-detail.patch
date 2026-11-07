@@ -291,3 +291,46 @@ index 7381205..3873cda 100644
              let (boxed, contented) = self.paint_node(tag);
              self.stats.box_records += u64::from(boxed);
              self.stats.content_records += u64::from(contented);
+diff --git a/native/text_paragraph.rs b/native/text_paragraph.rs
+index ee2849a..0d97e2f 100644
+--- a/native/text_paragraph.rs
++++ b/native/text_paragraph.rs
+@@ -483,7 +483,10 @@ impl StyledParagraph {
+         color: Color,
+         oversampling: f32,
+     ) -> Result<Vec<Lease>, String> {
++        let timer = crate::detail::timer("paint.rich.layout");
+         let layout = self.layout(origin, width)?;
++        drop(timer);
++        crate::detail::count("paint.rich.lines", layout.lines().len() as u64);
+         let mut server: Gd<TextServer> = TextServerManager::singleton()
+             .get_primary_interface()
+             .ok_or("there is no text server")?;
+@@ -505,7 +508,10 @@ impl StyledParagraph {
+                 .done(),
+         );
+         let mut leases = Vec::new();
++        let timer = crate::detail::timer("paint.rich.decorated_fragments");
+         let fragments = self.decorated_fragments(&layout, oversampling)?;
++        drop(timer);
++        let timer = crate::detail::timer("paint.rich.decorations_behind");
+         draw::draw_decorations(
+             canvas,
+             &fragments,
+@@ -533,6 +539,8 @@ impl StyledParagraph {
+             oversampling,
+             fonts: &fonts,
+         };
++        drop(timer);
++        let line_loop = crate::detail::timer("paint.rich.line_loop");
+         for (index, line) in layout.lines().iter().enumerate() {
+             if line.after_final_break {
+                 continue;
+@@ -564,6 +572,7 @@ impl StyledParagraph {
+                     .done();
+             }
+         }
++        drop(line_loop);
+         draw::draw_decorations(
+             canvas,
+             &fragments,
