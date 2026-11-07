@@ -12,7 +12,17 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // `--baseline` records the pre-Fabric benchmark scenarios (Phase F0) and never touches the motion evidence.
 // `--acceptance` reruns the same scenarios on the Fabric renderer and checks Phase F4's criteria
 // (docs/INTERACTION_PLAN.md); it writes to its own directory so the F0 evidence stays intact.
-rejectUnknownArguments(process.argv.slice(2), { flags: ['--quick', '--baseline', '--acceptance', '--release'] });
+// `--stage-cpu-throttle=<rate>` runs the page under Chrome's CPU slowdown (`Emulation.setCPUThrottlingRate`: 3 is a machine three times slower) while the
+// independent-owners scenario reads its transitions in flight, and only then: a check that reads transitions in flight must not depend on how fast
+// the machine runs its steps, and this shows that it does not. (The rest of this verifier waits on the wall clock after each click and has little
+// margin to spare: slowed as a whole, an unchanged run fails at other steps, which is not what this is about.)
+const STAGE_THROTTLE_PREFIX = '--stage-cpu-throttle=';
+rejectUnknownArguments(process.argv.slice(2), { flags: ['--quick', '--baseline', '--acceptance', '--release'], prefixes: [STAGE_THROTTLE_PREFIX] });
+const throttleArgument = process.argv.find((argument) => argument.startsWith(STAGE_THROTTLE_PREFIX));
+const stageThrottleRate = throttleArgument === undefined ? undefined : Number(throttleArgument.slice(STAGE_THROTTLE_PREFIX.length));
+if (stageThrottleRate !== undefined && !(Number.isFinite(stageThrottleRate) && stageThrottleRate >= 1)) {
+  throw new Error(`${STAGE_THROTTLE_PREFIX}<rate> takes a number of at least 1, not ${throttleArgument.slice(STAGE_THROTTLE_PREFIX.length)}`);
+}
 const engine = selectEngine();
 // Refuse an export whose side module was built from other sources than the working tree (docs/tracks/freshness.md).
 engine.requireFreshWebExport();
@@ -39,6 +49,13 @@ const DETACHED_OBSERVATION_MS = 200;
 const MOTION_BASE_FONT_SIZE = 14;
 const MOTION_LARGE_FONT_SIZE = 18;
 const PAINT_START_HEIGHT_FRACTION = 0.7;
+// The engine's clock rate (`Engine.timeScale`, demo `setTimeScale`) while the independent-owners scenario sets itself up: transitions run at a
+// quarter of their speed, so each step of the browser (a click is a dozen round trips and six painted frames) is a small part of one, and the
+// clock is held (0) while a step must not move them. Real time is 1. Every frame, held or not, adds samples to the native profile, which keeps
+// 512 (`PROFILE_CAPACITY`, native/profile.rs) and which the trace around the scenario must not overflow: slower than this and it does.
+const SLOWED_TIME_SCALE = 0.25;
+const HELD_TIME_SCALE = 0;
+const REAL_TIME_SCALE = 1;
 const OPENING_CAPTURE_MIN_RATIO = 0.5;
 const OPENING_CAPTURE_MAX_RATIO = 0.85;
 const CLOSING_CAPTURE_MIN_RATIO = 0.35;
@@ -67,7 +84,7 @@ assert.ok(counts.every((count) => Number.isSafeInteger(count) && count > 0), 'MO
 
 const report = {
   url, startedAt: new Date().toISOString(), passed: false,
-  configuration: { quick, baseline, acceptance, repetitions, counts, devicePixelRatios: scenarioMode ? [1] : [1, 2] },
+  configuration: { quick, baseline, acceptance, repetitions, counts, devicePixelRatios: scenarioMode ? [1] : [1, 2], stageCpuThrottleRate: stageThrottleRate ?? null },
   measurementNotes: [
     'Synthetic fixtures update every keyed cell; offscreen cells remain laid out and are not virtualized.',
     'Native draw timings measure CPU shaping and draw-command submission, not GPU execution or display scanout.',
@@ -594,7 +611,13 @@ async function runMotion(dpr) {
     check(`${stage}: no new height transition is created`,
       !observation.transitions.some((transition) => transition.id === panelID && transition.property === 'height'));
   }
-  await beginTrace([...ids, swatchID]);
+  // The stages below look at a paint transition that is still in flight, across a click each, and the paint lasts MOTION_DURATION_MS (600) of the
+  // engine's clock. A click takes as long as the browser takes to paint six frames and answer a dozen calls, 300 ms on a busy machine, so on a
+  // slow one the paint ended before the last stage and the check failed with the swatch at its end value (docs/tracks/regression-fixes.md).
+  // The clock is the engine's, so the check holds it: slowed while the heights and the paint are brought to the overlap, held while the
+  // stages read them, whatever time the steps take.
+  const setTimeScale = (scale) => page.evaluate((value) => globalThis.godotReactDemo.setTimeScale(value), scale);
+  await setTimeScale(SLOWED_TIME_SCALE);
   await click('motion-toggle');
   await active();
   await until('height reaches the paint-overlap trigger', async () => {
@@ -603,17 +626,27 @@ async function runMotion(dpr) {
     return height && typeof height.target === 'number' && height.target > 0 &&
       observation.panel.rect.height / height.target >= PAINT_START_HEIGHT_FRACTION;
   });
+  // The paint starts where the height is, however long the click takes. The trace starts here, with the clock held: from the overlap on.
+  await setTimeScale(HELD_TIME_SCALE);
+  await beginTrace([...ids, swatchID]);
+  const throttle = stageThrottleRate === undefined ? undefined : await page.createCDPSession();
+  await throttle?.send('Emulation.setCPUThrottlingRate', { rate: stageThrottleRate });
   await click('motion-paint-toggle');
+  await setTimeScale(SLOWED_TIME_SCALE);
   await until('height restores auto while independent paint continues', async () => {
     const observation = await observeIndependentOwners();
     return observation.panel.presentation.heightIsAuto === true && paintIsIntermediate(observation);
   });
+  await setTimeScale(HELD_TIME_SCALE);
   await assertIndependentAuto('Height completion');
   await click('motion-copy-toggle');
   await assertIndependentAuto('Copy change after height completion');
   await click('motion-font-toggle');
   await assertIndependentAuto('Font change after height completion');
   await capture('07a-independent-height-completion');
+  await throttle?.send('Emulation.setCPUThrottlingRate', { rate: 1 });
+  await throttle?.detach();
+  await setTimeScale(REAL_TIME_SCALE);
   await settled();
   assertAnimatedFlow(await endTrace('independent-intrinsic-completion'), panelID, siblingID, { flatBatches: false });
   // Restore all affected controls through their real React handlers before the
@@ -1196,7 +1229,7 @@ try {
     check('Motion demo document loads', response?.ok());
     await until('GodotJS motion/profile API', async () => page.evaluate(() => {
       const api = globalThis.godotReactDemo;
-      return api && ['snapshot', 'find', 'profile', 'takeProfile', 'activity', 'benchmark', 'restoreDemo', 'surfaceAttached'].every((key) => typeof api[key] === 'function');
+      return api && ['snapshot', 'find', 'profile', 'takeProfile', 'activity', 'benchmark', 'restoreDemo', 'surfaceAttached', 'setTimeScale'].every((key) => typeof api[key] === 'function');
     }), STARTUP_MS);
     await packObserver.verifyPackTransfer();
     check('WebAssembly page is cross-origin isolated', await page.evaluate(() => crossOriginIsolated));

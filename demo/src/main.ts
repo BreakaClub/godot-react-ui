@@ -316,6 +316,15 @@ export default class Main extends Node {
        * changes size `_process` leaves it as set here.
        */
       resizeSurface: (width: number, height: number) => { this.requireSurface().size = new Vector2(width, height); },
+      /**
+       * The engine's clock rate (`Engine.timeScale`), which scales the `delta` the native motion clock advances by: 0 holds every transition
+       * where it is, 1 lets them run. A verifier that must look at transitions while they are still in flight holds the clock, so what it
+       * sees does not depend on how long its own steps take on a busy machine.
+       */
+      setTimeScale: (scale: number) => {
+        if (!Number.isFinite(scale) || scale < 0) throw new Error(`The time scale must be a finite number of at least 0, not ${scale}`);
+        Engine.timeScale = scale;
+      },
       surfaceAttached: (attached: boolean) => {
         const surface = this.requireSurface();
         const parent = surface.getParent();
