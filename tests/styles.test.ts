@@ -179,7 +179,7 @@ test('stylesheets preserve identity, freeze definitions and compile like inline 
 
 test('compileStyle rejects unknown classes even when they could never apply', () => {
   for (const utility of [
-    'hover:shadow-xl', 'md:bg-missing-500', 'dark:bg-white', 'p-[calc(1px)]', 'w-[NaN%]', 'w-1/0',
+    'hover:shadow-huge', 'md:bg-missing-500', 'dark:bg-white', 'p-[calc(1px)]', 'w-[NaN%]', 'w-1/0',
     'text-[0px]', 'text-[1.5px]', 'bg-[#12]', 'grid-cols-0', 'opacity-101', 'hover:', 'p-Infinity',
     'toString', 'bg-toString', 'max-w-constructor', `w-[${'9'.repeat(400)}%]`, 'focus-visible:', 'focus-visble:p-1',
   ]) {

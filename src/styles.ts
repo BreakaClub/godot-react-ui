@@ -7,6 +7,7 @@ import type {
 import { unsupportedHint } from './utilities/hints';
 import { layoutUtility } from './utilities/layout';
 import { transitionUtility } from './utilities/transition';
+import { mergePaint, paintUtility, type PaintStyle } from './utilities/paint';
 
 const SPACING_UNIT = 4;
 const TOKEN_CACHE_LIMIT = 2048;
@@ -301,7 +302,7 @@ function parseColor(value: string): HexColor | undefined {
  * What a class sets: a style, and for filter utilities the one function they set (see `FilterParts`), for transform utilities the
  * values they set (see `TransformParts`) and for transition utilities the longhands they set (see `TransitionParts`).
  */
-type UtilityStyle = Style & Pick<LonghandStyle, 'filterParts' | 'backdropFilterParts' | 'transformParts' | 'transitionParts'>;
+type UtilityStyle = Style & Pick<LonghandStyle, 'filterParts' | 'backdropFilterParts' | 'transformParts' | 'transitionParts'> & PaintStyle;
 
 /** A number, or a percentage as a fraction, inside `[...]`. */
 function parseArbitraryAmount(value: string): number | undefined {
@@ -463,6 +464,8 @@ function utilityStyle(utility: string): UtilityStyle | undefined {
   if (layout !== undefined) return layout;
   const transition = transitionUtility(utility);
   if (transition !== undefined) return transition;
+  const painted = paintUtility(utility, { parseColor, parsePixels, radii: RADII });
+  if (painted !== undefined) return painted;
 
   const inset = /^(-?)(inset-x|inset-y|inset|top|right|bottom|left|start|end)-(.+)$/.exec(utility);
   if (inset?.[2] !== undefined && inset[3] !== undefined) {
@@ -581,8 +584,9 @@ function transitionLonghands(transition: Transition): TransitionParts {
 function mergeLonghands(target: LonghandStyle, source: Readonly<UtilityStyle>): void {
   const {
     padding, margin, gap, overflow, inset, transition, transitionParts, filter, filterParts, backdropFilter, backdropFilterParts,
-    transform, transformParts, fontWeight, ...properties
+    transform, transformParts, fontWeight, ...paint
   } = source;
+  const properties = mergePaint(target, paint);
   if (fontWeight !== undefined) target.fontWeight = fontWeightNumber(fontWeight);
   if (padding !== undefined) {
     target.paddingTop = padding;

@@ -10,6 +10,7 @@ use blitz_dom::{BaseDocument, DocumentConfig, NodeId, StyleThreading, qual_name}
 use style::values::computed::length::CSSPixelLength;
 use style::values::computed::{LengthPercentage, Size};
 
+use crate::box_shadow::{ShadowLayer, ShadowList};
 use crate::commit::LAYER_COUNT;
 use crate::diff::Parent;
 use crate::filter::{DropShadow, FilterFunction, FilterList, Rgba};
@@ -129,6 +130,10 @@ pub struct SampledStyle {
     /// The sampled `transform`: Stylo's computed list, which mid-transition may hold an interpolated matrix of
     /// two lists that did not match. It is evaluated against the element's box ([`crate::transform::evaluate`]).
     pub transform: ComputedTransformValue,
+
+    /// The sampled `box-shadow`, layer by layer (Stylo pads the shorter of two lists with transparent shadows), with every
+    /// colour concrete.
+    pub box_shadow: ShadowList,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -145,6 +150,8 @@ struct AppliedStyle {
     backdrop_filter: String,
     /// The resolved list as CSS text (`none` for no transform).
     transform: String,
+    /// The resolved `box-shadow` as CSS text (`none` for no shadow).
+    box_shadow: String,
     hidden: bool,
     transition: Option<TransitionSpec>,
 }
@@ -199,6 +206,10 @@ impl AppliedStyle {
                 .resolve_current_color(current_color(style))
                 .to_css(),
             transform: style.transform_list().css().to_string(),
+            box_shadow: style
+                .box_shadow_list()
+                .resolve_current_color(current_color(style))
+                .to_css(),
             hidden: style.display == Some(DisplaySpec::None),
             transition: style.transition.clone(),
         }
@@ -457,6 +468,9 @@ impl StyleEngine {
         if previous.is_none_or(|previous| previous.transform != next.transform) {
             mutator.set_style_property(native_id, "transform", &next.transform);
         }
+        if previous.is_none_or(|previous| previous.box_shadow != next.box_shadow) {
+            mutator.set_style_property(native_id, "box-shadow", &next.box_shadow);
+        }
         if previous.is_none_or(|previous| previous.hidden != next.hidden) {
             mutator.set_style_property(
                 native_id,
@@ -536,8 +550,36 @@ impl StyleEngine {
             filter: sampled_filters(&effects.filter.0, &current_color)?,
             backdrop_filter: sampled_filters(&effects.backdrop_filter.0, &current_color)?,
             transform: computed.get_box().transform.clone(),
+            box_shadow: sampled_box_shadows(&effects.box_shadow.0, &current_color),
         })
     }
+}
+
+/// Stylo's computed `box-shadow` layers as ours: lengths in CSS pixels, colours resolved against the element's text colour.
+fn sampled_box_shadows(
+    shadows: &[style::values::computed::BoxShadow],
+    current_color: &style::color::AbsoluteColor,
+) -> ShadowList {
+    ShadowList(
+        shadows
+            .iter()
+            .map(|shadow| ShadowLayer {
+                x: shadow.base.horizontal.px(),
+                y: shadow.base.vertical.px(),
+                blur: shadow.base.blur.0.px(),
+                spread: shadow.spread.px(),
+                color: Some(
+                    *shadow
+                        .base
+                        .color
+                        .resolve_to_absolute(current_color)
+                        .into_srgb_legacy()
+                        .raw_components(),
+                ),
+                inset: shadow.inset,
+            })
+            .collect(),
+    )
 }
 
 /// Stylo's computed filter functions as ours: lengths in CSS pixels, angles in degrees, shadow colours
@@ -1208,5 +1250,44 @@ mod tests {
         near(a, 1.0);
         near(d, 1.0);
         near(f, 20.0);
+    }
+
+    /// Stylo interpolates `box-shadow` layer by layer, pads the shorter list with transparent shadows and ends exactly on
+    /// the target: a hover that changes `shadow-sm` to `shadow-lg` is a transition of one native property.
+    #[test]
+    fn box_shadows_transition_layer_by_layer_and_end_exactly() {
+        let mut scene = Scene::new("10");
+        *scene.node(1) = style(
+            r##"{"boxShadow":"0 1px 2px 0 rgba(0, 0, 0, 0.05)",
+                "transition":{"properties":["boxShadow"],"durationMs":1000,"easing":"linear"}}"##,
+        );
+        scene.sync(0.0);
+        let target = "0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1)";
+        scene.node(1).box_shadow = Some(ShadowList::parse(target).unwrap());
+        let started = scene.sync(0.0);
+        assert_eq!(
+            started.values[&1].box_shadow.0.len(),
+            2,
+            "the new layer is there from the start"
+        );
+        near(started.values[&1].box_shadow.0[0].y, 1.0);
+        near(started.values[&1].box_shadow.0[1].color.unwrap()[3], 0.0);
+        let halfway = scene.sample(0.5);
+        let layers = &halfway.values[&1].box_shadow.0;
+        near(layers[0].y, 5.5);
+        near(layers[0].blur, 8.5);
+        near(layers[0].spread, -1.5);
+        near(layers[0].color.unwrap()[3], 0.075);
+        near(layers[1].y, 2.0);
+        near(layers[1].blur, 3.0);
+        near(layers[1].spread, -2.0);
+        near(layers[1].color.unwrap()[3], 0.05);
+        let settled = scene.sample(1.0);
+        assert_eq!(
+            settled.values[&1].box_shadow,
+            ShadowList::parse(target).unwrap(),
+            "the end state is exact"
+        );
+        assert!(!settled.active, "and nothing is left animating");
     }
 }

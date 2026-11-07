@@ -757,7 +757,7 @@ fn parse_list(input: &str) -> Result<Vec<FilterFunction>, String> {
     Ok(functions)
 }
 
-fn matching_paren(text: &str, open: usize) -> Option<usize> {
+pub(crate) fn matching_paren(text: &str, open: usize) -> Option<usize> {
     let mut depth = 0usize;
     for (index, character) in text.char_indices().skip_while(|(index, _)| *index < open) {
         match character {
@@ -814,7 +814,7 @@ fn parse_function(name: &str, arguments: &str) -> Result<FilterFunction, String>
     })
 }
 
-fn parse_number(token: &str) -> Result<f32, String> {
+pub(crate) fn parse_number(token: &str) -> Result<f32, String> {
     token
         .parse::<f32>()
         .ok()
@@ -823,7 +823,7 @@ fn parse_number(token: &str) -> Result<f32, String> {
 }
 
 /// A number, or a percentage as a fraction.
-fn parse_amount(token: &str) -> Result<f32, String> {
+pub(crate) fn parse_amount(token: &str) -> Result<f32, String> {
     match token.strip_suffix('%') {
         Some(number) => parse_number(number).map(|value| value / PERCENT),
         None => parse_number(token),
@@ -831,7 +831,7 @@ fn parse_amount(token: &str) -> Result<f32, String> {
 }
 
 /// `4px`, or a unitless `0`.
-fn parse_length(token: &str) -> Result<f32, String> {
+pub(crate) fn parse_length(token: &str) -> Result<f32, String> {
     if let Some(number) = token.strip_suffix("px") {
         return parse_number(number);
     }
@@ -843,7 +843,7 @@ fn parse_length(token: &str) -> Result<f32, String> {
     }
 }
 
-fn parse_angle(token: &str) -> Result<f32, String> {
+pub(crate) fn parse_angle(token: &str) -> Result<f32, String> {
     for (suffix, to_degrees) in [
         ("deg", 1.0),
         ("grad", DEGREES_PER_GRAD),
@@ -865,7 +865,7 @@ fn parse_angle(token: &str) -> Result<f32, String> {
 }
 
 /// Whitespace-separated tokens, keeping parenthesised groups whole (`rgb(0 0 0 / 50%)`).
-fn tokens(text: &str) -> Vec<&str> {
+pub(crate) fn tokens(text: &str) -> Vec<&str> {
     let mut out = Vec::new();
     let mut depth = 0usize;
     let mut start = None;

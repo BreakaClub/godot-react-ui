@@ -25,11 +25,15 @@
 
 use std::time::Instant;
 
+use godot::builtin::Corner;
 use godot::classes::rendering_server::CanvasGroupMode;
 use godot::classes::{RenderingServer, StyleBoxFlat};
 use godot::prelude::*;
 
 use crate::ReactUiRoot;
+use crate::box_draw::{self, BoxShape, Lease};
+pub(crate) use crate::box_paint::{BorderKey, BoxKey};
+use crate::box_paint::{decoration_of, draw_box};
 use crate::commit::LAYER_COUNT;
 use crate::filter_faults::{self as faults, Fault};
 use crate::geometry::BoxRect;
@@ -37,7 +41,6 @@ use crate::paint::parse_color;
 use crate::profile::{Sample, micros};
 use crate::props::Kind;
 use crate::selection_input::{highlight_paint, highlight_rects};
-use crate::square_box;
 use crate::text_paragraph::StyledParagraph;
 use crate::transform::{Affine2, Placement};
 
@@ -52,6 +55,8 @@ pub(crate) const SCROLLBAR_THUMB_RADIUS_PX: i32 =
 /// Under a scroll container's box item the overlay draws after the content item, whose index is the
 /// default 0 (siblings of equal index have no defined order).
 const OVERLAY_DRAW_INDEX: i32 = 1;
+/// An outline draws over the content and the scrollbars (CSS paints outlines last).
+const OUTLINE_DRAW_INDEX: i32 = 2;
 
 /// Layer items and the top-most item are siblings under the Control's canvas item and sort by this
 /// index. The overlay layer draws after the main layer; the focus ring above both.
@@ -103,28 +108,17 @@ impl Oversampling {
     }
 }
 
-/// What a box item last drew; equal keys mean the recorded commands are still right.
+/// What an outline item last drew. An outline is a ring round the border box, so only the box's size and corners matter.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct BoxKey {
+pub(crate) struct OutlineKey {
     pub size: Vector2,
-    pub background: Color,
-    pub border_color: Color,
-    pub border_width: i32,
-    pub radius: i32,
-    /// The scale the antialiasing feather of a rounded corner is sized for (`StyleBoxFlat`, one feather length). Square corners are
-    /// not antialiased by it, so any other box keeps `Oversampling::NONE` and is not re-recorded when the scale changes.
+    pub radii: [i32; 4],
+    /// Logical pixels.
+    pub width: f32,
+    /// Logical pixels; negative draws the outline inside the border box.
+    pub offset: f32,
+    pub color: Color,
     pub oversampling: Oversampling,
-    /// A box with square corners that a transform has moved off the pixel grid is drawn from feathered triangles
-    /// (`square_box.rs`), because `StyleBoxFlat` antialiases only a rounded or skewed box: this is their feather along the box's own x
-    /// and y (`Raster::edge_feather`), one device pixel across an edge on each axis. `None` for any other box.
-    pub square_feather: Option<Vector2>,
-}
-
-impl BoxKey {
-    /// Whether the fill or the border lets what is behind show through.
-    fn is_translucent(&self) -> bool {
-        self.background.a < 1.0 || self.border_color.a < 1.0
-    }
 }
 
 /// The highlight a content item draws under its text: code points `start..end` (never empty) in `color`
@@ -190,7 +184,7 @@ fn server() -> Gd<RenderingServer> {
 }
 
 /// What an element's items currently show: enough for the drag ghost to draw a copy.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct Recorded {
     pub(crate) location: Vector2,
     pub(crate) opacity: f32,
@@ -275,6 +269,12 @@ pub(crate) struct RenderNode {
     overlay_key: Option<OverlayKey>,
     edit_text_key: Option<EditTextKey>,
     caret_key: Option<CaretKey>,
+    /// The cached textures (shadow masks, gradient ramps) the recorded box draws from; they live while this holds them.
+    leases: Vec<Lease>,
+    outline_leases: Vec<Lease>,
+    /// Draws the outline over the element's content; exists while the element has one.
+    outline_item: Option<Rid>,
+    outline_key: Option<OutlineKey>,
 }
 
 /// The two items a text input draws in: the text under the caret, so a blink never redraws the text.
@@ -315,6 +315,10 @@ impl RenderNode {
             overlay_key: None,
             edit_text_key: None,
             caret_key: None,
+            leases: Vec::new(),
+            outline_leases: Vec::new(),
+            outline_item: None,
+            outline_key: None,
         }
     }
 
@@ -324,7 +328,7 @@ impl RenderNode {
             location: self.location,
             opacity: self.opacity,
             clip: self.clip,
-            box_key: self.box_key,
+            box_key: self.box_key.clone(),
             content_key: self.content_key,
             scroll_offset: self.scroll_item.map(|_| self.scroll_offset),
             placement: self.placement,
@@ -816,78 +820,91 @@ impl RenderNode {
 
     /// Re-record the box when `key` differs from what it last drew. Returns true if it did.
     pub(crate) fn record_box(&mut self, key: BoxKey, background: &mut Gd<StyleBoxFlat>) -> bool {
-        if self.box_key == Some(key) {
+        if self.box_key.as_ref() == Some(&key) {
             return false;
         }
-        let bounds = Rect2::new(Vector2::ZERO, key.size);
         let mut rs = server();
         rs.canvas_item_clear(self.box_item);
-        if let Some(feather) = key.square_feather {
-            // The feather reaches half its width past the edge.
-            let reach = feather / 2.0;
-            rs.canvas_item_set_custom_rect_ex(self.box_item, true)
-                .rect(Rect2::new(
-                    bounds.position - reach,
-                    bounds.size + reach * 2.0,
-                ))
-                .done();
-            drop(rs);
-            self.record_square(&key, feather);
-            self.box_key = Some(key);
-            return true;
-        }
+        // The engine culls an item by its rectangle: the border box and, past it, the outer shadows.
         rs.canvas_item_set_custom_rect_ex(self.box_item, true)
-            .rect(bounds)
+            .rect(key.paint_rect())
             .done();
-        background.set_bg_color(key.background);
-        background.set_corner_radius_all(key.radius);
-        background.set_aa_size(key.oversampling.feather());
-        if key.border_width > 0 && key.is_translucent() && !faults::active(Fault::SingleBorderDraw)
-        {
-            // `StyleBoxFlat::draw` with a centre fades the ring's inner edge from the fill colour to the border colour
-            // (`style_box_flat.cpp:479` and the "ring inner border" gradient after it), which adds the fill a second
-            // time along the ring when it is translucent: a one pixel border came out dotted at a device pixel ratio of
-            // one and doubled at two. CSS paints the background under the whole border box and the border over it, which
-            // is also what this does: the fill alone, then a ring with no centre.
-            background.set_draw_center(true);
-            background.set_border_width_all(0);
-            background.draw(self.box_item, bounds);
-            background.set_draw_center(false);
-            background.set_border_color(key.border_color);
-            background.set_border_width_all(key.border_width);
-            background.draw(self.box_item, bounds);
-            background.set_draw_center(true);
-        } else {
-            background.set_border_color(key.border_color);
-            background.set_border_width_all(key.border_width);
-            background.draw(self.box_item, bounds);
-        }
+        drop(rs);
+        let mut leases = Vec::new();
+        draw_box(
+            self.box_item,
+            &key,
+            background,
+            faults::active(Fault::SingleBorderDraw),
+            &mut leases,
+        );
+        // The textures the new recording needs are held before the old recording's are let go: a box that changes
+        // its colour keeps its shadow's mask.
+        self.leases = leases;
         self.box_key = Some(key);
         true
     }
 
-    /// Draw a box with square corners from feathered triangles: the fill, then the border ring over it, as CSS paints them. Under
-    /// an opaque border the fill stops beneath the ring's inner edge, so no fringe of it shows past the outer one.
-    fn record_square(&self, key: &BoxKey, feather: Vector2) {
-        let outer = square_box::Rect::from_size(key.size);
-        let width = key.border_width as f32;
-        let ring = key.border_width > 0 && key.border_color.a > 0.0;
-        let inner = outer.inset(width);
-        if key.background.a > 0.0 {
-            let fill = if ring && key.border_color.a >= 1.0 {
-                square_box::under_border(outer, inner, feather)
-            } else {
-                square_box::fill(outer, feather)
-            };
-            square_box::draw(self.box_item, &fill, key.background);
+    /// Re-record the outline (`None`: the element has none) when `key` differs from what it last drew. Returns true if it did.
+    pub(crate) fn record_outline(&mut self, key: Option<OutlineKey>) -> bool {
+        if self.outline_key == key {
+            return false;
         }
-        if ring {
-            square_box::draw(
-                self.box_item,
-                &square_box::ring(outer, inner, feather),
-                key.border_color,
-            );
+        let mut rs = server();
+        match key {
+            Some(key) => {
+                let item = *self.outline_item.get_or_insert_with(|| {
+                    let item = rs.canvas_item_create();
+                    rs.canvas_item_set_parent(item, self.box_item);
+                    rs.canvas_item_set_draw_index(item, OUTLINE_DRAW_INDEX);
+                    item
+                });
+                rs.canvas_item_clear(item);
+                let reach = (key.offset + key.width).max(0.0);
+                rs.canvas_item_set_custom_rect_ex(item, true)
+                    .rect(Rect2::new(
+                        Vector2::new(-reach, -reach),
+                        key.size + Vector2::new(2.0 * reach, 2.0 * reach),
+                    ))
+                    .done();
+                drop(rs);
+                let shape = BoxShape::new(key.size, [0; 4], key.radii, key.oversampling.factor());
+                let mut leases = Vec::new();
+                box_draw::outline(item, &shape, key.width, key.offset, key.color, &mut leases);
+                self.outline_leases = leases;
+            }
+            None => {
+                if let Some(item) = self.outline_item.take() {
+                    rs.free_rid(item);
+                }
+                self.outline_leases.clear();
+            }
         }
+        self.outline_key = key;
+        true
+    }
+
+    /// Whether the recorded box or outline is drawn in device pixels, so a change of scale draws it again.
+    pub(crate) fn drawn_at_scale(&self) -> bool {
+        self.outline_key.is_some()
+            || self
+                .box_key
+                .as_ref()
+                .is_some_and(|key| key.oversampling != Oversampling::NONE)
+    }
+
+    /// How far the recorded box's outer shadows and its outline reach past the border box (top, right, bottom, left), in
+    /// logical pixels: what a filter group round the element has to cover as well.
+    pub(crate) fn paint_reach(&self) -> [f32; 4] {
+        let shadows = self
+            .box_key
+            .as_ref()
+            .and_then(|key| key.decoration.as_ref())
+            .map_or([0.0; 4], |decoration| decoration.reach());
+        let outline = self
+            .outline_key
+            .map_or(0.0, |key| (key.offset + key.width).max(0.0));
+        shadows.map(|side| side.max(outline))
     }
 
     /// Forget the recorded box and draw nothing (a zero-size element).
@@ -896,6 +913,7 @@ impl RenderNode {
             return false;
         }
         server().canvas_item_clear(self.box_item);
+        self.leases.clear();
         self.box_key = None;
         true
     }
@@ -988,7 +1006,10 @@ impl Drop for RenderNode {
             rs.free_rid(items.text);
             rs.free_rid(items.caret);
         }
-        for item in [self.scroll_item, self.overlay_item].into_iter().flatten() {
+        for item in [self.scroll_item, self.overlay_item, self.outline_item]
+            .into_iter()
+            .flatten()
+        {
             rs.free_rid(item);
         }
         rs.free_rid(self.content_item);
@@ -1170,6 +1191,7 @@ impl ReactUiRoot {
                 sampled.opacity,
                 sampled.background_color,
                 sampled.border_color,
+                sampled.box_shadow.clone(),
             )
         });
         let text_color = self.presented_text_color(tag);
@@ -1178,8 +1200,11 @@ impl ReactUiRoot {
             return (false, false);
         };
         let style = &node.computed;
-        node.render
-            .set_opacity(motion.map_or(style.opacity.unwrap_or(1.0), |(opacity, _, _)| opacity));
+        node.render.set_opacity(
+            motion
+                .as_ref()
+                .map_or(style.opacity.unwrap_or(1.0), |(opacity, _, _, _)| *opacity),
+        );
         // The clip applies to everything below, so it holds even when the box itself is empty:
         // a closed accordion clips its children to nothing.
         let clip = node
@@ -1196,32 +1221,59 @@ impl ReactUiRoot {
         // `visibility: hidden` paints nothing of the element's own (its children, which may be visible, still
         // paint, clipped as before) and keeps its place in layout.
         if size.x <= 0.0 || size.y <= 0.0 || node.computed.is_invisible() {
+            node.render.record_outline(None);
             return (node.render.clear_box(), node.render.clear_content());
         }
         let style = &node.computed;
-        let background = match motion {
-            Some((_, [r, g, b, a], _)) => Color::from_rgba(r, g, b, a),
+        let background = match &motion {
+            Some((_, [r, g, b, a], _, _)) => Color::from_rgba(*r, *g, *b, *a),
             None => parse_color(style.background_color.as_deref(), Color::TRANSPARENT_BLACK),
         };
-        let border_color = match motion {
-            Some((_, _, [r, g, b, a])) => Color::from_rgba(r, g, b, a),
-            None => parse_color(style.border_color.as_deref(), Color::TRANSPARENT_BLACK),
-        };
-        let radius = style.border_radius.unwrap_or(0.0).round() as i32;
+        let mut border_colors = style
+            .border_colors()
+            .map(|color| parse_color(color, Color::TRANSPARENT_BLACK));
+        if let Some((_, _, [r, g, b, a], _)) = &motion {
+            // The sampled `border-color` is the shorthand's: the sides that have a colour of their own keep it.
+            for (side, color) in border_colors.iter_mut().enumerate() {
+                if !style.border_side_has_own_color(side) {
+                    *color = Color::from_rgba(*r, *g, *b, *a);
+                }
+            }
+        }
+        let border = BorderKey::new(style.border_widths(), border_colors, style.border_radii());
+        let decoration = decoration_of(style, motion.as_ref().map(|(_, _, _, shadows)| shadows));
         let box_key = BoxKey {
             size,
             background,
-            border_color,
-            border_width: style.border_width.unwrap_or(0.0).round() as i32,
-            radius,
-            oversampling: if radius > 0 {
+            oversampling: if BoxKey::depends_on_oversampling(&border, decoration.as_deref()) {
                 oversampling
             } else {
                 Oversampling::NONE
             },
-            square_feather: if radius == 0 { square_feather } else { None },
+            border,
+            decoration,
+            square_feather: if border.is_rounded() { None } else { square_feather },
         };
+        let reach_before = node.render.paint_reach();
         let boxed = node.render.record_box(box_key, &mut node.visual.background);
+        if boxed && node.render.paint_reach() != reach_before {
+            // What a filter group round this element must cover grew or shrank.
+            self.effects.note_changed(tag);
+        }
+        let outline = style.outline().map(|outline| OutlineKey {
+            size,
+            radii: border.radii,
+            width: outline.width,
+            offset: outline.offset,
+            color: outline.color.map_or_else(
+                || parse_color(style.color.as_deref(), Color::WHITE),
+                |[r, g, b, a]| Color::from_rgba(r, g, b, a),
+            ),
+            oversampling,
+        });
+        if node.render.record_outline(outline) {
+            self.effects.note_changed(tag);
+        }
         // A text input draws its own text in the items under its scroll item (`paint_text_input`).
         if node.kind == Kind::TextInput {
             return (boxed, false);
@@ -1262,8 +1314,13 @@ impl ReactUiRoot {
         // The ring marks a keyboard focus only (plan 3.13): a press focuses without it.
         let target = self.focused.filter(|_| self.focus_visible).and_then(|tag| {
             let node = self.mounted.nodes.get(&tag)?;
+            // The ring is the browser's default outline: an element that sets any outline of its own (`outline-none`
+            // above all) has taken it away, and draws the one it asked for (`record_outline`).
+            if node.computed.has_authored_outline() {
+                return None;
+            }
             let (rect, clip) = self.mounted.absolute_geometry(tag, viewport)?;
-            let radius = node.computed.border_radius.unwrap_or(0.0) as i32;
+            let radii = node.computed.border_radii().map(|radius| radius as i32);
             // Under a rotation, scale or skew the ring is the border box in the element's own frame, drawn
             // through the map that draws the element, so it turns with it; the clip stays the bounding box
             // the engine clips to.
@@ -1285,8 +1342,8 @@ impl ReactUiRoot {
                 rect,
                 transform,
                 clip: clip.map(BoxRect::godot_rect),
-                radius,
-                oversampling: if radius > 0 {
+                radii,
+                oversampling: if radii.iter().any(|radius| *radius > 0) {
                     self.node_oversampling(tag)
                 } else {
                     Oversampling::NONE
@@ -1302,7 +1359,7 @@ impl ReactUiRoot {
         self.ring_drawn = target;
         match target {
             Some(key) => {
-                ring.set_corner_radius_all(key.radius);
+                set_corner_radii(ring, key.radii);
                 ring.set_aa_size(key.oversampling.feather());
                 item.draw_clipped(ring, key.rect, key.clip, key.transform);
             }
@@ -1316,6 +1373,21 @@ fn rect_size(node: &crate::mount::MountedNode) -> [f32; 2] {
     [node.geometry.size.x, node.geometry.size.y]
 }
 
+/// Give a `StyleBoxFlat` its four corner radii: top left, top right, bottom right, bottom left.
+pub(crate) fn set_corner_radii(style: &mut Gd<StyleBoxFlat>, radii: [i32; 4]) {
+    for (corner, radius) in [
+        Corner::TOP_LEFT,
+        Corner::TOP_RIGHT,
+        Corner::BOTTOM_RIGHT,
+        Corner::BOTTOM_LEFT,
+    ]
+    .into_iter()
+    .zip(radii)
+    {
+        style.set_corner_radius(corner, radius);
+    }
+}
+
 /// What the focus ring last drew.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct RingKey {
@@ -1323,7 +1395,8 @@ pub(crate) struct RingKey {
     /// How the element is drawn when that is more than a move: `rect` is then its border box in its own frame.
     transform: Option<Affine2>,
     clip: Option<Rect2>,
-    radius: i32,
+    /// Top left, top right, bottom right, bottom left.
+    radii: [i32; 4],
     /// Only a rounded ring is antialiased, as for `BoxKey`.
     oversampling: Oversampling,
 }

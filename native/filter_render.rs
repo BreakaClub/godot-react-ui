@@ -422,9 +422,9 @@ struct NodeEffect {
     backdrop_material: Option<MaterialSlot>,
     group_material: Option<MaterialSlot>,
     fill: Gd<StyleBoxFlat>,
-    /// What the backdrop's fill last drew: size, corner radius and, for a rounded one (whose antialiasing is one device
-    /// pixel wide), the oversampling it was drawn at.
-    fill_key: Option<(Vector2, i32, Oversampling)>,
+    /// What the backdrop's fill last drew: size, corner radii (top left, top right, bottom right, bottom left) and, for a
+    /// rounded one (whose antialiasing is one device pixel wide), the oversampling it was drawn at.
+    fill_key: Option<(Vector2, [i32; 4], Oversampling)>,
     /// The copy rectangle currently set (None: copy disabled).
     region: Option<PixelRect>,
     backdrop_plan: Option<BlurPlan>,
@@ -1183,21 +1183,24 @@ impl ReactUiRoot {
         // The shape: the element's border box with its corner radius, white; COLOR.a carries coverage
         // and the inherited opacity.
         let size = node.geometry.size;
-        let radius = node.computed.border_radius.unwrap_or(0.0).round() as i32;
+        let radii = node
+            .computed
+            .border_radii()
+            .map(|radius| radius.round() as i32);
         // Only a rounded shape is antialiased, so only it depends on the scale (the box item's rule, `BoxKey`).
-        let shape_oversampling = if radius > 0 {
+        let shape_oversampling = if radii.iter().any(|radius| *radius > 0) {
             oversampling
         } else {
             Oversampling::NONE
         };
-        let fill_key = (size, radius, shape_oversampling);
+        let fill_key = (size, radii, shape_oversampling);
         if state.fill_key != Some(fill_key) {
             let bounds = Rect2::new(Vector2::ZERO, size);
             rs.canvas_item_clear(draw);
             rs.canvas_item_set_custom_rect_ex(draw, true)
                 .rect(bounds)
                 .done();
-            state.fill.set_corner_radius_all(radius);
+            crate::render_tree::set_corner_radii(&mut state.fill, radii);
             // `StyleBoxFlat::draw` outside `NOTIFICATION_DRAW` reads an oversampling of 1: the feather is set to one
             // device pixel here, or the shape's corners would be blurred at scale two and not match the box's.
             state.fill.set_aa_size(shape_oversampling.feather());
@@ -1642,12 +1645,15 @@ impl ReactUiRoot {
     /// A transformed descendant counts as the box round where its transform draws it.
     fn subtree_extent(&self, tag: u32) -> Option<BoxRect> {
         let node = self.mounted.nodes.get(&tag)?;
-        let mut bounds = BoxRect {
-            x: 0.0,
-            y: 0.0,
-            width: node.geometry.size.x,
-            height: node.geometry.size.y,
-        };
+        let mut bounds = grown_by_reach(
+            BoxRect {
+                x: 0.0,
+                y: 0.0,
+                width: node.geometry.size.x,
+                height: node.geometry.size.y,
+            },
+            node.render.paint_reach(),
+        );
         // Each element with the map from its own frame to the extent's.
         let mut stack: Vec<(u32, Affine2)> = vec![(tag, Affine2::IDENTITY)];
         while let Some((current, frame)) = stack.pop() {
@@ -1669,12 +1675,15 @@ impl ReactUiRoot {
                     .then(&content);
                 bounds = union(
                     bounds,
-                    child_frame.bounds_of(BoxRect {
-                        x: 0.0,
-                        y: 0.0,
-                        width: child_node.geometry.size.x,
-                        height: child_node.geometry.size.y,
-                    }),
+                    child_frame.bounds_of(grown_by_reach(
+                        BoxRect {
+                            x: 0.0,
+                            y: 0.0,
+                            width: child_node.geometry.size.x,
+                            height: child_node.geometry.size.y,
+                        },
+                        child_node.render.paint_reach(),
+                    )),
                 );
                 stack.push((*child, child_frame));
             }
@@ -1768,6 +1777,17 @@ impl ReactUiRoot {
             "materialUpdates": stats.material_updates, "copyRectUpdates": stats.copy_rect_updates,
             "subtreeWalks": stats.subtree_walks, "probes": probes,
             "refreshes": stats.refreshes, "refreshMicros": stats.refresh_micros})
+    }
+}
+
+/// A box grown by how far its shadows and outline reach past it (top, right, bottom, left): the canvas items an element
+/// draws are not all inside its border box.
+fn grown_by_reach(rect: BoxRect, [top, right, bottom, left]: [f32; 4]) -> BoxRect {
+    BoxRect {
+        x: rect.x - left,
+        y: rect.y - top,
+        width: rect.width + left + right,
+        height: rect.height + top + bottom,
     }
 }
 

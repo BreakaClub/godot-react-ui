@@ -23,7 +23,7 @@ export type HexColor = `#${string}`;
  * these, so a property that gets native support is added here and in `ANIMATABLE` (`native/props.rs`), and nowhere else.
  */
 export const TRANSITION_PROPERTIES = [
-  'width', 'height', 'opacity', 'backgroundColor', 'color', 'borderColor', 'filter', 'backdropFilter', 'transform',
+  'width', 'height', 'opacity', 'backgroundColor', 'color', 'borderColor', 'filter', 'backdropFilter', 'transform', 'boxShadow',
 ] as const;
 export type TransitionProperty = (typeof TRANSITION_PROPERTIES)[number];
 /**
@@ -239,8 +239,42 @@ export interface Style {
   ordinal?: boolean;
   /** Inherited. OpenType `zero`. */
   slashedZero?: boolean;
+  /** All four corners. `borderTopLeftRadius` and the other corners win over it, in the same style or a later one. */
   borderRadius?: number;
+  borderTopLeftRadius?: number;
+  borderTopRightRadius?: number;
+  borderBottomRightRadius?: number;
+  borderBottomLeftRadius?: number;
+  /** All four sides. The sides' own widths win over it, in the same style or a later one. */
   borderWidth?: number;
+  borderTopWidth?: number;
+  borderRightWidth?: number;
+  borderBottomWidth?: number;
+  borderLeftWidth?: number;
+  borderTopColor?: HexColor;
+  borderRightColor?: HexColor;
+  borderBottomColor?: HexColor;
+  borderLeftColor?: HexColor;
+  /** `none` takes the border's width away; `solid` is the default. Dashed and dotted borders are not drawn. */
+  borderStyle?: LineStyle;
+  /**
+   * An outline is drawn when its style is `solid` (the default style is `none`), `outlineWidth` wide (3 by default) and
+   * `outlineOffset` outside the border box, in `outlineColor` (the text colour by default). An element that sets any of
+   * these has no native focus ring: the browser's is an outline too, so `outline-none` takes it away and
+   * `focus-visible:outline-2` replaces it with the author's.
+   */
+  outlineStyle?: LineStyle;
+  outlineWidth?: number;
+  outlineColor?: HexColor;
+  outlineOffset?: number;
+  /**
+   * CSS `box-shadow`: a list of `[inset] <x> <y> [<blur> [<spread>]] <colour>` (lengths in px, colours as hex, `rgb()` or
+   * `rgba()`), or `none`. An outer shadow is not drawn inside the border box. It replaces whatever `shadow-*` and `ring-*`
+   * utility classes set, where `shadow-sm ring-1 focus:ring-2` composes.
+   */
+  boxShadow?: string;
+  /** `none`, or `linear-gradient(<angle> | to <side or corner>, <colour> [<position>], ...)`, drawn over `backgroundColor`. */
+  backgroundImage?: string;
   opacity?: number;
   textAlign?: 'left' | 'center' | 'right' | 'justify' | 'start' | 'end';
   transition?: Transition;
@@ -328,6 +362,54 @@ export interface TransformParts {
   gpu?: boolean;
 }
 
+/** `border-style` and `outline-style`: the two that are drawn. */
+export type LineStyle = 'none' | 'solid';
+
+/** One layer of a `shadow-*` size utility. `color` is CSS (`rgba(0, 0, 0, 0.1)`). */
+export interface ShadowPartLayer {
+  x: number;
+  y: number;
+  blur: number;
+  spread: number;
+  color: string;
+  inset?: boolean;
+}
+
+/**
+ * The variables of Tailwind v3's `shadow-*` and `ring-*` utilities, which it composes into
+ * `box-shadow: <ring offset>, <ring>, <shadow>`; each merges on its own across variants, so
+ * `shadow-sm ring-1 focus:ring-2 focus:ring-indigo-500` keeps the shadow when the ring changes.
+ */
+export interface BoxShadowParts {
+  /** The layers of a `shadow-sm|shadow|md|lg|xl|2xl|inner|[...]` utility; `'none'` for `shadow-none`. */
+  shadow?: readonly ShadowPartLayer[] | 'none';
+  /** `shadow-<colour>`: replaces the colour of each layer. */
+  shadowColor?: HexColor;
+  /** `ring`, `ring-1`: the ring's width; the property that makes the ring exist. */
+  ringWidth?: number;
+  ringInset?: boolean;
+  ringColor?: HexColor;
+  ringOffsetWidth?: number;
+  ringOffsetColor?: HexColor;
+}
+
+/** The direction utilities: `to-tr` is `bg-gradient-to-tr`. */
+export type GradientDirection = 'to-t' | 'to-tr' | 'to-r' | 'to-br' | 'to-b' | 'to-bl' | 'to-l' | 'to-tl';
+
+/**
+ * The variables of Tailwind v3's `bg-gradient-to-*`, `from-*`, `via-*` and `to-*`; each merges on its own across variants.
+ * Positions are percentages (`from-10%` is 10).
+ */
+export interface GradientParts {
+  direction?: GradientDirection;
+  from?: HexColor;
+  fromPosition?: number;
+  via?: HexColor;
+  viaPosition?: number;
+  to?: HexColor;
+  toPosition?: number;
+}
+
 /** The functions Tailwind's separate filter utilities set; each merges on its own across variants. */
 export interface FilterParts {
   /** CSS pixels. */
@@ -360,6 +442,10 @@ export type LonghandStyle = Omit<Style, 'padding' | 'margin' | 'gap' | 'overflow
   transformParts?: TransformParts;
   /** What the transition utilities set, per longhand (see `TransitionParts`). */
   transitionParts?: TransitionParts;
+  /** What `shadow-*` and `ring-*` utilities set, per variable (see `BoxShadowParts`). */
+  boxShadowParts?: BoxShadowParts;
+  /** What `bg-gradient-to-*`, `from-*`, `via-*` and `to-*` set, per variable (see `GradientParts`). */
+  gradientParts?: GradientParts;
 };
 
 export type StyleProp = Style | readonly StyleProp[] | false | null | undefined;

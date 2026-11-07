@@ -13,6 +13,7 @@ use serde::Serialize;
 use serde_json::json;
 use taffy::prelude::Size;
 
+use crate::box_shadow::ShadowList;
 use crate::computed_style::{ComputedStyle, StyleChange, StyleTree};
 use crate::diff::Parent;
 use crate::filter::FilterList;
@@ -48,6 +49,8 @@ pub(crate) enum MotionValue {
     Filter(String),
     /// The matrix (CSS `matrix(a, b, c, d, e, f)`, about the origin) the transform presents or is heading to.
     Transform([f32; 6]),
+    /// A `box-shadow` list as CSS text.
+    Shadows(String),
 }
 
 #[derive(Serialize)]
@@ -88,7 +91,8 @@ impl ReactUiRoot {
             "drawSerial":self.stats.paint_passes,"nodeCount":self.stats.node_count,
             "mutations":self.stats.mutations,"nodesUpdated":self.stats.nodes_updated,
             "nodesRestyled":self.stats.nodes_restyled,"boxRecords":self.stats.box_records,
-            "contentRecords":self.stats.content_records,"effects":self.effects_activity()})
+            "contentRecords":self.stats.content_records,"effects":self.effects_activity(),
+            "paintTextures":crate::box_draw::cached_textures()})
     }
 
     /// The opacity, colours and size a node is presenting right now (the text colour is the one its text paints
@@ -687,6 +691,11 @@ impl ReactUiRoot {
             TransitionProperty::Transform => {
                 MotionValue::Transform(self.transform_numbers(tag, true))
             }
+            TransitionProperty::BoxShadow => MotionValue::Shadows(
+                sample
+                    .map(|v| v.box_shadow.to_css())
+                    .unwrap_or_else(|| resolved_box_shadow(&node.computed).to_css()),
+            ),
         }
     }
 
@@ -728,6 +737,9 @@ impl ReactUiRoot {
             }
             TransitionProperty::Transform => {
                 MotionValue::Transform(self.transform_numbers(tag, false))
+            }
+            TransitionProperty::BoxShadow => {
+                MotionValue::Shadows(resolved_box_shadow(style).to_css())
             }
         }
     }
@@ -980,7 +992,8 @@ fn property_axis(property: TransitionProperty) -> Option<DimensionAxis> {
         | TransitionProperty::BorderColor
         | TransitionProperty::Filter
         | TransitionProperty::BackdropFilter
-        | TransitionProperty::Transform => None,
+        | TransitionProperty::Transform
+        | TransitionProperty::BoxShadow => None,
     }
 }
 fn dimension_value(style: &StyleSpec, axis: DimensionAxis) -> Dimension {
@@ -1029,7 +1042,15 @@ fn property_changed(old: &StyleSpec, new: &StyleSpec, property: TransitionProper
             resolved_backdrop_filter(old) != resolved_backdrop_filter(new)
         }
         TransitionProperty::Transform => crate::transform_state::transform_changed(old, new),
+        TransitionProperty::BoxShadow => resolved_box_shadow(old) != resolved_box_shadow(new),
     }
+}
+
+/// The `box-shadow` list of a style with `currentcolor` shadows resolved to its text colour.
+pub(crate) fn resolved_box_shadow(style: &StyleSpec) -> ShadowList {
+    style
+        .box_shadow_list()
+        .resolve_current_color(current_color(style))
 }
 
 /// The `filter` list of a style with `currentcolor` shadows resolved to its text colour.
@@ -1329,7 +1350,8 @@ mod tests {
                 | TransitionProperty::BorderColor
                 | TransitionProperty::Filter
                 | TransitionProperty::BackdropFilter
-                | TransitionProperty::Transform => {
+                | TransitionProperty::Transform
+                | TransitionProperty::BoxShadow => {
                     TransitionProperty::ANIMATABLE.contains(&property)
                 }
             }

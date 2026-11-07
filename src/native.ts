@@ -111,6 +111,8 @@ export interface NativeActivity {
   contentRecords: number;
   /** What the filter and backdrop-filter effects hold and have done, cumulatively (plan Phase V1). */
   effects: NativeEffectsActivity;
+  /** The textures (shadow and outline masks, gradient ramps) the boxes hold: none while no box has a shadow, ring, outline or gradient. */
+  paintTextures: number;
 }
 
 export interface NativeEffectsActivity {
@@ -972,6 +974,7 @@ function parseActivity(value: unknown): NativeActivity {
     boxRecords: number(activity.boxRecords, 'boxRecords'),
     contentRecords: number(activity.contentRecords, 'contentRecords'),
     effects: effectsActivity(activity.effects),
+    paintTextures: number(activity.paintTextures, 'paintTextures'),
   };
 }
 

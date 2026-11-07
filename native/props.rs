@@ -16,11 +16,13 @@ use taffy::style::{
 };
 use taffy::style_helpers::auto;
 
+use crate::box_shadow::{ShadowList, ShadowParts};
 use crate::filter::{FilterKind, FilterList, FilterParts};
 use crate::grid_style::{
     AutoKeyword, GridAutoFlowSpec, GridLineSpec, GridTemplateSpec, GridTrackSpec, auto_tracks,
     placement, validate_auto_tracks,
 };
+use crate::gradient::{BackgroundImage, GradientParts};
 use crate::text_style::spec::{MAX_FONT_WEIGHT, MIN_FONT_WEIGHT};
 use crate::text_style::{
     DecorationLines, DecorationThicknessSpec, FontStyleSpec, LetterSpacingSpec, LineClampSpec,
@@ -180,12 +182,14 @@ pub enum TransitionProperty {
     /// Interpolated by Stylo: function by function when the lists match, else by decomposing the matrices
     /// (CSS Transforms 1). Sampled natively on the clock; nothing is re-recorded per frame.
     Transform,
+    /// Interpolated layer by layer, a missing layer from a transparent one (CSS Backgrounds 3, "box-shadow").
+    BoxShadow,
 }
 
 impl TransitionProperty {
     /// Every property `transition-property: all` animates. A property a track adds to this enum goes here too
     /// (`transitions_name_every_property` fails to compile until the new variant is placed).
-    pub const ANIMATABLE: [TransitionProperty; 9] = [
+    pub const ANIMATABLE: [TransitionProperty; 10] = [
         TransitionProperty::Width,
         TransitionProperty::Height,
         TransitionProperty::Opacity,
@@ -195,6 +199,7 @@ impl TransitionProperty {
         TransitionProperty::Filter,
         TransitionProperty::BackdropFilter,
         TransitionProperty::Transform,
+        TransitionProperty::BoxShadow,
     ];
 
     /// The CSS property Stylo animates for it.
@@ -209,6 +214,7 @@ impl TransitionProperty {
             TransitionProperty::Filter => "filter",
             TransitionProperty::BackdropFilter => "backdrop-filter",
             TransitionProperty::Transform => "transform",
+            TransitionProperty::BoxShadow => "box-shadow",
         }
     }
 }
@@ -218,6 +224,15 @@ impl TransitionProperty {
 pub enum InterpolateSize {
     NumericOnly,
     AllowKeywords,
+}
+
+/// `border-style` and `outline-style`, the two values this library draws: `none` takes the border's width away (CSS: a
+/// border with no style has no width) and draws no outline, `solid` is the default. Dashed, dotted and the rest are not drawn.
+#[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum LineStyleSpec {
+    None,
+    Solid,
 }
 
 /// CSS `overflow` for one axis. `scroll` and `auto` make the axis a scroll container's; they behave
@@ -628,9 +643,30 @@ pub struct StyleSpec {
     /// inherited from the elements above it and its own.
     #[serde(skip)]
     pub text_decorations: Vec<TextDecoration>,
+    /// The shorthands set all four corners, sides or colours; a longhand set in the same layer or a later one wins over
+    /// them for its own (see [`StyleSpec::merge`]).
     pub border_radius: Option<f32>,
     pub border_width: Option<f32>,
     pub border_color: Option<String>,
+    pub border_style: Option<LineStyleSpec>,
+    pub border_top_left_radius: Option<f32>,
+    pub border_top_right_radius: Option<f32>,
+    pub border_bottom_right_radius: Option<f32>,
+    pub border_bottom_left_radius: Option<f32>,
+    pub border_top_width: Option<f32>,
+    pub border_right_width: Option<f32>,
+    pub border_bottom_width: Option<f32>,
+    pub border_left_width: Option<f32>,
+    pub border_top_color: Option<String>,
+    pub border_right_color: Option<String>,
+    pub border_bottom_color: Option<String>,
+    pub border_left_color: Option<String>,
+    /// An outline is drawn when its style is `solid` (the default style is `none`); setting any outline longhand takes the
+    /// element's native focus ring away, which is an outline in a browser too.
+    pub outline_style: Option<LineStyleSpec>,
+    pub outline_width: Option<f32>,
+    pub outline_color: Option<String>,
+    pub outline_offset: Option<f32>,
     pub opacity: Option<f32>,
     pub text_align: Option<TextAlignSpec>,
     pub transition: Option<TransitionSpec>,
@@ -691,6 +727,32 @@ pub struct StyleSpec {
     /// `InheritedStyle::inside_transform`.
     #[serde(skip)]
     pub inside_transform: bool,
+    /// An explicit `box-shadow` list (CSS text on the wire), which replaces what the utilities composed, as `filter` does.
+    pub box_shadow: Option<ShadowList>,
+    /// The variables of Tailwind's `shadow-*` and `ring-*` utilities; each merges on its own across layers.
+    pub box_shadow_parts: Option<ShadowParts>,
+    /// An explicit `background-image` (`none` or a `linear-gradient()`).
+    pub background_image: Option<BackgroundImage>,
+    /// The variables of Tailwind's `bg-gradient-to-*`, `from-*`, `via-*` and `to-*`.
+    pub gradient_parts: Option<GradientParts>,
+}
+
+/// Merge a layer's explicit value and its utilities' parts the way `merge_filter` does: the explicit value replaces
+/// the whole property and forgets the parts set before it; parts set after it take the property back to the composed value.
+fn merge_listed<L: Clone, P: Clone + Default>(
+    list: &mut Option<L>,
+    parts: &mut Option<P>,
+    other_list: &Option<L>,
+    other_parts: &Option<P>,
+    merge: impl FnOnce(&mut P, &P),
+) {
+    if let Some(other_list) = other_list {
+        *list = Some(other_list.clone());
+        *parts = None;
+    } else if let Some(other_parts) = other_parts {
+        *list = None;
+        merge(parts.get_or_insert_with(P::default), other_parts);
+    }
 }
 
 /// Merge one layer's `transform` and `transform_parts` over the values so far, as [`merge_filter`] does
@@ -974,7 +1036,31 @@ impl StyleSpec {
                     inside_transform: _,
                     // Computed from the layers, never merged from one.
                     text_decorations: _,
+                    box_shadow,
+                    box_shadow_parts,
+                    background_image,
+                    gradient_parts,
                 } = other;
+                // A shorthand set by a later layer sets every side, corner or colour again; the longhands the same layer
+                // sets are applied after it, so they win (Tailwind's `border border-t-4` is a 4 px top whatever the order).
+                if other.border_width.is_some() {
+                    self.border_top_width = None;
+                    self.border_right_width = None;
+                    self.border_bottom_width = None;
+                    self.border_left_width = None;
+                }
+                if other.border_color.is_some() {
+                    self.border_top_color = None;
+                    self.border_right_color = None;
+                    self.border_bottom_color = None;
+                    self.border_left_color = None;
+                }
+                if other.border_radius.is_some() {
+                    self.border_top_left_radius = None;
+                    self.border_top_right_radius = None;
+                    self.border_bottom_right_radius = None;
+                    self.border_bottom_left_radius = None;
+                }
                 $(
                     if $field.is_some() {
                         self.$field = $field.clone();
@@ -998,6 +1084,20 @@ impl StyleSpec {
                     &mut self.transform_parts,
                     transform,
                     transform_parts,
+);
+                merge_listed(
+                    &mut self.box_shadow,
+                    &mut self.box_shadow_parts,
+                    box_shadow,
+                    box_shadow_parts,
+                    ShadowParts::merge,
+                );
+                merge_listed(
+                    &mut self.background_image,
+                    &mut self.gradient_parts,
+                    background_image,
+                    gradient_parts,
+                    GradientParts::merge,
                 );
             }};
         }
@@ -1071,6 +1171,23 @@ impl StyleSpec {
             border_radius,
             border_width,
             border_color,
+            border_style,
+            border_top_left_radius,
+            border_top_right_radius,
+            border_bottom_right_radius,
+            border_bottom_left_radius,
+            border_top_width,
+            border_right_width,
+            border_bottom_width,
+            border_left_width,
+            border_top_color,
+            border_right_color,
+            border_bottom_color,
+            border_left_color,
+            outline_style,
+            outline_width,
+            outline_color,
+            outline_offset,
             opacity,
             text_align,
             interpolate_size,
@@ -1185,6 +1302,15 @@ impl StyleSpec {
             ("paddingLeft", self.padding_left),
             ("borderRadius", self.border_radius),
             ("borderWidth", self.border_width),
+            ("borderTopLeftRadius", self.border_top_left_radius),
+            ("borderTopRightRadius", self.border_top_right_radius),
+            ("borderBottomRightRadius", self.border_bottom_right_radius),
+            ("borderBottomLeftRadius", self.border_bottom_left_radius),
+            ("borderTopWidth", self.border_top_width),
+            ("borderRightWidth", self.border_right_width),
+            ("borderBottomWidth", self.border_bottom_width),
+            ("borderLeftWidth", self.border_left_width),
+            ("outlineWidth", self.outline_width),
         ] {
             if value.is_some_and(|value| !value.is_finite() || value < 0.0) {
                 return Err(format!("{name} must be a finite nonnegative number"));
@@ -1287,6 +1413,23 @@ impl StyleSpec {
                 .to_list()
                 .map_err(|error| format!("transform: {error}"))?;
         }
+        if self.outline_offset.is_some_and(|value| !value.is_finite()) {
+            return Err("outlineOffset must be finite".into());
+        }
+        if let Some(list) = &self.box_shadow {
+            list.validate()
+                .map_err(|error| format!("boxShadow: {error}"))?;
+        }
+        if let Some(parts) = &self.box_shadow_parts {
+            parts
+                .validate()
+                .map_err(|error| format!("boxShadow: {error}"))?;
+        }
+        if let Some(parts) = &self.gradient_parts {
+            parts
+                .validate()
+                .map_err(|error| format!("backgroundImage: {error}"))?;
+        }
         if self.font_size.is_some_and(|value| value <= 0) {
             return Err("fontSize must be a positive integer".into());
         }
@@ -1310,6 +1453,11 @@ impl StyleSpec {
             ("backgroundColor", &self.background_color),
             ("color", &self.color),
             ("borderColor", &self.border_color),
+            ("borderTopColor", &self.border_top_color),
+            ("borderRightColor", &self.border_right_color),
+            ("borderBottomColor", &self.border_bottom_color),
+            ("borderLeftColor", &self.border_left_color),
+            ("outlineColor", &self.outline_color),
             ("scrollbarColor", &self.scrollbar_color),
             ("selectionColor", &self.selection_color),
             ("caretColor", &self.caret_color),
@@ -1333,7 +1481,7 @@ impl StyleSpec {
     /// The Taffy style of a resolved (computed) style.
     pub fn taffy_style(&self) -> Result<taffy::Style, String> {
         self.validate()?;
-        let border = LengthPercentage::length(self.border_width.unwrap_or(0.0));
+        let [top, right, bottom, left] = self.border_widths().map(LengthPercentage::length);
         Ok(taffy::Style {
             overflow: Point {
                 x: overflow(self.overflow_x),
@@ -1422,10 +1570,10 @@ impl StyleSpec {
                 bottom: margin(&self.margin_bottom)?,
             },
             border: Rect {
-                left: border,
-                right: border,
-                top: border,
-                bottom: border,
+                left,
+                right,
+                top,
+                bottom,
             },
             align_items: self
                 .align_items
