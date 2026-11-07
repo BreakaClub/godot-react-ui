@@ -1,6 +1,9 @@
 //! The real [`ParagraphSource`]: a `TextParagraph` and the primary `TextServer`. Every method is one or a
 //! few server calls; the geometry built on them is in `text_layout.rs`.
 
+use std::borrow::Cow;
+use std::rc::Rc;
+
 use godot::builtin::Vector2;
 use godot::classes::text_server::{Direction, GraphemeFlag, Orientation};
 use godot::classes::{TextParagraph, TextServer, TextServerManager};
@@ -29,6 +32,181 @@ struct Stamp {
     visible_end: usize,
 }
 
+/// The keys of a glyph's dictionary, made once for the glyphs of a paragraph: a lookup by a string literal makes a `Variant` for it every
+/// time, and a line has a dictionary per glyph.
+struct GlyphKeys {
+    start: Variant,
+    end: Variant,
+    count: Variant,
+    flags: Variant,
+    repeat: Variant,
+    advance: Variant,
+    offset: Variant,
+    font_rid: Variant,
+    font_size: Variant,
+    index: Variant,
+}
+
+impl GlyphKeys {
+    fn new() -> Self {
+        Self {
+            start: "start".to_variant(),
+            end: "end".to_variant(),
+            count: "count".to_variant(),
+            flags: "flags".to_variant(),
+            repeat: "repeat".to_variant(),
+            advance: "advance".to_variant(),
+            offset: "offset".to_variant(),
+            font_rid: "font_rid".to_variant(),
+            font_size: "font_size".to_variant(),
+            index: "index".to_variant(),
+        }
+    }
+}
+
+/// A glyph of a shaped line, as `TextServer::shaped_text_get_glyphs` describes it.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ShapedGlyph {
+    /// Where the glyph's cluster starts and ends in the paragraph's text.
+    pub(crate) start: i64,
+    pub(crate) end: i64,
+    /// How many characters the cluster has, on the first glyph of the cluster; the others have 0.
+    pub(crate) count: i64,
+    pub(crate) flags: i64,
+    pub(crate) repeat: i64,
+    pub(crate) advance: f32,
+    pub(crate) offset: Vector2,
+    pub(crate) font: Rid,
+    pub(crate) size: i64,
+    pub(crate) index: i64,
+}
+
+impl ShapedGlyph {
+    fn of(dictionary: &VarDictionary, keys: &GlyphKeys) -> Option<Self> {
+        let integer = |key: &Variant| dictionary.get(key)?.try_to::<i64>().ok();
+        Some(Self {
+            start: integer(&keys.start)?,
+            end: integer(&keys.end)?,
+            count: integer(&keys.count)?,
+            flags: integer(&keys.flags)?,
+            repeat: integer(&keys.repeat)?,
+            advance: dictionary.get(&keys.advance)?.try_to::<f32>().ok()?,
+            offset: dictionary.get(&keys.offset)?.try_to::<Vector2>().ok()?,
+            font: dictionary.get(&keys.font_rid)?.try_to::<Rid>().ok()?,
+            size: integer(&keys.font_size)?,
+            index: integer(&keys.index)?,
+        })
+    }
+}
+
+/// What the text server says of one shaped line that painting and the facts of a layout read: its glyphs, the glyphs of the ellipsis that
+/// ends it, and where it is cut. A server call makes a dictionary of every glyph, so a line is read once.
+#[derive(Clone, Debug)]
+pub(crate) struct ShapedLine {
+    pub(crate) glyphs: Vec<ShapedGlyph>,
+    /// The glyphs of the ellipsis, when the line ends in one (`ellipsis_at` is not negative).
+    pub(crate) ellipsis: Vec<ShapedGlyph>,
+    /// The line is drawn from its right end (`shaped_text_get_direction`; the inferred direction is in the facts).
+    pub(crate) draws_right_to_left: bool,
+    /// The glyph the ellipsis follows and the glyph the line is cut at, or -1.
+    pub(crate) ellipsis_at: i64,
+    pub(crate) trim_at: i64,
+    /// `shaped_text_get_width`: the glyphs' width, rounded up.
+    pub(crate) width: f64,
+}
+
+impl ShapedLine {
+    fn read(server: &Gd<TextServer>, line: Rid, keys: &GlyphKeys) -> Result<Self, TextLayoutError> {
+        let problem = TextLayoutError::MalformedServerData(ServerDataProblem::Glyphs);
+        let read = |glyphs: Array<VarDictionary>| {
+            glyphs
+                .iter_shared()
+                .map(|dictionary| ShapedGlyph::of(&dictionary, keys))
+                .collect::<Option<Vec<_>>>()
+                .ok_or(problem)
+        };
+        let ellipsis_at = server.shaped_text_get_ellipsis_pos(line);
+        Ok(Self {
+            glyphs: read(server.shaped_text_get_glyphs(line))?,
+            ellipsis: if ellipsis_at >= 0 {
+                read(server.shaped_text_get_ellipsis_glyphs(line))?
+            } else {
+                Vec::new()
+            },
+            draws_right_to_left: server.shaped_text_get_direction(line) == Direction::RTL,
+            ellipsis_at,
+            trim_at: server.shaped_text_get_trim_pos(line),
+            width: server.shaped_text_get_width(line),
+        })
+    }
+
+    /// The width of the glyphs without the white space the line ends with: what a browser measures and aligns. A line's
+    /// `shaped_text_get_width` counts that space and is rounded up to a whole pixel, so the advances are added up instead; a line cut
+    /// short by an ellipsis or a trim has the server's width.
+    fn visible_width(&self) -> Result<f32, TextLayoutError> {
+        let problem = TextLayoutError::MalformedServerData(ServerDataProblem::Glyphs);
+        let space = i64::try_from(GraphemeFlag::SPACE.ord()).map_err(|_| problem)?;
+        let advances: Vec<(bool, f32)> = self
+            .glyphs
+            .iter()
+            .map(|glyph| {
+                (
+                    glyph.flags & space != 0,
+                    glyph.advance * glyph.repeat as f32,
+                )
+            })
+            .collect();
+        let hanging: f32 = advances
+            .iter()
+            .rev()
+            .take_while(|(is_space, _)| *is_space)
+            .map(|(_, advance)| advance)
+            .sum();
+        if self.trim_at >= 0 || self.ellipsis_at >= 0 {
+            return Ok(self.width as f32 - hanging);
+        }
+        let total: f32 = advances.iter().map(|(_, advance)| advance).sum();
+        Ok((total - hanging).max(0.0))
+    }
+
+    /// Whether the last glyph of the line is a mandatory break (`GRAPHEME_IS_BREAK_HARD`), the line ending at `line_end`.
+    fn ends_with_hard_break(&self, line_end: usize) -> Result<bool, TextLayoutError> {
+        let problem = TextLayoutError::MalformedServerData(ServerDataProblem::Glyphs);
+        let hard_break = i64::try_from(GraphemeFlag::BREAK_HARD.ord()).map_err(|_| problem)?;
+        let end = i64::try_from(line_end).map_err(|_| problem)?;
+        // A cluster's first glyph has the count; the rest of its glyphs have 0.
+        Ok(self
+            .glyphs
+            .iter()
+            .any(|glyph| glyph.count > 0 && glyph.end == end && glyph.flags & hard_break != 0))
+    }
+}
+
+/// A paragraph at a width, read from the text server once: the lines' glyphs and the facts a layout of it is built from. Painting a
+/// line of a shaped paragraph (`StyledParagraph::draw`) reads glyphs three times when the layout is asked, and every read makes a
+/// dictionary for every glyph; this is what it reads instead, and it is right until the paragraph is shaped again.
+pub(crate) struct ShapedParagraph {
+    pub(crate) facts: ParagraphFacts,
+    /// The lines the paragraph shows, in order.
+    pub(crate) lines: Vec<ShapedLine>,
+    stamp: Stamp,
+}
+
+impl ShapedParagraph {
+    /// Whether `paragraph`, `content_width` wide, is the paragraph this was read from: the same text, lines and spacing at the same width.
+    /// A paragraph is shaped again only when its text or its width change, and either shows in the stamp.
+    pub(crate) fn is_of(
+        &self,
+        paragraph: &Gd<TextParagraph>,
+        content_width: f32,
+    ) -> Result<bool, TextLayoutError> {
+        let mut paragraph = paragraph.clone();
+        paragraph.set_width(content_width);
+        let now = GodotParagraph::stamp_of(&paragraph, content_width, alignment_of(&paragraph))?;
+        Ok(now == self.stamp)
+    }
+}
+
 /// A `TextParagraph` read through the primary text server.
 pub(crate) struct GodotParagraph {
     paragraph: Gd<TextParagraph>,
@@ -37,6 +215,8 @@ pub(crate) struct GodotParagraph {
     /// Whether the white space a line ends with hangs past it and is left out of the line's width (see
     /// [`GodotParagraph::hanging_spaces`]).
     hangs: bool,
+    /// The lines' glyphs and facts, read before (see [`ShapedParagraph`]); with them `facts` asks the server for nothing.
+    shaped: Option<Rc<ShapedParagraph>>,
 }
 
 impl GodotParagraph {
@@ -70,7 +250,34 @@ impl GodotParagraph {
             server,
             stamp,
             hangs: false,
+            shaped: None,
         })
+    }
+
+    /// Lay `paragraph` out `content_width` wide and read every line it shows, once: the glyphs of each, and the facts of the layout
+    /// built from them, with the white space a line ends with hanging. What painting needs of a shaped paragraph is in the result, which
+    /// stays right for as long as the paragraph is not shaped again ([`ShapedParagraph::is_of`]).
+    pub(crate) fn shape(
+        paragraph: &Gd<TextParagraph>,
+        content_width: f32,
+    ) -> Result<ShapedParagraph, TextLayoutError> {
+        let source = Self::lay_out(paragraph, content_width)?.hanging_spaces();
+        let keys = GlyphKeys::new();
+        let lines = (0..source.stamp.visible_lines)
+            .map(|line| ShapedLine::read(&source.server, source.line_rid(line)?, &keys))
+            .collect::<Result<Vec<_>, _>>()?;
+        let facts = source.build_facts(&|line| Ok(Cow::Borrowed(&lines[line])))?;
+        Ok(ShapedParagraph {
+            facts,
+            lines,
+            stamp: source.stamp,
+        })
+    }
+
+    /// Answer `facts` from what a [`ShapedParagraph`] of this paragraph at this width holds.
+    pub(crate) fn with_shaped(mut self, shaped: Rc<ShapedParagraph>) -> Self {
+        self.shaped = Some(shaped);
+        self
     }
 
     /// Measure each line without the white space it ends with, as a browser does for the text of an element: that space hangs
@@ -143,35 +350,17 @@ impl GodotParagraph {
         Ok(self.paragraph.get_line_rid(paragraph_line(line)?))
     }
 
-    /// Whether the last glyph of the line is a mandatory break (`GRAPHEME_IS_BREAK_HARD`).
-    fn line_ends_with_hard_break(
+    /// The lines' facts, with the glyphs of a line from `line` where they are needed: the width of each line when white space hangs
+    /// (`ShapedLine::visible_width`), and the last line's end.
+    fn build_facts<'a>(
         &self,
-        rid: Rid,
-        line_end: usize,
-    ) -> Result<bool, TextLayoutError> {
-        let problem = TextLayoutError::MalformedServerData(ServerDataProblem::Glyphs);
-        let hard_break = i64::try_from(GraphemeFlag::BREAK_HARD.ord()).map_err(|_| problem)?;
-        for glyph in self.server.shaped_text_get_glyphs(rid).iter_shared() {
-            let end = dictionary_int(&glyph, "end").ok_or(problem)?;
-            let count = dictionary_int(&glyph, "count").ok_or(problem)?;
-            let flags = dictionary_int(&glyph, "flags").ok_or(problem)?;
-            // A cluster's first glyph has the count; the rest of its glyphs have 0.
-            if count > 0 && end == to_index(line_end) && flags & hard_break != 0 {
-                return Ok(true);
-            }
-        }
-        Ok(false)
-    }
-}
-
-impl ParagraphSource for GodotParagraph {
-    fn facts(&self) -> Result<ParagraphFacts, TextLayoutError> {
-        self.ensure_unchanged()?;
+        line: &dyn Fn(usize) -> Result<Cow<'a, ShapedLine>, TextLayoutError>,
+    ) -> Result<ParagraphFacts, TextLayoutError> {
         let mut lines = Vec::with_capacity(self.stamp.visible_lines);
-        for line in 0..self.stamp.visible_lines {
-            let index = paragraph_line(line)?;
-            let range = self.paragraph.get_line_range(index);
-            let rid = self.paragraph.get_line_rid(index);
+        for index in 0..self.stamp.visible_lines {
+            let paragraph_index = paragraph_line(index)?;
+            let range = self.paragraph.get_line_range(paragraph_index);
+            let rid = self.paragraph.get_line_rid(paragraph_index);
             let (Ok(start), Ok(end)) = (usize::try_from(range.x), usize::try_from(range.y)) else {
                 return Err(TextLayoutError::MalformedServerData(
                     ServerDataProblem::LineRanges,
@@ -181,12 +370,12 @@ impl ParagraphSource for GodotParagraph {
             lines.push(LineFacts {
                 start,
                 end,
-                ascent: self.paragraph.get_line_ascent(index),
-                descent: self.paragraph.get_line_descent(index),
+                ascent: self.paragraph.get_line_ascent(paragraph_index),
+                descent: self.paragraph.get_line_descent(paragraph_index),
                 width: if self.hangs {
-                    visible_line_width(&self.server, rid)?
+                    line(index)?.visible_width()?
                 } else {
-                    self.paragraph.get_line_width(index)
+                    self.paragraph.get_line_width(paragraph_index)
                 },
                 // The inferred direction of a shaped text is never AUTO.
                 direction: if direction == Direction::RTL {
@@ -197,12 +386,7 @@ impl ParagraphSource for GodotParagraph {
             });
         }
         let ends_with_hard_break = match lines.last() {
-            Some(last) => {
-                let rid = self
-                    .paragraph
-                    .get_line_rid(paragraph_line(lines.len() - 1)?);
-                self.line_ends_with_hard_break(rid, last.end)?
-            }
+            Some(last) => line(lines.len() - 1)?.ends_with_hard_break(last.end)?,
             None => false,
         };
         Ok(ParagraphFacts {
@@ -212,6 +396,19 @@ impl ParagraphSource for GodotParagraph {
             text_len: self.stamp.visible_end,
             lines,
             ends_with_hard_break,
+        })
+    }
+}
+
+impl ParagraphSource for GodotParagraph {
+    fn facts(&self) -> Result<ParagraphFacts, TextLayoutError> {
+        self.ensure_unchanged()?;
+        if let Some(shaped) = &self.shaped {
+            return Ok(shaped.facts.clone());
+        }
+        let keys = GlyphKeys::new();
+        self.build_facts(&|index| {
+            ShapedLine::read(&self.server, self.line_rid(index)?, &keys).map(Cow::Owned)
         })
     }
 
@@ -288,36 +485,6 @@ impl ParagraphSource for GodotParagraph {
         let position = self.server.shaped_text_hit_test_position(rid, f64::from(x));
         Ok(usize::try_from(position).ok())
     }
-}
-
-/// The width of a shaped line's glyphs without the white space it ends with: what a browser measures and aligns. A line's
-/// `shaped_text_get_width` counts that space and is rounded up to a whole pixel, so the advances are added up instead; a line cut
-/// short by an ellipsis or a trim has the server's width.
-fn visible_line_width(server: &Gd<TextServer>, line: Rid) -> Result<f32, TextLayoutError> {
-    let problem = TextLayoutError::MalformedServerData(ServerDataProblem::Glyphs);
-    let space = i64::try_from(GraphemeFlag::SPACE.ord()).map_err(|_| problem)?;
-    let mut advances = Vec::new();
-    for glyph in server.shaped_text_get_glyphs(line).iter_shared() {
-        let flags = dictionary_int(&glyph, "flags").ok_or(problem)?;
-        let repeat = dictionary_int(&glyph, "repeat").ok_or(problem)?;
-        let advance = glyph
-            .get("advance")
-            .and_then(|value| value.try_to::<f32>().ok())
-            .ok_or(problem)?;
-        advances.push((flags & space != 0, advance * repeat as f32));
-    }
-    let hanging: f32 = advances
-        .iter()
-        .rev()
-        .take_while(|(is_space, _)| *is_space)
-        .map(|(_, advance)| advance)
-        .sum();
-    if server.shaped_text_get_trim_pos(line) >= 0 || server.shaped_text_get_ellipsis_pos(line) >= 0
-    {
-        return Ok(server.shaped_text_get_width(line) as f32 - hanging);
-    }
-    let total: f32 = advances.iter().map(|(_, advance)| advance).sum();
-    Ok((total - hanging).max(0.0))
 }
 
 fn alignment_of(paragraph: &Gd<TextParagraph>) -> TextAlignment {

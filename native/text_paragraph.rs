@@ -5,6 +5,7 @@
 mod draw;
 mod rich;
 
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use godot::classes::text_server::{JustificationFlag, LineBreakFlag, OverrunBehavior, SpacingType};
@@ -15,7 +16,10 @@ use godot::prelude::*;
 use crate::box_draw::Lease;
 use crate::fonts::ResolvedFont;
 use crate::text_decoration::Fragment;
-use crate::text_layout::{GodotParagraph, GodotTextLayout, LineExtents, TextLayout};
+use crate::text_layout::{
+    GodotParagraph, GodotTextLayout, LineExtents, ShapedParagraph, TextLayout, TextLayoutError,
+    place_lines,
+};
 use crate::text_span::RichText;
 use crate::text_span::offsets::OffsetMap;
 use crate::text_span::plan::fragments;
@@ -58,6 +62,9 @@ pub(crate) struct StyledParagraph {
     /// The spans of a text made of nested `Text`: its fonts, colours, backgrounds and decorations per fragment. With them the
     /// decorations are the segments' (the node's own are in each), and `decorations` is empty.
     rich: Option<Rc<rich::RichParagraph>>,
+    /// What painting read of the shaped lines at the width it last drew at, and is right until the paragraph is shaped again, which makes
+    /// another `StyledParagraph`: reading a line's glyphs makes a dictionary for each, and painting needs them (`shaped`).
+    shaped: RefCell<Option<Rc<ShapedParagraph>>>,
 }
 
 fn alignment_of(alignment: Alignment) -> HorizontalAlignment {
@@ -183,6 +190,7 @@ impl StyledParagraph {
             line_box,
             decorations: Vec::new(),
             rich,
+            shaped: RefCell::new(None),
         }
     }
 
@@ -259,6 +267,7 @@ impl StyledParagraph {
                 .paragraph
                 .duplicate()
                 .expect("TextParagraph duplicate is available"),
+            shaped: RefCell::new(None),
             ..self.clone()
         }
     }
@@ -305,12 +314,26 @@ impl StyledParagraph {
         size
     }
 
+    /// The paragraph `width` wide with its lines read from the text server: the glyphs of each line and the facts of the layout, as they
+    /// were when painting last read them if the paragraph has not been shaped again since. Sets the paragraph's width.
+    fn shaped(&self, width: f32) -> Result<Rc<ShapedParagraph>, TextLayoutError> {
+        if let Some(shaped) = self.shaped.borrow().as_ref()
+            && shaped.is_of(&self.paragraph, width)?
+        {
+            return Ok(Rc::clone(shaped));
+        }
+        let shaped = Rc::new(GodotParagraph::shape(&self.paragraph, width)?);
+        *self.shaped.borrow_mut() = Some(Rc::clone(&shaped));
+        Ok(shaped)
+    }
+
     /// The layout of this paragraph as it is drawn at `origin`, `width` wide, with the white space a line ends with left out
     /// of its width (as a browser lets it hang).
     fn layout(&self, origin: Vector2, width: f32) -> Result<GodotTextLayout, String> {
         let source = GodotParagraph::lay_out(&self.paragraph, width)
             .map_err(|error| error.to_string())?
-            .hanging_spaces();
+            .hanging_spaces()
+            .with_shaped(self.shaped(width).map_err(|error| error.to_string())?);
         TextLayout::new(source, origin, self.extents_of_empty_line())
             .map_err(|error| error.to_string())
     }
@@ -489,7 +512,10 @@ impl StyledParagraph {
         color: Color,
         oversampling: f32,
     ) -> Result<Vec<Lease>, String> {
-        let layout = self.layout(origin, width)?;
+        if !origin.x.is_finite() || !origin.y.is_finite() {
+            return Err(TextLayoutError::NonFinite.to_string());
+        }
+        let shaped = self.shaped(width).map_err(|error| error.to_string())?;
         let mut server: Gd<TextServer> = TextServerManager::singleton()
             .get_primary_interface()
             .ok_or("there is no text server")?;
@@ -511,7 +537,14 @@ impl StyledParagraph {
                 .done(),
         );
         let mut leases = Vec::new();
-        let fragments = self.decorated_fragments(&layout, oversampling)?;
+        // The decorations are placed from the layout, which asks the text server where each fragment's glyphs are; a paragraph with none
+        // has no use for it.
+        let fragments = if self.is_decorated() {
+            let layout = self.layout(origin, width)?;
+            self.decorated_fragments(&layout, oversampling)?
+        } else {
+            Vec::new()
+        };
         draw::draw_decorations(
             canvas,
             &fragments,
@@ -539,19 +572,25 @@ impl StyledParagraph {
             oversampling,
             fonts: &fonts,
         };
-        for (index, line) in layout.lines().iter().enumerate() {
-            if line.after_final_break {
-                continue;
-            }
+        // Where each line starts: `TextLayout` places them with this, and the lines after a final hard break (which has nothing to draw)
+        // come after the ones drawn.
+        let origins = place_lines(
+            origin,
+            shaped.facts.width,
+            shaped.facts.alignment,
+            shaped.facts.line_spacing,
+            &shaped.facts.lines,
+        );
+        for (index, (line, line_origin)) in shaped.lines.iter().zip(origins).enumerate() {
             let rid = self
                 .paragraph
                 .get_line_rid(i32::try_from(index).map_err(|error| error.to_string())?);
             // The baseline is on a device pixel, as a browser draws it.
             let position = Vector2::new(
-                line.origin.x,
-                (line.origin.y * oversampling).round() / oversampling,
+                line_origin.x,
+                (line_origin.y * oversampling).round() / oversampling,
             );
-            let clip_left = (origin.x - line.origin.x).max(0.0);
+            let clip_left = (origin.x - line_origin.x).max(0.0);
             if glyphwise {
                 draw::draw_glyphs(
                     &mut server,
@@ -559,6 +598,7 @@ impl StyledParagraph {
                     position,
                     (clip_left, clip_left + clip_width),
                     &drawing,
+                    line,
                 )?;
             } else {
                 server

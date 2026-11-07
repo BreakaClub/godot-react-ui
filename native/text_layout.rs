@@ -87,7 +87,7 @@ use godot::builtin::{Rect2, Vector2};
 
 use crate::text_input::{BoundaryLists, EditError, LayoutProblem, LineLayout};
 
-pub(crate) use paragraph::GodotParagraph;
+pub(crate) use paragraph::{GodotParagraph, ShapedGlyph, ShapedLine, ShapedParagraph};
 
 /// A [`TextLayout`] over a real `TextParagraph`.
 pub(crate) type GodotTextLayout = TextLayout<GodotParagraph>;
@@ -865,7 +865,8 @@ impl<S: ParagraphSource> TextLayout<S> {
 
 /// Where each line's glyphs start, replicating `TextParagraph::draw`
 /// (`scene/resources/text_paragraph.cpp:867-942`, the horizontal case with no drop cap).
-fn place_lines(
+/// Where each of the lines of a paragraph starts, as `TextParagraph::draw` places them, for a paragraph drawn at `origin`.
+pub(crate) fn place_lines(
     origin: Vector2,
     width: f32,
     alignment: TextAlignment,

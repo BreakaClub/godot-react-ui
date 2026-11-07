@@ -30,6 +30,12 @@ impl<T> ColorRuns<T> {
         }
     }
 
+    /// Runs given by hand: the start of each segment and its colour.
+    #[cfg(test)]
+    pub(crate) fn from_runs(runs: Vec<(usize, Option<T>)>) -> Self {
+        Self { runs }
+    }
+
     /// Whether any stretch has a colour of its own.
     pub(crate) fn any(&self) -> bool {
         self.runs.iter().any(|(_, color)| color.is_some())
