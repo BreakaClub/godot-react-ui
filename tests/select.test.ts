@@ -426,6 +426,37 @@ test('Select: a press on the list is not allowed to take focus out of it', () =>
   m.root.unmount();
 });
 
+test('Select: a touch press on the list is not prevented, so the list can be panned; a mouse press still is', () => {
+  const m = mount(fruitSelect());
+  click(m, 'trigger');
+  const pressed = (over: string, pointerType: 'mouse' | 'touch'): boolean => {
+    const down = m.host.pointer(m.root, 'pointerdown', { x: 5, y: 5 }, { over: m.tag(over), pointerType });
+    m.host.pointer(m.root, 'pointercancel', { x: 5, y: 5 }, { over: m.tag(over), pointerType });
+    return down.prevented;
+  };
+  assert.equal(pressed('list', 'touch'), false, 'a prevented press cannot become a pan (native/pointer_input.rs, may_pan), and the list has to scroll');
+  assert.equal(pressed('item-banana', 'touch'), false, 'and the finger usually lands on an item, whose press bubbles to the list');
+  assert.equal(pressed('list', 'mouse'), true, 'a mouse press on the padding is still the list\'s');
+  assert.equal(pressed('item-banana', 'mouse'), true, 'and on an item');
+  m.root.unmount();
+});
+
+test('Select: a touch that pans the list chooses nothing, and a tap with a finger chooses the item', () => {
+  const chosen: string[] = [];
+  const m = mount(fruitSelect({ root: { onValueChange: (value: string) => chosen.push(value) } }));
+  click(m, 'trigger');
+  m.host.pointer(m.root, 'pointerdown', { x: 5, y: 5 }, { over: m.tag('item-banana'), pointerType: 'touch' });
+  m.host.pointer(m.root, 'pointercancel', { x: 5, y: 5 }, { over: m.tag('item-banana'), pointerType: 'touch' });
+  assert.deepEqual(chosen, [], 'the pan cancels the pointer, and a cancelled pointer does not click');
+  assert.ok(m.has('list'), 'and the list stays open');
+  m.host.pointer(m.root, 'pointerdown', { x: 5, y: 5 }, { over: m.tag('item-banana'), pointerType: 'touch' });
+  m.host.pointer(m.root, 'pointerup', { x: 5, y: 5 }, { over: m.tag('item-banana'), pointerType: 'touch' });
+  click(m, 'item-banana');
+  assert.deepEqual(chosen, ['banana']);
+  assert.ok(!m.has('list'));
+  m.root.unmount();
+});
+
 // ---------------------------------------------------------------------------------------------------
 // Keyboard
 // ---------------------------------------------------------------------------------------------------

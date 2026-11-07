@@ -447,10 +447,14 @@ const OpenContent = forwardRef<UIHandle, SelectContentProps>(function OpenConten
         style={merged}
         role="listbox"
         onKeyDown={onKeyDown}
-        // A press on the list's padding must not take focus out of it (native clears element focus for a
+        // A mouse press on the list's padding must not take focus out of it (native clears element focus for a
         // press on something that cannot take it); items still click. A press on a scrollbar thumb is
-        // left alone, so it drags the list.
-        onPointerDown={(event) => { if (!isOnThumb(listbox.current, event.x, event.y)) event.preventDefault(); }}
+        // left alone, so it drags the list. A touch is left alone too: a prevented press cannot become a pan
+        // (`may_pan` in native/pointer_input.rs), and the list has to scroll under a finger. The press then
+        // focuses the item or the list under it, and a tap clicks the item as before.
+        onPointerDown={(event) => {
+          if (event.pointerType !== 'touch' && !isOnThumb(listbox.current, event.x, event.y)) event.preventDefault();
+        }}
       >
         <ItemModeContext.Provider value="item">{children}</ItemModeContext.Provider>
       </View>
