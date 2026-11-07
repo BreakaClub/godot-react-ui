@@ -145,7 +145,7 @@ export function ComboboxLab(): ReactNode {
           <View testID="cb-page-tail" style={{ height: PAGE_TAIL_PX }} />
         </View>
       </View>
-      <View className="fixed bottom-6 left-6 right-6 max-w-80">
+      <View className="absolute bottom-6 left-6 right-6 max-w-80">
         <SingleCombobox
           id="bottom" label="Pick an option" value={state.bottom} choices={LONG_LIST} onChange={bottom => patch({ bottom })}
         />

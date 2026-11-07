@@ -97,9 +97,13 @@ export default {
     }
 
     // Evict any previously cached subresources (e.g. from an earlier deploy or stale-while-revalidate)
-    // whenever the HTML revision ETag changes.
+    // whenever the HTML or main pack ETag changes.
     if (relativePath === 'index.html' && etag) {
-      const cleanEtag = String(etag).replace(/^W\/|"/g, '');
+      const pckHead = typeof env.ASSET_UPLOADS_BUCKET.head === 'function'
+        ? await env.ASSET_UPLOADS_BUCKET.head(`${prefix}/index.pck`)
+        : null;
+      const pckEtag = pckHead?.httpEtag ?? pckHead?.etag ?? '';
+      const cleanEtag = `${String(etag)}-${String(pckEtag)}`.replace(/^W\/|"/g, '');
       const cookieHeader = request.headers.get('cookie') ?? '';
       const currentRev = cookieHeader
         .split(';')
