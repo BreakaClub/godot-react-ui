@@ -2,7 +2,9 @@ import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { importDemo } from './import-demo.mjs';
 import { argsWithoutEngine, selectEngine } from './engine.mjs';
-import { NATIVE_INTERACTION_SECTIONS, checkSectionNames, requestedSections } from './verifier-sections.mjs';
+import {
+  NATIVE_INTERACTION_SECTIONS, NATIVE_OPT_IN_SECTIONS, checkSectionNames, interactionDeadlineMs, requestedSections, sectionsToRun,
+} from './verifier-sections.mjs';
 import { runNativeVerifier, summarizeRuns } from './native-run.mjs';
 import { existsSync } from 'node:fs';
 import { INSTALLED_LIBRARY, requireLiveCompile } from './live-compile-build.mjs';
@@ -12,11 +14,8 @@ const root = resolve(import.meta.dirname, '..');
 // the library it must be bound to and the evidence directory.
 const engine = selectEngine();
 const godot = engine.godot;
-// A hang guard, not a budget. The interaction run walks every section and took about 130 s in a quiet landscape window once
-// the scroll and inputs sections were both in it (it was killed at 120 s three times, each with an unrelated focus loss in its
-// log, which the runner then took for interference and ran again); the others finish well inside two minutes. `sectionMs` in
-// the interaction pass line has the numbers.
-const INTERACTION_DEADLINE_MS = 300_000;
+// A hang guard, not a budget. The interaction run's grows with its sections (`interactionDeadlineMs` in scripts/verifier-sections.mjs, with
+// the measurements); the other workflows finish well inside two minutes. `sectionMs` in the interaction pass line has the numbers.
 const DEFAULT_DEADLINE_MS = 120_000;
 for (const argument of argsWithoutEngine(process.argv.slice(2))) {
   if (!['--motion', '--interaction', '--no-retry', '--faults'].includes(argument)
@@ -39,7 +38,6 @@ const lab = process.argv.find(argument => argument.startsWith('--lab='))?.slice(
 const viewport = process.argv.find(argument => argument.startsWith('--viewport='))?.slice('--viewport='.length);
 if (viewport !== undefined && !/^\d+x\d+$/u.test(viewport)) throw new Error(`--viewport=${viewport}: WxH`);
 const artifactRoot = engine.artifactPath(`${motion ? 'native-motion' : interaction ? 'native-interaction' : 'native'}${renderer === undefined || renderer === 'gl_compatibility' ? '' : `-${renderer}`}`);
-const deadlineMs = interaction ? INTERACTION_DEADLINE_MS : DEFAULT_DEADLINE_MS;
 const userFlag = motion ? '--verify-motion' : interaction ? '--verify-interaction' : '--verify';
 // `--only=<section>[,<section>]` runs just those sections of the interaction verifier (plan 0.4.1).
 const only = process.argv.filter(argument => argument.startsWith('--only='));
@@ -51,6 +49,9 @@ if (lab === '') throw new Error('--lab= needs the id of a lab');
 // A typo must fail here, before the build and the window, not inside Godot.
 const requested = requestedSections(process.argv.slice(2));
 checkSectionNames(requested, NATIVE_INTERACTION_SECTIONS);
+const deadlineMs = interaction
+  ? interactionDeadlineMs(sectionsToRun(NATIVE_INTERACTION_SECTIONS, NATIVE_OPT_IN_SECTIONS, requested).length)
+  : DEFAULT_DEADLINE_MS;
 // `--faults` runs against the filters negative-controls library (`pnpm build:native --faults`, the `filters-faults` section);
 // every other run refuses that library, and this one refuses a default build.
 const faults = process.argv.includes('--faults');

@@ -22,3 +22,8 @@ export interface SectionCoverage<S extends string> {
 }
 /** What a run covered. Opt-in sections are never reported as left out. */
 export function describeSections<S extends string>(known: readonly S[], optIn: readonly S[], requested: readonly string[]): SectionCoverage<S>;
+export const INTERACTION_START_ALLOWANCE_MS: number;
+export const INTERACTION_SECTION_ALLOWANCE_MS: number;
+export const INTERACTION_MINIMUM_DEADLINE_MS: number;
+/** The deadline of one native interaction window that runs `sectionCount` sections: a hang guard that grows with the sections. */
+export function interactionDeadlineMs(sectionCount: number): number;

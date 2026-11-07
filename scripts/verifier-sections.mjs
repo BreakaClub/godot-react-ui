@@ -45,3 +45,19 @@ export function describeSections(known, optIn, requested) {
   const skipped = known.filter(name => !run.includes(name) && !optIn.includes(name));
   return { run, skipped, partial: skipped.length > 0 };
 }
+
+// The native interaction run's deadline is a hang guard, not a budget, so it grows with the sections a window runs. Measured on 8 November
+// 2026 (main 99ba6f0, Breaka's 4.8, load average 13 to 20, `sectionMs` of three `--only=` runs that together cover every default section):
+// a landscape window's 22 default sections take 570 s, a mean of 26 s, the slowest `text-styles` at 88 s; the flat 300 s it had before
+// was set on 6 November, when the whole run took about 130 s, and killed the full run in the batch regression at the glass section.
+/** What a window needs before its first section: Godot's start, the import of the demo and the first frame. */
+export const INTERACTION_START_ALLOWANCE_MS = 60_000;
+/** Allowance for each section the window runs: about 1.7 times the measured mean, so the whole run has about 1.8 times its measured time. */
+export const INTERACTION_SECTION_ALLOWANCE_MS = 45_000;
+/** The guard of a run with few sections: one slow section (`text-styles`, 88 s) under a loaded host must not be cut short. */
+export const INTERACTION_MINIMUM_DEADLINE_MS = 300_000;
+
+/** The deadline of one native interaction window that runs `sectionCount` sections. */
+export function interactionDeadlineMs(sectionCount) {
+  return Math.max(INTERACTION_MINIMUM_DEADLINE_MS, INTERACTION_START_ALLOWANCE_MS + INTERACTION_SECTION_ALLOWANCE_MS * sectionCount);
+}

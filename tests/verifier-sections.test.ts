@@ -4,7 +4,8 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import test from 'node:test';
 import {
-  NATIVE_INTERACTION_SECTIONS, NATIVE_OPT_IN_SECTIONS, ONLY_PREFIX, WEB_INTERACTION_SECTIONS, checkSectionNames, describeSections, requestedSections,
+  INTERACTION_MINIMUM_DEADLINE_MS, INTERACTION_SECTION_ALLOWANCE_MS, INTERACTION_START_ALLOWANCE_MS, NATIVE_INTERACTION_SECTIONS,
+  NATIVE_OPT_IN_SECTIONS, ONLY_PREFIX, WEB_INTERACTION_SECTIONS, checkSectionNames, describeSections, interactionDeadlineMs, requestedSections,
   sectionsToRun,
 } from '../scripts/verifier-sections.mjs';
 
@@ -81,4 +82,17 @@ test('both verifiers take their sections from the shared module and keep no list
   assert.match(web, /\.\/verifier-sections\.mjs/);
   assert.doesNotMatch(native, /const SECTIONS = \[/);
   assert.doesNotMatch(web, /const SECTIONS = \[/);
+});
+
+// A landscape window's 22 default sections took 570 s on 8 November 2026 (scripts/verifier-sections.mjs has the measurement).
+const MEASURED_DEFAULT_RUN_MS = 570_000;
+const SLOWEST_SECTION_MS = 88_000;
+
+test('the native interaction deadline grows with the sections a window runs, and never falls below its floor', () => {
+  assert.equal(interactionDeadlineMs(1), INTERACTION_MINIMUM_DEADLINE_MS, 'one section keeps the floor');
+  assert.ok(interactionDeadlineMs(1) > SLOWEST_SECTION_MS * 2, 'the slowest section alone fits twice over');
+  const full = interactionDeadlineMs(DEFAULT_SECTIONS.length);
+  assert.equal(full, INTERACTION_START_ALLOWANCE_MS + INTERACTION_SECTION_ALLOWANCE_MS * DEFAULT_SECTIONS.length);
+  assert.ok(full > MEASURED_DEFAULT_RUN_MS * 1.5, `the default run (${full} ms) has at least half again its measured time`);
+  assert.ok(interactionDeadlineMs(DEFAULT_SECTIONS.length + 1) > full, 'one more section raises it');
 });
