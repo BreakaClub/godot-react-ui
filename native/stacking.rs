@@ -50,6 +50,18 @@ use crate::transform::{Affine2, Placement};
 pub(crate) struct Stacking {
     pub(crate) position: PositionSpec,
     pub(crate) z_index: i32,
+    /// The element has a `transform`: like a positioned element it is the containing block of the absolute
+    /// elements below it, and unlike one it is also the containing block of the fixed ones.
+    pub(crate) transformed: bool,
+    /// Some ancestor is transformed, so a `fixed` element is positioned like an `absolute` one.
+    pub(crate) inside_transform: bool,
+}
+
+impl Stacking {
+    /// Whether the element is the containing block of the absolute elements below it.
+    fn is_containing_block(&self) -> bool {
+        self.position.is_positioned() || self.transformed
+    }
 }
 
 /// The React tree and the styles that decide where each element is painted.
@@ -75,16 +87,21 @@ fn layer_of<T: StackingTree>(tree: &T, tag: u32) -> Option<usize> {
 /// attached to a layer.
 pub(crate) fn paint_parent<T: StackingTree>(tree: &T, tag: u32) -> Option<Parent> {
     let parent = tree.tree_parent(tag)?;
-    match tree.stacking(tag)?.position {
+    let stacking = tree.stacking(tag)?;
+    match stacking.position {
         PositionSpec::Static | PositionSpec::Relative => Some(parent),
-        PositionSpec::Fixed => Some(Parent::Layer(layer_of(tree, tag)?)),
-        PositionSpec::Absolute => {
+        PositionSpec::Fixed if !stacking.inside_transform => {
+            Some(Parent::Layer(layer_of(tree, tag)?))
+        }
+        // A fixed element below a transform is positioned against the nearest containing block, as an absolute
+        // one is (Taffy has no fixed positioning relative to anything but the root).
+        PositionSpec::Absolute | PositionSpec::Fixed => {
             let mut current = parent;
             loop {
                 match current {
                     Parent::Layer(_) => return Some(current),
                     Parent::Node(node) => {
-                        if tree.stacking(node)?.position.is_positioned() {
+                        if tree.stacking(node)?.is_containing_block() {
                             return Some(current);
                         }
                         current = tree.tree_parent(node)?;
@@ -490,6 +507,8 @@ mod tests {
                     stacking: Stacking {
                         position,
                         z_index: 0,
+                        transformed: false,
+                        inside_transform: false,
                     },
                     clips: false,
                     pointer_target: true,
@@ -524,6 +543,17 @@ mod tests {
 
         fn z(&mut self, tag: u32, z_index: i32) {
             self.nodes.get_mut(&tag).unwrap().stacking.z_index = z_index;
+        }
+
+        /// Give `tag` the transform `css` (about the middle of its box), as the mounting layer evaluates it.
+        fn transform(&mut self, tag: u32, css: &str) {
+            let node = self.nodes.get_mut(&tag).unwrap();
+            let list = crate::transform::TransformList::parse(css).unwrap();
+            node.placement = crate::transform::evaluate(list.computed(), None, node.size)
+                .unwrap()
+                .placement
+                .into();
+            node.stacking.transformed = true;
         }
 
         fn out_of_flow(&self) -> BTreeSet<u32> {
@@ -816,6 +846,172 @@ mod tests {
         tree.z(1, 100);
         tree.settle();
         assert_eq!(tree.hit(60.0, 60.0), Some(2));
+    }
+
+    // --- transforms ---
+
+    fn rect_of_drawn(tree: &TestTree, tag: u32) -> (f32, f32, f32, f32) {
+        let (rect, _) = drawn(tree, tag);
+        (rect.x, rect.y, rect.width, rect.height)
+    }
+
+    #[test]
+    fn a_rotated_element_is_hit_where_it_is_drawn_and_its_bounding_box_corners_miss() {
+        let mut tree = TestTree::new();
+        // 200 x 40 at (100, 100), turned a quarter about its middle (200, 120): it now stands 40 wide and 200 tall.
+        tree.add(TOP, 1, Static, (100.0, 100.0), (200.0, 40.0));
+        tree.transform(1, "rotate(90deg)");
+        tree.settle();
+        let (x, y, width, height) = rect_of_drawn(&tree, 1);
+        assert!(
+            (x - 180.0).abs() < 1e-3 && (y - 20.0).abs() < 1e-3,
+            "{x} {y}"
+        );
+        assert!((width - 40.0).abs() < 1e-3 && (height - 200.0).abs() < 1e-3);
+        assert_eq!(tree.hit(200.0, 30.0), Some(1), "the turned top end");
+        assert_eq!(tree.hit(200.0, 210.0), Some(1), "the turned bottom end");
+        assert_eq!(tree.hit(120.0, 120.0), None, "where it was, it no longer is");
+        // 45 degrees: the box round a 200 x 40 bar is 170 square; its corners are empty.
+        let mut tree = TestTree::new();
+        tree.add(TOP, 1, Static, (100.0, 100.0), (200.0, 40.0));
+        tree.transform(1, "rotate(45deg)");
+        tree.settle();
+        let (x, y, width, height) = rect_of_drawn(&tree, 1);
+        assert!((width - 169.7056).abs() < 1e-2 && (height - 169.7056).abs() < 1e-2);
+        assert_eq!(tree.hit(200.0, 120.0), Some(1), "the middle");
+        // A rotated rectangle touches its bounding box at its four corners only: the box's own corners are empty.
+        for (corner_x, corner_y) in [
+            (x + 1.0, y + 1.0),
+            (x + width - 1.0, y + 1.0),
+            (x + 1.0, y + height - 1.0),
+            (x + width - 1.0, y + height - 1.0),
+        ] {
+            assert_eq!(tree.hit(corner_x, corner_y), None, "{corner_x} {corner_y}");
+        }
+        // Along the bar's axis, clockwise from the middle, it is hit; across it past half its thickness it is not.
+        let along = 90.0 * std::f32::consts::FRAC_1_SQRT_2;
+        assert_eq!(tree.hit(200.0 + along, 120.0 + along), Some(1));
+        assert_eq!(tree.hit(200.0 - along, 120.0 - along), Some(1));
+        let across = std::f32::consts::FRAC_1_SQRT_2;
+        assert_eq!(tree.hit(200.0 - 15.0 * across, 120.0 + 15.0 * across), Some(1));
+        assert_eq!(tree.hit(200.0 - 30.0 * across, 120.0 + 30.0 * across), None);
+    }
+
+    #[test]
+    fn a_collapsed_matrix_hits_nothing_with_nothing_in_it() {
+        let mut tree = TestTree::new();
+        tree.add(TOP, 1, Static, (0.0, 0.0), (100.0, 100.0));
+        tree.add(Parent::Node(1), 2, Static, (10.0, 10.0), (20.0, 20.0));
+        tree.transform(1, "scale(0)");
+        tree.settle();
+        assert_eq!(tree.hit(50.0, 50.0), None);
+        assert_eq!(tree.hit(15.0, 15.0), None, "nor its child");
+        let mut tree = TestTree::new();
+        tree.add(TOP, 1, Static, (0.0, 0.0), (100.0, 100.0));
+        tree.transform(1, "rotateY(90deg)");
+        tree.settle();
+        assert_eq!(tree.hit(50.0, 50.0), None, "edge on");
+    }
+
+    #[test]
+    fn nested_transforms_multiply_per_element_and_children_are_hit_in_the_parents_turned_frame() {
+        let mut tree = TestTree::new();
+        // The parent is scaled by two about its middle (100, 100): it covers (-... ) 0..200 -> -100..300 in x and y.
+        tree.add(TOP, 1, Static, (0.0, 0.0), (200.0, 200.0));
+        tree.transform(1, "scale(2)");
+        // Its child sits at (150, 0) in the parent's frame, 40 x 40, and is turned a quarter about its middle.
+        tree.add(Parent::Node(1), 2, Static, (150.0, 0.0), (40.0, 40.0));
+        tree.transform(2, "rotate(90deg)");
+        tree.settle();
+        // The child's centre (170, 20) is at 2 * (170 - 100) + 100 = 240, 2 * (20 - 100) + 100 = -60 on screen.
+        let (x, y, width, height) = rect_of_drawn(&tree, 2);
+        assert!(
+            (x - 200.0).abs() < 1e-2 && (y - -100.0).abs() < 1e-2 && (width - 80.0).abs() < 1e-2 && (height - 80.0).abs() < 1e-2,
+            "{x} {y} {width} {height}"
+        );
+        assert_eq!(tree.hit(240.0, -60.0), Some(2));
+        assert_eq!(tree.hit(100.0, 100.0), Some(1));
+        assert_eq!(tree.hit(-90.0, -90.0), Some(1), "the scaled parent reaches past its layout box");
+    }
+
+    #[test]
+    fn an_overflow_clip_in_a_turned_frame_is_exact_for_hits_and_a_box_for_geometry() {
+        let mut tree = TestTree::new();
+        tree.add(TOP, 1, Static, (200.0, 200.0), (100.0, 100.0));
+        tree.clip(1);
+        tree.transform(1, "rotate(45deg)");
+        // A child that sticks out of the clip on the right.
+        tree.add(Parent::Node(1), 2, Static, (60.0, 40.0), (100.0, 20.0));
+        tree.settle();
+        // The child's tip (150, 50) in the parent's frame: out of the clip, so not hit; the part inside is.
+        let place = |at: Vector2| {
+            Vector2::new(200.0, 200.0) + tree.nodes[&1].placement.unwrap().affine.apply(at)
+        };
+        let tip = place(Vector2::new(150.0, 50.0));
+        let inside = place(Vector2::new(80.0, 50.0));
+        assert_eq!(tree.hit(tip.x, tip.y), None);
+        assert_eq!(tree.hit(inside.x, inside.y), Some(2));
+        let (_, clip) = drawn(&tree, 2);
+        let clip = clip.expect("the parent clips");
+        // The clip is the box round the turned padding box, as the engine's.
+        assert!(
+            (clip.width - 141.42).abs() < 0.1 && (clip.height - 141.42).abs() < 0.1,
+            "{} x {}",
+            clip.width,
+            clip.height
+        );
+    }
+
+    #[test]
+    fn a_scroll_container_in_a_turned_frame_scrolls_its_content_in_its_own_axes() {
+        let mut tree = TestTree::new();
+        tree.add(TOP, 1, Static, (0.0, 0.0), (100.0, 100.0));
+        tree.scrolls(1, (0.0, 30.0), [None, None]);
+        tree.transform(1, "rotate(90deg)");
+        tree.add(Parent::Node(1), 2, Static, (0.0, 50.0), (100.0, 20.0));
+        tree.settle();
+        // The row is at y 50 in the container, 20 once scrolled; turned a quarter about (50, 50) that is x = 50 + (50 - 30)... check
+        // by drawing: the container's point (50, 30) goes to (50 - (30 - 50), 50 + (50 - 50)) = (70, 50).
+        let at = tree.nodes[&1]
+            .placement
+            .unwrap()
+            .affine
+            .apply(Vector2::new(50.0, 30.0));
+        assert!((at.x - 70.0).abs() < 1e-3 && (at.y - 50.0).abs() < 1e-3, "{at:?}");
+        assert_eq!(tree.hit(at.x, at.y), Some(2));
+    }
+
+    #[test]
+    fn a_transformed_element_is_the_containing_block_of_absolute_and_fixed_elements_below_it() {
+        let mut tree = TestTree::new();
+        tree.add(TOP, 1, Static, (10.0, 10.0), (100.0, 100.0));
+        tree.transform(1, "rotate(0deg)");
+        tree.add(Parent::Node(1), 2, Static, (0.0, 0.0), (50.0, 50.0));
+        tree.add(Parent::Node(2), 3, Absolute, (5.0, 5.0), (10.0, 10.0));
+        tree.add(Parent::Node(2), 4, Fixed, (6.0, 6.0), (10.0, 10.0));
+        tree.nodes.get_mut(&4).unwrap().stacking.inside_transform = true;
+        tree.settle();
+        assert_eq!(tree.nodes[&3].paint_parent, Some(Parent::Node(1)), "absolute: the transformed ancestor");
+        assert_eq!(tree.nodes[&4].paint_parent, Some(Parent::Node(1)), "fixed: the same");
+        // Without the transform they go where they went.
+        let mut tree = TestTree::new();
+        tree.add(TOP, 1, Static, (10.0, 10.0), (100.0, 100.0));
+        tree.add(Parent::Node(1), 2, Absolute, (5.0, 5.0), (10.0, 10.0));
+        tree.add(Parent::Node(1), 3, Fixed, (6.0, 6.0), (10.0, 10.0));
+        tree.settle();
+        assert_eq!(tree.nodes[&2].paint_parent, Some(TOP));
+        assert_eq!(tree.nodes[&3].paint_parent, Some(TOP));
+    }
+
+    #[test]
+    fn an_untransformed_walk_gives_the_numbers_it_always_did() {
+        let mut tree = TestTree::new();
+        tree.add(TOP, 1, Static, (0.1, 0.2), (10.3, 20.7));
+        tree.add(Parent::Node(1), 2, Static, (0.3, 0.7), (4.1, 5.9));
+        tree.settle();
+        let (x, y, width, height) = rect_of_drawn(&tree, 2);
+        assert_eq!((x, y), (0.1 + 0.3, 0.2 + 0.7));
+        assert_eq!((width, height), (4.1, 5.9), "the size is not recomputed from corners");
     }
 
     #[test]

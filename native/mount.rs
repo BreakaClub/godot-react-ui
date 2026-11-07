@@ -236,6 +236,8 @@ impl StackingTree for Mounted {
         Some(Stacking {
             position: computed.position.unwrap_or(PositionSpec::Static),
             z_index: computed.z_index.unwrap_or(0),
+            transformed: computed.is_transformed(),
+            inside_transform: computed.inside_transform,
         })
     }
 }

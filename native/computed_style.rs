@@ -94,6 +94,9 @@ pub struct InheritedStyle {
     pub selection_color: Option<String>,
     pub caret_color: Option<String>,
     pub placeholder_color: Option<String>,
+    /// Some ancestor, or this node itself, is transformed: what an absolute or fixed descendant is positioned
+    /// against (`StyleSpec::inside_transform`).
+    pub inside_transform: bool,
 }
 
 impl ComputedStyle {
@@ -110,6 +113,7 @@ impl ComputedStyle {
             selection_color: self.0.selection_color.clone(),
             caret_color: self.0.caret_color.clone(),
             placeholder_color: self.0.placeholder_color.clone(),
+            inside_transform: self.0.inside_transform || self.0.is_transformed(),
         }
     }
 
@@ -149,6 +153,7 @@ pub fn resolve(
         selection_color: inherited.selection_color.clone(),
         caret_color: inherited.caret_color.clone(),
         placeholder_color: inherited.placeholder_color.clone(),
+        inside_transform: inherited.inside_transform,
         ..StyleSpec::default()
     };
     if let Some(layers) = layers {
@@ -522,6 +527,7 @@ mod tests {
             selection_color: Some("#3b82f659".into()),
             caret_color: Some("#ef4444".into()),
             placeholder_color: Some("#94a3b8".into()),
+            inside_transform: false,
         };
         let none = StyleLayers::default();
         let child = resolve(Some(&none), false, &inherited, &conditions(WIDE, &[]));

@@ -532,6 +532,13 @@ pub struct StyleSpec {
     /// CSS `transform-origin` (text on the wire): where the transform is about, in the border box. The middle
     /// when nothing set one.
     pub transform_origin: Option<TransformOriginSpec>,
+    /// Computed, never authored: some ancestor is transformed (`transform` other than `none`). A transformed element
+    /// is the containing block of its absolute and fixed descendants, so `fixed` here is laid out and painted like
+    /// `absolute` (Taffy's `fixed` has no containing-block override), and a static transformed element is laid out
+    /// as `relative` so Taffy gives it its absolute descendants. Inherited like a property: see
+    /// `InheritedStyle::inside_transform`.
+    #[serde(skip)]
+    pub inside_transform: bool,
 }
 
 /// Merge one layer's `transform` and `transform_parts` over the values so far, as [`merge_filter`] does
@@ -714,6 +721,7 @@ impl StyleSpec {
                     backdrop_filter_parts,
                     transform,
                     transform_parts,
+                    inside_transform: _,
                 } = other;
                 $(
                     if $field.is_some() {
@@ -921,16 +929,29 @@ impl StyleSpec {
                 y: overflow(self.overflow_y),
             },
             position: match self.position.unwrap_or(PositionSpec::Static) {
+                // A transformed element is the containing block of what is absolutely positioned inside it, which
+                // Taffy gives to a positioned one. Its insets stay unset: a static element is not moved by them.
+                PositionSpec::Static if self.is_transformed() => Position::Relative,
                 PositionSpec::Static => Position::Static,
                 PositionSpec::Relative => Position::Relative,
                 PositionSpec::Absolute => Position::Absolute,
+                PositionSpec::Fixed if self.inside_transform => Position::Absolute,
                 PositionSpec::Fixed => Position::Fixed,
             },
-            inset: Rect {
-                left: inset(&self.left)?,
-                right: inset(&self.right)?,
-                top: inset(&self.top)?,
-                bottom: inset(&self.bottom)?,
+            inset: if self.position.unwrap_or(PositionSpec::Static) == PositionSpec::Static {
+                Rect {
+                    left: auto(),
+                    right: auto(),
+                    top: auto(),
+                    bottom: auto(),
+                }
+            } else {
+                Rect {
+                    left: inset(&self.left)?,
+                    right: inset(&self.right)?,
+                    top: inset(&self.top)?,
+                    bottom: inset(&self.bottom)?,
+                }
             },
             display: match self.display.unwrap_or(DisplaySpec::Flex) {
                 DisplaySpec::Flex => Display::Flex,
@@ -2409,5 +2430,102 @@ mod tests {
         );
         assert!(style(r#"{"caretColor":"indigo"}"#).validate().is_err());
         assert!(style(r##"{"placeholderColor":"#12"}"##).validate().is_err());
+    }
+
+    /// The mounting layer merges layers with `StyleSpec::merge`; this is what `-translate-x-1/2 hover:scale-105` and
+    /// `style={{transform}}` come to.
+    #[test]
+    fn transform_utilities_merge_per_value_and_an_explicit_transform_replaces_them() {
+        let mut base = style(r#"{"transformParts":{"translateX":"-50%"}}"#);
+        base.merge(&style(r#"{"transformParts":{"scaleX":1.05,"scaleY":1.05}}"#));
+        let list = base.transform_list();
+        assert_eq!(
+            list.css(),
+            "translate(-50%, 0px) rotate(0deg) skewX(0deg) skewY(0deg) scaleX(1.05) scaleY(1.05)",
+            "the hover layer keeps the translate"
+        );
+        base.merge(&style(r#"{"transform":"rotate(10deg)"}"#));
+        assert_eq!(base.transform_list().css(), "rotate(10deg)", "an inline transform replaces both");
+        assert!(base.transform_parts.is_none());
+        base.merge(&style(r#"{"transformParts":{"rotate":"45deg"}}"#));
+        assert_eq!(
+            base.transform_list().css(),
+            "translate(0px, 0px) rotate(45deg) skewX(0deg) skewY(0deg) scaleX(1) scaleY(1)",
+            "a value set after it takes back the composed list, where only what was set since counts"
+        );
+        base.merge(&style(r#"{"transformOrigin":"top left"}"#));
+        assert_eq!(base.transform_origin_spec().css(), "top left");
+    }
+
+    #[test]
+    fn a_style_with_perspective_or_garbage_in_a_transform_does_not_parse() {
+        for json in [
+            r#"{"transform":"perspective(500px) rotateY(30deg)"}"#,
+            r#"{"transform":"matrix3d(1,0,0,0.001,0,1,0,0,0,0,1,0,0,0,0,1)"}"#,
+            r#"{"transform":"wobble(1)"}"#,
+            r#"{"transformOrigin":"1em 2em"}"#,
+            r#"{"transformParts":{"scaleX":2},"transform":"rotate(5deg)","bogus":1}"#,
+        ] {
+            assert!(serde_json::from_str::<StyleSpec>(json).is_err(), "{json}");
+        }
+        let error = serde_json::from_str::<StyleSpec>(r#"{"transform":"perspective(500px)"}"#)
+            .expect_err("refused")
+            .to_string();
+        assert!(error.contains("perspective is not implemented yet"), "{error}");
+        // A part with a bad value is refused when the style is validated.
+        assert!(style(r#"{"transformParts":{"translateX":"2em"}}"#).validate().is_err());
+        assert!(style(r#"{"transformParts":{"rotate":"45"}}"#).validate().is_err());
+        assert!(style(r#"{"transformParts":{"translateX":"-50%","rotate":"45deg","gpu":true}}"#).validate().is_ok());
+    }
+
+    #[test]
+    fn a_transformed_element_gives_taffy_the_containing_block_css_gives_it() {
+        use taffy::prelude::*;
+        // `position` is static, so Taffy would not make it the containing block of its absolute child.
+        let build = |transform: &str| {
+            let mut tree: TaffyTree<()> = TaffyTree::new();
+            let child = tree
+                .new_leaf(
+                    style(r#"{"position":"absolute","left":11,"top":13,"width":30,"height":30}"#)
+                        .taffy_style()
+                        .unwrap(),
+                )
+                .unwrap();
+            let parent = tree
+                .new_with_children(
+                    style(&format!(
+                        r#"{{"width":100,"height":100,"marginLeft":20,"marginTop":20{transform}}}"#
+                    ))
+                    .taffy_style()
+                    .unwrap(),
+                    &[child],
+                )
+                .unwrap();
+            let root = tree
+                .new_with_children(
+                    style(r#"{"width":500,"height":400}"#).taffy_style().unwrap(),
+                    &[parent],
+                )
+                .unwrap();
+            tree.compute_layout(root, Size::MAX_CONTENT).unwrap();
+            (tree.layout(child).unwrap().location, tree.layout(parent).unwrap().location)
+        };
+        let (plain, _) = build("");
+        assert_eq!((plain.x, plain.y), (11.0, 13.0), "against the root");
+        let (inside, parent) = build(r#","transform":"rotate(5deg)""#);
+        assert_eq!((parent.x, parent.y), (20.0, 20.0), "layout ignores the transform");
+        assert_eq!((inside.x, inside.y), (11.0, 13.0), "in the transformed parent's frame");
+        // A fixed element below a transform is laid out like an absolute one.
+        let mut fixed = style(r#"{"position":"fixed"}"#);
+        fixed.inside_transform = true;
+        assert_eq!(fixed.taffy_style().unwrap().position, Position::Absolute);
+        assert_eq!(
+            style(r#"{"position":"fixed"}"#).taffy_style().unwrap().position,
+            Position::Fixed
+        );
+        // And a static transformed element does not take its insets as offsets.
+        let moved = style(r#"{"left":50,"top":50,"transform":"scale(2)"}"#).taffy_style().unwrap();
+        assert_eq!(moved.position, Position::Relative);
+        assert_eq!(moved.inset.left, auto());
     }
 }

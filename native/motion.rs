@@ -319,7 +319,11 @@ impl ReactUiRoot {
             self.hit_stale = true;
         }
         if change.previous.as_ref().is_none_or(|previous| {
-            previous.position != node.computed.position || previous.z_index != node.computed.z_index
+            previous.position != node.computed.position
+                || previous.z_index != node.computed.z_index
+                // A transformed element is a containing block, and a fixed one below it moves with it.
+                || previous.is_transformed() != node.computed.is_transformed()
+                || previous.inside_transform != node.computed.inside_transform
         }) {
             self.paint_reeval.insert(tag);
         }

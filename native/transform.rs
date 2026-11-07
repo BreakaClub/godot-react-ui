@@ -35,7 +35,7 @@ use crate::props::StyleSpec;
 
 /// The message for every refusal of a projective transform. Perspective needs a render target per
 /// element, which a separate piece of work measures; until it lands the style is refused, not drawn flat.
-pub const PERSPECTIVE_UNSUPPORTED: &str = "perspective is not implemented yet: perspective() and a matrix3d() with a projective row are refused (rotateX(), rotateY() and translateZ() without perspective are drawn orthographically)";
+pub const PERSPECTIVE_UNSUPPORTED: &str = "perspective is not implemented yet (perspective() and a matrix3d() with a projective row are refused, not drawn flat; rotateX(), rotateY() and translateZ() without perspective are drawn orthographically)";
 
 /// A 2D matrix whose determinant is below this in magnitude has no inverse worth taking: the element is
 /// edge on or collapsed (`rotateY(90deg)` leaves 6e-17 in float, `scale(0)` leaves 0). Nothing is drawn
@@ -708,6 +708,16 @@ impl StyleSpec {
                 .to_list()
                 .expect("transform parts are validated with the style"),
             (None, None) => TransformList::none(),
+        }
+    }
+
+    /// Whether the element is transformed in the sense CSS gives a containing block to: a `transform` other than
+    /// `none` (an identity list such as Tailwind's `transform` still is one).
+    pub fn is_transformed(&self) -> bool {
+        match (&self.transform, &self.transform_parts) {
+            (Some(list), _) => !list.is_none(),
+            (None, Some(_)) => true,
+            (None, None) => false,
         }
     }
 

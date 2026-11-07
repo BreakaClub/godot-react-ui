@@ -1040,4 +1040,83 @@ mod tests {
         assert_eq!(settled.values[&1].backdrop_filter, to_backdrop);
         assert!(!settled.active, "and nothing is left animating");
     }
+
+    fn transform_of(css: &str) -> crate::transform::TransformList {
+        crate::transform::TransformList::parse(css).expect("a valid transform")
+    }
+
+    /// The matrix of a sampled transform against a 200 x 100 box, as the renderer evaluates it.
+    fn matrix_at(frame: &Frame, tag: u32) -> [f32; 6] {
+        crate::transform::evaluate(
+            &frame.values[&tag].transform,
+            None,
+            godot::prelude::Vector2::new(200.0, 100.0),
+        )
+        .expect("evaluates")
+        .placement
+        .affine
+        .to_array()
+    }
+
+    /// Stylo interpolates a matched list function by function (CSS Transforms 1) and an unmatched one by decomposing the
+    /// matrices; both come back as a computed list the renderer evaluates against the box. The samples are Stylo's,
+    /// the checks are the numbers the specification gives.
+    #[test]
+    fn transforms_transition_by_function_and_by_decomposition_and_end_exactly() {
+        let mut scene = Scene::new("10");
+        *scene.node(1) = style(
+            r##"{"transition":{"properties":["transform"],"durationMs":1000,"easing":"linear"}}"##,
+        );
+        scene.node(1).transform = Some(transform_of("rotate(0deg) scale(1)"));
+        scene.sync(0.0);
+        scene.node(1).transform = Some(transform_of("rotate(90deg) scale(2)"));
+        let started = scene.sync(0.0);
+        let [a, b, ..] = matrix_at(&started, 1);
+        assert!((a - 1.0).abs() < 1e-4 && b.abs() < 1e-4, "starts where it was");
+        // Halfway: rotate(45deg) scale(1.5), whose x axis is 1.5 * (cos 45, sin 45).
+        let middle = scene.sample(0.5);
+        let [a, b, c, d, ..] = matrix_at(&middle, 1);
+        let expected = 1.5 * std::f32::consts::FRAC_1_SQRT_2;
+        assert!((a - expected).abs() < 1e-3 && (b - expected).abs() < 1e-3, "{a} {b}");
+        assert!((c + expected).abs() < 1e-3 && (d - expected).abs() < 1e-3, "{c} {d}");
+        assert!(middle.active);
+        let end = scene.sample(1.0);
+        let [a, b, c, d, ..] = matrix_at(&end, 1);
+        assert!(a.abs() < 1e-5 && (b - 2.0).abs() < 1e-5 && (c + 2.0).abs() < 1e-5 && d.abs() < 1e-5);
+        assert!(!end.active, "nothing is left animating");
+
+        // Lists that do not match: rotate to a percentage translate. The percentage is of the box, which only the
+        // renderer knows, so Stylo hands back both lists and a progress; halfway is the decomposition's midpoint.
+        let mut scene = Scene::new("10");
+        *scene.node(1) = style(
+            r##"{"transition":{"properties":["transform"],"durationMs":1000,"easing":"linear"}}"##,
+        );
+        scene.node(1).transform = Some(transform_of("rotate(0deg)"));
+        scene.sync(0.0);
+        scene.node(1).transform = Some(transform_of("translateX(50%)"));
+        scene.sync(0.0);
+        let middle = scene.sample(0.5);
+        let [a, b, c, d, e, _] = matrix_at(&middle, 1);
+        assert!((a - 1.0).abs() < 1e-4 && b.abs() < 1e-4 && c.abs() < 1e-4 && (d - 1.0).abs() < 1e-4);
+        // 50% of 200 is 100 px, halfway is 50 px; the origin is the middle and the matrix is unrotated, so e is the shift.
+        assert!((e - 50.0).abs() < 1e-3, "{e}");
+        let end = scene.sample(1.0);
+        assert!((matrix_at(&end, 1)[4] - 100.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn a_transform_from_none_interpolates_from_the_identity_of_each_function() {
+        let mut scene = Scene::new("10");
+        *scene.node(1) = style(
+            r##"{"transition":{"properties":["transform"],"durationMs":1000,"easing":"linear"}}"##,
+        );
+        scene.sync(0.0);
+        scene.node(1).transform = Some(transform_of("translateX(40px) scale(3)"));
+        scene.sync(0.0);
+        let middle = scene.sample(0.5);
+        let [a, _, _, d, e, _] = matrix_at(&middle, 1);
+        assert!((a - 2.0).abs() < 1e-4 && (d - 2.0).abs() < 1e-4, "{a} {d}");
+        // The translate is 20 px; scale 2 about the middle (100, 50) shifts the origin of the map by minus (100, 50).
+        assert!((e - (20.0 - 100.0)).abs() < 1e-3, "{e}");
+    }
 }
