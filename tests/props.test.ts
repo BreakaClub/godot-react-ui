@@ -137,6 +137,20 @@ test('aria numbers must be finite', () => {
   }
 });
 
+test('aria-activedescendant and aria-controls name an element by the id of its handle', () => {
+  assert.deepEqual(nativeProps('textinput', { role: 'combobox', 'aria-activedescendant': 7, 'aria-controls': 3 }, false), {
+    role: 'combobox', ariaActiveDescendant: 7, ariaControls: 3,
+  });
+  assert.deepEqual(nativeProps('view', {}, false), {});
+  for (const prop of ['aria-activedescendant', 'aria-controls'] as const) {
+    for (const invalid of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      assert.throws(() => nativeProps('view', { [prop]: invalid }, false), new RegExp(`${prop} must be the id of an element handle`), `${prop} ${invalid}`);
+    }
+  }
+  assert.deepEqual(diffNativeProps({ ariaActiveDescendant: 7 }, { ariaActiveDescendant: 8 }), { ariaActiveDescendant: 8 });
+  assert.deepEqual(diffNativeProps({ ariaActiveDescendant: 7, ariaControls: 3 }, { ariaControls: 3 }), { ariaActiveDescendant: null });
+});
+
 test('a diff names each accessibility field that changed, with null when it went away', () => {
   const checked: NativeProps = { role: 'checkbox', ariaChecked: false, ariaLabel: 'Sound' };
   assert.equal(diffNativeProps(checked, { ...checked }), null);
