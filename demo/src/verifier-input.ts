@@ -34,7 +34,7 @@ export function parseVerifierEvent(event: InputEvent): void {
 
 /** Whether the arguments after `--` ask for a verifier or the probe: runs that inject their own input. */
 export function injectsOwnInput(userArgs: readonly string[]): boolean {
-  return ['--verify', '--verify-motion', '--verify-interaction', '--verify-world', '--verify-a11y', '--probe'].some(flag => userArgs.includes(flag));
+  return ['--verify', '--verify-motion', '--verify-interaction', '--verify-world', '--verify-a11y', '--probe', '--profile-keystrokes', '--profile-keystrokes=standalone'].some(flag => userArgs.includes(flag));
 }
 
 /** What a run observed that the verifier did not cause. */

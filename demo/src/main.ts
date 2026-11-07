@@ -31,6 +31,7 @@ import { installRefreshHook } from './live-compile-refresh';
 
 /** `--logical-viewport=WxH` (after `--`): the size the render target and the root have, whatever the window's. */
 const LOGICAL_VIEWPORT_ARGUMENT = '--logical-viewport=';
+import { installKeystrokeProfile } from './profile-keystrokes';
 import { runInteractionVerification } from './verify-interaction';
 import { runMotionVerification } from './verify-motion';
 import { VerifierInputIsolation, injectsOwnInput } from './verifier-input';
@@ -343,6 +344,8 @@ export default class Main extends Node {
       godotReactLiveCompile: () => verifyLiveCompile(this, api, async () => {}),
     });
     console.log('GODOT_REACT_DEMO_READY');
+    // The keystroke cost diagnostic (docs/tracks/keystroke-profile.md): it only drives the editor, and only when asked.
+    if (userArgs.some(argument => argument.startsWith('--profile-keystrokes'))) installKeystrokeProfile(this, api, userArgs);
     const verify = userArgs.includes('--verify');
     const verifyMotion = userArgs.includes('--verify-motion');
     const verifyInteraction = userArgs.includes('--verify-interaction');

@@ -360,6 +360,8 @@ const GUARDS: Record<string, readonly string[]> = {
   // Reads the captures a verifier left and lays them out: it runs no build, so there is nothing to guard.
   'navigator-captures.mjs': [],
   'probe-web.mjs': ['requireFreshWebExport('],
+  // Drives the code panel under a V8 profiler (docs/tracks/keystroke-profile.md); it runs the installed library like a verifier does.
+  'profile-keystrokes.mjs': ['prepareNative('],
   'run.mjs': ['prepareNative('],
   'serve-web.mjs': ['requireFreshWebExport('],
   'test-types.mjs': ['ensureStockTypings('],
