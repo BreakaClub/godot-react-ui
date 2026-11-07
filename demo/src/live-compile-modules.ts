@@ -133,6 +133,11 @@ export interface RegistryOptions {
   readonly aliases?: Readonly<Record<string, string>>;
   readonly compile: CompileFunction;
   readonly refresh: RefreshHooks;
+  /**
+   * For each evaluation of a module, a function that gives the module its own view of an external it requires (`react` with a
+   * `memo` that knows which module is calling it). Called once per evaluation, so it can count what the module makes.
+   */
+  readonly moduleExternals?: (path: string) => (specifier: string, external: object) => object;
 }
 
 export class ModuleRegistry {
@@ -236,8 +241,9 @@ export class ModuleRegistry {
     const body = new Function('require', 'exports', 'module', '$RefreshReg$', '$RefreshSig$', `${code}\n//# sourceURL=live-compile:${record.path}`);
     const previous = record.instance;
     record.evaluating = exports;
+    const viewOf = this.options.moduleExternals?.(record.path);
     try {
-      Reflect.apply(body, undefined, [(specifier: string) => this.require(record.path, specifier, transaction), exports, module, registerComponent, () => this.options.refresh.createSignature()]);
+      Reflect.apply(body, undefined, [(specifier: string) => this.require(record.path, specifier, transaction, viewOf), exports, module, registerComponent, () => this.options.refresh.createSignature()]);
     } catch (thrown) {
       // A module this one required that threw is the one to name.
       throw thrown instanceof ModuleError ? thrown : new ModuleError(record.path, asError(thrown));
@@ -248,10 +254,10 @@ export class ModuleRegistry {
     transaction.record(record, previous);
   }
 
-  private require(from: string, specifier: string, transaction: Transaction): object {
+  private require(from: string, specifier: string, transaction: Transaction, viewOf: ((specifier: string, external: object) => object) | undefined): object {
     const aliased = this.options.aliases?.[specifier] ?? specifier;
     const external = this.options.externals[aliased];
-    if (external !== undefined) return external;
+    if (external !== undefined) return viewOf === undefined ? external : viewOf(aliased, external);
     const resolved = this.resolve(from, aliased);
     const record = this.record(resolved);
     record.importers.add(from);

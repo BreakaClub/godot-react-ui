@@ -134,6 +134,12 @@ export interface RootOptions {
 export interface UIRoot {
   /** Commits immediately; subsequent hook updates use React's normal scheduler. */
   render(children: ReactNode): void;
+  /**
+   * Runs `work`, which may set state, and commits what it scheduled before returning, as React DOM's `flushSync` does. A state
+   * update made outside an event is committed with the next frame's microtasks; an editor that swaps code under a page and must know
+   * now whether the new page rendered calls this. Throws what the commit threw.
+   */
+  flushSync<T>(work: () => T): T;
   /** Runs React cleanup and releases the entire native subtree. Idempotent. */
   unmount(): void;
   /**
@@ -752,6 +758,12 @@ export function createRoot(host: NativeHost, options: RootOptions): UIRoot {
       reconciler.flushSyncWork();
       state.profiler.finishWork('reconcile', started);
       checkFailure();
+    },
+    flushSync(work) {
+      if (state.unmounted) throw new Error('Cannot flush an unmounted UI root');
+      const result = reconciler.flushSyncFromReconciler(work);
+      checkFailure();
+      return result;
     },
     unmount() {
       if (state.unmounted) return;

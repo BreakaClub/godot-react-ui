@@ -1,7 +1,7 @@
-import { createElement, type ComponentType } from 'react';
+import { createElement, useSyncExternalStore, type ComponentType } from 'react';
 import type { ReactRoot } from 'godot-react-ui';
 import type { LiveCompileHost } from './live-compile-host';
-import { onPerformRefresh, resolveRefreshComponent } from './live-compile-refresh';
+import { onPerformRefresh, resolveRefreshComponent, stableWrapper } from './live-compile-refresh';
 import { liveTree } from './live-compile-root';
 import { ModuleRegistry, type RefreshHooks } from './live-compile-modules';
 import type { CheckOutcome, CompileDiagnostic, CompileResult, Hover, InlayHint, ParameterNames, Project } from './live-compile-protocol';
@@ -59,7 +59,14 @@ export interface LiveSessionOptions {
   /** The modules the demo's bundle holds, by the specifier the labs import them with. */
   readonly externals: Readonly<Record<string, object>>;
   readonly aliases: Readonly<Record<string, string>>;
+  /**
+   * The root the lab renders in. Without `embedded` the session mounts the lab as the root's whole tree. With it the root is
+   * the one the caller's tree is mounted in (`root.flushSync` commits an edit before `update` returns) and the caller renders
+   * `session.Lab` wherever the lab belongs in that tree.
+   */
   readonly root: ReactRoot;
+  /** The caller renders `Lab` inside a tree of its own; the session does not mount anything. */
+  readonly embedded?: boolean;
   readonly refresh: RefreshHooks;
   /** Asks React Fast Refresh to re-render what the registrations since the last call changed (`refresh.ts`). */
   readonly performRefresh: () => unknown;
@@ -118,6 +125,33 @@ function wrapExternals(externals: Readonly<Record<string, object>>): Record<stri
   return result;
 }
 
+/**
+ * A module's own `react`: `memo` and `forwardRef` made one object for each component whatever the number of times the module is
+ * evaluated (`stableWrapper`). The rest is the shared `react`.
+ */
+function reactForModule(react: object, path: string): object {
+  const made = new Map<string, number>();
+  const keyOf = (component: unknown, kind: string): string => {
+    const name = typeof component === 'function' ? component.name : '';
+    const label = `${kind}:${name}`;
+    const index = made.get(label) ?? 0;
+    made.set(label, index + 1);
+    return `${path} ${label}#${index}`;
+  };
+  return new Proxy(react, {
+    get(target, property) {
+      const value = Reflect.get(target, property);
+      if ((property === 'memo' || property === 'forwardRef') && typeof value === 'function') {
+        return (component: unknown, compare?: unknown) => stableWrapper(
+          keyOf(component, property), component, compare,
+          (inner, comparison) => Reflect.apply(value, target, property === 'memo' ? [inner, comparison] : [inner]),
+        );
+      }
+      return value;
+    },
+  });
+}
+
 /** Narrows an export to something React can render; the Fast Refresh runtime has already judged it a component by its shape. */
 function asComponent(value: unknown, where: string): ComponentType<{ readonly __refreshEpoch?: number }> {
   if (typeof value !== 'function') throw new Error(`${where} is not a component (it is ${typeof value})`);
@@ -136,12 +170,35 @@ export class LiveSession {
   private compileMs = 0;
   private mounted = false;
   private readonly unsubscribeRefresh: () => void;
+  /** An embedded session tells the `Lab` components rendered from it that the lab has to render again. */
+  private readonly renderListeners = new Set<() => void>();
+  private renderVersion = 0;
+
+  private readonly recordRenderError = (error: Error): void => {
+    this.renderError = error;
+  };
+
+  private readonly subscribeToRender = (listener: () => void): (() => void) => {
+    this.renderListeners.add(listener);
+    return () => { this.renderListeners.delete(listener); };
+  };
+
+  private readonly readRenderVersion = (): number => this.renderVersion;
 
   private readonly Entry: ComponentType = () => {
     const raw = this.registry.exportOf(this.entryPath, this.options.exportName);
     const resolved = resolveRefreshComponent(raw);
     const component = asComponent(resolved, `${this.entryPath}'s ${this.options.exportName}`);
     return createElement(component, { __refreshEpoch: this.refreshTick });
+  };
+
+  /**
+   * The lab as a component, for a session opened with `embedded`: render it wherever the lab belongs in the caller's tree. It
+   * renders the edited component inside the error boundary, and again each time an edit is swapped in.
+   */
+  readonly Lab: ComponentType = () => {
+    useSyncExternalStore(this.subscribeToRender, this.readRenderVersion);
+    return liveTree(this.Entry, this.epoch, this.recordRenderError);
   };
 
   constructor(options: LiveSessionOptions) {
@@ -158,6 +215,7 @@ export class LiveSession {
       aliases: options.aliases,
       refresh: options.refresh,
       compile: (path, source) => this.compile(path, source),
+      moduleExternals: path => (specifier, external) => (specifier === 'react' ? reactForModule(external, path) : external),
     });
     this.unsubscribeRefresh = onPerformRefresh(() => this.refreshRender());
   }
@@ -262,15 +320,27 @@ export class LiveSession {
     if (!this.mounted) return;
     this.mounted = false;
     this.unsubscribeRefresh();
-    this.options.root.render(null);
+    // An embedded lab goes when the caller's tree stops rendering `Lab`.
+    if (this.options.embedded !== true) this.options.root.render(null);
   }
 
   private refreshRender(): void {
     if (!this.mounted) return;
     this.refreshTick += 1;
-    this.options.root.render(liveTree(this.Entry, this.epoch, error => {
-      this.renderError = error;
-    }));
+    this.render();
+  }
+
+  /** Puts the lab on the page, now: as the root's tree, or by telling the `Lab` components to render and committing them. */
+  private render(): void {
+    const { root, embedded } = this.options;
+    if (embedded === true) {
+      root.flushSync(() => {
+        this.renderVersion += 1;
+        for (const listener of [...this.renderListeners]) listener();
+      });
+      return;
+    }
+    root.render(liveTree(this.Entry, this.epoch, this.recordRenderError));
   }
 
   private compile(path: string, source: string): CompileResult {
@@ -282,8 +352,6 @@ export class LiveSession {
 
   private mount(): void {
     this.mounted = true;
-    this.options.root.render(liveTree(this.Entry, this.epoch, error => {
-      this.renderError = error;
-    }));
+    this.render();
   }
 }
