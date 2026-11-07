@@ -1,0 +1,247 @@
+{
+ "viewport": [
+  640,
+  400
+ ],
+ "cube": {
+  "about": "six translucent faces in one preserve-3d context, backface-visibility visible; perspective 800px on the container",
+  "perspective": 800,
+  "parent": {
+   "box": [
+    220,
+    100,
+    200,
+    200
+   ],
+   "transform": [
+    [
+     "rotateX",
+     -25
+    ],
+    [
+     "rotateY",
+     35
+    ]
+   ]
+  },
+  "size": [
+   200,
+   200
+  ],
+  "alpha": 0.7,
+  "faces": [
+   {
+    "id": "front",
+    "transform": [
+     [
+      "translateZ",
+      100
+     ]
+    ],
+    "colour": [
+     220,
+     60,
+     60
+    ]
+   },
+   {
+    "id": "back",
+    "transform": [
+     [
+      "rotateY",
+      180
+     ],
+     [
+      "translateZ",
+      100
+     ]
+    ],
+    "colour": [
+     60,
+     200,
+     90
+    ]
+   },
+   {
+    "id": "right",
+    "transform": [
+     [
+      "rotateY",
+      90
+     ],
+     [
+      "translateZ",
+      100
+     ]
+    ],
+    "colour": [
+     60,
+     90,
+     230
+    ]
+   },
+   {
+    "id": "left",
+    "transform": [
+     [
+      "rotateY",
+      -90
+     ],
+     [
+      "translateZ",
+      100
+     ]
+    ],
+    "colour": [
+     230,
+     200,
+     60
+    ]
+   },
+   {
+    "id": "top",
+    "transform": [
+     [
+      "rotateX",
+      90
+     ],
+     [
+      "translateZ",
+      100
+     ]
+    ],
+    "colour": [
+     200,
+     80,
+     220
+    ]
+   },
+   {
+    "id": "bottom",
+    "transform": [
+     [
+      "rotateX",
+      -90
+     ],
+     [
+      "translateZ",
+      100
+     ]
+    ],
+    "colour": [
+     60,
+     210,
+     210
+    ]
+   }
+  ]
+ },
+ "cards": {
+  "about": "two translucent cards that intersect along a line, in one preserve-3d context",
+  "perspective": 800,
+  "parent": {
+   "box": [
+    160,
+    100,
+    320,
+    200
+   ],
+   "transform": [
+    [
+     "rotateX",
+     -20
+    ],
+    [
+     "rotateY",
+     30
+    ]
+   ]
+  },
+  "size": [
+   320,
+   200
+  ],
+  "alpha": 0.7,
+  "faces": [
+   {
+    "id": "A",
+    "transform": [],
+    "colour": [
+     220,
+     60,
+     60
+    ]
+   },
+   {
+    "id": "B",
+    "transform": [
+     [
+      "rotateX",
+      90
+     ]
+    ],
+    "colour": [
+     60,
+     90,
+     230
+    ]
+   }
+  ]
+ },
+ "nested": {
+  "about": "a layer inside a layer, real 3D in both: the outer card under perspective(800px) rotateY(30deg), the inner one (flattened into the outer's plane) under perspective(300px) rotateX(35deg)",
+  "outer": {
+   "box": [
+    160,
+    100,
+    320,
+    200
+   ],
+   "transform": [
+    [
+     "perspective",
+     800
+    ],
+    [
+     "rotateY",
+     30
+    ]
+   ],
+   "colour": [
+    220,
+    60,
+    60
+   ]
+  },
+  "inner": {
+   "box": [
+    80,
+    50,
+    160,
+    100
+   ],
+   "transform": [
+    [
+     "perspective",
+     300
+    ],
+    [
+     "rotateX",
+     35
+    ]
+   ],
+   "colour": [
+    60,
+    90,
+    230
+   ]
+  },
+  "alpha": 0.7
+ },
+ "rasters_extra": [
+  1.6,
+  2.67,
+  3.2,
+  5.33
+ ]
+}
