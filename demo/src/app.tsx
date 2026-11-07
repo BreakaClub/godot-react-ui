@@ -50,7 +50,7 @@ function Stat({ label, value, detail }: { label: string; value: string; detail: 
   );
 }
 
-function CounterLab() {
+export function CounterLab() {
   const [count, setCount] = useState(INITIAL_COUNT);
   const [step, setStep] = useState(SMALL_STEP);
   const accent = accentStyles[useContext(AccentContext)];
@@ -149,7 +149,7 @@ function InventoryCard({ item, selected, onSelect }: { item: Item; selected: boo
   );
 }
 
-function InventoryLab() {
+export function InventoryLab() {
   const [items, setItems] = useState(() => itemCatalog.slice(0, INITIAL_ITEMS));
   const [category, setCategory] = useState<Category>('All');
   const [selected, setSelected] = useState<string | null>(null);

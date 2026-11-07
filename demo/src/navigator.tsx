@@ -1,0 +1,463 @@
+import { Component, Fragment, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
+import { Button, Portal, ScrollView, Select, Text, TextField, View, type UIHandle, type UIInputEvent, type UIKeyboardEvent } from 'godot-react-ui';
+import { LAB_GROUPS, LABS, filterLabs, labsInOrder, type Lab, type SceneLab, type WindowLab } from './labs';
+
+/**
+ * The demo's shop window: every lab behind one navigation shell, built from the library's own kit and utility classes.
+ *
+ * From 1024 logical pixels wide (`lg:`) a sidebar lists the labs by group and the lab fills the rest; below that a top bar has
+ * the kit's `Select` for the lab. The two are one tree with `hidden lg:flex` and `lg:hidden` on them, so a window crossing the
+ * breakpoint restyles natively and React is not involved. The lab sits in a clipped, scrolling content area, inside an error
+ * boundary keyed by the lab: leaving a lab unmounts it, and a lab that throws shows its error in place. A lab over the game
+ * (`surface: 'game'`) needs every ancestor of its area to let pointers through, so the whole navigator does, and its own chrome
+ * (the bar, the sidebar and the header) takes them back.
+ *
+ * Keyboard: Tab reaches the filter, the list (one tab stop, the current lab), the header buttons and the lab. In the list the
+ * arrow keys, Home and End move between labs and Enter or Space opens one. Alt+Down and Alt+Up open the next and the previous lab
+ * from anywhere in the shell (a lab that handles the chord itself keeps it; the kit's controls ignore Alt chords).
+ */
+
+export interface NavigatorProps {
+  /** The labs to list: the demo's own by default. */
+  labs?: readonly Lab[];
+  /** The id the run asked to open (`--lab=`). One that names no lab is shown as an error, not replaced by another lab. */
+  initialLab?: string;
+  /** The user opened the lab with this id. */
+  onLabChange?: (id: string) => void;
+  /** Open a lab that is its own Godot scene. Without it the button says the host cannot. */
+  onOpenScene?: (lab: SceneLab) => void;
+}
+
+const NEXT = 1;
+const PREVIOUS = -1;
+const FIRST_LAB = 0;
+/** The playground's page padding (`App`): 24 pixels, 32 from 768. */
+const PAGE_PADDING = 'p-6 md:p-8';
+const HEADER_BUTTON = 'rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 active:bg-slate-100 focus:border-indigo-500';
+const PRIMARY_BUTTON = 'rounded-lg border border-transparent bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700 active:bg-indigo-800 focus:border-indigo-500';
+
+/** The lab `delta` places from `from` in `list`, wrapping at both ends; from nothing, the first (forwards) or the last (backwards). */
+function neighbour(list: readonly Lab[], from: string | undefined, delta: number): Lab | undefined {
+  if (list.length === 0) return undefined;
+  const at = list.findIndex(lab => lab.id === from);
+  const target = at === -1 ? (delta > 0 ? FIRST_LAB : list.length - 1) : (at + delta + list.length) % list.length;
+  return list[target];
+}
+
+/** Whether a key press carries a chord, which is a shortcut for the platform or the game and not a key of the control. */
+function hasChord(event: UIKeyboardEvent): boolean {
+  return event.altKey || event.ctrlKey || event.metaKey || event.shiftKey;
+}
+
+/** A one pixel line across its parent. Borders are all four sides or none, so a divider is an element. */
+function Rule() {
+  return <View className="h-px shrink-0 bg-slate-200" />;
+}
+
+function BrandMark() {
+  return (
+    <View className="h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-indigo-600">
+      <View className="h-3 w-3 rounded-sm bg-white" />
+    </View>
+  );
+}
+
+/** What a lab is when it is not a plain page, for the list: a caption that says choosing it leaves the content area. */
+function launchCaption(lab: Lab): string | undefined {
+  if (lab.kind === 'window') return 'Full window';
+  if (lab.kind === 'scene') return 'Scene';
+  return undefined;
+}
+
+interface LabListProps {
+  labs: readonly Lab[];
+  selectedId: string | undefined;
+  onChoose: (id: string) => void;
+  /** The list's buttons by lab id, filled by the list: the navigator sends focus into it through these. */
+  handles: MutableRefObject<Map<string, UIHandle>>;
+}
+
+/** The sidebar's list: a listbox of the labs by group, with one tab stop and the arrow keys between the labs. */
+function LabList({ labs, selectedId, onChoose, handles }: LabListProps) {
+  const tabStop = labs.some(lab => lab.id === selectedId) ? selectedId : labs[FIRST_LAB]?.id;
+  // The current lab is in view when the list appears and whenever the lab changes, from anywhere (a key, a button, the start).
+  useEffect(() => {
+    if (selectedId !== undefined) handles.current.get(selectedId)?.scrollIntoView();
+  }, [handles, selectedId]);
+
+  const focusAt = (lab: Lab | undefined) => {
+    if (lab !== undefined) handles.current.get(lab.id)?.focus();
+  };
+  const onKeyDown = (event: UIKeyboardEvent) => {
+    if (hasChord(event)) return;
+    const from = labs.findIndex(lab => handles.current.get(lab.id)?.id === event.target.id);
+    if (event.key === 'ArrowDown') focusAt(labs[Math.min(from + 1, labs.length - 1)]);
+    else if (event.key === 'ArrowUp') focusAt(labs[Math.max(from - 1, FIRST_LAB)]);
+    else if (event.key === 'Home') focusAt(labs[FIRST_LAB]);
+    else if (event.key === 'End') focusAt(labs[labs.length - 1]);
+    else return;
+    event.preventDefault();
+  };
+
+  if (labs.length === 0) {
+    return <Text testID="lab-list-empty" className="px-3 py-2 text-sm text-slate-500">No lab matches that filter.</Text>;
+  }
+  return (
+    <View testID="lab-list" role="listbox" aria-label="Labs" className="gap-4" onKeyDown={onKeyDown}>
+      {LAB_GROUPS.map(group => {
+        const members = labs.filter(lab => lab.group === group);
+        if (members.length === 0) return null;
+        return (
+          <View key={group} role="group" aria-label={group} className="gap-0.5">
+            <Text className="px-3 pb-1 text-xs text-slate-500">{group.toUpperCase()}</Text>
+            {members.map(lab => {
+              const selected = lab.id === selectedId;
+              const caption = launchCaption(lab);
+              return (
+                <Button
+                  key={lab.id}
+                  ref={handle => {
+                    if (handle === null) handles.current.delete(lab.id);
+                    else handles.current.set(lab.id, handle);
+                  }}
+                  testID={`lab-item-${lab.id}`}
+                  role="option"
+                  aria-selected={selected}
+                  tabIndex={lab.id === tabStop ? 0 : -1}
+                  className={`flex-row items-center justify-between gap-2 rounded-lg px-3 py-2 ${selected ? 'bg-indigo-50' : 'hover:bg-slate-100 active:bg-slate-200'}`}
+                  onClick={() => onChoose(lab.id)}
+                >
+                  <Text className={`min-w-0 shrink text-sm ${selected ? 'text-indigo-700' : 'text-slate-700'}`}>{lab.title}</Text>
+                  {caption === undefined ? null : <Text className="shrink-0 text-xs text-slate-400">{caption}</Text>}
+                </Button>
+              );
+            })}
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+interface FilterFieldProps {
+  testID: string;
+  query: string;
+  onQuery: (query: string) => void;
+  /** Enter: open the first lab that matches. */
+  onSubmit: () => void;
+  /** Down arrow: go to the list, where there is one. */
+  onEnterList?: () => void;
+  className?: string;
+}
+
+function FilterField({ testID, query, onQuery, onSubmit, onEnterList, className }: FilterFieldProps) {
+  return (
+    <TextField
+      testID={testID}
+      className={className}
+      aria-label="Filter labs"
+      placeholder="Filter labs"
+      value={query}
+      inputClassName="py-1.5 text-sm"
+      onChange={(event: UIInputEvent) => onQuery(event.value)}
+      onSubmit={onSubmit}
+      onKeyDown={(event: UIKeyboardEvent) => {
+        if (hasChord(event)) return;
+        if (event.key === 'ArrowDown' && onEnterList !== undefined) { event.preventDefault(); onEnterList(); }
+        else if (event.key === 'Escape' && query !== '') { event.preventDefault(); onQuery(''); }
+      }}
+    />
+  );
+}
+
+interface LabFailureProps {
+  lab: Lab;
+  error: Error;
+  onRetry: () => void;
+}
+
+/** What a lab that threw shows in place of itself. The message and the stack can be selected and copied. */
+function LabFailure({ lab, error, onRetry }: LabFailureProps) {
+  return (
+    <View testID="lab-error" role="region" aria-label={`${lab.title} failed`} className="w-full p-6">
+      <View className="gap-3 rounded-2xl border border-rose-200 bg-white p-6">
+        <Text className="text-xs text-rose-600">THIS LAB FAILED</Text>
+        <Text className="text-lg text-slate-900">{`${lab.title} threw while it was rendering.`}</Text>
+        <Text testID="lab-error-message" className="select-text text-sm text-slate-700">{error.message}</Text>
+        {error.stack === undefined ? null : <Text testID="lab-error-stack" className="select-text text-xs text-slate-500">{error.stack}</Text>}
+        <Text className="text-sm text-slate-500">The rest of the demo is unaffected: choose another lab, or try this one again.</Text>
+        <Button testID="lab-error-retry" className={`self-start ${HEADER_BUTTON}`} onClick={onRetry}>Try again</Button>
+      </View>
+    </View>
+  );
+}
+
+interface LabBoundaryProps {
+  lab: Lab;
+  children?: ReactNode;
+}
+
+interface LabBoundaryState {
+  error: Error | undefined;
+  /** Counts retries: a retry mounts the lab again from nothing. */
+  attempt: number;
+}
+
+/** Catches what a lab throws while it renders, so the navigator survives it. React reports the error to the console once. */
+class LabBoundary extends Component<LabBoundaryProps, LabBoundaryState> {
+  override state: LabBoundaryState = { error: undefined, attempt: 0 };
+
+  static getDerivedStateFromError(error: unknown): Partial<LabBoundaryState> {
+    return { error: error instanceof Error ? error : new Error(String(error)) };
+  }
+
+  override render(): ReactNode {
+    const { error, attempt } = this.state;
+    if (error !== undefined) {
+      return <LabFailure lab={this.props.lab} error={error} onRetry={() => this.setState({ error: undefined, attempt: attempt + 1 })} />;
+    }
+    return <Fragment key={attempt}>{this.props.children}</Fragment>;
+  }
+}
+
+/** The page of a lab, inside its boundary. The boundary is keyed by the lab, so choosing another lab starts it afresh. */
+function LabPage({ lab }: { lab: Lab }) {
+  if (lab.kind === 'scene') throw new Error(`${lab.title} is a scene, not a component`);
+  const Page = lab.component;
+  return <LabBoundary key={lab.id} lab={lab}><Page /></LabBoundary>;
+}
+
+interface LaunchCardProps {
+  lab: WindowLab | SceneLab;
+  onOpenWindow: () => void;
+  onOpenScene: ((lab: SceneLab) => void) | undefined;
+}
+
+/** The content area of a lab that cannot sit in it: why, and the button that gives it the window or its scene. */
+function LaunchCard({ lab, onOpenWindow, onOpenScene }: LaunchCardProps) {
+  const scene = lab.kind === 'scene';
+  const unavailable = scene && onOpenScene === undefined;
+  return (
+    <View testID="lab-launch" className="w-full h-full items-center justify-center p-6">
+      <View className="w-full max-w-md gap-4 rounded-2xl border border-slate-200 bg-white p-6">
+        <Text className="text-xs text-slate-500">{scene ? 'A SEPARATE SCENE' : 'NEEDS THE WHOLE WINDOW'}</Text>
+        <Text className="text-lg text-slate-900">{lab.title}</Text>
+        <Text className="text-sm text-slate-600">{lab.reason}</Text>
+        <Button
+          testID="lab-launch-open"
+          disabled={unavailable}
+          className={`self-start ${PRIMARY_BUTTON} disabled:opacity-50`}
+          onClick={() => { if (lab.kind === 'scene') onOpenScene?.(lab); else onOpenWindow(); }}
+        >
+          {scene ? 'Open the scene' : 'Open in the full window'}
+        </Button>
+        <Text className="text-xs text-slate-400">
+          {unavailable ? 'This host cannot change scene.'
+            : scene ? 'A button in the corner of the scene brings you back to the labs.' : 'Escape, or the Labs button in the corner, brings you back.'}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+/** The way back from a lab that has the whole window: in the overlay layer, so nothing the lab draws can cover it. */
+function WindowBar({ lab, onBack }: { lab: Lab; onBack: () => void }) {
+  // Events inside a Portal bubble through the overlay layer, not to the navigator, so the bar answers Escape itself.
+  const onKeyDown = (event: UIKeyboardEvent) => {
+    if (event.key !== 'Escape' || event.defaultPrevented) return;
+    event.preventDefault();
+    onBack();
+  };
+  return (
+    <Portal>
+      <View testID="window-bar" className="fixed bottom-4 left-4 z-50 flex-row items-center gap-3 rounded-full bg-slate-900/90 py-1.5 pl-1.5 pr-4" onKeyDown={onKeyDown}>
+        <Button
+          testID="window-back"
+          autoFocus
+          className="rounded-full border border-transparent bg-white/20 px-3 py-1 text-sm text-white hover:bg-white/30 active:bg-white/40"
+          onClick={onBack}
+        >
+          Labs
+        </Button>
+        <Text className="text-sm text-white">{lab.title}</Text>
+      </View>
+    </Portal>
+  );
+}
+
+/** An unknown `--lab=` id: the error, and every id that would have worked. */
+function MissingLab({ id, labs }: { id: string; labs: readonly Lab[] }) {
+  return (
+    <View testID="lab-missing" role="region" aria-label="Lab not found" className="w-full p-6">
+      <View className="gap-3 rounded-2xl border border-rose-200 bg-white p-6">
+        <Text className="text-xs text-rose-600">LAB NOT FOUND</Text>
+        <Text testID="lab-missing-message" className="select-text text-lg text-slate-900">{`There is no lab called "${id}".`}</Text>
+        <Text className="text-sm text-slate-600">Choose one from the list. The ids that can follow --lab= (or ?lab= on the Web) are:</Text>
+        <Text testID="lab-missing-ids" className="select-text text-sm text-slate-700">{labs.map(lab => lab.id).join(', ')}</Text>
+      </View>
+    </View>
+  );
+}
+
+interface HeaderProps {
+  lab: Lab | undefined;
+  missing: string | undefined;
+  /** "3 of 21", or nothing. */
+  position: string;
+  onStep: (delta: number) => void;
+}
+
+function LabHeader({ lab, missing, position, onStep }: HeaderProps) {
+  const title = lab?.title ?? 'Lab not found';
+  const description = lab?.description ?? `"${missing ?? ''}" is not one of the labs.`;
+  return (
+    <View testID="lab-header" className="bg-white pointer-events-auto">
+      <View className="flex-row flex-wrap items-start justify-between gap-x-4 gap-y-3 px-4 py-4 md:px-6">
+        <View className="min-w-[240px] flex-1 gap-1">
+          <Text testID="lab-group" className="text-xs text-slate-500">{lab === undefined ? 'LABS' : lab.group.toUpperCase()}</Text>
+          <Text testID="lab-title" className="text-xl text-slate-900">{title}</Text>
+          <Text testID="lab-description" className="text-sm text-slate-500">{description}</Text>
+        </View>
+        <View className="shrink-0 flex-row items-center gap-2">
+          <Text testID="lab-position" className="mr-1 text-xs text-slate-400">{position}</Text>
+          <Button testID="lab-previous" aria-label="Previous lab" className={HEADER_BUTTON} onClick={() => onStep(PREVIOUS)}>Previous</Button>
+          <Button testID="lab-next" aria-label="Next lab" className={HEADER_BUTTON} onClick={() => onStep(NEXT)}>Next</Button>
+        </View>
+      </View>
+      <Rule />
+    </View>
+  );
+}
+
+export function Navigator({ labs = LABS, initialLab, onLabChange, onOpenScene }: NavigatorProps) {
+  const ordered = useMemo(() => labsInOrder(labs), [labs]);
+  const requested = initialLab === undefined ? undefined : ordered.find(lab => lab.id === initialLab);
+  const [selectedId, setSelectedId] = useState<string | undefined>(initialLab === undefined ? ordered[FIRST_LAB]?.id : requested?.id);
+  const [missing, setMissing] = useState<string | undefined>(initialLab !== undefined && requested === undefined ? initialLab : undefined);
+  const [query, setQuery] = useState('');
+  const [windowOpen, setWindowOpen] = useState(false);
+  const handles = useRef(new Map<string, UIHandle>());
+
+  const visible = useMemo(() => filterLabs(ordered, query), [ordered, query]);
+  const selected = ordered.find(lab => lab.id === selectedId);
+  // The narrow menu always holds the current lab, even one the filter has hidden, so it can show its name.
+  const menuLabs = useMemo(() => ordered.filter(lab => lab.id === selectedId || visible.includes(lab)), [ordered, selectedId, visible]);
+  // Previous and next walk what the filter shows; with the filter matching nothing, every lab.
+  const walk = visible.length > 0 ? visible : ordered;
+  const position = selected === undefined ? '' : `${ordered.indexOf(selected) + 1} of ${ordered.length}`;
+
+  const choose = (id: string) => {
+    setSelectedId(id);
+    setMissing(undefined);
+    setWindowOpen(false);
+    onLabChange?.(id);
+  };
+  const step = (delta: number) => {
+    const target = neighbour(walk, selectedId, delta);
+    if (target !== undefined) choose(target.id);
+  };
+  const focusFirst = () => {
+    const first = visible[FIRST_LAB];
+    if (first !== undefined) handles.current.get(first.id)?.focus();
+  };
+  const submitFilter = () => {
+    const first = visible[FIRST_LAB];
+    if (first !== undefined) choose(first.id);
+  };
+  const onKeyDown = (event: UIKeyboardEvent) => {
+    if (event.defaultPrevented) return;
+    if (event.key === 'Escape' && windowOpen) {
+      event.preventDefault();
+      setWindowOpen(false);
+      return;
+    }
+    if (windowOpen || !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    if (event.key === 'ArrowDown') { event.preventDefault(); step(NEXT); }
+    else if (event.key === 'ArrowUp') { event.preventDefault(); step(PREVIOUS); }
+  };
+
+  // One lab owns the whole window: nothing of the shell is mounted behind it.
+  if (windowOpen && selected !== undefined && selected.kind === 'window') {
+    return (
+      <View testID="navigator" tabIndex={-1} className="w-full h-full" onKeyDown={onKeyDown}>
+        <LabPage lab={selected} />
+        <WindowBar lab={selected} onBack={() => setWindowOpen(false)} />
+      </View>
+    );
+  }
+
+  const game = selected !== undefined && selected.kind === 'inline' && selected.surface === 'game';
+  let stage: ReactNode;
+  if (selected === undefined) {
+    stage = <ScrollView testID="lab-scroll" className="absolute inset-0"><MissingLab id={missing ?? ''} labs={ordered} /></ScrollView>;
+  } else if (selected.kind !== 'inline') {
+    stage = <View className="absolute inset-0"><LaunchCard key={selected.id} lab={selected} onOpenWindow={() => setWindowOpen(true)} onOpenScene={onOpenScene} /></View>;
+  } else if (game) {
+    stage = <View key={selected.id} className="absolute inset-0"><LabPage lab={selected} /></View>;
+  } else {
+    stage = (
+      <ScrollView key={selected.id} testID="lab-scroll" className="absolute inset-0" contentClassName={selected.padded === true ? PAGE_PADDING : undefined}>
+        <LabPage lab={selected} />
+      </ScrollView>
+    );
+  }
+
+  return (
+    <View testID="navigator" tabIndex={-1} className={`w-full h-full lg:flex-row ${game ? 'pointer-events-none' : ''}`} onKeyDown={onKeyDown}>
+      {/* Narrow: a top bar with the lab menu and the filter. */}
+      <View testID="navigator-bar" className="lg:hidden bg-white pointer-events-auto">
+        <View className="flex-row flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
+          <BrandMark />
+          <Select.Root value={selectedId ?? null} onValueChange={choose}>
+            <Select.Trigger testID="lab-menu" aria-label="Lab" className="min-w-[180px] flex-1">
+              <Select.Value testID="lab-menu-value" placeholder="Choose a lab" />
+              <Select.Icon />
+            </Select.Trigger>
+            <Select.Content testID="lab-menu-list">
+              {menuLabs.map(lab => (
+                <Select.Item key={lab.id} value={lab.id} textValue={lab.title} testID={`lab-menu-item-${lab.id}`}>
+                  <Select.ItemText>{lab.title}</Select.ItemText>
+                  <Text className="text-xs text-slate-400">{lab.group}</Text>
+                  <Select.ItemIndicator />
+                </Select.Item>
+              ))}
+            </Select.Content>
+          </Select.Root>
+          <FilterField testID="lab-menu-filter" className="min-w-[160px] flex-1" query={query} onQuery={setQuery} onSubmit={submitFilter} />
+        </View>
+        <Rule />
+      </View>
+
+      {/* Wide: the sidebar and its edge. */}
+      <View testID="navigator-sidebar" className="hidden lg:flex flex-row shrink-0 bg-white pointer-events-auto">
+        <View className="w-64">
+          <View className="gap-4 p-4">
+            <View className="flex-row items-center gap-3">
+              <BrandMark />
+              <View className="min-w-0 flex-1">
+                <Text className="text-sm text-slate-900">Godot React UI</Text>
+                <Text className="text-xs text-slate-500">Labs</Text>
+              </View>
+            </View>
+            <FilterField testID="lab-filter" query={query} onQuery={setQuery} onSubmit={submitFilter} onEnterList={focusFirst} />
+          </View>
+          <ScrollView testID="lab-sidebar-scroll" focusable={false} className="min-h-0 flex-1" contentClassName="px-2 pb-4">
+            <LabList labs={visible} selectedId={selectedId} onChoose={choose} handles={handles} />
+          </ScrollView>
+          <Rule />
+          <View className="px-4 py-3">
+            <Text className="text-xs text-slate-400">Alt + Up / Down switches labs.</Text>
+          </View>
+        </View>
+        <View className="w-px shrink-0 bg-slate-200" />
+      </View>
+
+      <View className="min-h-0 min-w-0 flex-1">
+        <LabHeader lab={selected} missing={missing} position={position} onStep={step} />
+        <View testID="lab-stage" role="region" aria-label="Lab" className={`relative min-h-0 flex-1 overflow-hidden ${game ? 'pointer-events-none' : 'bg-slate-50'}`}>
+          {stage}
+        </View>
+      </View>
+    </View>
+  );
+}
