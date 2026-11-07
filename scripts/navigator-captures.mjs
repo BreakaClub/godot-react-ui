@@ -9,8 +9,11 @@ import { selectEngine } from './engine.mjs';
 // `artifacts/lab-navigator/` and lays every capture out on contact sheets, with its name under it: one for the landscape window
 // (1120 x 800), one for the portrait window (600 x 900) and one with both. The captures are read back from the viewport texture
 // by the verifier; this script only copies them and lays them out, in headless Chrome (puppeteer-core, as the Web verifiers do).
-rejectUnknownArguments(process.argv.slice(2));
+// `--web` takes the captures of the Web section (`node scripts/verify-interaction-web.mjs --only=navigator`, the canvas in Chrome at
+// device pixel ratio one) and writes under `artifacts/lab-navigator/web/`.
+rejectUnknownArguments(process.argv.slice(2), { flags: ['--web'] });
 const engine = selectEngine();
+const web = process.argv.includes('--web');
 const WINDOWS = [
   { name: 'landscape', columns: 4, thumbnailWidth: 330 },
   { name: 'portrait', columns: 8, thumbnailWidth: 165 },
@@ -18,12 +21,12 @@ const WINDOWS = [
 const CAPTURE_PREFIX = 'navigator-';
 const SHEET_MARGIN = 24;
 const executablePath = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const output = resolve(import.meta.dirname, '..', 'artifacts', 'lab-navigator', engine.name === 'breaka' ? '' : engine.name);
+const output = resolve(import.meta.dirname, '..', 'artifacts', 'lab-navigator', engine.name === 'breaka' ? '' : engine.name, web ? 'web' : '');
 mkdirSync(output, { recursive: true });
 
 /** The captures of one window, in the order the verifier made them. */
 function capturesOf(window) {
-  const directory = engine.artifactPath('native-interaction', window);
+  const directory = web ? engine.artifactPath('web-interaction-verification', window) : engine.artifactPath('native-interaction', window);
   const files = readdirSync(directory)
     .filter((name) => name.startsWith(CAPTURE_PREFIX) && name.endsWith('.png'))
     .map((name) => ({ name, path: resolve(directory, name), time: statSync(resolve(directory, name)).mtimeMs }))

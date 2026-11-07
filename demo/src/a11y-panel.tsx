@@ -36,7 +36,7 @@ export function A11yPanel() {
   const [saves, setSaves] = useState(0);
 
   return (
-    <View testID="a11y-root" className="w-full h-full bg-slate-50 p-4 gap-3">
+    <View testID="a11y-root" className="w-full h-full bg-slate-50 p-4 gap-3 text-slate-700">
       <Text testID="a11y-title" className={heading}>Accessibility lab</Text>
       <Text testID="a11y-caption" className={caption}>Read by VoiceOver and the verifier alike.</Text>
       <View testID="a11y-actions" role="group" aria-label="Actions" className="flex-row gap-2">
