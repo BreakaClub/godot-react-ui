@@ -39,9 +39,10 @@ a perspective pass can be added later without redoing any of it (see "For `trans
 * **Paint.** An element's box item takes `location x matrix` (`RenderNode::item_transform`); everything below it follows. No re-record, no layout, no change
   to siblings. A matrix with no inverse hides the item. An element with no transform is `Option::None` on its node (`MountedNode::transform`) and nothing in
   `transform_state.rs` runs for it.
-* **Square corners.** `StyleBoxFlat` antialiases only a rounded or skewed box, so under a map that is not the identity a box with square corners is drawn from feathered
-  triangles instead (`native/square_box.rs`; `Raster::soften_squares`, `BoxKey::square_feather`): per-vertex coverage alpha, a box filter one device pixel wide on each of the box's own
-  axes (`Linear2::edge_feather`). Rounded boxes stay on `StyleBoxFlat` with one feather length (see "Against Chrome").
+* **Boxes.** `StyleBoxFlat` antialiases only a rounded or skewed box and has one feather length, so under a map that is not the identity every box, square or rounded, is drawn from
+  feathered triangles instead (`native/box_mesh.rs`; `Raster::mesh_boxes`, `BoxKey::feather`): per-vertex coverage alpha, a box filter one device pixel wide across each of the box's
+  edges (`Linear2::edge_axes`, `box_mesh::Feather`). This was `native/square_box.rs` for square corners only until `docs/tracks/box-mesh.md`, which folded it into `box_mesh.rs` and
+  moved the rounded boxes off `StyleBoxFlat` too (the first version of this section, and the numbers under "Against Chrome", are from before that).
 * **Motion.** `TransitionProperty::Transform`. The node's CSS text is mirrored into the Stylo document with the rest of a motion node's style and the sampled
   computed list comes back in `SampledStyle::transform`; it is evaluated against the element's current box each frame (a handful of multiplications, no
   JS, no re-record). The snapshot's `transitions` records carry the six numbers of the matrix.
@@ -176,7 +177,7 @@ How to read it:
   the ring of the border, where `StyleBoxFlat`'s feather and Skia's coverage disagree by a few levels along the arcs. A rotation, a scale, a mirror, a
   skew or a raw matrix adds at most a few tenths to the typical figures (`skew` 0.95 / 2.11 / 2.56, `matrix` 1.12 / 2.54 / 3.04, `rotate-y` 0.91 / 2.09 / 2.72 at DPR 1);
   `nested` has one more bad pixel run in R (89, 99 at DPR 2) at its child's corner, not diagnosed further.
-* **Boxes with square corners** (`square-*`, drawn from feathered triangles, `native/square_box.rs`) are closer to Chrome than the rounded cards, because they have
+* **Boxes with square corners** (`square-*`, drawn from feathered triangles, then `native/square_box.rs`, now `native/box_mesh.rs`) are closer to Chrome than the rounded cards, because they have
   no arcs: typical 0.11 / 0.44 / 2.18 for `square-rotate` at DPR 1, 0.10 / 0.00 / 0.00 and no pixel beyond 24 for `square-rotate-x` at DPR 1, and 0.09 / 0.38 / 1.91 and
   0.09 / 0.37 / 1.90 at DPR 2 for `square-rotate` and `square-skew`. What is left in the blue channel of the slanted ones is the corner cells (the mesh interpolates the
   product of two edges' coverage linearly across a cell, which is within 0.06 of the true value) and Chrome's own rounding.
@@ -198,7 +199,7 @@ the rounded rectangle was not accepted as the explanation. What was found:
 2. **Fixed exactly for boxes with square corners.** A square box under a transform now draws from triangles whose vertex coverage is a box filter one device pixel wide *on each of
    its own axes* (`Linear2::edge_feather`: the inverse transpose's column for the axis, so a skew is handled as well as a squeeze), with the exact trapezoid for a border thinner than the
    filter. Rows now read 0.90 / 0.10 (0.897 to 0.901) at DPR 1 and 0.802 / 0.198 at DPR 2 (want 0.9 / 0.1 and 0.8 / 0.2) on all three renderers.
-3. **Not fixable for a rounded box with the one length `StyleBoxFlat` has.** Sizing the single feather for the squeezed axis (one pixel there) widens it on the stretched axis to
+3. **Not fixable for a rounded box with the one length `StyleBoxFlat` has** (fixed afterwards by drawing it from the mesh with a feather per axis: `docs/tracks/box-mesh.md`). Sizing the single feather for the squeezed axis (one pixel there) widens it on the stretched axis to
    1.56 px for `rotateX(50deg)`, and that was measured to be worse overall, because Chrome's stretched axis is crisp. Per channel, edge typical R / G / B and share beyond 24 (cards, DPR 1 and 2):
 
    | case | feather by the larger stretch (kept) | by the geometric mean | by the smaller stretch |
@@ -219,7 +220,7 @@ the rounded rectangle was not accepted as the explanation. What was found:
    2.45 / 5.42 / 6.42 and 16.2% for the rounded card) is that.
 
 So: the cause is established and is two things, the library's (one feather length, fixed where the library draws the box itself) and the reference's (a bilinear resample, which an exact renderer
-cannot and should not reproduce). The way to fix the rounded corners too is a feather per axis in the one place that draws a rounded box (`utilities-paint`'s `box_mesh`, see the note in the report).
+cannot and should not reproduce). The way to fix the rounded corners too is a feather per axis in the one place that draws a rounded box (`utilities-paint`'s `box_mesh`, see the note in the report); that is `docs/tracks/box-mesh.md`.
 
 ### Turned square corners
 
@@ -227,8 +228,7 @@ cannot and should not reproduce). The way to fix the rounded corners too is a fe
 stock 4.7.2's source is not on this machine to compare), so a plain square (`rotate-45` on a `View`) drew a staircase. A failing check came first (`turnedSquare`:
 the share of scanlines across a 30 degree edge that show a partly covered pixel was 0% at DPR 1 and 2) and the fix is the same triangles; 94.5% and 92.8% now, with the check at 85%. Not
 done by giving the box a near-zero radius or skew, which would have turned on `StyleBoxFlat`'s antialiasing at the price of its unscaled feather and a constant nobody could justify. `square_box.rs`
-follows the feathered-mesh convention of `utilities-paint`'s `box_mesh` (per-vertex coverage alpha, a one device pixel feather centred on the true edge) and does not depend on it landing; when it
-does, the two should be one drawer (see the report).
+followed the feathered-mesh convention of `utilities-paint`'s `box_mesh` (per-vertex coverage alpha, a one device pixel feather centred on the true edge); the two are one drawer now (`docs/tracks/box-mesh.md`).
 
 ### The transitions
 
@@ -259,8 +259,8 @@ All seven controls died (each check passes with its fault off and fails with it 
 | `transform-rect-unbounded` | `getRect()` as the bounding box of the transformed border box | `rotate (fault): the card's rectangle is the box round it: {... width 220, height 120} is 52.85 px from Chrome's {... width 243.56 ...}` |
 | `transform-ring-flat` | the focus ring turning with the element | `The focus ring turns with the bar: its own edge point 110,1 (drawn at 273.5,134.62) is 4f46e5, not the ring` |
 | `transform-raster-unscaled` | text rasterised at the scale a transform puts on it | `Scaled text is as sharp as the same text at its size (fault): 0.621 partly covered against 0.332` |
-| `transform-feather-uniform` | a square box's feather per axis (one length for both, sized by the stretched axis) | at DPR 2: `A squeezed box's top edge is antialiased: row 400 is covered 1 where the box covers 0.8 of it; ... bottom edge: row 520 is covered 0 where the box covers 0.2` |
-| `transform-squares-hard` | the feathered triangles of a square box (back to `StyleBoxFlat`) | `A square box turned 30 degrees has antialiased edges (dpr1): 0% of the scanlines across its left edge show a partly covered pixel` |
+| `transform-feather-uniform` | a box's feather per axis (one length for both, sized by the stretched axis) | at DPR 2: `A squeezed box's top edge is antialiased: row 400 is covered 1 where the box covers 0.8 of it; ... bottom edge: row 520 is covered 0 where the box covers 0.2` (the control was for square boxes only; `docs/tracks/box-mesh.md` has it for rounded boxes and a thin border too, under the message `A squeezed rounded box's ...`) |
+| `transform-boxes-hard` (was `transform-squares-hard`) | the feathered triangles of a box (back to `StyleBoxFlat`) | `A square box turned 30 degrees has antialiased edges (dpr1): 0% of the scanlines across its left edge show a partly covered pixel` |
 | `transform-no-containing-block` | a transformed element as the containing block of `absolute` and `fixed` children | `contain-absolute is placed in its transformed parent's frame (150,120), as CSS does: 10,10` |
 
 The first run of the section did not hold four controls, for reasons in the harness and not the library, both fixed: a control ran its check twice on a page that stayed mounted, so the second run
@@ -274,10 +274,8 @@ rows, the turned square, the transitions and the controlled geometry read the sa
 
 ### Limits
 
-* Rounded corners under a transform that squeezes one axis keep one feather length (see above): exact on the stretched axis, down to 0.6 of a pixel on the squeezed one at `scaleY(0.6)` (rows 1.0 / 0.0 against 0.9 / 0.1 at DPR 1 and 0.8 / 0.2 at DPR 2; the verifier logs them as `squeezedRoundedEdge` and does not assert them).
-  A turn or a uniform scale is exact.
 * The focus ring of a turned or scaled element is a `StyleBoxFlat` stroke drawn through the element's map; it is as antialiased as that is (rounded: one length; square: hard).
-* A box is drawn from the triangles only when its corners are square; its border has one colour and one width on all four sides (the rest of the library's boxes do not have more).
+* Under a transform every box is drawn from the triangles, a rounded one with a feather per axis too (`docs/tracks/box-mesh.md`: the squeezed-axis limit that stood here is gone, and the verifier asserts the rows), borders of any widths per side included; a border whose sides differ in colour is still cut from baked masks, with the one isotropic feather of a mask, as are outlines and `box-shadow` rings.
 * A square box thinner than one device pixel on an axis (an edge-on card) reads the share it covers, not a full pixel.
 * The blur radius of a `filter` is in the element's own frame and is not scaled by a transform on it; the backdrop and filter *extents* are.
 * A `relative` element between a transform and a `fixed` descendant is the descendant's containing block here, and in CSS it is not. Scrollable overflow ignores transforms. `touch-action` axes are screen axes.
@@ -304,7 +302,7 @@ and `starting` pages pass on all three renderers in both windows. Nothing wrong 
 > What is not built: `perspective` (refused with a message that says so) and `transform-style: preserve-3d`; `rotateX` and `rotateY` are drawn flattened, as CSS draws them with no perspective. **Rotated and skewed `overflow` clips
 > are not exact**: Godot's clips are axis-aligned rectangles, so an `overflow` clip under a rotation or a skew is drawn as the box round the rotated rectangle and the library logs one `ERROR` per element saying so (hit testing is
 > exact). Translate, scale, mirror and quarter-turn clips are exact; rotate the content of the clip, not the clip. An exact rotated clip needs a render target per clipped element, which is the work `transform-3d-spike` measures.
-> Under a transform that squeezes one axis, a rounded corner's antialiasing is exact on the stretched axis and up to 40% narrow on the squeezed one; boxes with square corners are exact on both.
+> Boxes under a transform, square or rounded, are drawn from antialiased triangles with a feather per axis (`docs/tracks/box-mesh.md`), so a squeezed edge keeps a one pixel ramp and a rounded card turned or scaled is within a few levels of Chrome's.
 
 The matrix path exposes everything `docs/tracks/transforms-3d-feasibility.md` asks for except the two items that need properties that do not exist yet (see "For the 3D work"): the 4 x 4 in f64, the classification, the homography,
 the largest magnification, the determinant sign and `interpolate`; not the `preserve-3d` flags nor a parent's `perspective`.
