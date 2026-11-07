@@ -5,6 +5,7 @@ import type { NativeSnapshot, NativeSnapshotNode } from '../../src/native';
 import { HIDPI_STEM_TEXT } from './hidpi-lab';
 import type { InteractionInspection } from './verify-interaction';
 import { click, move, pressAction, waitForCaretOn } from './verify-text-input';
+import { readOurText } from './verify-text-styles';
 
 /**
  * Phase H1 (docs/tracks/hidpi.md): HiDPI text and box rendering, checked in the raster of a window that runs at a content
@@ -360,6 +361,9 @@ function compareWithReferences(image: Image, api: InteractionInspection, finding
   const reactStems = measureStems(image, physical(stems, ratio));
   const labelStems = measureStems(image, physical({ x: strip.x, y: strip.y, width: REFERENCE_PANEL_OFFSET, height: strip.height }, ratio));
   measure(`stems at ${scale}`, { react: reactStems, label: labelStems });
+  // Where the text's first baseline is in device pixels: a whole number is a row the glyphs end on, a half is a row they are split across.
+  const baseline = readOurText(api.textLines('hidpi-stems')).lines[0]?.baseline;
+  measure(`stems baseline at ${scale}`, { logical: baseline, device: baseline === undefined ? undefined : baseline * ratio });
   findings.check(reactStems.peakStep >= labelStems.peakStep * SHARPNESS_OF_REFERENCE_MIN,
     `React text is as crisp as a Godot Label's at ${scale}: peak step ${reactStems.peakStep.toFixed(3)} against ${labelStems.peakStep.toFixed(3)}`);
   findings.check(reactStems.partialPerEdge <= labelStems.partialPerEdge + 0.5,

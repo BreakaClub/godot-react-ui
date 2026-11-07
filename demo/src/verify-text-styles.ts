@@ -68,7 +68,7 @@ interface OurLine {
   readonly width: number;
 }
 
-interface OurText {
+export interface OurText {
   readonly text: string;
   readonly lines: readonly OurLine[];
 }
@@ -84,7 +84,7 @@ function numberField(record: Record<string, unknown>, name: string): number {
 }
 
 /** Check what the native lines reply holds and give it a type. */
-function readOurText(reply: unknown): OurText {
+export function readOurText(reply: unknown): OurText {
   assert(isRecord(reply) && typeof reply.text === 'string' && Array.isArray(reply.lines), 'getTextLines: not {text, lines}');
   const lines = reply.lines.map((entry: unknown): OurLine => {
     assert(isRecord(entry), 'getTextLines: a line is not an object');

@@ -18,6 +18,9 @@ use crate::text_style::resolve::{Alignment, LineHeight, ShapingStyle, Wrapping};
 /// CSS `tab-size` initial value: a tab advances to the next multiple of this many spaces.
 const TAB_SIZE_SPACES: f32 = 8.0;
 
+/// How far the viewport's oversampling may be from a whole number and still count as one (the factor is an `f32` such as 1.5 or 2.0).
+const WHOLE_OVERSAMPLING_TOLERANCE: f32 = 1e-3;
+
 /// The width Taffy offers a text, as it is measured.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Offered {
@@ -233,7 +236,17 @@ impl StyledParagraph {
         // lines. A text on one line has no space at a wrap to hang.
         let hangs = matches!(self.style.alignment, Alignment::Center | Alignment::Right)
             && self.paragraph.get_line_count() > 1;
-        if !self.font.tracked && self.decorations.is_empty() && !fractional_lines && !hangs {
+        // A line box puts a baseline on a whole logical pixel, which is a whole device pixel only when the oversampling is a
+        // whole number: 33 px at 1.5 is row 49.5, which splits the ends of the glyphs across two rows. `draw_lines` snaps
+        // each baseline to a device pixel.
+        let baselines_off_device_pixels =
+            (oversampling - oversampling.round()).abs() > WHOLE_OVERSAMPLING_TOLERANCE;
+        if !self.font.tracked
+            && self.decorations.is_empty()
+            && !fractional_lines
+            && !hangs
+            && !baselines_off_device_pixels
+        {
             self.paragraph
                 .draw_ex(canvas, origin)
                 .color(color)
