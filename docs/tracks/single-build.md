@@ -1,6 +1,6 @@
 # Track: single build (one native build per platform, loaded by both engines)
 
-Branch `single-build`, based on main `9dba853` and rebased onto `894c97d` (box-mesh and the rich-text editor; REBASE below). Notes and report for the coordinator;
+Branch `single-build`, based on main `9dba853` and rebased onto `53d23b8` (box-mesh, the code editor on rich text and the dropdown touch fix; see "After the rebase"). Notes and report for the coordinator;
 `docs/INTERACTION_PLAN.md`, `docs/INTERACTION_PROGRESS.md` and `README.md` are not edited here (the paragraph for the README is at the end). Ben decided: the native
 UI library and the native live-compile extension are **one build per platform, bound to stock Godot 4.7.2's API, and loaded by both engine profiles**. This supersedes
 stock-engine S2 to S4 and the whole of [engine-switch.md](engine-switch.md) for native.
@@ -118,7 +118,7 @@ hashes and inodes are the same after it. (`.cargo/config.toml` is an input of ev
 | `pnpm test:types`, `pnpm test:types --engine=stock` | clean; the stock one regenerated the typings into `target/stock-typings` from the one library |
 | `cargo test` | 849 passed, 0 failed |
 | `cargo clippy --all-targets -- -D warnings` | clean (the binding change is to the dump the crates are generated from; no Rust changed) |
-| `cargo fmt --check` | **fails, and not on this branch's changes**: `native/lib.rs` (`mod grid_style` before `mod gradient`), `native/scroll.rs` (a test line) and `native/text_input_godot/keys.rs` (three test lines) are not formatted on `9dba853`; this track changed no Rust and did not touch them. FMT below says how it stands after the rebase. |
+| `cargo fmt --check` | before the rebase it **failed, and not on this branch's changes**: `native/lib.rs` (`mod grid_style` before `mod gradient`), `native/scroll.rs` (a test line) and `native/text_input_godot/keys.rs` (three test lines) were not formatted on `9dba853`; this track changed no Rust and did not touch them. After the rebase it passes: the box-mesh commits reformatted all three. |
 
 The new tests: `tests/single-build.test.ts` (23 tests: the table above through the real scripts under both profiles; the record against the dump and `.cargo/config.toml`; `--engine=` refused; the launchers; the native build scripts), additions to
 `tests/freshness.test.ts` (a stamp is bound to a profile or an API; the install by rename with a descriptor held open across it; the copy checked against the stamp; the manifest by rename) and `tests/engine.test.ts` (Web per profile).
@@ -158,7 +158,24 @@ The stock editor's typings generation prints `ERROR: GDExtension dynamic library
 - Release builds only: the manifests name the one library for debug and release, as before.
 - Breaka's Web side module remains bound to Breaka's 4.8 dumps; binding the Web builds to 4.7.2 as well was not asked and is not tried.
 
-REBASE
+## After the rebase
+
+Main moved to `53d23b8`: the box-mesh track (13 files of `native/` changed, `native/square_box.rs` removed), the code editor on rich text and the dropdown touch fix. The rebase was clean, no conflicts. `native/` is a build input, so the installed library was refused, naming `pnpm build:native` and nothing else;
+`live-compile/` and `Cargo.toml`/`Cargo.lock` did not change, so the extension was still accepted. Then, in one gated run (`artifacts/logs/after-rebase.log`):
+
+| Step | Result |
+| --- | --- |
+| `pnpm build:native`, the one rebuild | **50 s** (cargo 48.9 s). Library `05a0ffe81322...`, inode 695188838; the extension untouched (`5bce79307d03...`, inode 694888404, from before the rebase). Both stamps still `binding: 4.7.2`, dump `c09705c3f94f`. |
+| `node scripts/verify.mjs --interaction --only=paint` (Breaka 4.8) | **PASSED** landscape and portrait, 29 s. `Initialize godot-rust (API v4.7.2.stable.custom_build, runtime v4.8.beta.custom_build, ...)` |
+| `node scripts/verify.mjs --interaction --only=paint --engine=stock` | **PASSED** landscape and portrait, 34 s. `Initialize godot-rust (API v4.7.2.stable.custom_build, runtime v4.7.2.stable.custom_build, ...)` |
+| the installed files after both runs | unchanged from after the rebuild (same hashes and inodes) |
+| `pnpm test` | 890 tests, 890 pass, 0 fail, 0 skipped |
+| `pnpm test:types`, `pnpm test:types --engine=stock` | clean |
+| `cargo fmt --check` | passes |
+| `cargo test` | 869 passed, 0 failed |
+| `cargo clippy --all-targets -- -D warnings` | clean |
+
+`paint` was chosen because it draws the box meshes the rebase brought in. The sections of the first evidence run (navigator, live-compile, code-editor, rich-text, transforms, paint) ran on the tree before the rebase; after it only `paint` ran on each engine, plus the unit and Rust suites. The Web side modules are stale against main's `native/` and were not rebuilt after the rebase (`pnpm build:web` per profile, in the merge notes).
 
 ## Merge notes
 
