@@ -8,7 +8,7 @@ use crate::box_draw::{Lease, acquire_baked, begin, end};
 use crate::paint::parse_color;
 use crate::text_decoration::raster::{dot, split_center, wave_layout, wave_tile};
 use crate::text_decoration::{DotsPlan, Fragment, LineKind, Shape, WavePlan, shapes};
-use crate::text_layout::{ShapedGlyph, ShapedLine};
+use crate::text_layout::{GlyphPlacement, ShapedGlyph, ShapedLine};
 use crate::text_span::plan::ColorRuns;
 use crate::text_style::TextDecoration;
 use crate::text_style::metrics::DecorationFont;
@@ -131,14 +131,18 @@ pub(super) fn draw_glyphs(
     }
     let rtl = line.draws_right_to_left;
     let mut pen = 0.0_f32;
-    let draw = |server: &mut Gd<TextServer>, glyph: &ShapedGlyph, color: Color, pen: &mut f32| {
+    let draw = |server: &mut Gd<TextServer>,
+                glyph: &ShapedGlyph,
+                placement: &GlyphPlacement,
+                color: Color,
+                pen: &mut f32| {
         server
             .font_draw_glyph_ex(
                 drawing.drawn_as(glyph.font),
                 drawing.canvas,
-                glyph.size,
-                position + Vector2::new(*pen, 0.0) + glyph.offset,
-                glyph.index,
+                placement.size,
+                position + Vector2::new(*pen, 0.0) + placement.offset,
+                placement.index,
             )
             .color(color)
             .oversampling(drawing.oversampling)
@@ -146,9 +150,9 @@ pub(super) fn draw_glyphs(
         *pen += glyph.advance;
     };
     if rtl && line.ellipsis_at >= 0 {
-        for glyph in line.ellipsis.iter().rev() {
+        for (glyph, placement) in line.ellipsis.iter().rev() {
             for _ in 0..glyph.repeat {
-                draw(server, glyph, drawing.color, &mut pen);
+                draw(server, glyph, placement, drawing.color, &mut pen);
             }
         }
     }
@@ -176,14 +180,15 @@ pub(super) fn draw_glyphs(
                 // The server draws a hex box for a character the fonts cannot show; this draws none.
                 pen += glyph.advance;
             } else {
-                draw(server, glyph, drawing.color_of(glyph), &mut pen);
+                let placement = line.placement(index).map_err(|error| error.to_string())?;
+                draw(server, glyph, &placement, drawing.color_of(glyph), &mut pen);
             }
         }
     }
     if !rtl && line.ellipsis_at >= 0 {
-        for glyph in &line.ellipsis {
+        for (glyph, placement) in &line.ellipsis {
             for _ in 0..glyph.repeat {
-                draw(server, glyph, drawing.color, &mut pen);
+                draw(server, glyph, placement, drawing.color, &mut pen);
             }
         }
     }
@@ -349,27 +354,14 @@ mod tests {
     fn glyph(start: i64, advance: f32) -> ShapedGlyph {
         ShapedGlyph {
             start,
-            end: start + 1,
-            count: 1,
-            flags: 0,
             repeat: 1,
             advance,
-            offset: Vector2::ZERO,
             font: Rid::new(FONT),
-            size: 12,
-            index: start,
         }
     }
 
     fn line(glyphs: Vec<ShapedGlyph>) -> ShapedLine {
-        ShapedLine {
-            glyphs,
-            ellipsis: Vec::new(),
-            draws_right_to_left: false,
-            ellipsis_at: -1,
-            trim_at: -1,
-            width: 0.0,
-        }
+        ShapedLine::for_test(glyphs)
     }
 
     /// The glyphs `TextServer::shaped_text_draw` draws for a left to right line without an ellipsis (`servers/text/text_server.cpp`),
@@ -389,7 +381,7 @@ mod tests {
                     pen += glyph.advance;
                     continue;
                 }
-                drawn.push((pen, glyph.index));
+                drawn.push((pen, glyph.start));
                 pen += glyph.advance;
             }
         }
@@ -413,7 +405,7 @@ mod tests {
                     pen += glyph.advance;
                     continue;
                 }
-                drawn.push((pen, glyph.index, drawing.color_of(glyph)));
+                drawn.push((pen, glyph.start, drawing.color_of(glyph)));
                 pen += glyph.advance;
             }
         }

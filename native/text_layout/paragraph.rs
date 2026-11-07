@@ -34,6 +34,7 @@ struct Stamp {
 
 /// The keys of a glyph's dictionary, made once for the glyphs of a paragraph: a lookup by a string literal makes a `Variant` for it every
 /// time, and a line has a dictionary per glyph.
+#[derive(Debug)]
 struct GlyphKeys {
     start: Variant,
     end: Variant,
@@ -64,48 +65,60 @@ impl GlyphKeys {
     }
 }
 
-/// A glyph of a shaped line, as `TextServer::shaped_text_get_glyphs` describes it.
+/// A field of a glyph's dictionary. Every lookup is a call into the engine and a conversion (`Dictionary::get` makes two calls, and
+/// `get_or_nil` one), which for a line of a hundred glyphs is what reading it costs; so only what every use of the line needs is read
+/// up front (`ShapedGlyph`), and the rest when asked.
+fn field<T: FromGodot>(dictionary: &VarDictionary, key: &Variant) -> Option<T> {
+    dictionary.get_or_nil(key).try_to::<T>().ok()
+}
+
+/// The part of a glyph of a shaped line (`TextServer::shaped_text_get_glyphs`) that painting in colours and the width of a line need.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ShapedGlyph {
-    /// Where the glyph's cluster starts and ends in the paragraph's text.
+    /// Where the glyph's cluster starts in the paragraph's text.
     pub(crate) start: i64,
-    pub(crate) end: i64,
-    /// How many characters the cluster has, on the first glyph of the cluster; the others have 0.
-    pub(crate) count: i64,
-    pub(crate) flags: i64,
     pub(crate) repeat: i64,
     pub(crate) advance: f32,
-    pub(crate) offset: Vector2,
     pub(crate) font: Rid,
+}
+
+/// What drawing a glyph by itself needs besides a [`ShapedGlyph`].
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct GlyphPlacement {
+    pub(crate) offset: Vector2,
     pub(crate) size: i64,
     pub(crate) index: i64,
 }
 
 impl ShapedGlyph {
     fn of(dictionary: &VarDictionary, keys: &GlyphKeys) -> Option<Self> {
-        let integer = |key: &Variant| dictionary.get(key)?.try_to::<i64>().ok();
         Some(Self {
-            start: integer(&keys.start)?,
-            end: integer(&keys.end)?,
-            count: integer(&keys.count)?,
-            flags: integer(&keys.flags)?,
-            repeat: integer(&keys.repeat)?,
-            advance: dictionary.get(&keys.advance)?.try_to::<f32>().ok()?,
-            offset: dictionary.get(&keys.offset)?.try_to::<Vector2>().ok()?,
-            font: dictionary.get(&keys.font_rid)?.try_to::<Rid>().ok()?,
-            size: integer(&keys.font_size)?,
-            index: integer(&keys.index)?,
+            start: field(dictionary, &keys.start)?,
+            repeat: field(dictionary, &keys.repeat)?,
+            advance: field(dictionary, &keys.advance)?,
+            font: field(dictionary, &keys.font_rid)?,
         })
     }
 }
 
+fn placement_of(dictionary: &VarDictionary, keys: &GlyphKeys) -> Option<GlyphPlacement> {
+    Some(GlyphPlacement {
+        offset: field(dictionary, &keys.offset)?,
+        size: field(dictionary, &keys.font_size)?,
+        index: field(dictionary, &keys.index)?,
+    })
+}
+
 /// What the text server says of one shaped line that painting and the facts of a layout read: its glyphs, the glyphs of the ellipsis that
-/// ends it, and where it is cut. A server call makes a dictionary of every glyph, so a line is read once.
+/// ends it, and where it is cut. A server call makes a dictionary of every glyph and reading one costs a call into the engine for each
+/// field, so a line is read once and a field only when something needs it.
 #[derive(Clone, Debug)]
 pub(crate) struct ShapedLine {
     pub(crate) glyphs: Vec<ShapedGlyph>,
-    /// The glyphs of the ellipsis, when the line ends in one (`ellipsis_at` is not negative).
-    pub(crate) ellipsis: Vec<ShapedGlyph>,
+    /// The server's dictionary of each glyph, for the fields `glyphs` does not hold. A line made by a test, without a server, has none.
+    lazy: Option<LazyFields>,
+    /// The glyphs of the ellipsis, when the line ends in one (`ellipsis_at` is not negative), with what drawing each needs.
+    pub(crate) ellipsis: Vec<(ShapedGlyph, GlyphPlacement)>,
     /// The line is drawn from its right end (`shaped_text_get_direction`; the inferred direction is in the facts).
     pub(crate) draws_right_to_left: bool,
     /// The glyph the ellipsis follows and the glyph the line is cut at, or -1.
@@ -115,29 +128,94 @@ pub(crate) struct ShapedLine {
     pub(crate) width: f64,
 }
 
+/// What a line holds to read a glyph's other fields from.
+#[derive(Clone, Debug)]
+struct LazyFields {
+    raw: Array<VarDictionary>,
+    keys: Rc<GlyphKeys>,
+}
+
 impl ShapedLine {
-    fn read(server: &Gd<TextServer>, line: Rid, keys: &GlyphKeys) -> Result<Self, TextLayoutError> {
+    fn read(
+        server: &Gd<TextServer>,
+        line: Rid,
+        keys: &Rc<GlyphKeys>,
+    ) -> Result<Self, TextLayoutError> {
         let problem = TextLayoutError::MalformedServerData(ServerDataProblem::Glyphs);
-        let read = |glyphs: Array<VarDictionary>| {
-            glyphs
-                .iter_shared()
-                .map(|dictionary| ShapedGlyph::of(&dictionary, keys))
-                .collect::<Option<Vec<_>>>()
-                .ok_or(problem)
-        };
         let ellipsis_at = server.shaped_text_get_ellipsis_pos(line);
+        let raw = server.shaped_text_get_glyphs(line);
+        let glyphs = raw
+            .iter_shared()
+            .map(|dictionary| ShapedGlyph::of(&dictionary, keys))
+            .collect::<Option<Vec<_>>>()
+            .ok_or(problem)?;
+        let ellipsis = if ellipsis_at >= 0 {
+            server
+                .shaped_text_get_ellipsis_glyphs(line)
+                .iter_shared()
+                .map(|dictionary| {
+                    Some((
+                        ShapedGlyph::of(&dictionary, keys)?,
+                        placement_of(&dictionary, keys)?,
+                    ))
+                })
+                .collect::<Option<Vec<_>>>()
+                .ok_or(problem)?
+        } else {
+            Vec::new()
+        };
         Ok(Self {
-            glyphs: read(server.shaped_text_get_glyphs(line))?,
-            ellipsis: if ellipsis_at >= 0 {
-                read(server.shaped_text_get_ellipsis_glyphs(line))?
-            } else {
-                Vec::new()
-            },
+            glyphs,
+            lazy: Some(LazyFields {
+                raw,
+                keys: Rc::clone(keys),
+            }),
+            ellipsis,
             draws_right_to_left: server.shaped_text_get_direction(line) == Direction::RTL,
             ellipsis_at,
             trim_at: server.shaped_text_get_trim_pos(line),
             width: server.shaped_text_get_width(line),
         })
+    }
+
+    /// A line of the given glyphs that reads nothing from a server, for the tests of what is drawn from a line.
+    #[cfg(test)]
+    pub(crate) fn for_test(glyphs: Vec<ShapedGlyph>) -> Self {
+        Self {
+            glyphs,
+            lazy: None,
+            ellipsis: Vec::new(),
+            draws_right_to_left: false,
+            ellipsis_at: -1,
+            trim_at: -1,
+            width: 0.0,
+        }
+    }
+
+    /// The server's dictionary of a glyph, and the keys to read it with.
+    fn dictionary(&self, glyph: usize) -> Result<(VarDictionary, &GlyphKeys), TextLayoutError> {
+        let problem = TextLayoutError::MalformedServerData(ServerDataProblem::Glyphs);
+        let lazy = self.lazy.as_ref().ok_or(problem)?;
+        Ok((lazy.raw.get(glyph).ok_or(problem)?, &lazy.keys))
+    }
+
+    fn integer(
+        &self,
+        glyph: usize,
+        key: impl Fn(&GlyphKeys) -> &Variant,
+    ) -> Result<i64, TextLayoutError> {
+        let (dictionary, keys) = self.dictionary(glyph)?;
+        field(&dictionary, key(keys)).ok_or(TextLayoutError::MalformedServerData(
+            ServerDataProblem::Glyphs,
+        ))
+    }
+
+    /// What drawing glyph `glyph` by itself needs besides what `glyphs` holds.
+    pub(crate) fn placement(&self, glyph: usize) -> Result<GlyphPlacement, TextLayoutError> {
+        let (dictionary, keys) = self.dictionary(glyph)?;
+        placement_of(&dictionary, keys).ok_or(TextLayoutError::MalformedServerData(
+            ServerDataProblem::Glyphs,
+        ))
     }
 
     /// The width of the glyphs without the white space the line ends with: what a browser measures and aligns. A line's
@@ -146,26 +224,19 @@ impl ShapedLine {
     fn visible_width(&self) -> Result<f32, TextLayoutError> {
         let problem = TextLayoutError::MalformedServerData(ServerDataProblem::Glyphs);
         let space = i64::try_from(GraphemeFlag::SPACE.ord()).map_err(|_| problem)?;
-        let advances: Vec<(bool, f32)> = self
-            .glyphs
-            .iter()
-            .map(|glyph| {
-                (
-                    glyph.flags & space != 0,
-                    glyph.advance * glyph.repeat as f32,
-                )
-            })
-            .collect();
-        let hanging: f32 = advances
-            .iter()
-            .rev()
-            .take_while(|(is_space, _)| *is_space)
-            .map(|(_, advance)| advance)
-            .sum();
+        let advance_of = |glyph: &ShapedGlyph| glyph.advance * glyph.repeat as f32;
+        // The white space the line ends with: only the glyphs from the end are asked what they are.
+        let mut hanging = 0.0_f32;
+        for (index, glyph) in self.glyphs.iter().enumerate().rev() {
+            if self.integer(index, |keys| &keys.flags)? & space == 0 {
+                break;
+            }
+            hanging += advance_of(glyph);
+        }
         if self.trim_at >= 0 || self.ellipsis_at >= 0 {
             return Ok(self.width as f32 - hanging);
         }
-        let total: f32 = advances.iter().map(|(_, advance)| advance).sum();
+        let total: f32 = self.glyphs.iter().map(advance_of).sum();
         Ok((total - hanging).max(0.0))
     }
 
@@ -174,11 +245,16 @@ impl ShapedLine {
         let problem = TextLayoutError::MalformedServerData(ServerDataProblem::Glyphs);
         let hard_break = i64::try_from(GraphemeFlag::BREAK_HARD.ord()).map_err(|_| problem)?;
         let end = i64::try_from(line_end).map_err(|_| problem)?;
-        // A cluster's first glyph has the count; the rest of its glyphs have 0.
-        Ok(self
-            .glyphs
-            .iter()
-            .any(|glyph| glyph.count > 0 && glyph.end == end && glyph.flags & hard_break != 0))
+        for index in 0..self.glyphs.len() {
+            // A cluster's first glyph has the count; the rest of its glyphs have 0.
+            if self.integer(index, |keys| &keys.end)? == end
+                && self.integer(index, |keys| &keys.count)? > 0
+                && self.integer(index, |keys| &keys.flags)? & hard_break != 0
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 }
 
@@ -262,7 +338,7 @@ impl GodotParagraph {
         content_width: f32,
     ) -> Result<ShapedParagraph, TextLayoutError> {
         let source = Self::lay_out(paragraph, content_width)?.hanging_spaces();
-        let keys = GlyphKeys::new();
+        let keys = Rc::new(GlyphKeys::new());
         let lines = (0..source.stamp.visible_lines)
             .map(|line| ShapedLine::read(&source.server, source.line_rid(line)?, &keys))
             .collect::<Result<Vec<_>, _>>()?;
@@ -406,7 +482,7 @@ impl ParagraphSource for GodotParagraph {
         if let Some(shaped) = &self.shaped {
             return Ok(shaped.facts.clone());
         }
-        let keys = GlyphKeys::new();
+        let keys = Rc::new(GlyphKeys::new());
         self.build_facts(&|index| {
             ShapedLine::read(&self.server, self.line_rid(index)?, &keys).map(Cow::Owned)
         })
