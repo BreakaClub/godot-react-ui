@@ -134,7 +134,7 @@ test('decoration classes', () => {
   assert.deepEqual(style('decoration-[3px]'), { textDecorationThickness: 3 });
   assert.deepEqual(style('underline-offset-auto'), { textUnderlineOffset: 'auto' });
   assert.deepEqual(style('underline-offset-[3px]'), { textUnderlineOffset: 3 });
-  for (const utility of ['decoration-3', 'underline-offset-3', 'decoration-nope', 'decoration-wavy', 'underline-offset-', 'decoration-[3]']) {
+  for (const utility of ['decoration-3', 'underline-offset-3', 'decoration-nope', 'decoration-zigzag', 'underline-offset-', 'decoration-[3]']) {
     assert.throws(() => compileStyle(utility), /Unsupported/, utility);
   }
 });

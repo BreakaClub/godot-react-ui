@@ -89,6 +89,8 @@ export type TextTransform = 'none' | 'uppercase' | 'lowercase' | 'capitalize';
 export type TextDecorationLine =
   | 'none' | 'underline' | 'overline' | 'line-through' | 'underline overline' | 'underline line-through'
   | 'overline line-through' | 'underline overline line-through';
+/** CSS `text-decoration-style`: how a decoration line is drawn. `wavy` is the squiggle spell checkers use. */
+export type TextDecorationStyle = 'solid' | 'double' | 'dotted' | 'dashed' | 'wavy';
 export type TextOverflow = 'clip' | 'ellipsis';
 export type WhiteSpace = 'normal' | 'nowrap' | 'pre' | 'pre-line' | 'pre-wrap' | 'break-spaces';
 export type WordBreak = 'normal' | 'break-all' | 'keep-all';
@@ -215,6 +217,8 @@ export interface Style {
   textDecorationLine?: TextDecorationLine;
   /** The colour of the decoration lines; the element's own text colour when not set. */
   textDecorationColor?: HexColor;
+  /** How the decoration lines are drawn; `solid` when not set. Drawn as Chrome draws them (`docs/tracks/rich-text.md`). */
+  textDecorationStyle?: TextDecorationStyle;
   /** px, or `auto` (the font's underline thickness) or `from-font` (the same). */
   textDecorationThickness?: number | 'auto' | 'from-font';
   /** Inherited. px below the baseline's natural underline position, or `auto` (the font's own). */

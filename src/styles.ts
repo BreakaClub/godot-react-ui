@@ -1,3 +1,4 @@
+import { decorationStyleUtility } from './utilities/rich-text';
 import { fontWeightNumber, textUtility } from './utilities/text';
 import { transformUtility } from './utilities/transform';
 import type {
@@ -457,7 +458,7 @@ function utilityStyle(utility: string): UtilityStyle | undefined {
   const transformed = transformUtility(utility);
   if (transformed !== undefined) return transformed;
 
-  const text = textUtility(utility, parseColor);
+  const text = textUtility(utility, parseColor) ?? decorationStyleUtility(utility);
   if (text !== undefined) return text;
 
   const layout = layoutUtility(utility);
