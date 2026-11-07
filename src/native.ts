@@ -1,6 +1,7 @@
 import { LAYER_ROOT_TAG, type CommitPayload } from './commit';
 import { isDropEffect, type DropEffect } from './data-transfer';
 import type { NativeKind } from './props';
+import { TRANSITION_PROPERTIES } from './types';
 import type { TransitionProperty } from './types';
 
 export type { NativeKind } from './props';
@@ -448,7 +449,11 @@ export interface NativeSnapshotNode {
   /** Root-local, and clipped through the paint ancestors. */
   rect: LayoutRect;
   clipRect: LayoutRect | null;
-  presentation: { width: number; height: number; widthIsAuto: boolean; heightIsAuto: boolean; opacity: number; backgroundColor: string };
+  presentation: {
+    width: number; height: number; widthIsAuto: boolean; heightIsAuto: boolean; opacity: number; backgroundColor: string;
+    /** The text colour and the border colour as `#rrggbbaa`: the values a transition is moving, or the computed ones. */
+    color: string; borderColor: string;
+  };
   /** The node's computed style: inherited values, then every style layer that applies. */
   style: Record<string, unknown>;
   /** The native props the node was last given (`style` as compiled layers, `text`, `disabled`, ...). */
@@ -924,10 +929,8 @@ function thumbRects(value: unknown, label: string): { x: LayoutRect | null; y: L
 }
 
 function transitionProperty(value: unknown): TransitionProperty {
-  if (
-    value === 'width' || value === 'height' || value === 'opacity' || value === 'backgroundColor' || value === 'filter'
-    || value === 'backdropFilter' || value === 'transform'
-  ) return value;
+  const property = TRANSITION_PROPERTIES.find(candidate => candidate === value);
+  if (property !== undefined) return property;
   throw new Error(`Invalid native transition property: ${String(value)}`);
 }
 
@@ -1103,6 +1106,8 @@ export function readSnapshot(host: NativeHost): NativeSnapshot {
           heightIsAuto: boolean(presentation.heightIsAuto, 'presentation.heightIsAuto'),
           opacity: number(presentation.opacity, 'presentation.opacity'),
           backgroundColor: string(presentation.backgroundColor, 'presentation.backgroundColor'),
+          color: string(presentation.color, 'presentation.color'),
+          borderColor: string(presentation.borderColor, 'presentation.borderColor'),
         },
         style: record(node.style, 'node.style'),
         props: record(node.props, 'node.props'),

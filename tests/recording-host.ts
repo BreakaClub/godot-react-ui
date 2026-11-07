@@ -58,7 +58,7 @@ export function node(id: number, kind: 'view' | 'text' | 'button' | 'textinput')
     scroll: null, textInput: null, effects: null, transform: null, rasterScale: null,
     rect: { x: 0, y: 0, width: 100, height: 40 },
     clipRect: null,
-    presentation: {width: 100, height: 40, widthIsAuto: false, heightIsAuto: false, opacity: 1, backgroundColor: '#00000000'},
+    presentation: {width: 100, height: 40, widthIsAuto: false, heightIsAuto: false, opacity: 1, backgroundColor: '#00000000', color: '#ffffffff', borderColor: '#00000000'},
   };
 }
 

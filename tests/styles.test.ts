@@ -295,7 +295,7 @@ test('scroll utilities compile to the longhands native reads', () => {
     overflowX: 'scroll', overflowY: 'scroll', overscrollBehavior: 'contain', touchAction: 'pan-x',
   });
   // And an unknown one still throws, so a typo cannot hide.
-  assert.throws(() => compileStyle('overflow-clip'), /Unsupported utility class "overflow-clip"/);
+  assert.throws(() => compileStyle('overflow-overlay'), /Unsupported utility class "overflow-overlay"/);
   assert.throws(() => compileStyle('overscroll-none'), /Unsupported utility class "overscroll-none"/);
   assert.throws(() => compileStyle('scrollbar-thin'), /Unsupported utility class "scrollbar-thin"/);
   assert.throws(() => compileStyle('touch-manipulation'), /Unsupported utility class "touch-manipulation"/);

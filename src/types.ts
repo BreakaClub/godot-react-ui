@@ -1,14 +1,57 @@
-/** Style values are logical pixels; percentage strings are fractions of the parent. */
-export type Dimension = number | 'auto' | `${number}%`;
+/**
+ * Style values are logical pixels; percentage strings are percentages of the parent. `vw` and `vh` are percentages of the
+ * root's width and height (`100vh` is a screen high; Tailwind's `h-screen`).
+ */
+export type SizeLimit = number | 'auto' | `${number}%` | `${number}vw` | `${number}vh`;
+/**
+ * A size: a `SizeLimit` or an intrinsic keyword. `min-content` is the narrowest the content can be without overflowing,
+ * `max-content` the widest it wants, and `fit-content` the space available but at most `max-content` and at least
+ * `min-content`. The keywords size a box (`width`, `height`, `flexBasis`); Taffy takes none for `minWidth` and the other limits.
+ */
+export type Dimension = SizeLimit | 'min-content' | 'max-content' | 'fit-content';
+/** A margin: pixels (negative allowed), a percentage of the containing block's width, or `auto`, which takes the free space. */
+export type Margin = number | 'auto' | `${number}%`;
 export type Alignment = 'start' | 'end' | 'center' | 'stretch' | 'baseline' | 'flex-start' | 'flex-end';
-export type Justification = 'start' | 'end' | 'center' | 'space-between' | 'space-around' | 'space-evenly' | 'flex-start' | 'flex-end';
+/** `auto` defers to the container's `alignItems` or `justifyItems`. */
+export type SelfAlignment = Alignment | 'auto';
+/** `normal` is `stretch` for the tracks of a grid and `flex-start` for flex items. */
+export type Justification =
+  | 'start' | 'end' | 'center' | 'space-between' | 'space-around' | 'space-evenly' | 'flex-start' | 'flex-end' | 'stretch' | 'normal';
 export type HexColor = `#${string}`;
-export type TransitionProperty = 'width' | 'height' | 'opacity' | 'backgroundColor' | 'filter' | 'backdropFilter' | 'transform';
+/**
+ * The properties a transition can animate. `Transition.properties: 'all'` and Tailwind's `transition-all` mean every one of
+ * these, so a property that gets native support is added here and in `ANIMATABLE` (`native/props.rs`), and nowhere else.
+ */
+export const TRANSITION_PROPERTIES = [
+  'width', 'height', 'opacity', 'backgroundColor', 'color', 'borderColor', 'filter', 'backdropFilter', 'transform',
+] as const;
+export type TransitionProperty = (typeof TRANSITION_PROPERTIES)[number];
+/**
+ * One size of a grid track: pixels, a share of the free space (`1fr`), a percentage, `auto` (the content, and a share of
+ * the leftover space), or the content's smallest or largest size.
+ */
+export type GridTrackSize = number | 'auto' | 'min-content' | 'max-content' | `${number}fr` | `${number}%`;
+/**
+ * A grid track: a size, `{minmax: [min, max]}` (`min` is not a `fr`), `{fitContent: size}` (a length or percentage), or a
+ * repetition, `{repeat: 3 | 'auto-fill' | 'auto-fit', tracks: [...]}` (the automatic ones need every track to have a
+ * length or percentage, and are for the template only).
+ */
+export type GridTrack =
+  | GridTrackSize
+  | { readonly minmax: readonly [GridTrackSize, GridTrackSize] }
+  | { readonly fitContent: number | `${number}%` }
+  | { readonly repeat: number | 'auto-fill' | 'auto-fit'; readonly tracks: readonly GridTrack[] };
+/** A count is that many equal columns or rows (`repeat(n, minmax(0, 1fr))`); a list is the tracks as written; `[]` is none. */
+export type GridTemplate = number | readonly GridTrack[];
+/** A grid line: `auto`, or a line number (1 is the first line, -1 the last of the explicit grid; there is no 0). */
+export type GridLine = 'auto' | number;
+export type GridAutoFlow = 'row' | 'column' | 'row-dense' | 'column-dense';
 /**
  * `scroll` and `auto` make the axis scroll. They behave the same: the scrollbars overlay the content,
- * take no layout space, and a bar is drawn only while there is something to scroll to.
+ * take no layout space, and a bar is drawn only while there is something to scroll to. `clip` clips like `hidden`
+ * but is not a scroll container: a flex item's automatic minimum size stays its content's.
  */
-export type Overflow = 'visible' | 'hidden' | 'scroll' | 'auto';
+export type Overflow = 'visible' | 'hidden' | 'clip' | 'scroll' | 'auto';
 /** `contain` ends scroll chaining at the element: a scroll it cannot take does not reach the container behind it. */
 export type OverscrollBehavior = 'auto' | 'contain';
 /** `none` hides a scroll container's overlay scrollbars; it still scrolls. */
@@ -56,22 +99,43 @@ export type NumericFraction = 'normal' | 'diagonal' | 'stacked';
 export type Cursor =
   | 'default' | 'pointer' | 'text' | 'move' | 'grab' | 'grabbing' | 'not-allowed' | 'crosshair'
   | 'wait' | 'progress' | 'help' | 'ew-resize' | 'ns-resize' | 'nesw-resize' | 'nwse-resize';
+/** A timing function: a CSS keyword, or the four numbers of `cubic-bezier(x1, y1, x2, y2)` (x1 and x2 between 0 and 1). */
+export type Easing =
+  | 'linear' | 'ease' | 'ease-in' | 'ease-out' | 'ease-in-out'
+  | { readonly cubicBezier: readonly [number, number, number, number] };
 export interface Transition {
-  properties: readonly TransitionProperty[];
+  /**
+   * What to animate; `'all'` is every property in `TRANSITION_PROPERTIES`, and one of them that cannot animate in a given
+   * change (a width from pixels to a percentage) jumps instead of being reported, as in CSS. Naming a property that cannot
+   * animate in a change is reported.
+   */
+  properties: readonly TransitionProperty[] | 'all';
   durationMs: number;
   delayMs?: number;
-  easing?: 'linear' | 'ease' | 'ease-in' | 'ease-out' | 'ease-in-out';
+  easing?: Easing;
+}
+
+/**
+ * The `transition-*` longhands as the utility classes set them (`transition-colors`, `duration-200`, `ease-in-out`). Each
+ * composes across layers and variants on its own, as in CSS: a longhand nothing sets is CSS's initial value (`all`, 0 ms, `ease`).
+ */
+export interface TransitionParts {
+  properties?: readonly TransitionProperty[] | 'all' | 'none';
+  durationMs?: number;
+  delayMs?: number;
+  easing?: Easing;
 }
 
 /** Layout and paint properties understood by the native Taffy renderer. */
 export interface Style {
   width?: Dimension;
   height?: Dimension;
-  minWidth?: Dimension;
-  minHeight?: Dimension;
-  maxWidth?: Dimension;
-  maxHeight?: Dimension;
-  display?: 'flex' | 'grid' | 'none';
+  minWidth?: SizeLimit;
+  minHeight?: SizeLimit;
+  maxWidth?: SizeLimit;
+  maxHeight?: SizeLimit;
+  /** `block` and `flow-root` are CSS block layout: children stack, vertical margins collapse. There is no inline layout. */
+  display?: 'flex' | 'grid' | 'block' | 'flow-root' | 'none';
   flexDirection?: 'row' | 'column' | 'row-reverse' | 'column-reverse';
   flexWrap?: 'nowrap' | 'wrap' | 'wrap-reverse';
   flexGrow?: number;
@@ -85,15 +149,46 @@ export interface Style {
   paddingRight?: number;
   paddingBottom?: number;
   paddingLeft?: number;
-  margin?: number;
-  marginTop?: number;
-  marginRight?: number;
-  marginBottom?: number;
-  marginLeft?: number;
+  margin?: Margin;
+  marginTop?: Margin;
+  marginRight?: Margin;
+  marginBottom?: Margin;
+  marginLeft?: Margin;
   alignItems?: Alignment;
-  alignSelf?: Alignment;
+  alignSelf?: SelfAlignment;
   justifyContent?: Justification;
-  gridTemplateColumns?: number;
+  /** Distributes the lines of a wrapped flex container, or the rows of a grid. */
+  alignContent?: Justification;
+  /** The default `justifySelf` of a grid's items; flex containers ignore it, as in CSS. */
+  justifyItems?: Alignment;
+  justifySelf?: SelfAlignment;
+  /** Places the element among its siblings in layout (lower first, ties in document order); painting and hit testing keep document order. */
+  order?: number;
+  /** Width over height; the other side follows a definite one. `auto` is none. */
+  aspectRatio?: number | 'auto';
+  /** Whether `width` and `height` include the padding and the border. The default is `border-box`, as in Tailwind. */
+  boxSizing?: 'border-box' | 'content-box';
+  /**
+   * Inherited. `hidden` paints nothing of the element's own, takes no pointer and cannot be focused, but keeps its
+   * layout; a child can be `visible` inside a `hidden` parent.
+   */
+  visibility?: 'visible' | 'hidden';
+  gridTemplateColumns?: GridTemplate;
+  gridTemplateRows?: GridTemplate;
+  gridAutoFlow?: GridAutoFlow;
+  /** The pattern of the tracks a grid makes when its items need more than the template has. */
+  gridAutoColumns?: readonly GridTrack[];
+  gridAutoRows?: readonly GridTrack[];
+  /**
+   * A grid item's area on each axis. A span with no line is the other side's default; a line beats the span, so
+   * `col-span-2 col-start-3` is columns 3 and 4 in either order.
+   */
+  gridColumnStart?: GridLine;
+  gridColumnEnd?: GridLine;
+  gridColumnSpan?: number;
+  gridRowStart?: GridLine;
+  gridRowEnd?: GridLine;
+  gridRowSpan?: number;
   backgroundColor?: HexColor;
   color?: HexColor;
   borderColor?: HexColor;
@@ -263,6 +358,8 @@ export type LonghandStyle = Omit<Style, 'padding' | 'margin' | 'gap' | 'overflow
   backdropFilterParts?: FilterParts;
   /** What transform utilities (`-translate-x-1/2`, `hover:scale-105`) set, per value (see `TransformParts`). */
   transformParts?: TransformParts;
+  /** What the transition utilities set, per longhand (see `TransitionParts`). */
+  transitionParts?: TransitionParts;
 };
 
 export type StyleProp = Style | readonly StyleProp[] | false | null | undefined;

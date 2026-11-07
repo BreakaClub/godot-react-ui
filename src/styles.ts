@@ -1,8 +1,12 @@
 import { fontWeightNumber, textUtility } from './utilities/text';
 import { transformUtility } from './utilities/transform';
 import type {
-  CompiledStyle, Cursor, Dimension, FilterParts, HexColor, Inset, LonghandStyle, PseudoState, Style, StyleLayer, StyleProp,
+  CompiledStyle, Cursor, FilterParts, HexColor, Inset, LonghandStyle, PseudoState, Style, StyleLayer, StyleProp, Transition,
+  TransitionParts,
 } from './types';
+import { unsupportedHint } from './utilities/hints';
+import { layoutUtility } from './utilities/layout';
+import { transitionUtility } from './utilities/transition';
 
 const SPACING_UNIT = 4;
 const TOKEN_CACHE_LIMIT = 2048;
@@ -216,7 +220,7 @@ function parsePixels(value: string, scale = SPACING_UNIT): number | undefined {
   return undefined;
 }
 
-function parseDimension(value: string): Dimension | undefined {
+function parseDimension(value: string): Inset | undefined {
   if (value === 'auto') return 'auto';
   if (value === 'full') return '100%';
   const percentage = /^\[(\d+(?:\.\d+)?)%\]$/.exec(value);
@@ -291,8 +295,11 @@ function parseColor(value: string): HexColor | undefined {
   return undefined;
 }
 
-/** What a class sets: a style, and for filter utilities the one function they set (see `FilterParts`). */
-type UtilityStyle = Style & Pick<LonghandStyle, 'filterParts' | 'backdropFilterParts' | 'transformParts'>;
+/**
+ * What a class sets: a style, and for filter utilities the one function they set (see `FilterParts`), for transform utilities the
+ * values they set (see `TransformParts`) and for transition utilities the longhands they set (see `TransitionParts`).
+ */
+type UtilityStyle = Style & Pick<LonghandStyle, 'filterParts' | 'backdropFilterParts' | 'transformParts' | 'transitionParts'>;
 
 /** A number, or a percentage as a fraction, inside `[...]`. */
 function parseArbitraryAmount(value: string): number | undefined {
@@ -450,32 +457,12 @@ function utilityStyle(utility: string): UtilityStyle | undefined {
   const text = textUtility(utility, parseColor);
   if (text !== undefined) return text;
 
-  const spacing = /^(p|px|py|pt|pr|pb|pl|m|mx|my|mt|mr|mb|ml|gap-x|gap-y|gap)-(.+)$/.exec(utility);
-  if (spacing?.[1] !== undefined && spacing[2] !== undefined) {
-    const value = parsePixels(spacing[2]);
-    if (value === undefined || !Number.isFinite(value)) return undefined;
-    switch (spacing[1]) {
-      case 'p': return { padding: value };
-      case 'px': return { paddingLeft: value, paddingRight: value };
-      case 'py': return { paddingTop: value, paddingBottom: value };
-      case 'pt': return { paddingTop: value };
-      case 'pr': return { paddingRight: value };
-      case 'pb': return { paddingBottom: value };
-      case 'pl': return { paddingLeft: value };
-      case 'm': return { margin: value };
-      case 'mx': return { marginLeft: value, marginRight: value };
-      case 'my': return { marginTop: value, marginBottom: value };
-      case 'mt': return { marginTop: value };
-      case 'mr': return { marginRight: value };
-      case 'mb': return { marginBottom: value };
-      case 'ml': return { marginLeft: value };
-      case 'gap': return { gap: value };
-      case 'gap-x': return { columnGap: value };
-      case 'gap-y': return { rowGap: value };
-    }
-  }
+  const layout = layoutUtility(utility);
+  if (layout !== undefined) return layout;
+  const transition = transitionUtility(utility);
+  if (transition !== undefined) return transition;
 
-  const inset = /^(-?)(inset-x|inset-y|inset|top|right|bottom|left)-(.+)$/.exec(utility);
+  const inset = /^(-?)(inset-x|inset-y|inset|top|right|bottom|left|start|end)-(.+)$/.exec(utility);
   if (inset?.[2] !== undefined && inset[3] !== undefined) {
     const value = parseInset(inset[3], inset[1] === '-');
     if (value === undefined) return undefined;
@@ -487,6 +474,9 @@ function utilityStyle(utility: string): UtilityStyle | undefined {
       case 'right': return { right: value };
       case 'bottom': return { bottom: value };
       case 'left': return { left: value };
+      // The start and end edges, which are the left and right in a left-to-right layout (there is no right-to-left one).
+      case 'start': return { left: value };
+      case 'end': return { right: value };
     }
   }
   const zIndex = /^(-?)z-(.+)$/.exec(utility);
@@ -495,26 +485,6 @@ function utilityStyle(utility: string): UtilityStyle | undefined {
     return value === undefined ? undefined : { zIndex: value };
   }
 
-  const dimension = /^(w|h|min-w|min-h|max-w|max-h|basis)-(.+)$/.exec(utility);
-  if (dimension?.[1] !== undefined && dimension[2] !== undefined) {
-    const namedMaxWidth = dimension[1] === 'max-w' ? lookup(MAX_WIDTHS, dimension[2]) : undefined;
-    const value = namedMaxWidth ?? parseDimension(dimension[2]);
-    if (value === undefined || (typeof value === 'number' && !Number.isFinite(value))) return undefined;
-    switch (dimension[1]) {
-      case 'w': return { width: value };
-      case 'h': return { height: value };
-      case 'min-w': return { minWidth: value };
-      case 'min-h': return { minHeight: value };
-      case 'max-w': return { maxWidth: value };
-      case 'max-h': return { maxHeight: value };
-      case 'basis': return { flexBasis: value };
-    }
-  }
-
-  if (utility.startsWith('grid-cols-')) {
-    const value = utility.slice('grid-cols-'.length);
-    if (/^[1-9]\d*$/.test(value) && Number.isSafeInteger(Number(value))) return { gridTemplateColumns: Number(value) };
-  }
   if (utility.startsWith('rounded-')) {
     const name = utility.slice('rounded-'.length);
     const radius = lookup(RADII, name) ?? parsePixels(name, 1);
@@ -577,7 +547,10 @@ function compileToken(token: string): CompiledToken {
     }
   }
   const style = utilityStyle(utility);
-  if (style === undefined) throw new Error(`Unsupported utility class "${token}"`);
+  if (style === undefined) {
+    const hint = unsupportedHint(utility);
+    throw new Error(`Unsupported utility class "${token}"${hint === undefined ? '' : `: ${hint}`}`);
+  }
   const compiled: CompiledToken = { style: Object.freeze(style), minWidth, states: Object.freeze(states) };
   if (tokenCache.size >= TOKEN_CACHE_LIMIT) tokenCache.clear();
   tokenCache.set(token, compiled);
@@ -588,10 +561,20 @@ function isStyleArray(style: StyleProp): style is readonly StyleProp[] {
   return Array.isArray(style);
 }
 
+/** The longhands a full `transition` sets. */
+function transitionLonghands(transition: Transition): TransitionParts {
+  return {
+    properties: typeof transition.properties === 'string' ? transition.properties : [...transition.properties],
+    durationMs: transition.durationMs,
+    ...(transition.delayMs === undefined ? {} : { delayMs: transition.delayMs }),
+    ...(transition.easing === undefined ? {} : { easing: transition.easing }),
+  };
+}
+
 /** Expand shorthands into the longhands native understands, in the order they enter a layer. */
 function mergeLonghands(target: LonghandStyle, source: Readonly<UtilityStyle>): void {
   const {
-    padding, margin, gap, overflow, inset, transition, filter, filterParts, backdropFilter, backdropFilterParts,
+    padding, margin, gap, overflow, inset, transition, transitionParts, filter, filterParts, backdropFilter, backdropFilterParts,
     transform, transformParts, fontWeight, ...properties
   } = source;
   if (fontWeight !== undefined) target.fontWeight = fontWeightNumber(fontWeight);
@@ -648,8 +631,18 @@ function mergeLonghands(target: LonghandStyle, source: Readonly<UtilityStyle>): 
     delete target.transform;
     target.transformParts = { ...target.transformParts, ...transformParts };
   }
+  // A full `transition` replaces what utilities set before it, and the longhands a utility sets after it change only
+  // themselves, so the full one is first read back as longhands (native merges layers the same way).
   // The compiled style is interned and frozen, so it must not share objects with the caller's style.
-  if (transition !== undefined) target.transition = { ...transition, properties: [...transition.properties] };
+  if (transition !== undefined) {
+    target.transition = { ...transition, properties: typeof transition.properties === 'string' ? transition.properties : [...transition.properties] };
+    delete target.transitionParts;
+  }
+  if (transitionParts !== undefined) {
+    const base = target.transition === undefined ? target.transitionParts : transitionLonghands(target.transition);
+    delete target.transition;
+    target.transitionParts = { ...base, ...transitionParts };
+  }
   for (const [key, value] of Object.entries(properties)) {
     if (value !== undefined) Reflect.set(target, key, value);
   }
