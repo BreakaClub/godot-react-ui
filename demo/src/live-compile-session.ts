@@ -238,6 +238,10 @@ export class LiveSession {
       throw new Error(loaded.phase === 'compile' ? `${loaded.path} does not compile: ${loaded.diagnostics.map(diagnostic => diagnostic.message).join('; ')}` : `${loaded.path} threw: ${loaded.error.message}`);
     }
     loaded.change.register();
+    const exported = this.registry.exportOf(this.entryPath, this.options.exportName);
+    if (typeof exported !== 'function') {
+      throw new Error(`${this.entryPath} does not export a component called ${this.options.exportName}`);
+    }
     this.mount();
   }
 

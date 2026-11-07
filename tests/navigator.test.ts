@@ -6,6 +6,7 @@ import { LABS, labsInOrder, type InlineLab, type Lab, type SceneLab } from '../d
 import { Navigator, type NavigatorProps } from '../demo/src/navigator';
 import { CASE_OPTIONS, setTransformCase } from '../demo/src/transform-lab';
 import { createTestRoot } from './recording-host';
+import type { CodeSupport } from '../demo/src/editor/lab-code';
 import { TextInputHost } from './text-input-host';
 
 // The navigator (demo/src/navigator.tsx) against the fake host: what it lists, what it opens, how the keyboard moves it and what
@@ -333,15 +334,58 @@ test('the narrow menu holds the current lab even when the filter hides it', () =
   assert.equal(m.textOf('lab-menu-value'), FIRST.title);
 });
 
-test('the code button toggles the revealable code editor for labs with sources', () => {
+test('there is no Code button when the host gives the navigator no way to edit a lab', () => {
   const m = mount();
-  assert.equal(m.has('toggle-code'), true, 'toggle-code button is visible in the header for labs with sources');
-  assert.equal(m.has('code-editor'), false, 'code editor is initially closed');
+  assert.equal(m.has('toggle-code'), false);
+});
 
-  m.click('toggle-code');
-  assert.equal(m.has('code-editor'), true, 'clicking toggle-code opens the code editor');
-  assert.equal(m.has('editor-input-sink'), true, 'editor input sink is mounted');
+/** A host whose live compiler is not there: the code is shown, read-only, with the reason. */
+const withoutCompiler: CodeSupport = {
+  openSession: () => { throw new Error('The live-compile extension is not loaded: run "node scripts/build-live-compile.mjs"'); },
+  readSource: path => `// source of ${path}\nexport const answer = 42;\n`,
+  platform: 'mac',
+  clipboard: { writeText: () => {} },
+  now: () => 0,
+};
 
-  m.click('toggle-code');
-  assert.equal(m.has('code-editor'), false, 'clicking toggle-code again closes the code editor');
+test('the Code button opens the panel: without a compiler it shows the code read-only and says why, never a silent Ready', () => {
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  try {
+    const m = mount({ code: withoutCompiler });
+    assert.equal(m.has('toggle-code'), true, 'the button is in the header of a lab with sources');
+    assert.equal(m.has('code-editor'), false, 'the panel starts closed');
+    m.click('toggle-code');
+    assert.equal(m.has('code-editor'), true);
+    assert.equal(m.has('editor-input-sink'), true);
+    assert.match(m.textOf('code-read-only'), /Read-only\. The live-compile extension is not loaded: run "node scripts\/build-live-compile\.mjs"/u);
+    assert.match(m.textOf('code-status-run'), /^Read-only\. Live compile is not available: /u);
+    assert.equal(m.props('code-status-run').text !== 'Ready', true);
+    assert.match(m.textOf('code-line-1'), /^\/\/ source of res:\/\/src\/app\.tsx$/u);
+    m.click('toggle-code');
+    assert.equal(m.has('code-editor'), false, 'the button hides it again');
+    assert.equal(m.has('counter-lab'), true, 'and the lab is still there');
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
+test('the code of a read-only lab cannot be edited', () => {
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  try {
+    const m = mount({ code: withoutCompiler });
+    m.click('toggle-code');
+    const sink = m.tag('editor-input-sink');
+    m.host.focusNode(sink, 1);
+    m.host.type(m.root, 'x');
+    assert.equal(m.textOf('code-line-1'), '// source of res://src/app.tsx', 'the typed character changed nothing');
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
+test('the Code button is not offered for a lab that is a window or a scene', () => {
+  const m = mount({ code: withoutCompiler, initialLab: 'world' });
+  assert.equal(m.has('toggle-code'), false);
 });

@@ -105,6 +105,19 @@ export function sameLineSpec(a: LineSpec, b: LineSpec): boolean {
     });
 }
 
+/** The pieces a line shows that its text does not have: the inlay hints that stand in it and the preedit of a composition at the caret. */
+export function insertionsFor(
+  lineFrom: number, lineTo: number, inlays: readonly EditorInlay[], composition: Composition | undefined,
+): Insertion[] {
+  const insertions: Insertion[] = inlays
+    .filter(inlay => inlay.at >= lineFrom && inlay.at <= lineTo)
+    .map(inlay => ({ offset: inlay.at - lineFrom, text: inlay.label, kind: 'inlay' as const }));
+  if (composition !== undefined && composition.at >= lineFrom && composition.at <= lineTo && composition.text !== '') {
+    insertions.push({ offset: composition.at - lineFrom, text: composition.text, kind: 'preedit' });
+  }
+  return insertions;
+}
+
 export function buildLine(inputs: LineInputs, number: number): LineSpec {
   const { state, tree, highlight, composition, focused } = inputs;
   const line = state.doc.line(number);
@@ -114,12 +127,7 @@ export function buildLine(inputs: LineInputs, number: number): LineSpec {
   const breakSelected = state.selection.ranges.some(range => !range.empty && range.from <= line.to && range.to > line.to);
   const diagnostics = inLine(inputs.diagnostics, line.from, line.to);
   const bracketRanges = inLine(inputs.brackets, line.from, line.to);
-  const insertions: Insertion[] = inputs.inlays
-    .filter(inlay => inlay.at >= line.from && inlay.at <= line.to)
-    .map(inlay => ({ offset: inlay.at - line.from, text: inlay.label, kind: 'inlay' as const }));
-  if (composition !== undefined && composition.at >= line.from && composition.at <= line.to && composition.text !== '') {
-    insertions.push({ offset: composition.at - line.from, text: composition.text, kind: 'preedit' });
-  }
+  const insertions = insertionsFor(line.from, line.to, inputs.inlays, composition);
   const layout = new LineLayout(text, insertions);
 
   const edges = new Set<number>([0, text.length]);
@@ -163,8 +171,12 @@ export function buildLine(inputs: LineInputs, number: number): LineSpec {
       underline: underlineAt(diagnostics, from, to),
     });
   }
-  const severity = inLine(inputs.diagnostics.filter(isProblem), line.from, line.to + 1)
-    .reduce<Severity | undefined>((worst, diagnostic) => (worst === undefined ? diagnostic.severity : worse(worst, diagnostic.severity)), undefined);
+  let severity: Severity | undefined;
+  for (const diagnostic of inputs.diagnostics) {
+    if (isProblem(diagnostic) && diagnostic.from <= line.to && diagnostic.to > line.from) {
+      severity = severity === undefined ? diagnostic.severity : worse(severity, diagnostic.severity);
+    }
+  }
   return { number, text, segments, layout, breakSelected, severity };
 }
 

@@ -1,7 +1,8 @@
-import { Component, Fragment, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
+import { Component, Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type MutableRefObject, type ReactNode } from 'react';
 import { Button, Portal, ScrollView, Select, Text, TextField, View, type UIHandle, type UIInputEvent, type UIKeyboardEvent } from 'godot-react-ui';
 import { LAB_GROUPS, LABS, filterLabs, labsInOrder, type Lab, type SceneLab, type WindowLab } from './labs';
 import { CodeEditor } from './code-editor';
+import { openLabCode, releaseLabCode, type CodeSupport, type LabCode } from './editor/lab-code';
 
 /**
  * The demo's shop window: every lab behind one navigation shell, built from the library's own kit and utility classes.
@@ -27,6 +28,8 @@ export interface NavigatorProps {
   onLabChange?: (id: string) => void;
   /** Open a lab that is its own Godot scene. Without it the button says the host cannot. */
   onOpenScene?: (lab: SceneLab) => void;
+  /** What the code panel needs to edit a lab live. Without it there is no Code button. */
+  code?: CodeSupport;
 }
 
 const NEXT = 1;
@@ -221,11 +224,35 @@ class LabBoundary extends Component<LabBoundaryProps, LabBoundaryState> {
   }
 }
 
-/** The page of a lab, inside its boundary. The boundary is keyed by the lab, so choosing another lab starts it afresh. */
-function LabPage({ lab }: { lab: Lab }) {
+/**
+ * The page of a lab, inside its boundary. The boundary is keyed by the lab, so choosing another lab starts it afresh. `page` is the
+ * component to render instead of the lab's own: the live session's, when the lab is being edited.
+ */
+function LabPage({ lab, page }: { lab: Lab; page?: ComponentType }) {
   if (lab.kind === 'scene') throw new Error(`${lab.title} is a scene, not a component`);
-  const Page = lab.component;
+  const Page = page ?? lab.component;
   return <LabBoundary key={lab.id} lab={lab}><Page /></LabBoundary>;
+}
+
+/**
+ * The code of the lab on the stage, once the person has asked for it: a live session of the lab and the editor of its files, kept
+ * for as long as the lab stays selected (hiding the panel does not throw an edit away; choosing another lab does) and released when
+ * the lab changes or the navigator goes. Opening is a layout effect, so the page the person sees is the live one in the commit
+ * that follows the click.
+ */
+function useLabCode(lab: Lab | undefined, support: CodeSupport | undefined, wanted: boolean): LabCode | undefined {
+  const [held, setHeld] = useState<{ readonly labId: string; readonly code: LabCode } | undefined>(undefined);
+  const editable = lab !== undefined && lab.kind === 'inline' ? lab : undefined;
+  useLayoutEffect(() => {
+    if (editable === undefined || support === undefined) {
+      if (held !== undefined) setHeld(undefined);
+      return;
+    }
+    if (wanted && held?.labId !== editable.id) setHeld({ labId: editable.id, code: openLabCode(editable, support) });
+    else if (held !== undefined && held.labId !== editable.id) setHeld(undefined);
+  }, [editable?.id, support, wanted, held]);
+  useLayoutEffect(() => () => { if (held !== undefined) releaseLabCode(held.code); }, [held]);
+  return held !== undefined && held.labId === editable?.id ? held.code : undefined;
 }
 
 interface LaunchCardProps {
@@ -348,7 +375,7 @@ function LabHeader({ lab, missing, position, onStep, canEdit, codeOpen, onToggle
   );
 }
 
-export function Navigator({ labs = LABS, initialLab, onLabChange, onOpenScene }: NavigatorProps) {
+export function Navigator({ labs = LABS, initialLab, onLabChange, onOpenScene, code: codeSupport }: NavigatorProps) {
   const ordered = useMemo(() => labsInOrder(labs), [labs]);
   const requested = initialLab === undefined ? undefined : ordered.find(lab => lab.id === initialLab);
   const [selectedId, setSelectedId] = useState<string | undefined>(initialLab === undefined ? ordered[FIRST_LAB]?.id : requested?.id);
@@ -360,6 +387,9 @@ export function Navigator({ labs = LABS, initialLab, onLabChange, onOpenScene }:
 
   const visible = useMemo(() => filterLabs(ordered, query), [ordered, query]);
   const selected = ordered.find(lab => lab.id === selectedId);
+  const labCode = useLabCode(selected, codeSupport, codeOpen);
+  const livePage = labCode !== undefined && labCode.kind === 'live' ? labCode.session.Lab : undefined;
+  const codePanel = codeOpen && selected !== undefined && labCode !== undefined ? { lab: selected, code: labCode } : undefined;
   // The narrow menu always holds the current lab, even one the filter has hidden, so it can show its name.
   const menuLabs = useMemo(() => ordered.filter(lab => lab.id === selectedId || visible.includes(lab)), [ordered, selectedId, visible]);
   // Previous and next walk what the filter shows; with the filter matching nothing, every lab.
@@ -418,11 +448,11 @@ export function Navigator({ labs = LABS, initialLab, onLabChange, onOpenScene }:
       </ScrollView>
     );
   } else if (game) {
-    stage = <View key={selected.id} className="absolute inset-0"><LabPage lab={selected} /></View>;
+    stage = <View key={selected.id} className="absolute inset-0"><LabPage lab={selected} page={livePage} /></View>;
   } else {
     stage = (
       <ScrollView key={selected.id} testID="lab-scroll" className="absolute inset-0" contentClassName={selected.padded === true ? PAGE_PADDING : undefined}>
-        <LabPage lab={selected} />
+        <LabPage lab={selected} page={livePage} />
       </ScrollView>
     );
   }
@@ -483,30 +513,29 @@ export function Navigator({ labs = LABS, initialLab, onLabChange, onOpenScene }:
           missing={missing}
           position={position}
           onStep={step}
-          canEdit={selected?.sources !== undefined && selected.sources.length > 0}
+          canEdit={codeSupport !== undefined && selected?.kind === 'inline' && selected.sources.length > 0}
           codeOpen={codeOpen}
           onToggleCode={() => setCodeOpen(open => !open)}
         />
-        {codeOpen && selected?.sources && selected.sources.length > 0 ? (
-          <View className="relative min-h-0 flex-1 flex-col xl:flex-row overflow-hidden">
-            <View
-              testID="lab-stage"
-              role="region"
-              aria-label="Lab"
-              className={`relative min-h-0 min-w-0 flex-1 overflow-hidden ${game ? 'pointer-events-none' : 'bg-slate-50'}`}
-            >
-              {stage}
-            </View>
-            <View className="w-full h-px xl:w-px xl:h-full bg-slate-200 shrink-0" />
-            <View className="h-[45%] xl:h-full xl:w-[45%] min-w-0 min-h-0 shrink-0">
-              <CodeEditor lab={selected} />
-            </View>
-          </View>
-        ) : (
-          <View testID="lab-stage" role="region" aria-label="Lab" className={`relative min-h-0 flex-1 overflow-hidden ${game ? 'pointer-events-none' : 'bg-slate-50'}`}>
+        {/* The stage keeps its place in the tree whether or not the code is beside it, so the lab on it keeps its state when the panel is shown or hidden. */}
+        <View className={`relative min-h-0 flex-1 overflow-hidden ${codePanel ? 'flex-col xl:flex-row' : ''} ${game ? 'pointer-events-none' : ''}`}>
+          <View
+            testID="lab-stage"
+            role="region"
+            aria-label="Lab"
+            className={`relative min-h-0 min-w-0 flex-1 overflow-hidden ${game ? 'pointer-events-none' : 'bg-slate-50'}`}
+          >
             {stage}
           </View>
-        )}
+          {codePanel ? (
+            <>
+              <View className="w-full h-px xl:w-px xl:h-full bg-slate-200 shrink-0 pointer-events-auto" />
+              <View className="h-[45%] xl:h-full xl:w-[45%] min-w-0 min-h-0 shrink-0 pointer-events-auto">
+                <CodeEditor lab={codePanel.lab} code={codePanel.code} />
+              </View>
+            </>
+          ) : null}
+        </View>
       </View>
     </View>
   );

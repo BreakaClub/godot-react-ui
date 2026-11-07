@@ -19,8 +19,9 @@ export const TAB_SIZE = 2;
 /** How many versions of changes the model remembers. A result for an older version cannot be mapped and is refused. */
 const LOGGED_VERSIONS = 1000;
 
-export function editorExtensions(): Extension {
+export function editorExtensions(readOnly = false): Extension {
   return [
+    EditorState.readOnly.of(readOnly),
     javascript({ jsx: true, typescript: true }),
     history(),
     EditorState.allowMultipleSelections.of(true),
@@ -46,6 +47,8 @@ export type MappedPosition = { readonly kind: 'at'; readonly pos: number } | { r
 export interface EditorModelOptions {
   /** The clock the history groups typing by, in milliseconds. A test supplies its own. */
   readonly now?: () => number;
+  /** The text can be selected and copied but no command changes it. */
+  readonly readOnly?: boolean;
 }
 
 export class EditorModel {
@@ -58,7 +61,7 @@ export class EditorModel {
   private readonly now: (() => number) | undefined;
 
   constructor(doc: string, options: EditorModelOptions = {}) {
-    this.current = EditorState.create({ doc, extensions: editorExtensions() });
+    this.current = EditorState.create({ doc, extensions: editorExtensions(options.readOnly === true) });
     this.now = options.now;
   }
 

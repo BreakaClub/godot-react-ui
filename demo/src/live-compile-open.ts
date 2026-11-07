@@ -17,6 +17,8 @@ export interface LiveSessionRequest {
   readonly labId: string;
   /** The name its first source file exports the lab's component under. */
   readonly exportName: string;
+  /** The lab is rendered by `LiveSession.Lab` inside a tree the caller owns (the navigator's), and `root` is the root that tree is in. */
+  readonly embedded?: boolean;
 }
 
 /**

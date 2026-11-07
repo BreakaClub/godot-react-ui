@@ -23,6 +23,7 @@ import { observeInputFailure, runVerification } from './verify';
 import { BenchmarkApp, type BenchmarkProps } from './benchmark';
 import { runProbe } from './probe';
 import { openLiveSession } from './live-compile-open';
+import type { CodeSupport } from './editor/lab-code';
 import { verifyLiveCompile } from './verify-live-compile';
 import { installRefreshHook } from './live-compile-refresh';
 
@@ -513,6 +514,7 @@ export default class Main extends Node {
   /** The navigator with the owner's callbacks: it remembers the lab, and can leave for a scene of its own. */
   private navigatorElement({ extraLabs = [], ...props }: NavigatorOptions): ReactElement {
     return createElement(Navigator, {
+      code: this.codeSupport(),
       ...props,
       key: this.navigatorShown,
       labs: [...LABS, ...extraLabs],
@@ -522,6 +524,21 @@ export default class Main extends Node {
       },
       onOpenScene: props.onOpenScene ?? ((lab: SceneLab) => this.openScene(lab)),
     });
+  }
+
+  /**
+   * What the navigator's code panel needs: a live session of a lab that renders inside the navigator's tree, the text of a source file,
+   * and the host's clipboard and keyboard conventions. Word jumps are Alt on macOS and Ctrl elsewhere, and a browser on a Mac is a Mac.
+   */
+  private codeSupport(): CodeSupport {
+    const onMac = ['macos', 'web_macos', 'ios', 'web_ios'].some(feature => OS.hasFeature(feature));
+    return {
+      openSession: lab => openLiveSession({ root: this.requireRenderer(), labId: lab.id, exportName: lab.component.name, embedded: true }),
+      readSource: path => FileAccess.getFileAsString(path),
+      platform: onMac ? 'mac' : 'other',
+      clipboard: { writeText: text => ReactUiRoot.setClipboardText(text) },
+      now: () => Time.getTicksUsec() / MICROSECONDS_PER_MILLISECOND,
+    };
   }
 
   /** Leave for the scene `lab` is, with a Godot button to come back to the navigator on the same lab. */

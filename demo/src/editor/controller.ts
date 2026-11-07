@@ -16,8 +16,9 @@ import type { EditorDiagnostic, EditorInlay } from './diagnostics';
 import { HighlightCache, ParseScheduler } from './highlight';
 import { Keymap, codeMirrorCommand, type KeyChord, type Platform } from './keymap';
 import {
-  LineSpecCache, buildLine, matchedBrackets, type Composition, type LineSpec,
+  LineSpecCache, buildLine, insertionsFor, matchedBrackets, type Composition, type LineSpec,
 } from './lines';
+import { LineLayout } from './line-layout';
 import { EditorModel, type ModelUpdate } from './model';
 import { PointerSelection, type PointerDown } from './pointer-selection';
 
@@ -45,12 +46,20 @@ export interface CursorPosition {
   readonly column: number;
 }
 
+/** A caret as it is drawn: the line and the column of what is drawn at which it stands. */
+export interface CaretPlacement {
+  readonly line: number;
+  readonly column: number;
+  readonly main: boolean;
+}
+
 export interface EditorControllerOptions {
   readonly doc: string;
   readonly platform: Platform;
   readonly clipboard: ClipboardPort;
   readonly metrics: ViewMetrics;
   readonly now?: () => number;
+  readonly readOnly?: boolean;
 }
 
 type Listener = () => void;
@@ -80,7 +89,7 @@ export class EditorController {
   private bracketsFor: { state: object; ranges: ReturnType<typeof matchedBrackets> } | undefined;
 
   constructor(options: EditorControllerOptions) {
-    this.model = new EditorModel(options.doc, { now: options.now });
+    this.model = new EditorModel(options.doc, { now: options.now, readOnly: options.readOnly });
     this.keymap = new Keymap(options.platform);
     this.clipboard = options.clipboard;
     this.currentMetrics = options.metrics;
@@ -116,10 +125,11 @@ export class EditorController {
     return this.model.doc.lines;
   }
 
-  subscribe(listener: Listener): () => void {
+  /** An arrow property: `useSyncExternalStore` calls it on its own. */
+  readonly subscribe = (listener: Listener): (() => void) => {
     this.listeners.add(listener);
     return () => { this.listeners.delete(listener); };
-  }
+  };
 
   /** Where the main selection's head is, from 1. */
   position(): CursorPosition {
@@ -144,6 +154,29 @@ export class EditorController {
     const specs: LineSpec[] = [];
     for (let number = firstLine; number <= lastLine; number += 1) specs.push(this.lineCache.stable(buildLine(inputs, number)));
     return specs;
+  }
+
+  /** The map between offsets and columns of a line as it is drawn now, with its hints and the preedit. */
+  layoutOf(lineNumber: number): LineLayout {
+    const line = this.model.doc.line(lineNumber);
+    return new LineLayout(line.text, insertionsFor(line.from, line.to, this.inlays.items, this.currentComposition));
+  }
+
+  /** Where each selection's head is drawn: its line and column of what is drawn, the main one marked. */
+  caretPlacements(): readonly CaretPlacement[] {
+    const { selection } = this.model.state;
+    const composing = this.currentComposition !== undefined;
+    return selection.ranges.map((range, index) => {
+      const line = this.model.doc.lineAt(range.head);
+      const side = composing && index === selection.mainIndex ? 'after-preedit' : 'before';
+      return { line: line.number, column: this.layoutOf(line.number).columnOf(range.head - line.from, side), main: index === selection.mainIndex };
+    });
+  }
+
+  /** The document offset for the caret boundary at `column` of what is drawn on line `lineNumber`. */
+  offsetAtColumn(lineNumber: number, column: number): number {
+    const line = this.model.doc.line(Math.min(Math.max(lineNumber, 1), this.model.doc.lines));
+    return line.from + this.layoutOf(line.number).offsetAt(column);
   }
 
   /** The tree the lines were last coloured with: for tests that check the parse is complete. */
