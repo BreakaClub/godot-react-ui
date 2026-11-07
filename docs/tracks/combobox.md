@@ -124,8 +124,7 @@ and forwards a ref (`Input` a `TextInputHandle`), the caller's class after the p
 13. **The accessibility lab has a combobox** (`demo/src/a11y-panel.tsx`: two chips, a list open from the start with the first option active, via
     `defaultOpen` and `autoHighlight`). The Godot-side half of `verify:a11y` checks what native holds of it (`demo/src/verify-a11y.ts`: the
     role, `ariaExpanded`, and that `ariaControls` and `ariaActiveDescendant` are the tags of the list and of the first option). **The platform
-    tree for it has not been read** (see "Not verified"): the expectations for what the macOS adapter shows (role, expanded, how the
-    active option and the chips appear, the live region of `Empty`) have to be written from a reading, as the earlier ones were.
+    tree for it was read once, and no expectation was written from the reading** ("Not verified" has what it showed).
 
 
 14. **A tap on a `TextInput` was never a click on the Web (found by this track's touch page; a library bug, fixed at its cause).** Evidence, from
@@ -164,6 +163,58 @@ chip, the empty list, Ctrl chords, Delete, the trigger and Clear not focusing, t
 Enter not committing custom text. **43 died at once; 3 survived** (a repeat of Backspace reaching an empty input, a wheel over the list
 closing it, which the test checked before React had rendered it, and Clear not focusing the input when an assistive technology pressed it),
 each got a test and then died. All 46 are killed. Native model: the generation check is a test that fails without it (`an_element_is_set_again_when_an_element_it_names_is_made_again`).
+
+## Verified (the finishing pass, branch `combobox-finish`, on main `4fc733b`)
+
+What was run, with the commands, and what they said. Every heavy command went through `.gate/gate`; no window took focus (`scripts/native-run.mjs`
+starts verifier windows quiet). Logs are in `artifacts/logs/finish-*.log` and `stock-*.log` (not committed).
+
+| What | Command | Result |
+| --- | --- | --- |
+| The tap bug, before the fix | `node artifacts/logs/touch-click-diag.mjs` (headless Chrome, touch, the Web export of main plus a temporary event log on the combobox input, not committed) | the tap on the input gave `pointerdown`, `focus`, `pointercancel` and no `click`; a tap on a button beside it was a click (decision 14) |
+| Web, Breaka | `node scripts/verify-interaction-web.mjs --only=combobox,touch` | **passed**: `combobox` 180 checks (landscape, portrait, retina landscape and retina portrait, then the touch page), `touch` 59, 256 assertions, 41 captures, no engine gaps |
+| Web, stock, the fix switched off | `node scripts/verify-interaction-web.mjs --engine=stock --only=touch` against a stock export built with `if false && self.engine_is_moving_focus()` in `native/lib.rs` | **failed** at "a tap on a text input is a click": the control for the new check |
+| Web, stock, the fix in | `node scripts/verify-interaction-web.mjs --engine=stock --only=combobox,touch` | **passed**: `combobox` 180, `touch` 57, 254 assertions, 41 captures; the one recorded gap is `touch-cancel` (stock's Web input maps `touchcancel` to `touchend`, S11) |
+| JS tests | `pnpm test` | **630 passed**, 0 failed |
+| Types | `pnpm test:types`, and `pnpm test:types --engine=stock` | clean, both |
+| Rust | `cargo test --locked`; `cargo clippy --locked --all-targets -- -D warnings` | 694 passed; no warnings |
+| Accessibility | `node scripts/verify-a11y.mjs --engine=stock --no-retry` (stock Godot 4.7.2 with AccessKit, macOS Accessibility API, quiet window) | **passed** (`GODOT_REACT_A11Y_VERIFY_PASSED`, `GODOT_REACT_A11Y_NATIVE_PASSED`): the Godot-side checks of the lab's combobox (role, `ariaExpanded`, `ariaControls` and `ariaActiveDescendant` are the tags of the list and of the first option) passed, and the existing expectations still hold with the combobox in the lab; its elements are in `ax-before.json` (below) |
+| Formatting | `cargo fmt --check` | flags five files this pass did not touch (`native/motion.rs`, `scroll.rs`, `selection_input.rs`, `style_engine.rs`, `text_input_godot/keys.rs`): main is not format-clean; the files this pass changed are |
+
+Two attempts failed on the way, neither a pass: the first touch page run failed at "a tap opens the list" (the library bug, decision 14), and the next at "a tap
+on bare page closes the list", which was the verifier's own mistake: it tapped the title, which the bottom combobox's open list covers; it now taps the lab's
+right-hand margin. The stock builds first failed because `pnpm build` type-checks against the stock typings, which need the stock native library built from the
+same sources (`pnpm build:native --engine=stock`); that is the freshness guard working, not a code failure.
+
+**Rasters.** The Web run's captures, kept in `artifacts/combobox/web/<viewport>/combobox-<state>-<viewport>.png` (not committed): rest, open, filtered, empty,
+single selected, chips wrapped, chip focused, flipped and disabled, at device pixel ratio 1 (landscape, portrait) and 2 (the retina viewports). Looked at: chips
+wrapped (retina landscape), chip focused and flipped (landscape). The chips wrap over two lines and the control grows to hold them, the list follows it, the
+focused chip has the ring and a tinted fill, the disabled combobox is dimmed with its chips and no remove buttons, the flipped list sits above its control with its
+scrollbar and the active option tinted, and the list is as wide as the control. One thing looks odd and was left: when the last chip leaves less room than the
+input's 64 px minimum the input drops to a line of its own, so the control ends in an empty row (the placeholder is dropped once there are chips). The native
+rasters of `captureStates` (`artifacts/combobox/` on the native runs, DPR 1 and 2) were not looked at by this pass; the coordinator ran the native section.
+
+## Not verified
+
+- **Native windows in this pass.** The native `combobox` section was not run here: the coordinator ran it on main on Breaka and stock and reported it
+  passing, and nothing the pass changed is reached by a native run except `call_engine`'s counter, which a desktop window never has a focus notification inside.
+  The earlier pass, before windows were stopped, saw the single, multiple and disabled flows of the native section pass up to the bottom combobox's wheel step, which
+  it then corrected; it never saw its resize and DPR 2 capture steps pass.
+- **What native costs for a long list.** Decision 11's numbers are JavaScript and the commit's size only.
+- **The platform accessibility tree for the combobox.** The real macOS tree was read once (`artifacts/stock/native-a11y/run/ax-before.json`, stock engine) and the combobox is in it, but **no expectation for it was
+  written into `scripts/a11y-expectations.mjs`** (adding elements there also needs the recorded fixtures in `tests/fixtures/ax-lab` regenerated). What the reading
+  shows: the input is an `AXTextField` titled "Fruits" with `AXSelectedChildren` and `AXLinkedUIElements` among its attributes (the adapter's
+  mapping of the active descendant and of `aria-controls`; the dump tool lists attribute names for these and does not read their values, so that they name the
+  right elements was not read); it shows **no `AXExpanded`** and the tool does not read a popup attribute, so `aria-expanded` and the list popup type are set natively
+  (unit tested) and not confirmed in the platform tree; the list is an `AXList` titled "Fruit options"; each option is an `AXStaticText` with its title,
+  `AXSelected` true for the two chosen ones and false for the others, and the actions `AXPick` and `AXPress`; each chip's remove button is an `AXButton` titled
+  "Remove Apple" with `AXPress`, next to the chip's text (the chip's group, a generic container, is left out of the platform tree like the other groups). Platform
+  focus is not judged under isolation (accessibility decision 15), so which element the platform calls focused (the active option, if the adapter follows
+  `aria-activedescendant`) is unread. The live region on `Combobox.Empty` is not in the lab.
+- **A real touch device.** The Web touch page is headless Chrome's emulated touch with the engine's soft keyboard element; the keyboard's resize of the viewport,
+  and what iOS Safari does when the element takes focus, were not seen.
+- **VoiceOver, IME on native.** Native IME cannot be injected; the Web IME step is Chrome's `Input.imeSetComposition`.
+- **Stock native rasters, Mobile and Forward+ renderers** for the combobox's own drawing (it adds no drawing of its own: borders, fills, the caret and the ring).
 
 ## README text
 
