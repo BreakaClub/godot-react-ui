@@ -6,7 +6,8 @@
 //! ratios 1 and 2, thicknesses 1 to 10), not recalled from its source:
 //!
 //! - **solid**: the band of `text_style::metrics::Decorator`, as before.
-//! - **double**: two bands of the thickness `T`, the first where the solid band is and the second `T + 1` CSS px below its top.
+//! - **double**: two bands of the thickness `T` with one CSS px between them: the first where the solid band is, the second below it for
+//!   an underline and a line through the text and above it for an overline (`Geometry`).
 //! - **dashed**: butt dashes of `3T` with gaps of `2T` for `T < 3`, `2T` and `T` otherwise, on the solid band's rows. A line `L` long
 //!   (the whole CSS px between its floored ends) is fitted: the number of dashes is the one of the two nearest whole numbers that
 //!   keeps the gap nearest the nominal, and the gap is stretched to make the first dash start at the left end and the last end at
@@ -16,12 +17,14 @@
 //! - **wavy**: a cubic Bezier S-curve, one cubic per period, stroked `w` wide with butt caps (`Wave`), antialiased with 4 samples
 //!   per pixel (`raster`), anchored at the fragment's left edge rounded to a device pixel, and cut off, not completed, at its right.
 //!
-//! A fractional explicit thickness is rounded half up to whole CSS px (at least one) for every style but solid. Everything here
-//! is Godot-free; `text_paragraph/decoration.rs` draws the plans.
+//! The overline and the line through the text have the same patterns as the underline and rows of their own (`Geometry`), measured the
+//! same way. A fractional explicit thickness is rounded half up to whole CSS px (at least one) for every style but solid. `auto`
+//! thickness on a dotted or dashed line is Chrome's antialiased half-pixel stroke, which is drawn here as the nearest whole pixels.
+//! Everything here is Godot-free; `text_paragraph/draw.rs` draws the plans.
 
 pub(crate) mod raster;
 
-use crate::text_style::metrics::{Band, DecorationFont, Decorator};
+use crate::text_style::metrics::{DecorationFont, Decorator};
 use crate::text_style::spec::{DecorationStyleSpec, DecorationThickness};
 use crate::text_style::TextDecoration;
 
@@ -96,17 +99,6 @@ impl Wave {
         }
     }
 
-    /// Where the centre line is below the baseline when the solid line of this thickness would start `top` below it: half a
-    /// pixel plus a whole one below its lower edge. A fractional stroke (`auto`) has its lower edge on a device pixel first.
-    pub(crate) fn center_below(&self, top: f32, scale: f32) -> f32 {
-        let lower = if self.width.fract() == 0.0 {
-            top + self.width
-        } else {
-            ((top + self.width) * scale).round() / scale
-        };
-        lower + WAVE_CENTRE_BELOW_EDGE
-    }
-
     /// The centre line's height above and below its rest at the crest and the trough of the curve (half the peak to peak
     /// amplitude, which is `sqrt(3) (w + 1/2)`).
     pub(crate) fn amplitude(&self) -> f32 {
@@ -123,7 +115,7 @@ impl Wave {
     }
 }
 
-/// The centre line is this far below the lower edge of the solid line of the same thickness (CSS px).
+/// An underline's wave has its centre line this far below the rounded lower edge of a solid line of the wave's thickness (CSS px).
 const WAVE_CENTRE_BELOW_EDGE: f32 = 1.5;
 /// The thickness of `auto`: Blink's font size over this.
 const AUTO_THICKNESS_DIVISOR: f32 = 10.0;
@@ -137,6 +129,8 @@ const GAP_LONG: f32 = 1.0;
 const ROUND_DOT_THICKNESS: f32 = 4.0;
 /// The space between the two lines of a double decoration, in CSS px.
 const DOUBLE_GAP: f32 = 1.0;
+/// An `auto` overline's second line is `floor(w + 0.4) + 1` from the first: the unrounded stroke rounds up from this far below a half.
+const OVERLINE_AUTO_ROUNDING: f32 = 0.4;
 
 /// A fitted dashed or dotted line: how many dashes and the gap between them.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -175,8 +169,12 @@ pub(crate) fn fit_gap(length: f32, dash: f32, nominal_gap: f32) -> Fit {
 struct Thickness {
     /// The wave's stroke width (CSS px, fractional for `auto`).
     stroke: f32,
-    /// The whole thickness that dashes, dots and the lines of a double are built from.
+    /// The whole thickness that dashes and dots are built from.
     whole: f32,
+    /// The thickness of the solid line and of the lines of a double: the same as `whole` unless `auto` (a tenth of the font size
+    /// rounded down).
+    drawn: f32,
+    auto: bool,
 }
 
 fn round_half_up(value: f32) -> f32 {
@@ -184,19 +182,85 @@ fn round_half_up(value: f32) -> f32 {
 }
 
 fn thickness(requested: DecorationThickness, font: DecorationFont) -> Option<Thickness> {
+    let whole = |value: f32| {
+        let whole = round_half_up(value).max(1.0);
+        Thickness { stroke: whole, whole, drawn: whole, auto: false }
+    };
     match requested {
         DecorationThickness::Px(px) if px <= 0.0 => None,
-        DecorationThickness::Px(px) => {
-            let whole = round_half_up(px).max(1.0);
-            Some(Thickness { stroke: whole, whole })
-        }
+        DecorationThickness::Px(px) => Some(whole(px)),
         DecorationThickness::Auto => {
             let stroke = (font.size / AUTO_THICKNESS_DIVISOR).max(1.0);
-            Some(Thickness { stroke, whole: round_half_up(stroke).max(1.0) })
+            Some(Thickness {
+                stroke,
+                whole: round_half_up(stroke).max(1.0),
+                drawn: (font.size / AUTO_THICKNESS_DIVISOR).floor().max(1.0),
+                auto: true,
+            })
         }
-        DecorationThickness::FromFont => {
-            let whole = round_half_up(font.underline_thickness).max(1.0);
-            Some(Thickness { stroke: whole, whole })
+        DecorationThickness::FromFont => Some(whole(font.underline_thickness)),
+    }
+}
+
+/// Where the rows of a decoration line are, in CSS px from the baseline (y down), for each of the three lines. Chrome's rules, with
+/// `A` the font's ascent rounded to a whole pixel, `w` the stroke and `T` the drawn thickness:
+///
+/// | line | solid and double's first line | dotted and dashed | wavy centre line |
+/// | --- | --- | --- | --- |
+/// | underline | `g` (the offset, else `ceil(w / 2)`, at least 1) | the same | `round(g + w) + 1.5` |
+/// | overline | `-A - T` | the same | `round(-A - w - T) - 0.5` |
+/// | line through | `floor(-A / 3 - w / 2 + 1/2)` | `floor(-ceil(A / 3) - T / 2 + 1/2)` | `round(-A / 3 - w / 2) + 1/2` |
+///
+/// A double's second line is `D` from the first, below it for an underline and a line through the text, above it for an overline:
+/// `T + 1` (`auto` has `round(w) + 1` for an underline and `floor(w + 0.4) + 1` for an overline).
+#[derive(Clone, Copy, Debug)]
+struct Geometry {
+    kind: LineKind,
+    ascent: f32,
+    thickness: Thickness,
+    /// The `text-underline-offset`, which an underline has and the other lines ignore.
+    offset: Option<f32>,
+}
+
+impl Geometry {
+    fn underline_top(&self) -> f32 {
+        self.offset
+            .unwrap_or_else(|| (self.thickness.stroke / 2.0).ceil().max(1.0))
+    }
+
+    /// The top of a solid-position line of height `height`, the top of a double's first line and of a dashed or dotted one.
+    fn top(&self, height: f32, patterned_line_through: bool) -> f32 {
+        match self.kind {
+            LineKind::Underline => self.underline_top(),
+            LineKind::Overline => -self.ascent - height,
+            LineKind::LineThrough if patterned_line_through => {
+                (-(self.ascent / 3.0).ceil() - height / 2.0 + 0.5).floor()
+            }
+            LineKind::LineThrough => (-self.ascent / 3.0 - self.thickness.stroke / 2.0 + 0.5).floor(),
+        }
+    }
+
+    /// How far the second line of a double is from the first.
+    fn double_distance(&self) -> f32 {
+        let t = self.thickness;
+        if !t.auto {
+            return t.drawn + DOUBLE_GAP;
+        }
+        match self.kind {
+            LineKind::Underline => round_half_up(t.stroke) + DOUBLE_GAP,
+            LineKind::Overline => (t.stroke + OVERLINE_AUTO_ROUNDING).floor() + DOUBLE_GAP,
+            LineKind::LineThrough => t.drawn + DOUBLE_GAP,
+        }
+    }
+
+    /// The wave's centre line, rounded to a device pixel as Chrome rounds it.
+    fn wave_center(&self, scale: f32) -> f32 {
+        let w = self.thickness.stroke;
+        let round = |value: f32| (value * scale).round() / scale;
+        match self.kind {
+            LineKind::Underline => round(self.underline_top() + w) + WAVE_CENTRE_BELOW_EDGE,
+            LineKind::Overline => round(-self.ascent - w - self.thickness.drawn) - 0.5,
+            LineKind::LineThrough => round(-self.ascent / 3.0 - w / 2.0) + 0.5,
         }
     }
 }
@@ -218,60 +282,45 @@ pub(crate) fn shapes(
     let Some(band) = solid_band else {
         return Vec::new();
     };
-    let solid = || {
-        vec![Shape::Rect(PlanRect {
+    if decoration.style == DecorationStyleSpec::Solid {
+        return vec![Shape::Rect(PlanRect {
             x: fragment.left,
             y: fragment.baseline + band.top,
             width: fragment.right - fragment.left,
             height: band.height,
-        })]
-    };
-    if decoration.style == DecorationStyleSpec::Solid {
-        return solid();
+        })];
     }
     let Some(thickness) = thickness(decoration.thickness, font) else {
         return Vec::new();
     };
-    // Where a patterned line starts, in CSS px below the baseline: an underline is a gap of half its thickness (or the offset
-    // given) below it; the other lines are where their solid line is.
-    let top = match kind {
-        LineKind::Underline => decoration
-            .underline_offset
-            .unwrap_or_else(|| (thickness.stroke / 2.0).ceil().max(1.0)),
-        LineKind::Overline | LineKind::LineThrough => band.top,
+    let geometry = Geometry {
+        kind,
+        ascent: font.ascent.round(),
+        thickness,
+        offset: decoration.underline_offset,
     };
-    patterned(decoration.style, thickness, top, scale, fragment, band)
+    patterned(decoration.style, geometry, scale, fragment)
 }
 
-fn patterned(
-    style: DecorationStyleSpec,
-    thickness: Thickness,
-    top: f32,
-    scale: f32,
-    fragment: Fragment,
-    solid: Band,
-) -> Vec<Shape> {
+fn patterned(style: DecorationStyleSpec, geometry: Geometry, scale: f32, fragment: Fragment) -> Vec<Shape> {
     let device = |value: f32| (value * scale).round() / scale;
-    let row = |from_top: f32, height: f32| -> (f32, f32) {
-        (fragment.baseline + device(top + from_top), device(height).max(1.0 / scale))
+    let row = |top: f32, height: f32| -> (f32, f32) {
+        (fragment.baseline + device(top), device(height).max(1.0 / scale))
     };
     let width = fragment.right - fragment.left;
+    let thickness = geometry.thickness;
     let whole = thickness.whole;
     match style {
         DecorationStyleSpec::Solid => unreachable!("solid lines are drawn from their band"),
         DecorationStyleSpec::Double => {
-            // The second line's top: a pixel below the first's lower edge. For `auto` the first line is the solid one's
-            // whole thickness and the second starts where the unrounded stroke and the gap end (`round(g + w + 1)`).
-            let second = if thickness.stroke == whole {
-                whole + DOUBLE_GAP
-            } else {
-                round_half_up(top + thickness.stroke + DOUBLE_GAP) - top
-            };
-            let first_height = if thickness.stroke == whole { whole } else { solid.height.max(1.0 / scale) };
-            [(0.0, first_height), (second, first_height)]
+            let first = geometry.top(thickness.drawn, false);
+            let distance = geometry.double_distance();
+            // An overline's pair keeps its order top to bottom: the second line is above the first.
+            let second = if geometry.kind == LineKind::Overline { first - distance } else { first + distance };
+            [first, second]
                 .into_iter()
-                .map(|(from_top, height)| {
-                    let (y, height) = row(from_top, height);
+                .map(|top| {
+                    let (y, height) = row(top, thickness.drawn);
                     Shape::Rect(PlanRect { x: fragment.left, y, width, height })
                 })
                 .collect()
@@ -282,7 +331,7 @@ fn patterned(
             } else {
                 (DASH_LONG * whole, GAP_LONG * whole)
             };
-            let (y, height) = row(0.0, whole);
+            let (y, height) = row(geometry.top(whole, true), whole);
             let start = fragment.left.floor();
             let length = fragment.right.floor() - start;
             let fit = fit_gap(length, dash, nominal);
@@ -295,7 +344,7 @@ fn patterned(
                 .collect()
         }
         DecorationStyleSpec::Dotted if whole < ROUND_DOT_THICKNESS => {
-            let (y, height) = row(0.0, whole);
+            let (y, height) = row(geometry.top(whole, true), whole);
             let start = fragment.left.floor();
             let end = fragment.right.floor();
             let mut x = start;
@@ -315,7 +364,7 @@ fn patterned(
             vec![Shape::Dots(DotsPlan {
                 diameter: whole,
                 centers: (0..fit.count).map(|k| start + whole / 2.0 + k as f32 * pitch).collect(),
-                center_y: fragment.baseline + top + whole / 2.0,
+                center_y: fragment.baseline + geometry.top(whole, true) + whole / 2.0,
                 clip_right: start + length,
             })]
         }
@@ -325,7 +374,7 @@ fn patterned(
                 wave,
                 left: device(fragment.left),
                 right: fragment.right,
-                center: fragment.baseline + wave.center_below(top, scale),
+                center: fragment.baseline + geometry.wave_center(scale),
             })]
         }
     }

@@ -75,17 +75,41 @@ fn the_wave_follows_the_centre_line_chrome_measured() {
     }
 }
 
-#[test]
-fn the_centre_line_is_below_the_solid_lines_lower_edge() {
-    // Whole strokes: a half pixel and a whole one below; the underline of T = 1 starts 1 below the baseline.
-    for (width, centre) in [(1.0, 3.5), (2.0, 4.5), (3.0, 6.5), (4.0, 7.5), (6.0, 10.5)] {
-        let wave = Wave::new(width);
-        let gap = (width / 2.0).ceil().max(1.0);
-        assert_eq!(wave.center_below(gap, 1.0), centre, "w {width}");
-        assert_eq!(wave.center_below(gap, 2.0), centre, "w {width} at scale two");
+/// The centre line of a wavy `kind` line of thickness `thickness` (a font of size 16 and ascent 16) at `scale`, below the baseline.
+fn wave_center(kind: LineKind, thickness: DecorationThickness, offset: Option<f32>, scale: f32) -> f32 {
+    let shapes = shapes(
+        &decoration(DecorationStyleSpec::Wavy, thickness, offset),
+        kind,
+        DecorationFont { size: 16.0, ascent: 16.0, underline_thickness: 0.8 },
+        scale,
+        fragment(0.0, 40.0),
+    );
+    match &shapes[..] {
+        [Shape::Wave(plan)] => plan.center - 100.0,
+        other => panic!("{other:?}"),
     }
-    // With `text-underline-offset: 4px` it is 4 + w + 1.5.
-    assert_eq!(Wave::new(2.0).center_below(4.0, 1.0), 7.5);
+}
+
+#[test]
+fn the_wave_centre_lines_are_where_chrome_draws_them() {
+    // Chrome 156, JetBrains Mono 16 px (ascent 16): the centre line's rows below the baseline, at any ratio for the whole strokes.
+    for (width, under, over) in [(1.0, 3.5, -18.5), (2.0, 4.5, -20.5), (3.0, 6.5, -22.5), (4.0, 7.5, -24.5), (6.0, 10.5, -28.5)] {
+        for scale in [1.0, 2.0] {
+            let thickness = DecorationThickness::Px(width);
+            assert_eq!(wave_center(LineKind::Underline, thickness, None, scale), under, "underline {width} at {scale}");
+            assert_eq!(wave_center(LineKind::Overline, thickness, None, scale), over, "overline {width} at {scale}");
+        }
+    }
+    // The line through the text is on a device pixel, so it moves with the ratio.
+    for (width, one, two) in [(1.0, -5.5, -5.5), (2.0, -5.5, -6.0), (3.0, -6.5, -6.5), (4.0, -6.5, -7.0), (6.0, -7.5, -8.0)] {
+        let thickness = DecorationThickness::Px(width);
+        assert_eq!(wave_center(LineKind::LineThrough, thickness, None, 1.0), one, "line through {width} at 1");
+        assert_eq!(wave_center(LineKind::LineThrough, thickness, None, 2.0), two, "line through {width} at 2");
+    }
+    // `text-underline-offset: 4px` is 4 + w + 1.5 for an underline and changes neither of the others.
+    assert_eq!(wave_center(LineKind::Underline, DecorationThickness::Px(2.0), Some(4.0), 1.0), 7.5);
+    assert_eq!(wave_center(LineKind::Overline, DecorationThickness::Px(2.0), Some(4.0), 1.0), -20.5);
+    assert_eq!(wave_center(LineKind::LineThrough, DecorationThickness::Px(2.0), Some(4.0), 1.0), -5.5);
 }
 
 #[test]
@@ -93,8 +117,7 @@ fn a_baked_wave_has_chromes_ink_rows_and_only_whole_quarter_coverages() {
     // Rows with any ink, relative to the baseline, at scale one: T = 1 -> 1..=5, 2 -> 1..=7, 3 -> 2..=10 (Chrome 156).
     for (width, first, last) in [(1.0, 1, 5), (2.0, 1, 7), (3.0, 2, 10)] {
         let wave = Wave::new(width);
-        let gap = (width / 2.0).ceil().max(1.0);
-        let center = wave.center_below(gap, 1.0);
+        let center = wave_center(LineKind::Underline, DecorationThickness::Px(width), None, 1.0);
         let fraction = center.fract();
         let tile = wave_tile(&wave, 1.0, fraction);
         let top_row = center.floor() as i32 - tile.rows_above as i32;
@@ -295,4 +318,45 @@ fn a_solid_style_is_the_band_the_decorator_gives() {
         fragment(3.0, 53.5),
     );
     assert_eq!(rects(&shapes), [(3.0, 1.0, 50.5, 2.0)]);
+}
+
+fn band_rows(style: DecorationStyleSpec, kind: LineKind, thickness: f32, size: f32, ascent: f32) -> Vec<(f32, f32)> {
+    let drawn = shapes(
+        &decoration(style, DecorationThickness::Px(thickness), None),
+        kind,
+        DecorationFont { size, ascent, underline_thickness: 0.05 * size },
+        1.0,
+        fragment(0.0, 200.0),
+    );
+    let mut rows: Vec<(f32, f32)> = drawn
+        .iter()
+        .filter_map(|shape| match shape {
+            Shape::Rect(rect) => Some((rect.y - 100.0, rect.height)),
+            _ => None,
+        })
+        .collect();
+    rows.dedup();
+    rows
+}
+
+#[test]
+fn overlines_and_lines_through_the_text_have_their_own_rows() {
+    use DecorationStyleSpec::{Dashed, Double};
+    // JetBrains Mono 16 (ascent 16), Chrome 156: the overline's rows are [-A - T, -A), the line through is centred a third of the ascent up
+    // and, dashed or dotted, at the centre rounded up.
+    for (thickness, over, through, through_dashed) in [
+        (1.0, (-17.0, 1.0), (-6.0, 1.0), -6.0),
+        (2.0, (-18.0, 2.0), (-6.0, 2.0), -7.0),
+        (3.0, (-19.0, 3.0), (-7.0, 3.0), -7.0),
+        (4.0, (-20.0, 4.0), (-7.0, 4.0), -8.0),
+        (6.0, (-22.0, 6.0), (-8.0, 6.0), -9.0),
+    ] {
+        assert_eq!(band_rows(Dashed, LineKind::Overline, thickness, 16.0, 16.0)[0], over, "dashed overline {thickness}");
+        assert_eq!(band_rows(Dashed, LineKind::LineThrough, thickness, 16.0, 16.0)[0], (through_dashed, thickness), "dashed line through {thickness}");
+        // A double's first line is the solid position, the second is a pixel beyond it: above an overline, below a line through the text.
+        let double_over = band_rows(Double, LineKind::Overline, thickness, 16.0, 16.0);
+        assert_eq!(double_over, [over, (over.0 - thickness - 1.0, thickness)], "double overline {thickness}");
+        let double_through = band_rows(Double, LineKind::LineThrough, thickness, 16.0, 16.0);
+        assert_eq!(double_through, [through, (through.0 + thickness + 1.0, thickness)], "double line through {thickness}");
+    }
 }
