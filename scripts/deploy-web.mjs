@@ -213,8 +213,10 @@ async function publish() {
   else console.log(`[deploy-web] Manifest ${manifest.id} is already in the bucket (the same files were published before).`);
 
   // The pointer goes before the Worker: the first deploy of this layout must not leave a new Worker with nothing to serve, and the Worker that
-  // is still running ignores the pointer.
-  writePointer(pointerAfter({ previous, release: manifest.id, now: new Date().toISOString(), workerSha256: workerHash }));
+  // is still running ignores the pointer. The pointer records the Worker source that was deployed only once the Worker is up, so a failed Worker
+  // deploy is tried again by the next run.
+  const published = pointerAfter({ previous, release: manifest.id, now: new Date().toISOString() });
+  writePointer(published);
 
   const workerChanged = previous?.workerSha256 !== workerHash;
   if (local) {
@@ -222,7 +224,8 @@ async function publish() {
   } else if (workerChanged || deployWorkerRequested) {
     console.log(`\n[deploy-web] Deploying the Worker for react.breaka.club (${deployWorkerRequested ? 'requested' : 'its source changed since the last deploy'})...`);
     const deployed = spawnSync(wrangler, ['deploy', '-c', workerConfiguration], { cwd: root, stdio: 'inherit', encoding: 'utf8' });
-    if (deployed.status !== 0) throw new Error('Failed to deploy the Cloudflare Worker');
+    if (deployed.status !== 0) throw new Error('Failed to deploy the Cloudflare Worker; the release is published, so run the deploy again to retry the Worker');
+    putJson(POINTER_KEY, { ...published, workerSha256: workerHash });
   } else {
     console.log('[deploy-web] The Worker source is unchanged since the last deploy; not deploying it (--deploy-worker forces it).');
   }

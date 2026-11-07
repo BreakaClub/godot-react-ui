@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { brotliCompress, constants as zlibConstants } from 'node:zlib';
@@ -65,7 +65,10 @@ async function brotliCopy(bytes, hash, cacheDirectory) {
       [zlibConstants.BROTLI_PARAM_SIZE_HINT]: bytes.length,
     },
   });
-  writeFileSync(cached, encoded);
+  // Written whole or not at all: a copy cut short by an interrupted run must not be found, believed and uploaded by the next.
+  const partial = `${cached}.partial`;
+  writeFileSync(partial, encoded);
+  renameSync(partial, cached);
   return cached;
 }
 

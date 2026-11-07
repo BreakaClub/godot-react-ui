@@ -155,6 +155,7 @@ test('a file is sent brotli-compressed as stored when the browser accepts br, wi
   const plain = await worker.fetch(request(`/r/${RELEASE}/index.js`, { 'accept-encoding': 'gzip' }), env);
   assert.equal(plain.headers.get('content-encoding'), null);
   assert.equal(plain.headers.get('cache-control'), 'public, max-age=31536000, immutable', 'bytes sent as they are may be compressed by the edge');
+  assert.equal(plain.headers.get('content-length'), null, 'so they carry no length of their own');
   assert.equal(plain.headers.get('etag'), `"${stored.hash}"`);
   assert.equal(plain.headers.get('vary'), 'Accept-Encoding');
   assert.deepEqual(await bytesOf(plain), script);

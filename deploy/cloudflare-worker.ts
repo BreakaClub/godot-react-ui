@@ -163,9 +163,10 @@ async function serveContent(request: Request, env: Env, content: Content): Promi
   if (matchesETag(request.headers.get('if-none-match'), etag)) {
     return new Response(null, { status: 304, headers });
   }
-  headers.set('Content-Length', String(object.size));
   if (encoded !== null) {
     headers.set('Content-Encoding', 'br');
+    // The length of what is sent. A plain file gets none: the edge may still compress it, and the length is then not its own.
+    headers.set('Content-Length', String(object.size));
     // The bytes are sent as stored. `no-transform` is what Cloudflare documents for "do not alter this response's compression"; the visitor is known to
     // accept br (above), so there is nothing for the edge to convert.
     headers.set('Cache-Control', `${content.cacheControl}, no-transform`);
