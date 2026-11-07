@@ -68,6 +68,8 @@ export function generateStockTypings(engine) {
   // The project as the stock editor sees it: the demo, its compiled scripts, and the stock library at the path the
   // `.gdextension` names. Breaka's typings and scene wrappers, and whichever library is installed, are left out.
   const excluded = STAGE_LEFT_OUT.map(part => resolve(root, 'demo', part));
+  // The copy adds and overwrites but removes nothing: what an earlier stage had of the parts it now leaves out would be loaded again.
+  for (const part of STAGE_LEFT_OUT) rmSync(resolve(paths.stage, part), {recursive: true, force: true});
   cpSync(resolve(root, 'demo'), paths.stage, {
     recursive: true, force: true, filter: source => !excluded.some(path => source === path || source.startsWith(`${path}/`)),
   });
