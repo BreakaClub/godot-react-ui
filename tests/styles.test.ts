@@ -80,7 +80,7 @@ test('compileStyle covers every utility family with typed native values', () => 
     'rounded-xl': { borderRadius: 12 }, rounded: { borderRadius: 4 }, 'rounded-[9px]': { borderRadius: 9 },
     border: { borderWidth: 1 }, 'border-2': { borderWidth: 2 }, 'border-slate-200': { borderColor: '#e2e8f0' },
     'opacity-45': { opacity: 0.45 }, 'bg-indigo-600': { backgroundColor: '#4f46e5' }, 'bg-[#1234]': { backgroundColor: '#1234' },
-    'text-white': { color: '#ffffff' }, 'text-lg': { fontSize: 18 }, 'text-[23px]': { fontSize: 23 },
+    'text-white': { color: '#ffffff' }, 'text-lg': { fontSize: 18, lineHeight: 28 }, 'text-[23px]': { fontSize: 23 },
     'pointer-events-none': { pointerEvents: 'none' }, 'pointer-events-auto': { pointerEvents: 'auto' },
     'cursor-pointer': { cursor: 'pointer' }, 'cursor-not-allowed': { cursor: 'not-allowed' },
     'cursor-ew-resize': { cursor: 'ew-resize' }, 'cursor-nwse-resize': { cursor: 'nwse-resize' },

@@ -27,6 +27,32 @@ export type Inset = number | 'auto' | `${number}%`;
 export type PointerEvents = 'auto' | 'none';
 /** `text` lets the pointer select an element's text (and, inherited, the text below it); the default is `none`. */
 export type UserSelect = 'none' | 'text';
+/**
+ * CSS `font-weight`: a number from 1 to 1000 (Tailwind's names are 100 to 900), or `normal` (400) or `bold` (700). Inherited.
+ * The nearest registered face is used (CSS font matching), and a bold request with no face of weight 600 or more is emboldened.
+ */
+export type FontWeight = number | 'normal' | 'bold';
+/** Inherited. `italic` uses an italic face of the family when one is registered, else slants the upright one. */
+export type FontStyle = 'normal' | 'italic';
+/**
+ * CSS `line-height`, inherited. A number is px (every length in a `Style` is), `normal` is the font's own metrics, and a string
+ * is CSS's other forms: `'1.5'` a unitless factor of each element's own font size (inherited as the factor), `'1.5em'` and
+ * `'150%'` lengths of this element's font size (inherited as px). Lines are placed with half-leading above and below, as a
+ * browser does, including the first.
+ */
+export type LineHeight = number | 'normal' | `${number}` | `${number}em` | `${number}%`;
+export type TextTransform = 'none' | 'uppercase' | 'lowercase' | 'capitalize';
+/** `none`, or one to three of the lines (CSS `text-decoration-line`). */
+export type TextDecorationLine =
+  | 'none' | 'underline' | 'overline' | 'line-through' | 'underline overline' | 'underline line-through'
+  | 'overline line-through' | 'underline overline line-through';
+export type TextOverflow = 'clip' | 'ellipsis';
+export type WhiteSpace = 'normal' | 'nowrap' | 'pre' | 'pre-line' | 'pre-wrap' | 'break-spaces';
+export type WordBreak = 'normal' | 'break-all' | 'keep-all';
+export type OverflowWrap = 'normal' | 'break-word' | 'anywhere';
+export type NumericFigure = 'normal' | 'lining' | 'oldstyle';
+export type NumericSpacing = 'normal' | 'proportional' | 'tabular';
+export type NumericFraction = 'normal' | 'diagonal' | 'stacked';
 export type Cursor =
   | 'default' | 'pointer' | 'text' | 'move' | 'grab' | 'grabbing' | 'not-allowed' | 'crosshair'
   | 'wait' | 'progress' | 'help' | 'ew-resize' | 'ns-resize' | 'nesw-resize' | 'nwse-resize';
@@ -72,10 +98,56 @@ export interface Style {
   color?: HexColor;
   borderColor?: HexColor;
   fontSize?: number;
+  /**
+   * Inherited. A family registered with `ReactUiRoot.registerFontFace` (`sans`, `serif`, `mono` or any name), or a comma
+   * separated list of them: the first registered one is used. A name nothing registered uses the root's theme font.
+   */
+  fontFamily?: string;
+  /** Inherited. */
+  fontWeight?: FontWeight;
+  /** Inherited. */
+  fontStyle?: FontStyle;
+  /** Inherited. See `LineHeight`. */
+  lineHeight?: LineHeight;
+  /**
+   * Inherited. Added after every character, the last of a line included, as CSS does. A number is px; `'0.05em'` is a length
+   * of this element's font size (inherited as px). Fractions of a pixel are exact (`docs/tracks/utilities-text.md`).
+   */
+  letterSpacing?: number | `${number}em`;
+  /** Inherited. The text is shown, selected and copied transformed. */
+  textTransform?: TextTransform;
+  /** Propagates to the in-flow text below the element it is set on, which draws it in the colour and thickness set there. */
+  textDecorationLine?: TextDecorationLine;
+  /** The colour of the decoration lines; the element's own text colour when not set. */
+  textDecorationColor?: HexColor;
+  /** px, or `auto` (the font's underline thickness) or `from-font` (the same). */
+  textDecorationThickness?: number | 'auto' | 'from-font';
+  /** Inherited. px below the baseline's natural underline position, or `auto` (the font's own). */
+  textUnderlineOffset?: number | 'auto';
+  /** Not inherited. `ellipsis` replaces what a line cannot show, when the element clips (`overflow` not `visible`). */
+  textOverflow?: TextOverflow;
+  /** Inherited. */
+  whiteSpace?: WhiteSpace;
+  /** Inherited. */
+  wordBreak?: WordBreak;
+  /** Inherited. */
+  overflowWrap?: OverflowWrap;
+  /** Not inherited. At most this many lines show, the last ending in an ellipsis; `none` (or unset) shows them all. */
+  lineClamp?: number | 'none';
+  /** Inherited. OpenType `lnum` and `onum`. */
+  numericFigure?: NumericFigure;
+  /** Inherited. OpenType `pnum` and `tnum`. */
+  numericSpacing?: NumericSpacing;
+  /** Inherited. OpenType `frac` (`diagonal`) and `afrc` (`stacked`). */
+  numericFraction?: NumericFraction;
+  /** Inherited. OpenType `ordn`. */
+  ordinal?: boolean;
+  /** Inherited. OpenType `zero`. */
+  slashedZero?: boolean;
   borderRadius?: number;
   borderWidth?: number;
   opacity?: number;
-  textAlign?: 'left' | 'center' | 'right';
+  textAlign?: 'left' | 'center' | 'right' | 'justify' | 'start' | 'end';
   transition?: Transition;
   interpolateSize?: 'numeric-only' | 'allow-keywords';
   /** Shorthand for `overflowX` and `overflowY`. `scroll` and `auto` make a scroll container. */
@@ -183,7 +255,9 @@ export interface FilterParts {
  * What native receives: every shorthand (`padding`, `margin`, `gap`, `overflow`) is expanded to its
  * longhands by the style compiler, so merging layers is a plain ordered overwrite.
  */
-export type LonghandStyle = Omit<Style, 'padding' | 'margin' | 'gap' | 'overflow' | 'inset'> & {
+export type LonghandStyle = Omit<Style, 'padding' | 'margin' | 'gap' | 'overflow' | 'inset' | 'fontWeight'> & {
+  /** The weight as a number: `normal` and `bold` are resolved by the compiler. */
+  fontWeight?: number;
   /** What filter utilities (`blur-sm`, `hover:brightness-110`) set, per function (see `FilterParts`). */
   filterParts?: FilterParts;
   backdropFilterParts?: FilterParts;

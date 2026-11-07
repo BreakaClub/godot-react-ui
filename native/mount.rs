@@ -9,7 +9,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::time::Instant;
 
-use godot::classes::{StyleBoxFlat, TextParagraph};
+use godot::classes::StyleBoxFlat;
 use godot::prelude::*;
 use taffy::prelude::NodeId;
 
@@ -30,6 +30,9 @@ use crate::scroll_input::to_vector;
 use crate::stacking::{self, Frame, PaintTree, ScrollFrame, ScrollMode, Stacking, StackingTree};
 use crate::text_input::EditConfig;
 use crate::text_input_godot::TextInputState;
+use crate::text_paragraph::StyledParagraph;
+use crate::text_style::TextStyle;
+use crate::text_style::flow::shown_text;
 use crate::transform::{Affine2, NodeTransform};
 use crate::{CORNER_DETAIL, ReactUiRoot};
 
@@ -90,9 +93,12 @@ impl NodeGeometry {
 /// Godot paint resources of one element.
 pub(crate) struct Visual {
     pub(crate) background: Gd<StyleBoxFlat>,
-    pub(crate) paragraph: Option<Gd<TextParagraph>>,
-    /// Changes whenever `paragraph` is rebuilt, so the content item knows to re-record.
+    pub(crate) paragraph: Option<StyledParagraph>,
+    /// Changes whenever `paragraph` is rebuilt or redecorated, so the content item knows to re-record.
     pub(crate) generation: u64,
+    /// The text as shown when it is not the `text` prop: transformed, and with its white space collapsed. The shown text is what
+    /// is shaped, selected and copied.
+    pub(crate) shown: Option<String>,
 }
 
 impl Visual {
@@ -103,7 +109,13 @@ impl Visual {
             background,
             paragraph: None,
             generation: 0,
+            shown: None,
         }
+    }
+
+    /// The text this node shows, given the `text` prop.
+    pub(crate) fn shown_text<'a>(&'a self, text: Option<&'a str>) -> Option<&'a str> {
+        self.shown.as_deref().or(text)
     }
 }
 
@@ -1092,9 +1104,9 @@ impl ReactUiRoot {
     /// Rebuild a node's text paragraph from its props and computed style. Returns whether the text
     /// or its shaping changed (and so layout and paint are dirty).
     pub(crate) fn refresh_paragraph(&mut self, tag: u32) -> bool {
-        let Some(font) = self.font.clone() else {
+        if self.font.is_none() {
             return false;
-        };
+        }
         if self
             .mounted
             .nodes
@@ -1103,13 +1115,37 @@ impl ReactUiRoot {
         {
             return self.refresh_text_input(tag);
         }
-        let Some(node) = self.mounted.nodes.get_mut(&tag) else {
+        let Some(node) = self.mounted.nodes.get(&tag) else {
             return false;
         };
-        let text = node.props.text.as_deref().unwrap_or("");
-        let paragraph = crate::paint::build_paragraph(&font, text, &node.computed);
+        let style = TextStyle::of(
+            &node.computed,
+            node.computed.overflow_x.is_some_and(OverflowSpec::clips),
+        );
+        let source = node.props.text.as_deref().unwrap_or("");
+        let shown =
+            shown_text(source, style.shaping.transform, style.shaping.white_space).into_owned();
+        let shown_override = (shown != source).then(|| shown.clone());
+        let font = self
+            .fonts
+            .resolve(&style.shaping)
+            .expect("a root with a theme font resolves every font request");
+        let paragraph = (!shown.is_empty()).then(|| {
+            let mut paragraph = StyledParagraph::build(&shown, &style.shaping, font);
+            paragraph.set_decorations(style.decorations);
+            paragraph
+        });
+        let node = self
+            .mounted
+            .nodes
+            .get_mut(&tag)
+            .expect("the node was found above");
         let had = node.visual.paragraph.is_some();
+        let shown_changed = node.visual.shown_text(node.props.text.as_deref())
+            != Some(shown.as_str())
+            && node.visual.paragraph.is_some();
         node.visual.paragraph = paragraph;
+        node.visual.shown = shown_override;
         self.paragraph_generation += 1;
         node.visual.generation = self.paragraph_generation;
         let context = node
@@ -1124,7 +1160,32 @@ impl ReactUiRoot {
         self.layout_dirty.insert(tag);
         self.paint_dirty.insert(tag);
         self.content_generation += 1;
+        if shown_changed {
+            // A restyle (`uppercase` on hover) can change what the node shows without changing its text prop.
+            self.selection_node_changed(tag);
+        }
         had || has
+    }
+
+    /// The text nodes that name a font family: the ones a newly registered face can change.
+    pub(crate) fn refresh_font_users(&mut self) {
+        let users: Vec<u32> = self
+            .mounted
+            .nodes
+            .iter()
+            .filter(|(_, node)| {
+                node.computed.font_family.is_some()
+                    && (node.props.text.is_some() || node.kind == Kind::TextInput)
+            })
+            .map(|(tag, _)| *tag)
+            .collect();
+        if users.is_empty() || self.font.is_none() {
+            return;
+        }
+        for tag in users {
+            self.refresh_paragraph(tag);
+        }
+        self.flush_layout();
     }
 
     /// Recompute the geometry of the nodes whose layout may have changed (plan 3.7): compare each

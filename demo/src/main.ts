@@ -13,8 +13,10 @@ import { demoStart, type DemoStart } from './launch';
 import { LABS, findLab, labElement, labsInOrder, type Lab, type LabName, type SceneLab } from './labs';
 import { Navigator, type NavigatorProps } from './navigator';
 import { openSceneWithBack } from './scene-return';
+import { registerDemoFonts } from './demo-fonts';
 import { FiltersLab, type FiltersLabProps } from './filters-lab';
 import { selectionLabControls } from './selection-lab';
+import { TextStylesLab } from './text-styles-lab';
 import { observeInputFailure, runVerification } from './verify';
 import { BenchmarkApp, type BenchmarkProps } from './benchmark';
 import { runProbe } from './probe';
@@ -141,6 +143,15 @@ export default class Main extends Node {
       // A page in place of the app: the HUD over the backdrop Control (plan I1), the pointer lab (I2), ...
       showLab: (name: LabName) => this.requireRenderer().render(labElement(name)),
       /** The filters lab (plan Phase V1): rendered again with new props, so a change is an ordinary commit. */
+      /** One page of the text styles lab (`text-styles-data.ts`). */
+      showTextStyles: (page: string) => this.requireRenderer().render(createElement(TextStylesLab, { page })),
+      /** The lines of a text as drawn, root-local, as the native layout has them (`ReactUiRoot.getTextLines`). */
+      textLines: (testID: string): unknown => {
+        const surface = this.requireSurface();
+        const tag = surface.findByTestId(testID);
+        if (tag < 0) throw new Error(`There is no element with test id ${testID}`);
+        return JSON.parse(surface.getTextLines(tag));
+      },
       showFilters: (props: FiltersLabProps) => this.requireRenderer().render(createElement(FiltersLab, props)),
       /**
        * What Godot draws behind the root, for the filters that read it: `2d` is a Control of two flat colours meeting at the
@@ -440,6 +451,7 @@ export default class Main extends Node {
     const surface = new ReactUiRoot();
     surface.setName('ReactSurface');
     this.addChild(surface);
+    registerDemoFonts(surface);
     this.sizeToViewport();
     surface.size = new Vector2(this.width, this.height);
     this.surface = surface;

@@ -23,7 +23,7 @@
 use std::collections::BTreeMap;
 
 use godot::builtin::{Rect2, Vector2};
-use godot::classes::{Engine, Font, InputEventKey, Os, RenderingServer, TextParagraph};
+use godot::classes::{Engine, InputEventKey, Os, RenderingServer};
 use godot::global::Key;
 use godot::prelude::*;
 use serde_json::{Value, json};
@@ -37,11 +37,10 @@ use crate::pointer::MOUSE_POINTER_ID;
 use crate::props::{CursorSpec, DisplaySpec, Kind, UserSelectSpec};
 use crate::render_tree::{DEFAULT_SELECTION_COLOR, SelectionPaint};
 use crate::selection::{Document, SelectableNode, SelectionError, SelectionPoint, TextSelection};
-use crate::text_layout::{
-    GodotParagraph, GodotTextLayout, LineExtents, TextLayout, TextLayoutError,
-};
+use crate::text_layout::{GodotParagraph, GodotTextLayout, TextLayout, TextLayoutError};
 use crate::text_offsets::code_point_to_utf16;
-use crate::{DEFAULT_FONT_SIZE, ReactUiRoot, event_time_ms};
+use crate::text_paragraph::StyledParagraph;
+use crate::{ReactUiRoot, event_time_ms};
 
 /// The clicks that select a word and a whole node's text (`PointerData::detail`; further clicks of one
 /// sequence keep selecting the node).
@@ -150,42 +149,29 @@ pub(crate) fn drag_target(nodes: &[(u32, BoxRect)], point: Vector2) -> Option<Dr
     }
 }
 
-/// The font's measure of an empty line, which a paragraph with no text cannot give (`text_layout.rs`).
-fn empty_line(font: &Gd<Font>, font_size: i32) -> LineExtents {
-    LineExtents {
-        ascent: font.get_ascent_ex().font_size(font_size).done(),
-        descent: font.get_descent_ex().font_size(font_size).done(),
-    }
-}
-
 /// The layout of `paragraph` as it is drawn into its node's content item. Build one per gesture or
 /// paint and drop it (`text_layout.rs`).
 fn lay_out(
-    font: &Gd<Font>,
-    paragraph: &Gd<TextParagraph>,
+    paragraph: &StyledParagraph,
     geometry: &NodeGeometry,
-    style: &ComputedStyle,
 ) -> Result<GodotTextLayout, TextLayoutError> {
-    let source = GodotParagraph::lay_out(paragraph, geometry.content_width())?;
-    let font_size = style.font_size.unwrap_or(DEFAULT_FONT_SIZE);
+    let source = GodotParagraph::lay_out(paragraph.paragraph(), geometry.content_width())?;
     TextLayout::new(
         source,
         geometry.content_origin(),
-        empty_line(font, font_size),
+        paragraph.extents_of_empty_line(),
     )
 }
 
 /// The rectangles that highlight code points `start..end` of `paragraph`, in its content item's
 /// coordinates. Called by the content item when it re-records.
 pub(crate) fn highlight_rects(
-    font: &Gd<Font>,
-    paragraph: &Gd<TextParagraph>,
+    paragraph: &StyledParagraph,
     geometry: &NodeGeometry,
-    style: &ComputedStyle,
     start: usize,
     end: usize,
 ) -> Result<Vec<Rect2>, TextLayoutError> {
-    let layout = lay_out(font, paragraph, geometry, style)?;
+    let layout = lay_out(paragraph, geometry)?;
     Ok(layout
         .selection_rects(start, end)?
         .into_iter()
@@ -239,9 +225,8 @@ impl ReactUiRoot {
                     nodes.push(SelectableNode {
                         tag,
                         len: node
-                            .props
-                            .text
-                            .as_deref()
+                            .visual
+                            .shown_text(node.props.text.as_deref())
                             .map_or(0, |text| text.chars().count()),
                         selectable: !blocked
                             && node.computed.user_select == Some(UserSelectSpec::Text),
@@ -277,12 +262,12 @@ impl ReactUiRoot {
         Some(document)
     }
 
-    /// The text of node `tag`, as the document measured it.
+    /// The text of node `tag`, as the document measured it: the text the node shows, which is what is selected and copied.
     fn selection_text_of(&self, tag: u32) -> Option<&str> {
         self.mounted
             .nodes
             .get(&tag)
-            .and_then(|node| node.props.text.as_deref())
+            .and_then(|node| node.visual.shown_text(node.props.text.as_deref()))
     }
 
     /// Whether `tag` is a `Text` the pointer may select and that is not inside a `Button`. Used for the
@@ -337,13 +322,46 @@ impl ReactUiRoot {
         let Some(paragraph) = node.visual.paragraph.as_ref() else {
             return Ok(None);
         };
-        let font = self
-            .font
-            .as_ref()
-            .ok_or_else(|| "the root has no theme font yet".to_string())?;
-        lay_out(font, paragraph, &node.geometry, &node.computed)
+        lay_out(paragraph, &node.geometry)
             .map(Some)
             .map_err(|error| format!("node {tag}: {error}"))
+    }
+
+    /// The lines of node `tag`'s text as they are drawn, in root-local coordinates, for a verifier to compare with another
+    /// renderer's: the text shown, and for each line its code point range, the left end and the baseline of its glyphs, its
+    /// ascent, descent and width. `null` for a node that is not mounted or shows no text.
+    pub(crate) fn text_lines_json(&self, tag: u32) -> serde_json::Value {
+        let layout = match self.text_layout_of(tag) {
+            Ok(Some(layout)) => layout,
+            Ok(None) => return serde_json::Value::Null,
+            Err(error) => {
+                godot_error!("ReactUiRoot: cannot lay out the text of node {tag}: {error}");
+                return serde_json::Value::Null;
+            }
+        };
+        let Some((rect, _)) = self.mounted.absolute_geometry(tag, self.viewport_box()) else {
+            return serde_json::Value::Null;
+        };
+        let lines: Vec<serde_json::Value> = layout
+            .lines()
+            .iter()
+            .map(|line| {
+                serde_json::json!({
+                    "start": line.range.start,
+                    "end": line.range.end,
+                    "x": rect.x + line.origin.x,
+                    "baseline": rect.y + line.origin.y,
+                    "ascent": line.ascent,
+                    "descent": line.descent,
+                    "width": line.width,
+                })
+            })
+            .collect();
+        let shown = self
+            .selection_text_of(tag)
+            .map(str::to_owned)
+            .unwrap_or_default();
+        serde_json::json!({ "text": shown, "lines": lines })
     }
 
     /// The selection point under `position` (root-local) in text node `tag`: its layout's hit test, and

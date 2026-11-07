@@ -110,6 +110,7 @@ export async function runNavigatorScenario(context) {
     await contentFit(lab);
     await capture(`navigator-${lab.id}`);
     if (lab.kind === 'window') {
+      await bringIntoView('lab-scroll', 'lab-launch-open');
       await click('lab-launch-open');
       await frames();
       check(`${lab.id} has the whole window`, !(await maybe('lab-list')) && !(await maybe('lab-menu')));

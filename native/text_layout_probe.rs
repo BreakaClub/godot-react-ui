@@ -18,17 +18,16 @@ mod checks;
 mod ink;
 
 use godot::classes::control::MouseFilter;
-use godot::classes::text_server::LineBreakFlag;
 use godot::classes::{Control, Font, IControl, Image, TextParagraph, ThemeDb};
-use godot::global::HorizontalAlignment;
 use godot::prelude::*;
 
-use crate::computed_style::ComputedStyle;
-use crate::paint::build_paragraph;
+use crate::fonts::ResolvedFont;
 use crate::props::{StyleSpec, TextAlignSpec};
 use crate::text_layout::{
     GodotParagraph, GodotTextLayout, LineExtents, TextAlignment, TextDirection, TextLayout,
 };
+use crate::text_paragraph::StyledParagraph;
+use crate::text_style::TextStyle;
 use cases::{CASES, CaseSpec};
 use checks::Report;
 
@@ -66,6 +65,7 @@ fn alignment_name(alignment: TextAlignment) -> &'static str {
         TextAlignment::Left => "left",
         TextAlignment::Center => "center",
         TextAlignment::Right => "right",
+        TextAlignment::Fill => "fill",
     }
 }
 
@@ -80,32 +80,32 @@ struct Panel {
     layout: GodotTextLayout,
 }
 
-/// A paragraph configured as `paint::build_paragraph` configures one. That function builds none for an
-/// empty text (the renderer draws nothing for it), so for an empty case the same settings are applied to
-/// an empty paragraph, as a text input's empty value will need.
+/// A paragraph configured as the renderer configures one (`StyledParagraph::build`). It builds one for an empty text too,
+/// as a text input's empty value needs.
 fn paragraph_for(font: &Gd<Font>, text: &str, alignment: TextAlignment) -> Gd<TextParagraph> {
     let text_align = match alignment {
         TextAlignment::Left => TextAlignSpec::Left,
         TextAlignment::Center => TextAlignSpec::Center,
         TextAlignment::Right => TextAlignSpec::Right,
+        TextAlignment::Fill => TextAlignSpec::Justify,
     };
-    let computed = ComputedStyle(StyleSpec {
-        text_align: Some(text_align),
-        font_size: Some(FONT_SIZE),
-        ..StyleSpec::default()
-    });
-    build_paragraph(font, text, &computed).unwrap_or_else(|| {
-        let mut paragraph = TextParagraph::new_gd();
-        paragraph.set_break_flags(
-            LineBreakFlag::MANDATORY | LineBreakFlag::WORD_BOUND | LineBreakFlag::ADAPTIVE,
-        );
-        paragraph.set_alignment(match alignment {
-            TextAlignment::Left => HorizontalAlignment::LEFT,
-            TextAlignment::Center => HorizontalAlignment::CENTER,
-            TextAlignment::Right => HorizontalAlignment::RIGHT,
-        });
-        paragraph
-    })
+    let style = TextStyle::of(
+        &StyleSpec {
+            text_align: Some(text_align),
+            font_size: Some(FONT_SIZE),
+            ..StyleSpec::default()
+        },
+        false,
+    );
+    let font = ResolvedFont {
+        shape: font.clone(),
+        draw: font.clone(),
+        tracked: false,
+        font_size: FONT_SIZE,
+    };
+    StyledParagraph::build(text, &style.shaping, font)
+        .paragraph()
+        .clone()
 }
 
 /// The three panels of a case, stacked below the page title.

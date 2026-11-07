@@ -18,6 +18,7 @@ import { PointerLab } from './pointer-lab';
 import { PositioningLab } from './positioning-lab';
 import { ScrollLab } from './scroll-lab';
 import { SelectionLab } from './selection-lab';
+import { TextStylesLab } from './text-styles-lab';
 import { TransformLab } from './transform-lab';
 
 /**
@@ -147,6 +148,11 @@ export const LABS = defineLabs([
     id: 'selection', kind: 'inline', group: 'Text', title: 'Text selection',
     description: 'Click, double and triple click, drag, Shift+click, copy and select all on rendered text.',
     component: SelectionLab, sources: ['res://src/selection-lab.tsx'],
+  },
+  {
+    id: 'text-styles', kind: 'inline', group: 'Text', title: 'Text styles',
+    description: 'Font families, weights, italics, tracking, leading, decoration, wrapping, overflow and numerals.',
+    component: TextStylesLab, sources: ['res://src/text-styles-lab.tsx'],
   },
   {
     id: 'motion', kind: 'inline', padded: true, group: 'Motion', title: 'Transitions',

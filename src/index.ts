@@ -26,10 +26,13 @@ export type { DataStoreMode, DropEffect, EffectAllowed } from './data-transfer';
 export { createRoot } from './renderer';
 export type { RootOptions, RootSize, UIRoot } from './renderer';
 export type { UIRoot as ReactRoot } from './renderer';
+export { registerFontFace } from './fonts';
+export type { FontFace, FontFaceHost } from './fonts';
 export { StyleSheet, compileStyle } from './styles';
 export type {
-  CompiledStyle, Cursor, LonghandStyle, Overflow, OverscrollBehavior, PointerEvents, PseudoState, ScrollbarWidth, Style,
-  StyleLayer, StyleProp, TouchAction, Transition, TransitionProperty, UIAriaProps, UIRole, UserSelect,
+  CompiledStyle, Cursor, FontStyle, FontWeight, LineHeight, LonghandStyle, Overflow, OverscrollBehavior, PointerEvents, PseudoState,
+  ScrollbarWidth, Style, StyleLayer, StyleProp, TextDecorationLine, TextOverflow, TextTransform, TouchAction, Transition,
+  TransitionProperty, UIAriaProps, UIRole, UserSelect, WhiteSpace,
 } from './types';
 export type { RendererProfile, ProfileSample } from './profile';
 export { readActivity, takeNativeProfile } from './native';

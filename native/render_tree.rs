@@ -26,7 +26,7 @@
 use std::time::Instant;
 
 use godot::classes::rendering_server::CanvasGroupMode;
-use godot::classes::{RenderingServer, StyleBoxFlat, TextParagraph};
+use godot::classes::{RenderingServer, StyleBoxFlat};
 use godot::prelude::*;
 
 use crate::ReactUiRoot;
@@ -37,6 +37,7 @@ use crate::paint::parse_color;
 use crate::profile::{Sample, micros};
 use crate::props::Kind;
 use crate::selection_input::{highlight_paint, highlight_rects};
+use crate::text_paragraph::StyledParagraph;
 use crate::transform::{Affine2, Placement};
 
 /// The overlay scrollbar thumb colour when no `scrollbar-color` is set: slate-500 at 60 % (plan
@@ -876,8 +877,8 @@ impl RenderNode {
     pub(crate) fn record_content(
         &mut self,
         key: ContentKey,
-        paragraph: Option<&mut Gd<TextParagraph>>,
-        highlight: impl FnOnce(&Gd<TextParagraph>, SelectionPaint) -> Vec<Rect2>,
+        paragraph: Option<&mut StyledParagraph>,
+        highlight: impl FnOnce(&StyledParagraph, SelectionPaint) -> Vec<Rect2>,
     ) -> bool {
         if self.content_key == Some(key) {
             return false;
@@ -892,11 +893,13 @@ impl RenderNode {
                     selection.color,
                 );
             }
-            paragraph
-                .draw_ex(self.content_item, key.origin)
-                .color(key.color)
-                .oversampling(key.oversampling.factor())
-                .done();
+            paragraph.draw(
+                self.content_item,
+                key.origin,
+                key.content_width,
+                key.color,
+                key.oversampling.factor(),
+            );
         }
         self.assert_clip();
         self.content_key = Some(key);
@@ -1107,8 +1110,6 @@ impl ReactUiRoot {
             .get(&tag)
             .map(|sampled| (sampled.opacity, sampled.background_color));
         let highlight = self.selecting.highlight_of(tag);
-        // Only a node with a highlight builds a layout, which needs the font.
-        let font = highlight.and_then(|_| self.font.clone());
         let Some(node) = self.mounted.nodes.get_mut(&tag) else {
             return (false, false);
         };
@@ -1165,29 +1166,15 @@ impl ReactUiRoot {
                     oversampling,
                 };
                 let geometry = node.geometry;
-                let computed = &node.computed;
                 node.render
                     .record_content(key, Some(paragraph), |paragraph, selection| {
-                        let Some(font) = font.as_ref() else {
-                            godot_error!(
-                                "ReactUiRoot: node {tag} has a selection but the root has no font"
-                            );
-                            return Vec::new();
-                        };
-                        highlight_rects(
-                            font,
-                            paragraph,
-                            &geometry,
-                            computed,
-                            selection.start,
-                            selection.end,
-                        )
-                        .unwrap_or_else(|error| {
-                            godot_error!(
-                                "ReactUiRoot: cannot place the selection of node {tag}: {error}"
-                            );
-                            Vec::new()
-                        })
+                        highlight_rects(paragraph, &geometry, selection.start, selection.end)
+                            .unwrap_or_else(|error| {
+                                godot_error!(
+                                    "ReactUiRoot: cannot place the selection of node {tag}: {error}"
+                                );
+                                Vec::new()
+                            })
                     })
             }
             None => node.render.clear_content(),

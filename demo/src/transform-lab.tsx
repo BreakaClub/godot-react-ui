@@ -135,7 +135,7 @@ function TransformControls({ name }: { name: string }) {
             onClick={() => sendTransition(transitionTarget === 'from' ? 'to' : 'from')}
             className="rounded-md bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 px-2.5 py-1"
           >
-            <Text className="text-xs text-white">Flip</Text>
+            <Text className="text-xs font-medium text-white">Flip</Text>
           </Button>
         ) : null}
         <Text testID="transform-caption" className="flex-1 text-xs text-slate-500">
@@ -198,7 +198,7 @@ function HitPage() {
           backgroundColor: '#4f46e5', borderRadius: 8, transform: bar.transform,
         }}
       >
-        <Text className="text-sm text-white">Turned bar</Text>
+        <Text className="pointer-events-none text-sm text-white">Turned bar</Text>
       </Button>
       <View
         testID="hit-parent" onClick={count('parent')}
@@ -231,7 +231,7 @@ function HoverPage() {
           transition: { properties: ['transform'], durationMs: 0 },
         }}
       >
-        <Text className="text-sm text-slate-800">Hover me</Text>
+        <Text className="pointer-events-none text-sm text-slate-800">Hover me</Text>
       </View>
     </Stage>
   );
@@ -249,7 +249,7 @@ function UtilitiesPage() {
           borderRadius: 8, transition: { properties: ['transform'], durationMs: 0 },
         }}
       >
-        <Text className="text-sm text-slate-800">Utilities</Text>
+        <Text className="pointer-events-none text-sm text-slate-800">Utilities</Text>
       </View>
     </Stage>
   );
@@ -291,7 +291,7 @@ function SelectionPage() {
           backgroundColor: '#f1f5f9', borderRadius: 8, padding: 10, transform: selectable.transform,
         }}
       >
-        <Text testID="selection-text" className="text-base text-slate-900">Hamburgefonstiv in a turned frame</Text>
+        <Text testID="selection-text" className="whitespace-nowrap text-base text-slate-900">Hamburgefonstiv in a turned frame</Text>
       </View>
     </Stage>
   );
@@ -590,7 +590,7 @@ function ActiveCasePage({ name }: { name: string }) {
     const wanted = name.slice('transition:'.length);
     const spec = TRANSITION_CASES.find(candidate => candidate.name === wanted);
     if (spec === undefined) throw new Error(`No transition case named ${wanted}`);
-    return <TransitionCard spec={spec} />;
+    return <TransitionCard key={spec.name} spec={spec} />;
   }
   switch (name) {
     case 'combined': return <CombinedPage />;

@@ -276,6 +276,7 @@ function assertOpen(api: NavigatorInspection, lab: Lab): void {
 // ---- One lab, in the shell --------------------------------------------------------------------------------------------------
 
 async function openWindowLab(api: NavigatorInspection, lab: Lab, capture: NavigatorCapture): Promise<void> {
+  await bringIntoView(api, 'lab-scroll', 'lab-launch-open');
   await click(api, 'lab-launch-open');
   await frames(SETTLE_FRAMES);
   assert(api.find('lab-list') === undefined && api.find('lab-menu') === undefined, `${lab.id} has the whole window: nothing of the shell is behind it`);
@@ -286,6 +287,7 @@ async function openWindowLab(api: NavigatorInspection, lab: Lab, capture: Naviga
   await capture(`navigator-${lab.id}-window`, GLASS_BLOB_IDS);
   await keyTap({ keycode: Key.KeyEscape });
   assert(api.find('lab-launch') !== undefined && api.find('window-bar') === undefined, 'Escape gives the window back to the navigator');
+  await bringIntoView(api, 'lab-scroll', 'lab-launch-open');
   await click(api, 'lab-launch-open');
   await frames(SETTLE_FRAMES);
   await click(api, 'window-back');
@@ -295,6 +297,7 @@ async function openWindowLab(api: NavigatorInspection, lab: Lab, capture: Naviga
 async function openSceneLab(api: NavigatorInspection, lab: Lab, opened: string[]): Promise<void> {
   assert(lab.kind === 'scene', `${lab.id} is a scene lab`);
   const before = opened.length;
+  await bringIntoView(api, 'lab-scroll', 'lab-launch-open');
   await click(api, 'lab-launch-open');
   assert(opened.length === before + 1 && opened[opened.length - 1] === lab.scene, `The button asks the owner to open ${lab.scene}: ${JSON.stringify(opened)}`);
 }

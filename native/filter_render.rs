@@ -1676,7 +1676,7 @@ impl ReactUiRoot {
                 stack.push((*child, child_frame));
             }
             if let Some(paragraph) = node.visual.paragraph.as_ref() {
-                let size = paragraph.get_size();
+                let size = paragraph.drawn_size();
                 let text = node.geometry.content_origin();
                 bounds = union(
                     bounds,

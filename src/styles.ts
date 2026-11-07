@@ -1,3 +1,4 @@
+import { fontWeightNumber, textUtility } from './utilities/text';
 import { transformUtility } from './utilities/transform';
 import type {
   CompiledStyle, Cursor, Dimension, FilterParts, HexColor, Inset, LonghandStyle, PseudoState, Style, StyleLayer, StyleProp,
@@ -12,10 +13,6 @@ const TOKEN_CACHE_LIMIT = 2048;
  */
 const INTERN_LIMIT = 4096;
 const BREAKPOINTS = { sm: 640, md: 768, lg: 1024, xl: 1280, '2xl': 1536 };
-const TEXT_SIZES: Readonly<Record<string, number>> = {
-  xs: 12, sm: 14, base: 16, lg: 18, xl: 20,
-  '2xl': 24, '3xl': 30, '4xl': 36, '5xl': 48, '6xl': 60,
-};
 const RADII: Readonly<Record<string, number>> = {
   none: 0, sm: 2, DEFAULT: 4, md: 6, lg: 8, xl: 12, '2xl': 16, '3xl': 24,
   // Native StyleBoxFlat clamps this to the available box, giving a pill/circle.
@@ -450,6 +447,9 @@ function utilityStyle(utility: string): UtilityStyle | undefined {
   const transformed = transformUtility(utility);
   if (transformed !== undefined) return transformed;
 
+  const text = textUtility(utility, parseColor);
+  if (text !== undefined) return text;
+
   const spacing = /^(p|px|py|pt|pr|pb|pl|m|mx|my|mt|mr|mb|ml|gap-x|gap-y|gap)-(.+)$/.exec(utility);
   if (spacing?.[1] !== undefined && spacing[2] !== undefined) {
     const value = parsePixels(spacing[2]);
@@ -551,10 +551,6 @@ function utilityStyle(utility: string): UtilityStyle | undefined {
       if (prefix === 'text-') return { color };
       return { borderColor: color };
     }
-    if (prefix === 'text-') {
-      const fontSize = lookup(TEXT_SIZES, value) ?? (/^\[\d+px\]$/.test(value) ? parsePixels(value, 1) : undefined);
-      if (fontSize !== undefined && fontSize > 0 && Number.isSafeInteger(fontSize)) return { fontSize };
-    }
     if (prefix === 'border-') {
       const width = parsePixels(value, 1);
       if (width !== undefined && Number.isFinite(width)) return { borderWidth: width };
@@ -596,8 +592,9 @@ function isStyleArray(style: StyleProp): style is readonly StyleProp[] {
 function mergeLonghands(target: LonghandStyle, source: Readonly<UtilityStyle>): void {
   const {
     padding, margin, gap, overflow, inset, transition, filter, filterParts, backdropFilter, backdropFilterParts,
-    transform, transformParts, ...properties
+    transform, transformParts, fontWeight, ...properties
   } = source;
+  if (fontWeight !== undefined) target.fontWeight = fontWeightNumber(fontWeight);
   if (padding !== undefined) {
     target.paddingTop = padding;
     target.paddingRight = padding;

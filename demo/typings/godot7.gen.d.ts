@@ -1193,6 +1193,7 @@ declare module "godot" {
     }
     /** @deprecated Internal use. Does not exist at runtime. */
     interface __NameMapReactUiRoot extends __NameMapControl {
+        register_font_face: "registerFontFace";
         take_commit_deletions: "takeCommitDeletions";
         set_profiling: "setProfiling";
         isolate_clipboard: "isolateClipboard";
@@ -1222,6 +1223,7 @@ declare module "godot" {
         _on_web_clipboard_text: "_onWebClipboardText";
         _on_web_clipboard_refused: "_onWebClipboardRefused";
         get_node_rect: "getNodeRect";
+        get_text_lines: "getTextLines";
         find_by_test_id: "findByTestId";
         drain_events: "drainEvents";
         resolve_event: "resolveEvent";
@@ -1231,6 +1233,7 @@ declare module "godot" {
     class ReactUiRoot<Map extends NodePathMap = any> extends Control<Map> {
         constructor(identifier?: any)
         commit(layer: int64, payloadJson: string): string
+        registerFontFace(family: string, weightMin: int64, weightMax: int64, italic: boolean, font: Font): string
         takeCommitDeletions(): PackedInt64Array
         setProfiling(enabled: boolean): any
         static isolateClipboard(isolated: boolean): any
@@ -1260,6 +1263,7 @@ declare module "godot" {
         _onWebClipboardText(arguments_: GArray): any
         _onWebClipboardRefused(arguments_: GArray): any
         getNodeRect(tag: int64): string
+        getTextLines(tag: int64): string
         findByTestId(testId: string): int64
         drainEvents(): string
         resolveEvent(seq: int64, defaultPrevented: boolean, dropEffect: string): string
