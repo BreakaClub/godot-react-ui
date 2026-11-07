@@ -31,7 +31,7 @@ copies them to `artifacts/lab-navigator/` with contact sheets once both windows 
 ```sh
 pnpm demo                       # native window, the navigator ("pnpm build" runs first; the freshness guard refuses a stale library)
 pnpm demo --lab=glass           # the same, opened on a lab; "pnpm demo -- --lab=glass" works too
-pnpm demo --engine=stock        # on the stock Godot 4.7.2 profile (needs "pnpm build:native --engine=stock" first)
+pnpm demo --engine=stock        # on the stock Godot 4.7.2 profile (the same native build as the default: "pnpm build:native" once)
 pnpm demo:web                   # serves the Web export on 8096 (a free port if that one is taken) and prints the address
 pnpm demo:web --lab=glass       # the printed address opens that lab
 ```

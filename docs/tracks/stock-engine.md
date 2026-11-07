@@ -1,5 +1,12 @@
 # Track: stock engine (engine profiles, and the accessibility tree read for real)
 
+> **Superseded in part by [single-build.md](single-build.md).** S2 (separate native target directories, one install path), S3 (the installed library records its
+> profile and runs refuse the other's) and S4 (the manifest minimum, and the guard against a library newer than the engine) describe how the native library was
+> built and guarded per profile. There is now one native library and one native live-compile extension per platform, bound to Godot API 4.7.2 and loaded by both
+> engines; their stamps record that binding and not a profile, and `target/stock*` and `--engine=` on `build:native` are gone. Everything about the **Web** (S6),
+> the **GodotJS typings** (S5, now generated into `target/stock-typings` from the one native library), the profile selector (S1) and the accessibility tree (S7 to S9)
+> stands. The text below is kept as the record of what was decided and measured then.
+
 Branch `stock-engine`, rebased onto main `d417bb5` (Phase I5 and scroll accessibility, S13; first built on `cab7d0f`). Notes and report for the coordinator; `docs/INTERACTION_PLAN.md` and
 `docs/INTERACTION_PROGRESS.md` are not edited here. Two jobs: make `godot-react-ui` build and test against a stock
 Godot 4.7.2 with upstream GodotJS as well as Breaka's custom 4.8 (which stays the default), and use the stock engine,
@@ -31,11 +38,11 @@ anything runs.
 | | `breaka` (default) | `stock` |
 | --- | --- | --- |
 | Godot | `/Applications/Godot48.app/Contents/MacOS/Godot` | `/Users/ben/Development/godot-stock/bin/godot-stock` |
-| Rust API dumps | `native/api` (via `.cargo/config.toml`) | `native/api/stock-4.7.2` (environment of the cargo child) |
-| Native target dir | `target/` (`target/probe`) | `target/stock` (`target/stock-probe`) |
+| Rust API dumps | native: `native/api/stock-4.7.2` for both (single-build); Web: `native/api` | native: the same; Web: `native/api/stock-4.7.2` |
+| Native target dir | `target/` (`target/probe`, `target/faults`), shared | the same |
 | Web target dir | `target/web` (`target/web-probe`) | `target/stock-web` (`target/stock-web-probe`) |
 | Evidence | `artifacts/<name>` | `artifacts/stock/<name>` |
-| GodotJS typings | tracked `demo/typings`, `demo/gen` | generated, untracked `target/stock/typings` |
+| GodotJS typings | tracked `demo/typings`, `demo/gen` | generated, untracked `target/stock-typings/typings` |
 | Typecheck | `tsconfig.json` | `tsconfig.stock.json` |
 | Web export preset | `Web` | `Web (stock)` |
 | Web SDK, templates | Emscripten 6.0.12 + Binaryen 133, the lean 3D lazy-table templates | Emscripten 4.0.11, the stock `web_dlink_*` templates |
@@ -47,9 +54,7 @@ The extension and the Web side module are installed where the one checked-in `re
 (`demo/addons/godot-react-ui/bin/`), and the installing build writes `react_ui.build.json` / `react_ui.web.build.json`
 beside them: which profile built it, whether it is a probe build, and its SHA-256. Every native verifier and `run`
 refuses a library that is not its profile's (and not a probe build unless it wants one), and the Web export refuses a
-side module built for the other profile. So switching profiles is `pnpm switch:engine --engine=<name>` (docs/tracks/engine-switch.md: a
-copy of the profile's own target build, seconds, for the library and for live-compile), or `pnpm build:native --engine=<name>` when that target
-directory holds no current build, and the last one installed wins; finish with the default (`pnpm switch:engine`).
+side module built for the other profile. (Superseded for the native library: it is one build for both profiles, so nothing is switched; docs/tracks/single-build.md.)
 
 ## Decisions
 

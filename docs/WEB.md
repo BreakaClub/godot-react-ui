@@ -89,6 +89,10 @@ globally. No build or server command deploys anything.
 
 ## The `stock` engine profile
 
+The Web is per profile, unlike the native library: a Web side module is linked with the Emscripten SDK of the engine whose templates load it (4.0.11 for `stock`, 6.0.12
+for `breaka`, with Breaka's lazy function-table ABI), and the two cannot load each other's. The native UI library and live-compile extension are one build for both
+profiles, bound to Godot API 4.7.2 (docs/tracks/single-build.md); `build:web` and `build-live-compile-web.mjs` are the only builds that take `--engine=`.
+
 `node scripts/build-web.mjs --engine=stock` (or `GODOT_REACT_ENGINE=stock`) builds the same extension for an unmodified
 Godot 4.7.2 with upstream GodotJS instead of Breaka's engine. The default `breaka` profile is unchanged. What differs
 (the decisions and evidence are in [tracks/stock-engine.md](tracks/stock-engine.md)):

@@ -1,5 +1,12 @@
 # Track: freshness guard (installed builds against the source)
 
+> **Since [single-build.md](single-build.md)** (read the commands and paths below with these changes): the native library and the native live-compile extension are one
+> build for both engine profiles, bound to Godot API 4.7.2, and their stamps record `binding` (`{ api, dump }`) instead of `engine`; a Web side module's stamp still records
+> its profile. The native fix is `pnpm build:native [--probe] [--faults]` and `node scripts/build-live-compile.mjs`, with no `--engine=`. There are no `target/stock` or
+> `target/stock-probe` directories (the native variants are `target/`, `target/probe`, `target/faults`); the stock typings are in `target/stock-typings`. The evidence sections
+> record the commands as they were run then.
+
+
 Branch `freshness`, based on main `64e674c`. Notes and report for the coordinator; `docs/INTERACTION_PLAN.md` and
 `docs/INTERACTION_PROGRESS.md` are not edited here. One job: no run, export or typecheck may silently use a native library, Web
 side module or set of typings that is older than the source. This closes the "Owed" item in `docs/tracks/stock-engine.md` (a
@@ -21,10 +28,10 @@ window or browser opens, naming the files that differ and the command that fixes
 
 | Where | What is checked | Fix it names |
 | --- | --- | --- |
-| `prepareNative` (`verify`, `verify:interaction`, `verify:motion`, `verify:a11y`, `verify:world`, `verify:text-layout`, `demo`, `dev`) | installed library's stamp: profile, probe flag, library hash, digest. Since the engine-switch track also the installed live-compile extension's, if one is installed | `pnpm build:native [--probe] [--faults] --engine=<name>`, or `pnpm switch:engine [--probe] [--faults] --engine=<name>` when the profile's target directory holds a current build (docs/tracks/engine-switch.md) |
+| `prepareNative` (`verify`, `verify:interaction`, `verify:motion`, `verify:a11y`, `verify:world`, `verify:text-layout`, `demo`, `dev`) | installed library's stamp: the Godot API and dump hash it is bound to (the same for both profiles), probe flag, library hash, digest; and the installed live-compile extension's, if one is installed | `pnpm build:native [--probe] [--faults]`, `node scripts/build-live-compile.mjs` |
 | `build:web` (export step, `--export-only`) | installed Web side module's stamp | `pnpm build:web --wasm-only [--probe] --engine=<name>` |
 | `verify:web`, `verify:motion:web`, `verify:interaction:web`, `scripts/verify-world-web.mjs`, `demo:web`, `scripts/probe-web.mjs` | the export's `build-receipt.json` (`extension` is the side module's stamp; `content` the digest of the pack, shell and template inputs; `files` each exported file's size and hash) and the exported `.wasm` beside it | `pnpm build:web [--release] [--probe] --engine=<name>`, or `pnpm build:web --export-only` when the pack, shell, template or an exported file is what moved |
-| `test:types --engine=stock`, `gen:types --engine=stock` | the stock library cargo left in `target/stock` (what the typings are generated from) | `pnpm build:native --engine=stock` |
+| `test:types --engine=stock`, `gen:types --engine=stock` | the native library cargo left in `target` (what the stock typings are generated from) | `pnpm build:native` |
 | `gen:types` (default profile) | the installed library (the editor writes the tracked typings from it) | `pnpm build:native` |
 | `build:native`, `build:web` | cargo's target stamp: whether cargo's artifact is a build of these sources (F3) | cleans this crate itself |
 
@@ -77,12 +84,11 @@ tree *and* the exported `.wasm`'s hash with the stamp. The export step itself st
 and is refused once.
 
 F6. **Stock typings are tied to the same digest, and a typecheck never builds a library.** `ensureStockTypings` and `generateStockTypings`
-first call `requireBuiltLibrary`: the library in `target/stock/release` must be a build of the current sources (its target stamp), or the
-command refuses with `pnpm build:native --engine=stock`. The typings record (`target/stock/typings.json`) gains `sourceDigest` next to the
+first call `requireBuiltLibrary`: the library in `target/release` must be a build of the current sources (its target stamp), or the
+command refuses with `pnpm build:native`. The typings record (`target/stock-typings/typings.json`) gains `sourceDigest` next to the
 library hash, so declarations are regenerated, as before and cheaply (a headless stock editor, about 10 s), whenever the library they list was built
-from different sources. Not chosen: rebuilding the library from inside `test:types` (minutes, and silent). Note the fix command also
-installs the stock library over the installed path (stock-engine S3); `pnpm build:native` puts the default back, and is quick when its
-target stamp is fresh. (Since the engine-switch track, `pnpm switch:engine` does that from the target directory without running cargo at all.)
+from different sources. Not chosen: rebuilding the library from inside `test:types` (minutes, and silent). (The fix command no longer installs a
+profile-specific library over the installed path: there is one native library for both profiles.)
 
 F7. **Interruption and races.** The inputs are hashed before cargo runs and again after it; if they differ the build fails instead of
 stamping a result that mixes two source states (a refusal later is the safe direction). While a build runs the installed library and its

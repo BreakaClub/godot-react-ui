@@ -1,5 +1,12 @@
 # Track: engine switch (one install, two profiles, and what a run may load)
 
+> **Superseded by [single-build.md](single-build.md).** This track made switching between per-profile native builds cheap. Ben then decided on one native build per
+> platform, bound to the oldest Godot API either engine runs (4.7.2) and loaded by both, so there is nothing to switch for native: `pnpm switch:engine`, the per-profile
+> target directories, `assessInstall`/`switchBuild` and the tests of this note are deleted. What survives from here: the early refusal of an installed live-compile
+> extension on every native run (E1, E2), the stamped target directory of the live-compile build (E3), `installFile` (E5), the manifest written by rename, the CLI kept
+> across a clean, and the mutation-control method. The text below is the record of the decision and the measurements then.
+
+
 Branch `engine-switch`, based on main `98af890` (code-editor landed). Notes and report for the coordinator; `docs/INTERACTION_PLAN.md`,
 `docs/INTERACTION_PROGRESS.md` and `README.md` are not edited here (the paragraph for the README is at the end). One job: switching between
 the `breaka` and `stock` engine profiles is cheap when the profile already has a build, and a native run never loads a UI library or a
