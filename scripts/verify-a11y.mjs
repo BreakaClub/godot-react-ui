@@ -73,7 +73,7 @@ try {
   const result = await runNativeVerifier({
     godot, project: resolve(root, 'demo'), output, name: 'a11y', resolution,
     leading: ['--accessibility', 'always', scene], scriptArgs: ['--verify-a11y'], successMarker, deadlineMs, retry,
-    beforeLaunch: () => engine.requireInstalledLibrary(),
+    beforeLaunch: () => engine.requireInstalledBuilds(),
     errorPattern: /ERROR:|Uncaught|\[panic /u,
   });
   console.log(`Accessibility verification passed. Evidence: ${output} (ax-before.json, ax-after.json, run.log)`);

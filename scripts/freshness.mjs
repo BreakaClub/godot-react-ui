@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { basename, join, relative, resolve, sep } from 'node:path';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 
 /**
  * The freshness guard (docs/tracks/freshness.md): a build records what it was made from, and a run compares that with
@@ -182,6 +182,82 @@ export function findProblem({ library, stamp, engine, probe, current, subject })
 export function requireBuild({ fix, ...check }) {
   const problem = findProblem(check);
   if (problem !== undefined) throw new Error(`${problem} Run \`${fix}\` first.`);
+}
+
+/**
+ * Put the file at `source` at `destination` so that no process which has `destination` mapped sees it change: stage a sibling
+ * and rename it over the old file. `copyFileSync` onto a loaded library truncates and rewrites it in place and corrupts the
+ * running process's mapping; a rename swaps the directory entry, and a running process keeps its inode. With `sha256`, the staged
+ * copy must hash to it (the source changed while it was copied, or is not the file a stamp describes) or nothing is renamed.
+ */
+export function installFile(source, destination, { sha256: expected } = {}) {
+  mkdirSync(dirname(destination), { recursive: true });
+  const staged = `${destination}.${process.pid}.tmp`;
+  try {
+    copyFileSync(source, staged);
+    if (expected !== undefined && sha256(staged) !== expected) {
+      throw new Error(`${source} is not the file its stamp describes (it changed while it was copied), so it was not installed.`);
+    }
+    renameSync(staged, destination);
+  } finally {
+    rmSync(staged, { force: true });
+  }
+}
+
+/**
+ * What to do about the installed build of the `engine` profile (`installed`, a build check: library, stamp, engine, probe, current
+ * sources, subject) given the build that profile's own cargo target directory holds (`built`, the same shape):
+ *
+ * - `ready`: the installed build is the profile's build of the current sources.
+ * - `install`: it is not, but the target directory holds one that is, so installing it is a staged copy and a stamp.
+ * - `build`: neither is, so only a compile makes one.
+ *
+ * `problem` is why the installed build cannot be used and `builtProblem` why the target's cannot be installed (both undefined
+ * when they can).
+ */
+export function assessInstall({ installed, built }) {
+  const problem = findProblem(installed);
+  if (problem === undefined) return { action: 'ready', problem: undefined, builtProblem: undefined };
+  const builtProblem = findProblem(built);
+  return { action: builtProblem === undefined ? 'install' : 'build', problem, builtProblem };
+}
+
+/**
+ * The refusal for an assessment, or undefined when the installed build can be used: why it cannot, and the one command that makes
+ * it usable. That is `installFix` (a copy, seconds) when the target holds a current build, `buildFix` (a compile) when not.
+ */
+export function installRefusal(assessment, { buildFix, installFix, builtSubject }) {
+  if (assessment.action === 'ready') return undefined;
+  if (assessment.action === 'install') {
+    return `${assessment.problem} ${builtSubject} is current, so installing it is a copy and a stamp: run \`${installFix}\` first.`;
+  }
+  return `${assessment.problem} Run \`${buildFix}\` first.`;
+}
+
+/**
+ * Install the build in the target directory: a staged copy of the library and the stamp it was built with. Throws, naming `fix`,
+ * unless `built` is the profile's build of the current sources. The stamp written is the one that was checked, and the copy must
+ * hash to the library it names, so a build finishing under the install cannot be installed under a stamp that is not its own.
+ */
+export function installBuilt({ built, destination, stampPath, fix }) {
+  requireBuild({ ...built, fix });
+  installFile(built.library, destination, { sha256: built.stamp.sha256 });
+  writeStamp(stampPath, built.stamp);
+}
+
+/**
+ * Make the installed build the profile's, as far as its target directory allows: nothing to do, an install, or a report that only a
+ * compile can make one. `outcome` is `current`, `installed` or `needs-build` (with the `problem` that leaves the installed build
+ * unusable); `absent` says nothing was installed to begin with, for a caller whose build is optional, and `fix` is the command that compiles.
+ */
+export function switchBuild({ installed, built, destination, stampPath, fix, absent = false }) {
+  const assessment = assessInstall({ installed, built });
+  if (assessment.action === 'ready') return { outcome: 'current', problem: undefined };
+  if (assessment.action === 'install') {
+    installBuilt({ built, destination, stampPath, fix });
+    return { outcome: 'installed', problem: assessment.problem };
+  }
+  return { outcome: 'needs-build', problem: assessment.problem, absent, fix };
 }
 
 /**

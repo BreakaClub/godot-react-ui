@@ -29,7 +29,7 @@ for (const [name, resolution] of [['landscape','1120x800'],['portrait','600x900'
   results.push(await runNativeVerifier({
     godot, project: resolve(root, 'demo'), output: resolve(artifactRoot, name), name, resolution,
     leading: [scene], scriptArgs: ['--verify-world'], successMarker, deadlineMs, retry,
-    beforeLaunch: () => engine.requireInstalledLibrary(),
+    beforeLaunch: () => engine.requireInstalledBuilds(),
     // `previously notified` is the engine's warning for an unpaired notifyMouseEntered/notifyMouseExited.
     errorPattern: /ERROR:|Uncaught|\[panic |previously notified/u,
   }));

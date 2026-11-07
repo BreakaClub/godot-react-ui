@@ -82,8 +82,8 @@ for (const [name, resolution] of windows) {
     godot, project: resolve(root, 'demo'), output: resolve(artifactRoot, name), name, resolution,
     leading: renderer === undefined ? [] : ['--rendering-method', renderer],
     scriptArgs: [userFlag, ...only, ...(lab === undefined ? [] : [`--lab=${lab}`]), ...(viewport === undefined ? [] : [`--logical-viewport=${viewport}`])], successMarker, deadlineMs, retry,
-    // The library is checked again before every window, not only before the first: another session may rebuild it in between.
-    beforeLaunch: () => engine.requireInstalledLibrary({ faults }),
+    // The builds are checked again before every window, not only before the first: another session may rebuild or switch them in between.
+    beforeLaunch: () => engine.requireInstalledBuilds({ faults }),
     errorPattern: /ERROR:|Uncaught|\[panic /u,
   }));
 }

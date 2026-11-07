@@ -1,7 +1,8 @@
 import { spawnSync } from 'node:child_process';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { collectInputs, prepareTarget, readStamp, requireBuild, requireExport, stampFor, writeStamp } from './freshness.mjs';
+import { assessInstall, collectInputs, installRefusal, prepareTarget, readStamp, requireBuild, requireExport, stampFor, switchBuild, writeStamp } from './freshness.mjs';
+import { liveCompileRefusal } from './live-compile-build.mjs';
 import { webContentInputs } from './web-content.mjs';
 
 /**
@@ -95,7 +96,8 @@ const webStamp = resolve(installDirectory, 'react_ui.web.build.json');
 /**
  * The two artifacts a build makes, by kind: the cargo features that build uses, its cargo target directory, where
  * cargo leaves the artifact, where it is installed (the `.gdextension` names that path) and the stamp beside each.
- * `fix` is the command that rebuilds it.
+ * `fix` is the command that rebuilds it; `installFix`, where there is one, the command that installs a current build from the target directory
+ * (scripts/switch-engine.mjs).
  */
 function buildKinds(profile) {
   const flag = `${ENGINE_FLAG}${profile.name}`;
@@ -109,6 +111,7 @@ function buildKinds(profile) {
       targetStamp: target => resolve(target, 'react_ui.build.json'),
       installed: resolve(installDirectory, libraryName), installedStamp: nativeStamp,
       fix: (probe, faults) => `pnpm build:native${probe ? ' --probe' : ''}${faults ? ' --faults' : ''} ${flag}`,
+      installFix: (probe, faults) => `pnpm switch:engine${probe ? ' --probe' : ''}${faults ? ' --faults' : ''} ${flag}`,
     },
     web: {
       features: probe => probe ? ['web', 'probe'] : ['web'],
@@ -161,6 +164,25 @@ export function selectEngine(argv = process.argv.slice(2), env = process.env) {
     library: kinds[kind].installed, stamp: readStamp(kinds[kind].installedStamp), engine: profile.name, probe,
     current: sourceInputs(kind, probe, faults), subject: `installed ${basename(kinds[kind].installed)}`, fix: kinds[kind].fix(probe, faults),
   });
+  // The installed native library and the one in this profile's target directory, as checks against the sources now. A switch of profile
+  // installs the second when it is current (a copy); only when it is not does a compile make one.
+  const nativeBuilds = ({ probe, faults }) => {
+    const spec = kinds.native;
+    const target = spec.target(probe, faults);
+    const current = sourceInputs('native', probe, faults);
+    const check = (library, stamp, subject) => ({ library, stamp: readStamp(stamp), engine: profile.name, probe, current, subject });
+    return {
+      target,
+      installed: check(spec.installed, spec.installedStamp, `installed ${basename(spec.installed)}`),
+      built: check(spec.built(target), spec.targetStamp(target), `${profile.name} library built in ${relative(root, target)}`),
+    };
+  };
+  const nativeRefusal = ({ probe, faults }) => {
+    const { target, installed, built } = nativeBuilds({ probe, faults });
+    return installRefusal(assessInstall({ installed, built }), {
+      buildFix: kinds.native.fix(probe, faults), installFix: kinds.native.installFix(probe, faults), builtSubject: `The ${profile.name} library built in ${relative(root, target)}`,
+    });
+  };
   return {
     ...profile,
     godot,
@@ -200,14 +222,27 @@ export function selectEngine(argv = process.argv.slice(2), env = process.env) {
      * F0/text-layout probe build is wanted (it never ships); `faults` says whether the filters negative-controls
      * build is (it never ships either, and no other run accepts it).
      */
-    requireInstalledLibrary: ({ probe = false, faults = false } = {}) => requireInstalled('native', { probe, faults }),
+    requireInstalledLibrary({ probe = false, faults = false } = {}) {
+      const refusal = nativeRefusal({ probe, faults });
+      if (refusal !== undefined) throw new Error(refusal);
+    },
+    /**
+     * Fail unless every build a demo run loads is the profile's build of the current sources: the native library, and the live-compile
+     * extension if one is installed (it is loaded by every run of the demo, not only by the sections that use it, and the other
+     * profile's fails late inside Godot; docs/tracks/engine-switch.md). Both are checked, and a refusal names each one's fix.
+     * `liveCompile: false` is for a run that takes the extension out of the project while Godot runs (`gen:types`).
+     */
+    requireInstalledBuilds({ probe = false, faults = false, liveCompile = true } = {}) {
+      const refusals = [nativeRefusal({ probe, faults }), liveCompile ? liveCompileRefusal(this) : undefined].filter(refusal => refusal !== undefined);
+      if (refusals.length > 0) throw new Error(refusals.join('\n'));
+    },
     /**
      * Everything a native run needs to be sure of before it starts: the binary is the profile's engine and the
-     * installed library is the profile's build of the current sources. Logs which engine the evidence will come from.
+     * installed builds are the profile's builds of the current sources. Logs which engine the evidence will come from.
      */
-    prepareNative({ probe = false, faults = false } = {}) {
+    prepareNative({ probe = false, faults = false, liveCompile = true } = {}) {
       const version = this.verifiedVersion();
-      this.requireInstalledLibrary({ probe, faults });
+      this.requireInstalledBuilds({ probe, faults, liveCompile });
       console.log(`Engine profile ${profile.name} (${profile.description}): ${godot}, Godot ${version}`);
       return version;
     },
@@ -226,6 +261,16 @@ export function selectEngine(argv = process.argv.slice(2), env = process.env) {
         library: kind.built(target), stamp: readStamp(kind.targetStamp(target)), engine: profile.name, probe: false,
         current: sourceInputs('native', false), subject: `${profile.name} library built in ${relative(root, target)}`, fix: kind.fix(false),
       });
+    },
+    /**
+     * Install the library this profile's target directory holds over the installed one, if the installed one is not the profile's build
+     * of the current sources and the target's is: a staged copy and a stamp, no compile (docs/tracks/engine-switch.md). `needs-build`
+     * says only a compile makes one.
+     */
+    switchLibrary({ probe = false, faults = false } = {}) {
+      const { target, installed, built } = nativeBuilds({ probe, faults });
+      const result = switchBuild({ installed, built, destination: kinds.native.installed, stampPath: kinds.native.installedStamp, fix: kinds.native.fix(probe, faults) });
+      return { ...result, target };
     },
     /**
      * Fail unless the Web export a verifier or the server is about to use carries the profile's side module built

@@ -1,8 +1,8 @@
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, renameSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { argsWithoutEngine, CARGO_PACKAGE, selectEngine } from './engine.mjs';
+import { installFile } from './freshness.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const cargo = process.env.CARGO ?? resolve(homedir(), '.cargo/bin/cargo');
@@ -41,13 +41,8 @@ runCargo(['build', '--locked', '--release', ...(features.length > 0 ? ['--featur
 build.compiled();
 const library = engine.libraryName;
 const destination = engine.installDirectory;
-mkdirSync(destination, {recursive: true});
-// copyFileSync truncates and rewrites an existing destination in place, which corrupts the
-// library for any running Godot that has it mapped. Write a sibling file and rename it over
-// the old one: the rename swaps the directory entry, and running processes keep their inode.
-const staged = resolve(destination, `${library}.${process.pid}.tmp`);
-copyFileSync(resolve(targetDirectory, 'release', library), staged);
-renameSync(staged, resolve(destination, library));
+// Staged and renamed, never copied over the installed library: a running Godot has it mapped (scripts/freshness.mjs `installFile`).
+installFile(resolve(targetDirectory, 'release', library), resolve(destination, library));
 build.installed();
 const kind = probe ? ', PROBE BUILD, replace with a default build' : faults ? ', FAULTS BUILD, replace with a default build' : '';
 console.log(`Installed native extension (${engine.name} profile${kind}): ${destination}/${library}`);

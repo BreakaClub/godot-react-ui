@@ -359,6 +359,8 @@ const GUARDS: Record<string, readonly string[]> = {
   'probe-web.mjs': ['requireFreshWebExport('],
   'run.mjs': ['prepareNative('],
   'serve-web.mjs': ['requireFreshWebExport('],
+  // Installs the profile's own target builds over the installed ones; it never compiles (docs/tracks/engine-switch.md).
+  'switch-engine.mjs': ['switchLibrary(', 'switchLiveCompile('],
   'test-types.mjs': ['ensureStockTypings('],
   'verify-a11y.mjs': ['prepareNative('],
   'verify-interaction-web.mjs': ['requireFreshWebExport('],

@@ -26,6 +26,16 @@ export interface BuildInputs {
   inputs: Record<string, string>;
 }
 
+/** What `Engine.switchLibrary` did (scripts/freshness.mjs `switchBuild`), and the target directory it installs from. */
+export interface SwitchLibraryResult {
+  outcome: 'current' | 'installed' | 'needs-build';
+  /** Why the installed library was not usable (undefined for `current`). */
+  problem: string | undefined;
+  /** Only with `needs-build`: the command that compiles the library. */
+  fix?: string;
+  target: string;
+}
+
 /** The steps that record a build, returned by `Engine.beginBuild`. */
 export interface BuildRecord {
   /** Cargo has succeeded: stamp its output. Throws if the sources changed while it ran. */
@@ -55,8 +65,15 @@ export interface Engine {
   artifactPath(...names: string[]): string;
   bindingEnvironment(): Record<string, string>;
   verifiedVersion(): string;
-  /** Throws unless the installed native library is this profile's build of the current sources. */
+  /** Throws unless the installed native library is this profile's build of the current sources; the message ends with the command that fixes it. */
   requireInstalledLibrary(options?: { probe?: boolean; faults?: boolean }): void;
+  /**
+   * Throws unless every build a demo run loads is this profile's build of the current sources: the native library and, if one is installed,
+   * the live-compile extension (`liveCompile: false` skips it, for a run that takes it out of the project).
+   */
+  requireInstalledBuilds(options?: { probe?: boolean; faults?: boolean; liveCompile?: boolean }): void;
+  /** Install the native library the profile's target directory holds when the installed one is not usable and that one is current. */
+  switchLibrary(options?: { probe?: boolean; faults?: boolean }): SwitchLibraryResult;
   /** Throws unless the installed Web side module is this profile's build of the current sources. */
   requireInstalledWasm(options?: { probe?: boolean }): void;
   installedWasmStamp(): Record<string, unknown> | undefined;
@@ -64,7 +81,7 @@ export interface Engine {
   requireBuiltLibrary(): void;
   /** Throws unless the Web export (`--release` or debug) carries this profile's side module built from the current sources. */
   requireFreshWebExport(options?: { probe?: boolean }): void;
-  prepareNative(options?: { probe?: boolean; faults?: boolean }): string;
+  prepareNative(options?: { probe?: boolean; faults?: boolean; liveCompile?: boolean }): string;
   /** The cargo features a build of `kind` enables. */
   features(kind: BuildKind, options?: { probe?: boolean; faults?: boolean }): string[];
   sourceInputs(kind: BuildKind, options?: { probe?: boolean; faults?: boolean }): BuildInputs;

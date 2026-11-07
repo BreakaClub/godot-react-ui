@@ -31,7 +31,7 @@ importDemo(godot);
 const result = await runNativeVerifier({
   godot, project: resolve(root, 'demo'), output, name: headless ? 'text-layout (headless)' : 'text-layout', resolution: '1120x800',
   leading: [...(headless ? ['--headless'] : []), scene], scriptArgs: ['--verify-text-layout'], successMarker, deadlineMs, retry: false,
-  beforeLaunch: () => engine.requireInstalledLibrary({probe: true}),
+  beforeLaunch: () => engine.requireInstalledBuilds({probe: true}),
   errorPattern: /ERROR:|Uncaught|\[panic /u,
 });
 console.log(`verify-text-layout summary:\n${summarizeRuns([result])}`);
