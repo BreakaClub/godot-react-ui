@@ -18,6 +18,9 @@ import { scrubOpenScripts } from './editor-session.mjs';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const GENERATE_TIMEOUT_MS = 120_000;
 
+/** The parts of `demo/` the staged project does not have: Breaka's typings and scene wrappers, whichever library is installed, and live-compile's (optional) extension and project. */
+const STAGE_LEFT_OUT = ['typings', 'gen', 'addons/godot-react-ui/bin', 'addons/live-compile', 'live-compile'];
+
 /** Where the stock profile keeps its declarations, and the record of what they were generated from. */
 export function stockTypingsPaths(engine) {
   return {
@@ -41,6 +44,8 @@ function stockTypingsSource(engine, version) {
   return {
     godotVersion: version, librarySha256: sha256(paths.library), apiSha256: sha256(resolve(engine.apiDirectory, 'extension_api.json')),
     sourceDigest: engine.sourceInputs('native').digest,
+    // What the staged project leaves out: declarations generated with another stage are not these.
+    leftOut: STAGE_LEFT_OUT.join(','),
   };
 }
 
@@ -62,11 +67,7 @@ export function generateStockTypings(engine) {
   mkdirSync(paths.stage, {recursive: true});
   // The project as the stock editor sees it: the demo, its compiled scripts, and the stock library at the path the
   // `.gdextension` names. Breaka's typings and scene wrappers, and whichever library is installed, are left out.
-  // The live-compile extension and its project are optional (docs/tracks/live-compile.md): the typings must not describe a class a checkout without it lacks.
-  const excluded = [
-    resolve(root, 'demo/typings'), resolve(root, 'demo/gen'), resolve(root, 'demo/addons/godot-react-ui/bin'),
-    resolve(root, 'demo/addons/live-compile'), resolve(root, 'demo/live-compile'),
-  ];
+  const excluded = STAGE_LEFT_OUT.map(part => resolve(root, 'demo', part));
   cpSync(resolve(root, 'demo'), paths.stage, {
     recursive: true, force: true, filter: source => !excluded.some(path => source === path || source.startsWith(`${path}/`)),
   });
