@@ -5,7 +5,7 @@ import {
   Time, Transform2D, Vector2, Vector2I, Vector3, Window,
 } from 'godot';
 import { createClassBinder } from 'godot.annotations';
-import { createRoot, readActivity, takeNativeProfile, type ReactRoot } from '../../src';
+import { createRoot, readActivity, takeNativeProfile, type ReactRoot, type UIHandle } from '../../src';
 import { readNodeRect } from '../../src/native';
 import { App, getDemoLifecycle } from './app';
 import { setLabOwner } from './interaction-lab';
@@ -18,7 +18,7 @@ import { registerDemoFonts } from './demo-fonts';
 import { FiltersLab, type FiltersLabProps } from './filters-lab';
 import { selectionLabControls } from './selection-lab';
 import { LayoutUtilitiesLab, TransitionClassesLab, type LayoutUtilitiesPage } from './layout-utilities-lab';
-import { RichTextLab, type RichTextLabProps } from './rich-text-lab';
+import { RichTextLab, richTextHandles, type RichTextLabProps } from './rich-text-lab';
 import { TextStylesLab } from './text-styles-lab';
 import { observeInputFailure, runVerification } from './verify';
 import { BenchmarkApp, type BenchmarkProps } from './benchmark';
@@ -69,6 +69,12 @@ export interface PassthroughCounts {
 
 /** One Godot node owns the renderer and its lifetime on native and Web. */
 @bind()
+function richTextHandle(testID: string): UIHandle {
+  const handle = richTextHandles.get(testID);
+  if (handle === undefined) throw new Error(`The rich text lab has no text ${testID}`);
+  return handle;
+}
+
 export default class Main extends Node {
   private surface: ReactUiRoot | null = null;
   private renderer: ReactRoot | null = null;
@@ -172,6 +178,10 @@ export default class Main extends Node {
       showTextStyles: (page: string) => this.requireRenderer().render(createElement(TextStylesLab, { page })),
       /** One page of the rich text lab (`rich-text-data.ts`) bare, with the tone its changing samples have; rendered again with another tone it is an ordinary commit. */
       showRichText: (props: RichTextLabProps) => this.requireRenderer().render(createElement(RichTextLab, props)),
+      /** The geometry queries of a text of the rich text lab by its test id (`getCaretRect`, `getOffsetAtPoint`, `getRangeRects`), for the Web verifier. */
+      richTextCaret: (testID: string, offset: number, side: 'before' | 'after') => richTextHandle(testID).getCaretRect(offset, side) ?? null,
+      richTextOffsetAt: (testID: string, x: number, y: number) => richTextHandle(testID).getOffsetAtPoint(x, y) ?? null,
+      richTextRanges: (testID: string, start: number, end: number) => richTextHandle(testID).getRangeRects(start, end) ?? null,
       /** One page of the layout utilities lab (`layout-utilities-data.ts`), bare at the root's corner, or its transition page. */
       showLayoutUtilities: (page: LayoutUtilitiesPage) => this.requireRenderer().render(
         page === 'transitions' ? createElement(TransitionClassesLab) : createElement(LayoutUtilitiesLab, { page }),

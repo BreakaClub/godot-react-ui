@@ -20,6 +20,7 @@ import { runFiltersScenario } from './verify-filters-web.mjs';
 import { runGlassScenario } from './verify-glass-web.mjs';
 import { runCodeEditorScenario, runTouchCodeEditorScenario } from './verify-code-editor-web.mjs';
 import { runNavigatorScenario, runNavigatorStartScenario } from './verify-navigator-web.mjs';
+import { runRichTextScenario } from './verify-rich-text-web.mjs';
 import { runTextStylesScenario } from './verify-text-styles-web.mjs';
 import { runTransformsScenario } from './verify-transforms-web.mjs';
 import { runPaintScenario } from './verify-paint-web.mjs';
@@ -2918,6 +2919,9 @@ async function runWorkflow(viewport) {
     await section('paint', () => runPaintScenario({ demo, page, frames, snapshot, find, check, capture, decodePng, actionTimeoutMs: ACTION_TIMEOUT_MS }));
   }
 
+  if (wanted('rich-text')) {
+    await section('rich-text', () => runRichTextScenario({ demo, page, frames, find, check, capture, moveTo }));
+  }
   if (wanted('text-styles')) {
     await section('text-styles', () => runTextStylesScenario({ demo, page, frames, find, check, capture, moveTo }));
   }

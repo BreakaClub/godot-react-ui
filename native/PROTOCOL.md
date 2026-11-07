@@ -80,6 +80,7 @@ so JS drops its instances and public handles.
 | --- | --- |
 | `style` | `{layers: [{minWidth?: number, states?: [...], style: {...}}]}` |
 | `text` | string (`text` nodes only) |
+| `spans` | array of `{start, end, style?, inlay?, children?}` (`text` nodes only; "Rich text") |
 | `disabled` | boolean |
 | `hidden` | boolean (Suspense: the node and its subtree take no space) |
 | `testID` | string |
@@ -354,6 +355,36 @@ commit path. The model works in code points; every offset that crosses to JS is 
 - Not built: word-granularity drag after a double click, caret affinity at wraps and direction changes, highlighting a
   selected line break, auto-scroll while dragging, touch selection handles. (Selection inside a `TextInput` is built; see
   "Text input".) Text inside a `draggable` element starts no selection (D43).
+
+## Rich text
+
+Nested `Text` in JS (`src/rich-text.ts`) is one `text` node whose `text` is the source text, every string child joined, and whose `spans` prop
+says what is styled in it; a nested `Text` is never a node. A span is `{start, end, style?, inlay?, children?}`: `start` and `end` are UTF-16
+offsets into `text`; `style` the longhands a nested `Text` may set (`color`, `backgroundColor`, `fontFamily`, `fontWeight`, `fontStyle`,
+`textDecorationLine`, `textDecorationColor`, `textDecorationStyle`, `textDecorationThickness`, `textUnderlineOffset`, one flat object: any other
+key is an error); `children` lie inside it, in order, and inherit from it. An **inlay** is generated text: `start == end` (where it sits in the
+source), `inlay` the text it shows, no children. Validation (`text_span::validate_spans`, at commit) names the span (`spans[2].children[0] ends
+at 9, past the end of its parent (7)`): ranges in order and inside their parent, on character boundaries (no offset inside a surrogate pair), an
+inlay a point with text, no span empty unless it holds an inlay.
+
+Native resolves them like nested inline elements (`text_span.rs`): the **display text** is the shown text with each inlay spliced in, and it is
+what is shaped (one `TextParagraph::add_string` per run of one font), drawn and laid out; `text_span/offsets.rs` maps its offsets to the shown
+text's, which the document uses (selection, copy, accessibility names, the queries below). A glyph is drawn in the colour of the segment its
+cluster starts in; a decoration is drawn per segment and line fragment, in `text_decoration.rs`'s Chrome geometry; a background fills its span's
+display range under the selection and the text. A change to `spans` that only recolours, decorates or backgrounds, with the same text, fonts and
+style, is painted again without shaping (`paragraphRepaints` in `get_activity`, against `paragraphBuilds`).
+
+- `get_caret_rect(tag, offset, side) -> String`: the caret at UTF-16 `offset` of the text the node shows (inlays not counted), `side` -1 for before
+  generated text or at the end of a soft wrapped line and 1 for after; a zero-width root-local rectangle the height of the line box, as JSON
+  `{x, y, width, height}`. `null` for a node that is not a mounted `Text`; `{"error": reason}` for an offset past the end or inside a surrogate pair.
+- `get_offset_at_point(tag, x, y) -> String`: the caret position nearest a root-local point, clamped into the text: `{"offset", "side":
+  "before" | "after"}`. Inside an inlay it is the nearer side. The point goes through the node's inverse matrix, so a transformed text is hit where
+  it is drawn.
+- `get_range_rects(tag, start, end) -> String`: `{"rects": [{x, y, width, height}, ...]}`, one or more per line, the boxes of a selection
+  highlight; the range covers an inlay strictly inside it and none at its ends. Empty for an empty range.
+
+The three bound a transformed rectangle by its box, as `get_node_rect` does. `get_text_lines` reports, besides `text` (the shown text), `display` (the
+display text its line ranges index).
 
 ## Queries
 
