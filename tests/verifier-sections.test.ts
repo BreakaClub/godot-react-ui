@@ -54,8 +54,13 @@ test('--only= arguments are read from all of the arguments and split on commas',
   assert.deepEqual(requestedSections(['--interaction']), []);
 });
 
+test('the font-fallback section runs first: a face keeps what the library added for characters no font has, so nothing that shows such text may come before it', () => {
+  assert.equal(NATIVE_INTERACTION_SECTIONS[0], 'font-fallback');
+  assert.ok(!(WEB_INTERACTION_SECTIONS as readonly string[]).includes('font-fallback'), 'the Web has its own section, font-slices');
+});
+
 test('an unknown section name is an error, however it got there', () => {
-  assert.throws(() => checkSectionNames(['events', 'evnts'], NATIVE_INTERACTION_SECTIONS), /Unknown section "evnts"; the sections are events, /);
+  assert.throws(() => checkSectionNames(['events', 'evnts'], NATIVE_INTERACTION_SECTIONS), /Unknown section "evnts"; the sections are font-fallback, events, /);
   assert.throws(() => sectionsToRun(NATIVE_INTERACTION_SECTIONS, NATIVE_OPT_IN_SECTIONS, ['touch']), /Unknown section "touch"/, 'touch is the Web verifier\'s');
   assert.throws(() => describeSections(WEB_INTERACTION_SECTIONS, [], ['positioning']), /Unknown section "positioning"/, 'positioning is native only');
   assert.throws(() => sectionsToRun(NATIVE_INTERACTION_SECTIONS, NATIVE_OPT_IN_SECTIONS, ['']), /Unknown section ""/, '--only= with no name is a typo too');
