@@ -12,6 +12,8 @@ export interface RichTextLabProps {
   word?: number;
   /** Show a file of this many lines of highlighted code, one `Text` a line, in place of the pages: the cost of a code view (`docs/tracks/rich-text.md`). */
   file?: number;
+  /** With `file`: each line is one plain string, for the baseline the spans are measured against. */
+  plain?: boolean;
 }
 
 /** A line of code as spans: the shapes a highlighted TypeScript file is made of. Each is `[text, className]` pieces; `''` is no span. */
@@ -63,14 +65,16 @@ interface Mark {
   readonly rect: LayoutRect;
 }
 
-function FileLines({ count }: { count: number }) {
+function FileLines({ count, plain }: { count: number; plain: boolean }) {
   return (
     <View testID="file" className="flex flex-col bg-white p-2 select-text">
       {Array.from({ length: count }, (_, index) => {
         const pieces = FILE_LINE_SHAPES[index % FILE_LINE_SHAPES.length] ?? [];
         return (
           <Text key={index} className="font-mono text-sm leading-5 whitespace-pre text-slate-900 h-5">
-            {pieces.map(([text, className], piece) => (className === '' ? text : <Text key={piece} className={className}>{text}</Text>))}
+            {plain
+              ? pieces.map(([text]) => text).join('')
+              : pieces.map(([text, className], piece) => (className === '' ? text : <Text key={piece} className={className}>{text}</Text>))}
           </Text>
         );
       })}
@@ -87,13 +91,13 @@ function FileLines({ count }: { count: number }) {
  * The `testID` of a text is its sample's id and the one of a page is `page-<id>`.
  */
 export function RichTextLab(props: RichTextLabProps) {
-  const { page: propPage, tone: propTone, word: propWord, file } = props;
+  const { page: propPage, tone: propTone, word: propWord, file, plain } = props;
   const [selectedPage, setSelectedPage] = useState<string>(DEFAULT_PAGE_ID);
   const [ownTone, setOwnTone] = useState(0);
   const [mark, setMark] = useState<Mark | undefined>(undefined);
   const tone = propTone ?? ownTone;
   const word = propWord ?? tone;
-  if (file !== undefined) return <FileLines count={file} />;
+  if (file !== undefined) return <FileLines count={file} plain={plain === true} />;
   const activeId = propPage ?? selectedPage;
   const page = PAGES.find(candidate => candidate.id === activeId);
   if (page === undefined) {

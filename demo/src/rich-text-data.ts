@@ -105,6 +105,21 @@ function decorationRows(style: DecorationStyleName): RichSample[] {
   ];
 }
 
+/** The rows of an overline or a line through the text: the styles at thickness 2, solid at auto and 1, wavy at 1 and 4. */
+function lineRows(line: 'overline' | 'line-through', prefix: string): RichSample[] {
+  const classes = (style: string, thickness: string): string => `${line} decoration-${style} decoration-red-600${thickness === '' ? '' : ` decoration-${thickness}`}`;
+  return [
+    decorated(`${prefix}-solid-auto`, `${line} decoration-solid, auto thickness`, classes('solid', '')),
+    decorated(`${prefix}-solid-1`, `${line} decoration-solid decoration-1`, classes('solid', '1')),
+    decorated(`${prefix}-solid-2`, `${line} decoration-solid decoration-2`, classes('solid', '2')),
+    decorated(`${prefix}-double-2`, `${line} decoration-double decoration-2`, classes('double', '2')),
+    decorated(`${prefix}-dotted-2`, `${line} decoration-dotted decoration-2`, classes('dotted', '2')),
+    decorated(`${prefix}-dashed-2`, `${line} decoration-dashed decoration-2`, classes('dashed', '2')),
+    decorated(`${prefix}-wavy-1`, `${line} decoration-wavy decoration-1`, classes('wavy', '1')),
+    decorated(`${prefix}-wavy-4`, `${line} decoration-wavy decoration-4`, classes('wavy', '4')),
+  ];
+}
+
 const wavyRows: RichSample[] = [
   ...decorationRows('wavy'),
   decorated('deco-wavy-3', 'wavy, 3 px', 'underline decoration-wavy decoration-red-600 decoration-[3px]'),
@@ -179,6 +194,8 @@ export const PAGES: readonly RichPage[] = [
   { id: 'decorations-solid', title: 'Decoration styles: solid and double', samples: [...decorationRows('solid'), ...decorationRows('double')] },
   { id: 'decorations-dotted', title: 'Decoration styles: dotted and dashed', samples: [...decorationRows('dotted'), ...decorationRows('dashed')] },
   { id: 'decorations-wavy', title: 'Decoration styles: wavy', samples: wavyRows },
+  { id: 'decorations-over', title: 'Decoration styles: overline', samples: lineRows('overline', 'over') },
+  { id: 'decorations-through', title: 'Decoration styles: line through the text', samples: lineRows('line-through', 'through') },
   { id: 'decorations-more', title: 'Decoration styles: offsets, wrapping and visible text', samples: moreRows },
   {
     id: 'inlays',
@@ -208,6 +225,7 @@ export const PAGES: readonly RichPage[] = [
     chrome: false,
     samples: [
       { id: 'scaled', note: 'scaled by one and a half from its corner', className: `${CODE} origin-top-left scale-150`, runs: ['let ', span('text-red-600', 'count'), inlay('text-slate-500', ': number'), ' = 42;'], interact: true },
+      { id: 'empty', note: 'a text with nothing in it: its caret is where its first character would be', className: CODE, runs: [], interact: true },
       { id: 'rotated', note: 'turned a quarter, about its centre', className: `${CODE} rotate-90 my-16 self-start`, runs: ['let ', span('text-red-600', 'count'), inlay('text-slate-500', ': number'), ' = 42;'], interact: true },
     ],
   },

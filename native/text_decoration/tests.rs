@@ -1,4 +1,4 @@
-use super::raster::{dot, wave_tile};
+use super::raster::{dot, split_center, wave_tile};
 use super::*;
 use crate::text_style::spec::DecorationThickness;
 
@@ -557,4 +557,41 @@ fn overlines_and_lines_through_the_text_have_their_own_rows() {
             "double line through {thickness}"
         );
     }
+}
+
+#[test]
+fn a_solid_line_through_the_text_sits_on_a_whole_css_pixel() {
+    // JetBrains Mono 14 (ascent 14), Chrome 156: T = 2 is rows -6 and -5 of CSS px at either ratio; the device pixel grid does not move it
+    // (a rounding in device pixels put it half a CSS pixel lower at ratio two).
+    for scale in [1.0, 2.0] {
+        let line = shapes(
+            &decoration(
+                DecorationStyleSpec::Solid,
+                DecorationThickness::Px(2.0),
+                None,
+            ),
+            LineKind::LineThrough,
+            DecorationFont {
+                size: 14.0,
+                ascent: 14.0,
+                underline_thickness: 0.7,
+            },
+            scale,
+            fragment(0.0, 60.0),
+        );
+        assert_eq!(rects(&line), [(0.0, -6.0, 60.0, 2.0)], "scale {scale}");
+    }
+}
+
+#[test]
+fn a_centre_line_above_the_items_top_is_split_into_a_row_and_a_positive_fraction() {
+    const PARTS: f32 = 64.0;
+    assert_eq!(split_center(202.5, PARTS), (202.0, 32));
+    assert_eq!(split_center(0.0, PARTS), (0.0, 0));
+    // Above the top: -1.5 is the middle of row -2, not minus a half of row -1.
+    assert_eq!(split_center(-1.5, PARTS), (-2.0, 32));
+    assert_eq!(split_center(-7.25, PARTS), (-8.0, 48));
+    // A fraction that rounds up to a pixel is the next row's.
+    assert_eq!(split_center(3.999, PARTS), (4.0, 0));
+    assert_eq!(split_center(-0.001, PARTS), (0.0, 0));
 }

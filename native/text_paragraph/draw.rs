@@ -7,7 +7,7 @@ use godot::prelude::*;
 
 use crate::box_draw::{Lease, acquire_baked, begin, end};
 use crate::paint::parse_color;
-use crate::text_decoration::raster::{dot, wave_layout, wave_tile};
+use crate::text_decoration::raster::{dot, split_center, wave_layout, wave_tile};
 use crate::text_decoration::{DotsPlan, Fragment, LineKind, Shape, WavePlan, shapes};
 use crate::text_span::plan::ColorRuns;
 use crate::text_style::TextDecoration;
@@ -25,31 +25,57 @@ struct Glyph {
     index: i64,
 }
 
-fn glyph_of(dictionary: &VarDictionary) -> Result<Glyph, String> {
-    let field = |name: &str| {
+/// The keys of a glyph's dictionary, made once for the glyphs of a line: a lookup by a string literal makes a `Variant` for it every
+/// time, and a line has a dictionary per glyph.
+struct GlyphKeys {
+    start: Variant,
+    repeat: Variant,
+    advance: Variant,
+    offset: Variant,
+    font_rid: Variant,
+    font_size: Variant,
+    index: Variant,
+}
+
+impl GlyphKeys {
+    fn new() -> Self {
+        Self {
+            start: "start".to_variant(),
+            repeat: "repeat".to_variant(),
+            advance: "advance".to_variant(),
+            offset: "offset".to_variant(),
+            font_rid: "font_rid".to_variant(),
+            font_size: "font_size".to_variant(),
+            index: "index".to_variant(),
+        }
+    }
+}
+
+fn glyph_of(dictionary: &VarDictionary, keys: &GlyphKeys) -> Result<Glyph, String> {
+    let field = |key: &Variant, name: &str| {
         dictionary
-            .get(name)
+            .get(key)
             .ok_or_else(|| format!("a glyph has no {name}"))
     };
-    let integer = |name: &str| {
-        field(name)?
+    let integer = |key: &Variant, name: &str| {
+        field(key, name)?
             .try_to::<i64>()
             .map_err(|error| format!("glyph {name}: {error}"))
     };
     Ok(Glyph {
-        start: integer("start")?,
-        repeat: integer("repeat")?,
-        advance: field("advance")?
+        start: integer(&keys.start, "start")?,
+        repeat: integer(&keys.repeat, "repeat")?,
+        advance: field(&keys.advance, "advance")?
             .try_to::<f32>()
             .map_err(|error| format!("glyph advance: {error}"))?,
-        offset: field("offset")?
+        offset: field(&keys.offset, "offset")?
             .try_to::<Vector2>()
             .map_err(|error| format!("glyph offset: {error}"))?,
-        font: field("font_rid")?
+        font: field(&keys.font_rid, "font_rid")?
             .try_to::<Rid>()
             .map_err(|error| format!("glyph font_rid: {error}"))?,
-        size: integer("font_size")?,
-        index: integer("index")?,
+        size: integer(&keys.font_size, "font_size")?,
+        index: integer(&keys.index, "index")?,
     })
 }
 
@@ -93,19 +119,20 @@ pub(super) fn draw_glyphs(
     clip: (f32, f32),
     drawing: &LineDrawing,
 ) -> Result<(), String> {
+    let keys = GlyphKeys::new();
     let rtl = server.shaped_text_get_direction(line) == Direction::RTL;
     let ellipsis_at = server.shaped_text_get_ellipsis_pos(line);
     let trim_at = server.shaped_text_get_trim_pos(line);
     let glyphs = server
         .shaped_text_get_glyphs(line)
         .iter_shared()
-        .map(|dictionary| glyph_of(&dictionary))
+        .map(|dictionary| glyph_of(&dictionary, &keys))
         .collect::<Result<Vec<_>, _>>()?;
     let ellipsis = if ellipsis_at >= 0 {
         server
             .shaped_text_get_ellipsis_glyphs(line)
             .iter_shared()
-            .map(|dictionary| glyph_of(&dictionary))
+            .map(|dictionary| glyph_of(&dictionary, &keys))
             .collect::<Result<Vec<_>, _>>()?
     } else {
         Vec::new()
@@ -254,21 +281,15 @@ const CENTER_FRACTION_PARTS: f32 = 64.0;
 fn draw_wave(canvas: Rid, plan: &WavePlan, color: Color, scale: f32, leases: &mut Vec<Lease>) {
     let layout = wave_layout(&plan.wave, scale);
     let center = plan.center * scale;
-    let parts = (center.fract() * CENTER_FRACTION_PARTS).round();
-    // A fraction that rounds up to a whole pixel is the next row's.
-    let (row, parts) = if parts >= CENTER_FRACTION_PARTS {
-        (center.floor() + 1.0, 0.0)
-    } else {
-        (center.floor(), parts)
-    };
+    let (row, parts) = split_center(center, CENTER_FRACTION_PARTS);
     let (lease, texture, width, height) = acquire_baked(
         vec![
             WAVE_PICTURE,
             plan.wave.width.to_bits(),
             scale.to_bits(),
-            parts as u32,
+            parts,
         ],
-        || wave_tile(&plan.wave, scale, parts / CENTER_FRACTION_PARTS).raster,
+        || wave_tile(&plan.wave, scale, parts as f32 / CENTER_FRACTION_PARTS).raster,
     );
     leases.push(lease);
     let left = (plan.left * scale).round();

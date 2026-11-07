@@ -296,14 +296,6 @@ pub(crate) fn shapes(
     let Some(band) = solid_band else {
         return Vec::new();
     };
-    if decoration.style == DecorationStyleSpec::Solid {
-        return vec![Shape::Rect(PlanRect {
-            x: fragment.left,
-            y: fragment.baseline + band.top,
-            width: fragment.right - fragment.left,
-            height: band.height,
-        })];
-    }
     let Some(thickness) = thickness(decoration.thickness, font) else {
         return Vec::new();
     };
@@ -313,6 +305,20 @@ pub(crate) fn shapes(
         thickness,
         offset: decoration.underline_offset,
     };
+    if decoration.style == DecorationStyleSpec::Solid {
+        // The line through the text sits on a whole CSS pixel (Chrome snaps it before it scales); the other two lines are where
+        // the decorator puts them.
+        let top = match kind {
+            LineKind::LineThrough => (geometry.top(0.0, false) * scale).round() / scale,
+            LineKind::Underline | LineKind::Overline => band.top,
+        };
+        return vec![Shape::Rect(PlanRect {
+            x: fragment.left,
+            y: fragment.baseline + top,
+            width: fragment.right - fragment.left,
+            height: band.height,
+        })];
+    }
     patterned(decoration.style, geometry, scale, fragment)
 }
 

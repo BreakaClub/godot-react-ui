@@ -359,7 +359,7 @@ async function sideBySide(output, entries, crop) {
 }
 
 /** The samples whose text is invisible: only what is drawn round it is in the picture. */
-const decorationOnly = id => id.startsWith('deco-') && id !== 'deco-visible';
+const decorationOnly = id => /^(deco|over|through)-/u.test(id) && id !== 'deco-visible';
 
 async function diff(nativeDirectory, chromeDirectory, outDirectory) {
   await mkdir(outDirectory, { recursive: true });

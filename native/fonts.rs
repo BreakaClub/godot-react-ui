@@ -78,12 +78,41 @@ pub(crate) struct ResolvedFont {
     pub(crate) font_size: i32,
 }
 
+/// The size the font's ascent and descent are read at to get them per em: large enough that the whole pixels the engine rounds them
+/// to (FreeType rounds an ascender up and a descender down) are a negligible share of an em.
+const METRICS_REFERENCE_SIZE: i32 = 512;
+
 impl ResolvedFont {
-    /// The font's ascent and descent at the size it is used at.
+    /// The font's ascent and descent at the size it is used at, as the engine reports them (whole pixels, rounded outwards).
     pub(crate) fn extents(&self) -> (f32, f32) {
         (
             self.draw.get_ascent_ex().font_size(self.font_size).done(),
             self.draw.get_descent_ex().font_size(self.font_size).done(),
+        )
+    }
+
+    /// The ascent and descent as Chrome rounds them: the font's own metrics, scaled to the size and rounded to the nearest pixel
+    /// (`SimpleFontData::PlatformInit`), which is what the content area of an inline box, a span's background and the rows of an
+    /// overline or a line through the text are measured from. The engine's are whole pixels already, rounded outwards (15 and 5
+    /// for JetBrains Mono at 14 px, where Chrome has 14 and 4), so they are read per em at a large size and scaled here.
+    pub(crate) fn chrome_extents(&self) -> (f32, f32) {
+        let per_em = |metric: f32| metric / METRICS_REFERENCE_SIZE as f32;
+        let ascent = per_em(
+            self.draw
+                .get_ascent_ex()
+                .font_size(METRICS_REFERENCE_SIZE)
+                .done(),
+        );
+        let descent = per_em(
+            self.draw
+                .get_descent_ex()
+                .font_size(METRICS_REFERENCE_SIZE)
+                .done(),
+        );
+        let size = self.font_size as f32;
+        (
+            (ascent * size + 0.5).floor(),
+            (descent * size + 0.5).floor(),
         )
     }
 }

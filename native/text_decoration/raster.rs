@@ -90,6 +90,20 @@ pub(crate) fn wave_layout(wave: &Wave, scale: f32) -> WaveLayout {
     }
 }
 
+/// The row a wave's centre line (in device pixels, from the item's top) is in, and how many of `parts_per_pixel` parts of a pixel it is
+/// down that row. The fraction is taken from the floor: `f32::fract` keeps the sign, which for a line above the item's top (an
+/// overline on the first line of a text) put the wave a row too high.
+pub(crate) fn split_center(center: f32, parts_per_pixel: f32) -> (f32, u32) {
+    let floor = center.floor();
+    let parts = ((center - floor) * parts_per_pixel).round();
+    // A fraction that rounds up to a whole pixel is the next row's.
+    if parts >= parts_per_pixel {
+        (floor + 1.0, 0)
+    } else {
+        (floor, parts as u32)
+    }
+}
+
 /// A baked wave, to be tiled along the line: `periods` periods in a picture `width` pixels wide. The picture's rows start
 /// `rows_above` above the row that holds the centre line.
 #[derive(Clone, Debug, PartialEq)]

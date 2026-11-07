@@ -26,6 +26,8 @@ export const DEMO_ENTRY_POINTS = [
   'demo/src/a11y-main.ts', 'demo/src/verify-a11y.ts',
   // The text styles lab (docs/tracks/utilities-text.md): its fonts, its samples (which the Chrome reference reads too) and its verifier.
   'demo/src/demo-fonts.ts', 'demo/src/text-styles-data.ts', 'demo/src/text-styles-golden.ts', 'demo/src/verify-text-styles.ts',
+  // The rich text lab (docs/tracks/rich-text.md): its samples (which the Chrome reference reads too), Chrome's numbers and its verifier.
+  'demo/src/rich-text-data.ts', 'demo/src/rich-text-golden.ts', 'demo/src/verify-rich-text.ts',
   // The live code editor's compiler and checker, the swap that keeps state, and their verifier (docs/tracks/live-compile.md).
   'demo/src/live-compile-protocol.ts', 'demo/src/live-compile-modules.ts', 'demo/src/live-compile-refresh.ts', 'demo/src/live-compile-host.ts',
   'demo/src/live-compile-session.ts', 'demo/src/live-compile-open.ts', 'demo/src/verify-live-compile.ts',

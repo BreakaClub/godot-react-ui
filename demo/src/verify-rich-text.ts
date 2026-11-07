@@ -373,6 +373,36 @@ function verifyColumns(sampleId: string): { advance: number; worst: number } {
   return { advance, worst };
 }
 
+/**
+ * At a soft wrap an offset has two positions: the end of the line above (`before`) and the start of the line below (`after`), and a click
+ * past the end of the line above is on the line above.
+ */
+function verifyWraps(sampleId: string): number {
+  const reference = golden(sampleId);
+  let checked = 0;
+  for (let line = 1; line < reference.lines.length; line += 1) {
+    const next = reference.chars.findIndex(entry => entry[3] === line);
+    const first = reference.chars[next];
+    const last = reference.chars[next - 1];
+    assert(first !== undefined && last !== undefined, `${sampleId}: no characters at the wrap of line ${line}`);
+    const [offset, left] = first;
+    const after = handle(sampleId).getCaretRect(offset, 'after');
+    const before = handle(sampleId).getCaretRect(offset, 'before');
+    assert(after !== undefined && before !== undefined, `${sampleId}: no carets at the wrap ${offset}`);
+    assert(Math.abs(after.x - left) <= CHARACTER_TOLERANCE_PX, `${sampleId}: the caret after the wrap at ${offset} is at ${after.x.toFixed(2)}, Chrome's character at ${left.toFixed(2)}`);
+    assert(Math.abs(before.x - last[2]) <= CHARACTER_TOLERANCE_PX, `${sampleId}: the caret before the wrap at ${offset} is at ${before.x.toFixed(2)}, the end of the line above at ${last[2].toFixed(2)}`);
+    assert(before.y < after.y && Math.abs(after.y - before.y - (reference.lines[line]?.top ?? 0) + (reference.lines[line - 1]?.top ?? 0)) <= TOLERANCE_PX,
+      `${sampleId}: the carets either side of the wrap at ${offset} are not a line apart (${before.y.toFixed(2)}, ${after.y.toFixed(2)})`);
+    // A click below the first character of the next line and one past the end of the line above, on the line above.
+    const row = reference.lines[line - 1];
+    assert(row !== undefined, `${sampleId}: no line ${line - 1}`);
+    const past = handle(sampleId).getOffsetAtPoint(row.x + row.width + 40, row.baseline - ABOVE_BASELINE_PX);
+    assert(past !== undefined && past.offset < offset, `${sampleId}: a click past the end of line ${line - 1} is at ${JSON.stringify(past)}, which is not on that line (it ends before ${offset})`);
+    checked += 4;
+  }
+  return checked;
+}
+
 /** The queries are refused for what they must refuse: past the end, inside a surrogate pair. */
 function verifyRefusals(): void {
   const text = handle('code-line');
@@ -628,6 +658,27 @@ function verifyTransformed(api: RichTextInspection, id: string): number {
   return checked;
 }
 
+/** An empty text has one position: the start of its empty line, as tall as the line its font gives. */
+function verifyEmpty(): number {
+  const text = handle('empty');
+  const caret = text.getCaretRect(0, 'after');
+  const box = text.getRect();
+  assert(caret !== undefined && box !== undefined, 'empty: no caret or no rect');
+  assert(caret.width === 0 && caret.height > 0, `empty: the caret is ${JSON.stringify(caret)}`);
+  assert(Math.abs(caret.x - box.x) <= CARET_EPSILON_PX && caret.y >= box.y - CARET_EPSILON_PX, `empty: the caret ${JSON.stringify(caret)} is not at the start of the text ${JSON.stringify(box)}`);
+  assert(text.getRangeRects(0, 0)?.length === 0, 'empty: an empty range has no rectangles');
+  const found = text.getOffsetAtPoint(caret.x + 40, caret.y + 2);
+  assert(found?.offset === 0 && found.side === 'after', `empty: a click is ${JSON.stringify(found)}, not offset 0`);
+  let refused: unknown;
+  try {
+    text.getCaretRect(1);
+  } catch (error) {
+    refused = error;
+  }
+  assert(refused instanceof RangeError, 'empty: offset 1 is past the end');
+  return 5;
+}
+
 /** The scale is one and a half and the quarter turn swaps the axes: the queries are right in the space the text is drawn in. */
 function verifyTransforms(api: RichTextInspection): number {
   // A scaled text is one and a half times as wide as the same line is untransformed: the advance is the colours page's, from Chrome.
@@ -641,21 +692,21 @@ function verifyTransforms(api: RichTextInspection): number {
   const expected = (second[1] - first[1]) * [...displayText(sample.runs)].length * SCALE_CLASS_FACTOR;
   assert(Math.abs(end.x - start.x - expected) <= CHARACTER_TOLERANCE_PX * SCALE_CLASS_FACTOR * [...displayText(sample.runs)].length,
     `scaled: the text spans ${(end.x - start.x).toFixed(2)}, one and a half times its untransformed width is ${expected.toFixed(2)}`);
-  let checked = 1;
+  let checked = 1 + verifyEmpty();
   for (const id of ['scaled', 'rotated']) checked += verifyTransformed(api, id);
   return checked;
 }
 
 // ---- The cost of a file -------------------------------------------------------------------------------------------------------
 
-/** The cost of a highlighted file in one `Text` a line: nodes, bytes and time, against the evaluation's numbers (docs/tracks/rich-text.md). */
-async function measureFile(api: RichTextInspection): Promise<void> {
+/** What mounting `lines` lines of a file costs, from the profiles of the commit that did it. */
+async function mountFile(api: RichTextInspection, plain: boolean): Promise<Record<string, unknown>> {
   api.showRichText({ page: 'colours' });
   await settleFrames();
   api.profile(true);
   api.takeProfile();
   const before = api.activity();
-  api.showRichText({ file: FILE_LINES });
+  api.showRichText({ file: FILE_LINES, plain });
   await settleFrames();
   const profile = api.takeProfile();
   const after = api.activity();
@@ -664,13 +715,21 @@ async function measureFile(api: RichTextInspection): Promise<void> {
   const flush = profile.js.samples.find(sample => sample.kind === 'flush');
   assert(flush !== undefined && flush.kind === 'flush', 'The file was committed');
   const batch = profile.native.samples.find(sample => sample.kind === 'batch');
-  console.log(`GODOT_REACT_RICH_TEXT_FILE ${JSON.stringify({
-    lines: FILE_LINES, nodes, nodesPerLine: nodes / FILE_LINES, jsonChars: chars, charsPerLine: chars / FILE_LINES,
-    jsFlushMs: flush.fullFlushMs, nativeBatch: batch ?? null, paragraphBuilds: after.paragraphBuilds - before.paragraphBuilds,
-  })}`);
+  api.profile(false);
   // One node a line (and the file's own): the evaluation's `View` of `Text` runs was about nine.
   assert(nodes <= FILE_LINES + 3, `The file is ${nodes} nodes for ${FILE_LINES} lines; one a line was the point`);
-  api.profile(false);
+  return {
+    plain, lines: FILE_LINES, nodes, nodesPerLine: nodes / FILE_LINES, jsonChars: chars, charsPerLine: chars / FILE_LINES,
+    jsFlushMs: flush.fullFlushMs, nativeBatch: batch ?? null, paragraphBuilds: after.paragraphBuilds - before.paragraphBuilds,
+    contentRecords: after.contentRecords - before.contentRecords,
+  };
+}
+
+/** The cost of a highlighted file in one `Text` a line, and of the same lines as plain strings, against the evaluation's numbers (docs/tracks/rich-text.md). */
+async function measureFile(api: RichTextInspection): Promise<void> {
+  const plain = await mountFile(api, true);
+  const spans = await mountFile(api, false);
+  console.log(`GODOT_REACT_RICH_TEXT_FILE ${JSON.stringify({ plain, spans })}`);
 }
 
 // ---- The section ------------------------------------------------------------------------------------------------------------
@@ -718,6 +777,7 @@ async function verifyScale(owner: Node, api: RichTextInspection, capture: RichTe
   verifyNumberControl(api, 'inlay-hint', 'inlay-group');
   await expectFailure('hit tests expecting the display text\'s offsets (the inlay counted as source)', () => { verifyHitTesting(sampleOf('inlay-hint'), true); });
   await showPage(api, 'colours');
+  queried += verifyWraps('prose');
   verifyRefusals();
   console.log(`GODOT_REACT_RICH_TEXT_CHARS ${JSON.stringify({
     scale, texts: compared, queries: queried, left: showSpread('left', spreads.left), right: showSpread('right', spreads.right), columns,

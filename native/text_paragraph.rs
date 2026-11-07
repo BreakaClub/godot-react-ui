@@ -327,8 +327,7 @@ impl StyledParagraph {
         }
         self.paragraph.set_width(width);
         let result = self.layout(origin, width).and_then(|layout| {
-            let (ascent, descent) = self.font.extents();
-            let (above, below) = (ascent.round(), descent.round());
+            let (above, below) = self.font.chrome_extents();
             let mut server = RenderingServer::singleton();
             for (range, color) in &rich.backgrounds {
                 for run in layout
@@ -495,7 +494,7 @@ impl StyledParagraph {
             self.paragraph.get_size().x
         };
         let size = self.style.font_size;
-        let (ascent, _) = self.font.extents();
+        let (ascent, _) = self.font.chrome_extents();
         let decoration_font = draw::decoration_font(
             size,
             ascent,
