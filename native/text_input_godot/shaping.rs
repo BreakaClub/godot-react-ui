@@ -13,6 +13,7 @@ use super::{
     TextInputState,
 };
 use crate::events::{CompositionData, EventPayload};
+use crate::fonts::primary_extents;
 use crate::mount::Edges;
 use crate::props::{Kind, PropsSpec, TextAlignSpec};
 use crate::scroll::{ScrollRange, ScrollRanges};
@@ -36,8 +37,8 @@ impl Metrics {
     pub(crate) fn of(font: &Gd<Font>, font_size: i32) -> Self {
         Self {
             font_size,
-            ascent: font.get_ascent_ex().font_size(font_size).done(),
-            descent: font.get_descent_ex().font_size(font_size).done(),
+            ascent: primary_extents(font, font_size).0,
+            descent: primary_extents(font, font_size).1,
             zero_advance: font.get_char_size('0' as u32, font_size).x,
         }
     }

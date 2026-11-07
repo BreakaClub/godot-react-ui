@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use godot::builtin::{Transform2D, VarDictionary};
 use godot::classes::text_server::FontStyle;
-use godot::classes::{Font, FontFile, FontVariation, SystemFont};
+use godot::classes::{Font, FontFile, FontVariation, SystemFont, TextServerManager};
 use godot::prelude::*;
 
 use crate::text_style::face::{FaceChoice, FaceDesc, match_face};
@@ -82,13 +82,29 @@ pub(crate) struct ResolvedFont {
 /// to (FreeType rounds an ascender up and a descender down) are a negligible share of an em.
 const METRICS_REFERENCE_SIZE: i32 = 512;
 
+/// A font's ascent and descent at `size` as the engine reports them: the font's own, not the largest of its and its fallbacks' (`Font::get_ascent` takes
+/// the maximum over the whole chain). A fallback is behind a font to draw the characters it lacks, and one that is added when such text appears must not
+/// move the line boxes, baselines and decorations of the text that does not use it, which a taller fallback (a CJK font is) would. The text server's own
+/// line metrics are per line, from the fonts the line's glyphs use.
+pub(crate) fn primary_extents(font: &Gd<Font>, size: i32) -> (f32, f32) {
+    let primary = font.get_rids().get(0);
+    let server = TextServerManager::singleton().get_primary_interface();
+    match (primary, server) {
+        (Some(rid), Some(server)) => (
+            server.font_get_ascent(rid, i64::from(size)) as f32,
+            server.font_get_descent(rid, i64::from(size)) as f32,
+        ),
+        _ => (
+            font.get_ascent_ex().font_size(size).done(),
+            font.get_descent_ex().font_size(size).done(),
+        ),
+    }
+}
+
 impl ResolvedFont {
     /// The font's ascent and descent at the size it is used at, as the engine reports them (whole pixels, rounded outwards).
     pub(crate) fn extents(&self) -> (f32, f32) {
-        (
-            self.draw.get_ascent_ex().font_size(self.font_size).done(),
-            self.draw.get_descent_ex().font_size(self.font_size).done(),
-        )
+        primary_extents(&self.draw, self.font_size)
     }
 
     /// The ascent and descent as Chrome rounds them: the font's own metrics, scaled to the size and rounded to the nearest pixel
@@ -97,18 +113,10 @@ impl ResolvedFont {
     /// for JetBrains Mono at 14 px, where Chrome has 14 and 4), so they are read per em at a large size and scaled here.
     pub(crate) fn chrome_extents(&self) -> (f32, f32) {
         let per_em = |metric: f32| metric / METRICS_REFERENCE_SIZE as f32;
-        let ascent = per_em(
-            self.draw
-                .get_ascent_ex()
-                .font_size(METRICS_REFERENCE_SIZE)
-                .done(),
-        );
-        let descent = per_em(
-            self.draw
-                .get_descent_ex()
-                .font_size(METRICS_REFERENCE_SIZE)
-                .done(),
-        );
+        let (reference_ascent, reference_descent) =
+            primary_extents(&self.draw, METRICS_REFERENCE_SIZE);
+        let ascent = per_em(reference_ascent);
+        let descent = per_em(reference_descent);
         let size = self.font_size as f32;
         (
             (ascent * size + 0.5).floor(),

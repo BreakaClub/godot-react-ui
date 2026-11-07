@@ -59,6 +59,26 @@ const KOREAN: &[&str] = &[
     "AppleGothic",
 ];
 
+/// Whether `codepoint` is one of the characters the candidate families are for: Han, kana, Hangul, bopomofo, and the punctuation and forms of those scripts.
+/// Opening a family means reading its file (tens of megabytes), so a character no such family can have (a private use character, Thai) is not asked of them:
+/// the engine's own lookup is the only one that can help it.
+pub(crate) fn is_cjk(codepoint: u32) -> bool {
+    matches!(
+        codepoint,
+        0x1100..=0x11FF
+            | 0x2E80..=0x2FDF
+            | 0x3000..=0x30FF
+            | 0x3100..=0x4DBF
+            | 0x4E00..=0x9FFF
+            | 0xA960..=0xA97F
+            | 0xAC00..=0xD7FF
+            | 0xF900..=0xFAFF
+            | 0xFE30..=0xFE4F
+            | 0xFF00..=0xFFEF
+            | 0x20000..=0x3FFFF
+    )
+}
+
 /// Whether this platform has system fonts to look in.
 pub(crate) fn available() -> bool {
     Os::singleton().has_feature(SYSTEM_FONTS_FEATURE)
@@ -101,6 +121,8 @@ pub(crate) struct SystemFallback {
     candidates: Vec<String>,
     /// Characters no candidate has: not looked for again.
     unresolvable: BTreeSet<u32>,
+    /// The families the system has, lowercase, read the first time a character needed one (`OS.get_system_fonts()`).
+    installed: Option<BTreeSet<String>>,
     /// The families a font was made of, because it has characters the root was missing: not made again.
     adopted: BTreeSet<String>,
 }
@@ -120,6 +142,7 @@ impl SystemFallback {
         Self {
             candidates,
             unresolvable: BTreeSet::new(),
+            installed: None,
             adopted: BTreeSet::new(),
         }
     }
@@ -130,20 +153,40 @@ impl SystemFallback {
         self.unresolvable.clear();
     }
 
-    /// The system fonts that have `missing` characters: each family of the list that has one of them not yet had is made into a font and returned. A
-    /// family the system does not have, or whose file FreeType cannot open, has none and is let go. A character no family has is remembered.
+    /// The system fonts that have `missing` characters: each family of the list that the system has, and that has one of them not yet had, is made into a
+    /// font and returned. A family whose file FreeType cannot open has none and is let go. A character no family has is remembered.
+    ///
+    /// Only families the system lists are asked for. A name the system does not have is not a harmless miss: on macOS CoreText answers a lookup of
+    /// an unknown family by asking the downloadable font service whether it is one, which blocks the calling thread until the service answers (it did
+    /// not, in a process with no window: the root hung in `CTFontDescriptorCopyAttribute` asking for "Microsoft YaHei").
     pub(crate) fn resolve(&mut self, missing: &[u32]) -> Vec<Gd<Font>> {
+        let installed = self.installed.get_or_insert_with(|| {
+            Os::singleton()
+                .get_system_fonts()
+                .as_slice()
+                .iter()
+                .map(|family| family.to_string().to_lowercase())
+                .collect()
+        });
         let mut remaining: Vec<u32> = missing
             .iter()
             .copied()
             .filter(|codepoint| !self.unresolvable.contains(codepoint))
             .collect();
+        // What no candidate can have is not asked of them.
+        self.unresolvable.extend(
+            remaining
+                .iter()
+                .copied()
+                .filter(|codepoint| !is_cjk(*codepoint)),
+        );
+        remaining.retain(|codepoint| is_cjk(*codepoint));
         let mut found: Vec<Gd<Font>> = Vec::new();
         for family in &self.candidates {
             if remaining.is_empty() {
                 break;
             }
-            if self.adopted.contains(family) {
+            if self.adopted.contains(family) || !installed.contains(&family.to_lowercase()) {
                 continue;
             }
             let mut font = SystemFont::new_gd();
@@ -185,6 +228,18 @@ mod tests {
         assert_eq!(first("ja_JP"), "Hiragino Sans");
         assert_eq!(first("ko_KR"), "Apple SD Gothic Neo");
         assert_eq!(first(""), "Hiragino Sans GB");
+    }
+
+    #[test]
+    fn only_the_scripts_the_families_are_for_are_asked_of_them() {
+        for codepoint in [
+            0x4E2D, 0x3042, 0x30AB, 0xD55C, 0x3105, 0xFF0C, 0x3002, 0x20000,
+        ] {
+            assert!(is_cjk(codepoint), "U+{codepoint:04X}");
+        }
+        for codepoint in [0x41, 0xE9, 0xE000, 0xF8FF, 0x0E01, 0x0639, 0x1F600, 0x2603] {
+            assert!(!is_cjk(codepoint), "U+{codepoint:04X}");
+        }
     }
 
     #[test]
