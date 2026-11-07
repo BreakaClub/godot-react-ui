@@ -59,6 +59,8 @@ const ABOVE_BASELINE_PX = 4;
 const CHARACTER_STRIDE = 2;
 /** The width of a page; the window at ratio two must have at least this many logical pixels. */
 const PAGE_WIDTH_PX = 540;
+/** The most a space that a line wraps at may hang past the end of the line's text: one of Open Sans at 16 px is 4.3 px. */
+const MAX_HANGING_SPACE_PX = 6;
 /** A caret has no width; its height is the line's, as a range rectangle's is. */
 const CARET_EPSILON_PX = 0.01;
 /** A commit that changes one span's colour carries at most this many characters of JSON (the `spans` of one short line). */
@@ -390,7 +392,9 @@ function verifyWraps(sampleId: string): number {
     const before = handle(sampleId).getCaretRect(offset, 'before');
     assert(after !== undefined && before !== undefined, `${sampleId}: no carets at the wrap ${offset}`);
     assert(Math.abs(after.x - left) <= CHARACTER_TOLERANCE_PX, `${sampleId}: the caret after the wrap at ${offset} is at ${after.x.toFixed(2)}, Chrome's character at ${left.toFixed(2)}`);
-    assert(Math.abs(before.x - last[2]) <= CHARACTER_TOLERANCE_PX, `${sampleId}: the caret before the wrap at ${offset} is at ${before.x.toFixed(2)}, the end of the line above at ${last[2].toFixed(2)}`);
+    // The end of the line above is after the space the line wraps at, which hangs past Chrome's end of that line's text.
+    assert(before.x >= last[2] - CHARACTER_TOLERANCE_PX && before.x - last[2] <= MAX_HANGING_SPACE_PX,
+      `${sampleId}: the caret before the wrap at ${offset} is at ${before.x.toFixed(2)}, the end of the line above is at ${last[2].toFixed(2)} (and a space)`);
     assert(before.y < after.y && Math.abs(after.y - before.y - (reference.lines[line]?.top ?? 0) + (reference.lines[line - 1]?.top ?? 0)) <= TOLERANCE_PX,
       `${sampleId}: the carets either side of the wrap at ${offset} are not a line apart (${before.y.toFixed(2)}, ${after.y.toFixed(2)})`);
     // A click below the first character of the next line and one past the end of the line above, on the line above.

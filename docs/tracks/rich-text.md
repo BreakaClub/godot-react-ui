@@ -176,6 +176,33 @@ Left out, with the reason: `auto` thickness on a dotted or dashed line is a stro
 drawn here as the nearest whole pixels; dash and dot x positions are quantised to a quarter device pixel in Chrome and to a device pixel
 here; the exact round-dot construction (a dot's phase differs from dot to dot in Chrome).
 
+## Verification
+
+Everything below was run in this worktree on this branch. `rich-text` is a section of the native interaction verifier (`node scripts/verify.mjs
+--interaction --only=rich-text --no-retry`, landscape and portrait windows, device pixel ratios 1 and 2, `demo/src/verify-rich-text.ts`) and of the Web one
+(`scripts/verify-rich-text-web.mjs`).
+
+| Check | What it holds |
+| --- | --- |
+| `cargo test` | 849 tests; the new ones: `text_span` (span validation, nesting and inheritance, the draw plan over fake glyph lists: colour by cluster start, ligature, fragments per line), `text_span/offsets` (display/source map around inlays), `text_decoration` (Chrome's geometry for every style and line, the baked wave's ink rows, dash fitting) and `text_style/flow` (where source characters go under transform and collapsing) |
+| `pnpm test` | JS: flattening, the commit payloads (a recolour sends `{ spans }` only), refusals by name, the handle methods |
+| `cargo clippy --all-targets -- -D warnings`, `pnpm test:types` | clean |
+| `cargo fmt --check` | flags three places in files this track did not change (`native/lib.rs` module order, `scroll.rs`, `text_input_godot/keys.rs`), as on `main` |
+
+The `rich-text` section, per window: every text of 12 pages (colours, columns, five decoration styles, overlines and lines through the text, inlays, changes) against
+the numbers Chrome reports for the same tree (`scripts/rich-text-golden.json`): the box, every line's left, right and baseline within 1 px; every source character's left
+and right edge from `getRangeRects` within 0.5 px (worst 0.25 px, mean 0.05 px over 1,437 characters, which is Chrome's own quarter pixel); every inlay's two carets; a
+click on each half of every character finds the boundary beside it and the side of an inlay; a click inside an inlay is on the nearer side; carets are zero-width and as
+tall as the line box; **monospace columns**: carets of `columns-plain`, `-spans`, `-single` and `-code` are on `column x advance` to 0.0000 px, the advance
+(8.40625 px) being Chrome's to 0.05; wraps (the two carets either side of a soft wrap, a click past the end of a line); refusals (`RangeError` past the end, backwards, inside a surrogate
+pair; an empty text's caret); drags across spans and across an inlay select and copy the source text, the highlight runs through the inlay (read in the picture); a double
+click on a word with a span boundary or an inlay in it; a scaled and a rotated text answer in the space they are drawn in; and a change of one span's colour is a commit of
+120 characters that shapes nothing (`paragraphBuilds` +0, `paragraphRepaints` +1, the picture is the new colour), where a change of its text is 141 characters and one shaped paragraph.
+
+Controls (each fails if the thing it controls is wrong): a text held to the numbers of another text; hit tests that expect the display text's offsets (the inlay counted as source);
+a selection expected to hold the inlay's text; the text change that must shape (the counter's other side). Throwaway mutations of the native code, each switched on by an
+environment variable, in the second table below.
+
 ## README text
 
 > **Rich text.** A `Text` with nested `Text` is one attributed paragraph, as in React Native: `<Text>const <Text className="text-purple-600">x</Text> = 1</Text>` is one

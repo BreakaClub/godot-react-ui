@@ -30,6 +30,8 @@ const OVERLAY_LAYER = 1;
 const MAX_TAG = 0xffff_ffff;
 /** `focusNode`'s `focusVisible` argument for "follow how the user last gave input". */
 const FOCUS_VISIBLE_BY_MODALITY = -1;
+/** What each kind of element is called in JSX, for the errors that name one. */
+const COMPONENT_NAMES: Readonly<Record<NativeKind, string>> = { view: 'View', text: 'Text', button: 'Button', textinput: 'TextInput' };
 /** Where a host element is being created: React Native's `isInAParentText`. Strings and nested `Text` are runs of a `Text` only. */
 interface TextContext {
   readonly insideText: boolean;
@@ -591,7 +593,7 @@ const hostConfig = {
         parts.push(child);
         return;
       }
-      throw new Error(`A <${child.kind === 'textinput' ? 'TextInput' : child.kind === 'button' ? 'Button' : 'View'}> cannot be rendered inside a <Text>: a Text holds strings, numbers and other <Text> elements`);
+      throw new Error(`A <${COMPONENT_NAMES[child.kind]}> cannot be rendered inside a <Text>: a Text holds strings, numbers and other <Text> elements`);
     }
     if (child.kind === 'run' || child.kind === 'span') {
       throw new Error('UI internal error: a run of text was appended to an element that is not a Text');
