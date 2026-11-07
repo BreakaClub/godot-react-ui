@@ -87,7 +87,11 @@ export interface GlassLayout {
 export function glassLayout(width: number): GlassLayout {
   const wide = width >= WIDE_PX;
   const columns = wide ? 3 : width >= TWO_COLUMNS_PX ? 2 : 1;
-  return { wide, columns, cardWidth: Math.floor((width - 2 * PAGE_PADDING - (columns - 1) * CARD_GAP) / columns) };
+  // A root narrower than the page's padding leaves the cards no room. CSS has no negative width: `calc()` clamps its result at zero
+  // and a literal one is invalid, and native refuses it the same way (`width: dimension must be a finite nonnegative number`), so a
+  // card in a root that narrow is zero wide.
+  const room = width - 2 * PAGE_PADDING - (columns - 1) * CARD_GAP;
+  return { wide, columns, cardWidth: Math.max(0, Math.floor(room / columns)) };
 }
 
 /** Where a blob is drawn: its centre sits at a fraction of the window, so a blob near an edge bleeds past it, as a page's would. */

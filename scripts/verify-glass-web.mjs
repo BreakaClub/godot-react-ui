@@ -28,6 +28,8 @@ const TYPED_TEXT = 'Night drive';
 const CARET_SURROUND_PX = 4;
 const INPUT_TEXT_INSET_PX = 17;
 const SETTLE_FRAMES = 3;
+/** A root narrower than the page's own padding (`PAGE_PADDING` in demo/src/glass-data.ts, both sides): a window dragged narrow, a small frame. */
+const NARROW_ROOT_PX = 20;
 
 const TEXTS = [
   ['glass-brand', LARGE_TEXT_CONTRAST],
@@ -241,4 +243,14 @@ export async function runGlassScenario(context) {
   await checkCorner('glass sheet', 'glass-sheet', CARD_RADIUS);
   await click('glass-sheet-cancel');
   check('glass: Cancel closes the sheet', await find('glass-sheet').then(() => false, () => true));
+
+  // The cards' widths come from the root's (`glassLayout`): the root less the padding and the gaps, which in a root narrower than the padding is
+  // negative. CSS has no negative width (`calc()` clamps it at zero), and native refuses one (`width: dimension must be a finite nonnegative
+  // number`), so a page that sent it would have its commit rejected; that is a browser error, which `waitUntil` fails the run with.
+  const root = await snapshot();
+  await demo('resizeSurface', NARROW_ROOT_PX, root.height);
+  await waitUntil('the glass page to lay out in a root narrower than its padding', async () => (await find('glass-card-0')).style.width === 0);
+  check('glass: in a root narrower than its padding the cards are zero wide, not negative', (await snapshot()).width === NARROW_ROOT_PX);
+  await demo('resizeSurface', root.width, root.height);
+  await waitUntil('the glass page to fill the root again', async () => (await find('glass-card-0')).style.width > 0);
 }
