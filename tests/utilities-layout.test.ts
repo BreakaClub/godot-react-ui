@@ -274,7 +274,7 @@ test('transition classes set the longhands with Tailwind\'s timing', () => {
   assert.deepEqual(styleOf('transition'), {
     transitionParts: {
       durationMs: 150, easing: standard,
-      properties: ['color', 'backgroundColor', 'borderColor', 'opacity', 'transform', 'filter', 'backdropFilter'],
+      properties: ['color', 'backgroundColor', 'borderColor', 'opacity', 'boxShadow', 'transform', 'filter', 'backdropFilter'],
     },
   });
   assert.deepEqual(styleOf('transition-colors'), {
@@ -299,8 +299,7 @@ test('transition classes set the longhands with Tailwind\'s timing', () => {
   assert.deepEqual(styleOf('ease-[cubic-bezier(0,_-0.5,1,1.5)]'), { transitionParts: { easing: { cubicBezier: [0, -0.5, 1, 1.5] } } });
   assertUnsupported(['duration-250', 'duration-', 'duration-[250]', 'duration-[-5ms]', 'delay-80', 'ease-bounce', 'ease-[cubic-bezier(2,0,0,1)]',
     'ease-[cubic-bezier(0,0,1)]', 'ease-[cubic-bezier(0,0,1,1,1)]', 'ease-[cubic-bezier(a,0,1,1)]', 'transition-foo', 'transition-colors-x']);
-  // This names a property native does not animate yet (`boxShadow`, from the paint track), so it says so instead of compiling to nothing.
-  assertUnsupported(['transition-shadow'], /not a property this build animates/);
+  assert.deepEqual(styleOf('transition-shadow'), { transitionParts: { durationMs: 150, easing: standard, properties: ['boxShadow'] } });
 });
 
 test('transition classes compose across layers and variants, longhand by longhand', () => {
