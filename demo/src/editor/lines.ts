@@ -236,10 +236,6 @@ export function assembleLine(number: number, parts: LineParts): LineSpec {
   return { number, text, segments, layout, severity: parts.severity };
 }
 
-export function buildLine(inputs: LineInputs, number: number): LineSpec {
-  return assembleLine(number, lineParts(inputs, number));
-}
-
 function colorAt(spans: readonly ColorSpan[], from: number, to: number): HexColor {
   const span = spans.find(candidate => covers(candidate, from, to));
   return span === undefined ? PLAIN_TEXT_COLOR : span.color;
