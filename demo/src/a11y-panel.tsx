@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, Checkbox, RadioGroup, ScrollView, Slider, Switch, Text, TextInput, View } from 'godot-react-ui';
+import { Button, Checkbox, Combobox, RadioGroup, ScrollView, Slider, Switch, Text, TextInput, View } from 'godot-react-ui';
 
 /** The slider's start. The verifier presses the arrow key and reads the value an assistive technology sees. */
 export const A11Y_SLIDER_START = 30;
@@ -15,6 +15,12 @@ export const A11Y_NOTES_START = 'first\nsecond';
 export const A11Y_READONLY_TEXT = 'Fixed';
 /** A text area whose five lines overflow its two rows: it scrolls, so it has a vertical scroll bar. */
 export const A11Y_LOG_START = 'one\ntwo\nthree\nfour\nfive';
+/**
+ * The combobox of the lab: two chips, a list that is open from the start with the first option active, and the options.
+ * (`autoHighlight` makes the first enabled option active when the list opens, so no key is needed for the tree to show one.)
+ */
+export const A11Y_FRUITS = ['Apple', 'Banana', 'Cherry', 'Date'] as const;
+export const A11Y_FRUITS_CHOSEN = ['apple', 'banana'] as const;
 /** The gallery's rows: more than its height shows, in a column wider than the view, so it scrolls on both axes. */
 export const A11Y_PHOTO_COUNT = 6;
 
@@ -65,6 +71,28 @@ export function A11yPanel() {
       <TextInput testID="a11y-log" aria-label="Log" multiline rows={2} defaultValue={A11Y_LOG_START} className={`${field} h-auto`} />
       <TextInput testID="a11y-readonly" aria-label="Reference" readOnly defaultValue={A11Y_READONLY_TEXT} className={field} />
       <TextInput testID="a11y-search" placeholder="Search" className={field} />
+      <Combobox.Root multiple defaultValue={A11Y_FRUITS_CHOSEN} defaultOpen autoHighlight>
+        <Combobox.Control testID="a11y-fruits" className="w-[320px]">
+          <Combobox.Chips
+            renderChip={(value, label) => (
+              <Combobox.Chip key={value} value={value} testID={`a11y-fruit-chip-${value}`}>
+                {label}
+                <Combobox.ChipRemove testID={`a11y-fruit-remove-${value}`} />
+              </Combobox.Chip>
+            )}
+          >
+            <Combobox.Input testID="a11y-fruit-input" aria-label="Fruits" placeholder="Add a fruit" />
+          </Combobox.Chips>
+        </Combobox.Control>
+        <Combobox.Content testID="a11y-fruit-list" aria-label="Fruit options">
+          {A11Y_FRUITS.map(label => (
+            <Combobox.Item key={label} value={label.toLowerCase()} testID={`a11y-fruit-item-${label.toLowerCase()}`}>
+              <Combobox.ItemText>{label}</Combobox.ItemText>
+              <Combobox.ItemIndicator />
+            </Combobox.Item>
+          ))}
+        </Combobox.Content>
+      </Combobox.Root>
       <ScrollView testID="a11y-scroller" aria-label="Messages" className={scroller} contentClassName="p-2 gap-1">
         {Array.from({ length: A11Y_MESSAGE_COUNT }, (_, index) => (
           <Text key={index} testID={`a11y-message-${index + 1}`} className={caption}>{`Message ${index + 1}`}</Text>

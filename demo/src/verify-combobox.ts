@@ -582,6 +582,7 @@ async function captureStates(owner: Node, api: Api, capture: Capture, ratio: num
       name: 'single-selected',
       setup: async () => {
         await tap(ESCAPE);
+        await tap(ESCAPE);
         await typeText('man');
         await tap(DOWN);
         await tap(ENTER);

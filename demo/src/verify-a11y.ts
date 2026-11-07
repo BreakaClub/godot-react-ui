@@ -249,6 +249,15 @@ export async function runA11yVerification(api: A11yInspection): Promise<void> {
   assert(get(api, 'a11y-search').textInput?.showingPlaceholder === true && isAbsent(propsOf(api, 'a11y-search').ariaLabel),
     'The search field is empty, shows its placeholder and has no label of its own');
 
+  // The combobox: a text input that says it is expanded, names its list and the option the arrows are on (tags, as native has no ids).
+  const fruitInput = propsOf(api, 'a11y-fruit-input');
+  assert(get(api, 'a11y-fruit-input').kind === 'textinput' && fruitInput.role === 'combobox' && fruitInput.ariaExpanded === true,
+    `The fruit input is a text input with the combobox role, expanded: ${JSON.stringify({ role: fruitInput.role, expanded: fruitInput.ariaExpanded })}`);
+  assert(fruitInput.ariaControls === get(api, 'a11y-fruit-list').id && fruitInput.ariaActiveDescendant === get(api, 'a11y-fruit-item-apple').id,
+    `It names its list and its active option by tag: ${JSON.stringify({ controls: fruitInput.ariaControls, active: fruitInput.ariaActiveDescendant })}`);
+  assert(propsOf(api, 'a11y-fruit-list').role === 'listbox' && propsOf(api, 'a11y-fruit-item-apple').role === 'option',
+    'The list is a listbox of options');
+
   // ---- The dump tool reaches this process whatever the engine exposes: the window is always there ----------
   const outline = await readTree(directory, 'ax-window.json', nodes => nodes.some(node => node.role === 'AXWindow'));
   assert(outline !== undefined && flatten(outline.tree).some(node => node.role === 'AXWindow'),
