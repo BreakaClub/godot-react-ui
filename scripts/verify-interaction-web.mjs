@@ -244,6 +244,11 @@ async function click(testID) {
   checkBrowserErrors();
 }
 
+/** An out-of-flow element overlaps its siblings and leaves its parent by design, as in the native check (`demo/src/verify-interaction.ts`). */
+function isOutOfFlow(node) {
+  return node.style.position === 'absolute' || node.style.position === 'fixed';
+}
+
 /** Every node below a scroll container: what it holds reaches past it and the window by design. */
 function scrolledContent(data) {
   const byId = new Map(data.nodes.map((node) => [node.id, node]));
@@ -279,7 +284,7 @@ function assertGeometry(data) {
       const child = byId.get(id);
       assert.ok(child, `Node ${node.id} references missing child ${id}`);
       return child;
-    }).filter((child) => child.rect.width > 0 && child.rect.height > 0);
+    }).filter((child) => child.rect.width > 0 && child.rect.height > 0 && !isOutOfFlow(child));
     for (let firstIndex = 0; firstIndex < children.length; firstIndex++) {
       const child = children[firstIndex];
       const a = child.rect;

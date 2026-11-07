@@ -14,6 +14,7 @@
 #import <AppKit/AppKit.h>
 #import <objc/runtime.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 /** Above a full-screen application, so nothing can cover the window and stall its drawing. */
 static const NSWindowLevel QUIET_WINDOW_LEVEL = NSScreenSaverWindowLevel;
@@ -147,6 +148,8 @@ static void install_window_rules(void) {
 }
 
 __attribute__((constructor)) static void install_quiet_window(void) {
+	// For this process only. What it starts (the accessibility verifier's `ax-dump`) is not Godot and has nothing here to replace.
+	unsetenv("DYLD_INSERT_LIBRARIES");
 	install_application_rules();
 	install_window_rules();
 	// Nothing above should let this happen; if something does, the run says so and fails rather than quietly taking focus.
