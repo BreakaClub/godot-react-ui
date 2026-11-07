@@ -332,7 +332,10 @@ impl ReactUiRoot {
             self.content_generation += 1;
         }
         let text_style = |computed: &ComputedStyle| {
-            TextStyle::of(computed, computed.overflow_x.is_some_and(OverflowSpec::clips))
+            TextStyle::of(
+                computed,
+                computed.overflow_x.is_some_and(OverflowSpec::clips),
+            )
         };
         let now = text_style(&node.computed);
         let previous_text = change.previous.as_ref().map(text_style);

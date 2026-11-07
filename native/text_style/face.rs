@@ -24,6 +24,7 @@ impl FaceDesc {
         requested.clamp(self.weight_min, self.weight_max)
     }
 
+    #[cfg(test)]
     fn is_variable(&self) -> bool {
         self.weight_min != self.weight_max
     }
@@ -105,6 +106,7 @@ fn nearest_weight(faces: &[FaceDesc], candidates: &[usize], weight: u16) -> Opti
 }
 
 /// Whether `faces` contains a variable one, which draws any weight in its range without synthesis.
+#[cfg(test)]
 pub fn has_variable(faces: &[FaceDesc]) -> bool {
     faces.iter().any(FaceDesc::is_variable)
 }
@@ -114,11 +116,16 @@ mod tests {
     use super::*;
 
     fn upright(weights: &[u16]) -> Vec<FaceDesc> {
-        weights.iter().map(|&weight| FaceDesc::fixed(weight, false)).collect()
+        weights
+            .iter()
+            .map(|&weight| FaceDesc::fixed(weight, false))
+            .collect()
     }
 
     fn weight_chosen(faces: &[FaceDesc], request: u16) -> u16 {
-        match_face(faces, request, false).map(|choice| faces[choice.index].weight_min).expect("a face")
+        match_face(faces, request, false)
+            .map(|choice| faces[choice.index].weight_min)
+            .expect("a face")
     }
 
     #[test]
@@ -150,7 +157,11 @@ mod tests {
 
     #[test]
     fn a_variable_face_draws_the_request_when_it_covers_it_and_its_edge_otherwise() {
-        let faces = [FaceDesc { weight_min: 200, weight_max: 800, italic: false }];
+        let faces = [FaceDesc {
+            weight_min: 200,
+            weight_max: 800,
+            italic: false,
+        }];
         let draws = |request| match_face(&faces, request, false).unwrap().weight;
         assert_eq!(draws(450), 450);
         assert_eq!(draws(100), 200);
@@ -167,7 +178,10 @@ mod tests {
             FaceDesc::fixed(400, true),
         ];
         let italic = match_face(&faces, 700, true).unwrap();
-        assert_eq!(italic.index, 2, "the only italic face, though a heavier upright one exists");
+        assert_eq!(
+            italic.index, 2,
+            "the only italic face, though a heavier upright one exists"
+        );
         assert!(!italic.synthetic_italic);
         assert!(italic.synthetic_bold, "and bold is made up for it");
         let upright = match_face(&faces, 700, false).unwrap();
@@ -184,11 +198,23 @@ mod tests {
         assert!(!match_face(&faces, 599, false).unwrap().synthetic_bold);
         assert!(match_face(&faces, 600, false).unwrap().synthetic_bold);
         // A semibold face already is bold.
-        assert!(!match_face(&upright(&[600]), 900, false).unwrap().synthetic_bold);
+        assert!(
+            !match_face(&upright(&[600]), 900, false)
+                .unwrap()
+                .synthetic_bold
+        );
         // An italic request on italic-only faces takes one; a normal request on italic-only takes it too and does not slant.
         let italic_only = vec![FaceDesc::fixed(400, true)];
-        assert!(!match_face(&italic_only, 400, true).unwrap().synthetic_italic);
-        assert!(!match_face(&italic_only, 400, false).unwrap().synthetic_italic);
+        assert!(
+            !match_face(&italic_only, 400, true)
+                .unwrap()
+                .synthetic_italic
+        );
+        assert!(
+            !match_face(&italic_only, 400, false)
+                .unwrap()
+                .synthetic_italic
+        );
     }
 
     #[test]

@@ -64,9 +64,15 @@ pub enum LineHeightValue {
 
 impl LineHeightSpec {
     pub(crate) fn parsed(&self) -> Result<LineHeightValue, String> {
-        let invalid = |text: &str| format!("invalid lineHeight {text:?}; expected px, normal, a factor, \"<n>em\" or \"<n>%\"");
+        let invalid = |text: &str| {
+            format!(
+                "invalid lineHeight {text:?}; expected px, normal, a factor, \"<n>em\" or \"<n>%\""
+            )
+        };
         match self {
-            Self::Px(value) if value.is_finite() && *value >= 0.0 => Ok(LineHeightValue::Px(*value)),
+            Self::Px(value) if value.is_finite() && *value >= 0.0 => {
+                Ok(LineHeightValue::Px(*value))
+            }
             Self::Px(_) => Err("lineHeight must be a finite nonnegative number".into()),
             Self::Text(text) if text == "normal" => Ok(LineHeightValue::Normal),
             Self::Text(text) => {
@@ -172,7 +178,7 @@ impl Serialize for DecorationLines {
     }
 }
 
-/// `text-decoration-thickness`: px, or `auto` / `from-font`, both the font's own thickness here.
+/// `text-decoration-thickness`: px, `auto` or `from-font`.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(untagged)]
 pub enum DecorationThicknessSpec {
@@ -182,6 +188,8 @@ pub enum DecorationThicknessSpec {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum DecorationThickness {
+    /// A tenth of the font size, whole pixels, at least one (what Chrome draws).
+    Auto,
     /// The thickness the font gives its underline.
     FromFont,
     Px(f32),
@@ -190,10 +198,17 @@ pub enum DecorationThickness {
 impl DecorationThicknessSpec {
     pub(crate) fn parsed(&self) -> Result<DecorationThickness, String> {
         match self {
-            Self::Px(value) if value.is_finite() && *value >= 0.0 => Ok(DecorationThickness::Px(*value)),
-            Self::Px(_) => Err("textDecorationThickness must be a finite nonnegative number".into()),
-            Self::Keyword(word) if word == "auto" || word == "from-font" => Ok(DecorationThickness::FromFont),
-            Self::Keyword(word) => Err(format!("invalid textDecorationThickness {word:?}; expected px, auto or from-font")),
+            Self::Px(value) if value.is_finite() && *value >= 0.0 => {
+                Ok(DecorationThickness::Px(*value))
+            }
+            Self::Px(_) => {
+                Err("textDecorationThickness must be a finite nonnegative number".into())
+            }
+            Self::Keyword(word) if word == "auto" => Ok(DecorationThickness::Auto),
+            Self::Keyword(word) if word == "from-font" => Ok(DecorationThickness::FromFont),
+            Self::Keyword(word) => Err(format!(
+                "invalid textDecorationThickness {word:?}; expected px, auto or from-font"
+            )),
         }
     }
 }
@@ -213,7 +228,9 @@ impl UnderlineOffsetSpec {
             Self::Px(value) if value.is_finite() => Ok(Some(*value)),
             Self::Px(_) => Err("textUnderlineOffset must be finite".into()),
             Self::Keyword(word) if word == "auto" => Ok(None),
-            Self::Keyword(word) => Err(format!("invalid textUnderlineOffset {word:?}; expected px or auto")),
+            Self::Keyword(word) => Err(format!(
+                "invalid textUnderlineOffset {word:?}; expected px or auto"
+            )),
         }
     }
 }
@@ -267,7 +284,9 @@ impl LineClampSpec {
             Self::Lines(0) => Err("lineClamp must be a positive integer or none".into()),
             Self::Lines(lines) => Ok(Some(*lines)),
             Self::Keyword(word) if word == "none" => Ok(None),
-            Self::Keyword(word) => Err(format!("invalid lineClamp {word:?}; expected a positive integer or none")),
+            Self::Keyword(word) => Err(format!(
+                "invalid lineClamp {word:?}; expected a positive integer or none"
+            )),
         }
     }
 }
@@ -315,14 +334,26 @@ mod tests {
         assert_eq!(line_height(r#""2""#), Ok(LineHeightValue::Factor(2.0)));
         assert_eq!(line_height(r#""1.25em""#), Ok(LineHeightValue::Em(1.25)));
         assert_eq!(line_height(r#""150%""#), Ok(LineHeightValue::Em(1.5)));
-        for invalid in [r#""abc""#, r#""-1""#, "-4", r#""1.5px""#, r#""""#, r#""%""#, r#""-10%""#] {
+        for invalid in [
+            r#""abc""#,
+            r#""-1""#,
+            "-4",
+            r#""1.5px""#,
+            r#""""#,
+            r#""%""#,
+            r#""-10%""#,
+        ] {
             assert!(line_height(invalid).is_err(), "{invalid}");
         }
     }
 
     #[test]
     fn letter_spacing_is_px_or_em() {
-        let parse = |json: &str| serde_json::from_str::<LetterSpacingSpec>(json).unwrap().parsed();
+        let parse = |json: &str| {
+            serde_json::from_str::<LetterSpacingSpec>(json)
+                .unwrap()
+                .parsed()
+        };
         assert_eq!(parse("0.5"), Ok(TextLength::Px(0.5)));
         assert_eq!(parse("-1"), Ok(TextLength::Px(-1.0)));
         assert_eq!(parse(r#""-0.025em""#), Ok(TextLength::Em(-0.025)));
@@ -336,22 +367,45 @@ mod tests {
         assert!(parse("none").unwrap().is_none());
         let both = parse("underline line-through").unwrap();
         assert!(both.underline && both.line_through && !both.overline);
-        assert_eq!(serde_json::to_string(&both).unwrap(), r#""underline line-through""#);
-        assert_eq!(serde_json::to_string(&DecorationLines::default()).unwrap(), r#""none""#);
-        for invalid in ["", "underline underline", "wavy", "none underline", "underline  overline"] {
+        assert_eq!(
+            serde_json::to_string(&both).unwrap(),
+            r#""underline line-through""#
+        );
+        assert_eq!(
+            serde_json::to_string(&DecorationLines::default()).unwrap(),
+            r#""none""#
+        );
+        for invalid in [
+            "",
+            "underline underline",
+            "wavy",
+            "none underline",
+            "underline  overline",
+        ] {
             assert!(parse(invalid).is_err(), "{invalid:?}");
         }
     }
 
     #[test]
     fn thickness_offset_and_clamp_keywords_are_checked() {
-        let thickness = |json: &str| serde_json::from_str::<DecorationThicknessSpec>(json).unwrap().parsed();
+        let thickness = |json: &str| {
+            serde_json::from_str::<DecorationThicknessSpec>(json)
+                .unwrap()
+                .parsed()
+        };
         assert_eq!(thickness("2"), Ok(DecorationThickness::Px(2.0)));
-        assert_eq!(thickness(r#""auto""#), Ok(DecorationThickness::FromFont));
-        assert_eq!(thickness(r#""from-font""#), Ok(DecorationThickness::FromFont));
+        assert_eq!(thickness(r#""auto""#), Ok(DecorationThickness::Auto));
+        assert_eq!(
+            thickness(r#""from-font""#),
+            Ok(DecorationThickness::FromFont)
+        );
         assert!(thickness("-1").is_err());
         assert!(thickness(r#""thick""#).is_err());
-        let offset = |json: &str| serde_json::from_str::<UnderlineOffsetSpec>(json).unwrap().px();
+        let offset = |json: &str| {
+            serde_json::from_str::<UnderlineOffsetSpec>(json)
+                .unwrap()
+                .px()
+        };
         assert_eq!(offset("4"), Ok(Some(4.0)));
         assert_eq!(offset("-2"), Ok(Some(-2.0)));
         assert_eq!(offset(r#""auto""#), Ok(None));

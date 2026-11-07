@@ -1086,7 +1086,8 @@ impl ReactUiRoot {
             node.computed.overflow_x.is_some_and(OverflowSpec::clips),
         );
         let source = node.props.text.as_deref().unwrap_or("");
-        let shown = shown_text(source, style.shaping.transform, style.shaping.white_space).into_owned();
+        let shown =
+            shown_text(source, style.shaping.transform, style.shaping.white_space).into_owned();
         let shown_override = (shown != source).then(|| shown.clone());
         let font = self
             .fonts
@@ -1103,7 +1104,8 @@ impl ReactUiRoot {
             .get_mut(&tag)
             .expect("the node was found above");
         let had = node.visual.paragraph.is_some();
-        let shown_changed = node.visual.shown_text(node.props.text.as_deref()) != Some(shown.as_str())
+        let shown_changed = node.visual.shown_text(node.props.text.as_deref())
+            != Some(shown.as_str())
             && node.visual.paragraph.is_some();
         node.visual.paragraph = paragraph;
         node.visual.shown = shown_override;

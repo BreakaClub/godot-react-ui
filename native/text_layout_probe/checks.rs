@@ -3,7 +3,7 @@
 
 use std::fmt::Display;
 
-use godot::classes::text_server::Orientation;
+use godot::classes::text_server::{JustificationFlag, LineBreakFlag, Orientation};
 use godot::classes::{Font, TextParagraph, TextServerManager};
 use godot::global::HorizontalAlignment;
 use godot::prelude::*;
@@ -38,6 +38,8 @@ const NARROW_PX: f32 = 50.0;
 const WIDE_PX: f32 = 1000.0;
 /// The line spacing the spacing check sets.
 const LINE_SPACING_PX: f32 = 6.0;
+/// The width the justified paragraph is laid out at.
+const JUSTIFIED_PX: f32 = 120.0;
 /// The lines a page move goes in the adapter checks.
 const PAGE_LINES: f32 = 3.0;
 
@@ -1119,6 +1121,88 @@ fn adapter_delete_and_select(scope: &Scope<'_>) -> Outcome {
 
 // ---- once, not per panel ----
 
+/// The layout of a paragraph, from its source, with 1 px extents for an empty line.
+fn layout_of(
+    paragraph: &Gd<TextParagraph>,
+    width: f32,
+) -> Result<GodotTextLayout, TextLayoutError> {
+    GodotParagraph::lay_out(paragraph, width).and_then(|source| {
+        TextLayout::new(
+            source,
+            Vector2::ZERO,
+            LineExtents {
+                ascent: 1.0,
+                descent: 1.0,
+            },
+        )
+    })
+}
+
+/// A justified paragraph (`HORIZONTAL_ALIGNMENT_FILL`): every line but the last is as wide as the box, the layout puts each
+/// at the left edge, and the carets of a line sit inside it.
+fn verify_justified(report: &mut Report, paragraph: &dyn Fn(&str) -> Gd<TextParagraph>) {
+    let mut justified =
+        paragraph("one two three four five six seven eight nine ten eleven twelve thirteen");
+    justified.set_alignment(HorizontalAlignment::FILL);
+    justified
+        .set_justification_flags(JustificationFlag::WORD_BOUND | JustificationFlag::SKIP_LAST_LINE);
+    justified.set_break_flags(LineBreakFlag::MANDATORY | LineBreakFlag::WORD_BOUND);
+    let name = "justified-lines";
+    match layout_of(&justified, JUSTIFIED_PX) {
+        Ok(layout) => {
+            let lines = layout.lines();
+            let Some((last, others)) = lines.split_last() else {
+                return report.fail("(all)", "-", name, "no lines".to_owned());
+            };
+            let full = others.iter().all(|line| {
+                (line.width - JUSTIFIED_PX).abs() <= SAME_X_TOLERANCE && line.origin.x == 0.0
+            });
+            let last_short = last.width < JUSTIFIED_PX - SAME_X_TOLERANCE;
+            let detail = format!(
+                "{} lines; widths {:?}",
+                lines.len(),
+                lines.iter().map(|line| line.width).collect::<Vec<_>>()
+            );
+            if lines.len() > 1 && full && last_short {
+                report.pass("(all)", "-", name, detail);
+            } else {
+                report.fail("(all)", "-", name, detail);
+            }
+        }
+        Err(error) => report.fail("(all)", "-", name, described(error)),
+    }
+}
+
+/// A paragraph that shows two of its lines (`max_lines_visible`) is laid out as those two: the text the layout holds ends
+/// where the second ends, the hit test cannot answer past it, and the last line's ellipsis does not break the layout.
+fn verify_clamped(report: &mut Report, paragraph: &dyn Fn(&str) -> Gd<TextParagraph>) {
+    let mut clamped =
+        paragraph("one two three four five six seven eight nine ten eleven twelve thirteen");
+    clamped.set_break_flags(LineBreakFlag::MANDATORY | LineBreakFlag::WORD_BOUND);
+    clamped.set_max_lines_visible(2);
+    let name = "clamped-lines";
+    let whole = clamped.get_range().y;
+    match layout_of(&clamped, NARROW_PX) {
+        Ok(layout) => {
+            let end = i32::try_from(layout.text_len()).unwrap_or(i32::MAX);
+            let hit = layout.hit_test(Vector2::new(FAR_OUTSIDE, FAR_OUTSIDE));
+            let detail = format!(
+                "{} lines, text {end} of {whole}, a far point hits {hit:?}",
+                layout.lines().len()
+            );
+            if layout.lines().len() == 2
+                && end < whole
+                && hit.is_ok_and(|offset| i32::try_from(offset).is_ok_and(|offset| offset <= end))
+            {
+                report.pass("(all)", "-", name, detail);
+            } else {
+                report.fail("(all)", "-", name, detail);
+            }
+        }
+        Err(error) => report.fail("(all)", "-", name, described(error)),
+    }
+}
+
 /// What does not depend on a case: paragraphs the layout refuses, and one it notices changing.
 pub(super) fn verify_globally(report: &mut Report, font: &Gd<Font>) {
     let paragraph = |text: &str| {
@@ -1149,22 +1233,14 @@ pub(super) fn verify_globally(report: &mut Report, font: &Gd<Font>) {
         Unsupported::VerticalOrientation,
     );
     refuses(
-        "unsupported-fill",
-        &|p| p.set_alignment(HorizontalAlignment::FILL),
-        Unsupported::FillAlignment,
-    );
-    refuses(
-        "unsupported-max-lines",
-        &|p| p.set_max_lines_visible(1),
-        Unsupported::MaxLinesVisible,
-    );
-    refuses(
         "unsupported-dropcap",
         &|p| {
             p.set_dropcap("D", font, 32);
         },
         Unsupported::DropCap,
     );
+    verify_justified(report, &paragraph);
+    verify_clamped(report, &paragraph);
     // The width a measurement left on the paragraph is not the width the layout is of: `lay_out` sets it.
     let mut measured = paragraph("one two three four five six seven eight");
     measured.set_width(NARROW_PX);

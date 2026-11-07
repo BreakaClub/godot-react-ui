@@ -2,10 +2,10 @@
 //! into px where they are set (`settle`), and the typed view shaping and painting read (`TextStyle`).
 
 use super::spec::{
-    DecorationLines, DecorationThickness, DecorationThicknessSpec, FontStyleSpec, LetterSpacingSpec,
-    LineClampSpec, LineHeightSpec, LineHeightValue, NumericFigureSpec, NumericFractionSpec,
-    NumericSpacingSpec, OverflowWrapSpec, TextLength, TextOverflowSpec, TextTransformSpec,
-    UnderlineOffsetSpec, WhiteSpaceSpec, WordBreakSpec,
+    DecorationLines, DecorationThickness, DecorationThicknessSpec, FontStyleSpec,
+    LetterSpacingSpec, LineClampSpec, LineHeightSpec, LineHeightValue, NumericFigureSpec,
+    NumericFractionSpec, NumericSpacingSpec, OverflowWrapSpec, TextLength, TextOverflowSpec,
+    TextTransformSpec, UnderlineOffsetSpec, WhiteSpaceSpec, WordBreakSpec,
 };
 use crate::DEFAULT_FONT_SIZE;
 use crate::props::{PositionSpec, StyleSpec, TextAlignSpec};
@@ -106,13 +106,12 @@ pub fn settle(style: &mut StyleSpec) {
             TextLength::Em(em) => em * font_size,
         }));
     }
-    if let Some(height) = &style.line_height {
-        if let LineHeightValue::Em(em) = height
+    if let Some(height) = &style.line_height
+        && let LineHeightValue::Em(em) = height
             .parsed()
             .expect("computed styles are built from validated layers")
-        {
-            style.line_height = Some(LineHeightSpec::Px(em * font_size));
-        }
+    {
+        style.line_height = Some(LineHeightSpec::Px(em * font_size));
     }
     let out_of_flow = style.position.is_some_and(PositionSpec::is_out_of_flow);
     if out_of_flow {
@@ -129,7 +128,10 @@ pub fn settle(style: &mut StyleSpec) {
             thickness: style
                 .text_decoration_thickness
                 .as_ref()
-                .map_or(Ok(DecorationThickness::FromFont), DecorationThicknessSpec::parsed)
+                .map_or(
+                    Ok(DecorationThickness::Auto),
+                    DecorationThicknessSpec::parsed,
+                )
                 .expect("computed styles are built from validated layers"),
             underline_offset: style
                 .text_underline_offset
@@ -206,27 +208,29 @@ impl TextStyle {
     pub fn of(style: &StyleSpec, clips: bool) -> Self {
         let font_size = style.font_size.unwrap_or(DEFAULT_FONT_SIZE);
         let white_space = style.white_space.unwrap_or(WhiteSpaceSpec::PreWrap);
-        let letter_spacing = style
-            .letter_spacing
-            .as_ref()
-            .map_or(0.0, |spacing| match spacing
+        let letter_spacing = style.letter_spacing.as_ref().map_or(0.0, |spacing| {
+            match spacing
                 .parsed()
                 .expect("computed styles are built from validated layers")
             {
                 TextLength::Px(px) => px,
                 TextLength::Em(em) => em * font_size as f32,
-            });
-        let line_height = style.line_height.as_ref().map_or(LineHeight::Normal, |height| {
-            match height
-                .parsed()
-                .expect("computed styles are built from validated layers")
-            {
-                LineHeightValue::Normal => LineHeight::Normal,
-                LineHeightValue::Px(px) => LineHeight::Px(px),
-                LineHeightValue::Factor(factor) => LineHeight::Px(factor * font_size as f32),
-                LineHeightValue::Em(em) => LineHeight::Px(em * font_size as f32),
             }
         });
+        let line_height = style
+            .line_height
+            .as_ref()
+            .map_or(LineHeight::Normal, |height| {
+                match height
+                    .parsed()
+                    .expect("computed styles are built from validated layers")
+                {
+                    LineHeightValue::Normal => LineHeight::Normal,
+                    LineHeightValue::Px(px) => LineHeight::Px(px),
+                    LineHeightValue::Factor(factor) => LineHeight::Px(factor * font_size as f32),
+                    LineHeightValue::Em(em) => LineHeight::Px(em * font_size as f32),
+                }
+            });
         let line_clamp = style.line_clamp.as_ref().and_then(|clamp: &LineClampSpec| {
             clamp
                 .lines()
@@ -235,7 +239,11 @@ impl TextStyle {
         Self {
             shaping: ShapingStyle {
                 font_size,
-                families: style.font_family.as_deref().map(family_list).unwrap_or_default(),
+                families: style
+                    .font_family
+                    .as_deref()
+                    .map(family_list)
+                    .unwrap_or_default(),
                 weight: style.font_weight,
                 italic: style.font_style == Some(FontStyleSpec::Italic),
                 line_height,
@@ -334,9 +342,15 @@ mod tests {
         assert_eq!(spec.letter_spacing, Some(LetterSpacingSpec::Px(1.0)));
         assert_eq!(spec.line_height, Some(LineHeightSpec::Px(30.0)));
         // A unitless factor and `normal` are left for each element to resolve.
-        assert_eq!(settled(r#"{"lineHeight":"1.5"}"#).line_height, Some(LineHeightSpec::Text("1.5".into())));
+        assert_eq!(
+            settled(r#"{"lineHeight":"1.5"}"#).line_height,
+            Some(LineHeightSpec::Text("1.5".into()))
+        );
         // The default size applies when the element and its ancestors set none.
-        assert_eq!(settled(r#"{"letterSpacing":"0.1em"}"#).letter_spacing, Some(LetterSpacingSpec::Px(1.6)));
+        assert_eq!(
+            settled(r#"{"letterSpacing":"0.1em"}"#).letter_spacing,
+            Some(LetterSpacingSpec::Px(1.6))
+        );
     }
 
     #[test]
@@ -358,17 +372,24 @@ mod tests {
         );
         assert_eq!(parent.text_decorations.len(), 1);
         assert_eq!(parent.text_decorations[0].color, "#ff0000");
-        assert_eq!(parent.text_decorations[0].thickness, DecorationThickness::Px(3.0));
+        assert_eq!(
+            parent.text_decorations[0].thickness,
+            DecorationThickness::Px(3.0)
+        );
         let mut child = style(r##"{"color":"#00ff00"}"##);
         InheritedText::of(&parent).inherit_into(&mut child);
         settle(&mut child);
-        assert_eq!(child.text_decorations, parent.text_decorations, "the child draws the parent's line, in the parent's colour");
+        assert_eq!(
+            child.text_decorations, parent.text_decorations,
+            "the child draws the parent's line, in the parent's colour"
+        );
         // `none` cannot take a propagated decoration away; a child's own line adds to it.
         let mut none = style(r#"{"textDecorationLine":"none"}"#);
         InheritedText::of(&parent).inherit_into(&mut none);
         settle(&mut none);
         assert_eq!(none.text_decorations.len(), 1);
-        let mut own = style(r##"{"textDecorationLine":"line-through","textDecorationColor":"#0000ff"}"##);
+        let mut own =
+            style(r##"{"textDecorationLine":"line-through","textDecorationColor":"#0000ff"}"##);
         InheritedText::of(&parent).inherit_into(&mut own);
         settle(&mut own);
         assert_eq!(own.text_decorations.len(), 2);
@@ -391,20 +412,29 @@ mod tests {
         assert_eq!(shaping.line_height, LineHeight::Normal);
         assert_eq!(shaping.letter_spacing, 0.0);
         assert_eq!(shaping.white_space, WhiteSpaceSpec::PreWrap);
-        assert!(shaping.wrapping.wraps && !shaping.wrapping.break_anywhere && !shaping.wrapping.break_long_words);
+        assert!(
+            shaping.wrapping.wraps
+                && !shaping.wrapping.break_anywhere
+                && !shaping.wrapping.break_long_words
+        );
         assert!(shaping.features.is_empty() && !shaping.ellipsis && shaping.line_clamp.is_none());
         assert!(resolved.decorations.is_empty());
     }
 
     #[test]
     fn families_are_a_trimmed_unquoted_list() {
-        assert_eq!(family_list(r#""Open Sans", Inter ,'mono'"#), ["Open Sans", "Inter", "mono"]);
+        assert_eq!(
+            family_list(r#""Open Sans", Inter ,'mono'"#),
+            ["Open Sans", "Inter", "mono"]
+        );
         assert!(family_list(" , ").is_empty());
     }
 
     #[test]
     fn ellipsis_needs_a_clipping_element_and_features_follow_the_numerals() {
-        let spec = style(r#"{"textOverflow":"ellipsis","numericSpacing":"tabular","numericFigure":"lining","slashedZero":true}"#);
+        let spec = style(
+            r#"{"textOverflow":"ellipsis","numericSpacing":"tabular","numericFigure":"lining","slashedZero":true}"#,
+        );
         assert!(!TextStyle::of(&spec, false).shaping.ellipsis);
         let shaping = TextStyle::of(&spec, true).shaping;
         assert!(shaping.ellipsis);

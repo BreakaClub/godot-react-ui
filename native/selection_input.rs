@@ -36,9 +36,7 @@ use crate::pointer::MOUSE_POINTER_ID;
 use crate::props::{CursorSpec, DisplaySpec, Kind, UserSelectSpec};
 use crate::render_tree::{DEFAULT_SELECTION_COLOR, SelectionPaint};
 use crate::selection::{Document, SelectableNode, SelectionError, SelectionPoint, TextSelection};
-use crate::text_layout::{
-    GodotParagraph, GodotTextLayout, TextLayout, TextLayoutError,
-};
+use crate::text_layout::{GodotParagraph, GodotTextLayout, TextLayout, TextLayoutError};
 use crate::text_offsets::code_point_to_utf16;
 use crate::text_paragraph::StyledParagraph;
 use crate::{ReactUiRoot, event_time_ms};
@@ -326,6 +324,43 @@ impl ReactUiRoot {
         lay_out(paragraph, &node.geometry)
             .map(Some)
             .map_err(|error| format!("node {tag}: {error}"))
+    }
+
+    /// The lines of node `tag`'s text as they are drawn, in root-local coordinates, for a verifier to compare with another
+    /// renderer's: the text shown, and for each line its code point range, the left end and the baseline of its glyphs, its
+    /// ascent, descent and width. `null` for a node that is not mounted or shows no text.
+    pub(crate) fn text_lines_json(&self, tag: u32) -> serde_json::Value {
+        let layout = match self.text_layout_of(tag) {
+            Ok(Some(layout)) => layout,
+            Ok(None) => return serde_json::Value::Null,
+            Err(error) => {
+                godot_error!("ReactUiRoot: cannot lay out the text of node {tag}: {error}");
+                return serde_json::Value::Null;
+            }
+        };
+        let Some((rect, _)) = self.mounted.absolute_geometry(tag, self.viewport_box()) else {
+            return serde_json::Value::Null;
+        };
+        let lines: Vec<serde_json::Value> = layout
+            .lines()
+            .iter()
+            .map(|line| {
+                serde_json::json!({
+                    "start": line.range.start,
+                    "end": line.range.end,
+                    "x": rect.x + line.origin.x,
+                    "baseline": rect.y + line.origin.y,
+                    "ascent": line.ascent,
+                    "descent": line.descent,
+                    "width": line.width,
+                })
+            })
+            .collect();
+        let shown = self
+            .selection_text_of(tag)
+            .map(str::to_owned)
+            .unwrap_or_default();
+        serde_json::json!({ "text": shown, "lines": lines })
     }
 
     /// The selection point under `position` (root-local) in text node `tag`: its layout's hit test, and

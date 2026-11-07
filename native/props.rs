@@ -917,9 +917,11 @@ impl StyleSpec {
                 "fontWeight must be between {MIN_FONT_WEIGHT} and {MAX_FONT_WEIGHT}"
             ));
         }
-        if self.font_family.as_deref().is_some_and(|family| {
-            crate::text_style::resolve::family_list(family).is_empty()
-        }) {
+        if self
+            .font_family
+            .as_deref()
+            .is_some_and(|family| crate::text_style::resolve::family_list(family).is_empty())
+        {
             return Err("fontFamily must name a family".into());
         }
         self.validate_text()?;

@@ -10,9 +10,9 @@ pub(crate) mod spec;
 
 pub use resolve::{InheritedText, TextDecoration, TextStyle, settle};
 pub use spec::{
-    DecorationLines, DecorationThicknessSpec, FontStyleSpec, LetterSpacingSpec, LineClampSpec, LineHeightSpec,
-    NumericFigureSpec, NumericFractionSpec, NumericSpacingSpec, OverflowWrapSpec, TextOverflowSpec,
-    TextTransformSpec, UnderlineOffsetSpec, WhiteSpaceSpec, WordBreakSpec,
+    DecorationLines, DecorationThicknessSpec, FontStyleSpec, LetterSpacingSpec, LineClampSpec,
+    LineHeightSpec, NumericFigureSpec, NumericFractionSpec, NumericSpacingSpec, OverflowWrapSpec,
+    TextOverflowSpec, TextTransformSpec, UnderlineOffsetSpec, WhiteSpaceSpec, WordBreakSpec,
 };
 
 use crate::props::StyleSpec;

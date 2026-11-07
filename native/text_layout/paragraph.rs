@@ -20,8 +20,13 @@ struct Stamp {
     width: f32,
     alignment: TextAlignment,
     line_spacing: f32,
+    /// The whole text's length, hidden lines included.
     text_len: usize,
+    /// All the paragraph's lines, hidden ones included.
     line_count: usize,
+    /// The lines it shows (`max_lines_visible`), and where the last of them ends.
+    visible_lines: usize,
+    visible_end: usize,
 }
 
 /// A `TextParagraph` read through the primary text server.
@@ -54,18 +59,9 @@ impl GodotParagraph {
         if dropcap != Vector2::ZERO {
             return Err(TextLayoutError::Unsupported(Unsupported::DropCap));
         }
-        if paragraph.get_max_lines_visible() >= 0 {
-            return Err(TextLayoutError::Unsupported(Unsupported::MaxLinesVisible));
-        }
-        let alignment = alignment_of(&paragraph)?;
+        let alignment = alignment_of(&paragraph);
         paragraph.set_width(content_width);
-        let stamp = Stamp {
-            width: content_width,
-            alignment,
-            line_spacing: paragraph.get_line_spacing(),
-            text_len: text_len_of(&paragraph)?,
-            line_count: line_count_of(&paragraph)?,
-        };
+        let stamp = Self::stamp_of(&paragraph, content_width, alignment)?;
         Ok(Self {
             paragraph,
             server,
@@ -73,15 +69,45 @@ impl GodotParagraph {
         })
     }
 
+    /// What of `paragraph` a layout is built from. A paragraph that hides lines (`max_lines_visible`) is laid out as the lines
+    /// it shows, which end where the last of them does.
+    fn stamp_of(
+        paragraph: &Gd<TextParagraph>,
+        width: f32,
+        alignment: TextAlignment,
+    ) -> Result<Stamp, TextLayoutError> {
+        let line_count = line_count_of(paragraph)?;
+        let max_lines = paragraph.get_max_lines_visible();
+        let visible_lines =
+            usize::try_from(max_lines).map_or(line_count, |max| max.min(line_count));
+        let text_len = text_len_of(paragraph)?;
+        let visible_end = match visible_lines.checked_sub(1) {
+            Some(last) if visible_lines < line_count => {
+                let range = paragraph.get_line_range(paragraph_line(last)?);
+                usize::try_from(range.y).map_err(|_| {
+                    TextLayoutError::MalformedServerData(ServerDataProblem::LineRanges)
+                })?
+            }
+            _ => text_len,
+        };
+        Ok(Stamp {
+            width,
+            alignment,
+            line_spacing: paragraph.get_line_spacing(),
+            text_len,
+            line_count,
+            visible_lines,
+            visible_end,
+        })
+    }
+
     /// Fails if the paragraph is no longer the one the layout was built from.
     fn ensure_unchanged(&self) -> Result<(), TextLayoutError> {
-        let now = Stamp {
-            width: self.paragraph.get_width(),
-            alignment: alignment_of(&self.paragraph)?,
-            line_spacing: self.paragraph.get_line_spacing(),
-            text_len: text_len_of(&self.paragraph)?,
-            line_count: line_count_of(&self.paragraph)?,
-        };
+        let now = Self::stamp_of(
+            &self.paragraph,
+            self.paragraph.get_width(),
+            alignment_of(&self.paragraph),
+        )?;
         if now == self.stamp {
             Ok(())
         } else {
@@ -95,10 +121,10 @@ impl GodotParagraph {
     /// The server's shaped text of a line.
     fn line_rid(&self, line: usize) -> Result<Rid, TextLayoutError> {
         self.ensure_unchanged()?;
-        if line >= self.stamp.line_count {
+        if line >= self.stamp.visible_lines {
             return Err(TextLayoutError::LineOutOfRange {
                 line,
-                count: self.stamp.line_count,
+                count: self.stamp.visible_lines,
             });
         }
         Ok(self.paragraph.get_line_rid(paragraph_line(line)?))
@@ -128,8 +154,8 @@ impl GodotParagraph {
 impl ParagraphSource for GodotParagraph {
     fn facts(&self) -> Result<ParagraphFacts, TextLayoutError> {
         self.ensure_unchanged()?;
-        let mut lines = Vec::with_capacity(self.stamp.line_count);
-        for line in 0..self.stamp.line_count {
+        let mut lines = Vec::with_capacity(self.stamp.visible_lines);
+        for line in 0..self.stamp.visible_lines {
             let index = paragraph_line(line)?;
             let range = self.paragraph.get_line_range(index);
             let rid = self.paragraph.get_line_rid(index);
@@ -166,7 +192,7 @@ impl ParagraphSource for GodotParagraph {
             width: self.stamp.width,
             alignment: self.stamp.alignment,
             line_spacing: self.stamp.line_spacing,
-            text_len: self.stamp.text_len,
+            text_len: self.stamp.visible_end,
             lines,
             ends_with_hard_break,
         })
@@ -185,6 +211,11 @@ impl ParagraphSource for GodotParagraph {
                     TextLayoutError::MalformedServerData(ServerDataProblem::GraphemeBreaks)
                 })
             })
+            .take_while(|offset| {
+                offset
+                    .as_ref()
+                    .map_or(true, |offset| *offset <= self.stamp.visible_end)
+            })
             .collect()
     }
 
@@ -193,7 +224,8 @@ impl ParagraphSource for GodotParagraph {
         let breaks = self
             .server
             .shaped_text_get_word_breaks(self.paragraph.get_rid());
-        breaks
+        // The pairs of words that end inside the lines the paragraph shows.
+        let breaks: Result<Vec<usize>, TextLayoutError> = breaks
             .as_slice()
             .iter()
             .map(|offset| {
@@ -201,7 +233,15 @@ impl ParagraphSource for GodotParagraph {
                     TextLayoutError::MalformedServerData(ServerDataProblem::WordBreaks)
                 })
             })
-            .collect()
+            .collect();
+        let breaks = breaks?;
+        let (pairs, _) = breaks.as_chunks::<2>();
+        Ok(pairs
+            .iter()
+            .take_while(|[_, end]| *end <= self.stamp.visible_end)
+            .flatten()
+            .copied()
+            .collect())
     }
 
     fn carets(&self, line: usize, offset: usize) -> Result<ServerCarets, TextLayoutError> {
@@ -233,17 +273,16 @@ impl ParagraphSource for GodotParagraph {
     }
 }
 
-fn alignment_of(paragraph: &Gd<TextParagraph>) -> Result<TextAlignment, TextLayoutError> {
+fn alignment_of(paragraph: &Gd<TextParagraph>) -> TextAlignment {
     let alignment = paragraph.get_alignment();
     if alignment == HorizontalAlignment::LEFT {
-        Ok(TextAlignment::Left)
+        TextAlignment::Left
     } else if alignment == HorizontalAlignment::CENTER {
-        Ok(TextAlignment::Center)
+        TextAlignment::Center
     } else if alignment == HorizontalAlignment::RIGHT {
-        Ok(TextAlignment::Right)
+        TextAlignment::Right
     } else {
-        // FILL, the only one left.
-        Err(TextLayoutError::Unsupported(Unsupported::FillAlignment))
+        TextAlignment::Fill
     }
 }
 

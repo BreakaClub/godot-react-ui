@@ -106,11 +106,6 @@ impl FontBook {
         self.theme = font;
     }
 
-    /// Whether any face is registered.
-    pub(crate) fn has_faces(&self) -> bool {
-        !self.faces.is_empty()
-    }
-
     /// Register `font` as a face of `family` covering weights `weight_min..=weight_max` (one weight for a static face, the axis'
     /// range for a variable one). A later registration of the same family, weight range and style replaces the earlier.
     pub(crate) fn register(
@@ -126,12 +121,18 @@ impl FontBook {
             return Err("a font face needs a family name".into());
         }
         if weight_min == 0 || weight_min > weight_max {
-            return Err(format!("the weights {weight_min}..={weight_max} are not a range of CSS weights"));
+            return Err(format!(
+                "the weights {weight_min}..={weight_max} are not a range of CSS weights"
+            ));
         }
         if font.get_rids().is_empty() {
             return Err(format!("the font for {family} has no data"));
         }
-        let desc = FaceDesc { weight_min, weight_max, italic };
+        let desc = FaceDesc {
+            weight_min,
+            weight_max,
+            italic,
+        };
         match self
             .faces
             .iter_mut()
@@ -167,20 +168,21 @@ impl FontBook {
     fn theme_desc(font: &Gd<Font>) -> FaceDesc {
         let style = font.get_font_style();
         let italic = style.is_set(FontStyle::ITALIC);
-        let weight = u16::try_from(font.get_font_weight()).ok().filter(|weight| *weight > 0);
+        let weight = u16::try_from(font.get_font_weight())
+            .ok()
+            .filter(|weight| *weight > 0);
         let fixed = |weight| FaceDesc::fixed(weight, italic);
-        if let Ok(file) = font.clone().try_cast::<FontFile>() {
-            if let Some(axis) = file
+        if let Ok(file) = font.clone().try_cast::<FontFile>()
+            && let Some(axis) = file
                 .get_supported_variation_list()
                 .get(tag(WEIGHT_AXIS))
                 .and_then(|range| range.try_to::<Vector3>().ok())
-            {
-                return FaceDesc {
-                    weight_min: axis.x.round() as u16,
-                    weight_max: axis.y.round() as u16,
-                    italic,
-                };
-            }
+        {
+            return FaceDesc {
+                weight_min: axis.x.round() as u16,
+                weight_max: axis.y.round() as u16,
+                italic,
+            };
         }
         fixed(weight.unwrap_or(DEFAULT_WEIGHT))
     }
@@ -271,7 +273,12 @@ fn tag_of(name: &str) -> i64 {
     tag(&bytes)
 }
 
-fn draw_key(face: Option<usize>, choice: &FaceChoice, sets_axis: bool, style: &ShapingStyle) -> VariationKey {
+fn draw_key(
+    face: Option<usize>,
+    choice: &FaceChoice,
+    sets_axis: bool,
+    style: &ShapingStyle,
+) -> VariationKey {
     VariationKey {
         face,
         axis_weight: sets_axis.then_some(choice.weight),
@@ -328,20 +335,33 @@ mod tests {
     #[test]
     fn synthetic_bold_grows_the_outline_by_skias_amount() {
         // Skia: size / 24 up to 9 px, size / 32 from 36 px, between them a straight line.
-        let grown = |size: i32| synthetic_bold_embolden(size) * size as f32 / EMBOLDEN_PER_OUTLINE_GROWTH;
+        let grown =
+            |size: i32| synthetic_bold_embolden(size) * size as f32 / EMBOLDEN_PER_OUTLINE_GROWTH;
         assert!((grown(9) - 9.0 / 24.0).abs() < 1e-5);
         assert!((grown(36) - 36.0 / 32.0).abs() < 1e-5);
         assert!((grown(100) - 100.0 / 32.0).abs() < 1e-4);
         assert!((grown(4) - 4.0 / 24.0).abs() < 1e-5);
         // Halfway between the keys (22.5 px) the factor is halfway between 1/24 and 1/32.
         let halfway = (1.0 / 24.0 + 1.0 / 32.0) / 2.0;
-        assert!((synthetic_bold_embolden(22) * 22.0 / EMBOLDEN_PER_OUTLINE_GROWTH - 22.0 * (1.0 / 24.0 + (halfway - 1.0 / 24.0) * (13.0 / 13.5))).abs() < 1e-3);
+        assert!(
+            (synthetic_bold_embolden(22) * 22.0 / EMBOLDEN_PER_OUTLINE_GROWTH
+                - 22.0 * (1.0 / 24.0 + (halfway - 1.0 / 24.0) * (13.0 / 13.5)))
+                .abs()
+                < 1e-3
+        );
     }
 
     #[test]
     fn tracking_embolden_makes_the_text_server_add_the_spacing_as_advance() {
         // The server adds embolden * size / 64 px to each advance.
-        for (spacing, size) in [(0.35_f32, 14), (-0.35, 14), (0.4, 16), (1.6, 16), (-2.4, 48), (0.05, 12)] {
+        for (spacing, size) in [
+            (0.35_f32, 14),
+            (-0.35, 14),
+            (0.4, 16),
+            (1.6, 16),
+            (-2.4, 48),
+            (0.05, 12),
+        ] {
             let strength = tracking_embolden(spacing, size);
             let advance = strength * size as f32 / 64.0;
             assert!((advance - spacing).abs() < 1e-6, "{spacing} at {size}");

@@ -2,15 +2,15 @@
 //! that the paragraph does not do by itself: line boxes with half-leading, letter-spacing in fractions of a pixel, decoration
 //! lines, the way a clipped line ends. Everything that reads or draws a node's text goes through [`StyledParagraph`].
 
-use godot::classes::text_server::{
-    JustificationFlag, LineBreakFlag, OverrunBehavior, SpacingType,
-};
-use godot::classes::{Font, TextParagraph, TextServerManager};
+mod draw;
+
+use godot::classes::text_server::{JustificationFlag, LineBreakFlag, OverrunBehavior, SpacingType};
+use godot::classes::{TextParagraph, TextServer, TextServerManager};
 use godot::global::HorizontalAlignment;
 use godot::prelude::*;
 
 use crate::fonts::ResolvedFont;
-use crate::text_layout::LineExtents;
+use crate::text_layout::{GodotParagraph, LineExtents, TextLayout};
 use crate::text_style::TextDecoration;
 use crate::text_style::metrics::LineBox;
 use crate::text_style::resolve::{Alignment, LineHeight, ShapingStyle, Wrapping};
@@ -75,7 +75,9 @@ impl StyledParagraph {
         paragraph.set_alignment(alignment_of(style.alignment));
         if style.alignment == Alignment::Justify {
             // The last line of a justified paragraph is not stretched.
-            paragraph.set_justification_flags(JustificationFlag::WORD_BOUND | JustificationFlag::SKIP_LAST_LINE);
+            paragraph.set_justification_flags(
+                JustificationFlag::WORD_BOUND | JustificationFlag::SKIP_LAST_LINE,
+            );
         }
         if style.ellipsis {
             paragraph.set_text_overrun_behavior(OverrunBehavior::TRIM_ELLIPSIS);
@@ -94,8 +96,16 @@ impl StyledParagraph {
             let mut server = TextServerManager::singleton()
                 .get_primary_interface()
                 .expect("the text server exists once a text is shaped");
-            server.shaped_text_set_spacing(paragraph.get_rid(), SpacingType::TOP, i64::from(line_box.top));
-            server.shaped_text_set_spacing(paragraph.get_rid(), SpacingType::BOTTOM, i64::from(line_box.bottom));
+            server.shaped_text_set_spacing(
+                paragraph.get_rid(),
+                SpacingType::TOP,
+                i64::from(line_box.top),
+            );
+            server.shaped_text_set_spacing(
+                paragraph.get_rid(),
+                SpacingType::BOTTOM,
+                i64::from(line_box.bottom),
+            );
             paragraph.set_line_spacing(line_box.gap);
         }
         if text.contains('\t') {
@@ -142,18 +152,6 @@ impl StyledParagraph {
         &self.paragraph
     }
 
-    pub(crate) fn style(&self) -> &ShapingStyle {
-        &self.style
-    }
-
-    pub(crate) fn font(&self) -> &ResolvedFont {
-        &self.font
-    }
-
-    pub(crate) fn decorations(&self) -> &[TextDecoration] {
-        &self.decorations
-    }
-
     /// Replace the decoration lines; the shaping does not change.
     pub(crate) fn set_decorations(&mut self, decorations: Vec<TextDecoration>) {
         self.decorations = decorations;
@@ -189,12 +187,14 @@ impl StyledParagraph {
             && self.style.wrapping.break_long_words
             && !self.style.wrapping.break_anywhere;
         if narrowest_ignores_long_words {
-            self.paragraph.set_break_flags(break_flags(self.style.wrapping, false));
+            self.paragraph
+                .set_break_flags(break_flags(self.style.wrapping, false));
         }
         self.paragraph.set_width(width);
         let mut size = self.paragraph.get_size();
         if narrowest_ignores_long_words {
-            self.paragraph.set_break_flags(break_flags(self.style.wrapping, true));
+            self.paragraph
+                .set_break_flags(break_flags(self.style.wrapping, true));
             self.paragraph.set_width(width);
         }
         size.y += self.line_box.map_or(0.0, |line_box| line_box.gap);
@@ -208,18 +208,144 @@ impl StyledParagraph {
         size
     }
 
-    /// Draw the text with its first line's top left at `origin` in `canvas`, `width` wide.
-    pub(crate) fn draw(&mut self, canvas: Rid, origin: Vector2, width: f32, color: Color, oversampling: f32) {
+    /// Draw the text with its first line's top left at `origin` in `canvas`, `width` wide, and its decoration lines.
+    ///
+    /// A paragraph that needs nothing `TextParagraph::draw` does not do is drawn by it. One that does (its glyphs are not
+    /// those of the font that shaped it, it has decorations, or its lines are not on whole pixels) is drawn line by line from
+    /// its layout, which places the lines as `TextParagraph::draw` does.
+    pub(crate) fn draw(
+        &mut self,
+        canvas: Rid,
+        origin: Vector2,
+        width: f32,
+        color: Color,
+        oversampling: f32,
+    ) {
         self.paragraph.set_width(width);
-        self.paragraph
-            .draw_ex(canvas, origin)
-            .color(color)
-            .oversampling(oversampling)
-            .done();
+        let fractional_lines = self.line_box.is_some_and(|line_box| line_box.gap != 0.0);
+        if !self.font.tracked && self.decorations.is_empty() && !fractional_lines {
+            self.paragraph
+                .draw_ex(canvas, origin)
+                .color(color)
+                .oversampling(oversampling)
+                .done();
+            return;
+        }
+        if let Err(error) = self.draw_lines(canvas, origin, width, color, oversampling) {
+            godot_error!("StyledParagraph: cannot draw the text: {error}");
+        }
     }
 
-    /// The theme font the paragraph was not shaped with is never needed; this is the font its glyphs look like.
-    pub(crate) fn draw_font(&self) -> &Gd<Font> {
-        &self.font.draw
+    fn draw_lines(
+        &mut self,
+        canvas: Rid,
+        origin: Vector2,
+        width: f32,
+        color: Color,
+        oversampling: f32,
+    ) -> Result<(), String> {
+        let source =
+            GodotParagraph::lay_out(&self.paragraph, width).map_err(|error| error.to_string())?;
+        let layout = TextLayout::new(source, origin, self.extents_of_empty_line())
+            .map_err(|error| error.to_string())?;
+        let mut server: Gd<TextServer> = TextServerManager::singleton()
+            .get_primary_interface()
+            .ok_or("there is no text server")?;
+        // `TextParagraph::draw` clips every line to the paragraph's width (the widest line's when it has none).
+        let clip_width = if width > 0.0 {
+            width
+        } else {
+            self.paragraph.get_size().x
+        };
+        let size = self.style.font_size;
+        let (ascent, _) = self.font.extents();
+        let decoration_font = draw::decoration_font(
+            size,
+            ascent,
+            self.font
+                .draw
+                .get_underline_thickness_ex()
+                .font_size(size)
+                .done(),
+        );
+        let mut decorated = Vec::new();
+        for (index, line) in layout.lines().iter().enumerate() {
+            if line.after_final_break || line.range.is_empty() {
+                continue;
+            }
+            let rid = self
+                .paragraph
+                .get_line_rid(i32::try_from(index).map_err(|error| error.to_string())?);
+            let hanging = if self.decorations.is_empty() {
+                0.0
+            } else {
+                draw::trailing_space_width(&server, rid)?
+            };
+            decorated.push(draw::DecoratedLine {
+                origin: line.origin,
+                width: (line.width - hanging).max(0.0),
+            });
+        }
+        draw::draw_decorations(
+            canvas,
+            &self.decorations,
+            &decorated,
+            decoration_font,
+            oversampling,
+            draw::Layer::Behind,
+        );
+        let fonts: Vec<(Rid, Rid)> = self
+            .font
+            .shape
+            .get_rids()
+            .iter_shared()
+            .zip(self.font.draw.get_rids().iter_shared())
+            .collect();
+        let drawing = draw::LineDrawing {
+            canvas,
+            color,
+            oversampling,
+            fonts: &fonts,
+        };
+        for (index, line) in layout.lines().iter().enumerate() {
+            if line.after_final_break {
+                continue;
+            }
+            let rid = self
+                .paragraph
+                .get_line_rid(i32::try_from(index).map_err(|error| error.to_string())?);
+            // The baseline is on a device pixel, as a browser draws it.
+            let position = Vector2::new(
+                line.origin.x,
+                (line.origin.y * oversampling).round() / oversampling,
+            );
+            let clip_left = (origin.x - line.origin.x).max(0.0);
+            if self.font.tracked {
+                draw::draw_glyphs(
+                    &mut server,
+                    rid,
+                    position,
+                    (clip_left, clip_left + clip_width),
+                    &drawing,
+                )?;
+            } else {
+                server
+                    .shaped_text_draw_ex(rid, canvas, position)
+                    .clip_l(f64::from(clip_left))
+                    .clip_r(f64::from(clip_left + clip_width))
+                    .color(color)
+                    .oversampling(oversampling)
+                    .done();
+            }
+        }
+        draw::draw_decorations(
+            canvas,
+            &self.decorations,
+            &decorated,
+            decoration_font,
+            oversampling,
+            draw::Layer::Over,
+        );
+        Ok(())
     }
 }

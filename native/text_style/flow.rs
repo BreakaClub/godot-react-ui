@@ -51,7 +51,9 @@ fn capitalize(source: &str) -> String {
         let continues = character.is_alphanumeric()
             || (in_word
                 && WORD_JOINERS.contains(&character)
-                && characters.get(index + 1).is_some_and(|next| next.is_alphabetic()));
+                && characters
+                    .get(index + 1)
+                    .is_some_and(|next| next.is_alphabetic()));
         if !continues {
             in_word = false;
             shown.push(character);
@@ -129,17 +131,32 @@ mod tests {
 
     #[test]
     fn untouched_text_is_borrowed() {
-        assert!(matches!(shown_text("Hello", Case::None, Space::PreWrap), Cow::Borrowed(_)));
-        assert!(matches!(shown_text("hello", Case::Lowercase, Space::PreWrap), Cow::Borrowed(_)));
-        assert!(matches!(shown_text("a b", Case::None, Space::Normal), Cow::Borrowed(_)));
-        assert!(matches!(shown_text("a  b", Case::None, Space::Normal), Cow::Owned(_)));
+        assert!(matches!(
+            shown_text("Hello", Case::None, Space::PreWrap),
+            Cow::Borrowed(_)
+        ));
+        assert!(matches!(
+            shown_text("hello", Case::Lowercase, Space::PreWrap),
+            Cow::Borrowed(_)
+        ));
+        assert!(matches!(
+            shown_text("a b", Case::None, Space::Normal),
+            Cow::Borrowed(_)
+        ));
+        assert!(matches!(
+            shown_text("a  b", Case::None, Space::Normal),
+            Cow::Owned(_)
+        ));
     }
 
     #[test]
     fn upper_and_lower_case_use_the_full_unicode_mappings() {
         assert_eq!(shown("Straße", Case::Uppercase, Space::Pre), "STRASSE");
         assert_eq!(shown("ΑΣ ΣΑΣ", Case::Lowercase, Space::Pre), "ας σας");
-        assert_eq!(shown("İstanbul", Case::Lowercase, Space::Pre), "i\u{307}stanbul");
+        assert_eq!(
+            shown("İstanbul", Case::Lowercase, Space::Pre),
+            "i\u{307}stanbul"
+        );
     }
 
     #[test]
@@ -158,10 +175,17 @@ mod tests {
 
     #[test]
     fn normal_white_space_collapses_runs_and_trims_the_ends() {
-        assert_eq!(shown("  a   b\t\tc\n\nd  ", Case::None, Space::Normal), "a b c d");
+        assert_eq!(
+            shown("  a   b\t\tc\n\nd  ", Case::None, Space::Normal),
+            "a b c d"
+        );
         assert_eq!(shown("a\r\nb", Case::None, Space::Nowrap), "a b");
         assert_eq!(shown("   ", Case::None, Space::Normal), "");
-        assert_eq!(shown("a\u{a0}\u{a0}b", Case::None, Space::Normal), "a\u{a0}\u{a0}b", "no-break spaces are not collapsible");
+        assert_eq!(
+            shown("a\u{a0}\u{a0}b", Case::None, Space::Normal),
+            "a\u{a0}\u{a0}b",
+            "no-break spaces are not collapsible"
+        );
     }
 
     #[test]
@@ -175,12 +199,19 @@ mod tests {
     #[test]
     fn preserving_modes_leave_the_text_alone() {
         for space in [Space::Pre, Space::PreWrap, Space::BreakSpaces] {
-            assert_eq!(shown("  a  b\n c ", Case::None, space), "  a  b\n c ", "{space:?}");
+            assert_eq!(
+                shown("  a  b\n c ", Case::None, space),
+                "  a  b\n c ",
+                "{space:?}"
+            );
         }
     }
 
     #[test]
     fn case_and_white_space_compose() {
-        assert_eq!(shown("  hello   world ", Case::Capitalize, Space::Normal), "Hello World");
+        assert_eq!(
+            shown("  hello   world ", Case::Capitalize, Space::Normal),
+            "Hello World"
+        );
     }
 }

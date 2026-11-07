@@ -23,11 +23,11 @@ use godot::prelude::*;
 
 use crate::fonts::ResolvedFont;
 use crate::props::{StyleSpec, TextAlignSpec};
-use crate::text_paragraph::StyledParagraph;
-use crate::text_style::TextStyle;
 use crate::text_layout::{
     GodotParagraph, GodotTextLayout, LineExtents, TextAlignment, TextDirection, TextLayout,
 };
+use crate::text_paragraph::StyledParagraph;
+use crate::text_style::TextStyle;
 use cases::{CASES, CaseSpec};
 use checks::Report;
 
@@ -65,6 +65,7 @@ fn alignment_name(alignment: TextAlignment) -> &'static str {
         TextAlignment::Left => "left",
         TextAlignment::Center => "center",
         TextAlignment::Right => "right",
+        TextAlignment::Fill => "fill",
     }
 }
 
@@ -86,6 +87,7 @@ fn paragraph_for(font: &Gd<Font>, text: &str, alignment: TextAlignment) -> Gd<Te
         TextAlignment::Left => TextAlignSpec::Left,
         TextAlignment::Center => TextAlignSpec::Center,
         TextAlignment::Right => TextAlignSpec::Right,
+        TextAlignment::Fill => TextAlignSpec::Justify,
     };
     let style = TextStyle::of(
         &StyleSpec {

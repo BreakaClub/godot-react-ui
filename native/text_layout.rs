@@ -43,8 +43,10 @@
 //!   baseline of a line is the previous line's baseline plus its descent and the line spacing plus this
 //!   line's ascent; the x offset comes from the alignment and the line's width against `width`
 //!   (`get_size().x` when the width is not positive). Horizontal paragraphs with left, centre and right
-//!   alignment, no drop cap and no `max_lines_visible` are supported; anything else is
-//!   [`TextLayoutError::Unsupported`], never approximated.
+//!   alignment (justified included) and no drop cap are supported; anything else is
+//!   [`TextLayoutError::Unsupported`], never approximated. A paragraph with `max_lines_visible` is the layout of the lines it
+//!   shows: the text it hides is not in the layout (`text_len` is where the last visible line ends), which is where a pointer
+//!   can reach.
 //! - Every offset belongs to exactly one line: the last line that starts at or before it. An offset at a
 //!   soft wrap is on the line after the wrap and the offset after a hard line break is on the line after
 //!   it (the [`LineLayout`] contract). `TextParagraph` shapes no empty line after a final hard line break
@@ -90,13 +92,15 @@ pub(crate) use paragraph::GodotParagraph;
 /// A [`TextLayout`] over a real `TextParagraph`.
 pub(crate) type GodotTextLayout = TextLayout<GodotParagraph>;
 
-/// The horizontal alignments `TextParagraph::draw` is replicated for here. `HORIZONTAL_ALIGNMENT_FILL`
-/// justifies lines (`fit_to_width`) and is not supported.
+/// The horizontal alignments `TextParagraph::draw` is replicated for here. `Fill` is `HORIZONTAL_ALIGNMENT_FILL`: the
+/// paragraph justified every line but the last (`fit_to_width`), so each of those is as wide as the box and the glyphs of
+/// a line start at its left edge, or at its right when the line runs right to left.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TextAlignment {
     Left,
     Center,
     Right,
+    Fill,
 }
 
 /// The direction of a line (`shaped_text_get_inferred_direction`) or of a caret.
@@ -113,10 +117,6 @@ pub(crate) enum Unsupported {
     VerticalOrientation,
     /// A drop cap (`set_dropcap`).
     DropCap,
-    /// `max_lines_visible >= 0`, which hides lines.
-    MaxLinesVisible,
-    /// `HORIZONTAL_ALIGNMENT_FILL`.
-    FillAlignment,
 }
 
 /// What the text server returned that cannot be right.
@@ -893,6 +893,11 @@ fn place_lines(
                         }
                     }
                     TextAlignment::Right => x += line_width - line.width,
+                    TextAlignment::Fill => {
+                        if line.direction == TextDirection::Rtl {
+                            x += line_width - line.width;
+                        }
+                    }
                 }
             }
             let baseline = Vector2::new(x, y);

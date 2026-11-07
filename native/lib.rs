@@ -39,8 +39,8 @@ mod snapshot;
 mod stacking;
 mod style_engine;
 // The text longhands, their inheritance and the arithmetic of line boxes and font matching (Godot-free).
-mod text_style;
 mod text_input;
+mod text_style;
 // `<TextInput>` on the mounted tree: key, pointer, IME and virtual keyboard input, painting.
 mod text_input_godot;
 // Caret, hit-test and selection geometry over Godot's `TextParagraph`; text selection (Phase I6) and text
@@ -95,8 +95,8 @@ use render_tree::{Oversampling, RingKey, RootItem};
 use scroll_input::ScrollInputState;
 use selection_input::SelectionState;
 use style_engine::{DimensionAxis, DimensionOverrides, SampledStyle, StyleEngine};
-use text_paragraph::StyledParagraph;
 use text_input_godot::TextInputRoot;
+use text_paragraph::StyledParagraph;
 
 const DEFAULT_FONT_SIZE: i32 = 16;
 const MILLISECONDS_PER_SECOND: f64 = 1000.0;
@@ -569,10 +569,17 @@ impl ReactUiRoot {
         italic: bool,
         font: Gd<Font>,
     ) -> GString {
-        let (Ok(weight_min), Ok(weight_max)) = (u16::try_from(weight_min), u16::try_from(weight_max)) else {
-            return GString::from(&format!("font weights {weight_min}..={weight_max} are not CSS weights"));
+        let (Ok(weight_min), Ok(weight_max)) =
+            (u16::try_from(weight_min), u16::try_from(weight_max))
+        else {
+            return GString::from(&format!(
+                "font weights {weight_min}..={weight_max} are not CSS weights"
+            ));
         };
-        if let Err(error) = self.fonts.register(&family.to_string(), weight_min, weight_max, italic, font) {
+        if let Err(error) =
+            self.fonts
+                .register(&family.to_string(), weight_min, weight_max, italic, font)
+        {
             return GString::from(&error);
         }
         self.refresh_font_users();
@@ -872,6 +879,17 @@ impl ReactUiRoot {
     fn get_node_rect(&self, tag: i64) -> GString {
         let json = match u32::try_from(tag) {
             Ok(tag) => self.node_rect_json(tag),
+            Err(_) => serde_json::Value::Null,
+        };
+        json.to_string().as_str().into()
+    }
+
+    /// The lines of a text node as they are drawn, in root-local coordinates, as JSON (`selection_input.rs`,
+    /// `text_lines_json`), or `null`. For verifiers that compare the layout with another renderer's.
+    #[func]
+    fn get_text_lines(&self, tag: i64) -> GString {
+        let json = match u32::try_from(tag) {
+            Ok(tag) => self.text_lines_json(tag),
             Err(_) => serde_json::Value::Null,
         };
         json.to_string().as_str().into()

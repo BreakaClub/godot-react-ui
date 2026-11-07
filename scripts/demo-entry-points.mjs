@@ -16,4 +16,6 @@ export const DEMO_ENTRY_POINTS = [
   'demo/src/text-layout-probe.ts', 'demo/src/verify-text-layout.ts',
   // The accessibility lab (docs/tracks/accessibility.md): its owner and its verifier.
   'demo/src/a11y-main.ts', 'demo/src/verify-a11y.ts',
+  // The text styles lab (docs/tracks/utilities-text.md): its fonts, its samples (which the Chrome reference reads too) and its verifier.
+  'demo/src/demo-fonts.ts', 'demo/src/text-styles-data.ts',
 ];
