@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createElement } from 'react';
-import { compileStyle } from '../src/styles';
+import { compileStyle, compiledStyleCount } from '../src/styles';
+import type { StyleProp } from '../src/types';
 import {
   diffNativeProps, NATIVE_PROP_KEYS, nativeProps, scalarText, type NativeProps,
 } from '../src/props';
@@ -49,6 +50,32 @@ test('a clone with unchanged className and style reuses the compiled style objec
   assert.notEqual(changed.style, before.style);
   const restyled = nativeProps('view', { className: 'p-1', style: { width: 4 } }, false, { props: first, native: before });
   assert.equal(restyled.style, before.style, 'a new but equal style object interns to the same compiled style');
+});
+
+test('a style a render writes again is not compiled again, and one that changed is', () => {
+  const first = { className: 'p-1', style: { left: 4, top: 8 } };
+  const before = nativeProps('view', first, false);
+  const previous = { props: first, native: before };
+  const compiles = compiledStyleCount();
+  // The same styles in a new object, in another order of keys, and in a new list.
+  const again = nativeProps('view', { className: 'p-1', style: { top: 8, left: 4 } }, false, previous);
+  assert.equal(compiledStyleCount(), compiles, 'an equal style is not compiled');
+  assert.equal(again.style, before.style);
+  const nested = (): StyleProp => [{ left: 4 }, false, [{ top: 8 }]];
+  const listed = { className: 'p-1', style: nested() };
+  const firstList = nativeProps('view', listed, false);
+  const listCompiles = compiledStyleCount();
+  nativeProps('view', { className: 'p-1', style: nested() }, false, { props: listed, native: firstList });
+  assert.equal(compiledStyleCount(), listCompiles, 'nor is an equal list of styles');
+  // One value, one more key, one fewer, and a different class are each a compile.
+  for (const changed of [{ left: 5, top: 8 }, { left: 4, top: 8, width: 1 }, { left: 4 }]) {
+    const count = compiledStyleCount();
+    nativeProps('view', { className: 'p-1', style: changed }, false, previous);
+    assert.equal(compiledStyleCount(), count + 1, `${JSON.stringify(changed)} is another style`);
+  }
+  const count = compiledStyleCount();
+  nativeProps('view', { className: 'p-2', style: { left: 4, top: 8 } }, false, previous);
+  assert.equal(compiledStyleCount(), count + 1, 'another class is another style');
 });
 
 test('a diff names exactly the changed keys, with null for a key that returned to its default', () => {

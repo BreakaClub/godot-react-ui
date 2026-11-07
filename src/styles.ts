@@ -691,6 +691,13 @@ function deepFreeze<T extends object>(value: T): Readonly<T> {
   return value;
 }
 
+/** How many styles `compileStyle` has compiled since the start (a class string it had compiled before is not another compile). For tests and profiles. */
+let compiledStyles = 0;
+
+export function compiledStyleCount(): number {
+  return compiledStyles;
+}
+
 const interned = new Map<string, CompiledStyle>();
 const classOnly = new Map<string, CompiledStyle>();
 const keys = new WeakMap<CompiledStyle, string>();
@@ -721,6 +728,7 @@ export function compileStyle(className = '', inlineStyle?: StyleProp): CompiledS
     const cached = classOnly.get(classKey);
     if (cached !== undefined) return cached;
   }
+  compiledStyles += 1;
   const pending: PendingLayer[] = [];
   function add(minWidth: number, states: readonly PseudoState[], style: Readonly<UtilityStyle>): void {
     let layer = pending.at(-1);
@@ -768,6 +776,30 @@ export function compileStyle(className = '', inlineStyle?: StyleProp): CompiledS
     classOnly.set(classKey, result);
   }
   return result;
+}
+
+/** Whether two values are the same plain data: equal primitives, or arrays and objects whose entries are, one by one. */
+function sameData(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (typeof left !== 'object' || typeof right !== 'object' || left === null || right === null) return false;
+  if (Array.isArray(left) !== Array.isArray(right)) return false;
+  const entries = Object.entries(left);
+  if (entries.length !== Object.keys(right).length) return false;
+  return entries.every(([key, value]) => Object.hasOwn(right, key) && sameData(value, Reflect.get(right, key)));
+}
+
+/**
+ * Whether two `style` props compile to the same layers: the same styles (nested arrays included) in the same order. A render makes its
+ * inline `style={{ left: 12 }}` again each time, so the object an element had is not the one it has now, and what it is made of is
+ * what tells whether it changed. Compiling a style is the one costly step of an element's props (`nativeProps`), and `compileStyle` is a
+ * function of the class string and of this alone, so an equal style needs no compile.
+ */
+export function sameStyleProp(left: StyleProp, right: StyleProp): boolean {
+  if (left === right) return true;
+  // `false`, `null`, `undefined` and an empty list all style nothing.
+  const none = (style: StyleProp): boolean => !style || (isStyleArray(style) && style.every(none));
+  if (none(left) || none(right)) return none(left) && none(right);
+  return sameData(left, right);
 }
 
 export const StyleSheet = {

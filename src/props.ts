@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import type { HostProps } from './components';
 import { sameSpans, type FlatText, type NativeSpan } from './rich-text';
-import { compileStyle, styleKey } from './styles';
+import { compileStyle, sameStyleProp, styleKey } from './styles';
 import type { CompiledStyle, UIRole } from './types';
 
 /** What kind of native node an element becomes. */
@@ -123,13 +123,14 @@ export interface PreviousProps {
 
 /**
  * Derive the native props of an element. Compiling a style is the one costly step, so a clone whose
- * `className` and `style` props are unchanged reuses the previous compiled style.
+ * `className` and `style` props are unchanged reuses the previous compiled style. An inline style is made again by every render of the
+ * component that writes it, so it is unchanged when it is made of the same styles, not when it is the same object.
  */
 export function nativeProps(
   kind: NativeKind, props: HostProps, hidden: boolean, previous?: PreviousProps, rich?: FlatText,
 ): NativeProps {
   const native: { -readonly [K in keyof NativeProps]: NativeProps[K] } = {};
-  if (previous !== undefined && previous.props.className === props.className && previous.props.style === props.style) {
+  if (previous !== undefined && previous.props.className === props.className && sameStyleProp(previous.props.style, props.style)) {
     if (previous.native.style !== undefined) native.style = previous.native.style;
   } else if (props.className || props.style) {
     const compiled = compileStyle(props.className, props.style);

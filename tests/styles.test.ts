@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { compileStyle, StyleSheet, styleKey } from '../src/styles';
+import { compileStyle, sameStyleProp, StyleSheet, styleKey } from '../src/styles';
 import type { Style, StyleProp } from '../src/types';
 import { checkFixture } from './fixtures';
 
@@ -299,4 +299,39 @@ test('scroll utilities compile to the longhands native reads', () => {
   assert.throws(() => compileStyle('overscroll-none'), /Unsupported utility class "overscroll-none"/);
   assert.throws(() => compileStyle('scrollbar-thin'), /Unsupported utility class "scrollbar-thin"/);
   assert.throws(() => compileStyle('touch-manipulation'), /Unsupported utility class "touch-manipulation"/);
+});
+
+// ---- sameStyleProp: an inline style a render writes again ----
+
+test('sameStyleProp: styles made of the same entries are the same, whatever object or order they come in', () => {
+  const style: Style = { left: 4, top: 8 };
+  assert.ok(sameStyleProp(style, style));
+  assert.ok(sameStyleProp({ left: 4, top: 8 }, { top: 8, left: 4 }));
+  assert.ok(sameStyleProp([{ left: 4 }, [{ top: 8 }]], [{ left: 4 }, [{ top: 8 }]]));
+  // Entries that are data themselves are compared by what they hold.
+  const transition = (duration: number): Style => ({ transition: { properties: ['opacity'], durationMs: duration } });
+  assert.ok(sameStyleProp(transition(200), transition(200)));
+  assert.ok(!sameStyleProp(transition(200), transition(300)));
+  assert.ok(sameStyleProp({ gridTemplateColumns: [1, 'auto'] }, { gridTemplateColumns: [1, 'auto'] }));
+  assert.ok(!sameStyleProp({ gridTemplateColumns: [1, 'auto'] }, { gridTemplateColumns: [1, 'auto', 2] }));
+});
+
+test('sameStyleProp: any change of an entry, a key or the nesting is a different style', () => {
+  assert.ok(!sameStyleProp({ left: 4 }, { left: 5 }));
+  assert.ok(!sameStyleProp({ left: 4 }, { left: 4, top: 0 }));
+  assert.ok(!sameStyleProp({ left: 4, top: 0 }, { left: 4 }));
+  assert.ok(!sameStyleProp({ left: 4 }, { top: 4 }));
+  assert.ok(!sameStyleProp({ left: 4 }, [{ left: 4 }]));
+  assert.ok(!sameStyleProp([{ left: 4 }], { left: 4 }));
+  assert.ok(!sameStyleProp({ left: 0 }, { left: -0 }), 'Object.is tells 0 from -0, as a compile would');
+  assert.ok(!sameStyleProp({ left: undefined }, {}));
+  assert.ok(!sameStyleProp({ left: 1 }, undefined));
+});
+
+test('sameStyleProp: false, null, undefined and a list of them style nothing, and are the same', () => {
+  for (const none of [false, null, undefined, [], [false], [[undefined], null]] as StyleProp[]) {
+    for (const other of [false, null, undefined, [], [false]] as StyleProp[]) assert.ok(sameStyleProp(none, other));
+    assert.ok(!sameStyleProp(none, { left: 1 }));
+    assert.ok(!sameStyleProp({ left: 1 }, none));
+  }
 });
