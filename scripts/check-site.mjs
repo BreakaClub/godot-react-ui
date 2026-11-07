@@ -5,6 +5,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
 import { rejectUnknownArguments } from './arguments.mjs';
+import { createHash } from 'node:crypto';
 import { injectBase } from './release-bundle.mjs';
 import { servedAssetProblems } from './web-verify.mjs';
 
@@ -16,18 +17,21 @@ import { servedAssetProblems } from './web-verify.mjs';
 //   node scripts/check-site.mjs --url=... --throttle=<kilobits per second>:<round trip ms>   a slower line (CDP network emulation)
 //   node scripts/check-site.mjs --url=... --accept-encoding=br                         what the browser says it accepts (CDP header override)
 //   node scripts/check-site.mjs --url=... --files                                      also fetch every file of the release export through the site and compare bytes
+//   node scripts/check-site.mjs --url=... --font-slices                                also fetch the font slice manifest, each family's index and its first slice through the site
+//                                                                                      and check their bytes against the manifest and their headers (docs/tracks/font-slices.md)
 //   node scripts/check-site.mjs --url=... --json=<file>                                write the measurements as JSON
 //
 // The page works when: the demo API appears, the lab navigator lists its labs and shows one without tripping its error boundary, Next shows another,
 // the code panel opens, and the browser logs no error and fails no request.
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-rejectUnknownArguments(process.argv.slice(2), { flags: ['--timing-only', '--files'], prefixes: ['--url=', '--profile=', '--throttle=', '--accept-encoding=', '--json='] });
+rejectUnknownArguments(process.argv.slice(2), { flags: ['--timing-only', '--files', '--font-slices'], prefixes: ['--url=', '--profile=', '--throttle=', '--accept-encoding=', '--json='] });
 const option = name => process.argv.find(argument => argument.startsWith(`--${name}=`))?.slice(name.length + 3);
 const url = option('url');
 if (url === undefined || url === '') throw new Error('--url=<address of the page> is required');
 const timingOnly = process.argv.includes('--timing-only');
 const compareFiles = process.argv.includes('--files');
+const compareFontSlices = process.argv.includes('--font-slices');
 const profile = option('profile');
 const acceptEncoding = option('accept-encoding');
 const throttle = option('throttle');
@@ -170,6 +174,17 @@ try {
     }
   }
 
+  if (compareFontSlices && !timingOnly) {
+    try {
+      const document = await (await fetch(url)).text();
+      const base = /<base href="([^"]+)">/u.exec(document)?.[1];
+      check('the document names its release with a <base>', base !== undefined);
+      if (base !== undefined) await checkFontSlices(new URL(base, url), new URL('/o/', url), check);
+    } catch (error) {
+      problems.push(`font slices: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   rows.sort((left, right) => left.start - right.start);
   const table = rows.map(row => ({
     file: row.file.slice(0, 52), status: row.status, source: row.source, encoding: row.encoding, wireMiB: +(row.wire / BYTES_PER_MEBIBYTE).toFixed(3), seconds: +row.seconds.toFixed(2),
@@ -194,3 +209,36 @@ if (problems.length > 0) {
   process.exit(1);
 }
 console.log('check-site: passed');
+
+/**
+ * The font slices as the site serves them: the manifest (a release file), then for each family its index and its first slice (objects at `/o/`).
+ * Each is fetched asking for brotli, because that is what a browser does; the bytes are the file's own, so they must hash to what the manifest says.
+ * A slice is a font, served immutable, as `font/woff2`, to a page that is cross-origin isolated.
+ */
+async function checkFontSlices(releaseBase, objectBase, check) {
+  const get = async (address, what) => {
+    const response = await fetch(address, { headers: { 'Accept-Encoding': 'br, gzip' } });
+    if (!response.ok) throw new Error(`${what}: ${address} answered ${response.status}`);
+    return { response, bytes: Buffer.from(await response.arrayBuffer()) };
+  };
+  const sha = bytes => createHash('sha256').update(bytes).digest('hex');
+  const headersOk = response => response.headers.get('cross-origin-resource-policy') === 'cross-origin'
+    && response.headers.get('cross-origin-embedder-policy') === 'require-corp'
+    && response.headers.get('cache-control')?.includes('immutable') === true;
+  const { response: manifestResponse, bytes: manifestBytes } = await get(new URL('font-slices.json', releaseBase), 'the manifest');
+  const manifest = JSON.parse(manifestBytes.toString('utf8'));
+  check('the font slice manifest is served from the release, as JSON', manifestResponse.headers.get('content-type')?.startsWith('application/json') === true && Array.isArray(manifest.families), { families: manifest.families?.length });
+  for (const family of manifest.families) {
+    const { response: indexResponse, bytes: indexBytes } = await get(new URL(family.index.path, objectBase), `the index of ${family.id}`);
+    check(`${family.id}: the index is the file the manifest names (${family.index.bytes} bytes), served immutable to an isolated page`,
+      sha(indexBytes) === family.index.sha256 && indexBytes.length === family.index.bytes && headersOk(indexResponse) && indexResponse.headers.get('content-type')?.startsWith('application/json') === true,
+      { sha: sha(indexBytes), headers: Object.fromEntries(indexResponse.headers) });
+    const slice = JSON.parse(indexBytes.toString('utf8')).slices[0];
+    const { response: sliceResponse, bytes: sliceBytes } = await get(new URL(slice.path, objectBase), `slice ${slice.id}`);
+    check(`${family.id}: ${slice.id} is the file the manifest names (${slice.bytes} bytes), a font, served immutable to an isolated page`,
+      sha(sliceBytes) === slice.sha256 && sliceBytes.length === slice.bytes && headersOk(sliceResponse) && sliceResponse.headers.get('content-type') === 'font/woff2',
+      { sha: sha(sliceBytes), headers: Object.fromEntries(sliceResponse.headers) });
+  }
+  const missing = await fetch(new URL(`${'0'.repeat(32)}/nothing.woff2`, objectBase));
+  check('an object that does not exist is not served as a font', !missing.ok, { status: missing.status });
+}

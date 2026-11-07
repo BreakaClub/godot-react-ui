@@ -55,7 +55,8 @@ function listFiles(directory) {
   });
 }
 
-async function brotliCopy(bytes, hash, cacheDirectory) {
+/** The brotli copy of `bytes` (hash `hash`), kept in `cacheDirectory` by content so a second deploy does not compress it again; resolves with the copy's path. */
+export async function brotliCopyOf(bytes, hash, cacheDirectory) {
   const cached = join(cacheDirectory, `${hash}.br`);
   if (existsSync(cached)) return cached;
   const encoded = await brotli(bytes, {
@@ -108,7 +109,7 @@ export async function buildRelease({ sourceDirectory, cacheDirectory, source = {
     const encodings = {};
     // The document stays as it is: it is small, and the Worker's edge compresses it.
     if (!isDocument && isCompressible(entry.path) && bytes.length >= BROTLI_SMALLEST_WORTH_ENCODING) {
-      const copy = await brotliCopy(bytes, hash, cacheDirectory);
+      const copy = await brotliCopyOf(bytes, hash, cacheDirectory);
       const copyBytes = statSync(copy).size;
       if (copyBytes <= bytes.length * MAXIMUM_ENCODED_FRACTION) {
         encodings.br = copyBytes;

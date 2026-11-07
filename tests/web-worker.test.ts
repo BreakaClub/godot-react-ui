@@ -38,7 +38,7 @@ function manifestOf(id: string): ReleaseManifest {
   return { version: 1, id, createdAt: '2026-11-07T00:00:00.000Z', source: {}, files: files.map(({ path, hash, type, size, encodings }) => ({ path, hash, type, size, encodings })) };
 }
 
-function bucket(options: { pointer?: unknown; releases?: readonly string[]; dropObjects?: readonly string[] } = {}) {
+function bucket(options: { pointer?: unknown; releases?: readonly string[]; dropObjects?: readonly string[]; extra?: Readonly<Record<string, Buffer>> } = {}) {
   const objects = new Map<string, Stored>();
   const put = (key: string, bytes: Buffer): void => { objects.set(`${PREFIX}/${key}`, { bytes }); };
   if (options.pointer !== undefined) put(POINTER_KEY, Buffer.from(JSON.stringify(options.pointer)));
@@ -48,6 +48,7 @@ function bucket(options: { pointer?: unknown; releases?: readonly string[]; drop
     put(objectKey(item.hash, 'identity'), item.bytes);
     if (item.encoded !== undefined) put(objectKey(item.hash, 'br'), item.encoded);
   }
+  for (const [key, bytes] of Object.entries(options.extra ?? {})) put(key, bytes);
   const reads: string[] = [];
   return {
     reads,
@@ -255,4 +256,34 @@ test('a site with no pointer says so (503), and a release that does not hold tog
   assert.match(messages[0] ?? '', /pointer names release ffffffffffff/u);
   assert.match(messages[1] ?? '', /does not have object/u);
   assert.match(messages[2] ?? '', /Invalid release data/u);
+});
+
+test('font slices are objects like any other: by hash, as font/woff2, for a year, to any page that is cross-origin isolated, with an index brotli-compressed', async () => {
+  const slice = Buffer.from('wOF2'.repeat(500));
+  const index = Buffer.from(JSON.stringify({ version: 1, family: 'noto-sans-sc', slices: [] }).repeat(40));
+  const encodedIndex = brotliCompressSync(index);
+  const { env } = bucket({
+    pointer,
+    extra: {
+      [objectKey(hashBytes(slice), 'identity')]: slice,
+      [objectKey(hashBytes(index), 'identity')]: index,
+      [objectKey(hashBytes(index), 'br')]: encodedIndex,
+    },
+  });
+  const font = await worker.fetch(request(`/o/${hashBytes(slice)}/noto-sans-sc-004.woff2`, { 'accept-encoding': 'gzip, deflate, br' }), env);
+  assert.equal(font.status, 200);
+  assert.equal(font.headers.get('content-type'), 'font/woff2');
+  assert.equal(font.headers.get('cache-control'), 'public, max-age=31536000, immutable');
+  assert.equal(font.headers.get('content-encoding'), null, 'a font is not served in a second encoding');
+  assert.equal(font.headers.get('cross-origin-resource-policy'), 'cross-origin');
+  assert.equal(font.headers.get('cross-origin-embedder-policy'), 'require-corp');
+  assert.deepEqual(await bytesOf(font), slice);
+
+  const named = await worker.fetch(request(`/o/${hashBytes(index)}/noto-sans-sc.index.json`, { 'accept-encoding': 'br' }), env);
+  assert.equal(named.headers.get('content-type'), 'application/json; charset=utf-8');
+  assert.equal(named.headers.get('content-encoding'), 'br');
+  assert.deepEqual(await bytesOf(named), encodedIndex);
+  const plain = await worker.fetch(request(`/o/${hashBytes(index)}/noto-sans-sc.index.json`, { 'accept-encoding': 'identity' }), env);
+  assert.equal(plain.headers.get('content-encoding'), null);
+  assert.deepEqual(await bytesOf(plain), index);
 });

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
+import { FONT_SLICES_DIRECTORY, exportedFontSliceProblems } from './font-slices/paths.mjs';
 import { startExportServer } from './web-server.mjs';
 
 /**
@@ -71,11 +72,13 @@ export function passedLine(marker, report, output, details = {}) {
  * The server for the verifier of the export in `directory`: its own, or the one `process.env.GODOT_REACT_WEB_URL` names after
  * every served asset has been compared with the export's receipt. Returns `{ url, close, origin }`.
  */
-export async function startVerificationServer(engine, { env = process.env, log = console.log } = {}) {
+export async function startVerificationServer(engine, { env = process.env, log = console.log, fontSlices = FONT_SLICES_DIRECTORY } = {}) {
   const directory = engine.artifactPath(`web-${engine.webMode()}`);
   const named = env[WEB_URL_VARIABLE];
+  const fontSliceProblems = exportedFontSliceProblems(directory, fontSlices);
+  if (fontSliceProblems.length > 0) throw new Error(`The ${engine.name} export ${relative(engine.root, directory)} and the font slices disagree: ${fontSliceProblems.join('; ')}. Run \`pnpm build:web --export-only${engine.webMode() === 'release' ? ' --release' : ''}\` ${engine.name === 'breaka' ? '' : `--engine=${engine.name} `}after the slice build.`);
   if (named === undefined || named === '') {
-    const own = await startExportServer({ root: directory });
+    const own = await startExportServer({ root: directory, objects: join(fontSlices, 'o') });
     log(`Serving ${relative(engine.root, directory)} on ${own.url} (a free port, this verifier's own server)`);
     return { url: own.url, own: true, close: own.close };
   }

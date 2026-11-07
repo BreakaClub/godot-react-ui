@@ -8,6 +8,7 @@ import { argsWithoutEngine, CARGO_PACKAGE, selectEngine } from './engine.mjs';
 import { assertReleasePack, planReleaseStageOf, stageReleaseProject } from './release-stage.mjs';
 import { liveCompileWebExportProblem, liveCompileWebPlan, removeLiveCompileWebModules, withoutLiveCompileManifest, writeGdextension } from './live-compile-build.mjs';
 import { presetTemplate } from './web-content.mjs';
+import { exportFontSlices } from './font-slices/paths.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // The engine profile (`--engine=stock` / `GODOT_REACT_ENGINE=stock`; scripts/engine.mjs) decides the Emscripten SDK, the
@@ -172,6 +173,8 @@ if (!args.has('--wasm-only')) {
   // playground runs and no more; the debug export, which the Web verifiers use, is made from the project itself (docs/tracks/web-load.md).
   if (liveCompile.include) makeExport();
   else withoutLiveCompileManifest(makeExport);
+  // The font slice manifest and its licence go beside the page (docs/tracks/font-slices.md); the pack is the same with or without them.
+  exportFontSlices({ output, release: mode === 'release' });
   const content = engine.webContentInputs(mode);
   if (content.digest !== contentBefore.digest) {
     throw new Error('The sources of the pack, shell or template changed while the export was made, so it cannot be recorded. Run `pnpm build:web --export-only` again.');

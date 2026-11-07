@@ -23,3 +23,5 @@ export function buildRelease(options: {
   readonly source?: Readonly<Record<string, unknown>>;
   readonly createdAt?: string;
 }): Promise<BuiltRelease>;
+/** The brotli 11 copy of `bytes` (whose hash is `hash`), cached in `cacheDirectory` by content; resolves with the copy's path. */
+export function brotliCopyOf(bytes: Uint8Array, hash: string, cacheDirectory: string): Promise<string>;

@@ -1,11 +1,13 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { POINTER_KEY, parsePointer, parseReleaseManifest, releaseKey } from '../deploy/release-layout.mjs';
+import { POINTER_KEY, objectKey, parsePointer, parseReleaseManifest, releaseKey } from '../deploy/release-layout.mjs';
 import { rejectUnknownArguments } from './arguments.mjs';
+import { fontSliceKeysOf, planFontSlices } from './font-slices/release.mjs';
+import { MANIFEST_FILE } from './font-slices/manifest.mjs';
 import { buildRelease } from './release-bundle.mjs';
 import { objectKeysOf, pointerAfter, rollbackTarget } from './release-pointer.mjs';
 import { assertReleasePack, planReleaseStageOf } from './release-stage.mjs';
@@ -18,6 +20,7 @@ import { assertReleasePack, planReleaseStageOf } from './release-stage.mjs';
 //   node scripts/deploy-web.mjs --rollback [--execute]          point the site at the release it showed before the current one
 //   node scripts/deploy-web.mjs --rollback=<id> [--execute]     point the site at a named release
 //   --rebuild builds the release export first; --deploy-worker deploys the Worker even if its source has not changed
+//   --check-bucket makes the plan read the bucket (read-only) to say exactly which objects it lacks, instead of listing all of them
 //   --local --persist-to=<directory> does all of it against wrangler's local R2 state in that directory instead of the real bucket
 //   (for `wrangler dev --persist-to <directory>`); a local run never deploys the Worker and never reaches the network.
 //
@@ -27,12 +30,13 @@ import { assertReleasePack, planReleaseStageOf } from './release-stage.mjs';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const argv = process.argv.slice(2);
 rejectUnknownArguments(argv, {
-  flags: ['--execute', '--dry-run', '--rebuild', '--local', '--releases', '--rollback', '--deploy-worker'],
+  flags: ['--execute', '--dry-run', '--rebuild', '--local', '--releases', '--rollback', '--deploy-worker', '--check-bucket'],
   prefixes: ['--persist-to=', '--rollback='],
 });
 
 const execute = argv.includes('--execute');
 const rebuild = argv.includes('--rebuild');
+const checkBucket = argv.includes('--check-bucket');
 const local = argv.includes('--local');
 const deployWorkerRequested = argv.includes('--deploy-worker');
 const listReleases = argv.includes('--releases');
@@ -46,6 +50,12 @@ if (execute && argv.includes('--dry-run')) throw new Error('--execute and --dry-
 
 const bucketName = process.env.REACT_DEMO_R2_BUCKET || 'breaka-asset-uploads';
 const prefix = (process.env.REACT_DEMO_R2_PREFIX || 'react-demo/v2').replace(/^\/+|\/+$/g, '');
+/** How many objects are uploaded at once to the bucket; a local run writes wrangler's local state, which two writers at once corrupt a write of, so one. */
+const UPLOAD_CONCURRENCY = 4;
+const UPLOAD_ATTEMPTS = 3;
+const UPLOAD_RETRY_DELAY_MS = 2000;
+/** How many releases back the bucket is asked what it already has: the pointer remembers 20, and a manifest means all its objects are there. */
+const RELEASES_CHECKED = 5;
 const releaseDirectory = join(root, 'artifacts', 'web-release');
 const cacheDirectory = join(root, 'artifacts', 'web-deploy-cache');
 const workerConfiguration = resolve(root, 'wrangler.react-demo.jsonc');
@@ -77,6 +87,38 @@ function runWrangler(args, { allowFailure = false } = {}) {
   return result;
 }
 
+/** `wrangler`, without blocking: the font slices are hundreds of small objects, uploaded a few at a time. Resolves like `runWrangler` with `allowFailure`. */
+function runWranglerAsync(args) {
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn(wrangler, args, { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', chunk => { stdout += chunk; });
+    child.stderr.on('data', chunk => { stderr += chunk; });
+    child.on('error', reject);
+    child.on('close', status => resolvePromise({ status, stdout, stderr }));
+  });
+}
+
+/** Run `tasks` (functions returning promises), at most `limit` at once. The first failure is thrown once the ones running have finished. */
+async function runLimited(tasks, limit) {
+  let next = 0;
+  let failure;
+  async function worker() {
+    while (failure === undefined && next < tasks.length) {
+      const index = next;
+      next += 1;
+      try {
+        await tasks[index]();
+      } catch (error) {
+        failure ??= error;
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, worker));
+  if (failure !== undefined) throw failure;
+}
+
 function bucketPath(key) {
   return `${bucketName}/${prefix}/${key}`;
 }
@@ -99,6 +141,17 @@ function readJson(key) {
 
 function putFile(key, file, contentType, extra = []) {
   runWrangler(['r2', 'object', 'put', bucketPath(key), '--file', file, '--content-type', contentType, ...extra, ...storageFlags]);
+}
+
+/** An upload that fails is tried again: hundreds of small puts will see a dropped connection, and a deploy that stops at one leaves the others to be put again. */
+async function putFileAsync(key, file, contentType) {
+  for (let attempt = 1; ; attempt += 1) {
+    const result = await runWranglerAsync(['r2', 'object', 'put', bucketPath(key), '--file', file, '--content-type', contentType, ...storageFlags]);
+    if (result.status === 0) return;
+    if (attempt === UPLOAD_ATTEMPTS) throw new Error(`wrangler r2 object put ${bucketPath(key)} failed ${attempt} times (exit ${result.status}):\n${result.stderr || result.stdout}`);
+    console.log(`  ${key}: attempt ${attempt} failed (exit ${result.status}), trying again`);
+    await new Promise(resolvePromise => setTimeout(resolvePromise, UPLOAD_RETRY_DELAY_MS * attempt));
+  }
 }
 
 function putJson(key, value) {
@@ -169,11 +222,16 @@ async function publish() {
   const pack = assertReleasePack(join(releaseDirectory, 'index.pck'), planReleaseStageOf(join(root, 'demo')));
   console.log(`[deploy-web] The release pack holds ${pack.length} files and no source maps or verification scripts.`);
   console.log('[deploy-web] Staging the release (brotli at quality 11; copies are cached by content, so only changed binaries cost time)...');
-  const { manifest, objects } = await buildRelease({
+  const { manifest, objects: releaseObjects } = await buildRelease({
     sourceDirectory: releaseDirectory,
     cacheDirectory,
     source: receipt === undefined ? {} : { engine: receipt.engine, mode: receipt.mode, contentDigest: receipt.content?.digest },
   });
+  // The font slices are not part of the release: the manifest and the licence are release files (listed above), and the indexes and slices are
+  // content-addressed objects shared by every release that names them (docs/tracks/font-slices.md).
+  console.log('[deploy-web] Checking the font slices against the manifest the release carries (size and SHA-256 of every file)...');
+  const fonts = await planFontSlices({ exportDirectory: releaseDirectory, cacheDirectory });
+  const objects = [...releaseObjects, ...fonts.objects];
 
   console.log(`[deploy-web] Release ${manifest.id} for ${where}, prefix "${prefix}":`);
   console.log(`  ${'file'.padEnd(34)} ${'bytes (MB)'.padStart(10)} ${'brotli (MB)'.padStart(11)}  how a visitor gets it`);
@@ -187,28 +245,55 @@ async function publish() {
     console.log(`  ${file.path.padEnd(34)} ${megabytes(file.size)}   ${file.encodings.br === undefined ? '   (as is)' : megabytes(file.encodings.br)}  ${how}`);
   }
   console.log(`  ${'total'.padEnd(34)} ${megabytes(rawTotal)}   ${megabytes(sentTotal)}  (what a first visit transfers, to a browser that accepts br)`);
+  const origins = [...new Set(fonts.manifest.families.map(family => `${family.origin.name} ${family.origin.release}`))].join(', ');
+  console.log(`\n[deploy-web] Font slices (${origins}; ${fonts.manifest.license.id}), not part of the release; a visitor downloads one only when text needs it:`);
+  console.log(`  ${MANIFEST_FILE} and ${fonts.manifest.license.file} are release files (above)`);
+  for (const family of fonts.manifest.families) {
+    console.log(`  ${family.id.padEnd(16)} ${String(family.slices).padStart(4)} slices ${megabytes(family.sliceBytes)} MB, index ${megabytes(family.index.bytes)} MB`);
+  }
+  console.log(`  ${'total'.padEnd(16)} ${String(fonts.slices).padStart(4)} slices ${megabytes(fonts.sliceBytes)} MB, ${fonts.indexes} indexes (with brotli copies): ${fonts.objects.length} objects, ${megabytes(fonts.bytes)} MB, at /o/<hash>/<name>, cached for a year, shared by releases`);
 
   const workerHash = workerSourceHash();
-  if (!execute) {
-    console.log(`\n[deploy-web] DRY RUN: nothing was uploaded. ${objects.length} objects and the manifest would be put, then the pointer, then the Worker if needed.`);
-    console.log('[deploy-web] Re-run with --execute to publish.');
+  if (!execute && !checkBucket) {
+    console.log(`\n[deploy-web] DRY RUN: nothing was uploaded and the bucket was not read. ${releaseObjects.length} release objects and ${fonts.objects.length} font objects would be put unless the bucket has them, then the manifest, the pointer, then the Worker if needed.`);
+    console.log('[deploy-web] --check-bucket reads the bucket (read-only) and lists exactly which objects it lacks. Re-run with --execute to publish.');
     return;
   }
 
   const previous = readPointer();
   // A manifest in the bucket means all of its objects are there (objects are put before the manifest), so the objects of the releases the pointer
-  // remembers need no upload.
+  // remembers need no upload. The same holds for the font slices a release's manifest names: they are read from its font slice manifest and indexes.
   const present = new Set();
-  for (const entry of previous?.history.slice(0, 5) ?? []) {
+  const fontManifestsSeen = new Set();
+  const readObject = key => readJson(key);
+  for (const entry of previous?.history.slice(0, RELEASES_CHECKED) ?? []) {
     const known = readJson(releaseKey(entry.release));
-    if (known !== null) for (const key of objectKeysOf(parseReleaseManifest(known))) present.add(key);
+    if (known === null) continue;
+    const earlier = parseReleaseManifest(known);
+    for (const key of objectKeysOf(earlier)) present.add(key);
+    const fontFile = earlier.files.find(file => file.path === MANIFEST_FILE);
+    if (fontFile === undefined || fontManifestsSeen.has(fontFile.hash)) continue;
+    fontManifestsSeen.add(fontFile.hash);
+    const fontManifest = readJson(objectKey(fontFile.hash, 'identity'));
+    if (fontManifest !== null) for (const key of fontSliceKeysOf(fontManifest, readObject)) present.add(key);
   }
   const missing = objects.filter(object => !present.has(object.key));
-  console.log(`\n[deploy-web] Uploading ${missing.length} of ${objects.length} objects to ${where} (the others are already there)...`);
-  for (const object of missing) {
-    console.log(`  ${object.key}  ${megabytes(statSync(object.file).size).trim()} MB`);
-    putFile(object.key, object.file, object.contentType);
+  const missingFonts = missing.filter(object => fonts.objects.includes(object));
+  console.log(`\n[deploy-web] ${missing.length} of ${objects.length} objects are missing from ${where}: ${missing.length - missingFonts.length} of ${releaseObjects.length} release objects, ${missingFonts.length} of ${fonts.objects.length} font objects (${megabytes(missingFonts.reduce((total, object) => total + object.bytes, 0)).trim()} MB).`);
+  if (!execute) {
+    for (const object of missing.filter(candidate => !fonts.objects.includes(candidate))) console.log(`  ${object.key}  ${megabytes(statSync(object.file).size).trim()} MB`);
+    console.log(`[deploy-web] DRY RUN: nothing was uploaded. Re-run with --execute to publish.`);
+    return;
   }
+  const concurrency = local ? 1 : UPLOAD_CONCURRENCY;
+  console.log(`[deploy-web] Uploading (${concurrency} at a time)...`);
+  let uploaded = 0;
+  await runLimited(missing.map(object => async () => {
+    await putFileAsync(object.key, object.file, object.contentType);
+    uploaded += 1;
+    if (!fonts.objects.includes(object)) console.log(`  ${object.key}  ${megabytes(statSync(object.file).size).trim()} MB`);
+    else if (uploaded % 50 === 0 || uploaded === missing.length) console.log(`  ${uploaded} of ${missing.length} objects uploaded`);
+  }), concurrency);
   if (readJson(releaseKey(manifest.id)) === null) putJson(releaseKey(manifest.id), manifest);
   else console.log(`[deploy-web] Manifest ${manifest.id} is already in the bucket (the same files were published before).`);
 

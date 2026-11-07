@@ -5,7 +5,8 @@ export interface ExportFile { name: string; bytes: number; sha256: string }
 export function servedAssetProblems(base: string | URL, files: readonly ExportFile[], fetchAsset?: typeof fetch, timeoutMs?: number): Promise<string[]>;
 export function startVerificationServer(
   engine: { name: string; root: string; artifactPath(...names: string[]): string; webMode(): string },
-  options?: { env?: Record<string, string | undefined>; log?: (message: string) => void },
+  /** `fontSlices` is the directory of the font slice build (`artifacts/font-slices/dist`): its slices are served at `/o/`, and the export must carry its manifest. */
+  options?: { env?: Record<string, string | undefined>; log?: (message: string) => void; fontSlices?: string },
 ): Promise<{ url: string; own: boolean; close(): Promise<void> }>;
 
 /** What a Web verifier collects: enough for the evidence and the pass line. */

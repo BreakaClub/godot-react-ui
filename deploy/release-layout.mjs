@@ -37,6 +37,8 @@ const CONTENT_TYPES = new Map([
   ['.svg', 'image/svg+xml'],
   ['.ico', 'image/x-icon'],
   ['.txt', 'text/plain; charset=utf-8'],
+  // The font slices (docs/tracks/font-slices.md). A woff2 file is brotli-compressed already, so it is not in COMPRESSIBLE_EXTENSIONS.
+  ['.woff2', 'font/woff2'],
 ]);
 /** Types worth a brotli copy; an image is already compressed. */
 const COMPRESSIBLE_EXTENSIONS = new Set(['.html', '.js', '.json', '.wasm', '.pck', '.svg', '.txt']);

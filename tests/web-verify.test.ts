@@ -82,10 +82,13 @@ function exportWithReceipt(files: Record<string, string>): string {
   return root;
 }
 
+/** A directory with no font slice build in it: the verifier's slice check has nothing to compare an export with. */
+const NO_FONT_SLICES = join(tmpdir(), 'web-verify-no-font-slices');
+
 test('with no URL named the verifier serves the export itself and nothing else can answer', async () => {
   const root = exportWithReceipt(EXPORT);
   const messages: string[] = [];
-  const served = await startVerificationServer(engineFor(root), { env: {}, log: message => messages.push(message) });
+  const served = await startVerificationServer(engineFor(root), { env: {}, log: message => messages.push(message), fontSlices: NO_FONT_SLICES });
   try {
     assert.equal(served.own, true);
     assert.match(served.url, /^http:\/\/127\.0\.0\.1:\d+\/$/);
@@ -102,11 +105,11 @@ test('a URL that is named must serve the checked export, file for file, or the v
   const wrongRoot = exportWithReceipt({ ...EXPORT, 'godot_react_ui.web.wasm': 'side module of another checkout' });
   const wrong = await startExportServer({ root: join(wrongRoot, 'web-debug') });
   try {
-    const accepted = await startVerificationServer(engineFor(root), { env: { GODOT_REACT_WEB_URL: right.url }, log: () => {} });
+    const accepted = await startVerificationServer(engineFor(root), { env: { GODOT_REACT_WEB_URL: right.url }, log: () => {}, fontSlices: NO_FONT_SLICES });
     assert.equal(accepted.own, false);
     assert.equal(accepted.url, right.url);
     await assert.rejects(
-      startVerificationServer(engineFor(root), { env: { GODOT_REACT_WEB_URL: wrong.url }, log: () => {} }),
+      startVerificationServer(engineFor(root), { env: { GODOT_REACT_WEB_URL: wrong.url }, log: () => {}, fontSlices: NO_FONT_SLICES }),
       /does not serve the breaka export .* godot_react_ui\.web\.wasm differs from the export/,
     );
   } finally {
@@ -255,4 +258,27 @@ test('the demo server sends the bare address to its landing and nothing else; a 
     await demo.close();
     await verifier.close();
   }
+});
+
+test('the verifier serves the font slices at /o/ and refuses an export whose slice manifest is not the build\'s', async () => {
+  const slices = mkdtempSync(join(tmpdir(), 'web-verify-slices-'));
+  mkdirSync(join(slices, 'o', 'abc'), { recursive: true });
+  writeFileSync(join(slices, 'font-slices.json'), '{"built":true}');
+  writeFileSync(join(slices, 'o', 'abc', 'noto-sans-sc-000.woff2'), 'wOF2 bytes');
+  const without = exportWithReceipt(EXPORT);
+  await assert.rejects(startVerificationServer(engineFor(without), { env: {}, log: () => {}, fontSlices: slices }), /have no font-slices\.json|has no font-slices\.json/);
+
+  const matching = exportWithReceipt({ ...EXPORT, 'font-slices.json': '{"built":true}' });
+  const served = await startVerificationServer(engineFor(matching), { env: {}, log: () => {}, fontSlices: slices });
+  try {
+    const slice = await fetch(new URL('o/abc/noto-sans-sc-000.woff2', served.url));
+    assert.equal(slice.status, 200);
+    assert.equal(slice.headers.get('content-type'), 'font/woff2');
+    assert.equal(await slice.text(), 'wOF2 bytes');
+    assert.equal((await fetch(new URL('o/abc/missing.woff2', served.url))).status, 404);
+  } finally {
+    await served.close();
+  }
+  const stale = exportWithReceipt({ ...EXPORT, 'font-slices.json': '{"built":"earlier"}' });
+  await assert.rejects(startVerificationServer(engineFor(stale), { env: {}, log: () => {}, fontSlices: slices }), /not the one the slice build last made/);
 });

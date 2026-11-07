@@ -2,6 +2,7 @@ import { statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { rejectUnknownArguments } from './arguments.mjs';
 import { selectEngine } from './engine.mjs';
+import { FONT_SLICE_OBJECTS_DIRECTORY } from './font-slices/paths.mjs';
 import { startExportServer } from './web-server.mjs';
 
 // `pnpm demo:web`: serves the selected engine profile's export (`--engine=stock` / `GODOT_REACT_ENGINE=stock`), in `--release` mode or
@@ -31,11 +32,11 @@ const port = named === undefined ? DEFAULT_PORT : Number(named);
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be 1..65535.');
 let server;
 try {
-  server = await startExportServer({ root, port, landing });
+  server = await startExportServer({ root, port, landing, objects: FONT_SLICE_OBJECTS_DIRECTORY });
 } catch (error) {
   if (named !== undefined || !(error instanceof Error) || error.code !== 'EADDRINUSE') throw error;
   console.log(`Port ${port} is in use; taking a free one.`);
-  server = await startExportServer({ root, port: 0, landing });
+  server = await startExportServer({ root, port: 0, landing, objects: FONT_SLICE_OBJECTS_DIRECTORY });
 }
 console.log(`Godot React UI lab navigator: ${server.url}${landing === '?demo=navigator' ? '' : landing} (${mode}, COOP/COEP enabled; Ctrl+C stops it)`);
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => server.close().then(() => process.exit(0)));
