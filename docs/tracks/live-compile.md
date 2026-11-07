@@ -58,13 +58,13 @@ each export a getter on `exports` defined before anything runs (so a cycle sees 
 `require`, `exports`, `module`, `$RefreshReg$` and `$RefreshSig$` as free identifiers. React Fast Refresh is the parser's own option
 (`features.react_fast_refresh`), as Bun's bundler uses it, not ours. JSX is the automatic runtime with the production calls (`jsx`, `jsxs`).
 
-**L7. The renderer registers with the DevTools hook.** React Fast Refresh (`react-refresh/runtime`) reaches React through
-`__REACT_DEVTOOLS_GLOBAL_HOOK__`, which a renderer registers with by calling `reconciler.injectIntoDevTools()`. `src/renderer.ts` did not. It now does,
-on the first `createRoot`, and returns at once when no hook is installed, so an app with neither DevTools nor Fast Refresh pays nothing. The host
-config also gained `rendererVersion` and `rendererPackageName` (which the reconciler reads for the call). `react-refresh@0.18.0` is a dev dependency of
-the demo only. The demo bundles the development build of `react-reconciler` (`process.env.NODE_ENV` is defined to `"development"` in `scripts/build.mjs`,
-which is also what the library's `dist/` build is made with); the production reconciler has no refresh entry points, so a consumer that wants Fast
-Refresh bundles the development build.
+**L7. The renderer registers with the DevTools hook, and bundles the production builds of React.** `scripts/build.mjs`
+bundles the production build of React and `react-reconciler` (`process.env.NODE_ENV = "production"`). `src/renderer.ts`
+registers with `__REACT_DEVTOOLS_GLOBAL_HOOK__` on the first `createRoot` if one is installed, passing `bundleType: 0`
+(`bundleType: PRODUCTION_BUNDLE`). The host config also gained `rendererVersion` and `rendererPackageName` (which the
+reconciler reads for the call). `demo/src/live-compile-refresh.ts` preserves component state across edits via stable family
+proxy components (replacing the proxy identity when `$RefreshSig$` changes) without needing the development reconciler or
+`react-refresh/runtime`.
 
 **L8. The module registry is stable under edits.** `require` answers a module's *namespace*, a `Proxy` that reads the module's current exports at the time
 of each use, so a module that is evaluated again is seen by every importer without evaluating them (live bindings across versions). A module that

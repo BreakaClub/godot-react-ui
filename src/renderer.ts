@@ -544,21 +544,20 @@ const hostConfig = {
 
 const reconciler = Reconciler(hostConfig);
 
-/** `BundleType` 1 (development): the only builds of the reconciler that carry the refresh and DevTools entry points. */
-const DEVELOPMENT_BUNDLE = 1;
+/** `BundleType` 0 (production). */
+const PRODUCTION_BUNDLE = 0;
 let injectedIntoDevTools = false;
 
 /**
  * Registers the renderer with `globalThis.__REACT_DEVTOOLS_GLOBAL_HOOK__` if there is one, as every React renderer does when it
- * loads. React DevTools and React Fast Refresh (`react-refresh/runtime`, which is how the live code editor keeps state across an
- * edit) work through that hook, and it has to exist before this runs: a page that wants either installs it first. With no hook
- * the call returns at once and nothing is kept, so an app that has neither pays nothing. Done on the first root, not at load, so
- * the hook can be installed any time before the first `createRoot`.
+ * loads. React DevTools works through that hook, and it has to exist before this runs: a page that wants it installs it first.
+ * With no hook the call returns at once and nothing is kept, so an app without DevTools pays nothing. Done on the first root,
+ * not at load, so the hook can be installed any time before the first `createRoot`.
  */
 function injectIntoDevTools(): void {
   if (injectedIntoDevTools) return;
   injectedIntoDevTools = true;
-  reconciler.injectIntoDevTools({ bundleType: DEVELOPMENT_BUNDLE, version: reactVersion, rendererPackageName: 'godot-react-ui' });
+  reconciler.injectIntoDevTools({ bundleType: PRODUCTION_BUNDLE, version: reactVersion, rendererPackageName: 'godot-react-ui' });
 }
 
 /** What `<Portal>` renders into: the overlay layer of the root that rendered it. */

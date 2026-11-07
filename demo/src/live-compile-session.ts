@@ -1,6 +1,7 @@
 import { createElement, type ComponentType } from 'react';
 import type { ReactRoot } from 'godot-react-ui';
 import type { LiveCompileHost } from './live-compile-host';
+import { onPerformRefresh, resolveRefreshComponent } from './live-compile-refresh';
 import { liveTree } from './live-compile-root';
 import { ModuleRegistry, type RefreshHooks } from './live-compile-modules';
 import type { CheckOutcome, CompileDiagnostic, CompileResult, Hover, InlayHint, ParameterNames, Project } from './live-compile-protocol';
@@ -68,12 +69,61 @@ export interface LiveSessionOptions {
 
 const LAB_SOURCE_PATTERN = /^\/project\/lab\/.+\.tsx?$/u;
 
+/** Wraps React externals so that any component rendered via createElement/jsx/jsxs is resolved to its family proxy. */
+function wrapExternals(externals: Readonly<Record<string, object>>): Record<string, object> {
+  const result: Record<string, object> = { ...externals };
+
+  const reactExternal = externals['react'];
+  if (reactExternal !== undefined) {
+    result['react'] = new Proxy(reactExternal, {
+      get(target, prop) {
+        const value = Reflect.get(target, prop);
+        if (prop === 'createElement' && typeof value === 'function') {
+          return (type: unknown, props: unknown, ...children: unknown[]) =>
+            Reflect.apply(value, target, [resolveRefreshComponent(type), props, ...children]);
+        }
+        return value;
+      },
+    });
+  }
+
+  const jsxExternal = externals['react/jsx-runtime'];
+  if (jsxExternal !== undefined) {
+    result['react/jsx-runtime'] = new Proxy(jsxExternal, {
+      get(target, prop) {
+        const value = Reflect.get(target, prop);
+        if ((prop === 'jsx' || prop === 'jsxs') && typeof value === 'function') {
+          return (type: unknown, props: unknown, key: unknown) =>
+            Reflect.apply(value, target, [resolveRefreshComponent(type), props, key]);
+        }
+        return value;
+      },
+    });
+  }
+
+  const jsxDevExternal = externals['react/jsx-dev-runtime'];
+  if (jsxDevExternal !== undefined) {
+    result['react/jsx-dev-runtime'] = new Proxy(jsxDevExternal, {
+      get(target, prop) {
+        const value = Reflect.get(target, prop);
+        if (prop === 'jsxDEV' && typeof value === 'function') {
+          return (type: unknown, props: unknown, key: unknown, isStatic: unknown, source: unknown, self: unknown) =>
+            Reflect.apply(value, target, [resolveRefreshComponent(type), props, key, isStatic, source, self]);
+        }
+        return value;
+      },
+    });
+  }
+
+  return result;
+}
+
 /** Narrows an export to something React can render; the Fast Refresh runtime has already judged it a component by its shape. */
-function asComponent(value: unknown, where: string): ComponentType {
+function asComponent(value: unknown, where: string): ComponentType<{ readonly __refreshEpoch?: number }> {
   if (typeof value !== 'function') throw new Error(`${where} is not a component (it is ${typeof value})`);
   // A function export is a component here: the compiler registered it with Fast Refresh, which does so only for functions that
   // are named like components. `ComponentType` has no runtime tag to check.
-  return value as ComponentType;
+  return value as ComponentType<{ readonly __refreshEpoch?: number }>;
 }
 
 export class LiveSession {
@@ -81,11 +131,18 @@ export class LiveSession {
   private readonly registry: ModuleRegistry;
   private readonly entryPath: string;
   private epoch = 0;
+  private refreshTick = 0;
   private renderError: Error | undefined;
   private compileMs = 0;
   private mounted = false;
+  private readonly unsubscribeRefresh: () => void;
 
-  private readonly Entry: ComponentType = () => createElement(asComponent(this.registry.exportOf(this.entryPath, this.options.exportName), `${this.entryPath}'s ${this.options.exportName}`));
+  private readonly Entry: ComponentType = () => {
+    const raw = this.registry.exportOf(this.entryPath, this.options.exportName);
+    const resolved = resolveRefreshComponent(raw);
+    const component = asComponent(resolved, `${this.entryPath}'s ${this.options.exportName}`);
+    return createElement(component, { __refreshEpoch: this.refreshTick });
+  };
 
   constructor(options: LiveSessionOptions) {
     this.options = options;
@@ -97,11 +154,12 @@ export class LiveSession {
     const files = new Map(options.project.files.filter(file => LAB_SOURCE_PATTERN.test(file.path)).map(file => [file.path, file.text]));
     this.registry = new ModuleRegistry({
       files,
-      externals: options.externals,
+      externals: wrapExternals(options.externals),
       aliases: options.aliases,
       refresh: options.refresh,
       compile: (path, source) => this.compile(path, source),
     });
+    this.unsubscribeRefresh = onPerformRefresh(() => this.refreshRender());
   }
 
   /** The text a module last ran from. */
@@ -203,7 +261,16 @@ export class LiveSession {
   unmount(): void {
     if (!this.mounted) return;
     this.mounted = false;
+    this.unsubscribeRefresh();
     this.options.root.render(null);
+  }
+
+  private refreshRender(): void {
+    if (!this.mounted) return;
+    this.refreshTick += 1;
+    this.options.root.render(liveTree(this.Entry, this.epoch, error => {
+      this.renderError = error;
+    }));
   }
 
   private compile(path: string, source: string): CompileResult {

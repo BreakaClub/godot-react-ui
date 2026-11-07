@@ -14,3 +14,5 @@ live-compile/target-stock/
 live-compile/out/
 demo/live-compile/
 demo/addons/live-compile/
+demo/gen/godot/addons/live-compile/
+demo/gen/godot/live-compile/
