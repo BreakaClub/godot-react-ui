@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { MemoryClipboard } from '../demo/src/editor/clipboard';
-import { EditorWorkspace, visibleRange, type LiveBackend } from '../demo/src/editor/workspace';
+import { EditorWorkspace, INLAY_MAX_CHARACTERS, visibleRange, type LiveBackend } from '../demo/src/editor/workspace';
 import type { CheckDiagnostic, CheckOutcome, CompileDiagnostic, Hover, InlayHint } from '../demo/src/live-compile-protocol';
 import type { UpdateOutcome, UpdateReport } from '../demo/src/live-compile-session';
 import { TEST_METRICS } from './editor-helpers';
@@ -290,4 +290,19 @@ test('a diagnostic that TypeScript puts at one position is made one character wi
   assert.deepEqual(visibleRange('abc\ndef', 3, 3), [2, 3], 'at the end of a line, on its last character');
   assert.deepEqual(visibleRange('abc;', 1, 3), [1, 3]);
   assert.deepEqual(visibleRange('', 0, 0), [0, 0]);
+});
+
+test('a hint longer than the limit is cut and ends in an ellipsis', async () => {
+  const { backend, workspace } = open();
+  const { controller } = workspace.active;
+  controller.model.dispatch({ changes: { from: 0, insert: ' ' } });
+  workspace.flush();
+  backend.checks[0]?.resolve(checkedWith([]));
+  await pause(0);
+  backend.hints[0]?.resolve([{ position: 7, kind: 'type', label: `: (${'argument: SomeVeryLongTypeName, '.repeat(3)}) => void` }]);
+  await pause(0);
+  const [hint] = controller.inlays.items;
+  assert.equal(hint?.label.length, INLAY_MAX_CHARACTERS);
+  assert.ok(hint?.label.endsWith('…'));
+  workspace.dispose();
 });

@@ -162,9 +162,9 @@ export class EditorWorkspace {
     return this.checkStatus;
   }
 
-  /** The gravest problems of the active file in the order of the text, for the problems list. */
+  /** The errors and warnings of the active file in the order of the text, for the problems list. */
   problems(): readonly EditorDiagnostic[] {
-    return this.activeFile.controller.diagnostics.filter(item => item.severity === 'error' || item.severity === 'warning');
+    return this.activeFile.controller.diagnostics.filter(item => item.severity === 'error' || item.severity === 'warning').sort((a, b) => a.from - b.from);
   }
 
   /** An arrow property: `useSyncExternalStore` calls it on its own. */
@@ -270,6 +270,17 @@ export class EditorWorkspace {
       file.controller.setDiagnostics(version, report.outcome === 'compile-failed' ? report.diagnostics.map(diagnostic => compilerDiagnostic(diagnostic)) : [], 'local');
       check = report.check;
     }
+    this.awaitCheck(file, version, text, check);
+  }
+
+  /** Checks the active file as it is, so that its problems and hints are there before the first edit. */
+  start(): void {
+    const file = this.activeFile;
+    const { model } = file.controller;
+    this.awaitCheck(file, model.version, model.text, this.backend.checkText(file.path, model.text));
+  }
+
+  private awaitCheck(file: FileEditor, version: number, text: string, check: Promise<CheckOutcome>): void {
     this.setCheck({ ...this.checkStatus, kind: 'checking' });
     check.then(outcome => this.checked(file, version, text, outcome), (error: unknown) => {
       this.setCheck({ kind: 'failed', errors: 0, warnings: 0, serviceMs: undefined, message: error instanceof Error ? error.message : String(error) });
@@ -335,7 +346,7 @@ export class EditorWorkspace {
     const hints = await this.backend.inlayHints(file.path, 0, length, 'literals');
     if (this.disposed) return;
     file.controller.setInlays(version, hints.map((hint): EditorInlay => ({
-      at: hint.position, kind: hint.kind, label: hint.kind === 'parameter' ? `${hint.label} ` : hint.label,
+      at: hint.position, kind: hint.kind, label: shortened(hint.kind === 'parameter' ? `${hint.label} ` : hint.label),
     })));
   }
 
@@ -353,6 +364,13 @@ export class EditorWorkspace {
     this.revisionCount += 1;
     for (const listener of [...this.listeners]) listener();
   }
+}
+
+/** A hint longer than this is cut and ends in an ellipsis, as editors do: a function's whole type would be a line of its own. */
+export const INLAY_MAX_CHARACTERS = 32;
+
+function shortened(label: string): string {
+  return label.length <= INLAY_MAX_CHARACTERS ? label : `${label.slice(0, INLAY_MAX_CHARACTERS - 1)}…`;
 }
 
 /** Milliseconds in the status bar are shown to a tenth. */

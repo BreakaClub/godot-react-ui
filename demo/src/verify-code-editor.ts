@@ -5,6 +5,7 @@ import type { LayoutRect, NativeSnapshot, NativeSnapshotNode } from '../../src/n
 import type { RendererProfile } from '../../src/profile';
 import type { NativeProfile } from '../../src/native';
 import { TYPE_ERROR, anchorOffset, applyEdits } from '../../scripts/live-compile-edits.mjs';
+import { GLYPH_POSITION_STEP_PX } from './editor/font-grid';
 import type { NavigatorOptions } from './main';
 import { assertionTally, parseVerifierEvent, verifierClipboard } from './verifier-input';
 import { grab, settleFrames } from './verify-filters';
@@ -46,6 +47,8 @@ export type CodeEditorCapture = (name: string, overflowing?: readonly string[]) 
  * invisible line of 400 columns that the editor measures its font with.
  */
 const OVERFLOWING = ['inputs-slider-thumb', 'editor-grid-probe'];
+/** Typed at the end of a statement: not a statement. (A stray `}` in JSX text is not a syntax error to Bun's parser: it compiles and throws when the page renders.) */
+const SYNTAX_JUNK = ' = = ;';
 const LAB_ID = 'inputs';
 const LAB_SOURCE = 'res://src/inputs-lab.tsx';
 /** `md:` (README: Styles): from here the Code button is offered. */
@@ -76,6 +79,8 @@ const CLICK_PAUSE_FRAMES = 3;
 /** The probe sits this far inside the page's top left corner, where only its background is (the page pads its content by 24). */
 const PAGE_PROBE_INSET_PX = 6;
 const PAGE_BACKGROUND_ORIGINAL = '#f8fafc';
+/** The selection colour without its alpha (`editor/theme.ts`). */
+const SELECTION_BOX_PREFIX = '#2563eb';
 /** The theme's caret (`editor/theme.ts`). */
 const CARET_COLOUR = '#60a5fa';
 const EMERALD_100 = '#d1fae5';
@@ -145,10 +150,10 @@ function hasNode(api: CodeEditorInspection, testID: string): boolean {
   return api.find(testID) !== undefined;
 }
 
-async function waitUntil(what: string, predicate: () => boolean, deadlineMs = DEADLINE_MS): Promise<number> {
+async function waitUntil(what: string, predicate: () => boolean, deadlineMs = DEADLINE_MS, describe: () => string = () => ''): Promise<number> {
   const started = nowMs();
   while (!predicate()) {
-    assert(nowMs() - started < deadlineMs, `Timed out after ${deadlineMs} ms waiting for ${what}`);
+    assert(nowMs() - started < deadlineMs, `Timed out after ${deadlineMs} ms waiting for ${what}. ${describe()}`);
     await frames(1);
   }
   return nowMs() - started;
@@ -201,6 +206,13 @@ function keyEvent(keycode: Key, pressed: boolean, modifiers: Modifiers): void {
 }
 
 /** Press and release a key with modifiers, `times` times. */
+/** Scrolls the code to the top through the programmatic path, so that positions given as lines count from the first. */
+async function toTop(api: CodeEditorInspection): Promise<void> {
+  api.scrollTo('code-scroll', 0);
+  await settleFrames();
+  assert(scrollTopOf(api) === 0, 'The code is at the top');
+}
+
 async function pressKey(keycode: Key, modifiers: Modifiers = {}, times = 1): Promise<void> {
   for (let count = 0; count < times; count += 1) {
     keyEvent(keycode, true, modifiers);
@@ -236,7 +248,8 @@ interface Grid {
 
 function gridOf(api: CodeEditorInspection): Grid {
   const probe = node(api, 'editor-grid-probe').rect;
-  return { advance: probe.width / PROBE_COLUMNS, lineHeight: probe.height, gutterWidth: node(api, 'code-gutter').rect.width };
+  // The editor takes the measured advance to the step glyphs are placed at (view/grid-probe.tsx); the grid it draws on is that one.
+  return { advance: Math.round(probe.width / PROBE_COLUMNS / GLYPH_POSITION_STEP_PX) * GLYPH_POSITION_STEP_PX, lineHeight: probe.height, gutterWidth: node(api, 'code-gutter').rect.width };
 }
 
 /** The root-local point of the caret boundary at (`line`, `column`): the content's origin moves when the editor scrolls, and is read now. */
@@ -475,8 +488,9 @@ export async function verifyCodeEditor(owner: Node, api: CodeEditorInspection, c
   assert(verifierClipboard.get() === expectedDrag, `The dragged text is the clipboard's after Copy: ${JSON.stringify(verifierClipboard.get())} against ${JSON.stringify(expectedDrag)}`);
   const selectionColour = blend('#2563eb', 0x77 / LEVELS, '#0f172a');
   const middle = node(api, 'code-line-5');
-  const middleRun = childrenOf(api, middle).find(run => run.text !== '' && run.presentation.backgroundColor.slice(0, 7).toLowerCase() !== '#000000');
-  assert(middleRun !== undefined, 'A run of a line in the middle of the selection has a background');
+  // The selection of a line is a box of its own under the text, as wide as the columns it covers.
+  const middleRun = childrenOf(api, middle).find(box => box.text === '' && box.presentation.backgroundColor.slice(0, SELECTION_BOX_PREFIX.length).toLowerCase() === SELECTION_BOX_PREFIX);
+  assert(middleRun !== undefined, 'A line in the middle of the selection has a selection box');
   assert(near(pixelAt(owner, api, middleRun.rect.x + 1, middleRun.rect.y + 1), selectionColour), `The selection is in the raster: ${pixelAt(owner, api, middleRun.rect.x + 1, middleRun.rect.y + 1).join(',')} against ${selectionColour.join(',')}`);
   assert(statusPosition(api).line === 6 && statusPosition(api).column === 10, 'The caret is at the end of the drag');
   await capture('code-editor-02-selection', OVERFLOWING);
@@ -519,9 +533,8 @@ export async function verifyCodeEditor(owner: Node, api: CodeEditorInspection, c
   assert(scrollTopOf(api) === stoppedAt, 'and it stops when the button goes up');
   await pressKey(Key.KeyC, command);
   assert(verifierClipboard.get().startsWith((sourceLines[3] ?? '').slice(2)) && verifierClipboard.get().split('\n').length > AUTOSCROLL_PAST_LINE - 4, `The selection reaches back to where the drag began: ${verifierClipboard.get().split('\n').length} lines`);
-  api.scrollTo('code-scroll', 0);
-  await settleFrames();
-  assert(scrollTopOf(api) === 0 && lineText(api, 1) === sourceLines[0], 'The code is back at the top');
+  await toTop(api);
+  assert(lineText(api, 1) === sourceLines[0], 'The code is back at the top');
 
   // ---- The keyboard moves the caret ----------------------------------------------------------------------------------------------------------------------
   await click(boundaryAt(api, 5, 0));
@@ -624,20 +637,22 @@ export async function verifyCodeEditor(owner: Node, api: CodeEditorInspection, c
   await capture('code-editor-03-edited', OVERFLOWING);
 
   // ---- A syntax error keeps the last good page, and is shown -------------------------------------------------------------------------------------------------
+  const brokenLine = positionOf(source, 'const [reversed, setReversed]').line;
+  await pressKey(Key.KeyUp, {}, classAt.line - brokenLine);
   await pressKey(Key.KeyEnd);
-  await typeText(' = = ;');
-  await waitUntil('the compiler\'s verdict', () => textOf(api, 'code-status-run').startsWith('Not applied'), UPDATE_DEADLINE_MS);
+  await typeText(SYNTAX_JUNK);
+  await waitUntil('the compiler\'s verdict', () => textOf(api, 'code-status-run').startsWith('Not applied'), UPDATE_DEADLINE_MS, () => `The status bar says: ${textOf(api, 'code-status-run')}; the line reads: ${lineText(api, brokenLine)}`);
   assert(/Syntax error at \d+:\d+/u.test(textOf(api, 'code-status-run')), `The status names the place: ${textOf(api, 'code-status-run')}`);
   assert(textOf(api, 'inputs-next') === 'Next 3' && near(pageBackground(owner, api), hexLevels(EMERALD_100)), 'The last good page stays, with its state');
-  const brokenLine = classAt.line;
   assert(hasNode(api, `code-marker-${brokenLine}`), 'The gutter marks the line with the error');
   const underlined = childrenOf(api, node(api, `code-line-${brokenLine}`)).filter(run => String(run.props.style ?? '').length > 0 && JSON.stringify(run.props.style).includes('underline'));
   assert(underlined.length > 0, 'A run of the line is underlined');
   await capture('code-editor-04-syntax-error', OVERFLOWING);
-  await pressKey(Key.KeyBackspace, {}, ' = = ;'.length);
+  await pressKey(Key.KeyBackspace, {}, SYNTAX_JUNK.length);
   await waitUntil('the page to run again', () => textOf(api, 'code-status-run').startsWith('Swapped in'), UPDATE_DEADLINE_MS);
 
   // ---- Undo, and a type error underlined where tsc puts it -------------------------------------------------------------------------------------------------------
+  await toTop(api);
   await click(boundaryAt(api, 2, 0));
   await typeText('Q');
   assert(lineText(api, 2) === `Q${sourceLines[1]}`, `Typing put a character at the start of line 2: ${lineText(api, 2)}`);
@@ -645,6 +660,7 @@ export async function verifyCodeEditor(owner: Node, api: CodeEditorInspection, c
   assert(lineText(api, 2) === sourceLines[1], `Undo took it back: ${lineText(api, 2)}`);
   const typedSource = applyEdits(source, [TYPE_ERROR]);
   const labelAt = positionOf(source, 'const label = ');
+  await toTop(api);
   await click(boundaryAt(api, 1, 0));
   await pressKey(Key.KeyDown, {}, labelAt.line - 1);
   await pressKey(Key.KeyHome, {}, 2);
@@ -652,7 +668,8 @@ export async function verifyCodeEditor(owner: Node, api: CodeEditorInspection, c
   await typeText(': number');
   const typeAnchor = positionOf(typedSource, TYPE_ERROR.anchor);
   assert(typeAnchor.line === labelAt.line, 'The type error is on the line that was edited');
-  await waitUntil('the checker to find the error', () => textOf(api, 'code-status-check') === '1 error', UPDATE_DEADLINE_MS);
+  // Declaring `label` a number makes every use of it as a class an error too (the section's edit is the shared TYPE_ERROR): the first is the declaration.
+  await waitUntil('the checker to find the errors', () => /^\d+ errors?$/u.test(textOf(api, 'code-status-check')), UPDATE_DEADLINE_MS, () => `The checker's summary reads "${textOf(api, 'code-status-check')}", the run "${textOf(api, 'code-status-run')}", the line "${lineText(api, labelAt.line)}"`);
   const errorLine = node(api, `code-line-${typeAnchor.line}`);
   const underlinedRuns = childrenOf(api, errorLine).filter(run => JSON.stringify(run.props.style).includes('textDecorationLine'));
   assert(underlinedRuns.length === 1 && underlinedRuns[0]?.text === 'label', `The run "label" is underlined, and nothing else on the line: ${underlinedRuns.map(run => run.text).join('|')}`);
@@ -712,6 +729,7 @@ export async function verifyCodeEditor(owner: Node, api: CodeEditorInspection, c
   assert(textOf(api, 'inputs-next') === 'Next 3', `The counter is still 3 after the reset: a reset is an edit like any other: ${textOf(api, 'inputs-next')}`);
 
   // ---- The panel hidden and shown again keeps what was typed; the lab on the stage keeps its state -------------------------------------------------------------
+  await toTop(api);
   await click(boundaryAt(api, 1, 0));
   await typeText('//');
   assert((lineText(api, 1) ?? '').startsWith('//'), 'The edit is in the first line');

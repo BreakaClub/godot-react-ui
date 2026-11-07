@@ -360,7 +360,7 @@ panelTest('an inlay hint is in the line, shifts the text after it, and a hover o
   const hint = runStyle(s, at.number, ': string');
   assert.ok(hint !== undefined, 'the hint is a run of the line');
   assert.equal(hint.color, THEME.inlayText);
-  assert.equal(hint.width, ': string'.length * ADVANCE);
+  assert.equal(hint.width, Math.ceil(': string'.length * ADVANCE), 'a whole number of pixels, as wide as the hint is painted');
   // Hovering the name asks the checker, and shows the answer next to it.
   const over = pointAt(s, at.number, at.column + 2);
   s.host.events.push(s.host.pointerEvent(tag(s, 'code-content'), 'pointermove', { x: over.x + ADVANCE / 2, y: over.y }));

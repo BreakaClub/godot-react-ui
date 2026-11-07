@@ -12,9 +12,13 @@
 /** `md:` (README: Styles): from here the Code button is offered. */
 const PHONE_BREAKPOINT_PX = 768;
 const PROBE_COLUMNS = 400;
+/** The step the demo's fonts place glyphs at (`SubpixelPositioningOneQuarter`; demo/src/editor/font-grid.ts). */
+const GLYPH_POSITION_STEP_PX = 0.25;
 const COLUMN_TOLERANCE_PX = 1;
 const UPDATE_DEADLINE_MS = 12_000;
 const HOVER_WAIT_MS = 700;
+/** Typed at the end of a statement: not a statement. (A stray `}` in JSX text is not a syntax error to Bun's parser.) */
+const SYNTAX_JUNK = ' = = ;';
 const EMERALD_100 = '#d1fae5';
 const PAGE_BACKGROUND = '#f8fafc';
 
@@ -33,7 +37,8 @@ function helpers(context) {
   const { demo, page, frames, snapshot, find, check, nodeExists, text, waitUntil, pagePoint, centerOf } = context;
   const grid = async () => {
     const probe = (await find('editor-grid-probe')).rect;
-    return { advance: probe.width / PROBE_COLUMNS, lineHeight: probe.height, gutterWidth: (await find('code-gutter')).rect.width };
+    // The editor takes the measured advance to the step glyphs are placed at (demo/src/editor/view/grid-probe.tsx).
+    return { advance: Math.round(probe.width / PROBE_COLUMNS / GLYPH_POSITION_STEP_PX) * GLYPH_POSITION_STEP_PX, lineHeight: probe.height, gutterWidth: (await find('code-gutter')).rect.width };
   };
   const boundaryAt = async (line, column) => {
     const g = await grid();
@@ -198,14 +203,16 @@ export async function runCodeEditorScenario(context) {
   await capture('code-editor-03-edited', { geometry: false });
 
   // A syntax error keeps the last good page and is shown.
+  const brokenLine = positionOf(source, 'const [reversed, setReversed]').line;
+  await h.press('ArrowUp', [], classAt.line - brokenLine);
   await h.press('End');
-  await page.keyboard.type(' = = ;');
+  await page.keyboard.type(SYNTAX_JUNK);
   await waitUntil('the compiler\'s verdict', async () => (await text('code-status-run')).startsWith('Not applied'), UPDATE_DEADLINE_MS);
   check('The status names the place', /Syntax error at \d+:\d+/u.test(await text('code-status-run')), await text('code-status-run'));
   check('The last good page stays, with its state', (await text('inputs-next')) === 'Next 3' && (await h.pageBackground()) === EMERALD_100);
-  check('The gutter marks the line and a run is underlined', (await nodeExists(`code-marker-${classAt.line}`)) && (await h.underlinedRuns(classAt.line)).length > 0);
+  check('The gutter marks the line and a run is underlined', (await nodeExists(`code-marker-${brokenLine}`)) && (await h.underlinedRuns(brokenLine)).length > 0);
   await capture('code-editor-04-syntax-error', { geometry: false });
-  await h.press('Backspace', [], ' = = ;'.length);
+  await h.press('Backspace', [], SYNTAX_JUNK.length);
   await waitUntil('the page to run again', async () => (await text('code-status-run')).startsWith('Swapped in'), UPDATE_DEADLINE_MS);
 
   // A type error is underlined where tsc puts it; the problems list and the hover.
@@ -215,7 +222,8 @@ export async function runCodeEditorScenario(context) {
   await h.press('Home', [], 2);
   await h.press('ArrowRight', [], 'const label'.length);
   await page.keyboard.type(': number');
-  await waitUntil('the checker to find the error', async () => (await text('code-status-check')) === '1 error', UPDATE_DEADLINE_MS);
+  // Declaring `label` a number makes every use of it as a class an error too: the first is the declaration.
+  await waitUntil('the checker to find the errors', async () => /^\d+ errors?$/u.test(await text('code-status-check')), UPDATE_DEADLINE_MS);
   const underlined = await h.underlinedRuns(labelAt.line);
   check('The run "label" is underlined, and nothing else on the line', underlined.length === 1 && underlined[0].text === 'label', underlined.map((run) => run.text));
   check('at the column tsc reports', near(underlined[0].rect.x, content.x + grid.gutterWidth + labelAt.column + 'const '.length * grid.advance, 1.5 * grid.advance) || near(underlined[0].rect.x, content.x + grid.gutterWidth + ('const '.length + labelAt.column) * grid.advance));

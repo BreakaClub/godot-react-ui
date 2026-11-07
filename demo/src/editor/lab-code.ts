@@ -45,7 +45,9 @@ export function openLabCode(lab: InlineLab, support: CodeSupport): LabCode {
   try {
     session = support.openSession(lab);
     session.open();
-    return { kind: 'live', session, workspace: new EditorWorkspace({ ...common, backend: session }) };
+    const workspace = new EditorWorkspace({ ...common, backend: session });
+    workspace.start();
+    return { kind: 'live', session, workspace };
   } catch (thrown) {
     session?.unmount();
     const reason = messageOf(thrown);
