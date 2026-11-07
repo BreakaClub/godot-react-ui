@@ -6,6 +6,7 @@ import { ComboboxLab } from './combobox-lab';
 import { DragLab } from './drag-lab';
 import { DropdownTouchLab } from './dropdown-touch-lab';
 import { FiltersExplorer } from './filters-explorer';
+import { FontSlicesLab } from './font-slices-lab';
 import { FormsExtraLab } from './forms-extra-lab';
 import { FormsLab } from './forms-lab';
 import { GlassLab } from './glass-lab';
@@ -172,6 +173,11 @@ export const LABS = defineLabs([
     id: 'rich-text', kind: 'inline', group: 'Text', title: 'Rich text',
     description: 'Nested Text as one paragraph: coloured, weighted and decorated spans, wavy underlines and inlays, with caret and hit-test geometry.',
     component: RichTextLab, sources: ['res://src/rich-text-lab.tsx'],
+  },
+  {
+    id: 'font-slices', kind: 'inline', group: 'Text', title: 'Font fallback',
+    description: 'Characters no font has are drawn with a font the page downloads for them when they first appear: Chinese, Japanese, Korean and emoji.',
+    component: FontSlicesLab, sources: ['res://src/font-slices-lab.tsx'],
   },
   {
     id: 'motion', kind: 'inline', padded: true, group: 'Motion', title: 'Transitions',
