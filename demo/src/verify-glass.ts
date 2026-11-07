@@ -296,18 +296,26 @@ async function checkContrast(owner: Node, api: GlassInspection, texts: ReadonlyA
 
 /**
  * A rounded corner is clean when the pixel just inside the bounding box but outside the arc is the page's (no square tint
- * leaking out of the corner) and the pixel inside the arc is the glass's.
+ * leaking out of the corner) and the pixel inside the arc is the glass's. All four corners are read and the cleanest one is
+ * judged: a square tint leaks at every corner, and what is under a corner is the page's own business (a sheet's corner over the
+ * blurred heading differs from the page beside it by 11 levels with no leak at all). `verify-filters.ts` holds the shape exactly,
+ * over stripes it knows.
  */
 async function checkCorner(owner: Node, api: GlassInspection, testID: string, radius: number, label: string): Promise<void> {
   await lookAt(api, testID);
   const image = grab(owner);
   const ratio = pixelRatio(image, api);
   const box = boxOf(node(api, testID).rect, ratio);
-  const page = image.getPixel(box.x0 - PAGE_PROBE_PX, box.y0 - PAGE_PROBE_PX);
-  const outside = image.getPixel(box.x0 + CORNER_PROBE_PX, box.y0 + CORNER_PROBE_PX);
-  const inside = image.getPixel(box.x0 + Math.round(radius * ratio * HALF), box.y0 + Math.round(radius * ratio * HALF));
-  const leaked = levelsApart(outside, page);
-  const tint = levelsApart(inside, page);
+  const arcInset = Math.round(radius * ratio * HALF);
+  const corners = ([[box.x0, 1], [box.x1 - 1, -1]] as const).flatMap(([x, inwardX]) => ([[box.y0, 1], [box.y1 - 1, -1]] as const).map(([y, inwardY]) => {
+    const page = image.getPixel(x - inwardX * PAGE_PROBE_PX, y - inwardY * PAGE_PROBE_PX);
+    return {
+      leaked: levelsApart(image.getPixel(x + inwardX * CORNER_PROBE_PX, y + inwardY * CORNER_PROBE_PX), page),
+      tint: levelsApart(image.getPixel(x + inwardX * arcInset, y + inwardY * arcInset), page),
+    };
+  }));
+  const cleanest = corners.reduce((best, corner) => (corner.leaked * best.tint < best.leaked * corner.tint ? corner : best));
+  const { leaked, tint } = cleanest;
   assert(tint >= TINTED_LEVELS, `${label}: inside ${testID}'s corner the glass is only ${tint.toFixed(1)} levels from the page`);
   assert(leaked * CLEAN_CORNER_SHARE <= tint, `${label}: outside ${testID}'s rounded corner the page is changed by ${leaked.toFixed(1)} levels, the glass inside by ${tint.toFixed(1)}`);
   console.log('GODOT_REACT_GLASS_CORNER', JSON.stringify({ label, testID, leaked: round(leaked, TENTH), tint: round(tint, TENTH) }));
