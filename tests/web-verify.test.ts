@@ -232,3 +232,27 @@ test('only a run that passed prints a pass line, and it carries the counts and t
   assert.deepEqual(JSON.parse((line ?? '').slice('GODOT_REACT_WEB_WORLD_VERIFY_PASSED '.length)), { assertions: 3, captures: 2, report: '/evidence/report.json' });
   assert.equal(passedLine('GODOT_REACT_WEB_WORLD_VERIFY_PASSED', { ...report, passed: false }, '/evidence'), undefined);
 });
+
+test('the demo server sends the bare address to its landing and nothing else; a verifier\'s server has none (the bare page is the playground)', async () => {
+  const { root } = exportDirectory(EXPORT);
+  const demo = await startExportServer({ root, landing: '?demo=navigator' });
+  const verifier = await startExportServer({ root });
+  try {
+    const bare = await fetch(demo.url, { redirect: 'manual' });
+    assert.equal(bare.status, 302);
+    assert.equal(bare.headers.get('location'), '/?demo=navigator');
+    const withQuery = await fetch(new URL('?lab=glass', demo.url), { redirect: 'manual' });
+    assert.equal(withQuery.status, 200, 'an address that already says what to open is served as it is');
+    assert.equal(await withQuery.text(), EXPORT['index.html']);
+    assert.equal((await fetch(new URL('index.pck', demo.url), { redirect: 'manual' })).status, 200, 'files are not redirected');
+    const followed = await fetch(demo.url);
+    assert.equal(followed.status, 200);
+    assert.equal(followed.url, new URL('?demo=navigator', demo.url).href);
+    const plain = await fetch(verifier.url, { redirect: 'manual' });
+    assert.equal(plain.status, 200, 'the verifiers\' server serves the bare address itself');
+    assert.equal(await plain.text(), EXPORT['index.html']);
+  } finally {
+    await demo.close();
+    await verifier.close();
+  }
+});

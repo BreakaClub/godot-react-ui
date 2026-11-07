@@ -9,15 +9,24 @@ const LOOPBACK = '127.0.0.1';
  * Serve the Web export in `root` on the loopback interface: `port` 0 asks the system for a free one. The headers make the page
  * cross-origin isolated, which SharedArrayBuffer and the engine's pthreads need (localhost is a trustworthy context; remote
  * hosting must additionally use HTTPS). Resolves when it is listening, with its URL and a `close` that ends open connections.
+ *
+ * `landing` is a query string (`?demo=navigator`) that a request for the bare address `/` is sent to. The export's own page opens the
+ * single-page playground at the bare address, because that is what the Web verifiers load (demo/src/launch.ts); the demo server for
+ * a person (`pnpm demo:web`) gives the bare address a landing, and the verifiers' servers give it none.
  */
-export async function startExportServer({ root, port = 0 }) {
+export async function startExportServer({ root, port = 0, landing }) {
   const server = createServer((request, response) => {
     response.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
     response.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
     response.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
     response.setHeader('Cache-Control', 'no-store');
     try {
-      const pathname = decodeURIComponent(new URL(request.url ?? '/', 'http://localhost').pathname);
+      const address = new URL(request.url ?? '/', 'http://localhost');
+      const pathname = decodeURIComponent(address.pathname);
+      if (landing !== undefined && pathname === '/' && address.search === '') {
+        response.writeHead(302, { Location: `/${landing}` }).end();
+        return;
+      }
       const path = resolve(root, `.${pathname === '/' ? '/index.html' : pathname}`);
       if (!path.startsWith(root + sep) || !['GET', 'HEAD'].includes(request.method ?? '')) {
         response.writeHead(403).end('Forbidden');

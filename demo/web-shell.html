@@ -27,9 +27,15 @@
       // Arguments for the demo's scripts follow `--`. `?scene=res://world.tscn` starts that scene instead of
       // the project's main scene through the SceneLauncher autoload: Breaka's Web engine has no
       // command-line path overrides, so the scene cannot be given to the engine itself (docs/WORLD_SPACE.md).
+      // `?lab=glass` opens the lab navigator on that lab, `?demo=navigator` opens it on its first lab and `?demo=app` opens the
+      // single-page playground. This page, bare, opens the playground, which is what the Web verifiers load; `pnpm demo:web`
+      // sends the bare address to the navigator (demo/src/launch.ts).
       const userArgs = [];
       if (params.get('verify') === '1') userArgs.push('--verify');
       if (params.get('scene') !== null) userArgs.push('--scene', params.get('scene'));
+      if (params.get('lab') !== null) userArgs.push(`--lab=${params.get('lab')}`);
+      if (params.get('demo') !== null) userArgs.push(`--demo=${params.get('demo')}`);
+      else if (params.get('lab') === null) userArgs.push('--demo=app');
       if (userArgs.length > 0) args.push('--', ...userArgs);
       if (missing.length) {
         status.textContent = `This browser is missing required features:\n${missing.join('\n')}`;

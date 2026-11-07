@@ -1,4 +1,4 @@
-import { createElement } from 'react';
+import { createElement, type ReactElement } from 'react';
 import {
   BaseMaterial3D, BoxMesh, Callable, Camera3D, Color, ColorRect, Control, DirAccess, DisplayServer, Engine, FileAccess, InputEvent, InputEventKey,
   InputEventMouseButton, InputEventPanGesture, InputMap, MeshInstance3D, MouseButton, Node, Node3D, ReactUiRoot, OS, StandardMaterial3D,
@@ -9,7 +9,10 @@ import { createRoot, readActivity, takeNativeProfile, type ReactRoot } from '../
 import { readNodeRect } from '../../src/native';
 import { App, getDemoLifecycle } from './app';
 import { setLabOwner } from './interaction-lab';
-import { labElement, type LabName } from './labs';
+import { demoStart, type DemoStart } from './launch';
+import { LABS, findLab, labElement, labsInOrder, type Lab, type LabName, type SceneLab } from './labs';
+import { Navigator, type NavigatorProps } from './navigator';
+import { openSceneWithBack } from './scene-return';
 import { FiltersLab, type FiltersLabProps } from './filters-lab';
 import { selectionLabControls } from './selection-lab';
 import { observeInputFailure, runVerification } from './verify';
@@ -25,6 +28,17 @@ import { VerifierInputIsolation, injectsOwnInput } from './verifier-input';
 const bind = createClassBinder();
 const MICROSECONDS_PER_MILLISECOND = 1000;
 const BACKDROP_COLOR = new Color(0.86, 0.9, 0.84, 1);
+/** What the verifier may ask of the navigator: its props, and labs of its own after the demo's (the registry here is this bundle's, not the verifier's). */
+export type NavigatorOptions = Omit<NavigatorProps, 'labs'> & { extraLabs?: readonly Lab[] };
+
+/** How long the navigator leaves the window empty after a lab asked for the root to be unmounted or detached, before it puts it back. */
+const ROOT_RECOVERY_DELAY_MS = 600;
+
+/**
+ * The lab the navigator was on when it left for a scene of its own. The scene's Back button changes to the main scene again, which
+ * is a new `Main`; this module outlives it, so the navigator comes back where it was.
+ */
+let resumeLab: string | undefined;
 
 /** What reached Godot instead of the React root, for the pass-through verification. */
 export interface PassthroughCounts {
@@ -62,15 +76,33 @@ export default class Main extends Node {
   private passthrough: PassthroughCounts = { backdropPresses: 0, unhandledPresses: 0, unhandledWheels: 0, unhandledPans: 0, unhandledKeys: {} };
   /** Set only in a run that injects its own input (a verifier or the probe); a normal run takes real input. */
   private isolation: VerifierInputIsolation | null = null;
+  /** What this run opens with: the navigator, or the playground the verifiers were written against (`launch.ts`). */
+  private start: DemoStart = { kind: 'app' };
+  /** The lab the user last chose in the navigator, so a navigator mounted again opens on it. */
+  private currentLab: string | undefined;
+  /** How many times `showNavigator` has been called: the key of the navigator it renders, so each call mounts a fresh one. */
+  private navigatorShown = 0;
+  /** The pending return of the navigator's root after a lab took it away (`recoverRoot`); at most one. */
+  private recovery: ReturnType<typeof setTimeout> | null = null;
 
   override _ready(): void {
     const args = OS.getCmdlineUserArgs();
     const userArgs = Array.from({length:args.size()}, (_, i) => args.get(i));
+    const injects = injectsOwnInput(userArgs);
     // First, before the window can become the key window: see VerifierInputIsolation.
-    if (injectsOwnInput(userArgs)) {
+    if (injects) {
       const window = this.getWindow();
       if (!window) throw new Error('A verifier run requires its owning Window');
       this.isolation = VerifierInputIsolation.begin(window);
+    }
+    this.start = demoStart(userArgs, injects);
+    if (this.start.kind === 'navigator') {
+      this.start = { kind: 'navigator', lab: resumeLab ?? this.start.lab };
+      resumeLab = undefined;
+      this.currentLab = this.start.lab;
+      if (this.start.lab !== undefined && findLab(this.start.lab) === undefined) {
+        console.error(`There is no lab called "${this.start.lab}" (--lab=); the navigator lists the ids that work.`);
+      }
     }
     this.updateDisplayScale();
     const logical = userArgs.find(argument => argument.startsWith(LOGICAL_VIEWPORT_ARGUMENT));
@@ -94,6 +126,17 @@ export default class Main extends Node {
       runProbe: () => runProbe(),
       benchmark: (props: BenchmarkProps) => this.requireRenderer().render(createElement(BenchmarkApp, props)),
       restoreDemo: () => this.requireRenderer().render(createElement(App)),
+      /**
+       * The lab navigator in place of the app (`navigator.tsx`), as a normal run opens it. `labs`, `initialLab` and the
+       * callbacks are its props; `onLabChange` is the owner's own (it remembers the lab) and is called after the caller's.
+       */
+      /** The labs in the navigator's order, as plain data for a browser verifier (`scripts/verify-navigator-web.mjs`). */
+      labs: () => labsInOrder(LABS).map(({ id, title, kind, group }) => ({ id, title, kind, group })),
+      showNavigator: (options: NavigatorOptions = {}) => {
+        // A navigator takes its `initialLab` only when it mounts, so each call mounts a new one.
+        this.navigatorShown += 1;
+        this.requireRenderer().render(this.navigatorElement(options));
+      },
       // A page in place of the app: the HUD over the backdrop Control (plan I1), the pointer lab (I2), ...
       showLab: (name: LabName) => this.requireRenderer().render(labElement(name)),
       /** The filters lab (plan Phase V1): rendered again with new props, so a change is an ordinary commit. */
@@ -420,15 +463,62 @@ export default class Main extends Node {
       if (event.target.id === 0) this.rootKeys.push(event.key);
     });
     setLabOwner({
-      unmountRoot: () => this.unmount(),
+      unmountRoot: () => {
+        this.unmount();
+        this.recoverRoot(() => { if (!this.renderer) this.mount(); });
+      },
       detachSurface: () => {
         const owned = this.requireSurface();
         if (owned.getParent() === this) this.removeChild(owned);
+        this.recoverRoot(() => { if (owned.getParent() === null && this.surface === owned) this.addChild(owned); });
       },
       processFrame: () => Engine.getProcessFrames(),
       focusedNodeId: () => this.requireRenderer().getSnapshot().focused,
     });
-    renderer.render(createElement(App));
+    renderer.render(this.start.kind === 'app' ? createElement(App) : this.navigatorElement({ initialLab: this.currentLab }));
+  }
+
+  /** The navigator with the owner's callbacks: it remembers the lab, and can leave for a scene of its own. */
+  private navigatorElement({ extraLabs = [], ...props }: NavigatorOptions): ReactElement {
+    return createElement(Navigator, {
+      ...props,
+      key: this.navigatorShown,
+      labs: [...LABS, ...extraLabs],
+      onLabChange: (id: string) => {
+        props.onLabChange?.(id);
+        this.currentLab = id;
+      },
+      onOpenScene: props.onOpenScene ?? ((lab: SceneLab) => this.openScene(lab)),
+    });
+  }
+
+  /** Leave for the scene `lab` is, with a Godot button to come back to the navigator on the same lab. */
+  private openScene(lab: SceneLab): void {
+    const tree = this.getTree();
+    const current = tree?.currentScene;
+    if (!tree || !current) throw new Error(`Cannot open ${lab.scene}: the demo is not in a scene tree`);
+    resumeLab = lab.id;
+    openSceneWithBack(tree, lab.scene, current.sceneFilePath);
+  }
+
+  /**
+   * A lab asked for the root to be unmounted or detached (the Events lab's two danger buttons, which the verifiers press to prove
+   * native survives them). A verifier mounts the root again itself. In the navigator nobody would: the window stays empty, so it
+   * puts the root back after a pause, on the lab the user was on. One return is pending at most.
+   */
+  private recoverRoot(restore: () => void): void {
+    if (this.start.kind !== 'navigator') return;
+    this.cancelRecovery();
+    this.recovery = setTimeout(() => {
+      this.recovery = null;
+      restore();
+    }, ROOT_RECOVERY_DELAY_MS);
+  }
+
+  private cancelRecovery(): void {
+    if (this.recovery === null) return;
+    clearTimeout(this.recovery);
+    this.recovery = null;
   }
 
   private unmount(): void {
@@ -455,6 +545,7 @@ export default class Main extends Node {
   }
 
   override _exitTree(): void {
+    this.cancelRecovery();
     if (this.renderer) this.unmount();
     Reflect.deleteProperty(globalThis, 'godotReactDemo');
   }
