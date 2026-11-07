@@ -18,6 +18,8 @@
     "predemo": "pnpm build",
     "demo": "node scripts/run.mjs",
     "demo:web": "node scripts/serve-web.mjs",
+    "deploy:web:plan": "node scripts/deploy-web.mjs",
+    "deploy:web": "node scripts/deploy-web.mjs --execute",
     "verify": "node scripts/verify.mjs",
     "verify:web": "node scripts/verify-web.mjs",
     "verify:motion:web": "node scripts/verify-motion-web.mjs",
