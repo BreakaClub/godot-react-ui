@@ -31,6 +31,10 @@ window runs 2 more: no Code button below 768 logical px):
 | autoscroll while dragging past the edge | starts 50 ms after the pointer leaves |
 | idle, panel open, not focused | 0 busy samples over 2 s: the root asks for no frames |
 
+On the stock engine (Godot 4.7.2, `--engine=stock`; the stock library and live-compile extension built first): the same section passes with the same 2,555 assertions
+(`artifacts/logs/stock-code-editor.log`); mount 179 ms, 409 commands, advance 7.25 px, keystroke to ink median 17.7 ms (p95 41 ms), last key to page 236 ms, 0 busy idle samples. The
+`live-compile` section (1,541 assertions, both orientations, memo cases included) and the `navigator` section also pass on it. Landscape and portrait windows both pass on both engines.
+
 Checked in the section: a press puts the caret within a pixel; drag, double, triple and Shift+click; the keys of the table (Alt/Ctrl word jumps and the rest; the Node tests run every bound
 command in four kinds of document); Copy, Cut and Paste (the section runs with the root's in-process clipboard, `setClipboardText`; the browser's real one is read in the Web scenario);
 IME preedit (composition events, native and Web) drawn underlined at the caret and committed; undo and redo; Reset; hiding and showing the panel keeps the text and the lab's state;
@@ -175,7 +179,7 @@ of the text (`SOFT_KEYBOARD_PRESS_WINDOW_MS`): they are the engine's, not arrows
 Not verified:
 - A real phone's or tablet's soft keyboard (iOS Safari, Android Chrome). The touch page is Chrome with touch events and the engine's hidden element, driven by Puppeteer's keyboard; a real keyboard
   also sends autocorrection (`insertReplacementText` of a whole word) and Android's composing text, which the controller treats as typed text or a composition but I have not seen.
-- Safari and Firefox on the Web for the editor (Chrome only; `docs/tracks` has the engine's Safari notes).
+- Safari and Firefox on the Web for the editor (Chrome only).
 - A real IME. The composition events are synthesised (native and Web); no real OS input was generated, by the rules of the track.
 - Native at DPR 2. The Web retina page (DPR 2) is the evidence for the grid and the caret at that scale; a native window ran at 1.0.
 - The machine's real clipboard on the desktop (the section uses the root's in-process one); the browser's is read in the Web scenario.
