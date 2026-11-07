@@ -263,6 +263,8 @@ function verifyNumbers(api: RichTextInspection, page: RichPage, label: string, d
     assertionTally.count += 1;
     if (found.length > 0) differing.push(`${label}: ${sample.id} (${sample.note}): ${describe(found)}`);
     differing.push(...charactersAgainstChrome(sample, spreads, label), ...inlaysAgainstChrome(sample, label));
+    // The text the node holds, which its accessible name and its snapshot are made from, is the source text: no inlay in it.
+    assert(node(api, sample.id).text === sourceText(sample.runs), `${sample.id}: the node's text is ${JSON.stringify(node(api, sample.id).text)}, not the source ${JSON.stringify(sourceText(sample.runs))}`);
     assertionTally.count += 2;
   }
   return page.samples.length;
