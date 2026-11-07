@@ -248,7 +248,8 @@ export function installBuilt({ built, destination, stampPath, fix }) {
 /**
  * Make the installed build the profile's, as far as its target directory allows: nothing to do, an install, or a report that only a
  * compile can make one. `outcome` is `current`, `installed` or `needs-build` (with the `problem` that leaves the installed build
- * unusable); `absent` says nothing was installed to begin with, for a caller whose build is optional, and `fix` is the command that compiles.
+ * unusable); with `needs-build`, `builtProblem` is why the target's build cannot be installed, `fix` the command that compiles, and `absent` says nothing
+ * was installed to begin with, for a caller whose build is optional.
  */
 export function switchBuild({ installed, built, destination, stampPath, fix, absent = false }) {
   const assessment = assessInstall({ installed, built });
@@ -257,7 +258,7 @@ export function switchBuild({ installed, built, destination, stampPath, fix, abs
     installBuilt({ built, destination, stampPath, fix });
     return { outcome: 'installed', problem: assessment.problem };
   }
-  return { outcome: 'needs-build', problem: assessment.problem, absent, fix };
+  return { outcome: 'needs-build', problem: assessment.problem, builtProblem: assessment.builtProblem, absent, fix };
 }
 
 /**

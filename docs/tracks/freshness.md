@@ -21,7 +21,7 @@ window or browser opens, naming the files that differ and the command that fixes
 
 | Where | What is checked | Fix it names |
 | --- | --- | --- |
-| `prepareNative` (`verify`, `verify:interaction`, `verify:motion`, `verify:a11y`, `verify:world`, `verify:text-layout`, `demo`, `dev`) | installed library's stamp: profile, probe flag, library hash, digest | `pnpm build:native [--probe] [--faults] --engine=<name>` |
+| `prepareNative` (`verify`, `verify:interaction`, `verify:motion`, `verify:a11y`, `verify:world`, `verify:text-layout`, `demo`, `dev`) | installed library's stamp: profile, probe flag, library hash, digest. Since the engine-switch track also the installed live-compile extension's, if one is installed | `pnpm build:native [--probe] [--faults] --engine=<name>`, or `pnpm switch:engine [--probe] [--faults] --engine=<name>` when the profile's target directory holds a current build (docs/tracks/engine-switch.md) |
 | `build:web` (export step, `--export-only`) | installed Web side module's stamp | `pnpm build:web --wasm-only [--probe] --engine=<name>` |
 | `verify:web`, `verify:motion:web`, `verify:interaction:web`, `scripts/verify-world-web.mjs`, `demo:web`, `scripts/probe-web.mjs` | the export's `build-receipt.json` (`extension` is the side module's stamp; `content` the digest of the pack, shell and template inputs; `files` each exported file's size and hash) and the exported `.wasm` beside it | `pnpm build:web [--release] [--probe] --engine=<name>`, or `pnpm build:web --export-only` when the pack, shell, template or an exported file is what moved |
 | `test:types --engine=stock`, `gen:types --engine=stock` | the stock library cargo left in `target/stock` (what the typings are generated from) | `pnpm build:native --engine=stock` |
@@ -82,7 +82,7 @@ command refuses with `pnpm build:native --engine=stock`. The typings record (`ta
 library hash, so declarations are regenerated, as before and cheaply (a headless stock editor, about 10 s), whenever the library they list was built
 from different sources. Not chosen: rebuilding the library from inside `test:types` (minutes, and silent). Note the fix command also
 installs the stock library over the installed path (stock-engine S3); `pnpm build:native` puts the default back, and is quick when its
-target stamp is fresh.
+target stamp is fresh. (Since the engine-switch track, `pnpm switch:engine` does that from the target directory without running cargo at all.)
 
 F7. **Interruption and races.** The inputs are hashed before cargo runs and again after it; if they differ the build fails instead of
 stamping a result that mixes two source states (a refusal later is the safe direction). While a build runs the installed library and its

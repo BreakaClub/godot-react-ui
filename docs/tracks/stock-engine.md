@@ -47,8 +47,9 @@ The extension and the Web side module are installed where the one checked-in `re
 (`demo/addons/godot-react-ui/bin/`), and the installing build writes `react_ui.build.json` / `react_ui.web.build.json`
 beside them: which profile built it, whether it is a probe build, and its SHA-256. Every native verifier and `run`
 refuses a library that is not its profile's (and not a probe build unless it wants one), and the Web export refuses a
-side module built for the other profile. So switching profiles is `pnpm build:native --engine=<name>`, and the last
-build installed wins; finish with the default (`pnpm build:native`).
+side module built for the other profile. So switching profiles is `pnpm switch:engine --engine=<name>` (docs/tracks/engine-switch.md: a
+copy of the profile's own target build, seconds, for the library and for live-compile), or `pnpm build:native --engine=<name>` when that target
+directory holds no current build, and the last one installed wins; finish with the default (`pnpm switch:engine`).
 
 ## Decisions
 

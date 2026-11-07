@@ -214,6 +214,11 @@ The Web build's recipe is the UI extension's (`scripts/build-web.mjs`) with `--c
   configurations it has checked (about 8 MB each), so checking every lab in turn without an edit stays bounded. The Web module's share was not measured.
 - **Safari, iPad, the release export and the Web at device pixel ratio two were not run.** The Web run is headless Chrome, the debug export of the `breaka`
   profile, landscape. The stock profile's Web side module has not been tried (`build-live-compile-web.mjs` builds the `breaka` profile only).
+- **The extension has one install and every native demo run loads it, whichever engine it starts.** A run is therefore refused, before Godot starts, when the
+  installed extension is another profile's or older than its sources, and the build stamps the profile's target directory
+  (`live-compile/target/live_compile.build.json`, `target-stock/`) so that `pnpm switch:engine --engine=<name>` installs a build that exists with a copy and
+  no compile. The build no longer compares file modification times; it cleans `live_compile_core` and `live_compile_ext` unless the target's stamp
+  vouches for the sources (docs/tracks/engine-switch.md).
 - **The native extension is macOS arm64.** The `.gdextension` lists no other desktop platform.
 - **Typings.** The class `LiveCompile` is declared by hand in `demo/src/live-compile-host.ts`, as the probe classes are, because the extension is optional and
   the tracked typings must not describe it; `scripts/generate-types.mjs` takes the manifest out of the project while the editor writes them.

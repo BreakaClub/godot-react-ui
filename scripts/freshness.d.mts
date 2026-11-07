@@ -64,6 +64,8 @@ export interface SwitchResult {
   problem: string | undefined;
   /** Only with `needs-build`: nothing was installed to begin with. */
   absent?: boolean;
+  /** Only with `needs-build`: why the target directory's build cannot be installed. */
+  builtProblem?: string;
   /** Only with `needs-build`: the command that compiles the build. */
   fix?: string;
 }

@@ -347,7 +347,8 @@ test('the stock typecheck refuses a stale stock library by name and never builds
 // A script that runs an installed build must check it first; a new one that forgets would run unguarded again. This lists
 // every script that selects an engine and the guard it must call, and fails for one that is not listed.
 const GUARDS: Record<string, readonly string[]> = {
-  'build-live-compile.mjs': ['writeStamp('],
+  // Stamps the target directory (what `switch:engine` installs from) and cleans the crates unless that stamp vouches for the sources, then installs by rename.
+  'build-live-compile.mjs': ['writeStamp(layout.builtStamp', 'prepareTarget(', 'installFile('],
   // The Web side module of live-compile: a build, which installs it beside the native library; the section that uses it checks the stamp (live-compile-build.mjs).
   'build-live-compile-web.mjs': ['writeGdextension('],
   'build-native.mjs': ['beginBuild('],

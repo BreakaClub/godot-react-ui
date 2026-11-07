@@ -34,7 +34,7 @@ function report(name, switchTo, sourceOf) {
   } else if (result.absent) {
     console.log(`${name}: not installed here and no ${engine.name} build in ${sourceOf(result)}, so nothing to switch (${seconds} s)`);
   } else {
-    console.log(`${name}: ${result.problem} No current ${engine.name} build in ${sourceOf(result)} to install: run \`${result.fix}\` first.`);
+    console.log(`${name}: ${result.problem} ${result.builtProblem} Run \`${result.fix}\` first.`);
     return true;
   }
   return false;

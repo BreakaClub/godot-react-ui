@@ -10,7 +10,7 @@
 //   demo/live-compile/project.json                       the project the editor opens (scripts/live-compile-project.mjs)
 //
 // `--cli` also builds `live-compile-cli`, the native process that speaks the same requests on stdin and stdout, which
-// `scripts/live-compile-agreement.mjs` drives. The Bun sources are extracted from the checkout at the pinned revision into
+// `scripts/live-compile-agreement.mjs` drives (and which is built again whenever it was there, so that a clean does not lose it). The Bun sources are extracted from the checkout at the pinned revision into
 // live-compile/vendor (generated, ignored) when they are not there; the toolchain is Bun's nightly (live-compile/rust-toolchain.toml).
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -30,6 +30,10 @@ const layout = liveCompileLayout(engine);
 const targetDirectory = layout.targetDirectory;
 // The workspace's own crates; the Bun crates and every other dependency stay cached.
 const WORKSPACE_CRATES = ['live_compile_core', 'live_compile_ext'];
+// Cleaning `live_compile_core` removes `live-compile-cli` with it, and the tests that drive the CLI skip without it (tests/live-compile-session.test.ts).
+// So a checkout that had built it keeps it: it is built again after a clean as well as when `--cli` asks for it.
+const CLI_BINARY = resolve(targetDirectory, 'release', 'live-compile-cli');
+const withCli = process.argv.includes('--cli') || existsSync(CLI_BINARY);
 const env = {
   ...process.env, ...engine.bindingEnvironment(), CARGO_TARGET_DIR: targetDirectory,
   PATH: `${resolve(homedir(), '.cargo/bin')}:${process.env.PATH}`,
@@ -57,7 +61,7 @@ prepareTarget({
 // Two builds, not one with both packages: `--bin live-compile-cli` selects the targets of every package named, and then the extension
 // (a library) is not built at all while the old one is installed under a new stamp.
 run(cargo, ['build', '--locked', '--release', '-p', 'live_compile_ext']);
-if (process.argv.includes('--cli')) run(cargo, ['build', '--locked', '--release', '-p', 'live_compile_core', '--bin', 'live-compile-cli']);
+if (withCli) run(cargo, ['build', '--locked', '--release', '-p', 'live_compile_core', '--bin', 'live-compile-cli']);
 if (liveCompileInputs(engine).digest !== inputs.digest) {
   throw new Error('The sources changed while cargo was compiling them, so the result cannot be stamped. Run `node scripts/build-live-compile.mjs` again.');
 }

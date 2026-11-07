@@ -31,6 +31,8 @@ export interface SwitchLibraryResult {
   outcome: 'current' | 'installed' | 'needs-build';
   /** Why the installed library was not usable (undefined for `current`). */
   problem: string | undefined;
+  /** Only with `needs-build`: why the target directory's library cannot be installed. */
+  builtProblem?: string;
   /** Only with `needs-build`: the command that compiles the library. */
   fix?: string;
   target: string;
