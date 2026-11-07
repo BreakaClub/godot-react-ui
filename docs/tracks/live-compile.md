@@ -145,7 +145,7 @@ machine would give. Native: Breaka's 4.8 engine, Compatibility renderer, `Window
 | The renderer's DevTools registration | `tests/renderer-devtools.test.ts` | 1 of 1; `renderer`, `kit`, `events`, `commit`, `props`, `select` test files: 211 of 211 |
 | The section, native, Breaka's engine | `node scripts/verify.mjs --interaction --only=live-compile` | **PASSED in both windows, 1516 assertions each**, section 10.2 s (the runner matched the announced `live-compile-test-render` error) |
 | The section, Chrome | `node scripts/verify-live-compile-web.mjs` | **PASSED** on the debug export, headless Chrome, 1120 x 800 at device pixel ratio 1; the extension is a Web side module and the same section code ran in the page |
-| The section, stock engine | `node scripts/verify.mjs --interaction --only=live-compile --engine=stock` | __STOCK__ |
+| The section, stock engine | `node scripts/verify.mjs --interaction --only=live-compile --engine=stock` | **PASSED in both windows, 1516 assertions each**, stock Godot 4.7.2 with upstream GodotJS (V8 12.4), the extension built against `native/api/stock-4.7.2`; check on the service thread median 5.2 ms (worst 7.2 and 7.7), an edit to the pixels median 33.3 and 33.5 ms. The stock typings stage had to learn to leave the optional extension out (`scripts/typings.mjs`: the stage lists what it leaves out, clears what an earlier stage had of it, and the typings record includes that list), or the stock type check saw `LiveCompile` twice. `cargo test -p live_compile_core -p live_compile_ext`: 3 of 3. |
 
 What the section proves, on the Controls lab's real source (`demo/src/inputs-lab.tsx`): the lab compiled in the running realm has exactly the nodes, texts and
 rectangles the bundled copy has (the tree fingerprints are equal); an edit of its background class and title reaches `presentation.backgroundColor`, the
@@ -213,7 +213,7 @@ The Web build's recipe is the UI extension's (`scripts/build-web.mjs`) with `--c
 - **Memory.** One checker process holds 30 MB after its first check and 44 MB after thirty, for one lab; it keeps the parsed program of the last four
   configurations it has checked (about 8 MB each), so checking every lab in turn without an edit stays bounded. The Web module's share was not measured.
 - **Safari, iPad, the release export and the Web at device pixel ratio two were not run.** The Web run is headless Chrome, the debug export of the `breaka`
-  profile, landscape. The stock profile's Web side module has not been tried.
+  profile, landscape. The stock profile's Web side module has not been tried (`build-live-compile-web.mjs` builds the `breaka` profile only).
 - **The native extension is macOS arm64.** The `.gdextension` lists no other desktop platform.
 - **Typings.** The class `LiveCompile` is declared by hand in `demo/src/live-compile-host.ts`, as the probe classes are, because the extension is optional and
   the tracked typings must not describe it; `scripts/generate-types.mjs` takes the manifest out of the project while the editor writes them.
