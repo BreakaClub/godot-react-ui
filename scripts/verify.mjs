@@ -4,7 +4,8 @@ import { importDemo } from './import-demo.mjs';
 import { argsWithoutEngine, selectEngine } from './engine.mjs';
 import { NATIVE_INTERACTION_SECTIONS, checkSectionNames, requestedSections } from './verifier-sections.mjs';
 import { runNativeVerifier, summarizeRuns } from './native-run.mjs';
-import { requireLiveCompile } from './live-compile-build.mjs';
+import { existsSync } from 'node:fs';
+import { INSTALLED_LIBRARY, requireLiveCompile } from './live-compile-build.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 // The engine profile (`--engine=stock`, `GODOT_REACT_ENGINE=stock`; scripts/engine.mjs) picks the Godot binary,
@@ -60,7 +61,10 @@ if (faults && !requested.some(name => name === 'filters-faults' || name === 'tra
 engine.prepareNative({ faults });
 // The `live-compile` section needs the checker and compiler extension (its own build: docs/tracks/live-compile.md) and the project it opens,
 // which is made from the labs' sources as they are now.
-if (requested.includes('live-compile')) {
+// The `code-editor` section uses it when it is installed (and checks the read-only panel when it is not): an installed extension must still be
+// fresh, or the section would run the live path against an old compiler.
+const usesLiveCompile = requested.includes('live-compile') || ((requested.length === 0 || requested.includes('code-editor')) && existsSync(INSTALLED_LIBRARY));
+if (usesLiveCompile) {
   requireLiveCompile(engine);
   const project = spawnSync('node', [resolve(root, 'scripts/live-compile-project.mjs')], { cwd: root, stdio: 'inherit' });
   if (project.error) throw project.error;

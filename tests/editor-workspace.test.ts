@@ -48,6 +48,15 @@ class FakeBackend implements LiveBackend {
     };
   }
 
+  readonly checkedTexts: { readonly path: string; readonly text: string }[] = [];
+
+  checkText(path: string, text: string): Promise<CheckOutcome> {
+    this.checkedTexts.push({ path, text });
+    const check = deferred<CheckOutcome>();
+    this.checks.push(check);
+    return check.promise;
+  }
+
   hover(): Promise<Hover | null> {
     const pending = deferred<Hover | null>();
     this.hovers.push(pending);
@@ -124,8 +133,31 @@ test('a syntax error is shown at once, in the status bar and as an underline, an
   assert.equal(workspace.run.kind, 'compile-failed');
   assert.match(workspace.run.message, /Not applied, the last good page is showing\. Syntax error at 1:11: Expected ";"/u);
   assert.equal(workspace.run.offset, 10);
-  const [shown] = workspace.active.controller.diagnostics.items;
+  const [shown] = workspace.active.controller.diagnostics;
   assert.deepEqual([shown?.from, shown?.to, shown?.severity, shown?.source], [10, 11, 'error', 'compiler']);
+  workspace.dispose();
+});
+
+test('a class the library has no utility for is not sent to the page, is underlined, and is named; the text is still checked', async () => {
+  const { backend, workspace } = open();
+  backend.texts.set(LAB, 'const a = <View className="p-4 bg-e" />;\n');
+  const file = new EditorWorkspace({ backend, platform: 'mac', clipboard: new MemoryClipboard(), metrics: TEST_METRICS, now: () => 0, debounceMs: 10, maxWaitMs: 50 });
+  const { controller } = file.active;
+  controller.model.dispatch({ changes: { from: controller.model.doc.length - 1, insert: ' ' } });
+  file.flush();
+  assert.equal(backend.updates.length, 0, 'the page was not asked to render it');
+  assert.equal(backend.checkedTexts.length, 1, 'but the checker has the text');
+  assert.equal(file.run.kind, 'class-error');
+  assert.match(file.run.message, /Not applied, the last good page is showing\. No utility called "bg-e" at 1:32\./u);
+  const [shown] = controller.diagnostics;
+  assert.deepEqual([shown?.source, shown?.severity, controller.model.text.slice(shown?.from, shown?.to)], ['classes', 'error', 'bg-e']);
+  // The class is finished: the text goes to the page, and the mark goes.
+  controller.model.dispatch({ changes: { from: controller.model.text.indexOf('bg-e'), to: controller.model.text.indexOf('bg-e') + 'bg-e'.length, insert: 'bg-emerald-100' } });
+  file.flush();
+  assert.equal(backend.updates.length, 1);
+  assert.equal(file.run.kind, 'swapped');
+  assert.equal(controller.diagnostics.length, 0);
+  file.dispose();
   workspace.dispose();
 });
 
@@ -154,7 +186,7 @@ test('the type check of a text that has been typed into since is drawn mapped, o
   controller.model.dispatch({ changes: { from: 0, insert: '// new first line\n' } });
   backend.checks[0]?.resolve(checkedWith([error(LAB, at, at + 1)]));
   await pause(0);
-  const [placed] = controller.diagnostics.items;
+  const [placed] = controller.diagnostics;
   assert.ok(placed);
   assert.equal(controller.model.text.slice(placed.from, placed.to), '1', 'the underline is on the character the checker meant');
   assert.equal(workspace.check.kind, 'checked');
@@ -170,10 +202,10 @@ test('diagnostics of other files are not drawn, and a superseded check changes n
   workspace.flush();
   backend.checks[0]?.resolve({ kind: 'superseded', by: 2 });
   await pause(0);
-  assert.equal(workspace.active.controller.diagnostics.items.length, 0);
+  assert.equal(workspace.active.controller.diagnostics.length, 0);
   backend.checks[1]?.resolve(checkedWith([error(OTHER, 0, 3), error(LAB, 2, 5)]));
   await pause(0);
-  assert.deepEqual(workspace.active.controller.diagnostics.items.map(item => [item.from, item.to]), [[2, 5]]);
+  assert.deepEqual(workspace.active.controller.diagnostics.map(item => [item.from, item.to]), [[2, 5]]);
   workspace.dispose();
 });
 
@@ -188,7 +220,7 @@ test('a result for an older version than the one already drawn is dropped', asyn
   await pause(0);
   backend.checks[0]?.resolve(checkedWith([error(LAB, 0, 1, 'older')]));
   await pause(0);
-  assert.deepEqual(controller.diagnostics.items.map(item => item.message), ['newer']);
+  assert.deepEqual(controller.diagnostics.map(item => item.message), ['newer']);
   workspace.dispose();
 });
 
@@ -200,7 +232,7 @@ test('a check that cannot be placed is said so and draws nothing', async () => {
   for (let index = 0; index < 1100; index += 1) controller.model.dispatch({ changes: { from: 0, insert: 'x' } });
   backend.checks[0]?.resolve(checkedWith([error(LAB, 2, 3)]));
   await pause(0);
-  assert.equal(controller.diagnostics.items.length, 0);
+  assert.equal(controller.diagnostics.length, 0);
   assert.match(workspace.check.message ?? '', /changed too much/u);
   workspace.dispose();
 });

@@ -14,6 +14,7 @@ import {
 import { THEME } from '../theme';
 import type { EditorWorkspace, FileEditor } from '../workspace';
 import { Autoscroll } from './autoscroll';
+import { ClickSequence } from './click-sequence';
 import { Carets, type CaretRect } from './carets';
 import { GutterCell } from './gutter';
 import { GridProbe, type MeasuredGrid } from './grid-probe';
@@ -100,6 +101,7 @@ export function EditorView({ workspace, file }: EditorViewProps) {
   const sinkRef = useRef<TextInputHandle | null>(null);
   const pointerRef = useRef<{ x: number; y: number } | undefined>(undefined);
   const gridRef = useRef<Grid | undefined>(undefined);
+  const clicks = useRef(new ClickSequence());
 
   // The probe measures after every render; a measurement that has not changed is not a new state.
   const onMeasured = useCallback((next: MeasuredGrid): void => {
@@ -152,7 +154,7 @@ export function EditorView({ workspace, file }: EditorViewProps) {
   const hover = useMemo(() => new HoverTracker<TooltipLine[]>(
     async target => {
       const lines: TooltipLine[] = [];
-      for (const diagnostic of controller.diagnostics.items) {
+      for (const diagnostic of controller.diagnostics) {
         if (diagnostic.from <= target.offset && diagnostic.to > target.offset && (diagnostic.severity === 'error' || diagnostic.severity === 'warning')) {
           lines.push({ kind: diagnostic.severity, text: diagnosticText(diagnostic) });
         }
@@ -222,7 +224,7 @@ export function EditorView({ workspace, file }: EditorViewProps) {
     sinkRef.current?.focus();
     event.currentTarget.setPointerCapture(event.pointerId);
     pointerRef.current = { x: event.x, y: event.y };
-    controller.pointerDown({ offset, clicks: Math.max(1, event.detail), shiftKey: event.shiftKey, altKey: event.altKey });
+    controller.pointerDown({ offset, clicks: clicks.current.press(event.x, event.y, event.timeStamp), shiftKey: event.shiftKey, altKey: event.altKey });
     event.preventDefault();
   };
 

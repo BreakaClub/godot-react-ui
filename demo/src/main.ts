@@ -150,6 +150,13 @@ export default class Main extends Node {
       },
       // A page in place of the app: the HUD over the backdrop Control (plan I1), the pointer lab (I2), ...
       showLab: (name: LabName) => this.requireRenderer().render(labElement(name)),
+      /** The text of a lab's first source file as the build has it, for a browser verifier of the code panel (`scripts/verify-code-editor-web.mjs`). */
+      labSource: (id: string) => {
+        const lab = findLab(id);
+        const [source] = lab?.sources ?? [];
+        if (source === undefined) throw new Error(`There is no lab called ${id}, or it has no source`);
+        return FileAccess.getFileAsString(source);
+      },
       /** A lab compiled from its source and kept up to date as the source changes (`live-compile-session.ts`), for the `live-compile` section. */
       openLiveSession: (labId: string, exportName: string) => openLiveSession({ root: this.requireRenderer(), labId, exportName }),
       /** One page of the paint lab on its own (`docs/tracks/utilities-paint.md`), at the stage's size, from the window's corner. */

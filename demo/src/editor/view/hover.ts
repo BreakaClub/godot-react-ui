@@ -43,8 +43,11 @@ export class HoverTracker<T> {
     const generation = this.generation;
     this.timer = setTimeout(() => {
       this.timer = undefined;
-      void this.request(target).then(value => {
+      this.request(target).then(value => {
         if (generation === this.generation) this.show(value, target);
+      }, (error: unknown) => {
+        // A failed hover shows nothing; the failure is reported, not swallowed.
+        console.error(`The hover at ${target.offset} failed: ${error instanceof Error ? error.message : String(error)}`);
       });
     }, this.delayMs);
   }

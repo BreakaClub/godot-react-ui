@@ -44,15 +44,19 @@ function lab(): InlineLab {
   return found;
 }
 
+/** What the fake checker answers next: the test changes these while the panel runs. */
+interface Control {
+  hovers: Hover[];
+  hints: InlayHint[];
+  nextCheck: () => CheckOutcome;
+}
+
 interface Scenario {
   readonly host: TextInputHost;
   readonly uiRoot: ReturnType<typeof createTestRoot>['root'];
   readonly code: LabCode;
   readonly clipboard: MemoryClipboard;
-  readonly checks: { outcome: CheckOutcome }[];
-  hovers: Hover[];
-  hints: InlayHint[];
-  nextCheck: () => CheckOutcome;
+  readonly control: Control;
 }
 
 function mount(): Scenario {
@@ -66,11 +70,11 @@ function mount(): Scenario {
   });
   const { root: uiRoot } = createTestRoot(host);
   const project = parseProject(readFileSync(PROJECT, 'utf8'));
-  const scenario: Scenario = {
-    host, uiRoot, clipboard: new MemoryClipboard(), checks: [], hovers: [], hints: [],
+  const control: Control = {
+    hovers: [], hints: [],
     nextCheck: () => ({ kind: 'checked', serviceMs: 1, report: { diagnostics: [], filesLoaded: 1, incomplete: [], deepestStack: 0 } }),
-    code: undefined as never,
   };
+  const clipboard = new MemoryClipboard();
   const compiler: LiveCompileHost = {
     compile(path, source, refresh) {
       const body = Buffer.from(JSON.stringify({ op: 'transpile', path, source, refresh }));
@@ -82,9 +86,9 @@ function mount(): Scenario {
     },
     setFile() {},
     setFiles() {},
-    requestCheck: () => Promise.resolve(scenario.nextCheck()),
-    hover: () => Promise.resolve(scenario.hovers[0] ?? null),
-    inlayHints: () => Promise.resolve(scenario.hints),
+    requestCheck: () => Promise.resolve(control.nextCheck()),
+    hover: () => Promise.resolve(control.hovers[0] ?? null),
+    inlayHints: () => Promise.resolve(control.hints),
     close() {},
   };
   installRefreshHook();
@@ -96,11 +100,10 @@ function mount(): Scenario {
     }),
     readSource: () => '',
     platform: 'mac',
-    clipboard: scenario.clipboard,
+    clipboard,
     now: () => Date.now(),
   };
   const code = openLabCode(lab(), support);
-  Object.assign(scenario, { code });
   assert.equal(code.kind, 'live', code.kind === 'read-only' ? code.reason : '');
   const stage = code.kind === 'live' ? React.createElement(code.session.Lab) : null;
   uiRoot.render(React.createElement(View, null, React.createElement(View, { testID: 'stage' }, stage), React.createElement(CodeEditor, { lab: lab(), code })));
@@ -108,7 +111,7 @@ function mount(): Scenario {
   const state = host.scrollStatesByTestID.get('code-scroll');
   assert.ok(scroller > 0 && state !== undefined, 'the scroll container is mounted');
   host.scrollStates.set(scroller, state);
-  return scenario;
+  return { host, uiRoot, code, clipboard, control };
 }
 
 /** Native focuses the input when the panel opens (`autoFocus`) and tells JS: the fake host is told to do the same. */
@@ -163,16 +166,19 @@ function pointAt(s: Scenario, line: number, column: number): { x: number; y: num
   return { x: CONTENT.x + gutter + column * ADVANCE, y: CONTENT.y + (line - 1) * LINE_HEIGHT + LINE_HEIGHT / 2 };
 }
 
-function click(s: Scenario, at: { x: number; y: number }, init: { detail?: number; shiftKey?: boolean; altKey?: boolean } = {}): void {
+/** `count` quick presses at one place: the editor counts them itself, because a `pointerdown` carries no click count. */
+function click(s: Scenario, at: { x: number; y: number }, init: { count?: number; shiftKey?: boolean; altKey?: boolean } = {}): void {
   const content = tag(s, 'code-content');
-  const down = s.host.pointerEvent(content, 'pointerdown', { ...at, viewportX: at.x, viewportY: at.y, cancelable: true, buttons: 1, ...init });
-  s.host.pointersDown.add(down.pointerId);
-  s.host.events.push(down);
-  s.uiRoot.dispatchEvents();
-  s.host.events.push(s.host.pointerEvent(content, 'pointerup', { ...at, viewportX: at.x, viewportY: at.y }));
-  s.host.pointersDown.delete(down.pointerId);
-  s.host.captures.delete(down.pointerId);
-  s.uiRoot.dispatchEvents();
+  for (let press = 0; press < (init.count ?? 1); press += 1) {
+    const down = s.host.pointerEvent(content, 'pointerdown', { ...at, viewportX: at.x, viewportY: at.y, cancelable: true, buttons: 1, shiftKey: init.shiftKey ?? false, altKey: init.altKey ?? false });
+    s.host.pointersDown.add(down.pointerId);
+    s.host.events.push(down);
+    s.uiRoot.dispatchEvents();
+    s.host.events.push(s.host.pointerEvent(content, 'pointerup', { ...at, viewportX: at.x, viewportY: at.y }));
+    s.host.pointersDown.delete(down.pointerId);
+    s.host.captures.delete(down.pointerId);
+    s.uiRoot.dispatchEvents();
+  }
 }
 
 const pause = (ms: number): Promise<void> => new Promise(done => setTimeout(done, ms));
@@ -223,7 +229,7 @@ panelTest('a press puts the caret at the column under the pointer, within a pixe
 panelTest('a double click selects a word and the selection is drawn on the line', (s) => {
   const first = workspace(s).active.controller.model.doc.line(1).text;
   const start = first.indexOf('import') + 1;
-  click(s, pointAt(s, 1, start + 2), { detail: 2 });
+  click(s, pointAt(s, 1, start + 2), { count: 2 });
   const { main } = workspace(s).active.controller.model.state.selection;
   assert.equal(workspace(s).active.controller.model.state.sliceDoc(main.from, main.to), 'import');
   const row = s.host.nodes.get(tag(s, FIRST_LINE_TEXT_ID));
@@ -296,7 +302,7 @@ panelTest('a syntax error keeps the last good page, is said in the status bar, a
   s.host.type(s.uiRoot, ' = = ;');
   workspace(s).flush();
   assert.equal(workspace(s).run.kind, 'compile-failed', workspace(s).run.message);
-  const immediate = controller.diagnostics.items.find(item => item.severity === 'error');
+  const immediate = controller.diagnostics.find(item => item.severity === 'error');
   assert.ok(immediate, 'the compiler\'s error is drawn at once, without waiting for the checker');
   assert.equal(immediate.source, 'compiler');
   await pause(50);
@@ -305,7 +311,7 @@ panelTest('a syntax error keeps the last good page, is said in the status bar, a
   assert.equal(textOf(s, 'inputs-next'), 'Next 1');
   const line = controller.model.doc.lineAt(immediate.from);
   // The checker, which has the same error, answers for the same text and replaces the compiler's mark.
-  s.nextCheck = () => ({ kind: 'checked', serviceMs: 1, report: { diagnostics: [], filesLoaded: 1, incomplete: [], deepestStack: 0 } });
+  s.control.nextCheck = () => ({ kind: 'checked', serviceMs: 1, report: { diagnostics: [], filesLoaded: 1, incomplete: [], deepestStack: 0 } });
   controller.setDiagnostics(controller.model.version, [immediate]);
   await pause(20);
   assert.ok(has(s, `code-marker-${line.number}`), 'and the gutter marks its line');
@@ -317,7 +323,7 @@ panelTest('a syntax error keeps the last good page, is said in the status bar, a
 panelTest('a type error is underlined at the checker\'s range, marked in the gutter, counted, listed, and pressing it goes there', async (s) => {
   const { controller } = workspace(s).active;
   const at = lineOf(s, 'NICKNAME_MIN_LENGTH');
-  s.nextCheck = () => ({
+  s.control.nextCheck = () => ({
     kind: 'checked', serviceMs: 2,
     report: {
       diagnostics: [{ fileName: workspace(s).active.path, pos: at.offset + EDIT_HEADER.length, end: at.offset + EDIT_HEADER.length + 'NICKNAME_MIN_LENGTH'.length, code: 2322, category: 1, messageText: 'Type error here' }],
@@ -327,7 +333,7 @@ panelTest('a type error is underlined at the checker\'s range, marked in the gut
   controller.model.dispatch({ changes: { from: 0, insert: EDIT_HEADER } });
   await pause(SETTLE_MS);
   const shifted = lineOf(s, 'NICKNAME_MIN_LENGTH');
-  const [diagnostic] = controller.diagnostics.items;
+  const [diagnostic] = controller.diagnostics;
   assert.ok(diagnostic);
   assert.equal(controller.model.text.slice(diagnostic.from, diagnostic.to), 'NICKNAME_MIN_LENGTH', 'mapped onto the text it meant, one line down');
   assert.equal(diagnostic.from, shifted.offset);
@@ -347,8 +353,8 @@ panelTest('an inlay hint is in the line, shifts the text after it, and a hover o
   const { controller } = workspace(s).active;
   const at = lineOf(s, 'Button');
   const nameEnd = at.offset + 'Button'.length;
-  s.hints = [{ position: nameEnd, kind: 'type', label: ': string' }];
-  s.hovers = [{ start: at.offset, end: nameEnd, name: 'Button', type: 'string' }];
+  s.control.hints = [{ position: nameEnd, kind: 'type', label: ': string' }];
+  s.control.hovers = [{ start: at.offset, end: nameEnd, name: 'Button', type: 'string' }];
   controller.model.dispatch({ changes: { from: controller.model.doc.length, insert: ' ' } });
   await pause(SETTLE_MS);
   const hint = runStyle(s, at.number, ': string');

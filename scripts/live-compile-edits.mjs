@@ -45,6 +45,38 @@ export const THROW_IN_MODULE = [
  */
 export const TYPE_ERROR = { search: "const label = 'text-sm text-slate-700';", replace: "const label: number = 'text-sm text-slate-700';", anchor: 'label: number', code: 2322 };
 
+/**
+ * Two components the parent's re-render does not reach by itself, put into the Controls lab: an element the lab keeps in `useMemo` and a `React.memo`
+ * component with the props it had. Neither runs its new code after an edit unless the refresh reaches it itself (demo/src/live-compile-refresh.ts).
+ * `MEMO_SETUP` adds them (a hook is added, so the lab's state starts again); `MEMO_EDIT` changes the text of both.
+ */
+export const MEMO_SETUP = [
+  { search: "import { useState } from 'react';", replace: "import { memo, useMemo, useState } from 'react';" },
+  {
+    search: 'export function InputsLab() {',
+    replace: `function KeptProbe() {
+  return <Text testID="kept-probe" className="text-sm text-slate-600">kept v1</Text>;
+}
+
+const MemoProbe = memo(function MemoProbe({ label }: { label: string }) {
+  const [taps, setTaps] = useState(0);
+  return <Button testID="memo-probe" onClick={() => setTaps(taps + 1)}><Text>{\`\${label} v1 \${taps}\`}</Text></Button>;
+});
+
+export function InputsLab() {`,
+  },
+  { search: '  const [reversed, setReversed] = useState(false);', replace: '  const [reversed, setReversed] = useState(false);\n  const kept = useMemo(() => <KeptProbe />, []);' },
+  {
+    search: '        <Text className="text-2xl text-slate-900">Inputs</Text>',
+    replace: '        <Text className="text-2xl text-slate-900">Inputs</Text>\n        {kept}\n        <MemoProbe label="memo" />',
+  },
+];
+
+export const MEMO_EDIT = [
+  { search: 'kept v1', replace: 'kept v2' },
+  { search: ' v1 ', replace: ' v2 ' },
+];
+
 /** Applies edits to a text. Throws when one finds nothing to replace: a stale edit must fail, not do nothing. */
 export function applyEdits(text, edits) {
   let edited = text;

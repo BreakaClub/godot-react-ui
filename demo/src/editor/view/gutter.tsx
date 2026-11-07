@@ -1,6 +1,7 @@
 import { memo } from 'react';
 import { Text, View } from 'godot-react-ui';
 import type { Severity } from '../diagnostics';
+import { GUTTER_PADDING_COLUMNS } from '../geometry';
 import { THEME } from '../theme';
 import { CODE_TEXT_CLASS } from './grid-probe';
 
@@ -32,7 +33,7 @@ export const GutterCell = memo(function GutterCell({ number, severity, current, 
           style={{ left: advance * MARKER_COLUMNS, top: (lineHeight - advance) / 2, width: advance * MARKER_COLUMNS, height: advance * MARKER_COLUMNS, backgroundColor: marker }}
         />
       )}
-      <Text className={`${CODE_TEXT_CLASS} select-none`} style={{ color: current ? THEME.gutterTextCurrent : THEME.gutterText, paddingRight: advance * 1.5 }}>
+      <Text className={`${CODE_TEXT_CLASS} select-none`} style={{ color: current ? THEME.gutterTextCurrent : THEME.gutterText, paddingRight: advance * GUTTER_PADDING_COLUMNS }}>
         {String(number)}
       </Text>
     </View>

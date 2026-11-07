@@ -15,6 +15,7 @@ import { assertionTally, parseVerifierEvent, verifierClipboard } from './verifie
 import { measureFilterCost, verifyFilterFaults, verifyFilterSizes, verifyFilters } from './verify-filters';
 import { GLASS_FAULT_CONTROLS, verifyGlass } from './verify-glass';
 import { verifyLiveCompile } from './verify-live-compile';
+import { verifyCodeEditor } from './verify-code-editor';
 import { verifyNavigator } from './verify-navigator';
 import { verifyTextStyles } from './verify-text-styles';
 import { verifyTransformFaults, verifyTransforms } from './verify-transforms';
@@ -3630,6 +3631,7 @@ export async function runInteractionVerification(owner: Node, api: InteractionIn
   if (sections.has('layout-utilities')) await timed('layout-utilities', () => verifyLayoutUtilities(owner, api));
   if (sections.has('text-styles')) await timed('text-styles', () => verifyTextStyles(owner, api, capture));
   if (sections.has('live-compile')) await timed('live-compile', () => verifyLiveCompile(owner, api, capture));
+  if (sections.has('code-editor')) await timed('code-editor', () => verifyCodeEditor(owner, api, capture));
   if (sections.has('filters-sizes')) await timed('filters-sizes', () => verifyFilterSizes(owner, api, capture));
   if (sections.has('filters-cost')) await timed('filters-cost', () => measureFilterCost(owner, api));
   if (sections.has('transforms-faults')) await timed('transforms-faults', () => verifyTransformFaults(owner, api));

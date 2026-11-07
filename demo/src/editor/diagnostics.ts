@@ -8,7 +8,8 @@ export interface EditorDiagnostic extends RangeAnnotation {
   readonly message: string;
   /** TypeScript's code (`2322`), when the checker found it. */
   readonly code: number | undefined;
-  readonly source: 'checker' | 'compiler';
+  /** The type checker, the compiler (a syntax error, drawn before the checker has answered), or the check of the classes written in the text. */
+  readonly source: 'checker' | 'compiler' | 'classes';
 }
 
 /** A hint the editor draws in the text without it being there. */

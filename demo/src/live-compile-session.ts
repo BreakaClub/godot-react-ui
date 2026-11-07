@@ -252,6 +252,12 @@ export class LiveSession {
     return this.options.host.requestCheck(lab.config, this.options.project.libDir);
   }
 
+  /** Gives the checker `text` as the new text of `path` and checks the project, without compiling or running it. */
+  checkText(path: string, text: string): Promise<CheckOutcome> {
+    this.options.host.setFile(path, text);
+    return this.check();
+  }
+
   /** What is under a UTF-16 offset of a source file: the name and its type. The checker has the text of the last `update`. */
   hover(path: string, offset: number): Promise<Hover | null> {
     const lab = this.lab();

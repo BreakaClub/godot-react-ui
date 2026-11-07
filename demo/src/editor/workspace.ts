@@ -3,6 +3,7 @@ import type { UpdateReport, UpdateTimings } from '../live-compile-session';
 import type { ClipboardPort } from './clipboard';
 import type { ViewMetrics } from './command-target';
 import { EditorController } from './controller';
+import { findUnsupportedClasses } from './class-check';
 import { severityOfCategory, type EditorDiagnostic, type EditorInlay } from './diagnostics';
 import type { Platform } from './keymap';
 
@@ -20,6 +21,8 @@ export interface LiveBackend {
   readonly sources: readonly string[];
   sourceOf(path: string): string;
   update(path: string, text: string): UpdateReport;
+  /** Gives the checker this text of a file and checks it, without running it. */
+  checkText(path: string, text: string): Promise<CheckOutcome>;
   hover(path: string, offset: number): Promise<Hover | null>;
   inlayHints(path: string, from: number, to: number, parameterNames?: ParameterNames): Promise<InlayHint[]>;
 }
@@ -51,7 +54,7 @@ export const UPDATE_MAX_WAIT_MS = 600;
  */
 export const UNMEASURED_METRICS: ViewMetrics = { advance: 1, lineHeight: 1, viewportHeight: 1 };
 
-export type RunKind = 'ready' | 'unavailable' | 'pending' | 'swapped' | 'compile-failed' | 'evaluation-failed' | 'render-failed' | 'broken';
+export type RunKind = 'ready' | 'unavailable' | 'pending' | 'swapped' | 'compile-failed' | 'class-error' | 'evaluation-failed' | 'render-failed' | 'broken';
 
 /** What became of the last text sent to the page. */
 export interface RunStatus {
@@ -161,7 +164,7 @@ export class EditorWorkspace {
 
   /** The gravest problems of the active file in the order of the text, for the problems list. */
   problems(): readonly EditorDiagnostic[] {
-    return this.activeFile.controller.diagnostics.items.filter(item => item.severity === 'error' || item.severity === 'warning');
+    return this.activeFile.controller.diagnostics.filter(item => item.severity === 'error' || item.severity === 'warning');
   }
 
   /** An arrow property: `useSyncExternalStore` calls it on its own. */
@@ -238,21 +241,37 @@ export class EditorWorkspace {
     const text = model.text;
     file.dirty = false;
     file.syncedVersion = version;
-    let report: UpdateReport;
-    try {
-      report = this.backend.update(file.path, text);
-    } catch (thrown) {
-      const message = thrown instanceof Error ? thrown.message : String(thrown);
-      console.error(`The live session failed on an edit of ${file.path}: ${message}`);
-      this.setRun({ kind: 'broken', message: `The live session failed: ${message}`, path: file.path, timings: undefined, offset: undefined });
-      return;
-    }
-    this.setRun(this.describe(file, report));
-    if (report.outcome === 'compile-failed') {
-      file.controller.setDiagnostics(version, report.diagnostics.map(diagnostic => compilerDiagnostic(diagnostic)));
+    const classes = findUnsupportedClasses(text);
+    let check: Promise<CheckOutcome>;
+    if (classes.length > 0) {
+      // A render with a class the library does not have throws, and the page would lose its state: the page is left as it is.
+      check = this.backend.checkText(file.path, text);
+      const [first] = classes;
+      const where = first === undefined ? undefined : model.doc.lineAt(first.from);
+      this.setRun({
+        kind: 'class-error', path: file.path, timings: undefined, offset: first?.from,
+        message: first === undefined || where === undefined ? 'Not applied: a class is not one the library has.'
+          : `Not applied, the last good page is showing. No utility called "${first.name}" at ${where.number}:${first.from - where.from + 1}${classes.length > 1 ? ` (and ${classes.length - 1} more)` : ''}.`,
+      });
+      file.controller.setDiagnostics(version, classes.map((problem): EditorDiagnostic => ({
+        from: problem.from, to: problem.to, severity: 'error', message: `No utility called "${problem.name}" in this library`, code: undefined, source: 'classes',
+      })), 'local');
+    } else {
+      let report: UpdateReport;
+      try {
+        report = this.backend.update(file.path, text);
+      } catch (thrown) {
+        const message = thrown instanceof Error ? thrown.message : String(thrown);
+        console.error(`The live session failed on an edit of ${file.path}: ${message}`);
+        this.setRun({ kind: 'broken', message: `The live session failed: ${message}`, path: file.path, timings: undefined, offset: undefined });
+        return;
+      }
+      this.setRun(this.describe(file, report));
+      file.controller.setDiagnostics(version, report.outcome === 'compile-failed' ? report.diagnostics.map(diagnostic => compilerDiagnostic(diagnostic)) : [], 'local');
+      check = report.check;
     }
     this.setCheck({ ...this.checkStatus, kind: 'checking' });
-    void report.check.then(outcome => this.checked(file, version, text, outcome), (error: unknown) => {
+    check.then(outcome => this.checked(file, version, text, outcome), (error: unknown) => {
       this.setCheck({ kind: 'failed', errors: 0, warnings: 0, serviceMs: undefined, message: error instanceof Error ? error.message : String(error) });
     });
   }
@@ -294,14 +313,20 @@ export class EditorWorkspace {
         const [from, to] = visibleRange(text, diagnostic.pos, diagnostic.end);
         return { from, to, severity: severityOfCategory(diagnostic.category), message: diagnostic.messageText, code: diagnostic.code, source: 'checker' };
       });
-    const placed = file.controller.setDiagnostics(version, diagnostics);
+    const placed = file.controller.setDiagnostics(version, diagnostics, 'checker');
     const errors = diagnostics.filter(diagnostic => diagnostic.severity === 'error').length;
     const warnings = diagnostics.filter(diagnostic => diagnostic.severity === 'warning').length;
     this.setCheck({
       kind: 'checked', errors, warnings, serviceMs: outcome.serviceMs,
       message: placed === 'refused' ? 'The text has changed too much since this check for its problems to be placed.' : undefined,
     });
-    if (placed !== 'refused') void this.requestInlays(file);
+    if (placed !== 'refused') {
+      this.requestInlays(file).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`Inlay hints for ${file.path} failed: ${message}`);
+        this.setCheck({ ...this.checkStatus, message: `Inlay hints failed: ${message}` });
+      });
+    }
   }
 
   private async requestInlays(file: FileEditor): Promise<void> {
@@ -330,8 +355,11 @@ export class EditorWorkspace {
   }
 }
 
+/** Milliseconds in the status bar are shown to a tenth. */
+const MS_DIGITS = 1;
+
 function format(ms: number): string {
-  return ms.toFixed(1);
+  return ms.toFixed(MS_DIGITS);
 }
 
 function compilerDiagnostic(diagnostic: CompileDiagnostic): EditorDiagnostic {
@@ -369,6 +397,10 @@ export class StaticBackend implements LiveBackend {
 
   update(): never {
     throw new Error('This code is read-only: there is no live session to run it');
+  }
+
+  checkText(): never {
+    throw new Error('This code is read-only: there is no live session to check it');
   }
 
   hover(): Promise<null> {

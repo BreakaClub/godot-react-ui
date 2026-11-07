@@ -1,7 +1,7 @@
 import { Color, Engine, Image, Node, Time, Vector2 } from 'godot';
 import type { NativeSnapshot, NativeSnapshotNode } from '../../src/native';
 import {
-  BACKGROUND_COLOURS, HOOK_ORDER, INPUTS_LAB_PATH, RECOLOUR, SYNTAX_ERROR, THROW_IN_MODULE, THROW_IN_RENDER, TYPE_ERROR, anchorOffset, applyEdits,
+  BACKGROUND_COLOURS, HOOK_ORDER, INPUTS_LAB_PATH, MEMO_EDIT, MEMO_SETUP, RECOLOUR, SYNTAX_ERROR, THROW_IN_MODULE, THROW_IN_RENDER, TYPE_ERROR, anchorOffset, applyEdits,
 } from '../../scripts/live-compile-edits.mjs';
 import type { LiveSession, UpdateReport } from './live-compile-session';
 import { assertionTally } from './verifier-input';
@@ -334,6 +334,27 @@ export async function verifyLiveCompile(owner: Node, api: LiveCompileInspection,
   const fixed = session.update(INPUTS_LAB_PATH, original);
   assert(fixed.outcome === 'swapped', 'The error is fixed and swapped in');
   assert(diagnosticsOf(await fixed.check).length === 0, 'and the checker has nothing to say');
+
+  // ---- Components the parent's re-render does not reach: an element kept in useMemo, and a memo with the props it had ------------------------------------
+  // React skips both when the lab renders again, so the refresh has to reach them itself, or they keep the code they were made from.
+  const withMemo = applyEdits(original, MEMO_SETUP);
+  const memoSetup = session.update(INPUTS_LAB_PATH, withMemo);
+  assert(memoSetup.outcome === 'swapped', `The lab with a kept element and a memo component runs: ${memoSetup.outcome} ${memoSetup.error ?? ''}`);
+  await settleFrames();
+  assert(textOf(api, 'kept-probe') === 'kept v1' && textOf(api, 'memo-probe') === 'memo v1 0', `Both are on the page: ${textOf(api, 'kept-probe')} / ${textOf(api, 'memo-probe')}`);
+  await pressCounter(api);
+  const memoRect = node(api, 'memo-probe').rect;
+  for (let presses = 0; presses < 3; presses += 1) await click(new Vector2(memoRect.x + memoRect.width / 2, memoRect.y + memoRect.height / 2));
+  assert(textOf(api, 'memo-probe') === 'memo v1 3' && textOf(api, 'inputs-next') === 'Next 1', `The memo component and the lab each have a count: ${textOf(api, 'memo-probe')} / ${textOf(api, 'inputs-next')}`);
+  const memoEdited = session.update(INPUTS_LAB_PATH, applyEdits(withMemo, MEMO_EDIT));
+  assert(memoEdited.outcome === 'swapped', `Editing both is swapped in: ${memoEdited.outcome} ${memoEdited.error ?? ''}`);
+  await settleFrames();
+  assert(textOf(api, 'kept-probe') === 'kept v2', `The element the parent kept shows the edited component: ${textOf(api, 'kept-probe')}`);
+  assert(textOf(api, 'memo-probe') === 'memo v2 3', `The memo component shows the edited code and kept its count: ${textOf(api, 'memo-probe')}`);
+  assert(textOf(api, 'inputs-next') === 'Next 1', `and so did the lab: ${textOf(api, 'inputs-next')}`);
+  assert(session.update(INPUTS_LAB_PATH, original).outcome === 'swapped', 'The original text swaps back in');
+  await settleFrames();
+  assert(!api.find('kept-probe') && !api.find('memo-probe'), 'and the two components are gone');
 
   // ---- A burst of edits: the checks that never began are superseded, the last one is answered ---------------------------------
   const burst = Array.from({ length: SUPERSEDING_BURST }, () => session.check());

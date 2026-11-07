@@ -18,7 +18,7 @@ export const TRAILING_COLUMNS = 4;
 /** Digits the line number column is always wide enough for. */
 export const MIN_GUTTER_DIGITS = 3;
 /** Space either side of the line numbers, in columns. */
-const GUTTER_PADDING_COLUMNS = 1.5;
+export const GUTTER_PADDING_COLUMNS = 1.5;
 
 export function gutterWidthFor(lineCount: number, advance: number): number {
   const digits = Math.max(MIN_GUTTER_DIGITS, String(lineCount).length);

@@ -18,6 +18,7 @@ import { startVerificationServer } from './web-verify.mjs';
 import { runComboboxScenario, runTouchComboboxScenario } from './verify-combobox-web.mjs';
 import { runFiltersScenario } from './verify-filters-web.mjs';
 import { runGlassScenario } from './verify-glass-web.mjs';
+import { runCodeEditorScenario, runTouchCodeEditorScenario } from './verify-code-editor-web.mjs';
 import { runNavigatorScenario, runNavigatorStartScenario } from './verify-navigator-web.mjs';
 import { runTextStylesScenario } from './verify-text-styles-web.mjs';
 import { runTransformsScenario } from './verify-transforms-web.mjs';
@@ -2921,6 +2922,12 @@ async function runWorkflow(viewport) {
     await section('text-styles', () => runTextStylesScenario({ demo, page, frames, find, check, capture, moveTo }));
   }
 
+  if (wanted('code-editor')) {
+    await section('code-editor', () => runCodeEditorScenario({
+      demo, page, frames, snapshot, find, check, capture, click, moveTo, text, waitUntil, nodeExists, pagePoint, centerOf,
+    }));
+  }
+
   // This page keeps running across viewports (the native verifier gets a fresh process for each),
   // so leave a fresh root: the lab's log and click counters must not leak into the next viewport.
   await demo('unmount');
@@ -2966,6 +2973,16 @@ async function runTouchWorkflow() {
       demo, page, frames, snapshot, find, check, waitUntil, nodeExists, text, pointerPoint, pagePoint, keyboardElement,
     }));
   }
+  if (wanted('code-editor')) {
+    // The code panel is offered from 768 logical pixels wide, which the touch page above (a phone) is not: a page of its own, a tablet's size.
+    await page.close();
+    activeViewport = 'touch-landscape';
+    await loadPage({ width: viewports[0].width, height: viewports[0].height, deviceScaleFactor: 1, hasTouch: true });
+    await waitUntil('the tablet-sized touch page', async () => (await snapshot()).width === viewports[0].width);
+    await section('code-editor', () => runTouchCodeEditorScenario({
+      demo, page, frames, snapshot, find, check, capture, waitUntil, nodeExists, text, pagePoint, centerOf,
+    }));
+  }
 }
 
 try {
@@ -2985,7 +3002,7 @@ try {
         output: resolve(output, activeViewport),
       }));
     }
-    if (wanted('touch') || wanted('drag') || wanted('combobox')) await runTouchWorkflow();
+    if (wanted('touch') || wanted('drag') || wanted('combobox') || wanted('code-editor')) await runTouchWorkflow();
     checkBrowserErrors();
     const empty = SECTIONS.filter((name) => wanted(name) && !(sectionChecks[name] > 0));
     assert.ok(empty.length === 0, `Section(s) ${empty.join(', ')} ran no assertion`);

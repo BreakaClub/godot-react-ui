@@ -18,5 +18,7 @@ export const SYNTAX_ERROR: AnchoredEdit;
 export const THROW_IN_RENDER: readonly Edit[];
 export const THROW_IN_MODULE: readonly Edit[];
 export const TYPE_ERROR: TypeErrorEdit;
+export const MEMO_SETUP: readonly Edit[];
+export const MEMO_EDIT: readonly Edit[];
 export function applyEdits(text: string, edits: readonly Edit[]): string;
 export function anchorOffset(edited: string, anchor: string): number;

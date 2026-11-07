@@ -69,7 +69,10 @@ const COMPOSITION_COMMIT_WAIT_MS = 50;
 
 export class EditorController {
   readonly model: EditorModel;
-  readonly diagnostics = new AnnotationSet<EditorDiagnostic>(remapRange);
+  /** What the type checker found, for the text it checked. */
+  readonly checkerDiagnostics = new AnnotationSet<EditorDiagnostic>(remapRange);
+  /** What the compiler and the check of the classes found, for the text that was last sent: they come before the checker's answer. */
+  readonly localDiagnostics = new AnnotationSet<EditorDiagnostic>(remapRange);
   readonly inlays = new AnnotationSet<EditorInlay>(remapPoint);
   private readonly keymap: Keymap;
   private readonly clipboard: ClipboardPort;
@@ -87,6 +90,7 @@ export class EditorController {
   private revealCount = 0;
   private pointer: PointerSelection | undefined;
   private bracketsFor: { state: object; ranges: ReturnType<typeof matchedBrackets> } | undefined;
+  private mergedDiagnostics: { checker: readonly EditorDiagnostic[]; local: readonly EditorDiagnostic[]; merged: readonly EditorDiagnostic[] } | undefined;
 
   constructor(options: EditorControllerOptions) {
     this.model = new EditorModel(options.doc, { now: options.now, readOnly: options.readOnly });
@@ -148,7 +152,7 @@ export class EditorController {
     this.lineCache.keepOnly(firstLine, lastLine);
     if (this.bracketsFor?.state !== state) this.bracketsFor = { state, ranges: matchedBrackets(state) };
     const inputs = {
-      state, tree, highlight: this.highlight, diagnostics: this.diagnostics.items, inlays: this.inlays.items,
+      state, tree, highlight: this.highlight, diagnostics: this.diagnostics, inlays: this.inlays.items,
       composition: this.currentComposition, focused: this.isFocused, brackets: this.bracketsFor.ranges,
     };
     const specs: LineSpec[] = [];
@@ -200,9 +204,26 @@ export class EditorController {
     this.changed();
   }
 
-  /** Marks the diagnostics of the text of `version`; `refused` when the model no longer knows the edits made since. */
-  setDiagnostics(version: number, diagnostics: readonly EditorDiagnostic[]): AnnotationOutcome {
-    const outcome = this.diagnostics.replace(this.model, version, diagnostics);
+  /**
+   * Every problem the editor knows of, in the text now. A syntax error that the compiler drew before the checker answered is dropped
+   * when the checker has the same error, which it describes better.
+   */
+  get diagnostics(): readonly EditorDiagnostic[] {
+    const checker = this.checkerDiagnostics.items;
+    const local = this.localDiagnostics.items;
+    if (this.mergedDiagnostics?.checker === checker && this.mergedDiagnostics.local === local) return this.mergedDiagnostics.merged;
+    const merged = [...checker, ...local.filter(candidate => !checker.some(found => found.from === candidate.from))];
+    this.mergedDiagnostics = { checker, local, merged };
+    return merged;
+  }
+
+  /**
+   * Marks the diagnostics of the text of `version` as those of the checker, or (`source` 'local') of the compiler and the class check;
+   * `refused` when the model no longer knows the edits made since.
+   */
+  setDiagnostics(version: number, diagnostics: readonly EditorDiagnostic[], source: 'checker' | 'local' = 'checker'): AnnotationOutcome {
+    const set = source === 'checker' ? this.checkerDiagnostics : this.localDiagnostics;
+    const outcome = set.replace(this.model, version, diagnostics);
     if (outcome !== 'refused') this.changed();
     return outcome;
   }
@@ -349,7 +370,8 @@ export class EditorController {
 
   private onUpdate(update: ModelUpdate): void {
     if (update.docChanged) {
-      this.diagnostics.follow(update.transaction.changes);
+      this.checkerDiagnostics.follow(update.transaction.changes);
+      this.localDiagnostics.follow(update.transaction.changes);
       this.inlays.follow(update.transaction.changes);
     }
     if (update.transaction.scrollIntoView) this.revealCount += 1;
