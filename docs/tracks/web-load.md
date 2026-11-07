@@ -212,7 +212,9 @@ All on this worktree, heavy commands through the gate, Chrome headless through p
 | Rollback, local | `--rollback` dry run (changes nothing), `--rollback --execute` (the site serves the earlier release), `--rollback=<id> --execute` (forward again), an unknown id (refused, exit 1), the released files of the older release still served |
 | A throwaway Worker on `wrangler dev` | showed that the Worker sees `Accept-Encoding: br, gzip` whatever the browser sent, with the browser's in `request.cf.clientAcceptEncoding`, and how the local runtime re-encodes a manual `br` (W3) |
 
-**Two sections of the Web interaction verifier fail on `main`, and not because of this track.** `transforms`: the first full `verify-interaction-web.mjs` on the debug export failed in the landscape pass of `transforms`:
+**Two sections of the Web interaction verifier failed on `main`, and not because of this track.** Both were wrong checks, since fixed (`docs/tracks/web-fixes.md`):
+the wheel check expected one tick from a 100 px Chrome wheel, which the engine's Web display server turns into three, and the portrait filter check counted the lab
+menu's items while the menu was closed. What follows is what this track saw at the time. `transforms`: the first full `verify-interaction-web.mjs` on the debug export failed in the landscape pass of `transforms`:
 "A wheel tick over a vertical list tilted 8 degrees scrolls it about a tick: top 51.989, tick 17.5" (about three ticks, not one). Run alone (`--only=transforms`) it failed with
 the same value to the last digit. Control: the debug export rebuilt with the web shell exactly as `9697dd6` has it (this track's only change to the debug export's inputs), `--only=transforms`: the
 same failure, same value. So it is deterministic and present in the base. Not investigated further (it is the scroll and transforms code, not this track); the history of `native/scroll.rs`
