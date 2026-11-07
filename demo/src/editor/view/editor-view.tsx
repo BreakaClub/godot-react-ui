@@ -216,12 +216,23 @@ export function EditorView({ workspace, file }: EditorViewProps) {
     return pointer === undefined ? undefined : offsetAt(pointer.x, pointer.y);
   }
 
+  /**
+   * Gives the keyboard to the input again. Focusing the element that has the focus is no change, and the platform's text session (the IME
+   * on a desktop browser, the soft keyboard on a touch one) is begun by a change of focus: after the browser has given its focus to the
+   * canvas or the keyboard has been put away, a press that only calls `focus()` would leave the editor without either. A press is the
+   * gesture a browser allows that in.
+   */
+  const takeKeyboard = (): void => {
+    sinkRef.current?.blur();
+    sinkRef.current?.focus();
+  };
+
   const onPointerDown = (event: UIPointerEvent): void => {
     if (event.pointerType === 'touch' || event.button !== PRIMARY_BUTTON) return;
     const offset = offsetAt(event.x, event.y);
     if (offset === undefined) return;
     hover.cancel();
-    sinkRef.current?.focus();
+    takeKeyboard();
     event.currentTarget.setPointerCapture(event.pointerId);
     pointerRef.current = { x: event.x, y: event.y };
     controller.pointerDown({ offset, clicks: clicks.current.press(event.x, event.y, event.timeStamp), shiftKey: event.shiftKey, altKey: event.altKey });
@@ -252,7 +263,7 @@ export function EditorView({ workspace, file }: EditorViewProps) {
     if (event.pointerType !== 'touch') return;
     const offset = offsetAt(event.x, event.y);
     if (offset === undefined) return;
-    sinkRef.current?.focus();
+    takeKeyboard();
     controller.pointerDown({ offset, clicks: Math.max(1, event.detail), shiftKey: false, altKey: false });
     controller.pointerUp();
   };

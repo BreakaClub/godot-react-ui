@@ -106,3 +106,13 @@ test('a hint after a name stays after it when the name is cut and typed back', (
   model.dispatch({ changes: { from: 11, insert: 'X' } });
   assert.equal(set.items[0]?.at, 12, 'and after what was typed onto the name');
 });
+
+test('text typed at the start of a diagnostic is not underlined, and text typed at its end is not either', () => {
+  const model = new EditorModel('abcdef');
+  const set = new AnnotationSet<EditorDiagnostic>(remapRange);
+  model.subscribe(update => { if (update.docChanged) set.follow(update.transaction.changes); });
+  set.replace(model, 0, [diagnostic(2, 4)]);
+  model.dispatch({ changes: { from: 2, insert: 'XY' } });
+  assert.deepEqual(set.items.map(item => [item.from, item.to]), [[4, 6]], 'the underline moved over what was typed in front of it');
+  assert.equal(model.text.slice(4, 6), 'cd');
+});

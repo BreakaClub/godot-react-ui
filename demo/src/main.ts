@@ -23,6 +23,7 @@ import { observeInputFailure, runVerification } from './verify';
 import { BenchmarkApp, type BenchmarkProps } from './benchmark';
 import { runProbe } from './probe';
 import { openLiveSession } from './live-compile-open';
+import { readProject } from './live-compile-host';
 import type { CodeSupport } from './editor/lab-code';
 import { verifyLiveCompile } from './verify-live-compile';
 import { installRefreshHook } from './live-compile-refresh';
@@ -150,12 +151,16 @@ export default class Main extends Node {
       },
       // A page in place of the app: the HUD over the backdrop Control (plan I1), the pointer lab (I2), ...
       showLab: (name: LabName) => this.requireRenderer().render(labElement(name)),
-      /** The text of a lab's first source file as the build has it, for a browser verifier of the code panel (`scripts/verify-code-editor-web.mjs`). */
+      /**
+       * The text of a lab's first source file as the live-compile project has it (the pack carries the project, not the `.tsx` files), for a browser
+       * verifier of the code panel (`scripts/verify-code-editor-web.mjs`).
+       */
       labSource: (id: string) => {
-        const lab = findLab(id);
-        const [source] = lab?.sources ?? [];
-        if (source === undefined) throw new Error(`There is no lab called ${id}, or it has no source`);
-        return FileAccess.getFileAsString(source);
+        const project = readProject();
+        const path = project.labs[id]?.sources[0];
+        const file = project.files.find(candidate => candidate.path === path);
+        if (file === undefined) throw new Error(`The live-compile project has no source for the lab ${id}`);
+        return file.text;
       },
       /** A lab compiled from its source and kept up to date as the source changes (`live-compile-session.ts`), for the `live-compile` section. */
       openLiveSession: (labId: string, exportName: string) => openLiveSession({ root: this.requireRenderer(), labId, exportName }),

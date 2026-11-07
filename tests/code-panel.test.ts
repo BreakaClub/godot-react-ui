@@ -196,6 +196,7 @@ function panelTest(name: string, body: (s: Scenario) => void | Promise<void>): v
     }
   });
 }
+const COLUMN_TOLERANCE = 1;
 const SETTLE_MS = 400;
 /** A line typed above everything, so that what the checker says is for a text that is not the one the person started with. */
 const EDIT_HEADER = '// edit\n';
@@ -223,6 +224,8 @@ panelTest('a press puts the caret at the column under the pointer, within a pixe
     const gutter = gutterWidthFor(workspace(s).active.controller.lineCount, ADVANCE);
     assert.ok(Math.abs(Number(caret.left) - (gutter + wanted * ADVANCE)) <= 1, `the caret is at column ${wanted}: ${String(caret.left)}`);
     assert.equal(caret.top, (line - 1) * LINE_HEIGHT);
+    const sink = styleOf(s, 'editor-input-sink');
+    assert.ok(Math.abs(Number(sink.left) - Number(caret.left)) <= COLUMN_TOLERANCE && sink.top === caret.top, `The input stands at the caret, so the IME and the keyboard follow it: ${String(sink.left)} against ${String(caret.left)}`);
   }
 });
 
@@ -435,4 +438,20 @@ panelTest('only the lines near the viewport are elements, and scrolling moves th
   s.uiRoot.dispatchEvents();
   assert.ok(has(s, `code-line-${total}`), 'the last line is drawn once the window has moved');
   assert.equal(has(s, 'code-line-1'), false, 'and the first is not');
+});
+
+panelTest('a tap with a finger places the caret where it lifts and a finger going down does not select; the mouse press does', (s) => {
+  const content = tag(s, 'code-content');
+  const at = pointAt(s, 4, 6);
+  const touch = { pointerType: 'touch' as const, pointerId: 7, x: at.x, y: at.y, viewportX: at.x, viewportY: at.y };
+  s.host.pointersDown.add(7);
+  s.host.events.push(s.host.pointerEvent(content, 'pointerdown', { ...touch, cancelable: true }));
+  s.uiRoot.dispatchEvents();
+  assert.equal(textOf(s, 'code-status-position'), 'Ln 1, Col 1', 'a finger going down moves nothing: it may be the start of a pan');
+  s.host.events.push(s.host.pointerEvent(content, 'pointerup', touch));
+  s.host.events.push(s.host.pointerEvent(content, 'click', { ...touch, detail: 1 }));
+  s.host.pointersDown.delete(7);
+  s.uiRoot.dispatchEvents();
+  assert.equal(textOf(s, 'code-status-position'), 'Ln 4, Col 7', 'the tap that follows puts the caret at the column');
+  assert.equal(s.host.focused, tag(s, 'editor-input-sink'), 'and the input has the focus, which brings the soft keyboard up');
 });

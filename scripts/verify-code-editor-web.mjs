@@ -99,13 +99,15 @@ function helpers(context) {
     }
     return lines;
   };
+  /** Waits until line `number` is an element: the window follows the caret when the browser delivers the scroll. */
+  const lineDrawn = (number) => waitUntil(`line ${number} to be drawn`, () => nodeExists(`code-line-${number}`));
   const clipboard = () => page.evaluate(() => navigator.clipboard.readText());
   // The text of a line without its inlay hints, which are drawn in it but are not in the source.
   const sourceTextOfDrawnLine = async (line) => (await childrenOf(`code-line-${line}`)).filter((run) => run.presentation.color.slice(0, INLAY_COLOUR.length).toLowerCase() !== INLAY_COLOUR).map((run) => run.text).join('');
   const underlinedRuns = async (line) => (await childrenOf(`code-line-${line}`)).filter((run) => UNDERLINED.test(JSON.stringify(run.props?.style ?? '')));
   return {
     demo, page, frames, snapshot, find, check, nodeExists, text, waitUntil, centerOf, grid, boundaryAt, statusPosition, lineText, childrenOf, press, click, drag,
-    pageBackground, drawnLines, clipboard, underlinedRuns, sourceTextOfDrawnLine,
+    pageBackground, drawnLines, clipboard, underlinedRuns, sourceTextOfDrawnLine, lineDrawn,
   };
 }
 
@@ -124,6 +126,11 @@ export async function runCodeEditorScenario(context) {
     return;
   }
   const lines = source.split('\n');
+  /** Scrolls the code to the top through the programmatic path, so that positions given as lines count from the first. */
+  const toTop = async () => {
+    await demo('scrollTo', 'code-scroll', 0);
+    await h.lineDrawn(1);
+  };
   const pageBefore = await text('inputs-lab');
   await context.click('toggle-code');
   await waitUntil('the first line of code', () => nodeExists('code-line-1'));
@@ -189,8 +196,7 @@ export async function runCodeEditorScenario(context) {
   await frames();
   const drawn = await h.drawnLines();
   check('After the wheel the first line is not an element and the ones drawn read as the source', !drawn.has(1) && [...drawn].every(([n, t]) => t === lines[n - 1]), [...drawn.keys()]);
-  await page.mouse.wheel({ deltaX: 0, deltaY: -2000 });
-  await frames();
+  await toTop();
 
   // An edit reaches the page, and the counter keeps its count.
   for (let presses = 0; presses < 3; presses += 1) await context.click('inputs-next');
@@ -201,6 +207,7 @@ export async function runCodeEditorScenario(context) {
   await h.press('ArrowDown', [], classAt.line - 1);
   await h.press('Home', [], 2);
   await h.press('ArrowRight', [], classAt.column + 'bg-slate-50'.length);
+  await h.lineDrawn(classAt.line);
   await h.press('Backspace', [], 'slate-50'.length);
   await page.keyboard.type('emerald-100');
   await frames();
@@ -213,6 +220,7 @@ export async function runCodeEditorScenario(context) {
   // A syntax error keeps the last good page and is shown.
   const brokenLine = positionOf(source, 'const [reversed, setReversed]').line;
   await h.press('ArrowUp', [], classAt.line - brokenLine);
+  await h.lineDrawn(brokenLine);
   await h.press('End');
   await page.keyboard.type(SYNTAX_JUNK);
   await waitUntil('the compiler\'s verdict', async () => (await text('code-status-run')).startsWith('Not applied'), UPDATE_DEADLINE_MS);
@@ -225,10 +233,12 @@ export async function runCodeEditorScenario(context) {
 
   // A type error is underlined where tsc puts it; the problems list and the hover.
   const labelAt = positionOf(source, 'const label = ');
+  await toTop();
   await h.click(await h.boundaryAt(1, 0));
   await h.press('ArrowDown', [], labelAt.line - 1);
   await h.press('Home', [], 2);
   await h.press('ArrowRight', [], 'const label'.length);
+  await h.lineDrawn(labelAt.line);
   await page.keyboard.type(': number');
   // Declaring `label` a number makes every use of it as a class an error too: the first is the declaration.
   await waitUntil('the checker to find the errors', async () => /^\d+ errors?$/u.test(await text('code-status-check')), UPDATE_DEADLINE_MS);
@@ -256,6 +266,7 @@ export async function runCodeEditorScenario(context) {
   const sizesAt = positionOf(source, 'const sizes = ');
   await h.click(await h.boundaryAt(labelAt.line, 0));
   await h.press('ArrowDown', [], sizesAt.line - labelAt.line);
+  await h.lineDrawn(sizesAt.line);
   await waitUntil('an inlay hint on the line of "sizes"', async () => (await h.childrenOf(`code-line-${sizesAt.line}`)).some((run) => run.text.startsWith(': ')), UPDATE_DEADLINE_MS);
   await capture('code-editor-07-inlay', { geometry: false });
 
@@ -266,6 +277,7 @@ export async function runCodeEditorScenario(context) {
   check('Cut took the word out', !(((await h.lineText(sizesAt.line)) ?? '').includes('const sizes')));
   await h.press('KeyV', ['Meta']);
   await waitUntil('Paste puts it back, and the hint is still after the name', async () => /^\s*const sizes(: [^=]*)? = reversed/u.test((await h.lineText(sizesAt.line)) ?? ''));
+  await toTop();
   await h.click(await h.boundaryAt(2, 0));
   await page.keyboard.type('Q');
   check('Typing put a character at the start of line 2', (await h.lineText(2)) === `Q${lines[1]}`, await h.lineText(2));
@@ -274,6 +286,7 @@ export async function runCodeEditorScenario(context) {
 
   // An IME composition is shown at the caret, with an underline, and commits as text.
   const cdp = await page.createCDPSession();
+  await toTop();
   await h.click(await h.boundaryAt(2, 0));
   await h.press('Home');
   await waitUntil('the IME element holds browser focus', async () => page.evaluate(() => document.activeElement?.className === 'ime'));

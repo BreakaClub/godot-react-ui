@@ -152,3 +152,17 @@ test('a view window of lines far into a file parses nothing past it', () => {
   assert.ok(top[0]?.segments.some(segment => segment.color === SYNTAX_COLORS.keyword));
   editor.dispose();
 });
+
+test('two neighbouring pieces of text in one style are one segment, so a line has as few elements as it needs', () => {
+  const editor = openEditor('f(a);\n()()');
+  for (const number of [1, 2]) {
+    const { segments } = lineOf(editor, number);
+    for (let index = 1; index < segments.length; index += 1) {
+      const [before, after] = [segments[index - 1], segments[index]];
+      assert.ok(before !== undefined && after !== undefined);
+      const same = before.kind === 'text' && after.kind === 'text' && before.color === after.color && before.background === after.background;
+      assert.equal(same, false, `segments ${index - 1} and ${index} of line ${number} have one style: ${JSON.stringify([before.text, after.text])}`);
+    }
+  }
+  assert.equal(lineOf(editor, 2).segments.length, 1, 'four brackets in the punctuation colour are one run');
+});

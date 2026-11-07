@@ -306,3 +306,22 @@ test('a hint longer than the limit is cut and ends in an ellipsis', async () => 
   assert.ok(hint?.label.endsWith('…'));
   workspace.dispose();
 });
+
+test('hints are placed for the text the page and the checker have, even when more has been typed since it was sent', async () => {
+  const { backend, workspace } = open();
+  const { controller } = workspace.active;
+  controller.model.dispatch({ changes: { from: 0, insert: ' ' } });
+  workspace.flush();
+  const sent = controller.model.text;
+  const afterA = sent.indexOf('a') + 1;
+  // Typed, not yet sent: the check answers for the text that was.
+  controller.model.dispatch({ changes: { from: 0, insert: '// typed since\n' } });
+  backend.checks[0]?.resolve(checkedWith([]));
+  await pause(0);
+  backend.hints[0]?.resolve([{ position: afterA, kind: 'type', label: ': number' }]);
+  await pause(0);
+  const [hint] = controller.inlays.items;
+  assert.equal(hint?.at, afterA + '// typed since\n'.length);
+  assert.equal(controller.model.text.slice((hint?.at ?? 1) - 1, hint?.at), 'a', 'after the name it describes');
+  workspace.dispose();
+});
