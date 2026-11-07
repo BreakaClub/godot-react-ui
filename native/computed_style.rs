@@ -30,6 +30,7 @@ impl PseudoStates {
             PseudoState::FocusVisible => 1 << 3,
             PseudoState::FocusWithin => 1 << 4,
             PseudoState::Disabled => 1 << 5,
+            PseudoState::Starting => 1 << 6,
         }
     }
 
@@ -315,6 +316,9 @@ pub struct StyleInputs<'a> {
 pub struct StyleChange {
     pub tag: u32,
     pub previous: Option<ComputedStyle>,
+    /// The `@starting-style` (`starting:` variant) for a newly mounted node, or one shown from
+    /// `display: none`, when it differs from the node's resting style.
+    pub starting: Option<ComputedStyle>,
 }
 
 /// Recompute the computed styles of `dirty` nodes, top-down, and of the descendants whose
@@ -343,15 +347,36 @@ pub fn restyle<T: StyleTree>(
             viewport_width,
             states: inputs.states,
         };
+        let previous = tree.computed(tag);
         let next = resolve(inputs.layers, inputs.hidden, &inherited, &conditions);
-        if tree.computed(tag) == Some(&next) {
+        let starting = if previous.is_none_or(|prev| prev.display == Some(DisplaySpec::None))
+            && next.display != Some(DisplaySpec::None)
+            && states_used(inputs.layers).contains(PseudoState::Starting)
+        {
+            let starting = resolve(
+                inputs.layers,
+                inputs.hidden,
+                &inherited,
+                &StyleConditions {
+                    viewport_width,
+                    states: inputs.states.with(PseudoState::Starting),
+                },
+            );
+            (starting != next).then_some(starting)
+        } else {
+            None
+        };
+        if previous == Some(&next) && starting.is_none() {
             continue;
         }
-        let inherited_changed = tree
-            .computed(tag)
-            .is_none_or(|previous| previous.inherited() != next.inherited());
+        let inherited_changed =
+            previous.is_none_or(|previous| previous.inherited() != next.inherited());
         let previous = tree.store_computed(tag, next);
-        changes.push(StyleChange { tag, previous });
+        changes.push(StyleChange {
+            tag,
+            previous,
+            starting,
+        });
         if inherited_changed {
             pending.extend(
                 tree.style_children(tag)
@@ -922,5 +947,49 @@ mod tests {
         assert_eq!(depth(&tree, 3), 2);
         assert_eq!(chain(&tree, 3), vec![3, 2, 1]);
         assert_eq!(chain(&tree, 4), vec![4, 1]);
+    }
+
+    #[test]
+    fn starting_style_applies_on_first_mount_and_when_shown_from_display_none() {
+        let mut tree = TestTree::new(&[(
+            2,
+            r##"{"layers":[
+                {"style":{"opacity":1,"backgroundColor":"#111111"}},
+                {"states":["starting"],"style":{"opacity":0,"backgroundColor":"#ffffff"}},
+                {"states":["hover"],"style":{"backgroundColor":"#222222"}}
+            ]}"##,
+        )]);
+        let changes = restyle(&mut tree, [1, 2, 3, 4], WIDE);
+        let node2 = changes.iter().find(|change| change.tag == 2).unwrap();
+        assert!(node2.previous.is_none());
+        let starting = node2
+            .starting
+            .as_ref()
+            .expect("first mount resolves @starting-style");
+        assert_eq!(starting.opacity, Some(0.0));
+        assert_eq!(starting.background_color.as_deref(), Some("#ffffff"));
+        let resting = tree.nodes[&2].computed.as_ref().unwrap();
+        assert_eq!(resting.opacity, Some(1.0));
+        assert_eq!(resting.background_color.as_deref(), Some("#111111"));
+
+        // An ordinary state change on a mounted node does not re-apply `starting:`.
+        tree.nodes.get_mut(&2).unwrap().states = PseudoStates::NONE.with(PseudoState::Hover);
+        let hovered = restyle(&mut tree, [2], WIDE);
+        assert_eq!(hovered.len(), 1);
+        assert!(hovered[0].starting.is_none());
+
+        // Hiding (`display: none`) and showing again resolves `@starting-style` again, as in CSS Transitions 2.
+        tree.nodes.get_mut(&2).unwrap().states = PseudoStates::NONE;
+        tree.nodes.get_mut(&2).unwrap().hidden = true;
+        let hidden = restyle(&mut tree, [2], WIDE);
+        assert!(hidden[0].starting.is_none());
+        tree.nodes.get_mut(&2).unwrap().hidden = false;
+        let shown = restyle(&mut tree, [2], WIDE);
+        let reshown = shown[0]
+            .starting
+            .as_ref()
+            .expect("showing from display:none resolves @starting-style");
+        assert_eq!(reshown.opacity, Some(0.0));
+        assert_eq!(reshown.background_color.as_deref(), Some("#ffffff"));
     }
 }

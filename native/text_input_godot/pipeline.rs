@@ -357,9 +357,11 @@ impl ReactUiRoot {
         };
         let now = state.buffer.selection_utf16();
         if now == state.reported_selection {
+            self.sync_web_selected_text(None);
             return;
-        }
+        };
         state.reported_selection = now;
+        self.sync_web_selected_text(None);
         self.queue(
             tag,
             EventPayload::SelectionChange(SelectionChangeData {

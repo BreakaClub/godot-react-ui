@@ -193,8 +193,8 @@ export type LonghandStyle = Omit<Style, 'padding' | 'margin' | 'gap' | 'overflow
 
 export type StyleProp = Style | readonly StyleProp[] | false | null | undefined;
 
-/** The conditions a style layer can depend on besides the viewport width (plan 3.6). */
-export type PseudoState = 'hover' | 'active' | 'focus' | 'focusVisible' | 'focusWithin' | 'disabled';
+/** The conditions a style layer can depend on besides the viewport width (plan 3.6). `starting` is CSS `@starting-style`. */
+export type PseudoState = 'hover' | 'active' | 'focus' | 'focusVisible' | 'focusWithin' | 'disabled' | 'starting';
 
 /** One compiled class or inline style; native applies it when its conditions hold. */
 export interface StyleLayer {

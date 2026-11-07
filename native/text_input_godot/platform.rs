@@ -95,6 +95,7 @@ impl ReactUiRoot {
         if let Some(tag) = next.filter(|tag| self.text_state(*tag).is_some()) {
             self.text_input_focused(tag);
         }
+        self.sync_web_selected_text(None);
         // The focused input's caret blinks, which needs frames.
         self.update_process();
     }

@@ -394,8 +394,9 @@ impl TransitionSpec {
 }
 
 /// The style layers' conditions. `focus` and `focusVisible` apply to the focused element only,
-/// `focusWithin` to it and its ancestors, `hover` and `active` to the target and its ancestors, and
-/// `disabled` to a node whose own `disabled` prop is true (plan 3.6).
+/// `focusWithin` to it and its ancestors, `hover` and `active` to the target and its ancestors,
+/// `disabled` to a node whose own `disabled` prop is true, and `starting` to a node's
+/// `@starting-style` before-change style on mount or when shown from `display: none` (plan 3.6).
 #[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "camelCase")]
 pub enum PseudoState {
@@ -405,6 +406,7 @@ pub enum PseudoState {
     FocusVisible,
     FocusWithin,
     Disabled,
+    Starting,
 }
 
 /// One compiled class or inline style: applied when the viewport is at least `min_width` wide and

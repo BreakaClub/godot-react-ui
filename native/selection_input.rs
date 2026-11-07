@@ -23,7 +23,8 @@
 use std::collections::BTreeMap;
 
 use godot::builtin::{Rect2, Vector2};
-use godot::classes::{Font, InputEventKey, RenderingServer, TextParagraph};
+use godot::classes::{Engine, Font, InputEventKey, Os, RenderingServer, TextParagraph};
+use godot::global::Key;
 use godot::prelude::*;
 use serde_json::{Value, json};
 
@@ -384,7 +385,58 @@ impl ReactUiRoot {
     /// that was cleared.
     fn selection_changed(&mut self, document: Option<&Document>) {
         self.sync_highlights(document);
+        self.sync_web_selected_text(document);
         self.events.push_selection_change(event_time_ms());
+    }
+
+    /// Keep `window.__godotReactSelectedText` in step with the active selection on the Web so the
+    /// page's synchronous `keydown` (`Ctrl+C` / `Cmd+C`) and `copy` listeners can write to the
+    /// browser clipboard inside the user gesture.
+    pub(crate) fn sync_web_selected_text(&self, document: Option<&Document>) {
+        if !Os::singleton().has_feature("web") {
+            return;
+        }
+        let text = if let Some(tag) = self.focused_text_input() {
+            self.text_state(tag)
+                .filter(|state| !state.buffer.config().secure && state.buffer.has_selection())
+                .map(|state| {
+                    state.buffer.text()[state.buffer.selection_range()]
+                        .iter()
+                        .collect::<String>()
+                })
+                .unwrap_or_default()
+        } else if self.selecting.selection.is_active() && !self.selecting.selection.is_collapsed() {
+            let owned;
+            let doc = match document {
+                Some(doc) => Some(doc),
+                None => {
+                    owned = self.selection_document_or_report();
+                    owned.as_ref()
+                }
+            };
+            doc.and_then(|doc| {
+                self.selecting
+                    .selection
+                    .selected_text(doc, |tag| self.selection_text_of(tag))
+                    .ok()
+            })
+            .unwrap_or_default()
+        } else {
+            String::new()
+        };
+        let Some(mut bridge) = Engine::singleton().get_singleton("JavaScriptBridge") else {
+            return;
+        };
+        let Ok(mut window) = bridge
+            .call("get_interface", &[GString::from("window").to_variant()])
+            .try_to::<Gd<Object>>()
+        else {
+            return;
+        };
+        window.set(
+            "__godotReactSelectedText",
+            &GString::from(text.as_str()).to_variant(),
+        );
     }
 
     fn sync_highlights(&mut self, document: Option<&Document>) {
@@ -617,21 +669,32 @@ impl ReactUiRoot {
     // ---- Keyboard --------------------------------------------------------------------------------
 
     /// The default action of a key press for the document selection: `ui_copy` copies it and
-    /// `ui_text_select_all` selects all selectable text. Returns whether it acted, which decides if
-    /// the key is consumed (plan 3.11). A focused `TextInput` (Phase I7) owns these keys for its own
-    /// text and must be excluded here.
+    /// `ui_text_select_all` selects all selectable text. Also accepts both `Ctrl` and `Meta` (`Cmd`)
+    /// with `Key::C` and `Key::A` so `Ctrl+C` and `Cmd+C` work on every platform and in every browser.
+    /// Returns whether it acted, which decides if the key is consumed (plan 3.11). A focused
+    /// `TextInput` (Phase I7) owns these keys for its own text and must be excluded here.
     pub(crate) fn run_selection_key(&mut self, key: &Gd<InputEventKey>, echo: bool) -> bool {
         if echo {
             return false;
         }
         let key = as_keyboard_event(key);
-        if key.is_action_ex("ui_copy").exact_match(true).done() {
+        let keycode = key.get_keycode();
+        let (ctrl, alt, shift, meta) = (
+            key.is_ctrl_pressed(),
+            key.is_alt_pressed(),
+            key.is_shift_pressed(),
+            key.is_meta_pressed(),
+        );
+        if key.is_action_ex("ui_copy").exact_match(true).done()
+            || is_selection_chord(keycode, ctrl, alt, shift, meta, Key::C)
+        {
             return self.copy_selection();
         }
         if key
             .is_action_ex("ui_text_select_all")
             .exact_match(true)
             .done()
+            || is_selection_chord(keycode, ctrl, alt, shift, meta, Key::A)
         {
             return self.select_all_text();
         }
@@ -737,6 +800,19 @@ impl ReactUiRoot {
     pub(crate) fn selection_holds_key_focus(&self) -> bool {
         self.selecting.is_active()
     }
+}
+
+/// Whether a key press with `keycode` and modifiers `(ctrl, alt, shift, meta)` is the `Ctrl` or
+/// `Meta` (`Cmd`) chord for `target` (`Key::C` for copy, `Key::A` for select all).
+fn is_selection_chord(
+    keycode: Key,
+    ctrl: bool,
+    alt: bool,
+    shift: bool,
+    meta: bool,
+    target: Key,
+) -> bool {
+    keycode == target && (ctrl || meta) && !alt && !shift
 }
 
 #[cfg(test)]
@@ -910,5 +986,17 @@ mod tests {
         assert!(state.is_active() && !state.cleared_by_change);
         assert_eq!(state.highlight_of(FIRST), Some((0, 4)));
         assert!(repaint.is_empty());
+    }
+
+    #[test]
+    fn selection_chord_accepts_both_ctrl_and_meta_without_alt_or_shift() {
+        assert!(is_selection_chord(Key::C, true, false, false, false, Key::C));
+        assert!(is_selection_chord(Key::C, false, false, false, true, Key::C));
+        assert!(is_selection_chord(Key::A, true, false, false, false, Key::A));
+        assert!(is_selection_chord(Key::A, false, false, false, true, Key::A));
+        assert!(!is_selection_chord(Key::C, false, false, false, false, Key::C));
+        assert!(!is_selection_chord(Key::C, true, true, false, false, Key::C));
+        assert!(!is_selection_chord(Key::C, true, false, true, false, Key::C));
+        assert!(!is_selection_chord(Key::X, true, false, false, false, Key::C));
     }
 }

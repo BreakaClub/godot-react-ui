@@ -64,15 +64,33 @@ pub(crate) fn dom_button_of(button: MouseButton) -> Option<i8> {
 /// signs: down and right are positive (`ScrollContainer` scrolls by `+page / 8 * factor` for
 /// `WHEEL_DOWN` and `WHEEL_RIGHT`, `scene/gui/scroll_container.cpp:190-226`). `None` for any other
 /// button. `factor` is `InputEventMouseButton.factor`, 1 for a discrete wheel.
+///
+/// On the Web (`wasm32`), `DisplayServerWeb::_mouse_wheel_callback`
+/// (`platform/web/display_server_web.cpp:710-715`) maps a positive DOM `deltaX` (scroll right,
+/// including `Shift + wheel down` in browsers) to `MouseButton::WHEEL_LEFT` and a negative one to
+/// `MouseButton::WHEEL_RIGHT`, the opposite of `ScrollContainer` (`scroll_container.cpp:198-206`),
+/// so horizontal wheel buttons are negated there to preserve DOM `deltaX` signs.
 pub(crate) fn wheel_ticks(button: MouseButton, factor: f32) -> Option<(f32, f32)> {
+    #[cfg(target_arch = "wasm32")]
+    let horizontal_sign = -1.0;
+    #[cfg(not(target_arch = "wasm32"))]
+    let horizontal_sign = 1.0;
+    wheel_ticks_with_horizontal_sign(button, factor, horizontal_sign)
+}
+
+fn wheel_ticks_with_horizontal_sign(
+    button: MouseButton,
+    factor: f32,
+    horizontal_sign: f32,
+) -> Option<(f32, f32)> {
     if button == MouseButton::WHEEL_UP {
         Some((0.0, -factor))
     } else if button == MouseButton::WHEEL_DOWN {
         Some((0.0, factor))
     } else if button == MouseButton::WHEEL_LEFT {
-        Some((-factor, 0.0))
+        Some((-factor * horizontal_sign, 0.0))
     } else if button == MouseButton::WHEEL_RIGHT {
-        Some((factor, 0.0))
+        Some((factor * horizontal_sign, 0.0))
     } else {
         None
     }
@@ -248,6 +266,14 @@ mod input_tests {
         assert_eq!(wheel_ticks(MouseButton::WHEEL_DOWN, 1.0), Some((0.0, 1.0)));
         assert_eq!(wheel_ticks(MouseButton::WHEEL_LEFT, 0.5), Some((-0.5, 0.0)));
         assert_eq!(wheel_ticks(MouseButton::WHEEL_RIGHT, 2.5), Some((2.5, 0.0)));
+        assert_eq!(
+            wheel_ticks_with_horizontal_sign(MouseButton::WHEEL_LEFT, 0.5, -1.0),
+            Some((0.5, 0.0))
+        );
+        assert_eq!(
+            wheel_ticks_with_horizontal_sign(MouseButton::WHEEL_RIGHT, 2.5, -1.0),
+            Some((-2.5, 0.0))
+        );
         assert_eq!(wheel_ticks(MouseButton::LEFT, 1.0), None);
         assert_eq!(wheel_ticks(MouseButton::RIGHT, 1.0), None);
     }

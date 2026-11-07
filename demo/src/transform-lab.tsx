@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
   Button, ScrollView, Select, Text, TextInput, View,
   type Style, type UIDragEvent, type UIHandle,
@@ -64,13 +64,16 @@ function cardStyle(transform: string, origin: string | undefined): Style {
   };
 }
 
-interface CaseOption {
+export interface CaseOption {
   readonly id: string;
   readonly label: string;
   readonly caption: string;
 }
 
 const BEHAVIOUR_OPTIONS: readonly CaseOption[] = [
+  { id: 'combined', label: 'Combined transition (transform + paint + size)', caption: 'Simultaneous transform, opacity, backgroundColor and height transition.' },
+  { id: 'loop', label: 'Looping transform animation', caption: 'Continuous multi-step transform + colour loop driven by a timer.' },
+  { id: 'starting', label: '@starting-style (starting: mount transition)', caption: 'Tailwind starting: variant animates opacity, scale, rotate and translate on mount.' },
   { id: 'hit', label: 'Hit testing (rotated & scaled)', caption: 'Click the turned bar, the scaled parent and its rotated child.' },
   { id: 'hover', label: 'Hover scale (1.25x)', caption: 'Hover the card: hit testing grows with the scaled box.' },
   { id: 'utilities', label: 'Tailwind transform utilities', caption: '-translate-x-1/2 -translate-y-1/4 rotate-6 hover:scale-110 origin-top-left.' },
@@ -83,7 +86,7 @@ const BEHAVIOUR_OPTIONS: readonly CaseOption[] = [
   { id: 'sharp', label: 'Glyph sharpness at scale(1.5)', caption: 'Scaled text rasterised at its target scale vs plain 2xl text.' },
 ];
 
-const CASE_OPTIONS: readonly CaseOption[] = [
+export const CASE_OPTIONS: readonly CaseOption[] = [
   ...SHAPE_CASES.map(spec => ({
     id: `shape:${spec.name}`,
     label: `Shape: ${spec.name}`,
@@ -98,14 +101,18 @@ const CASE_OPTIONS: readonly CaseOption[] = [
 ];
 
 function Stage({ children }: { children: React.ReactNode }) {
-  const name = useSyncExternalStore(subscribe, () => currentCase);
+  return (
+    <View testID="transform-stage" style={{ width: STAGE.width, height: STAGE.height, backgroundColor: STAGE.background }}>
+      {children}
+    </View>
+  );
+}
+
+function TransformControls({ name }: { name: string }) {
   const current = CASE_OPTIONS.find(option => option.id === name);
   const isTransition = name.startsWith('transition:');
   return (
-    <View style={{ width: STAGE.width }}>
-      <View testID="transform-stage" style={{ width: STAGE.width, height: STAGE.height, backgroundColor: STAGE.background }}>
-        {children}
-      </View>
+    <>
       <View className="h-px shrink-0 bg-slate-200" style={{ width: STAGE.width }} />
       <View className="flex-row items-center gap-2 bg-white px-3 py-1.5" style={{ width: STAGE.width }}>
         <Select.Root value={name} onValueChange={setTransformCase}>
@@ -128,14 +135,14 @@ function Stage({ children }: { children: React.ReactNode }) {
             onClick={() => sendTransition(transitionTarget === 'from' ? 'to' : 'from')}
             className="rounded-md bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 px-2.5 py-1"
           >
-            <Text className="text-xs font-medium text-white">Flip</Text>
+            <Text className="text-xs text-white">Flip</Text>
           </Button>
         ) : null}
         <Text testID="transform-caption" className="flex-1 text-xs text-slate-500">
           {current?.caption ?? name}
         </Text>
       </View>
-    </View>
+    </>
   );
 }
 
@@ -416,8 +423,168 @@ function SharpPage() {
   );
 }
 
-export function TransformLab() {
-  const name = useSyncExternalStore(subscribe, () => currentCase);
+const COMBINED_DURATION_MS = 400;
+
+/** Simultaneous transitions of transform, opacity, backgroundColor and height, plus hover/active utility composition. */
+function CombinedPage() {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <Stage>
+      <View
+        testID="combined-card"
+        style={{
+          position: 'absolute', left: 60, top: 70, width: 190,
+          height: expanded ? 124 : 88,
+          opacity: expanded ? 0.45 : 1,
+          backgroundColor: expanded ? '#db2777' : '#4f46e5',
+          borderRadius: 14, padding: 12,
+          transform: expanded ? 'translate(72px, -12px) rotate(12deg) scale(1.15)' : 'translate(0px, 0px) rotate(0deg) scale(1)',
+          transition: {
+            properties: ['transform', 'opacity', 'backgroundColor', 'height'],
+            durationMs: COMBINED_DURATION_MS,
+            easing: 'linear',
+          },
+        }}
+      >
+        <Text className="text-base text-white">Combined</Text>
+        <Text testID="combined-state" className="text-xs text-indigo-100">{expanded ? 'expanded' : 'rest'}</Text>
+      </View>
+      <Button
+        testID="combined-toggle"
+        onClick={() => setExpanded(current => !current)}
+        className="rounded-md bg-slate-900 hover:bg-slate-700 active:bg-slate-800 px-3 py-1.5"
+        style={{ position: 'absolute', left: 60, top: 240 }}
+      >
+        <Text className="text-xs text-white">Toggle combined transition</Text>
+      </Button>
+      <Button
+        testID="combined-hover-pill"
+        className="rounded-full bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 hover:scale-110 hover:-translate-y-1 active:scale-95 px-4 py-2"
+        style={{
+          position: 'absolute', left: 320, top: 236,
+          transition: { properties: ['transform', 'backgroundColor'], durationMs: 250, easing: 'ease-out' },
+        }}
+      >
+        <Text className="text-xs text-white">Hover & press me</Text>
+      </Button>
+    </Stage>
+  );
+}
+
+const LOOP_STEP_MS = 280;
+const LOOP_KEYFRAMES: ReadonlyArray<{ readonly transform: string; readonly bg: `#${string}`; readonly opacity: number }> = [
+  { transform: 'translate(0px, 0px) rotate(0deg) scale(1)', bg: '#4f46e5', opacity: 1 },
+  { transform: 'translate(64px, -18px) rotate(45deg) scale(1.2)', bg: '#0891b2', opacity: 0.75 },
+  { transform: 'translate(128px, 0px) rotate(90deg) scale(0.9)', bg: '#db2777', opacity: 0.5 },
+  { transform: 'translate(64px, 18px) rotate(45deg) scale(1.1)', bg: '#d97706', opacity: 0.85 },
+];
+
+/** A continuous multi-step looping transform + colour animation. */
+function LoopPage() {
+  const [step, setStep] = useState(0);
+  const [running, setRunning] = useState(true);
+  useEffect(() => {
+    if (!running) return undefined;
+    const kick = setTimeout(() => setStep(current => (current + 1) % LOOP_KEYFRAMES.length), 20);
+    const timer = setInterval(() => {
+      setStep(current => (current + 1) % LOOP_KEYFRAMES.length);
+    }, LOOP_STEP_MS);
+    return () => {
+      clearTimeout(kick);
+      clearInterval(timer);
+    };
+  }, [running]);
+  const frame = LOOP_KEYFRAMES[step] ?? LOOP_KEYFRAMES[0]!;
+  return (
+    <Stage>
+      <View
+        testID="loop-card"
+        style={{
+          position: 'absolute', left: 130, top: 96, width: 140, height: 96,
+          borderRadius: 16, padding: 12,
+          backgroundColor: frame.bg,
+          opacity: frame.opacity,
+          transform: frame.transform,
+          transition: { properties: ['transform', 'backgroundColor', 'opacity'], durationMs: LOOP_STEP_MS, easing: 'linear' },
+        }}
+      >
+        <Text className="text-base text-white">Looping</Text>
+        <Text testID="loop-step-label" className="text-xs text-white">{`step ${step}`}</Text>
+      </View>
+      <View style={{ position: 'absolute', left: 60, top: 248 }} className="flex-row items-center gap-2">
+        <Button
+          testID="loop-toggle"
+          onClick={() => setRunning(current => !current)}
+          className="rounded-md bg-slate-900 hover:bg-slate-700 px-3 py-1.5"
+        >
+          <Text className="text-xs text-white">{running ? 'Pause loop' : 'Resume loop'}</Text>
+        </Button>
+        <Button
+          testID="loop-step"
+          onClick={() => setStep(current => (current + 1) % LOOP_KEYFRAMES.length)}
+          className="rounded-md bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5"
+        >
+          <Text className="text-xs text-white">Next keyframe</Text>
+        </Button>
+      </View>
+    </Stage>
+  );
+}
+
+const STARTING_DURATION_MS = 400;
+
+/** Tailwind `starting:` (`@starting-style`) transitions on initial mount and when shown from `display: none`. */
+function StartingPage() {
+  const [mountKey, setMountKey] = useState(0);
+  const [shown, setShown] = useState(true);
+  return (
+    <Stage>
+      <View
+        key={mountKey}
+        testID="starting-card"
+        className="opacity-100 translate-y-0 rotate-0 scale-100 bg-indigo-600 starting:opacity-0 starting:translate-y-8 starting:-rotate-12 starting:scale-50 starting:bg-amber-400"
+        style={{
+          position: 'absolute', left: 50, top: 76, width: 200, height: 110,
+          borderRadius: 16, padding: 12,
+          transition: { properties: ['transform', 'opacity', 'backgroundColor'], durationMs: STARTING_DURATION_MS, easing: 'linear' },
+        }}
+      >
+        <Text className="text-base text-white">@starting-style</Text>
+        <Text testID="starting-mount-count" className="text-xs text-indigo-100">{`mount ${mountKey}`}</Text>
+      </View>
+      <View
+        testID="starting-display-card"
+        className={`${shown ? 'flex' : 'hidden'} opacity-100 scale-100 translate-x-0 bg-emerald-600 starting:opacity-0 starting:scale-50 starting:translate-x-6`}
+        style={{
+          position: 'absolute', left: 290, top: 76, width: 180, height: 110,
+          borderRadius: 16, padding: 12,
+          transition: { properties: ['transform', 'opacity'], durationMs: STARTING_DURATION_MS, easing: 'linear' },
+        }}
+      >
+        <Text className="text-base text-white">From hidden</Text>
+        <Text className="text-xs text-emerald-100">display: none -&gt; flex</Text>
+      </View>
+      <View style={{ position: 'absolute', left: 50, top: 244 }} className="flex-row items-center gap-2">
+        <Button
+          testID="starting-remount"
+          onClick={() => setMountKey(current => current + 1)}
+          className="rounded-md bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5"
+        >
+          <Text className="text-xs text-white">Remount card</Text>
+        </Button>
+        <Button
+          testID="starting-display-toggle"
+          onClick={() => setShown(current => !current)}
+          className="rounded-md bg-emerald-700 hover:bg-emerald-800 px-3 py-1.5"
+        >
+          <Text className="text-xs text-white">{shown ? 'Hide second card' : 'Show second card'}</Text>
+        </Button>
+      </View>
+    </Stage>
+  );
+}
+
+function ActiveCasePage({ name }: { name: string }) {
   if (name.startsWith('shape:')) return <ShapeCard spec={shapeCase(name.slice('shape:'.length))} />;
   if (name.startsWith('transition:')) {
     const wanted = name.slice('transition:'.length);
@@ -426,6 +593,9 @@ export function TransformLab() {
     return <TransitionCard spec={spec} />;
   }
   switch (name) {
+    case 'combined': return <CombinedPage />;
+    case 'loop': return <LoopPage />;
+    case 'starting': return <StartingPage />;
     case 'hit': return <HitPage />;
     case 'hover': return <HoverPage />;
     case 'utilities': return <UtilitiesPage />;
@@ -438,4 +608,14 @@ export function TransformLab() {
     case 'sharp': return <SharpPage />;
     default: throw new Error(`No transform lab case named ${name}`);
   }
+}
+
+export function TransformLab() {
+  const name = useSyncExternalStore(subscribe, () => currentCase);
+  return (
+    <View style={{ width: STAGE.width }}>
+      <ActiveCasePage name={name} />
+      <TransformControls name={name} />
+    </View>
+  );
 }

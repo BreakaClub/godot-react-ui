@@ -1509,6 +1509,22 @@ async function runScrollScenario() {
   check('And from the game', (await counts()).unhandledWheels === containGame, await counts());
   await capture('26-scroll-chained');
 
+  // Shift+wheel and horizontal wheel on the carousel.
+  const carousel = await scrollOf('carousel');
+  const tickX = carousel.clientWidth / SCROLL_PAGE_DIVISOR;
+  await page.keyboard.down('Shift');
+  await wheelAt(await centerOf('carousel'), 0, WHEEL_TICK_PIXELS);
+  await page.keyboard.up('Shift');
+  await waitUntil('Shift+wheel scrolls the carousel sideways', async () => nearly((await scrollOf('carousel')).scrollLeft, notchTicks() * tickX));
+  check('Shift+wheel scrolls the carousel sideways', true, await scrollOf('carousel'));
+  await wheelAt(await centerOf('carousel'), WHEEL_TICK_PIXELS, 0);
+  await waitUntil('A horizontal wheel notch scrolls the carousel further right', async () => nearly((await scrollOf('carousel')).scrollLeft, 2 * notchTicks() * tickX));
+  check('A horizontal wheel notch scrolls the carousel further right', true, await scrollOf('carousel'));
+  await wheelAt(await centerOf('carousel'), -WHEEL_TICK_PIXELS, 0);
+  await wheelAt(await centerOf('carousel'), -WHEEL_TICK_PIXELS, 0);
+  await waitUntil('Opposite horizontal wheel notches return the carousel to the start', async () => (await scrollOf('carousel')).scrollLeft === 0);
+  check('Opposite horizontal wheel notches return the carousel to the start', true, await scrollOf('carousel'));
+
   await page.mouse.move(1, 1);
   await frames();
   await demo('restoreDemo');
@@ -2574,12 +2590,18 @@ async function runSelectionScenario() {
     state?.anchor.testID === 'sel-p1' && state.focus.testID === 'sel-p2' && state.focus.offset > 0 && state.text === `${p1}\n${p2.slice(0, state.focus.offset)}` && !state.text.includes(none), state);
   await capture('selection-01-across');
 
-  // Copy: the text reaches the browser's clipboard through `DisplayServer.clipboard_set` -> `navigator.clipboard.writeText`.
+  // Copy: the text reaches the browser's clipboard through `DisplayServer.clipboard_set` -> `navigator.clipboard.writeText`,
+  // and both Ctrl+C and Cmd+C work in the browser regardless of host OS.
   await page.evaluate(() => navigator.clipboard.writeText('before the copy'));
   const keysBefore = (await counts()).unhandledKeys[KEY_C] ?? 0;
   await pressKey('c', [COMMAND_KEY]);
   await waitUntil('Cmd/Ctrl+C reaches the browser clipboard', async () => (await browserClipboard()) === state.text);
   check('Cmd/Ctrl+C copies the selected text, the paragraphs joined by a newline', true, { clipboard: await browserClipboard() });
+  const alternateModifier = COMMAND_KEY === 'Meta' ? 'Control' : 'Meta';
+  await page.evaluate(() => navigator.clipboard.writeText('before the alternate copy'));
+  await pressKey('c', [alternateModifier]);
+  await waitUntil('Both Ctrl+C and Cmd+C reach the browser clipboard', async () => (await browserClipboard()) === state.text);
+  check('Both Ctrl+C and Cmd+C copy the selected text', true, { modifier: alternateModifier, clipboard: await browserClipboard() });
   // The Command or Control key itself is a key press nothing handles; the C that copied is the key that must not reach the game.
   check('And the key that copied is consumed', ((await counts()).unhandledKeys[KEY_C] ?? 0) === keysBefore, await counts());
 

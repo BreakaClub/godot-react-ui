@@ -180,7 +180,7 @@ interface LabFailureProps {
 function LabFailure({ lab, error, onRetry }: LabFailureProps) {
   return (
     <View testID="lab-error" role="region" aria-label={`${lab.title} failed`} className="w-full p-6">
-      <View className="gap-3 rounded-2xl border border-rose-200 bg-white p-6">
+      <View className="select-text gap-3 rounded-2xl border border-rose-200 bg-white p-6">
         <Text className="text-xs text-rose-600">THIS LAB FAILED</Text>
         <Text className="text-lg text-slate-900">{`${lab.title} threw while it was rendering.`}</Text>
         <Text testID="lab-error-message" className="select-text text-sm text-slate-700">{error.message}</Text>

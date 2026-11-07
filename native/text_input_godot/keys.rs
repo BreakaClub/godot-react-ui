@@ -14,6 +14,7 @@
 use std::cell::OnceCell;
 
 use godot::classes::{InputEventKey, InputMap};
+use godot::global::Key;
 use godot::prelude::*;
 
 use crate::keyboard_input::as_keyboard_event;
@@ -211,7 +212,35 @@ impl TextActionTable {
                 return Some(entry.action);
             }
         }
-        None
+        fallback_chord_action(
+            as_keyboard.get_keycode(),
+            as_keyboard.is_ctrl_pressed(),
+            as_keyboard.is_alt_pressed(),
+            as_keyboard.is_shift_pressed(),
+            as_keyboard.is_meta_pressed(),
+        )
+    }
+}
+
+/// Accept both `Ctrl` and `Meta` (`Cmd`) for `Copy`, `SelectAll`, `Cut` and `Paste` so `Ctrl+C` and
+/// `Cmd+C` work on every platform and in every browser regardless of whether the OS's `InputMap`
+/// bound `Meta` or `Ctrl`.
+pub(crate) fn fallback_chord_action(
+    keycode: Key,
+    ctrl: bool,
+    alt: bool,
+    shift: bool,
+    meta: bool,
+) -> Option<TextAction> {
+    if !(ctrl || meta) || alt || shift {
+        return None;
+    }
+    match keycode {
+        Key::C => Some(TextAction::Copy),
+        Key::A => Some(TextAction::SelectAll),
+        Key::X => Some(TextAction::Cut),
+        Key::V => Some(TextAction::Paste),
+        _ => None,
     }
 }
 
@@ -413,5 +442,32 @@ mod tests {
         assert_eq!(typed_text('c' as u32, false, false, true), None);
         // A surrogate code point is not a character.
         assert_eq!(typed_text(0xD800, false, false, false), None);
+    }
+
+    #[test]
+    fn fallback_chord_action_accepts_both_ctrl_and_meta_for_clipboard_and_select_all() {
+        assert_eq!(
+            fallback_chord_action(Key::C, true, false, false, false),
+            Some(TextAction::Copy)
+        );
+        assert_eq!(
+            fallback_chord_action(Key::C, false, false, false, true),
+            Some(TextAction::Copy)
+        );
+        assert_eq!(
+            fallback_chord_action(Key::A, true, false, false, false),
+            Some(TextAction::SelectAll)
+        );
+        assert_eq!(
+            fallback_chord_action(Key::X, false, false, false, true),
+            Some(TextAction::Cut)
+        );
+        assert_eq!(
+            fallback_chord_action(Key::V, true, false, false, false),
+            Some(TextAction::Paste)
+        );
+        assert_eq!(fallback_chord_action(Key::C, false, false, false, false), None);
+        assert_eq!(fallback_chord_action(Key::C, true, true, false, false), None);
+        assert_eq!(fallback_chord_action(Key::C, true, false, true, false), None);
     }
 }

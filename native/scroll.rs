@@ -349,14 +349,24 @@ pub(crate) enum ScrollInput {
 }
 
 impl ScrollInput {
-    /// A mouse wheel. Shift swaps the axes (`swap_axes = scroll_horizontal_by_default != shift`,
-    /// `scroll_container.cpp:187`; `scroll_horizontal_by_default` is false).
+    /// A mouse wheel. Shift requests horizontal scrolling for vertical wheel inputs (decision D13 /
+    /// `scroll_container.cpp:187`).
+    ///
+    /// Browsers (Godot Web export) and macOS Cocoa already map Shift + vertical wheel to horizontal
+    /// deltas (`deltaX`), emitting `MouseButton::WHEEL_LEFT` / `WHEEL_RIGHT` (`ticks.x != 0`) with
+    /// `shift_pressed = true`. If ticks are already horizontal, swapping them would mistakenly turn
+    /// them back into vertical ticks and prevent horizontal containers (like carousels) from scrolling.
+    /// Only swap when ticks are purely vertical (`ticks.x == 0`, as on Windows desktop).
     ///
     /// Not mirrored: `ScrollContainer` also sends a vertical tick to the horizontal bar when the
     /// vertical bar is hidden (`:189`, `:210`). The DOM does not, and chaining gives the tick to an
     /// ancestor instead.
     pub(crate) fn wheel(ticks: Vec2, shift: bool) -> Self {
-        Self::Ticks(if shift { ticks.swapped() } else { ticks })
+        Self::Ticks(if shift && ticks.x == 0.0 {
+            ticks.swapped()
+        } else {
+            ticks
+        })
     }
 
     /// A trackpad pan gesture. `ScrollContainer` ignores Shift for pans.
@@ -1237,6 +1247,18 @@ mod tests {
         let mut links = [link(ranges(200.0, 1000.0), Vec2::ZERO)];
         scroll_chain(&mut links, ScrollInput::wheel(ticks, true));
         assert_eq!(links[0].offset, Vec2::new(TICK_X_PX, 0.0));
+
+        // Browsers (Godot Web export) and macOS Cocoa already convert Shift+wheel into horizontal
+        // deltas (WHEEL_LEFT/WHEEL_RIGHT, ticks.x != 0) with shift_pressed = true.
+        // Holding shift on an already-horizontal input must remain horizontal, scrolling horizontal-only containers.
+        let horizontal_ticks = Vec2::new(1.0, 0.0);
+        assert_eq!(
+            ScrollInput::wheel(horizontal_ticks, true),
+            ScrollInput::Ticks(horizontal_ticks)
+        );
+        let mut carousel_links = [link(ranges(200.0, 0.0), Vec2::ZERO)];
+        scroll_chain(&mut carousel_links, ScrollInput::wheel(horizontal_ticks, true));
+        assert_eq!(carousel_links[0].offset, Vec2::new(TICK_X_PX, 0.0));
     }
 
     #[test]

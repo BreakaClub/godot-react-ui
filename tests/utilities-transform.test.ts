@@ -117,3 +117,31 @@ test('equal transform inputs intern to the identical compiled style', () => {
   const compiled = compileStyle('rotate-6');
   assert.ok(Object.isFrozen(compiled.layers[0]?.style.transformParts), 'the parts of an interned style are frozen');
 });
+
+test('Tailwind starting: (@starting-style) variant compiles and merges transform and paint utilities', () => {
+  assert.deepEqual(
+    layersOf('opacity-100 scale-100 translate-y-0 starting:opacity-0 starting:scale-50 starting:translate-y-8 starting:-rotate-12'),
+    [
+      {
+        style: {
+          opacity: 1,
+          transformParts: { scaleX: 1, scaleY: 1, translateY: '0px' },
+        },
+      },
+      {
+        states: ['starting'],
+        style: {
+          opacity: 0,
+          transformParts: { scaleX: 0.5, scaleY: 0.5, translateY: '32px', rotate: '-12deg' },
+        },
+      },
+    ],
+  );
+  assert.deepEqual(layersOf('md:starting:scale-75'), [
+    {
+      minWidth: 768,
+      states: ['starting'],
+      style: { transformParts: { scaleX: 0.75, scaleY: 0.75 } },
+    },
+  ]);
+});

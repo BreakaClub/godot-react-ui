@@ -571,6 +571,100 @@ async function checkTransitions(api: TransformsInspection): Promise<void> {
   for (const spec of TRANSITION_CASES) await checkTransition(api, spec, raster[spec.name]);
 }
 
+/** Simultaneous transitions of transform, opacity, backgroundColor and height on the same element. */
+async function checkCombined(api: TransformsInspection): Promise<void> {
+  await showCase(api, 'combined');
+  const card = node(api, 'combined-card');
+  assert(card.transform === null, 'combined-card starts at identity transform');
+  assert(Math.abs(card.presentation.opacity - 1) <= 0.01 && Math.abs(card.presentation.height - 88) <= 0.5, 'combined-card starts at rest opacity and height');
+  const toggle = node(api, 'combined-toggle');
+  await click(centreOf(toggle.rect));
+  let sawCombinedMidflight = false;
+  const started = Date.now();
+  while (Date.now() - started < 900) {
+    await frames(1);
+    const snapshot = api.snapshot();
+    const current = snapshot.nodes.find(entry => entry.id === card.id);
+    if (current === undefined) continue;
+    const activeProps = new Set(snapshot.transitions.filter(entry => entry.id === card.id).map(entry => entry.property));
+    if (
+      activeProps.has('transform')
+      && activeProps.has('opacity')
+      && activeProps.has('backgroundColor')
+      && activeProps.has('height')
+      && current.transform !== null
+      && current.presentation.opacity < 0.95
+      && current.presentation.opacity > 0.5
+      && current.presentation.height > 90
+      && current.presentation.height < 122
+    ) {
+      sawCombinedMidflight = true;
+    }
+  }
+  assert(sawCombinedMidflight, 'combined-card transitions transform, opacity, backgroundColor and height simultaneously');
+  await frames(SETTLE_FRAMES);
+  const settled = node(api, 'combined-card');
+  assert(settled.transform !== null && Math.abs(settled.presentation.opacity - 0.45) <= 0.02 && Math.abs(settled.presentation.height - 124) <= 0.5,
+    `combined-card settled at target transform, opacity and height: ${JSON.stringify(settled.presentation)}`);
+}
+
+/** A continuous multi-step looping transform + colour animation. */
+async function checkLoop(api: TransformsInspection): Promise<void> {
+  await showCase(api, 'loop');
+  const card = node(api, 'loop-card');
+  const seenSteps = new Set<string>();
+  let sawTransformTransition = false;
+  const started = Date.now();
+  while (Date.now() - started < 950 && (seenSteps.size < 3 || !sawTransformTransition)) {
+    await frames(1);
+    const stepText = api.find('loop-step-label')?.text;
+    if (stepText !== undefined) seenSteps.add(stepText);
+    const snapshot = api.snapshot();
+    if (snapshot.transitions.some(entry => entry.id === card.id && entry.property === 'transform')) {
+      sawTransformTransition = true;
+    }
+  }
+  assert(seenSteps.size >= 3 && sawTransformTransition, `loop-card steps through multiple keyframes while animating transform (${[...seenSteps].join(', ')})`);
+}
+
+/** Tailwind `starting:` (`@starting-style`) transitions on mount and when shown from `display: none`. */
+async function checkStarting(api: TransformsInspection): Promise<void> {
+  setTransformCase('starting');
+  let sawMountTransition = false;
+  const started = Date.now();
+  while (Date.now() - started < 800) {
+    await frames(1);
+    const card = api.find('starting-card');
+    if (card === undefined) continue;
+    const snapshot = api.snapshot();
+    const props = new Set(snapshot.transitions.filter(entry => entry.id === card.id).map(entry => entry.property));
+    if (props.has('transform') && props.has('opacity') && props.has('backgroundColor') && card.transform !== null && card.presentation.opacity < 0.95) {
+      sawMountTransition = true;
+    }
+  }
+  assert(sawMountTransition, 'starting-card animates transform, opacity and backgroundColor from starting: on initial mount');
+  await frames(SETTLE_FRAMES);
+  const settled = node(api, 'starting-card');
+  assert(settled.transform === null && Math.abs(settled.presentation.opacity - 1) <= 0.01,
+    `starting-card settles at resting style (identity transform, opacity 1): ${JSON.stringify(settled.presentation)}`);
+
+  // Remounting via key change triggers @starting-style again.
+  await click(centreOf(node(api, 'starting-remount').rect));
+  const remounted = node(api, 'starting-card');
+  const afterRemount = api.snapshot();
+  assert(afterRemount.transitions.some(entry => entry.id === remounted.id && entry.property === 'transform'),
+    'remounting starting-card starts its @starting-style transition again');
+
+  // Hiding (`display: none`) and showing again also triggers @starting-style.
+  await click(centreOf(node(api, 'starting-display-toggle').rect));
+  await click(centreOf(node(api, 'starting-display-toggle').rect));
+  const displayCard = node(api, 'starting-display-card');
+  const afterReshow = api.snapshot();
+  assert(afterReshow.transitions.some(entry => entry.id === displayCard.id && entry.property === 'transform'),
+    'showing starting-display-card from display:none starts its @starting-style transition');
+  await frames(30);
+}
+
 export async function verifyTransforms(owner: Node, api: TransformsInspection, capture: TransformsCapture): Promise<void> {
   api.showLab('transforms');
   await settleFrames();
@@ -586,6 +680,9 @@ export async function verifyTransforms(owner: Node, api: TransformsInspection, c
   await checkClip(owner, api, capture);
   await checkSharpness(owner, api, capture, 'dpr1');
   await checkTransitions(api);
+  await checkCombined(api);
+  await checkLoop(api);
+  await checkStarting(api);
   // Device pixel ratio two: the window's content scale, as a retina display has it (the logical window is half as wide).
   const win = window(owner);
   win.contentScaleFactor = RETINA_SCALE;

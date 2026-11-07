@@ -197,7 +197,7 @@ const STATIC_UTILITIES: Readonly<Record<string, Style>> = {
 
 const STATE_VARIANTS: Readonly<Record<string, PseudoState>> = {
   hover: 'hover', active: 'active', focus: 'focus', 'focus-visible': 'focusVisible',
-  'focus-within': 'focusWithin', disabled: 'disabled',
+  'focus-within': 'focusWithin', disabled: 'disabled', starting: 'starting',
 };
 
 interface CompiledToken {

@@ -1132,4 +1132,55 @@ mod tests {
         // The translate is 20 px; scale 2 about the middle (100, 50) shifts the origin of the map by minus (100, 50).
         assert!((e - (20.0 - 100.0)).abs() < 1e-3, "{e}");
     }
+
+    #[test]
+    fn transforms_transition_with_opacity_background_and_height_and_ping_pong_in_a_loop() {
+        let mut scene = Scene::new("80");
+        *scene.node(1) = style(
+            r##"{"height":80,"opacity":0.2,"backgroundColor":"#000000","transform":"translateY(40px) scale(0.5)",
+                "transition":{"properties":["height","opacity","backgroundColor","transform"],"durationMs":1000,"easing":"linear"}}"##,
+        );
+        // Prime initial @starting-style / resting state at t = 0, then transition to target at t = 0.
+        scene.sync(0.0);
+        scene.node(1).height = Some(Dimension::Num(160.0));
+        scene.node(1).opacity = Some(1.0);
+        scene.node(1).background_color = Some("#ffffff".into());
+        scene.node(1).transform = Some(transform_of("translateY(0px) scale(1.5)"));
+        scene.sync(0.0);
+
+        let middle = scene.sample(0.5);
+        assert!(middle.active);
+        near(middle.values[&1].height.as_px().expect("height"), 120.0);
+        near(middle.values[&1].opacity, 0.6);
+        for channel in &middle.values[&1].background_color[..3] {
+            assert!(*channel > 0.2 && *channel < 0.8, "color interpolated: {channel}");
+        }
+        let [a, _, _, d, _, f] = matrix_at(&middle, 1);
+        near(a, 1.0);
+        near(d, 1.0);
+        near(f, 20.0);
+
+        let forward_end = scene.sample(1.0);
+        assert!(!forward_end.active);
+        near(forward_end.values[&1].height.as_px().expect("height"), 160.0);
+        near(forward_end.values[&1].opacity, 1.0);
+        let [a, _, _, d, _, _] = matrix_at(&forward_end, 1);
+        near(a, 1.5);
+        near(d, 1.5);
+
+        // Next leg of a loop: reverse back to the first state and sample halfway.
+        scene.node(1).height = Some(Dimension::Num(80.0));
+        scene.node(1).opacity = Some(0.2);
+        scene.node(1).background_color = Some("#000000".into());
+        scene.node(1).transform = Some(transform_of("translateY(40px) scale(0.5)"));
+        scene.sync(1.0);
+        let back_middle = scene.sample(1.5);
+        assert!(back_middle.active);
+        near(back_middle.values[&1].height.as_px().expect("height"), 120.0);
+        near(back_middle.values[&1].opacity, 0.6);
+        let [a, _, _, d, _, f] = matrix_at(&back_middle, 1);
+        near(a, 1.0);
+        near(d, 1.0);
+        near(f, 20.0);
+    }
 }

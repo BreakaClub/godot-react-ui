@@ -137,17 +137,16 @@ impl ReactUiRoot {
         changes: &[StyleChange],
     ) -> Result<(), String> {
         for change in changes {
-            let (Some(previous), Some(node)) =
-                (&change.previous, self.mounted.nodes.get(&change.tag))
-            else {
-                continue;
-            };
             let Some(next) = tree.computed(change.tag) else {
                 continue;
             };
-            if !node.geometry.laid_out {
+            let before = change.starting.as_ref().or_else(|| {
+                let node = self.mounted.nodes.get(&change.tag)?;
+                node.geometry.laid_out.then_some(change.previous.as_ref()?)
+            });
+            let Some(previous) = before else {
                 continue;
-            }
+            };
             if let Some(violation) = motion_violation(tree, change.tag, previous, next) {
                 return Err(violation.message);
             }
@@ -185,14 +184,17 @@ impl ReactUiRoot {
             let Some(node) = self.mounted.nodes.get(&change.tag) else {
                 continue;
             };
-            let Some(previous) = &change.previous else {
+            let before = change.starting.as_ref().or_else(|| {
+                node.geometry.laid_out.then_some(change.previous.as_ref()?)
+            });
+            let Some(previous) = before else {
                 continue;
             };
             let next = &node.computed;
             let Some(transition) = &next.transition else {
                 continue;
             };
-            if transition.duration_ms == 0.0 || !node.geometry.laid_out {
+            if transition.duration_ms == 0.0 {
                 continue;
             }
             let violation = motion_violation(&self.mounted, change.tag, previous, next);
@@ -220,7 +222,7 @@ impl ReactUiRoot {
                         if effective_interpolate_size(next) != InterpolateSize::AllowKeywords {
                             continue;
                         }
-                        intrinsic_changes.push((change.tag, axis));
+                        intrinsic_changes.push((change.tag, axis, old));
                     }
                 }
                 changed.push((change.tag, *property, transition.duration_ms));
@@ -228,12 +230,24 @@ impl ReactUiRoot {
         }
         // Prime only keyword boundaries; ordinary numeric/color interpolation and
         // interruption/reversal remain entirely inside Stylo.
-        for (tag, axis) in &intrinsic_changes {
+        for (tag, axis, old) in &intrinsic_changes {
             if !self.intrinsic.contains_key(&(*tag, *axis)) {
-                let size = self.mounted.nodes[tag].geometry.size;
-                let current = match axis {
-                    DimensionAxis::Width => size.x,
-                    DimensionAxis::Height => size.y,
+                let node = &self.mounted.nodes[tag];
+                let current = if node.geometry.laid_out {
+                    match axis {
+                        DimensionAxis::Width => node.geometry.size.x,
+                        DimensionAxis::Height => node.geometry.size.y,
+                    }
+                } else {
+                    let basis = self.parent_basis(*tag);
+                    resolve_dimension(
+                        old,
+                        match axis {
+                            DimensionAxis::Width => basis.x,
+                            DimensionAxis::Height => basis.y,
+                        },
+                    )
+                    .unwrap_or(0.0)
                 };
                 self.style_engine
                     .prime_dimension(*tag, *axis, current, self.clock_seconds())
@@ -253,7 +267,7 @@ impl ReactUiRoot {
 
         // New content is present in native measurement contexts, but no geometry has been
         // published or drawn from this target-only state.
-        for (tag, axis) in intrinsic_changes {
+        for (tag, axis, _) in intrinsic_changes {
             let target_px = self.measure_endpoint(tag, axis);
             set_override(&mut self.overrides, tag, axis, Some(target_px));
             let parent_basis = self.parent_basis(tag);
@@ -378,25 +392,30 @@ impl ReactUiRoot {
             .collect()
     }
 
-    /// A node that gains a `transition` in the same change that changes a value must animate from
-    /// the value it had. Stylo was not told about the node while it had no transition, so tell it
-    /// that previous style first; the change itself is then written on top of it.
+    /// A node that gains a `transition` in the same change that changes a value, or starts from a
+    /// `@starting-style` (`starting:` variant), must animate from that before-change style. Tell
+    /// Stylo that initial style first; the after-change style is then written on top of it.
     fn sync_gained_transitions(&mut self, changes: &[StyleChange]) {
         let now = self.clock_seconds();
         let mut synced = false;
         for change in changes {
-            let (Some(previous), Some(node)) =
-                (&change.previous, self.mounted.nodes.get(&change.tag))
-            else {
+            let Some(node) = self.mounted.nodes.get(&change.tag) else {
                 continue;
             };
-            if previous.transition.is_some() || node.computed.transition.is_none() {
+            if node.computed.transition.is_none() {
                 continue;
             }
+            let initial = change.starting.as_ref().or_else(|| {
+                let previous = change.previous.as_ref()?;
+                previous.transition.is_none().then_some(previous)
+            });
+            let Some(initial) = initial else {
+                continue;
+            };
             self.style_engine
                 .update(
                     change.tag,
-                    previous,
+                    initial,
                     self.overrides.get(&change.tag),
                     &BTreeSet::new(),
                     now,

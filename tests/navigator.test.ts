@@ -4,6 +4,7 @@ import { createElement as h, type ReactNode } from 'react';
 import { Text } from '../src';
 import { LABS, labsInOrder, type InlineLab, type Lab, type SceneLab } from '../demo/src/labs';
 import { Navigator, type NavigatorProps } from '../demo/src/navigator';
+import { CASE_OPTIONS, setTransformCase } from '../demo/src/transform-lab';
 import { createTestRoot } from './recording-host';
 import { TextInputHost } from './text-input-host';
 
@@ -94,6 +95,26 @@ test('every lab that is a page opens without an error, and a launch lab shows it
     assert.equal(m.title(), lab.title);
     assert.ok(!m.has('lab-error'), `${lab.id} threw: ${m.has('lab-error') ? m.textOf('lab-error-message') : ''}`);
     assert.equal(m.has('lab-launch'), lab.kind !== 'inline', `${lab.id} shows a launch card only if it is a window or scene lab`);
+  }
+});
+
+test('every case in the transforms lab (shapes, transitions, combined, loop, starting, behaviours) renders without error', () => {
+  const m = mount({ initialLab: 'transforms' });
+  try {
+    for (const option of CASE_OPTIONS) {
+      m.click('transform-case-select');
+      m.click(`transform-case-${option.id}`);
+      assert.ok(!m.has('lab-error'), `transforms case ${option.id} threw: ${m.has('lab-error') ? m.textOf('lab-error-message') : ''}`);
+      assert.ok(m.has('transform-stage'), `transforms case ${option.id} mounted transform-stage`);
+      if (option.id.startsWith('transition:')) {
+        assert.ok(m.has('transform-flip'), `transition case ${option.id} renders the Flip button`);
+        m.click('transform-flip');
+        assert.ok(!m.has('lab-error'), `transition case ${option.id} flip to 'to' rendered cleanly`);
+        m.click('transform-flip');
+      }
+    }
+  } finally {
+    setTransformCase('shape:identity');
   }
 });
 
