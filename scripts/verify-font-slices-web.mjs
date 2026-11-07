@@ -275,6 +275,14 @@ export async function runFontSlicesScenario({ browser, base, check, viewport, ex
       check(`${label}: the coloured span is glyphs too (${describeComparison(spansShot)})`, isGlyphs(spansShot, minimum), spansShot);
       check(`${label}: the span's own colour is drawn where Chrome draws it (red ink correlation ${redShot.correlation})`, redShot.correlation >= minimum && redShot.ink > 0, redShot);
       check(`${label}: before the fonts arrived the same text was boxes, not glyphs (control: the ink check fails on it, correlation ${boxes.correlation})`, boxes.correlation <= MAXIMUM_BOX_CORRELATION && !isGlyphs(boxes), boxes);
+      if (id === 'simplified') {
+        // Text that names no family is drawn with the root's theme font, which the root does not touch (it is the engine's, shared with every control): it has the fonts added behind it in a variation.
+        const theme = await textFacts(page, 'fs-theme');
+        const referenceTheme = await chromeRaster({ browser, base, viewport: viewportOf, rect: theme.rect, pieces: [[text, '']], slices: chromeSlices });
+        const themeShot = compare(after, referenceTheme.image, theme.rect, dpr);
+        metrics[`${label} theme font`] = themeShot;
+        check(`${label}: text with no font family, in the theme font, is glyphs too (${describeComparison(themeShot)})`, isGlyphs(themeShot, minimum), themeShot);
+      }
       check(`${label}: the text is laid out to Chrome's width (${plain.width.toFixed(1)} px of glyphs, Chrome ${reference.width.toFixed(1)}, ${plainBefore.width.toFixed(1)} px of boxes)`,
         Math.abs(plain.width - reference.width) <= widthTolerance, { before: plainBefore.width, after: plain.width, chrome: reference.width });
       // A hex box of four digits is about as wide as an ideograph, so a line of Chinese does not move when its glyphs arrive; a line with kana, Hangul or emoji does.

@@ -34,6 +34,9 @@ function statusLine(view: FontSlicesView): string {
   return `${parts.join('; ')}${view.language === undefined ? '' : `; language ${view.language}`}`;
 }
 
+/** The text of a lab with no font family: it is drawn with the root's own theme font, which has no fonts of the lab's behind it until the root puts them there. */
+const THEME_TEXT_CLASS = 'text-2xl leading-8 text-slate-900';
+
 function Paragraphs({ sample }: { sample: FontSample }) {
   return (
     <View className="gap-2">
@@ -69,6 +72,7 @@ export function FontSlicesLab({ sample: only }: FontSlicesLabProps) {
         </View>
       )}
       <Paragraphs sample={sample} />
+      <Text testID="fs-theme" className={THEME_TEXT_CLASS}>{sample.text}</Text>
       <Text testID="fs-status" className="text-sm text-slate-600">{statusLine(view)}</Text>
     </View>
   );
