@@ -3,13 +3,14 @@
 //! lines, the way a clipped line ends. Everything that reads or draws a node's text goes through [`StyledParagraph`].
 
 mod draw;
+mod found;
 mod rich;
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
 use godot::classes::text_server::{JustificationFlag, LineBreakFlag, OverrunBehavior, SpacingType};
-use godot::classes::{RenderingServer, TextParagraph, TextServer, TextServerManager};
+use godot::classes::{Font, RenderingServer, TextParagraph, TextServer, TextServerManager};
 use godot::global::HorizontalAlignment;
 use godot::prelude::*;
 
@@ -18,7 +19,7 @@ use crate::fonts::ResolvedFont;
 use crate::text_decoration::Fragment;
 use crate::text_layout::{
     GodotParagraph, GodotTextLayout, LineExtents, ShapedParagraph, TextLayout, TextLayoutError,
-    place_lines,
+    place_lines, read_glyphs,
 };
 use crate::text_span::RichText;
 use crate::text_span::offsets::OffsetMap;
@@ -62,6 +63,8 @@ pub(crate) struct StyledParagraph {
     /// The spans of a text made of nested `Text`: its fonts, colours, backgrounds and decorations per fragment. With them the
     /// decorations are the segments' (the node's own are in each), and `decorations` is empty.
     rich: Option<Rc<rich::RichParagraph>>,
+    /// The text of a paragraph without spans whose font tracks, to shape it again with the fonts that draw (`found.rs`). Spans keep theirs.
+    plain_text: Option<Rc<str>>,
     /// What painting read of the shaped lines at the width it last drew at, and is right until the paragraph is shaped again, which makes
     /// another `StyledParagraph`: reading a line's glyphs makes a dictionary for each, and painting needs them (`shaped`).
     shaped: RefCell<Option<Rc<ShapedParagraph>>>,
@@ -183,6 +186,7 @@ impl StyledParagraph {
             let space = font.shape.get_char_size(u32::from(' '), style.font_size).x;
             paragraph.tab_align(&PackedFloat32Array::from([TAB_SIZE_SPACES * space]));
         }
+        let plain_text = (rich.is_none() && font.tracked).then(|| Rc::from(text));
         Self {
             paragraph,
             font,
@@ -190,6 +194,7 @@ impl StyledParagraph {
             line_box,
             decorations: Vec::new(),
             rich,
+            plain_text,
             shaped: RefCell::new(None),
         }
     }
@@ -437,6 +442,69 @@ impl StyledParagraph {
         self.font.tracked || self.rich.as_ref().is_some_and(|rich| rich.draws_glyphs())
     }
 
+    /// Whether the text is shaped with fonts that carry letter-spacing and drawn with fonts that do not.
+    fn tracks(&self) -> bool {
+        self.font.tracked
+            || self
+                .rich
+                .as_ref()
+                .is_some_and(|rich| rich.fonts.iter().any(|font| font.tracked))
+    }
+
+    /// The pairs of fonts for the glyphs of fonts the text server found by itself, which `fonts` (the paragraph's own pairs of shaping and
+    /// drawing fonts) does not list: the text shaped again with the drawing fonts (see `found.rs`). Nothing for a paragraph whose glyphs
+    /// are all in the fonts it lists, which shapes nothing again.
+    fn found_draw_fonts(
+        &self,
+        server: &mut Gd<TextServer>,
+        shaped: &ShapedParagraph,
+        fonts: &[(Rid, Rid)],
+    ) -> Result<Vec<(Rid, Rid)>, String> {
+        let glyphs = || shaped.lines.iter().flat_map(|line| line.glyphs.iter());
+        if !found::has_found_font(glyphs(), fonts) {
+            return Ok(Vec::new());
+        }
+        let size = i64::from(self.style.font_size);
+        let again = server.create_shaped_text();
+        for (text, font) in self.runs_to_draw_with()? {
+            let added = server
+                .shaped_text_add_string_ex(again, text.as_str(), &font.get_rids(), size)
+                .opentype_features(&font.get_opentype_features())
+                .done();
+            if !added {
+                server.free_rid(again);
+                return Err("the text server did not take the text to shape it again".into());
+            }
+        }
+        let untracked = read_glyphs(server, again).map_err(|error| error.to_string());
+        server.free_rid(again);
+        found::draw_fonts_of_found(glyphs(), fonts, &untracked?)
+    }
+
+    /// The runs of the text with the font that draws each, in order.
+    fn runs_to_draw_with(&self) -> Result<Vec<(String, Gd<Font>)>, String> {
+        if let Some(rich) = &self.rich {
+            let characters: Vec<char> = rich.text.display.chars().collect();
+            return Ok(rich
+                .text
+                .font_runs
+                .iter()
+                .zip(&rich.fonts)
+                .map(|(run, font)| {
+                    (
+                        characters[run.range.clone()].iter().collect(),
+                        font.draw.clone(),
+                    )
+                })
+                .collect());
+        }
+        let text = self
+            .plain_text
+            .as_ref()
+            .ok_or("a text whose font tracks keeps its text")?;
+        Ok(vec![(text.to_string(), self.font.draw.clone())])
+    }
+
     fn is_decorated(&self) -> bool {
         !self.decorations.is_empty() || self.rich.as_ref().is_some_and(|rich| rich.is_decorated())
     }
@@ -554,7 +622,7 @@ impl StyledParagraph {
             &mut leases,
         );
         // The rids each glyph's font is drawn as: the node's font and, with spans, the fonts of the other runs.
-        let fonts: Vec<(Rid, Rid)> = std::iter::once(&self.font)
+        let mut fonts: Vec<(Rid, Rid)> = std::iter::once(&self.font)
             .chain(self.rich.iter().flat_map(|rich| rich.fonts.iter()))
             .flat_map(|font| {
                 font.shape
@@ -564,6 +632,10 @@ impl StyledParagraph {
                     .collect::<Vec<_>>()
             })
             .collect();
+        if self.tracks() {
+            let found = self.found_draw_fonts(&mut server, &shaped, &fonts)?;
+            fonts.extend(found);
+        }
         let glyphwise = self.draws_glyphs();
         let drawing = draw::LineDrawing {
             canvas,

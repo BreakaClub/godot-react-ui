@@ -87,7 +87,7 @@ use godot::builtin::{Rect2, Vector2};
 
 use crate::text_input::{BoundaryLists, EditError, LayoutProblem, LineLayout};
 
-pub(crate) use paragraph::{GodotParagraph, ShapedGlyph, ShapedLine, ShapedParagraph};
+pub(crate) use paragraph::{GodotParagraph, ShapedGlyph, ShapedLine, ShapedParagraph, read_glyphs};
 
 /// A [`TextLayout`] over a real `TextParagraph`.
 pub(crate) type GodotTextLayout = TextLayout<GodotParagraph>;

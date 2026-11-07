@@ -79,9 +79,13 @@ pub(crate) struct ShapedGlyph {
     pub(crate) repeat: i64,
     pub(crate) advance: f32,
     pub(crate) offset: Vector2,
+    /// The font that has the glyph; empty when no font has the character, which the server then draws as a hex box (see
+    /// [`ShapedLine::hex_codes`]). `index` is the code point in that case.
     pub(crate) font: Rid,
     pub(crate) size: i64,
     pub(crate) index: i64,
+    /// `Glyph::flags`: the `GraphemeFlag` bits.
+    pub(crate) flags: i64,
 }
 
 impl ShapedGlyph {
@@ -94,8 +98,41 @@ impl ShapedGlyph {
             font: field(dictionary, &keys.font_rid)?,
             size: field(dictionary, &keys.font_size)?,
             index: field(dictionary, &keys.index)?,
+            flags: field(dictionary, &keys.flags)?,
         })
     }
+
+    /// Whether the glyph has `flag` (`GRAPHEME_IS_*`) set.
+    fn has(&self, flag: GraphemeFlag) -> bool {
+        let bits = i64::try_from(flag.ord()).expect("a grapheme flag is a small bit of an int");
+        self.flags & bits != 0
+    }
+
+    /// A glyph that is not part of the source text, which justification added (`GRAPHEME_IS_VIRTUAL`).
+    pub(crate) fn is_virtual(&self) -> bool {
+        self.has(GraphemeFlag::VIRTUAL)
+    }
+
+    /// The place of an inline object, which its owner draws (`GRAPHEME_IS_EMBEDDED_OBJECT`).
+    pub(crate) fn is_embedded_object(&self) -> bool {
+        self.has(GraphemeFlag::EMBEDDED_OBJECT)
+    }
+}
+
+/// The glyphs of the shaped text `shaped`, as the text server has them (`shaped_text_get_glyphs`).
+pub(crate) fn read_glyphs(
+    server: &Gd<TextServer>,
+    shaped: Rid,
+) -> Result<Vec<ShapedGlyph>, TextLayoutError> {
+    let keys = GlyphKeys::new();
+    server
+        .shaped_text_get_glyphs(shaped)
+        .iter_shared()
+        .map(|dictionary| ShapedGlyph::of(&dictionary, &keys))
+        .collect::<Option<Vec<_>>>()
+        .ok_or(TextLayoutError::MalformedServerData(
+            ServerDataProblem::Glyphs,
+        ))
 }
 
 /// What the text server says of one shaped line that painting and the facts of a layout read: its glyphs, the glyphs of the ellipsis that
@@ -112,6 +149,10 @@ pub(crate) struct ShapedLine {
     /// The glyph the ellipsis follows and the glyph the line is cut at, or -1.
     pub(crate) ellipsis_at: i64,
     pub(crate) trim_at: i64,
+    /// Whether the server draws a hex box for a glyph that no font has: `shaped_text_get_preserve_control` or
+    /// `shaped_text_get_preserve_invalid` of the line (`TextServer::shaped_text_draw`'s `hex_codes`). Only a line with such a glyph
+    /// asks the server.
+    pub(crate) hex_codes: bool,
     /// `shaped_text_get_width`: the glyphs' width, rounded up.
     pub(crate) width: f64,
     /// The advance of the white space the line ends with.
@@ -156,6 +197,9 @@ impl ShapedLine {
             }
             hanging += glyph.advance * glyph.repeat as f32;
         }
+        let hex_codes = glyphs.iter().any(|glyph| glyph.font == Rid::Invalid)
+            && (server.shaped_text_get_preserve_control(line)
+                || server.shaped_text_get_preserve_invalid(line));
         let ellipsis = if ellipsis_at >= 0 {
             server
                 .shaped_text_get_ellipsis_glyphs(line)
@@ -172,6 +216,7 @@ impl ShapedLine {
             draws_right_to_left: server.shaped_text_get_direction(line) == Direction::RTL,
             ellipsis_at,
             trim_at: server.shaped_text_get_trim_pos(line),
+            hex_codes,
             width: server.shaped_text_get_width(line),
             hanging,
             ends_with_hard_break,
@@ -187,6 +232,7 @@ impl ShapedLine {
             draws_right_to_left: false,
             ellipsis_at: -1,
             trim_at: -1,
+            hex_codes: false,
             width: 0.0,
             hanging: 0.0,
             ends_with_hard_break: false,
@@ -606,6 +652,7 @@ mod tests {
             font: Rid::new(1),
             size: 12,
             index: 1,
+            flags: 0,
         }
     }
 

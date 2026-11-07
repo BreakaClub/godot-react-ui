@@ -43,9 +43,17 @@ impl LineDrawing<'_> {
     }
 }
 
+/// Whether `TextServer::shaped_text_draw` draws a hex box for `glyph`, which no font has: when the line's server data asks for hex codes
+/// (`ShapedLine::hex_codes`), except for a glyph the server added itself or that stands for an inline object.
+fn draws_hex_box(hex_codes: bool, glyph: &ShapedGlyph) -> bool {
+    hex_codes && !glyph.is_virtual() && !glyph.is_embedded_object()
+}
+
 /// `TextServer::shaped_text_draw` (`servers/text/text_server.cpp`) for a horizontal line, except that each glyph is drawn
 /// with the font `drawing` names in place of the one that shaped it, and in the colour its cluster has. `position` is the line's
-/// baseline origin; `clip_left` and `clip_right` are the paragraph's clip, a right edge of zero or less meaning none.
+/// baseline origin; `clip_left` and `clip_right` are the paragraph's clip, a right edge of zero or less meaning none. A glyph that
+/// no font has is drawn as the server draws it, a hex box (`TextServer::draw_hex_code_box`) in the colour of its cluster. The glyphs
+/// of an ellipsis have no such branch there, because the server only makes an ellipsis of a font that has the glyph.
 pub(super) fn draw_glyphs(
     server: &mut Gd<TextServer>,
     position: Vector2,
@@ -55,13 +63,15 @@ pub(super) fn draw_glyphs(
 ) -> Result<(), String> {
     let rtl = line.draws_right_to_left;
     let mut pen = 0.0_f32;
+    let origin_of =
+        |glyph: &ShapedGlyph, pen: f32| position + Vector2::new(pen, 0.0) + glyph.offset;
     let draw = |server: &mut Gd<TextServer>, glyph: &ShapedGlyph, color: Color, pen: &mut f32| {
         server
             .font_draw_glyph_ex(
                 drawing.drawn_as(glyph.font),
                 drawing.canvas,
                 glyph.size,
-                position + Vector2::new(*pen, 0.0) + glyph.offset,
+                origin_of(glyph, *pen),
                 glyph.index,
             )
             .color(color)
@@ -96,12 +106,20 @@ pub(super) fn draw_glyphs(
                 pen += glyph.advance;
                 continue;
             }
-            if glyph.font == Rid::Invalid {
-                // The server draws a hex box for a character the fonts cannot show; this draws none.
-                pen += glyph.advance;
-            } else {
+            if glyph.font != Rid::Invalid {
                 draw(server, glyph, drawing.color_of(glyph), &mut pen);
+                continue;
             }
+            if draws_hex_box(line.hex_codes, glyph) {
+                server.draw_hex_code_box(
+                    drawing.canvas,
+                    glyph.size,
+                    origin_of(glyph, pen),
+                    glyph.index,
+                    drawing.color_of(glyph),
+                );
+            }
+            pen += glyph.advance;
         }
     }
     if !rtl && line.ellipsis_at >= 0 {
@@ -258,4 +276,55 @@ fn draw_dots(canvas: Rid, plan: &DotsPlan, color: Color, scale: f32, leases: &mu
             .done();
     }
     end(canvas);
+}
+
+#[cfg(test)]
+mod tests {
+    use godot::classes::text_server::GraphemeFlag;
+    use godot::obj::EngineBitfield;
+
+    use super::*;
+
+    /// A glyph no font has, with the flags `GraphemeFlag` values name.
+    fn unresolved(flags: &[GraphemeFlag]) -> ShapedGlyph {
+        ShapedGlyph {
+            start: 0,
+            repeat: 1,
+            advance: 11.0,
+            offset: Vector2::ZERO,
+            font: Rid::Invalid,
+            size: 16,
+            index: 0xE000,
+            flags: flags.iter().fold(0, |bits, flag| {
+                bits | i64::try_from(flag.ord()).expect("a flag fits an int")
+            }),
+        }
+    }
+
+    #[test]
+    fn a_character_no_font_has_is_a_hex_box_when_the_line_asks_for_hex_codes() {
+        let plain = unresolved(&[GraphemeFlag::VALID]);
+        assert!(draws_hex_box(true, &plain));
+        assert!(!draws_hex_box(false, &plain), "the line asked for none");
+    }
+
+    #[test]
+    fn a_glyph_the_server_added_or_an_inline_object_is_not_a_hex_box() {
+        for flag in [GraphemeFlag::VIRTUAL, GraphemeFlag::EMBEDDED_OBJECT] {
+            let glyph = unresolved(&[GraphemeFlag::VALID, flag]);
+            assert!(!draws_hex_box(true, &glyph), "{flag:?} is not a character");
+        }
+    }
+
+    #[test]
+    fn other_flags_do_not_stop_a_hex_box() {
+        let glyph = unresolved(&[
+            GraphemeFlag::VALID,
+            GraphemeFlag::RTL,
+            GraphemeFlag::SPACE,
+            GraphemeFlag::PUNCTUATION,
+            GraphemeFlag::SOFT_HYPHEN,
+        ]);
+        assert!(draws_hex_box(true, &glyph));
+    }
 }
