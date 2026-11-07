@@ -1,4 +1,4 @@
-import { createContext, createElement, type ReactNode } from 'react';
+import { createContext, createElement, version as reactVersion, type ReactNode } from 'react';
 import Reconciler from 'react-reconciler';
 import {
   ConcurrentRoot, ContinuousEventPriority, DefaultEventPriority,
@@ -460,6 +460,9 @@ type HostConfig = Reconciler.HostConfig<
 >;
 
 const hostConfig = {
+  // What the reconciler tells a DevTools hook it is (`reconciler.injectIntoDevTools`, below).
+  rendererVersion: reactVersion,
+  rendererPackageName: 'godot-react-ui',
   supportsMutation: false,
   supportsPersistence: true,
   supportsHydration: false,
@@ -534,9 +537,29 @@ const hostConfig = {
 } satisfies HostConfig & {
   maySuspendCommitOnUpdate(): boolean;
   maySuspendCommitInSyncRender(): boolean;
+  // Present in reconciler 0.33's implementation (they name the renderer for a DevTools hook) but missing from @types 0.33.
+  rendererVersion: string;
+  rendererPackageName: string;
 };
 
 const reconciler = Reconciler(hostConfig);
+
+/** `BundleType` 1 (development): the only builds of the reconciler that carry the refresh and DevTools entry points. */
+const DEVELOPMENT_BUNDLE = 1;
+let injectedIntoDevTools = false;
+
+/**
+ * Registers the renderer with `globalThis.__REACT_DEVTOOLS_GLOBAL_HOOK__` if there is one, as every React renderer does when it
+ * loads. React DevTools and React Fast Refresh (`react-refresh/runtime`, which is how the live code editor keeps state across an
+ * edit) work through that hook, and it has to exist before this runs: a page that wants either installs it first. With no hook
+ * the call returns at once and nothing is kept, so an app that has neither pays nothing. Done on the first root, not at load, so
+ * the hook can be installed any time before the first `createRoot`.
+ */
+function injectIntoDevTools(): void {
+  if (injectedIntoDevTools) return;
+  injectedIntoDevTools = true;
+  reconciler.injectIntoDevTools({ bundleType: DEVELOPMENT_BUNDLE, version: reactVersion, rendererPackageName: 'godot-react-ui' });
+}
 
 /** What `<Portal>` renders into: the overlay layer of the root that rendered it. */
 export const OverlayContext = createContext<LayerContainer | null>(null);
@@ -642,6 +665,7 @@ function dispatch(root: RootState, native: NativeEvent): DispatchResult {
 export function createRoot(host: NativeHost, options: RootOptions): UIRoot {
   // Fail on a host that does not answer a snapshot before any React work.
   readSnapshot(host);
+  injectIntoDevTools();
   const report = (error: Error) => {
     if (options.onError) options.onError(error);
     else console.error(error);

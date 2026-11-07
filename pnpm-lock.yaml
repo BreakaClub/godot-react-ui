@@ -30,6 +30,9 @@ importers:
       react:
         specifier: 19.2.0
         version: 19.2.0
+      react-refresh:
+        specifier: 0.18.0
+        version: 0.18.0
       tsx:
         specifier: 4.20.6
         version: 4.20.6
@@ -458,6 +461,10 @@ packages:
     engines: {node: '>=0.10.0'}
     peerDependencies:
       react: ^19.2.0
+
+  react-refresh@0.18.0:
+    resolution: {integrity: sha512-QgT5//D3jfjJb6Gsjxv0Slpj23ip+HtOpnNgnb2S5zU3CB26G/IDPGoy4RJB42wzFE46DRsstbW6tKHoKbhAxw==}
+    engines: {node: '>=0.10.0'}
 
   react@19.2.0:
     resolution: {integrity: sha512-tmbWg6W31tQLeB5cdIBOicJDJRR2KzXsV7uSK9iNfLWQ5bIZfxuPEHp7M8wiHyHnn0DD1i7w3Zmin0FtkrwoCQ==}
@@ -958,6 +965,8 @@ snapshots:
     dependencies:
       react: 19.2.0
       scheduler: 0.27.0
+
+  react-refresh@0.18.0: {}
 
   react@19.2.0: {}
 

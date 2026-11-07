@@ -1,4 +1,4 @@
 {
   "extends": "./tsconfig.json",
-  "include": ["src", "demo/src", "tests", "target/stock/typings"]
+  "include": ["src", "demo/src", "tests", "live-compile/types", "target/stock/typings"]
 }
