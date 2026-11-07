@@ -207,9 +207,9 @@ function markdownDocument(before) {
   lines.push('is merged; regenerating after the merge turns it into "supported". "Deliberately absent" always gives the reason.', '');
   const supported = results.reduce((sum, row) => sum + row.supported, 0);
   lines.push('## Summary', '');
-  lines.push(`* Class names that compile: **${supported} of ${total}** (${(100 * supported / total).toFixed(1)} %)${before === undefined ? '' : `, up from ${beforeSupported} of ${beforeTotal} (${(100 * beforeSupported / beforeTotal).toFixed(1)} %) before this track`}.`);
+  lines.push(`* Class names that compile: **${supported} of ${total}** (${(100 * supported / total).toFixed(1)} %)${before === undefined ? '' : `, up from ${beforeSupported} of ${beforeTotal} (${(100 * beforeSupported / beforeTotal).toFixed(1)} %) on main at d282fee, before this batch of tracks`}.`);
   const supportedVariants = variants.filter(entry => entry.supported).length;
-  lines.push(`* Variants (of ${variants.length} probed, covering every family of v3.4.17): **${supportedVariants} compile**${variantsBefore === undefined ? '' : `, up from ${variantsBefore.filter(entry => entry.supported).length}`}.`, '');
+  lines.push(`* Variants (of ${variants.length} probed, covering every family of v3.4.17): **${supportedVariants} compile**${variantsBefore === undefined ? '' : `, up from ${variantsBefore.filter(entry => entry.supported).length} before`}.`, '');
   lines.push('## Core plugins', '');
   lines.push('| plugin | classes | compile | before | status |', '| --- | ---: | ---: | ---: | --- |');
   for (const row of results) {

@@ -336,8 +336,8 @@ const misc: LayoutPage = {
       box('misc.invisible.b', `w-16 h-10 ${EMERALD}`),
     ]),
     stage('misc.clip', 'overflow-clip clips the child to the box', 'w-[240px] h-[60px] flex-row items-start gap-2', [
-      box('misc.clip.a', `w-16 h-8 overflow-clip bg-slate-300`, [box('misc.clip.a.1', `w-32 h-12 ${INDIGO}`)]),
-      box('misc.clip.b', `w-16 h-8 overflow-visible bg-slate-300`, [box('misc.clip.b.1', `w-8 h-12 ${EMERALD}`)]),
+      box('misc.clip.a', `w-16 h-8 overflow-clip bg-slate-300`, [box('misc.clip.a.1', `w-32 h-12 shrink-0 ${INDIGO}`)]),
+      box('misc.clip.b', `w-16 h-8 overflow-visible bg-slate-300`, [box('misc.clip.b.1', `w-8 h-12 shrink-0 ${EMERALD}`)]),
     ]),
     stage('misc.hidden', 'hidden takes no space', 'w-[240px] h-[40px] flex-row gap-2', [
       box('misc.hidden.a', `w-10 h-6 ${INDIGO}`),
@@ -391,6 +391,9 @@ export function allClasses(): string[] {
   const add = (className: string): void => className.split(/\s+/).filter(Boolean).forEach(name => classes.add(name));
   [PAGE_CLASS, CAPTION_CLASS, CELL_CLASS].forEach(add);
   for (const page of LAYOUT_PAGES) pageBoxes(page).forEach(entry => add(entry.className));
+  TRANSITION_SCENARIOS.forEach(scenario => add(scenario.className));
+  // The transition page's own layout.
+  add('flex-row flex-wrap content-start gap-4 p-4 bg-slate-100 w-[1120px] gap-1 shrink-0 w-[260px]');
   return [...classes];
 }
 

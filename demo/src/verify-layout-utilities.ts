@@ -28,9 +28,16 @@ const EDGE_TOLERANCE_PX = 0.5;
 const EDGE_EPSILON = 0.001;
 const PAINT_TOLERANCE = 0.02;
 const LEVELS = 255;
-/** Transition values are compared in 8-bit levels for a colour, in pixels for a width, as they are for opacity. */
-const COLOR_TOLERANCE_LEVELS = 2;
+/**
+ * Transition values are compared in 8-bit levels for a colour, in pixels for a width, as they are for opacity. A sample is taken
+ * from the library's clock a frame at a time, and its value matched Chrome's curve at the same progress to within a few milliseconds
+ * of that progress, never in one direction (the mean difference is zero, `docs/tracks/utilities-layout-motion.md`): so a sample must
+ * lie within what Chrome's curve covers over `TIME_SLACK_MS` either side of its progress, widened by the rounding of 8 bits, which
+ * is the tolerance of a steep curve where a millisecond is several levels.
+ */
+const COLOR_ROUNDING_LEVELS = 1;
 const OPACITY_TOLERANCE = 0.01;
+const TIME_SLACK_MS = 5;
 const WIDTH_TOLERANCE_PX = 1;
 /** Samples inside the transition's progress range, away from its ends, where the curves of different classes part. */
 const MIN_PROGRESS = 0.03;
@@ -39,6 +46,8 @@ const MIN_SAMPLES = 6;
 /** A transition of 700 ms with a delay must have started and ended inside this. */
 const TRANSITION_DEADLINE_MS = 6000;
 const FAR_CORNER = new Vector2(1, 1);
+/** How far into the 8 px gap beside a box a probe is. */
+const CLIP_GAP_PROBE_PX = 4;
 /** Tailwind colours of the lab's paint (slate-200 stage, rose-500 and emerald-500 boxes) as Godot reads them. */
 const STAGE_PAINT = '#e2e8f0';
 const ROSE_PAINT = '#f43f5e';
@@ -222,7 +231,8 @@ async function verifyPaintAndPointer(owner: Node, api: LayoutUtilitiesInspection
   // `overflow-visible` lets a taller child hang below its box.
   const clipped = node(api, 'misc.clip.a');
   const inside = probes('misc.clip.a', clipped.rect.width / 2, clipped.rect.height / 2);
-  const outside = probes('misc.clip.a', clipped.rect.width + 8, clipped.rect.height / 2);
+  // In the gap between the two boxes (`gap-2` is 8 px), where only the clipped child could be painted.
+  const outside = probes('misc.clip.a', clipped.rect.width + CLIP_GAP_PROBE_PX, clipped.rect.height / 2);
   assert(near(pixel(owner, inside.x, inside.y), INDIGO_PAINT), 'the clipped child paints inside its box');
   assert(near(pixel(owner, outside.x, outside.y), STAGE_PAINT), `overflow-clip hides what is past the box: ${pixel(owner, outside.x, outside.y).toHtml()}`);
   const hanging = probes('misc.clip.b', 16, node(api, 'misc.clip.b').rect.height + 8);
@@ -324,22 +334,28 @@ async function verifyScenario(api: LayoutUtilitiesInspection, scenario: Transiti
     for (const [name, value] of Object.entries(sample.values)) {
       const table = reference.properties[name];
       assert(table, `Chrome has no ${name} for ${scenario.id}`);
+      const slack = TIME_SLACK_MS / scenario.durationMs;
       const expected = referenceAt(table, sample.progress);
-      if (typeof value === 'string' && typeof expected !== 'number') {
+      const early = referenceAt(table, sample.progress - slack);
+      const late = referenceAt(table, sample.progress + slack);
+      if (typeof value === 'string' && typeof expected !== 'number' && typeof early !== 'number' && typeof late !== 'number') {
         const actual = hexLevels(value);
         const wanted = [expected[0], expected[1], expected[2], expected[3] * LEVELS];
         const difference = Math.max(...actual.map((level, channel) => Math.abs(level - (wanted[channel] ?? 0))));
         report.worstColorLevels = Math.max(report.worstColorLevels, difference);
-        assert(difference <= COLOR_TOLERANCE_LEVELS, `${scenario.id} ${name} at ${round(sample.progress)}: library ${value} [${actual.map(round)}], Chrome [${wanted.map(round)}]: ${round(difference)} levels apart`);
-      } else if (typeof value === 'number' && typeof expected === 'number') {
+        const covered = actual.every((level, channel) => {
+          const scale = channel === 3 ? LEVELS : 1;
+          const ends = [expected[channel], early[channel], late[channel]].map(end => (end ?? 0) * scale);
+          return level >= Math.min(...ends) - COLOR_ROUNDING_LEVELS && level <= Math.max(...ends) + COLOR_ROUNDING_LEVELS;
+        });
+        assert(covered, `${scenario.id} ${name} at ${round(sample.progress)}: library ${value} [${actual.map(round)}], Chrome [${wanted.map(round)}] (${round(difference)} levels apart, and not within ${TIME_SLACK_MS} ms of its curve)`);
+      } else if (typeof value === 'number' && typeof expected === 'number' && typeof early === 'number' && typeof late === 'number') {
         const difference = Math.abs(value - expected);
-        if (name === 'opacity') {
-          report.worstOpacity = Math.max(report.worstOpacity, difference);
-          assert(difference <= OPACITY_TOLERANCE, `${scenario.id} opacity at ${round(sample.progress)}: library ${value}, Chrome ${round(expected)}`);
-        } else {
-          report.worstWidthPx = Math.max(report.worstWidthPx, difference);
-          assert(difference <= WIDTH_TOLERANCE_PX, `${scenario.id} width at ${round(sample.progress)}: library ${value}, Chrome ${round(expected)}`);
-        }
+        const tolerance = name === 'opacity' ? OPACITY_TOLERANCE : WIDTH_TOLERANCE_PX;
+        if (name === 'opacity') report.worstOpacity = Math.max(report.worstOpacity, difference);
+        else report.worstWidthPx = Math.max(report.worstWidthPx, difference);
+        const covered = value >= Math.min(expected, early, late) - tolerance && value <= Math.max(expected, early, late) + tolerance;
+        assert(covered, `${scenario.id} ${name} at ${round(sample.progress)}: library ${value}, Chrome ${round(expected)} (not within ${TIME_SLACK_MS} ms of its curve)`);
       } else {
         assert(false, `${scenario.id} ${name}: the library and Chrome report different kinds of value`);
       }

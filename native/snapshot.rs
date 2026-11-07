@@ -36,6 +36,7 @@ impl ReactUiRoot {
                 "width": viewport.width, "height": viewport.height,
                 "widthIsAuto": false, "heightIsAuto": false,
                 "opacity": 1.0, "backgroundColor": "#00000000",
+                "color": "#ffffffff", "borderColor": "#00000000",
             },
         })];
         let document_index: std::collections::HashMap<u32, usize> = self
