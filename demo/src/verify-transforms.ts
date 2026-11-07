@@ -383,8 +383,10 @@ async function checkDrag(api: TransformsInspection, capture: TransformsCapture):
   const source = node(api, 'drag-source');
   const target = node(api, 'drag-target');
   const empty = new Vector2(source.rect.x + PROBE_INSET_PX, source.rect.y + PROBE_INSET_PX);
+  // `session` counts the run's drags, and an earlier section may have made some.
+  const sessions = api.snapshot().drag.session;
   await dragFromTo(empty, centreOf(target.rect));
-  assert(api.snapshot().drag.session === 0, 'A drag that starts in an empty corner of the box round the turned source does not start');
+  assert(api.snapshot().drag.session === sessions, 'A drag that starts in an empty corner of the box round the turned source does not start');
   assert(node(api, 'drag-dropped').text === 'none', 'and drops nothing');
   const seen: { ghost: NativeSnapshot['drag']['ghost'] } = { ghost: null };
   await dragFromTo(centreOf(source.rect), centreOf(target.rect), () => { seen.ghost = api.snapshot().drag.ghost; });
