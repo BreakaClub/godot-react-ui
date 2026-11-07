@@ -90,12 +90,16 @@ function helpers(context) {
     await frames();
   };
   const pageBackground = async () => (await find('inputs-lab')).presentation.backgroundColor.slice(0, 7).toLowerCase();
+  // One snapshot answers it: reading each line with `text` takes a snapshot of its own, and a window still following a scroll drops a line
+  // between the two.
   const drawnLines = async () => {
     const data = await snapshot();
+    const byId = new Map(data.nodes.map((node) => [node.id, node]));
+    const textOf = (node) => node.text + node.children.map((id) => textOf(byId.get(id))).join('');
     const lines = new Map();
     for (const entry of data.nodes) {
       const match = /^code-line-(\d+)$/u.exec(String(entry.props?.testID ?? ''));
-      if (match !== null) lines.set(Number(match[1]), await text(String(entry.props.testID)));
+      if (match !== null) lines.set(Number(match[1]), textOf(entry));
     }
     return lines;
   };

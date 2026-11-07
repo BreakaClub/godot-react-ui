@@ -13,6 +13,7 @@ import {
 } from '../geometry';
 import { THEME } from '../theme';
 import type { EditorWorkspace, FileEditor } from '../workspace';
+import { SINK_TEXT } from '../sink';
 import { Autoscroll } from './autoscroll';
 import { ClickSequence } from './click-sequence';
 import { Carets, type CaretRect } from './carets';
@@ -347,6 +348,7 @@ export function EditorView({ workspace, file }: EditorViewProps) {
               role="textbox"
               multiline
               autoFocus
+              defaultValue={SINK_TEXT}
               className="absolute opacity-0 pointer-events-none"
               style={{
                 left: main === undefined ? 0 : xOfColumn(main.column, grid),

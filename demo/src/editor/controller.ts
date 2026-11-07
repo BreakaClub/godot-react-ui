@@ -14,6 +14,7 @@ import {
 } from './commands';
 import type { EditorDiagnostic, EditorInlay } from './diagnostics';
 import { HighlightCache, ParseScheduler } from './highlight';
+import { SINK_TEXT, decodeSoftKeyboardText } from './sink';
 import { Keymap, codeMirrorCommand, type KeyChord, type Platform } from './keymap';
 import {
   LineSpecCache, buildLine, insertionsFor, matchedBrackets, type Composition, type LineSpec,
@@ -75,6 +76,9 @@ const SOFT_KEYBOARD_PRESS_WINDOW_MS = 250;
 
 /** How long a composition that has ended waits for the commit that follows it before its preedit is taken away. */
 const COMPOSITION_COMMIT_WAIT_MS = 50;
+
+/** The text the editor's input holds (`sink.ts`). */
+export { SINK_TEXT };
 
 export class EditorController {
   readonly model: EditorModel;
@@ -266,7 +270,8 @@ export class EditorController {
     const context = this.commandContext();
     switch (kind) {
       case 'insertReplacementText':
-        // The soft keyboard's element holds the whole text it sent, and the engine moves the caret in it by pressing Right.
+        // The soft keyboard's element holds the whole text it sent (the input's one character and what was typed, or nothing for a
+        // Backspace), and the engine moves the caret in it by pressing Right.
         this.softKeyboardPresses = { remaining: data?.length ?? 0, at: timeStamp };
         this.typeSoftKeyboardText(context, data);
         return;
@@ -292,9 +297,11 @@ export class EditorController {
   }
 
   private typeSoftKeyboardText(context: CommandContext, data: string | null): void {
+    const input = decodeSoftKeyboardText(data);
     const composed = this.currentComposition !== undefined;
     this.endComposition();
-    typeText(context, data ?? '', composed ? 'input.type.compose' : 'input.type');
+    if (input.kind === 'backspace') this.run(codeMirrorCommand(deleteCharBackward));
+    else typeText(context, input.text, composed ? 'input.type.compose' : 'input.type');
   }
 
   /** Whether a key is one of the Right presses the engine makes after a soft keyboard's text: consumed, and counted off. */

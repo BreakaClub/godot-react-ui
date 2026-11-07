@@ -9,6 +9,7 @@ import * as library from '../src';
 import { View } from '../src';
 import { CodeEditor } from '../demo/src/code-editor';
 import { MemoryClipboard } from '../demo/src/editor/clipboard';
+import { SINK_TEXT } from '../demo/src/editor/sink';
 import { gutterWidthFor } from '../demo/src/editor/geometry';
 import { openLabCode, releaseLabCode, type CodeSupport, type LabCode } from '../demo/src/editor/lab-code';
 import { HOVER_DELAY_MS } from '../demo/src/editor/view/hover';
@@ -262,7 +263,7 @@ panelTest('typing is on the page after the pause, the counter keeps its count, a
   assert.equal(workspace(s).run.kind, 'swapped', workspace(s).run.message);
   assert.match(textOf(s, 'code-status-run'), /^Swapped in /u);
   assert.equal(textOf(s, 'inputs-next'), 'Next 2', 'state kept');
-  assert.equal(s.host.textInputs.get(tag(s, 'editor-input-sink'))?.value, '', 'the input\'s own buffer never holds text');
+  assert.equal(s.host.textInputs.get(tag(s, 'editor-input-sink'))?.value, SINK_TEXT, 'the input\'s own buffer is never edited');
 });
 
 /** The style of the run of line `number` that holds `text`, or undefined. */
@@ -404,7 +405,7 @@ panelTest('undo, copy, cut and paste work from the keyboard, and the keys the ed
   assert.equal(controller.model.text.startsWith('XY'), true, 'and the paste went into the document');
   assert.equal(s.host.keyDown(s.uiRoot, 'ArrowRight').prevented, true);
   assert.equal(s.host.keyDown(s.uiRoot, 'a').prevented, false, 'a letter is for beforeinput');
-  assert.equal(s.host.textInputs.get(tag(s, 'editor-input-sink'))?.value, '', 'the input\'s buffer is still empty');
+  assert.equal(s.host.textInputs.get(tag(s, 'editor-input-sink'))?.value, SINK_TEXT, 'the input\'s buffer is still the one character');
   const rejected = s.host.beforeInputs.filter(entry => !entry.prevented);
   assert.deepEqual(rejected, [], 'every beforeinput was answered by preventing it');
 });

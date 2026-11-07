@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { SINK_TEXT } from '../demo/src/editor/sink';
 import { keyEvent, openEditor, parseMarked, marked } from './editor-helpers';
 
 // The editor's model and keymap, in Node with no Godot and no React: what a key, a typed character, a paste or a pointer press does
@@ -403,19 +404,34 @@ test('a drag selects between where it began and where it is; Shift+click extends
 test('a soft keyboard\'s text is typed, and the Right presses the engine makes after it are not the person\'s', () => {
   const editor = openEditor('ab|cd');
   const right = (timeStamp: number) => editor.editor.keyDown({ ...keyEvent('ArrowRight'), timeStamp });
-  editor.editor.beforeInput('insertReplacementText', 'XY', 1000);
+  editor.editor.beforeInput('insertReplacementText', `${SINK_TEXT}XY`, 1000);
   assert.equal(editor.marked(), 'abXY|cd');
   assert.equal(right(1010), true, 'the first press is the engine\'s');
   assert.equal(right(1011), true, 'and the second');
-  assert.equal(editor.marked(), 'abXY|cd', 'neither moved the caret');
-  right(1012);
-  assert.equal(editor.marked(), 'abXYc|d', 'a third is the person\'s');
+  assert.equal(right(1012), true, 'and the third: one for each character of the element\'s text, the input\'s own among them');
+  assert.equal(editor.marked(), 'abXY|cd', 'none moved the caret');
+  right(1013);
+  assert.equal(editor.marked(), 'abXYc|d', 'a fourth is the person\'s');
   const late = openEditor('ab|cd');
-  late.editor.beforeInput('insertReplacementText', 'X', 1000);
+  late.editor.beforeInput('insertReplacementText', `${SINK_TEXT}X`, 1000);
   late.editor.keyDown({ ...keyEvent('ArrowRight'), timeStamp: 1000 + 500 });
   assert.equal(late.marked(), 'abXc|d', 'a Right long after the text is an arrow');
   const modified = openEditor('ab|cd');
-  modified.editor.beforeInput('insertReplacementText', 'X', 1000);
+  modified.editor.beforeInput('insertReplacementText', `${SINK_TEXT}X`, 1000);
   modified.editor.keyDown({ ...keyEvent('ArrowRight', { shift: true }), timeStamp: 1001 });
   assert.equal(modified.marked(), 'abX<c>d', 'Shift+Right is never the engine\'s');
+});
+
+test('a soft keyboard\'s Backspace is an empty text: the input\'s one character was deleted, and a character of the document goes', () => {
+  const editor = openEditor('abc|');
+  editor.editor.beforeInput('insertReplacementText', '', 1000);
+  assert.equal(editor.marked(), 'ab|');
+  editor.editor.beforeInput('insertReplacementText', `${SINK_TEXT}Q`, 2000);
+  assert.equal(editor.marked(), 'abQ|');
+  const start = openEditor('|abc');
+  start.editor.beforeInput('insertReplacementText', '', 1000);
+  assert.equal(start.marked(), '|abc', 'at the start of the document there is nothing to delete');
+  const beside = openEditor('ab|cd');
+  beside.editor.beforeInput('insertReplacementText', `X${SINK_TEXT}`, 1000);
+  assert.equal(beside.marked(), 'abX|cd', 'the keyboard\'s caret may have been left before the input\'s character');
 });
