@@ -351,6 +351,8 @@ const GUARDS: Record<string, readonly string[]> = {
   'build-web.mjs': ['beginBuild(', 'requireInstalledWasm('],
   'dev.mjs': ['prepareNative('],
   'generate-types.mjs': ['prepareNative(', 'generateStockTypings('],
+  // Reads the captures a verifier left and lays them out: it runs no build, so there is nothing to guard.
+  'navigator-captures.mjs': [],
   'probe-web.mjs': ['requireFreshWebExport('],
   'run.mjs': ['prepareNative('],
   'serve-web.mjs': ['requireFreshWebExport('],

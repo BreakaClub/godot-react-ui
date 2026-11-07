@@ -13,7 +13,7 @@ export const DEMO_ENTRY_POINTS = [
   'demo/src/world-main.ts', 'demo/src/world-geometry.ts', 'demo/src/verify-world.ts', 'demo/src/scene-launcher.ts',
   'demo/src/verifier-input.ts', 'demo/src/verify-text-input.ts',
   // The lab navigator (`demo/src/navigator.tsx`, bundled into main): what a run opens with, and the way back from a lab that is a scene.
-  'demo/src/launch.ts', 'demo/src/scene-return.ts',
+  'demo/src/launch.ts', 'demo/src/scene-return.ts', 'demo/src/verify-navigator.ts',
   // The text layout probe scene (docs/tracks/text-layout.md) has its own owner and verifier.
   'demo/src/text-layout-probe.ts', 'demo/src/verify-text-layout.ts',
   // The accessibility lab (docs/tracks/accessibility.md): its owner and its verifier.
