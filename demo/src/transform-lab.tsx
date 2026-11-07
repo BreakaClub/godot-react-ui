@@ -75,7 +75,7 @@ const BEHAVIOUR_OPTIONS: readonly CaseOption[] = [
   { id: 'loop', label: 'Looping transform animation', caption: 'Continuous multi-step transform + colour loop driven by a timer.' },
   { id: 'starting', label: '@starting-style (starting: mount transition)', caption: 'Tailwind starting: variant animates opacity, scale, rotate and translate on mount.' },
   { id: 'contain', label: 'Containing block of a transformed element', caption: 'An absolute and a fixed child are placed in a translated static parent, as in CSS.' },
-  { id: 'edge', label: 'Squeezed edges (antialiasing on one axis)', caption: 'A rounded box, a plain one and a thin outline scaled 0.6 on y, and a plain square turned 30 degrees: every edge keeps a one-pixel antialiasing ramp.' },
+  { id: 'edge', label: 'Squeezed edges (antialiasing on one axis)', caption: 'A rounded box, a plain one and a thin outline scaled 0.6 on y, and a plain square and two gradient boxes turned 30 degrees: every edge keeps a one-pixel antialiasing ramp.' },
   { id: 'hit', label: 'Hit testing (rotated & scaled)', caption: 'Click the turned bar, the scaled parent and its rotated child.' },
   { id: 'hover', label: 'Hover scale (1.25x)', caption: 'Hover the card: hit testing grows with the scaled box.' },
   { id: 'utilities', label: 'Tailwind transform utilities', caption: '-translate-x-1/2 -translate-y-1/4 rotate-6 hover:scale-110 origin-top-left.' },
@@ -244,6 +244,23 @@ function EdgePage() {
           position: 'absolute', left: BEHAVIOUR.edgeRing.left, top: BEHAVIOUR.edgeRing.top, width: BEHAVIOUR.edgeRing.width, height: BEHAVIOUR.edgeRing.height,
           borderRadius: BEHAVIOUR.edgeRing.radius, borderWidth: BEHAVIOUR.edgeRing.border, borderColor: '#b45309',
           transform: BEHAVIOUR.edgeRing.transform, transformOrigin: 'top',
+        }}
+      />
+      <View
+        testID="edge-gradient"
+        className="bg-gradient-to-r from-indigo-500 to-indigo-500"
+        style={{
+          position: 'absolute', left: BEHAVIOUR.turnedGradient.left, top: BEHAVIOUR.turnedGradient.top,
+          width: BEHAVIOUR.turnedGradient.size, height: BEHAVIOUR.turnedGradient.size, transform: BEHAVIOUR.turnedGradient.transform,
+        }}
+      />
+      <View
+        testID="edge-gradient-ring"
+        className="bg-gradient-to-r from-indigo-500 to-indigo-500 border-indigo-500"
+        style={{
+          position: 'absolute', left: BEHAVIOUR.turnedGradientRing.left, top: BEHAVIOUR.turnedGradientRing.top,
+          width: BEHAVIOUR.turnedGradientRing.size, height: BEHAVIOUR.turnedGradientRing.size, borderWidth: BEHAVIOUR.turnedGradientRing.border,
+          borderRadius: BEHAVIOUR.turnedGradientRing.radius, transform: BEHAVIOUR.turnedGradientRing.transform,
         }}
       />
       <View

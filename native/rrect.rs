@@ -441,9 +441,10 @@ mod tests {
         let amount = |nx: f32, ny: f32| (4.0 * nx * nx + 36.0 * ny * ny).sqrt();
         let rect = RRect::from_box(40.0, 30.0, [8.0; 4]);
         let grown = rect.outline(8, amount);
-        let extreme = |by: fn(&Vertex) -> f32| grown.iter().map(by).fold(f32::INFINITY, f32::min);
-        close(extreme(|point| point.y), -6.0);
-        close(extreme(|point| point.x), -2.0);
+        // The arc leaves the left edge going left by the amount across a vertical edge (the first vertex of the top left corner) and
+        // reaches the top edge going up by the amount across a horizontal one (its last).
+        close(grown[0].x, -2.0);
+        close(grown[8].y, -6.0);
         // A square corner moves by the amount for each axis, diagonally.
         let square = RRect::from_box(40.0, 30.0, [0.0; 4]);
         let corner = square.outline(3, amount)[0];

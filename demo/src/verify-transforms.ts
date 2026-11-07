@@ -427,14 +427,30 @@ function squeezedRingProblems(image: Image, ratio: number, api: TransformsInspec
   return problems;
 }
 
+/** The box a turn check reads, the channel its fill differs from the stage in, and the fill's level in it (the stage's is `STAGE_COLOR`'s). */
+interface TurnedBox {
+  readonly testID: 'edge-square' | 'edge-gradient' | 'edge-gradient-ring';
+  readonly channel: 'r' | 'b';
+  readonly fill: number;
+  readonly what: string;
+}
+
+const TURNED_SQUARE: TurnedBox = { testID: 'edge-square', channel: 'b', fill: EDGE_FILL_BLUE, what: 'A square box' };
+/** indigo-500 (`#6366f1`), the colour of the gradient boxes' stops and border: red is what differs most from the stage. */
+const TURNED_GRADIENT_FILL = 0x63 / LEVELS;
+const TURNED_GRADIENT: TurnedBox = { testID: 'edge-gradient', channel: 'r', fill: TURNED_GRADIENT_FILL, what: 'A square box with a gradient' };
+const TURNED_GRADIENT_RING: TurnedBox = { testID: 'edge-gradient-ring', channel: 'r', fill: TURNED_GRADIENT_FILL, what: 'A rounded box with a gradient and a border' };
+
 /**
- * A plain square-cornered box turned 30 degrees has antialiased edges: across its slanted left edge, most scanlines have a partly
- * covered pixel. `StyleBoxFlat` antialiases only boxes with a rounded corner (or a skew), so a square box drew every edge hard
- * and a turned one came out as a staircase where a browser's is smooth.
+ * A box turned 30 degrees has antialiased edges: across its slanted left edge, most scanlines have a partly covered pixel.
+ * `StyleBoxFlat` antialiases only boxes with a rounded corner (or a skew), so a square box drew every edge hard and a turned one
+ * came out as a staircase where a browser's is smooth. A box with a gradient or a border is drawn in layers (the fill, the gradient,
+ * the border), each of which must be as soft.
  */
-function turnedSquareProblems(image: Image, ratio: number, api: TransformsInspection, suffix: string): string[] {
-  const { rect } = node(api, 'edge-square');
-  const coverageAt = (x: number, y: number): number => (STAGE_COLOR.b - image.getPixel(x, y).b) / (STAGE_COLOR.b - EDGE_FILL_BLUE);
+function turnedBoxProblems(image: Image, ratio: number, api: TransformsInspection, suffix: string, box: TurnedBox): string[] {
+  const { rect } = node(api, box.testID);
+  const stage = STAGE_COLOR[box.channel];
+  const coverageAt = (x: number, y: number): number => (stage - image.getPixel(x, y)[box.channel]) / (stage - box.fill);
   const top = Math.round((rect.y + rect.height * 0.3) * ratio);
   const bottom = Math.round((rect.y + rect.height * 0.7) * ratio);
   let rows = 0;
@@ -453,8 +469,8 @@ function turnedSquareProblems(image: Image, ratio: number, api: TransformsInspec
     if (soft) softRows += 1;
   }
   const share = softRows / Math.max(1, rows);
-  console.log('GODOT_REACT_TRANSFORMS_MEASURE', JSON.stringify({ turnedSquare: suffix, rows, antialiasedRowShare: round(share, 3) }));
-  return share >= SLANTED_EDGE_ROWS_ANTIALIASED ? [] : [`A square box turned 30 degrees has antialiased edges (${suffix}): ${round(share * 100, 1)}% of the scanlines across its left edge show a partly covered pixel`];
+  console.log('GODOT_REACT_TRANSFORMS_MEASURE', JSON.stringify({ turnedBox: box.testID, suffix, rows, antialiasedRowShare: round(share, 3) }));
+  return share >= SLANTED_EDGE_ROWS_ANTIALIASED ? [] : [`${box.what} turned 30 degrees has antialiased edges (${suffix}): ${round(share * 100, 1)}% of the scanlines across its left edge show a partly covered pixel`];
 }
 
 /** What the edge checks found wrong, kept until the section's end so one run shows every device pixel ratio. */
@@ -468,7 +484,9 @@ async function checkEdges(owner: Node, api: TransformsInspection, suffix: string
     ...squeezedEdgeProblems(image, ratio, api, suffix, 'edge-box'),
     ...squeezedEdgeProblems(image, ratio, api, suffix, 'edge-flat'),
     ...squeezedRingProblems(image, ratio, api, suffix),
-    ...turnedSquareProblems(image, ratio, api, suffix),
+    ...turnedBoxProblems(image, ratio, api, suffix, TURNED_SQUARE),
+    ...turnedBoxProblems(image, ratio, api, suffix, TURNED_GRADIENT),
+    ...turnedBoxProblems(image, ratio, api, suffix, TURNED_GRADIENT_RING),
   );
 }
 
@@ -985,8 +1003,13 @@ const TRANSFORM_FAULT_CONTROLS: readonly TransformFaultControl[] = [
   },
   {
     fault: 'transform-boxes-hard', guards: 'a square box turned 30 degrees has antialiased edges',
-    run: (owner, api) => assertEdges(owner, api, 'dpr1', (image, ratio) => turnedSquareProblems(image, ratio, api, 'dpr1')),
+    run: (owner, api) => assertEdges(owner, api, 'dpr1', (image, ratio) => turnedBoxProblems(image, ratio, api, 'dpr1', TURNED_SQUARE)),
     fails: /A square box turned 30 degrees has antialiased edges/u,
+  },
+  {
+    fault: 'transform-boxes-hard', guards: 'a square box with a gradient, turned 30 degrees, has antialiased edges',
+    run: (owner, api) => assertEdges(owner, api, 'dpr1', (image, ratio) => turnedBoxProblems(image, ratio, api, 'dpr1', TURNED_GRADIENT)),
+    fails: /A square box with a gradient turned 30 degrees has antialiased edges/u,
   },
   {
     fault: 'transform-no-containing-block', guards: 'a transformed element is the containing block of its absolute and fixed children',

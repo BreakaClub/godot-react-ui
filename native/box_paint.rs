@@ -200,8 +200,10 @@ impl BoxKey {
             .decoration
             .as_ref()
             .map_or([0.0; 4], |decoration| decoration.reach());
+        // A vertex of the feather's band is half the feather away from the true edge, along its normal, and the feather across any
+        // normal is at most the two axes' together.
         let reach = self.feather.map_or(Vector2::ZERO, |feather| {
-            Vector2::new(feather.x(), feather.y()) / 2.0
+            Vector2::splat((feather.x() + feather.y()) / 2.0)
         });
         Rect2::new(
             Vector2::new(-left - reach.x, -top - reach.y),
@@ -530,5 +532,21 @@ mod tests {
         // sigma 10, three sigmas 30, spread -4: 26 around, moved down 10.
         assert!(rect.position.x <= -26.0 + 1e-3 && rect.position.y <= -16.0 + 1e-3);
         assert!(rect.size.x >= 100.0 + 52.0 - 1e-3 && rect.size.y >= 50.0 + 52.0 - 1e-3);
+    }
+
+    #[test]
+    fn the_paint_rect_reaches_the_feather_of_a_box_under_a_transform() {
+        let key = BoxKey {
+            size: Vector2::new(100.0, 50.0),
+            background: Color::WHITE,
+            border: BorderKey::new([0.0; 4], [Color::WHITE; 4], [4.0; 4]),
+            decoration: None,
+            oversampling: Oversampling::NONE,
+            feather: Some(Feather::from_axes([1.0, 0.0], [0.0, 2.5])),
+        };
+        let rect = key.paint_rect();
+        // A vertex of the band is half the feather from the edge: 1.25 along y here, 0.5 along x, and no more than 1.75 any way.
+        assert!(rect.position.x <= -1.75 + 1e-3 && rect.position.y <= -1.75 + 1e-3);
+        assert!(rect.size.x >= 100.0 + 3.5 - 1e-3 && rect.size.y >= 50.0 + 3.5 - 1e-3);
     }
 }

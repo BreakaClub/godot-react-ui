@@ -269,18 +269,37 @@ fn loop_of(rect: &RRect, segments: usize, feather: Feather, by: f32) -> Vec<Vert
     rect.outline(segments, |nx, ny| by * feather.along(nx, ny))
 }
 
+/// How much of its feather a shape's thinner dimension is, at most 1. A shape thinner than the filter that antialiases it peaks
+/// below full alpha (a hairline reads the share of a pixel it covers).
+fn peak(rect: &RRect, feather: Feather) -> f32 {
+    (rect.width() / feather.x().max(MIN_FEATHER))
+        .min(rect.height() / feather.y().max(MIN_FEATHER))
+        .min(1.0)
+}
+
+/// The outline of `rect` moved in by half the feather, but never further than the middle of the shape along the same normal: a
+/// shape thinner than its feather would otherwise cross itself. The loops of such a shape collapse onto its middle line, where
+/// the alpha is [`peak`] (a triangle across it, which reads a little less than the trapezoid of a rectangle; the grid is exact).
+fn inner_loop(rect: &RRect, segments: usize, feather: Feather) -> Vec<Vertex> {
+    rect.outline(segments, |nx, ny| {
+        let middle = 0.5 * (nx.abs() * rect.width() + ny.abs() * rect.height());
+        -(0.5 * feather.along(nx, ny)).min(middle)
+    })
+}
+
 fn rounded_fill(rect: &RRect, feather: Feather) -> Mesh {
     let mut mesh = Mesh::default();
     let segments = segments_for(rect);
-    let inner = loop_of(rect, segments, feather, -0.5);
+    let inner = inner_loop(rect, segments, feather);
+    let inside = peak(rect, feather);
     let centre = mesh.push(Point {
         x: (rect.x0 + rect.x1) * 0.5,
         y: (rect.y0 + rect.y1) * 0.5,
-        alpha: 1.0,
+        alpha: inside,
     });
     let inner_ids: Vec<u32> = inner
         .iter()
-        .map(|vertex| mesh.push(moved(vertex, 1.0)))
+        .map(|vertex| mesh.push(moved(vertex, inside)))
         .collect();
     let count = inner_ids.len();
     for index in 0..count {
@@ -324,7 +343,8 @@ fn thickness_in_feathers(outer: &[Vertex], inner: &[Vertex], feather: Feather) -
 
 /// A ring of four loops: out of the outer edge (alpha 0), into the outer edge (alpha 1), out of the inner edge, towards the ring
 /// (alpha 1), into the inner edge's hole (alpha 0). Where the ring is thinner than the feather the two middle loops swap and
-/// reach only the share of the feather the ring is thick (a trapezoid rather than a plateau).
+/// reach only the share of the feather the ring is thick (a trapezoid rather than a plateau). A hole thinner than the feather is
+/// not empty on its middle line: the ring covers what the hole does not.
 fn rounded_ring(outer: &RRect, inner: &RRect, feather: Feather) -> Mesh {
     if inner.width() <= 0.0 || inner.height() <= 0.0 {
         return fill(outer, feather);
@@ -336,7 +356,8 @@ fn rounded_ring(outer: &RRect, inner: &RRect, feather: Feather) -> Mesh {
     let outside = loop_of(outer, segments, feather, 0.5);
     let outer_in = loop_of(outer, segments, feather, -0.5);
     let inner_out = loop_of(inner, segments, feather, 0.5);
-    let hole = loop_of(inner, segments, feather, -0.5);
+    let hole = inner_loop(inner, segments, feather);
+    let hole_alpha = 1.0 - peak(inner, feather);
     let mut mesh = Mesh::default();
     for index in 0..outside.len() {
         let alpha = thickness[index].min(1.0);
@@ -348,7 +369,7 @@ fn rounded_ring(outer: &RRect, inner: &RRect, feather: Feather) -> Mesh {
         mesh.push(moved(&outside[index], 0.0));
         mesh.push(moved(first, alpha));
         mesh.push(moved(second, alpha));
-        mesh.push(moved(&hole[index], 0.0));
+        mesh.push(moved(&hole[index], hole_alpha));
     }
     let count = outside.len();
     let id = |index: usize, layer: usize| (index % count * 4 + layer) as u32;
@@ -798,6 +819,42 @@ pub(crate) mod tests {
         near(sample(&thin, 50.0, 0.0), 0.5);
     }
 
+    /// A hairline pill reads the share of a pixel it covers, and its loops do not cross themselves.
+    #[test]
+    fn a_rounded_fill_thinner_than_its_feather_peaks_at_the_share_it_covers() {
+        let bar = RRect::from_box(100.0, 0.5, [9999.0; 4]);
+        let mesh = fill(&bar, ONE);
+        assert!(mesh.points.iter().all(|point| point.alpha <= 0.5 + 1e-5));
+        near(sample(&mesh, 50.0, 0.25), 0.5);
+        near(sample(&mesh, 50.0, -0.5), 0.0);
+        near(sample(&mesh, 50.0, 1.0), 0.0);
+        // No triangle is turned over: every one has the winding of the first.
+        let area = |triangle: &[u32]| {
+            let [a, b, c] =
+                [triangle[0], triangle[1], triangle[2]].map(|index| mesh.points[index as usize]);
+            (b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y)
+        };
+        let signs: Vec<bool> = mesh
+            .indices
+            .chunks(3)
+            .map(area)
+            .filter(|area| area.abs() > 1e-9)
+            .map(|area| area > 0.0)
+            .collect();
+        assert!(signs.iter().all(|sign| *sign == signs[0]));
+    }
+
+    /// The hole of a ring is not empty on its middle line when it is thinner than the feather: the ring covers what it does not.
+    #[test]
+    fn a_ring_round_a_hole_thinner_than_the_feather_covers_what_the_hole_does_not() {
+        let outer = RRect::from_box(20.0, 10.0, [2.0; 4]);
+        let inner = outer.padding_box([4.7, 4.7, 4.7, 4.7]);
+        assert!(inner.height() < 1.0);
+        let mesh = ring(&outer, &inner, ONE);
+        near(sample(&mesh, 10.0, 5.0), 1.0 - inner.height());
+        near(sample(&mesh, 10.0, 2.0), 1.0);
+    }
+
     #[test]
     fn a_rounded_shape_with_a_square_corner_has_a_diagonal_one() {
         let shape = RRect::from_box(40.0, 30.0, [8.0, 8.0, 0.0, 0.0]);
@@ -1058,6 +1115,31 @@ pub(crate) mod tests {
     }
 
     /// A skew leans the two axes' vectors: the feather round a corner follows them, which lengths alone do not.
+    /// The cull rectangle of a box is its border box and half the two axes' feathers past it (`BoxKey::paint_rect`): no vertex of the
+    /// band lies further out, whatever the map and however small the corner.
+    #[test]
+    fn no_vertex_is_further_out_than_the_feathers_of_the_two_axes_together() {
+        for (name, map) in maps() {
+            let feather = map.feather();
+            let reach = (feather.x() + feather.y()) / 2.0;
+            for radius in [1.0, 2.0, 12.0] {
+                let shape = RRect::from_box(SHAPE_SIZE.0, SHAPE_SIZE.1, [radius; 4]);
+                let inner = shape.padding_box([3.0; 4]);
+                for mesh in [fill(&shape, feather), ring(&shape, &inner, feather)] {
+                    for point in &mesh.points {
+                        assert!(
+                            point.x >= -reach - 1e-3
+                                && point.x <= SHAPE_SIZE.0 + reach + 1e-3
+                                && point.y >= -reach - 1e-3
+                                && point.y <= SHAPE_SIZE.1 + reach + 1e-3,
+                            "{name}, radius {radius}: {point:?} is past {reach}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn a_skew_leans_the_feather_round_an_arc() {
         let shape = RRect::from_box(SHAPE_SIZE.0, SHAPE_SIZE.1, [12.0; 4]);

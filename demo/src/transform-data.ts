@@ -122,5 +122,11 @@ export const BEHAVIOUR = {
   edgeRing: { left: 340, top: 200, width: 140, height: 100, border: 1, radius: 8, transform: 'translateY(0.1px) scaleY(0.6)' },
   /** A plain square-cornered box turned 30 degrees: all four edges are slanted, so a hard edge shows as a staircase. */
   turnedSquare: { left: 340, top: 80, size: 100, transform: 'rotate(30deg)' },
+  /**
+   * The same turn for the layered drawing (a gradient over the fill, a border over the gradient): a square one with a gradient of one
+   * colour (so that its coverage reads from one channel), and a rounded one with a border of that colour. Their edges are as soft as the plain box's.
+   */
+  turnedGradient: { left: 24, top: 110, size: 56, transform: 'rotate(30deg)' },
+  turnedGradientRing: { left: 24, top: 200, size: 56, border: 4, radius: 10, transform: 'rotate(30deg)' },
   clipped: { left: 90, top: 100, size: 100, scale: 'scale(1.3)', rotate: 'rotate(30deg)', gap: 220 },
 } as const;
