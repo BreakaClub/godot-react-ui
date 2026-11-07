@@ -25,6 +25,7 @@ use crate::props::{
     TransitionProperty,
 };
 use crate::style_engine::{DimensionAxis, DimensionOverrides, blocked_properties, current_color};
+use crate::text_measure::MeasuredText;
 use crate::text_style::TextStyle;
 use crate::{MILLISECONDS_PER_SECOND, ReactUiRoot, TextContext};
 
@@ -772,7 +773,9 @@ impl ReactUiRoot {
                 probe
                     .set_node_context(
                         node.layout,
-                        Some(TextContext::Paragraph(Box::new(duplicate))),
+                        Some(TextContext::Paragraph(Box::new(MeasuredText::new(
+                            duplicate,
+                        )))),
                     )
                     .expect("known probe handle");
             }

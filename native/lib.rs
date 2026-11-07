@@ -57,6 +57,8 @@ mod text_input_godot;
 mod text_layout;
 #[cfg(feature = "probe")]
 mod text_layout_probe;
+// The sizes a text leaf has answered Taffy with, and what they say about whether a new text can change the layout.
+mod text_measure;
 // UTF-16 offsets against code point indices: text selection sends them to JS, text inputs both ways.
 mod text_offsets;
 // A node's shaped text: Godot's `TextParagraph` configured from the text style, measured, drawn and decorated.
@@ -116,6 +118,7 @@ use scroll_input::ScrollInputState;
 use selection_input::SelectionState;
 use style_engine::{DimensionAxis, DimensionOverrides, SampledStyle, StyleEngine};
 use text_input_godot::TextInputRoot;
+use text_measure::MeasuredText;
 use text_paragraph::StyledParagraph;
 
 const DEFAULT_FONT_SIZE: i32 = 16;
@@ -134,8 +137,8 @@ unsafe impl ExtensionLibrary for ReactUiExtension {}
 /// What Taffy measures a leaf with (the node context of a layout node).
 #[derive(Clone)]
 enum TextContext {
-    /// A `Text` node: its shaped paragraph, wrapped to the width Taffy offers.
-    Paragraph(Box<StyledParagraph>),
+    /// A `Text` node: its shaped paragraph, wrapped to the width Taffy offers, and the sizes it has given.
+    Paragraph(Box<MeasuredText<StyledParagraph>>),
     /// A `TextInput`: a size that never depends on its value (plan 3.18), so typing does not lay out.
     Intrinsic(Vector2),
 }

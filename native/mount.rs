@@ -21,6 +21,7 @@ use crate::computed_style::{
 use crate::diff::{Insertion, MountingTransaction, Parent, Removal};
 use crate::focus::FocusTree;
 use crate::geometry::{BoxRect, intersects};
+use crate::layout::replace_context;
 use crate::pointer::ButtonTree;
 use crate::profile::{Sample, micros};
 use crate::props::{
@@ -32,6 +33,7 @@ use crate::scroll_input::to_vector;
 use crate::stacking::{self, Frame, PaintTree, ScrollFrame, ScrollMode, Stacking, StackingTree};
 use crate::text_input::EditConfig;
 use crate::text_input_godot::TextInputState;
+use crate::text_measure::MeasuredText;
 use crate::text_paragraph::StyledParagraph;
 use crate::text_span::{self, RichText};
 use crate::text_style::TextStyle;
@@ -1207,16 +1209,15 @@ impl ReactUiRoot {
         node.visual.shown = shown_override;
         self.paragraph_generation += 1;
         node.visual.generation = self.paragraph_generation;
-        let context = node
-            .visual
-            .paragraph
-            .clone()
-            .map(|paragraph| crate::TextContext::Paragraph(Box::new(paragraph)));
+        let context =
+            node.visual.paragraph.clone().map(|paragraph| {
+                crate::TextContext::Paragraph(Box::new(MeasuredText::new(paragraph)))
+            });
         let has = context.is_some();
-        self.tree
-            .set_node_context(node.layout, context)
-            .expect("a mounted node has a layout node");
-        self.layout_dirty.insert(tag);
+        // A text that measures as the one it replaces to every question the layout put to that one cannot change the layout.
+        if replace_context(&mut self.tree, node.layout, context) {
+            self.layout_dirty.insert(tag);
+        }
         self.paint_dirty.insert(tag);
         self.content_generation += 1;
         if shown_changed {

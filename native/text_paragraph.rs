@@ -39,6 +39,12 @@ pub(crate) enum Offered {
     MaxContent,
 }
 
+impl crate::text_measure::Sizer for StyledParagraph {
+    fn size_at(&mut self, offered: Offered) -> Vector2 {
+        self.measure(offered)
+    }
+}
+
 /// A shaped paragraph and what is needed to measure it, draw it and lay it out for selection.
 #[derive(Clone)]
 pub(crate) struct StyledParagraph {
