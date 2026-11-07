@@ -258,6 +258,22 @@ panelTest('a typed character renders the panel once: no state is set to the valu
   assert.equal(s.renders.count - before, 1, 'and a Backspace is one render of the panel');
 });
 
+const KEYS_BEYOND_REACTS_NESTED_UPDATE_LIMIT = 120;
+
+panelTest('a long burst of keys is rendered key by key: no key leaves an update pending for the scheduler, which cannot run inside a burst', (s) => {
+  // React counts the commits in a row that leave a sync or default lane pending and throws at 50 (error 185). The verifier's `pressKey` sends a
+  // key's presses with no frame between, so nothing but the burst's own commits runs: a state set to the value it holds, in an effect of every
+  // key, left a default lane pending after each one.
+  const sink = tag(s, 'editor-input-sink');
+  const caretBefore = workspace(s).active.controller.model.state.selection.main.head;
+  for (let key = 0; key < KEYS_BEYOND_REACTS_NESTED_UPDATE_LIMIT; key += 1) {
+    s.host.events.push(s.host.keyEvent(sink, 'keydown', { key: 'ArrowRight', code: 'ArrowRight' }));
+    s.host.events.push(s.host.keyEvent(sink, 'keyup', { key: 'ArrowRight', code: 'ArrowRight' }));
+  }
+  s.uiRoot.dispatchEvents();
+  assert.equal(workspace(s).active.controller.model.state.selection.main.head, caretBefore + KEYS_BEYOND_REACTS_NESTED_UPDATE_LIMIT);
+});
+
 panelTest('a press puts the caret at the column under the pointer, within a pixel', (s) => {
   for (const [line, column] of [[3, 0], [3, 5], [4, 12], [6, 31]] as const) {
     const at = pointAt(s, line, column);

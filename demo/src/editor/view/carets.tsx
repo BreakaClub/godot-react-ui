@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { View } from 'godot-react-ui';
 import { THEME } from '../theme';
 
@@ -27,10 +27,17 @@ export interface CaretsProps {
  */
 export function Carets({ carets, focused, restart }: CaretsProps) {
   const [shown, setShown] = useState(true);
+  // What `shown` holds, to set it only to something else: setting a state to the value it holds still renders the component again.
+  const shownNow = useRef(true);
   useEffect(() => {
-    setShown(true);
+    const show = (visible: boolean): void => {
+      if (shownNow.current === visible) return;
+      shownNow.current = visible;
+      setShown(visible);
+    };
+    show(true);
     if (!focused) return undefined;
-    const timer = setInterval(() => setShown(visible => !visible), CARET_BLINK_MS);
+    const timer = setInterval(() => show(!shownNow.current), CARET_BLINK_MS);
     return () => clearInterval(timer);
   }, [focused, restart]);
   if (!focused) return null;
