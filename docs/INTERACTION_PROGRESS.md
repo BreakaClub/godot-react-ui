@@ -2295,7 +2295,7 @@ The Web `transforms` and `navigator` sections failed on `main` because their che
 
 ### Engine switch (`b82e40c`, `9dba853`; superseded by D69)
 
-A switch between per-profile native builds, and the early refusal of an installed extension of the wrong profile. `pnpm switch:engine` and the per-profile native directories are gone; the early refusal of the installed extension, the stamped target directory of the live-compile build, `installFile` and the mutation-control method survive (`docs/tracks/engine-switch.md`, header).
+A switch between per-profile native builds, and the early refusal of an installed extension of the wrong profile. The switch command and script and the per-profile native directories are gone; the early refusal of the installed extension, the stamped target directory of the live-compile build, `installFile` and the mutation-control method survive (`docs/tracks/engine-switch.md`, header).
 
 - **Evidence when it was built:** a switch cost 0.05 s where a build cost 46.5 s to 2 min 32 s; `pnpm test` 867; 18 mutations caught.
 

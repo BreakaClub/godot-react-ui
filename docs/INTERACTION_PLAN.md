@@ -673,7 +673,7 @@ not a reason to wait.
   library and the live-compile extension are therefore one build per platform, bound to `NATIVE_BINDING_API` (`scripts/native-binding.mjs`: `version: '4.7.2'` and the dump pair
   `native/api/stock-4.7.2`, read from the dump's header so the record and the files cannot drift), and loaded by both engine profiles (B1, B2). A native stamp records the API and the
   dump hash and no profile; a Web side module's stamp still records its engine; a stamp that names a profile is refused once (B3). `--engine=` is refused by the native builds (B4), and
-  an engine older than the API is refused before the builds are looked at (B5). Removed: `pnpm switch:engine`, the per-profile native target directories, `assessInstall` and
+  an engine older than the API is refused before the builds are looked at (B5). Removed: the engine switch command and script, the per-profile native target directories, `assessInstall` and
   `switchBuild` (B6); kept: `installFile`, the early refusal of an installed extension on every native run, the stamped target directories (B7). Stock typings move to
   `target/stock-typings` (B8). What stays per profile is the Web (a side module is linked with the Emscripten of the engine that loads it), the GodotJS typings and the evidence
   directories. The cost: Breaka's 4.8 runs a library whose class table is 4.7.2's, so a method it calls must exist in 4.8 with the hash it was bound with (lazy function tables look
