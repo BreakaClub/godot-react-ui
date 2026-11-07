@@ -1,5 +1,5 @@
 import { createElement as h } from 'react';
-import { Combobox } from '../src';
+import { Combobox, Select } from '../src';
 import { ComboboxHost } from './combobox-host';
 import { createTestRoot } from './recording-host';
 
@@ -70,6 +70,54 @@ function run(): Sample[][] {
   return runs;
 }
 
+/** The time to render a closed combobox with every option in it, to open it with the arrow key, and the same for a `Select`'s list. */
+function mountAndOpen(): void {
+  const rows: string[] = [];
+  for (let repeat = 0; repeat < REPEATS; repeat += 1) {
+    const host = new ComboboxHost();
+    const { root } = createTestRoot(host);
+    const options = Array.from({ length: COUNT }, (_, index) => h(Combobox.Item, { key: index, value: `v${index}` },
+      h(Combobox.ItemText, {}, labelOf(index)), h(Combobox.ItemIndicator, {})));
+    const mountStarted = performance.now();
+    root.render(h(Combobox.Root, {},
+      h(Combobox.Control, { testID: 'control' }, h(Combobox.Input, { testID: 'input' })),
+      h(Combobox.Content, { testID: 'list' }, ...options)));
+    const mountMs = performance.now() - mountStarted;
+    host.rectsByTestID.set('control', { x: 10, y: 10, width: 300, height: 30 });
+    host.rectsByTestID.set('list', { x: 0, y: 0, width: 300, height: 400 });
+    const input = root.findByTestID('input')?.id;
+    if (input === undefined) throw new Error('no input');
+    host.focusNode(input, 1);
+    root.dispatchEvents();
+    const before = host.commits.length;
+    const openStarted = performance.now();
+    host.pressKey(root, 'ArrowDown');
+    const openMs = performance.now() - openStarted;
+    const created = host.commits.slice(before).reduce((total, commit) => total + commit.payload.created.length, 0);
+
+    const selectHost = new ComboboxHost();
+    const { root: selectRoot } = createTestRoot(selectHost);
+    selectRoot.render(h(Select.Root, { defaultOpen: false },
+      h(Select.Trigger, { testID: 'trigger' }, h(Select.Value, { placeholder: 'x' })),
+      h(Select.Content, { testID: 'list' }, ...Array.from({ length: COUNT }, (_, index) => h(Select.Item, { key: index, value: `v${index}` },
+        h(Select.ItemText, {}, labelOf(index)), h(Select.ItemIndicator, {}))))));
+    selectHost.rectsByTestID.set('trigger', { x: 10, y: 10, width: 300, height: 30 });
+    selectHost.rectsByTestID.set('list', { x: 0, y: 0, width: 300, height: 400 });
+    const trigger = selectRoot.findByTestID('trigger')?.id;
+    if (trigger === undefined) throw new Error('no trigger');
+    const selectBefore = selectHost.commits.length;
+    const selectStarted = performance.now();
+    selectHost.event(trigger, 'click');
+    selectRoot.dispatchEvents();
+    const selectMs = performance.now() - selectStarted;
+    const selectCreated = selectHost.commits.slice(selectBefore).reduce((total, commit) => total + commit.payload.created.length, 0);
+    if (repeat > 0) rows.push(`mount ${mountMs.toFixed(1)} ms, open ${openMs.toFixed(1)} ms (${created} nodes created); Select open ${selectMs.toFixed(1)} ms (${selectCreated} nodes created)`);
+  }
+  console.log(`${COUNT} options, closed then opened (runs after warm-up):`);
+  for (const row of rows) console.log(`  ${row}`);
+}
+
+mountAndOpen();
 const runs = run();
 console.log(`${COUNT} options, ${REPEATS} runs (the first is warm-up for the JIT; the median of the rest is reported)`);
 KEYS.forEach((key, index) => {
