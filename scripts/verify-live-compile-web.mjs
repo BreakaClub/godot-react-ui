@@ -11,7 +11,7 @@ import { resolve } from 'node:path';
 import puppeteer from 'puppeteer-core';
 import { rejectUnknownArguments } from './arguments.mjs';
 import { selectEngine } from './engine.mjs';
-import { INSTALL_DIRECTORY, WEB_LIBRARY_NAME } from './live-compile-build.mjs';
+import { requireLiveCompileWebModule, webLibraryNameOf, webLibraryOf, WEB_FIX } from './live-compile-build.mjs';
 import { passedLine, startVerificationServer, writeEvidence } from './web-verify.mjs';
 
 rejectUnknownArguments(process.argv.slice(2), { flags: ['--release'] });
@@ -19,6 +19,9 @@ const root = resolve(import.meta.dirname, '..');
 const engine = selectEngine();
 engine.requireFreshWebExport();
 const exportDirectory = engine.artifactPath(`web-${engine.webMode()}`);
+// The section needs the extension, which a Web export has only when a module stamped for its profile existed when it was made (docs/tracks/stock-web.md).
+const WEB_LIBRARY_NAME = webLibraryNameOf(engine);
+requireLiveCompileWebModule(engine, exportDirectory, engine.webMode());
 const executablePath = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const output = engine.artifactPath('web-live-compile-verification');
 const STARTUP_TIMEOUT_MS = 240_000;
@@ -44,10 +47,10 @@ function check(name, condition, detail) {
  * beside the page, as the UI extension's is; the project is in the pack, whole, so its head and tail identify it there.
  */
 function checkExport() {
-  const installed = readFileSync(resolve(INSTALL_DIRECTORY, 'bin', WEB_LIBRARY_NAME));
+  const installed = readFileSync(webLibraryOf(engine));
   const exported = readFileSync(resolve(exportDirectory, WEB_LIBRARY_NAME));
   check(`The export serves ${WEB_LIBRARY_NAME} as it is now (${installed.length} bytes)`, installed.equals(exported),
-    'run `node scripts/build-live-compile-web.mjs` and `node scripts/build-web.mjs --export-only` after a change to the extension');
+    `run \`${WEB_FIX(engine)}\` and \`node scripts/build-web.mjs --export-only --engine=${engine.name}\` after a change to the extension`);
   const pack = readFileSync(resolve(exportDirectory, 'index.pck'));
   const project = readFileSync(resolve(root, 'demo/live-compile/project.json'));
   check(`The pack carries demo/live-compile/project.json as it is now (${project.length} bytes)`,

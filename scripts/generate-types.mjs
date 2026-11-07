@@ -1,10 +1,9 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, renameSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { scrubOpenScripts } from './editor-session.mjs';
 import { argsWithoutEngine, selectEngine } from './engine.mjs';
 import { generateStockTypings } from './typings.mjs';
-import { GDEXTENSION_FILE } from './live-compile-build.mjs';
+import { withoutLiveCompileManifest } from './live-compile-build.mjs';
 
 // `breaka` (the default) lets Breaka's editor write `demo/typings` and `demo/gen`, which are tracked. `stock` leaves
 // them alone and writes the stock editor's declarations to `target/stock-typings/typings` (scripts/typings.mjs).
@@ -27,15 +26,7 @@ if (engine.name === 'stock') {
   scrubOpenScripts(resolve(root, 'demo'));
   // The live-compile extension is optional (docs/tracks/live-compile.md): the tracked typings must not describe a class a checkout
   // without it lacks, so its manifest is out of the project while the editor writes them.
-  const hidden = `${GDEXTENSION_FILE}.hidden`;
-  const hideExtension = existsSync(GDEXTENSION_FILE);
-  if (hideExtension) renameSync(GDEXTENSION_FILE, hidden);
-  let result;
-  try {
-    result = spawnSync(godot, ['--headless', '--audio-driver', 'Dummy', '--editor', '--generate-types', '--path', resolve(root, 'demo')], {cwd:root, stdio:'inherit', timeout:120_000});
-  } finally {
-    if (hideExtension) renameSync(hidden, GDEXTENSION_FILE);
-  }
+  const result = withoutLiveCompileManifest(() => spawnSync(godot, ['--headless', '--audio-driver', 'Dummy', '--editor', '--generate-types', '--path', resolve(root, 'demo')], {cwd:root, stdio:'inherit', timeout:120_000}));
   if (result.error) throw result.error;
   if (result.status !== 0) process.exit(result.status ?? 1);
 }

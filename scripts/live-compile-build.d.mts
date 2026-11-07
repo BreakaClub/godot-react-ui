@@ -1,4 +1,11 @@
 import type { BuildInputs } from './freshness.mjs';
+import type { Engine } from './engine.mjs';
+
+/** What the Web side module's build and checks read of an engine profile. */
+export type WebProfile = Pick<Engine, 'name' | 'webBindingEnvironment'>;
+
+/** What the Web export of a profile does with the extension: leave it out, or list the module stamped for the profile. */
+export type LiveCompileWebPlan = { include: false } | { include: true; name: string; stamp: Record<string, unknown> | undefined };
 
 /** Where the extension is built, stamped and installed (absolute paths). */
 export interface LiveCompileLayout {
@@ -30,4 +37,22 @@ export function liveCompileLayout(): LiveCompileLayout;
 export function liveCompileRefusal(options?: { required?: boolean }): string | undefined;
 /** Throws unless the extension is installed, bound to the native binding API and built from the current sources. */
 export function requireLiveCompile(): void;
-export function writeGdextension(options?: { installDirectory?: string }): void;
+/** The file name of a profile's Web side module; Breaka's keeps `live_compile.web.wasm`. */
+export function webLibraryNameOf(engine: Pick<Engine, 'name'>): string;
+export function webLibraryOf(engine: Pick<Engine, 'name'>): string;
+export function webStampOf(engine: Pick<Engine, 'name'>): string;
+export function webTargetDirectoryOf(engine: Pick<Engine, 'name'>): string;
+/** The command that builds the profile's Web side module. */
+export function WEB_FIX(engine: Pick<Engine, 'name'>): string;
+export function liveCompileWebInputs(engine: WebProfile): BuildInputs;
+/** What the profile's Web export does with the extension; throws, naming the build, if a module is installed that is not this profile's current build. */
+export function liveCompileWebPlan(engine: WebProfile): LiveCompileWebPlan;
+/** Why an export's files do not carry exactly the module its receipt records (`null` for none), or undefined if they do. */
+export function liveCompileWebExportProblem(engine: WebProfile, directory: string, recorded: unknown): string | undefined;
+/** Throws, naming the build, unless the export in `directory` carries the profile's live-compile Web side module. */
+export function requireLiveCompileWebModule(engine: Pick<Engine, 'name'>, directory: string, mode: 'debug' | 'release'): void;
+export function removeLiveCompileWebModules(directory: string): void;
+/** Run `action` with the extension's manifest out of the project and put it back afterwards, whatever `action` does. */
+export function withoutLiveCompileManifest<T>(action: () => T, manifest?: string): T;
+/** The extension's manifest; a Web library is listed only when the caller names its file (the profile's Web export does, just before exporting). */
+export function writeGdextension(options?: { installDirectory?: string; webLibrary?: string }): void;

@@ -89,15 +89,117 @@ export function requireLiveCompile() {
 
 export const WEB_LIBRARY_NAME = 'live_compile.web.wasm';
 
+// ---- The Web side module: per profile ------------------------------------------------------------------------------------------------------------------
+//
+// Unlike the native extension, the Web side module is per engine profile. A side module is linked with the Emscripten SDK of the engine whose templates load
+// it (6.0.12 and Breaka's lazy function-table ABI for `breaka`, 4.0.11 for `stock`), and the two cannot load each other's: the stock page cannot read a
+// Breaka module's `dylink.0` section ("unknown dylink.0 subsection: 6", then `__breaka_lazy_register` of undefined). So each profile has its own file, stamp and
+// cargo target directory, the stamp records the profile (like the UI library's Web stamp), and an export contains exactly the module stamped for its own
+// profile, or none (docs/tracks/stock-web.md).
+
+/** The file name of a profile's Web side module. Breaka's keeps the name it always had. */
+export const webLibraryNameOf = engine => engine.name === 'breaka' ? WEB_LIBRARY_NAME : `live_compile.web.${engine.name}.wasm`;
+/** The installed module and the stamp beside the extension's other files. */
+export const webLibraryOf = engine => resolve(INSTALL_DIRECTORY, 'bin', webLibraryNameOf(engine));
+export const webStampOf = engine => resolve(INSTALL_DIRECTORY, engine.name === 'breaka' ? 'live_compile.web.build.json' : `live_compile.web.${engine.name}.build.json`);
+/** The profile's cargo target directory for the Web side module (below the native one, as `web/` always was). */
+export const webTargetDirectoryOf = engine => resolve(TARGET_DIRECTORY, engine.name === 'breaka' ? 'web' : `web-${engine.name}`);
+/** The command that builds the profile's Web side module. */
+export const WEB_FIX = engine => `node scripts/build-live-compile-web.mjs --engine=${engine.name}`;
+/** Every file name a live-compile Web side module is exported under, for any profile. */
+const WEB_MODULE_PATTERN = /^live_compile\.web(\.[a-z]+)?\.wasm$/u;
+
+/**
+ * Throws unless the export in `directory` carries the profile's live-compile Web side module. The `live-compile` section needs the extension, which a Web export has only
+ * when a module stamped for its profile existed when it was made; without one the code editor is read-only and there is nothing for that section to run.
+ */
+export function requireLiveCompileWebModule(engine, directory, mode) {
+  if (existsSync(resolve(directory, webLibraryNameOf(engine)))) return;
+  throw new Error(`The ${engine.name} Web export has no live-compile side module (its code editor is read-only), so there is nothing for this section to run. Run \`${WEB_FIX(engine)}\`, then \`pnpm build:web --export-only${mode === 'release' ? ' --release' : ''} --engine=${engine.name}\`.`);
+}
+
+/** Remove every live-compile Web side module from an export's output directory: Godot copies files into it and never deletes the ones an earlier export left. */
+export function removeLiveCompileWebModules(directory) {
+  if (!existsSync(directory)) return;
+  for (const name of readdirSync(directory)) if (WEB_MODULE_PATTERN.test(name)) rmSync(resolve(directory, name));
+}
+
+/** What the profile's Web side module is made from: the extension's sources and the profile's own Web dump pair, with the `web` feature. */
+export function liveCompileWebInputs(engine) {
+  const apiFiles = Object.values(engine.webBindingEnvironment()).map(file => relative(root, file));
+  return collectContentInputs({ root, paths: [...liveCompileSourceFiles(), ...apiFiles], features: ['web'] });
+}
+
+/**
+ * What the Web export of `engine` does with the extension, decided before the export is made. The export lists a Web library in the extension's
+ * manifest, and Godot copies whatever the manifest lists, so the manifest is what decides.
+ * - No module installed for the profile: `{ include: false }`. The export has no module and no manifest entry; the code editor shows its read-only panel.
+ * - A module installed and stamped for this profile from the current sources: `{ include: true, name, stamp }`.
+ * - A module installed that is not that (no stamp, another profile's stamp, older sources, replaced after it was built): throws, naming the build command.
+ *   It is never left out silently: the default profile's export must not lose its code editor without saying so.
+ */
+export function liveCompileWebPlan(engine) {
+  const library = webLibraryOf(engine);
+  const stamp = readStamp(webStampOf(engine));
+  if (!existsSync(library) && stamp === undefined) return { include: false };
+  const problem = findProblem({ library, stamp, engine: engine.name, probe: false, current: liveCompileWebInputs(engine), subject: `installed ${webLibraryNameOf(engine)}` });
+  if (problem !== undefined) throw new Error(`${problem} Run \`${WEB_FIX(engine)}\` first.`);
+  return { include: true, name: webLibraryNameOf(engine), stamp };
+}
+
+/**
+ * Why the files of the export in `directory` do not carry exactly the live-compile Web side module the profile's export would, or undefined if they do. `recorded` is
+ * what the export's receipt says about it: `null` for none, or `{ name, stamp }`. A module in the directory that the receipt does not record, one built for another
+ * profile or from older sources, one that is not the recorded file, and a recorded one that is missing are all refused. The page loads whatever the manifest in the pack
+ * lists, so a module of another profile's Emscripten kills the page at load.
+ */
+export function liveCompileWebExportProblem(engine, directory, recorded) {
+  const present = readdirSync(directory).filter(name => WEB_MODULE_PATTERN.test(name));
+  if (recorded === null) {
+    return present.length === 0 ? undefined : `The Web export ${relative(root, directory)} contains ${present.join(', ')}, which its receipt does not record: a live-compile Web side module must be the one stamped for the ${engine.name} profile.`;
+  }
+  if (recorded === undefined || typeof recorded !== 'object' || typeof recorded.name !== 'string') {
+    return present.length === 0 ? undefined : `The Web export ${relative(root, directory)} was made before the live-compile Web side module was stamped per profile, and contains ${present.join(', ')}.`;
+  }
+  if (present.length !== 1 || present[0] !== recorded.name) {
+    return `The Web export ${relative(root, directory)} should contain the live-compile Web side module ${recorded.name} and no other; it contains ${present.length === 0 ? 'none' : present.join(', ')}.`;
+  }
+  return findProblem({
+    library: resolve(directory, recorded.name), stamp: recorded.stamp, engine: engine.name, probe: false, current: liveCompileWebInputs(engine), subject: `exported ${recorded.name}`,
+  });
+}
+
+/**
+ * Run `action` with the extension's manifest out of the project, and put it back afterwards whatever `action` does. A manifest that names no library for the platform that
+ * loads it is still packed, still listed and still loaded, and the engine logs an error for it (the stock page: "No GDExtension library found for current OS and
+ * architecture (web.wasm32)"), so a Web export with no module for its profile leaves the extension out altogether, and `gen:types` hides it the same way so that the tracked
+ * typings do not describe a class a checkout without the extension lacks. A manifest left hidden by a run that was killed is put back first.
+ */
+export function withoutLiveCompileManifest(action, manifest = GDEXTENSION_FILE) {
+  const hidden = `${manifest}.hidden`;
+  if (existsSync(hidden)) {
+    if (existsSync(manifest)) rmSync(hidden);
+    else renameSync(hidden, manifest);
+  }
+  const hide = existsSync(manifest);
+  if (hide) renameSync(manifest, hidden);
+  try {
+    return action();
+  } finally {
+    if (hide) renameSync(hidden, manifest);
+  }
+}
+
 /**
  * The extension's manifest, generated beside the library: a demo without the extension has no such file, so a checkout that never built it
- * loads nothing and logs nothing. The Web entries are there once a Web side module has been installed. A run in the same checkout may be
+ * loads nothing and logs nothing. It lists the native library, and a Web library only when the caller names one (`webLibrary`, a file name in `bin/`):
+ * the Web export of a profile writes it just before the export, from `liveCompileWebPlan`, and nothing else does. A run in the same checkout may be
  * reading the manifest, so a different one is staged and renamed over it, and the same one is left alone.
  */
-export function writeGdextension({ installDirectory = INSTALL_DIRECTORY } = {}) {
-  const web = existsSync(resolve(installDirectory, 'bin', WEB_LIBRARY_NAME))
-    ? `web.debug.threads.wasm32 = "res://addons/live-compile/bin/${WEB_LIBRARY_NAME}"\nweb.release.threads.wasm32 = "res://addons/live-compile/bin/${WEB_LIBRARY_NAME}"\n`
-    : '';
+export function writeGdextension({ installDirectory = INSTALL_DIRECTORY, webLibrary } = {}) {
+  const web = webLibrary === undefined
+    ? ''
+    : `web.debug.threads.wasm32 = "res://addons/live-compile/bin/${webLibrary}"\nweb.release.threads.wasm32 = "res://addons/live-compile/bin/${webLibrary}"\n`;
   const manifest = resolve(installDirectory, 'live_compile.gdextension');
   const content = `[configuration]
 entry_symbol = "gdext_rust_init"

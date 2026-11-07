@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { scrubOpenScripts } from './editor-session.mjs';
 import { argsWithoutEngine, CARGO_PACKAGE, selectEngine } from './engine.mjs';
 import { assertReleasePack, planReleaseStageOf, stageReleaseProject } from './release-stage.mjs';
+import { liveCompileWebExportProblem, liveCompileWebPlan, removeLiveCompileWebModules, withoutLiveCompileManifest, writeGdextension } from './live-compile-build.mjs';
 import { presetTemplate } from './web-content.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -125,6 +126,9 @@ print(json.dumps({'binaryen':env['ENV']['EM_BINARYEN_ROOT'],'linkFlags':env['LIN
 if (!args.has('--wasm-only')) {
   // The export must not package the other engine's side module, nor a probe build as the shipping one.
   engine.requireInstalledWasm({ probe });
+  // The same for the live-compile extension's Web side module, which is per profile too: the export lists the module stamped for this profile, or none, and
+  // refuses one that is installed and is not this profile's current build (docs/tracks/stock-web.md).
+  const liveCompile = liveCompileWebPlan(engine);
   const exporterVersion = engine.verifiedVersion();
   // What the pack, shell and template are made from, before the build and the export and again after: an edit while they ran
   // would leave an export that neither state describes (docs/tracks/verifier-integrity.md).
@@ -147,19 +151,34 @@ if (!args.has('--wasm-only')) {
   scrubOpenScripts(join(root, 'demo'));
   // The release export is made from a copy of the project without the verification scripts and the source maps, so its pack holds what the deployed
   // playground runs and no more; the debug export, which the Web verifiers use, is made from the project itself (docs/tracks/web-load.md).
-  const releasePlan = mode === 'release' ? planReleaseStageOf(join(root, 'demo')) : undefined;
-  const exportProject = releasePlan === undefined
-    ? join(root, 'demo')
-    : stageReleaseProject({ demoDirectory: join(root, 'demo'), stageDirectory: engine.artifactPath('web-release-project'), plan: releasePlan });
-  run(godot, ['--headless', '--audio-driver', 'Dummy', '--path', exportProject, `--export-${mode}`, web.presetName, join(output, 'index.html')]);
-  if (releasePlan !== undefined) {
-    const entries = assertReleasePack(join(output, 'index.pck'), releasePlan);
-    console.log(`Release pack: ${entries.length} files, no source maps; scripts ${releasePlan.keptScripts.join(', ')}; left out ${releasePlan.removedScripts.length} scripts and ${releasePlan.removedScenes.join(', ')}.`);
-  }
+  // The manifest is what makes Godot copy a Web library into the export and the page load it, so it names this profile's module, or the extension is out of the
+  // project for the export (a manifest with no Web library is still packed and still loaded, and the page logs an error for it; the code editor without the extension
+  // is read-only). It is written, or taken out, before a release export stages its copy of the project, and a module left in the output by an earlier export is
+  // removed: Godot copies files into the output and never deletes.
+  if (liveCompile.include) writeGdextension({ webLibrary: liveCompile.name });
+  removeLiveCompileWebModules(output);
+  const makeExport = () => {
+    const releasePlan = mode === 'release' ? planReleaseStageOf(join(root, 'demo')) : undefined;
+    const exportProject = releasePlan === undefined
+      ? join(root, 'demo')
+      : stageReleaseProject({ demoDirectory: join(root, 'demo'), stageDirectory: engine.artifactPath('web-release-project'), plan: releasePlan });
+    run(godot, ['--headless', '--audio-driver', 'Dummy', '--path', exportProject, `--export-${mode}`, web.presetName, join(output, 'index.html')]);
+    if (releasePlan !== undefined) {
+      const entries = assertReleasePack(join(output, 'index.pck'), releasePlan);
+      console.log(`Release pack: ${entries.length} files, no source maps; scripts ${releasePlan.keptScripts.join(', ')}; left out ${releasePlan.removedScripts.length} scripts and ${releasePlan.removedScenes.join(', ')}.`);
+    }
+  };
+  // The release export is made from a copy of the project without the verification scripts and the source maps, so its pack holds what the deployed
+  // playground runs and no more; the debug export, which the Web verifiers use, is made from the project itself (docs/tracks/web-load.md).
+  if (liveCompile.include) makeExport();
+  else withoutLiveCompileManifest(makeExport);
   const content = engine.webContentInputs(mode);
   if (content.digest !== contentBefore.digest) {
     throw new Error('The sources of the pack, shell or template changed while the export was made, so it cannot be recorded. Run `pnpm build:web --export-only` again.');
   }
+  const recordedLiveCompile = liveCompile.include ? { name: liveCompile.name, stamp: liveCompile.stamp } : null;
+  const liveCompileProblem = liveCompileWebExportProblem(engine, output, recordedLiveCompile);
+  if (liveCompileProblem !== undefined) throw new Error(`${liveCompileProblem} The export was not recorded.`);
   const copiedExtension = join(output, 'godot_react_ui.web.wasm');
   if (!existsSync(copiedExtension) || hash(readFileSync(copiedExtension)) !== hash(extensionBytes)) {
     throw new Error('The exported extension differs from the qualified build.');
@@ -169,6 +188,8 @@ if (!args.has('--wasm-only')) {
     template, templateSha256: hash(readFileSync(template)), mode, toolchain, sdk,
     // The side module's stamp (what it was built from): the Web verifiers and the server refuse an export whose sources have moved on.
     extension: engine.installedWasmStamp(),
+    // The live-compile extension's Web side module, if this export has one: its file name and the stamp it was built with, or null for none (the code editor is then read-only).
+    liveCompile: recordedLiveCompile,
     // The pack, shell and engine template inputs: the Web verifiers and the server refuse an export whose sources have moved on.
     content,
     emscripten: readFileSync(join(sdk, 'upstream', 'emscripten', 'emscripten-version.txt'), 'utf8').trim().replaceAll('"', ''),

@@ -1,8 +1,9 @@
 import { spawnSync } from 'node:child_process';
-import { basename, dirname, relative, resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beginBuild, collectInputs, readStamp, requireBuild, requireExport } from './freshness.mjs';
-import { liveCompileRefusal } from './live-compile-build.mjs';
+import { liveCompileRefusal, liveCompileWebExportProblem } from './live-compile-build.mjs';
 import { CARGO_PACKAGE, NATIVE_BINDING_API, NATIVE_INSTALL_DIRECTORY, nativeRefusal, requireBuiltNative } from './native-binding.mjs';
 import { webContentInputs } from './web-content.mjs';
 
@@ -243,6 +244,13 @@ export function selectEngine(argv = process.argv.slice(2), env = process.env) {
         subject: `Web export ${relative(root, directory)}`,
         fix: `pnpm build:web${mode === 'release' ? ' --release' : ''}${probe ? ' --probe' : ''} ${ENGINE_FLAG}${profile.name}`,
       });
+      // The live-compile extension's Web side module is per profile as well: the export carries the one stamped for this profile or none, never another's
+      // (the page loads whatever the pack's manifest lists, and another profile's Emscripten kills it at load).
+      const receipt = JSON.parse(readFileSync(join(directory, WEB_RECEIPT), 'utf8'));
+      const moduleProblem = liveCompileWebExportProblem(this, directory, receipt.liveCompile);
+      if (moduleProblem !== undefined) {
+        throw new Error(`${moduleProblem} Run \`pnpm build:web --export-only${mode === 'release' ? ' --release' : ''} ${ENGINE_FLAG}${profile.name}\` first (it names the live-compile build if the installed module is out of date).`);
+      }
     },
     /** The inputs of the pack, shell and engine template of the Web export in `mode` (scripts/web-content.mjs); the receipt records them. */
     webContentInputs: mode => webContentInputs({ root, presetName: profile.web.presetName, mode }),

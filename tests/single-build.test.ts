@@ -1,134 +1,15 @@
 import assert from 'node:assert/strict';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { join } from 'node:path';
 import { mock, test } from 'node:test';
 import type { Engine } from '../scripts/engine.mjs';
-import type * as Freshness from '../scripts/freshness.mjs';
-import type * as LiveCompileBuild from '../scripts/live-compile-build.mjs';
 import * as NativeBinding from '../scripts/native-binding.mjs';
+import { BREAKA_VERSION, DUMP_HEADER, LIVE_COMPILE_BUILD, makeSkeleton, OTHER_API, SCRIPTS, STOCK_VERSION, type Skeleton } from './skeleton';
 
 // The native guard (docs/tracks/single-build.md): one native UI library and one native live-compile extension per platform, bound to Godot API 4.7.2 and
 // accepted by both engine profiles. `engine.prepareNative` is what every native run calls; the scripts that decide are copied into a temporary
-// repository and a stub stands in for `godot --version`, so the real wiring runs with no cargo, no Godot and no window.
-
-const SCRIPTS = join(__dirname, '..', 'scripts');
-const COPIED_SCRIPTS = ['engine', 'freshness', 'live-compile-build', 'native-binding', 'web-content', 'arguments'];
-const BREAKA_VERSION = '4.8.beta.custom_build.1225394ce';
-const STOCK_VERSION = '4.7.2.stable.custom_build.ed1daf0bf';
-const DUMP_HEADER = (version: string): string => `{\n\t"header": {\n\t\t"version_major": 4,\n\t\t"version_minor": ${version.split('.')[1]},\n\t\t"version_patch": ${version.split('.')[2]},\n\t\t"version_status": "stable"\n\t}\n}`;
-const NATIVE_BUILD = 'pnpm build:native';
-const LIVE_COMPILE_BUILD = 'node scripts/build-live-compile.mjs';
-const OTHER_API = { api: '4.8.0', dump: 'ab'.repeat(32) };
-
-type ProfileName = 'breaka' | 'stock';
-type Variant = { probe?: boolean; faults?: boolean };
-
-interface Skeleton {
-  root: string;
-  engine(name: ProfileName, version?: string): Engine;
-  native: typeof NativeBinding;
-  liveCompile: typeof LiveCompileBuild;
-  /** A native compile that left `bytes` in the variant's target directory, recorded as `scripts/build-native.mjs` records it; `install` also installs it. */
-  buildNative(bytes: string, options?: Variant & { install?: boolean }): void;
-  /** The same for the live-compile extension (`scripts/build-live-compile.mjs`). */
-  buildLiveCompile(bytes: string, options?: { install?: boolean }): void;
-  write(path: string, content: string): void;
-  /** Rewrite the installed native library's stamp: another API, another profile's identity, and so on. */
-  restampNative(change: (stamp: Record<string, unknown>) => void): void;
-  restampLiveCompile(change: (stamp: Record<string, unknown>) => void): void;
-}
-
-function write(root: string, path: string, content: string): string {
-  const file = join(root, path);
-  mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, content);
-  return file;
-}
-
-/** A Godot stand-in that answers `--version` the way a binary does. */
-function stubGodot(root: string, name: string, version: string): string {
-  const stub = write(root, `bin/godot-${name}`, `#!/bin/sh\necho '${version}'\n`);
-  chmodSync(stub, 0o755);
-  return stub;
-}
-
-async function makeSkeleton(): Promise<Skeleton> {
-  // The real path: the scripts find their root from where they are, and the temporary directory is a symbolic link on macOS.
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'single-build-')));
-  for (const name of COPIED_SCRIPTS) {
-    mkdirSync(join(root, 'scripts'), { recursive: true });
-    copyFileSync(join(SCRIPTS, `${name}.mjs`), join(root, 'scripts', `${name}.mjs`));
-  }
-  for (const path of [
-    'Cargo.toml', 'Cargo.lock', 'native/lib.rs',
-    'live-compile/core/lib.rs', 'live-compile/ext/lib.rs', 'live-compile/patches/bun.patch', 'live-compile/stubs/io.rs',
-    'live-compile/Cargo.toml', 'live-compile/Cargo.lock', 'live-compile/rust-toolchain.toml', 'live-compile/.cargo/config.toml', 'live-compile/scripts/vendor-bun.py',
-  ]) write(root, path, `contents of ${path}\n`);
-  // The 4.7.2 pair the native builds are bound to, and Breaka's 4.8 pair its Web build is.
-  for (const [directory, version] of [['native/api/stock-4.7.2', '4.7.2'], ['native/api', '4.8.0']] as const) {
-    write(root, `${directory}/extension_api.json`, DUMP_HEADER(version));
-    write(root, `${directory}/gdextension_interface.json`, `{"interface":"${version}"}`);
-  }
-  const godots = { breaka: stubGodot(root, 'breaka', BREAKA_VERSION), stock: stubGodot(root, 'stock', STOCK_VERSION) };
-  const engineModule: typeof import('../scripts/engine.mjs') = await import(pathToFileURL(join(root, 'scripts/engine.mjs')).href);
-  const native: typeof NativeBinding = await import(pathToFileURL(join(root, 'scripts/native-binding.mjs')).href);
-  const liveCompile: typeof LiveCompileBuild = await import(pathToFileURL(join(root, 'scripts/live-compile-build.mjs')).href);
-  const freshness: typeof Freshness = await import(pathToFileURL(join(root, 'scripts/freshness.mjs')).href);
-  const quietly = <T>(action: () => T): T => {
-    const log = mock.method(console, 'log', () => undefined);
-    try {
-      return action();
-    } finally {
-      log.mock.restore();
-    }
-  };
-  const restamp = (path: string, change: (stamp: Record<string, unknown>) => void): void => {
-    const stamp = freshness.readStamp(path);
-    assert.ok(stamp !== undefined, `${path} has a stamp to change`);
-    change(stamp);
-    freshness.writeStamp(path, stamp);
-  };
-  return {
-    root, native, liveCompile,
-    engine: (name, version) => engineModule.selectEngine([`--engine=${name}`], { GODOT: version === undefined ? godots[name] : stubGodot(root, `${name}-${version}`, version) }),
-    write: (path, content) => { write(root, path, content); },
-    buildNative(bytes, { install = false, probe = false, faults = false } = {}) {
-      const variant = native.nativeVariant({ probe, faults });
-      write(root, variant.built.slice(root.length + 1), bytes);
-      // The build script's own steps: `beginNativeBuild` hashes the inputs, `compiled` stamps cargo's output, `installed` stamps the installed copy.
-      quietly(() => {
-        const build = native.beginNativeBuild({ probe, faults, clean: () => undefined });
-        build.compiled();
-        if (install) {
-          freshness.installFile(variant.built, native.NATIVE_INSTALLED_LIBRARY);
-          build.installed();
-        }
-      });
-    },
-    buildLiveCompile(bytes, { install = false } = {}) {
-      const layout = liveCompile.liveCompileLayout();
-      write(root, layout.built.slice(root.length + 1), bytes);
-      quietly(() => {
-        const build = freshness.beginBuild({
-          identity: { binding: native.nativeBinding() }, probe: false, collect: liveCompile.liveCompileInputs,
-          built: layout.built, targetStamp: layout.builtStamp, installed: layout.library, installedStamp: layout.stamp,
-          subject: 'liblive_compile built in live-compile/target', compiler: 'cargo', fix: liveCompile.FIX, crate: 'live_compile_core', clean: () => undefined,
-        });
-        build.compiled();
-        if (install) {
-          freshness.installFile(layout.built, layout.library);
-          liveCompile.writeGdextension({ installDirectory: layout.installDirectory });
-          build.installed();
-        }
-      });
-    },
-    restampNative: change => restamp(native.NATIVE_INSTALLED_STAMP, change),
-    restampLiveCompile: change => restamp(liveCompile.INSTALLED_STAMP, change),
-  };
-}
+// repository (tests/skeleton.ts) and a stub stands in for `godot --version`, so the real wiring runs with no cargo, no Godot and no window.
 
 /** What `prepareNative` throws for the profile, or undefined when the run may go ahead. It runs silent: the engine line is not the test's. */
 function refusalOf(engine: Engine, options: Parameters<Engine['prepareNative']>[0] = {}): string | undefined {

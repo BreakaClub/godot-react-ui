@@ -153,10 +153,11 @@ The stock editor's typings generation prints `ERROR: GDExtension dynamic library
 
 - **Only six native sections ran on each engine**, plus the Web `navigator` section. A library bound to 4.7.2 resolves each Godot method it calls on first use in Breaka's 4.8; a method used only by a section that did not run (events, scroll, selection, drag, forms, the filters, glass, text input) would panic there at its first call if 4.8's class table lacked its hash. `native/api/README.md` records one such case for the *stock godot-rust tables* against this custom engine (`GDScriptTextDocument::foldingRange`); with lazy tables and the 4.7.2 dump nothing of the kind appeared in these runs. The full native regression on Breaka's 4.8 is the coordinator's, and is the thing to watch.
 - `--probe` and `--faults` builds were not made for real (`verify:text-layout`, `filters-faults` not run); their rows are tested in the temporary repository.
-- The stock profile's Web build and its Web verifiers were not run (the default profile's was, as asked). Its side module is stale (`.cargo/config.toml` is an input) until `pnpm build:web --engine=stock`.
+- (Closed by [stock-web.md](stock-web.md), which also found and fixed the live-compile Web side module being shared between profiles.) The stock profile's Web build and its Web verifiers were not run (the default profile's was, as asked). Its side module is stale (`.cargo/config.toml` is an input) until `pnpm build:web --engine=stock`.
 - `pnpm dev`, `pnpm demo` and `gen:types` were not run for real; they call the same `prepareNative`, covered by the temporary-repository tests.
 - Release builds only: the manifests name the one library for debug and release, as before.
 - Breaka's Web side module remains bound to Breaka's 4.8 dumps; binding the Web builds to 4.7.2 as well was not asked and is not tried.
+- **Follow-up, [stock-web.md](stock-web.md):** the table row above says the Web stays per profile, and it did for the UI library's side module, but the live-compile extension's Web side module was still one shared file, built only for Breaka. A stock export therefore shipped Breaka's module and the stock page died at load. It is per profile now, stamped with its profile, and an export holds exactly its own or none.
 
 ## After the rebase
 

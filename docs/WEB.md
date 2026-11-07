@@ -13,7 +13,7 @@ pnpm verify:web
 pnpm verify:motion:web
 pnpm verify:interaction:web
 node scripts/verify-world-web.mjs
-node scripts/verify-live-compile-web.mjs    # the code editor's compiler in Chrome (needs the live-compile Web side module)
+node scripts/verify-live-compile-web.mjs    # the code editor's compiler in Chrome (needs the profile's live-compile Web side module; --engine=stock for stock's)
 # To look at it by hand: node scripts/serve-web.mjs   (pnpm demo:web; --lab=<id> opens a lab)
 ```
 
@@ -108,6 +108,7 @@ Godot 4.7.2 with upstream GodotJS instead of Breaka's engine. The default `break
 | Emscripten | 6.0.12 plus Binaryen 133 | 4.0.11 (`godot-stock/emsdk`), with its own Binaryen |
 | Lazy function-table pass | `-sLAZY_FUNCTION_TABLE=side`, validated by the engine's helper; the `breaka.lazy-table` custom section is checked on all three modules | none: no Binaryen override, no helper, no metadata check |
 | godot-rust flags | pthread, atomics, `SIDE_MODULE=2`, hidden visibility, `-Zbuild-std` | the same |
+| live-compile side module | `live_compile.web.wasm`, Emscripten 6.0.12 with the lazy function-table flags | `live_compile.web.stock.wasm`, Emscripten 4.0.11, an ordinary side module |
 | API input | `native/api` | `native/api/stock-4.7.2` |
 | Output | `target/web`, `artifacts/web-<mode>` | `target/stock-web`, `artifacts/stock/web-<mode>` |
 
@@ -147,12 +148,19 @@ before the guard has no stamp and is refused once.
 ## The live-compile side module
 
 The code editor's compiler and checker (`live-compile/`, `docs/tracks/live-compile.md`) are a second Web side module, `live_compile.web.wasm` (8.7 MB, about 2.3 MB brotli), built by
-`node scripts/build-live-compile-web.mjs` for the `breaka` profile only. It has its own toolchain, `live-compile/rust-toolchain.toml` (`nightly-2026-09-15`, because Bun's crates need
+`node scripts/build-live-compile-web.mjs` per profile (`--engine=stock` builds `live_compile.web.stock.wasm` with the stock SDK, Emscripten 4.0.11, and no lazy function-table flags). It has its own toolchain, `live-compile/rust-toolchain.toml` (`nightly-2026-09-15`, because Bun's crates need
 `core::alloc::AllocatorClone`, which `nightly-2026-05-15` lacks), and its recipe is the UI extension's with `--cap-lints=warn` and without `-Z emscripten-wasm-eh=false` (that switch is gone
 on the newer nightly); it is built with `panic=abort`, so a panic traps the service thread and the page is told the call did not answer. The page lists it in `gdextensionLibs`, so it is
 fetched at startup with the other side modules whether or not the code panel ever opens; loading it on first use is designed in `docs/tracks/web-load.md` and not built. The export also
 carries `demo/live-compile/project.json` (the labs' TSX, the library's and React's declarations and the ES2022 lib files; 2.07 MB in the pack, 198 KB compressed). The Web build checks that
 the export holds the side module and the project, and `node scripts/verify-live-compile-web.mjs` runs the `live-compile` section in Chrome.
+
+**This module is per profile, and an export holds exactly its own profile's or none** (docs/tracks/stock-web.md). Each profile has its own file (`live_compile.web.wasm` for `breaka`, `live_compile.web.stock.wasm`
+for `stock`), stamp and cargo target (`live-compile/target/web`, `live-compile/target/web-stock`). The stamp records the profile; `build:web` writes the extension's manifest with a Web library only for the
+module stamped for the profile it exports, clears modules an earlier export left in the output, and records the module in the receipt (`liveCompile`: its file name and stamp, or `null`). With no module
+installed for the profile the export has none and the code editor is read-only (it says so in its banner). A module that is installed and is not the profile's current build stops the export, naming the
+build. Every Web verifier refuses, before it opens a page, an export that contains a module its receipt does not record or one stamped for another profile: the page loads whatever the manifest lists, and a
+Breaka module in a stock page dies at load with `unknown dylink.0 subsection: 6`.
 
 ## The release export and hosting (react.breaka.club)
 

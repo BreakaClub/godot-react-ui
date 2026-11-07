@@ -55,7 +55,7 @@ test('the Web builds of the two profiles bind to their own dumps and keep their 
   // sets both itself and a pair left in the environment cannot redirect it.
   assert.match(breaka.webBindingEnvironment().GDRUST_GODOT_API_JSON ?? '', /native\/api\/extension_api\.json$/u);
   assert.match(breaka.webBindingEnvironment().GDRUST_GODOT_INTERFACE_JSON ?? '', /native\/api\/gdextension_interface\.json$/u);
-  assert.doesNotMatch(breaka.webBindingEnvironment().GDRUST_GODOT_API_JSON ?? '', /stock/u);
+  assert.doesNotMatch(breaka.webBindingEnvironment().GDRUST_GODOT_API_JSON ?? '', /native\/api\/stock/u);
   const stockTargets = Object.values(stock.targets);
   const breakaTargets = Object.values(breaka.targets);
   assert.equal(new Set([...stockTargets, ...breakaTargets]).size, stockTargets.length + breakaTargets.length);

@@ -213,12 +213,13 @@ The Web build's recipe is the UI extension's (`scripts/build-web.mjs`) with `--c
 - **Memory.** One checker process holds 30 MB after its first check and 44 MB after thirty, for one lab; it keeps the parsed program of the last four
   configurations it has checked (about 8 MB each), so checking every lab in turn without an edit stays bounded. The Web module's share was not measured.
 - **Safari, iPad, the release export and the Web at device pixel ratio two were not run.** The Web run is headless Chrome, the debug export of the `breaka`
-  profile, landscape. The stock profile's Web side module has not been tried (`build-live-compile-web.mjs` builds the `breaka` profile only).
+  profile, landscape. The stock profile's Web side module is built and run by docs/tracks/stock-web.md (`node scripts/build-live-compile-web.mjs --engine=stock`, Emscripten 4.0.11); this track's Web numbers are the `breaka` profile's.
 - **The extension has one install and every native demo run loads it, whichever engine it starts, and it is one build for both.** It is bound to Godot API 4.7.2
   (`NATIVE_BINDING_API`, `scripts/native-binding.mjs`), so Breaka's 4.8 and the stock 4.7.2 load the same library (docs/tracks/single-build.md). A run is refused, before Godot
   starts, when the installed extension is bound to another API or older than its sources, with `node scripts/build-live-compile.mjs` as the fix. The build stamps the target
   directory (`live-compile/target/live_compile.build.json`); it cleans `live_compile_core` and `live_compile_ext` unless that stamp vouches for the sources, and it no longer
-  compares file modification times. There is no `--engine=` and no `target-stock`. The Web side module is the exception: Breaka's profile only (`build-live-compile-web.mjs`).
+  compares file modification times. There is no `--engine=` and no `target-stock`. The Web side module is the exception: it is per profile (`build-live-compile-web.mjs --engine=<name>`, its own file, stamp and
+  target, docs/tracks/stock-web.md), because a side module is linked with the Emscripten of the engine that loads it.
 - **The native extension is macOS arm64.** The `.gdextension` lists no other desktop platform.
 - **Typings.** The class `LiveCompile` is declared by hand in `demo/src/live-compile-host.ts`, as the probe classes are, because the extension is optional and
   the tracked typings must not describe it; `scripts/generate-types.mjs` takes the manifest out of the project while the editor writes them.
@@ -236,7 +237,7 @@ The Web build's recipe is the UI extension's (`scripts/build-web.mjs`) with `--c
 The demo can compile and type-check a lab's TSX inside the running page, which is what a code editor needs under it. It is a separate, demo-only
 GDExtension, `live-compile/` (Bun's TypeScript checker and its JavaScript compiler, built with their own nightly toolchain; nothing in the package gains
 a dependency or bytes), and the demo's TypeScript around it (`demo/src/live-compile-*.ts`). `node scripts/build-live-compile.mjs` builds and installs it
-(one build for both engine profiles, bound to Godot API 4.7.2; `--cli` also builds a native test process; `node scripts/build-live-compile-web.mjs` builds its Web side module). In the
+(one build for both engine profiles, bound to Godot API 4.7.2; `--cli` also builds a native test process; `node scripts/build-live-compile-web.mjs [--engine=stock]` builds its Web side module for a profile). In the
 demo, `openLiveSession({ root, labId, exportName })` gives a session for one lab: `update(path, text)` sends the text to the checker, which runs on its own
 thread and never holds a frame, compiles it, runs the result in the page and has React Fast Refresh re-render what changed, keeping state where the hooks
 are the same. A file that does not compile, a module that throws and a render that throws each leave the last good version on screen; a type error does not

@@ -1,4 +1,4 @@
-import { FileAccess, LiveCompile, PackedStringArray, RefCounted } from 'godot';
+import { ClassDB, FileAccess, LiveCompile, PackedStringArray, RefCounted } from 'godot';
 import {
   parseCompileResult, parseHover, parseInlayHints, parseProject, parseReply, type CheckOutcome, type CompileResult, type Hover, type InlayHint, type ParameterNames, type Project, type ProjectFile,
 } from './live-compile-protocol';
@@ -128,9 +128,11 @@ export class ExtensionHost implements LiveCompileHost {
 
 /** The extension's host, or an error that says how to get the extension. */
 export function openExtensionHost(): ExtensionHost {
-  // The class is a property of the engine's module only when the extension loaded.
-  if (typeof LiveCompile !== 'function') {
-    throw new Error('The live-compile extension is not loaded: run "node scripts/build-live-compile.mjs", then import the project once (pnpm demo does)');
+  // Ask the engine before naming the class. A build without the extension has no such class, and on the Web naming a class the engine lacks makes the engine log
+  // `godot class not found` as an error, caught or not: a Web export with no live-compile module for its profile (docs/tracks/stock-web.md) would then fail a verifier
+  // for a read-only panel that works. The class is also a property of the engine's module only when the extension loaded.
+  if (!ClassDB.classExists('LiveCompile') || typeof LiveCompile !== 'function') {
+    throw new Error('The live-compile extension is not loaded: natively, run "node scripts/build-live-compile.mjs" and import the project once (pnpm demo does); on the Web, run "node scripts/build-live-compile-web.mjs" for the profile (--engine=stock for stock) and "pnpm build:web --export-only"');
   }
   const service = new LiveCompile();
   // The thread starts now, not at the first request that waits for it (a browser starts it from a pool of workers).

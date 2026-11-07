@@ -351,11 +351,12 @@ test('the stock typecheck refuses a stale stock library by name and never builds
 // A script that runs an installed build must check it first; a new one that forgets would run unguarded again. This lists
 // every script that selects an engine and the guard it must call, and fails for one that is not listed.
 const GUARDS: Record<string, readonly string[]> = {
-  // The Web side module of live-compile: a build, which installs it beside the native library; the section that uses it checks the stamp (live-compile-build.mjs).
-  'build-live-compile-web.mjs': ['writeGdextension('],
+  // The Web side module of live-compile: a build per profile, stamped with its profile and installed beside the native library; the Web export lists it or none (tests/stock-web.test.ts).
+  'build-live-compile-web.mjs': ['beginBuild(', 'identity: { engine: engine.name }'],
   'build-web.mjs': ['beginWebBuild(', 'requireInstalledWasm('],
   'dev.mjs': ['prepareNative('],
-  'generate-types.mjs': ['prepareNative(', 'generateStockTypings('],
+  // The default profile's editor writes the tracked typings with the live-compile manifest out of the project (the shared helper, which puts it back).
+  'generate-types.mjs': ['prepareNative(', 'generateStockTypings(', 'withoutLiveCompileManifest('],
   // Reads the captures a verifier left and lays them out: it runs no build, so there is nothing to guard.
   'navigator-captures.mjs': [],
   'probe-web.mjs': ['requireFreshWebExport('],
@@ -457,8 +458,11 @@ test('the live-compile manifest is rewritten only when it differs, and by a rena
   assert.doesNotMatch(readFileSync(manifest, 'utf8'), /web\./u);
   writeGdextension({ installDirectory: root });
   assert.equal(statSync(manifest).ino, first, 'the same manifest is not rewritten');
+  // A Web library is listed when the caller names one, whether or not a file of that name is installed: the Web export decides (liveCompileWebPlan).
   write(root, `bin/${WEB_LIBRARY_NAME}`, 'web side module');
   writeGdextension({ installDirectory: root });
+  assert.equal(statSync(manifest).ino, first, 'an installed Web module alone does not change the manifest');
+  writeGdextension({ installDirectory: root, webLibrary: WEB_LIBRARY_NAME });
   assert.notEqual(statSync(manifest).ino, first);
   assert.match(readFileSync(manifest, 'utf8'), new RegExp(`web\\.release\\.threads\\.wasm32 = "res://addons/live-compile/bin/${WEB_LIBRARY_NAME}"`, 'u'));
   assert.deepEqual(readdirSync(root).filter(name => name.endsWith('.tmp')), []);
