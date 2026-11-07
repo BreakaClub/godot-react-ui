@@ -62,7 +62,11 @@ export function generateStockTypings(engine) {
   mkdirSync(paths.stage, {recursive: true});
   // The project as the stock editor sees it: the demo, its compiled scripts, and the stock library at the path the
   // `.gdextension` names. Breaka's typings and scene wrappers, and whichever library is installed, are left out.
-  const excluded = [resolve(root, 'demo/typings'), resolve(root, 'demo/gen'), resolve(root, 'demo/addons/godot-react-ui/bin')];
+  // The live-compile extension and its project are optional (docs/tracks/live-compile.md): the typings must not describe a class a checkout without it lacks.
+  const excluded = [
+    resolve(root, 'demo/typings'), resolve(root, 'demo/gen'), resolve(root, 'demo/addons/godot-react-ui/bin'),
+    resolve(root, 'demo/addons/live-compile'), resolve(root, 'demo/live-compile'),
+  ];
   cpSync(resolve(root, 'demo'), paths.stage, {
     recursive: true, force: true, filter: source => !excluded.some(path => source === path || source.startsWith(`${path}/`)),
   });
