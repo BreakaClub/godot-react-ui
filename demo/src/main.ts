@@ -16,6 +16,7 @@ import { openSceneWithBack } from './scene-return';
 import { registerDemoFonts } from './demo-fonts';
 import { FiltersLab, type FiltersLabProps } from './filters-lab';
 import { selectionLabControls } from './selection-lab';
+import { LayoutUtilitiesLab, TransitionClassesLab, type LayoutUtilitiesPage } from './layout-utilities-lab';
 import { TextStylesLab } from './text-styles-lab';
 import { observeInputFailure, runVerification } from './verify';
 import { BenchmarkApp, type BenchmarkProps } from './benchmark';
@@ -145,6 +146,10 @@ export default class Main extends Node {
       /** The filters lab (plan Phase V1): rendered again with new props, so a change is an ordinary commit. */
       /** One page of the text styles lab (`text-styles-data.ts`). */
       showTextStyles: (page: string) => this.requireRenderer().render(createElement(TextStylesLab, { page })),
+      /** One page of the layout utilities lab (`layout-utilities-data.ts`), bare at the root's corner, or its transition page. */
+      showLayoutUtilities: (page: LayoutUtilitiesPage) => this.requireRenderer().render(
+        page === 'transitions' ? createElement(TransitionClassesLab) : createElement(LayoutUtilitiesLab, { page }),
+      ),
       /** The lines of a text as drawn, root-local, as the native layout has them (`ReactUiRoot.getTextLines`). */
       textLines: (testID: string): unknown => {
         const surface = this.requireSurface();

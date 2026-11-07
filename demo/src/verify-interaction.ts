@@ -16,6 +16,8 @@ import { measureFilterCost, verifyFilterFaults, verifyFilterSizes, verifyFilters
 import { GLASS_FAULT_CONTROLS, verifyGlass } from './verify-glass';
 import { verifyNavigator } from './verify-navigator';
 import { verifyTransforms } from './verify-transforms';
+import type { LayoutUtilitiesPage } from './layout-utilities-lab';
+import { verifyLayoutUtilities } from './verify-layout-utilities';
 import { verifyTextInput } from './verify-text-input';
 import type { DemoInspection } from './verify';
 import {
@@ -31,6 +33,8 @@ export interface InteractionInspection extends DemoInspection {
   benchmark(props: BenchmarkProps): void;
   /** Render a page in place of the app: the pass-through HUD, the pointer lab. */
   showLab(name: LabName): void;
+  /** One page of the layout utilities lab, bare at the root's corner so that its rectangles are the page's own (`verify-layout-utilities.ts`). */
+  showLayoutUtilities(page: LayoutUtilitiesPage): void;
   /** The filters lab, rendered again with new props (plan Phase V1). */
   showFilters(props: FiltersLabProps): void;
   /** The lab navigator in place of the app, with `extraLabs` listed after the demo's own. */
@@ -3612,6 +3616,7 @@ export async function runInteractionVerification(owner: Node, api: InteractionIn
   if (sections.has('glass')) await timed('glass', () => verifyGlass(owner, api, capture));
   if (sections.has('navigator')) await timed('navigator', () => verifyNavigator(owner, api, capture));
   if (sections.has('transforms')) await timed('transforms', () => verifyTransforms(owner, api, capture));
+  if (sections.has('layout-utilities')) await timed('layout-utilities', () => verifyLayoutUtilities(owner, api));
   if (sections.has('filters-sizes')) await timed('filters-sizes', () => verifyFilterSizes(owner, api, capture));
   if (sections.has('filters-cost')) await timed('filters-cost', () => measureFilterCost(owner, api));
   if (sections.has('filters-faults')) await timed('filters-faults', () => verifyFilterFaults(owner, api, capture, GLASS_FAULT_CONTROLS));

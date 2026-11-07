@@ -13,6 +13,7 @@ import { InputsLab } from './inputs-lab';
 import { InteractionLab } from './interaction-lab';
 import { KeyboardLab } from './keyboard-lab';
 import { MotionLab } from './motion-lab';
+import { LayoutUtilitiesExplorer } from './layout-utilities-lab';
 import { PassthroughHud } from './passthrough-hud';
 import { PointerLab } from './pointer-lab';
 import { PositioningLab } from './positioning-lab';
@@ -103,6 +104,11 @@ export const LABS = defineLabs([
     id: 'positioning', kind: 'inline', group: 'Layout', title: 'Positioning',
     description: 'Position, insets and z-index, clipping by the containing block, fixed boxes and the overlay layer.',
     component: PositioningLab, sources: ['res://src/positioning-lab.tsx'],
+  },
+  {
+    id: 'layout-utilities', kind: 'inline', group: 'Layout', title: 'Layout utilities',
+    description: 'Margins, sizes, grids, alignment and ordering as Tailwind writes them, and transition classes that move on hover.',
+    component: LayoutUtilitiesExplorer, sources: ['res://src/layout-utilities-lab.tsx'],
   },
   {
     id: 'scroll', kind: 'inline', group: 'Layout', title: 'Scrolling',
