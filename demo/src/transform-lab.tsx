@@ -1,10 +1,10 @@
 import { useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
-  Button, ScrollView, Text, TextInput, View,
+  Button, ScrollView, Select, Text, TextInput, View,
   type Style, type UIDragEvent, type UIHandle,
 } from 'godot-react-ui';
 import {
-  BEHAVIOUR, CARD, CHILD, STAGE, TRANSITION_CASES, shapeCase, type ShapeCase, type TransitionCase,
+  BEHAVIOUR, CARD, CHILD, SHAPE_CASES, STAGE, TRANSITION_CASES, shapeCase, type ShapeCase, type TransitionCase,
 } from './transform-data';
 
 /**
@@ -64,10 +64,77 @@ function cardStyle(transform: string, origin: string | undefined): Style {
   };
 }
 
+interface CaseOption {
+  readonly id: string;
+  readonly label: string;
+  readonly caption: string;
+}
+
+const BEHAVIOUR_OPTIONS: readonly CaseOption[] = [
+  { id: 'hit', label: 'Hit testing (rotated & scaled)', caption: 'Click the turned bar, the scaled parent and its rotated child.' },
+  { id: 'hover', label: 'Hover scale (1.25x)', caption: 'Hover the card: hit testing grows with the scaled box.' },
+  { id: 'utilities', label: 'Tailwind transform utilities', caption: '-translate-x-1/2 -translate-y-1/4 rotate-6 hover:scale-110 origin-top-left.' },
+  { id: 'input', label: 'Text input in a turned card', caption: 'Click and type inside a rotated, scaled TextInput.' },
+  { id: 'selection', label: 'Text selection in a turned frame', caption: 'Drag across the rotated text to select characters.' },
+  { id: 'drag', label: 'Drag & drop across rotations', caption: 'Drag the turned card onto the rotated drop target.' },
+  { id: 'scroll', label: 'Scrolling inside a rotation', caption: 'Scroll a tilted vertical list and a quarter-turned row.' },
+  { id: 'anchor', label: 'Popover anchor (getRect)', caption: 'A marker placed at the bounding-box corner of a rotated trigger.' },
+  { id: 'clip', label: 'Overflow clipping', caption: 'Overflow-hidden under scale (exact) and under rotation.' },
+  { id: 'sharp', label: 'Glyph sharpness at scale(1.5)', caption: 'Scaled text rasterised at its target scale vs plain 2xl text.' },
+];
+
+const CASE_OPTIONS: readonly CaseOption[] = [
+  ...SHAPE_CASES.map(spec => ({
+    id: `shape:${spec.name}`,
+    label: `Shape: ${spec.name}`,
+    caption: `${spec.transform}${spec.origin ? ` (${spec.origin})` : ''} — ${spec.note}.`,
+  })),
+  ...TRANSITION_CASES.map(spec => ({
+    id: `transition:${spec.name}`,
+    label: `Transition: ${spec.name}`,
+    caption: `${spec.from} -> ${spec.to} (${spec.note}).`,
+  })),
+  ...BEHAVIOUR_OPTIONS,
+];
+
 function Stage({ children }: { children: React.ReactNode }) {
+  const name = useSyncExternalStore(subscribe, () => currentCase);
+  const current = CASE_OPTIONS.find(option => option.id === name);
+  const isTransition = name.startsWith('transition:');
   return (
-    <View testID="transform-stage" style={{ width: STAGE.width, height: STAGE.height, backgroundColor: STAGE.background }}>
-      {children}
+    <View style={{ width: STAGE.width }}>
+      <View testID="transform-stage" style={{ width: STAGE.width, height: STAGE.height, backgroundColor: STAGE.background }}>
+        {children}
+      </View>
+      <View className="h-px shrink-0 bg-slate-200" style={{ width: STAGE.width }} />
+      <View className="flex-row items-center gap-2 bg-white px-3 py-1.5" style={{ width: STAGE.width }}>
+        <Select.Root value={name} onValueChange={setTransformCase}>
+          <Select.Trigger testID="transform-case-select" aria-label="Transform case" className="w-52">
+            <Select.Value />
+            <Select.Icon />
+          </Select.Trigger>
+          <Select.Content testID="transform-case-list">
+            {CASE_OPTIONS.map(option => (
+              <Select.Item key={option.id} value={option.id} testID={`transform-case-${option.id}`}>
+                <Select.ItemText>{option.label}</Select.ItemText>
+                <Select.ItemIndicator />
+              </Select.Item>
+            ))}
+          </Select.Content>
+        </Select.Root>
+        {isTransition ? (
+          <Button
+            testID="transform-flip"
+            onClick={() => sendTransition(transitionTarget === 'from' ? 'to' : 'from')}
+            className="rounded-md bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 px-2.5 py-1"
+          >
+            <Text className="text-xs font-medium text-white">Flip</Text>
+          </Button>
+        ) : null}
+        <Text testID="transform-caption" className="flex-1 text-xs text-slate-500">
+          {current?.caption ?? name}
+        </Text>
+      </View>
     </View>
   );
 }
