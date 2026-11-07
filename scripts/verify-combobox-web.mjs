@@ -13,6 +13,9 @@ const PAN_DISTANCE_PX = 140;
 const PAN_STEPS = 6;
 /** The options that make the multiple combobox's chips wrap at 320 px. */
 const CHIPS_TO_WRAP = ['blueberry', 'date', 'fig'];
+/** A point this far in from the lab's right edge and this far down is bare page, clear of the controls and of the open lists. */
+const BARE_MARGIN_PX = 16;
+const BARE_TOP_PX = 100;
 /** Key repeats of a held Backspace. */
 const HELD_REPEATS = 5;
 
@@ -241,7 +244,7 @@ export async function runComboboxScenario(context) {
  * neither closes the list nor takes the input's focus for good (the press focuses the list for a moment, which hands it back).
  */
 export async function runTouchComboboxScenario(context) {
-  const { demo, page, frames, snapshot, find, check, waitUntil, nodeExists, text, pointerPoint, keyboardElement } = context;
+  const { demo, page, frames, snapshot, find, check, waitUntil, nodeExists, text, pointerPoint, pagePoint, keyboardElement } = context;
   const readout = async () => JSON.parse(await text('cb-json'));
   const testIDOf = (node) => (typeof node?.props?.testID === 'string' ? node.props.testID : '');
   const focusedTestID = async () => {
@@ -276,9 +279,7 @@ export async function runTouchComboboxScenario(context) {
   await tap('cb-bottom-input');
   await waitUntil('the bottom list opens', async () => !(await closed('bottom')));
   const before = (await find('cb-bottom-list')).scroll.scrollTop;
-  const from = await pointerPoint('cb-bottom-item-option-50');
-  const client = await page.createCDPSession();
-  void client;
+  const from = await pointerPoint('cb-bottom-list');
   await page.touchscreen.touchStart(from.x, from.y);
   for (let step = 1; step <= PAN_STEPS; step += 1) {
     await page.touchscreen.touchMove(from.x, from.y - (PAN_DISTANCE_PX * step) / PAN_STEPS);
@@ -286,14 +287,17 @@ export async function runTouchComboboxScenario(context) {
   }
   await page.touchscreen.touchEnd();
   await frames();
-  await client.detach();
   await waitUntil('a finger dragging the list scrolls it', async () => (await find('cb-bottom-list')).scroll.scrollTop > before);
   check('and chooses nothing, leaving the list open', (await readout()).bottom === null && !(await closed('bottom')));
   check('and the input has the focus again, with the keyboard up', (await focusedTestID()) === 'cb-bottom-input' && (await keyboardElement()) !== null,
     { focused: await focusedTestID(), keyboard: await keyboardElement() });
 
-  // A tap on bare page closes the list and takes the focus, and the keyboard goes.
-  await tap('cb-title');
+  // A tap on bare page closes the list and takes the focus, and the keyboard goes. The open list covers the title and the
+  // controls; the page's right-hand margin is bare.
+  const lab = (await find('combobox-lab')).rect;
+  const bare = await pagePoint(lab.x + lab.width - BARE_MARGIN_PX, lab.y + BARE_TOP_PX);
+  await page.touchscreen.tap(bare.x, bare.y);
+  await frames();
   await waitUntil('a tap on bare page closes the list', async () => closed('bottom'));
   check('and the keyboard goes', (await keyboardElement()) === null);
   await demo('scrollTo', 'combobox-page', 0);

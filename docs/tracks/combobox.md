@@ -128,6 +128,22 @@ and forwards a ref (`Input` a `TextInputHandle`), the caller's class after the p
     active option and the chips appear, the live region of `Empty`) have to be written from a reading, as the earlier ones were.
 
 
+14. **A tap on a `TextInput` was never a click on the Web (found by this track's touch page; a library bug, fixed at its cause).** Evidence, from
+    headless Chrome with touch on the Web export, logging the page's own events and the events that reached JS on the combobox's input
+    (`page.touchscreen.tap`): `touchstart`, then ten milliseconds later, inside the same handler, `window` and canvas `blur` and `focusin` on the
+    engine's hidden `INPUT`, then `touchend`; JS saw `pointerdown`, `focus`, `pointercancel` and no `pointerup` or `click`. Cause: the tap focuses the
+    input, native calls `virtual_keyboard_show`, `GodotDisplayVK.show` focuses its element, which blurs the canvas, and the engine reports a canvas
+    blur as `NOTIFICATION_WM_WINDOW_FOCUS_OUT`; the root answers that with `cancel_all_pointers()` (D6: a lost window focus cancels the pointers in
+    flight), so the finger is cancelled before it lifts. The engine already drops the canvas `focus` and `blur` notifications while its IME element holds
+    the focus (`DisplayServerWeb::_send_window_event_callback`, `godot_js_is_ime_focused`), which is why a mouse press on desktop Chrome was
+    never affected; it has no such rule for the soft keyboard. A real device takes the same path (the engine's touch callback runs in the DOM `touchstart` handler and
+    shows the keyboard there); no real device was tried. `native/pointer_input.rs` (`press_touch`, `release_touch`), `begin_touch_pan`, `text_input_pointer_down` and the fling rule
+    were read and are not involved. **Fix:** `ReactUiRoot::call_engine` (which wraps every engine call that moves the browser's focus between the canvas and its
+    IME or keyboard element) counts its calls, and `on_notification` ignores `WM_WINDOW_FOCUS_IN` and `_OUT` while one runs
+    (`native/lib.rs`, `native/text_input_godot/platform.rs`): the notification arrives synchronously inside the call, it is the library's own focus move, and the
+    window did not change. Not changed: a real focus loss still cancels the pointers. **Check:** `runTouchFormsScenario` taps the forms lab's name field
+    and requires one `click` on it (`nameClicks` in the lab's readout); the combobox touch page needs the same click to open its list.
+
 ## Tests
 
 | What | Where | Count |
