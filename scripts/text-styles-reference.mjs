@@ -246,6 +246,12 @@ const VISIBLE_LEVELS = 24;
 const INK_FLOOR = 8;
 /** A cell is compared with this much around it, in logical pixels. */
 const CELL_MARGIN = 2;
+/**
+ * How far the ink of all the texts of a window may be from Chrome's with `-webkit-font-smoothing: antialiased`, as a share of it. Ours is
+ * 0.2 to 0.5 % from it at both ratios (docs/tracks/utilities-text.md); Chrome's default smoothing is 12 to 15 % above it, so this band tells the two
+ * looks apart, and a glyph drawn at the wrong scale (a quarter of the ink or more, either way) fails it.
+ */
+const INK_BAND = 0.03;
 
 /** Runs in the page: decode PNGs and measure what each text's cell holds. */
 async function measureImages(inputs) {
@@ -371,6 +377,24 @@ async function diff(nativeDirectory, chromeDirectory, outDirectory) {
   }
   await writeFile(resolve(outDirectory, 'report.json'), JSON.stringify(report, null, 1));
   console.log(summary(report));
+  const failures = inkFailures(report);
+  for (const failure of failures) console.error(`FAIL ${failure}`);
+  if (failures.length > 0) process.exitCode = 1;
+}
+
+/** The windows whose ink is not that of Chrome's antialiased glyphs, and the control: Chrome's default smoothing must be outside the same band. */
+function inkFailures(report) {
+  const failures = [];
+  for (const [name] of VIEWPORTS) {
+    const entries = Object.entries(report).filter(([stem]) => stem.endsWith(`-${name}`)).flatMap(([, results]) => Object.values(results));
+    const sum = pick => entries.reduce((total, entry) => total + (entry[pick]?.ink ?? 0), 0);
+    if (entries.length === 0 || sum('antialiased') === 0) continue;
+    const ours = sum('ours') / sum('antialiased');
+    const chrome = sum('chrome') / sum('antialiased');
+    if (Math.abs(ours - 1) > INK_BAND) failures.push(`${name}: our ink is ${ours.toFixed(3)} of Chrome's antialiased ink, further than ${INK_BAND}`);
+    if (Math.abs(chrome - 1) <= INK_BAND) failures.push(`Control ${name}: Chrome's default smoothing is ${chrome.toFixed(3)} of its antialiased ink, inside the band that is to tell them apart`);
+  }
+  return failures;
 }
 
 /** The ink each renderer puts down, summed over all the texts of a window, and how far ours is from Chrome's, both smoothings. */
