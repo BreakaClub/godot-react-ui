@@ -1179,13 +1179,16 @@ impl ReactUiRoot {
             },
             None => None,
         };
+        // What the paragraph was missing is found out afresh as it is shaped.
+        self.forget_missing_glyphs(tag);
         let paragraph = match rich {
-            Some(rich) => self.shape_rich(rich, &style.shaping, epoch),
+            Some(rich) => self.shape_rich(tag, rich, &style.shaping, epoch),
             None => {
                 let font = self
                     .fonts
                     .resolve(&style.shaping)
                     .expect("a root with a theme font resolves every font request");
+                self.note_missing_glyphs(Some(tag), &shown, &font.shape, font.font_size);
                 (!shown.is_empty()).then(|| {
                     let mut paragraph = StyledParagraph::build(&shown, &style.shaping, font);
                     paragraph.set_decorations(style.decorations);
@@ -1256,6 +1259,7 @@ impl ReactUiRoot {
     /// The paragraph that shapes `rich`: one font per run of fonts, resolved against the node's own style.
     fn shape_rich(
         &mut self,
+        tag: u32,
         rich: RichText,
         style: &ShapingStyle,
         epoch: u64,
@@ -1280,7 +1284,12 @@ impl ReactUiRoot {
                     })
                     .expect("a root with a theme font resolves every font request")
             })
-            .collect();
+            .collect::<Vec<_>>();
+        let characters: Vec<char> = rich.display.chars().collect();
+        for (run, font) in rich.font_runs.iter().zip(&fonts) {
+            let piece: String = characters[run.range.clone()].iter().collect();
+            self.note_missing_glyphs(Some(tag), &piece, &font.shape, font.font_size);
+        }
         Some(StyledParagraph::build_rich(rich, fonts, style, base, epoch))
     }
 

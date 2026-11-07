@@ -1194,6 +1194,10 @@ declare module "godot" {
     /** @deprecated Internal use. Does not exist at runtime. */
     interface __NameMapReactUiRoot extends __NameMapControl {
         register_font_face: "registerFontFace";
+        set_missing_glyph_reporting: "setMissingGlyphReporting";
+        take_missing_codepoints: "takeMissingCodepoints";
+        add_font_fallbacks: "addFontFallbacks";
+        set_system_font_candidates: "setSystemFontCandidates";
         take_commit_deletions: "takeCommitDeletions";
         set_profiling: "setProfiling";
         isolate_clipboard: "isolateClipboard";
@@ -1231,12 +1235,17 @@ declare module "godot" {
         drain_events: "drainEvents";
         resolve_event: "resolveEvent";
         events_ready: "eventsReady";
+        missing_glyphs_ready: "missingGlyphsReady";
     }
     /** @link https://docs.godotengine.org/en/latest/classes/class_reactuiroot.html */
     class ReactUiRoot<Map extends NodePathMap = any> extends Control<Map> {
         constructor(identifier?: any)
         commit(layer: int64, payloadJson: string): string
         registerFontFace(family: string, weightMin: int64, weightMax: int64, italic: boolean, font: Font): string
+        setMissingGlyphReporting(enabled: boolean): any
+        takeMissingCodepoints(): PackedInt32Array
+        addFontFallbacks(fonts: GArray): string
+        setSystemFontCandidates(families: PackedStringArray | string[]): any
         takeCommitDeletions(): PackedInt64Array
         setProfiling(enabled: boolean): any
         static isolateClipboard(isolated: boolean): any
@@ -1274,6 +1283,7 @@ declare module "godot" {
         drainEvents(): string
         resolveEvent(seq: int64, defaultPrevented: boolean, dropEffect: string): string
         readonly eventsReady: Signal<() => void>
+        readonly missingGlyphsReady: Signal<() => void>
         /** @deprecated Internal use. Does not exist at runtime. */
         __godotRPCMap: __RPCMapReactUiRoot;
         /** @deprecated Internal use. Does not exist at runtime. */
@@ -9196,65 +9206,5 @@ declare module "godot" {
         __godotRPCMap: __RPCMapSkeletonProfileHumanoid;
         /** @deprecated Internal use. Does not exist at runtime. */
         __godotNameMap: __NameMapSkeletonProfileHumanoid;
-    }
-    /** @deprecated Internal use. Does not exist at runtime. */
-    interface __RPCMapSkin extends __RPCMapResource {
-    }
-    /** @deprecated Internal use. Does not exist at runtime. */
-    interface __NameMapSkin extends __NameMapResource {
-        set_bind_count: "setBindCount";
-        get_bind_count: "getBindCount";
-        add_bind: "addBind";
-        add_named_bind: "addNamedBind";
-        set_bind_pose: "setBindPose";
-        get_bind_pose: "getBindPose";
-        set_bind_name: "setBindName";
-        get_bind_name: "getBindName";
-        set_bind_bone: "setBindBone";
-        get_bind_bone: "getBindBone";
-        clear_binds: "clearBinds";
-    }
-    /** A list of inverse bind poses and corresponding bones.  
-     *  	  
-     *  @link https://docs.godotengine.org/en/latest/classes/class_skin.html  
-     */
-    class Skin extends Resource {
-        constructor(identifier?: any)
-        /** Resizes the bind pose list to a length of [param bind_count]. */
-        setBindCount(bindCount: int64): void
-        
-        /** Returns the length of the bind pose list. */
-        getBindCount(): int64
-        
-        /** Adds a bind pose matrix of [param pose] and associated bone index [param bone] to the bind pose list and increases the bind count by 1. */
-        addBind(bone: int64, pose: Transform3D): void
-        
-        /** Like [method add_bind] but adds a bone [param name] instead of a bone index. */
-        addNamedBind(name: string, pose: Transform3D): void
-        
-        /** Sets the bind pose [param bind_index] with the given offset matrix [param pose]. */
-        setBindPose(bindIndex: int64, pose: Transform3D): void
-        
-        /** Returns the bind pose matrix at [param bind_index]. */
-        getBindPose(bindIndex: int64): Transform3D
-        
-        /** Sets the name of the bone in bind pose [param bind_index] to [param name]. */
-        setBindName(bindIndex: int64, name: StringName): void
-        
-        /** Returns the bone name associated with bind pose [param bind_index]. */
-        getBindName(bindIndex: int64): StringName
-        
-        /** Sets the bone index of bind pose [param bind_index] to the given index [param bone]. */
-        setBindBone(bindIndex: int64, bone: int64): void
-        
-        /** Returns the bone index associated with bind pose [param bind_index]. */
-        getBindBone(bindIndex: int64): int64
-        
-        /** Clears the bind pose list. */
-        clearBinds(): void
-        /** @deprecated Internal use. Does not exist at runtime. */
-        __godotRPCMap: __RPCMapSkin;
-        /** @deprecated Internal use. Does not exist at runtime. */
-        __godotNameMap: __NameMapSkin;
     }
 }

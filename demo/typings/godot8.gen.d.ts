@@ -1,6 +1,66 @@
 declare module "godot" {
     // AUTO-GENERATED
     /** @deprecated Internal use. Does not exist at runtime. */
+    interface __RPCMapSkin extends __RPCMapResource {
+    }
+    /** @deprecated Internal use. Does not exist at runtime. */
+    interface __NameMapSkin extends __NameMapResource {
+        set_bind_count: "setBindCount";
+        get_bind_count: "getBindCount";
+        add_bind: "addBind";
+        add_named_bind: "addNamedBind";
+        set_bind_pose: "setBindPose";
+        get_bind_pose: "getBindPose";
+        set_bind_name: "setBindName";
+        get_bind_name: "getBindName";
+        set_bind_bone: "setBindBone";
+        get_bind_bone: "getBindBone";
+        clear_binds: "clearBinds";
+    }
+    /** A list of inverse bind poses and corresponding bones.  
+     *  	  
+     *  @link https://docs.godotengine.org/en/latest/classes/class_skin.html  
+     */
+    class Skin extends Resource {
+        constructor(identifier?: any)
+        /** Resizes the bind pose list to a length of [param bind_count]. */
+        setBindCount(bindCount: int64): void
+        
+        /** Returns the length of the bind pose list. */
+        getBindCount(): int64
+        
+        /** Adds a bind pose matrix of [param pose] and associated bone index [param bone] to the bind pose list and increases the bind count by 1. */
+        addBind(bone: int64, pose: Transform3D): void
+        
+        /** Like [method add_bind] but adds a bone [param name] instead of a bone index. */
+        addNamedBind(name: string, pose: Transform3D): void
+        
+        /** Sets the bind pose [param bind_index] with the given offset matrix [param pose]. */
+        setBindPose(bindIndex: int64, pose: Transform3D): void
+        
+        /** Returns the bind pose matrix at [param bind_index]. */
+        getBindPose(bindIndex: int64): Transform3D
+        
+        /** Sets the name of the bone in bind pose [param bind_index] to [param name]. */
+        setBindName(bindIndex: int64, name: StringName): void
+        
+        /** Returns the bone name associated with bind pose [param bind_index]. */
+        getBindName(bindIndex: int64): StringName
+        
+        /** Sets the bone index of bind pose [param bind_index] to the given index [param bone]. */
+        setBindBone(bindIndex: int64, bone: int64): void
+        
+        /** Returns the bone index associated with bind pose [param bind_index]. */
+        getBindBone(bindIndex: int64): int64
+        
+        /** Clears the bind pose list. */
+        clearBinds(): void
+        /** @deprecated Internal use. Does not exist at runtime. */
+        __godotRPCMap: __RPCMapSkin;
+        /** @deprecated Internal use. Does not exist at runtime. */
+        __godotNameMap: __NameMapSkin;
+    }
+    /** @deprecated Internal use. Does not exist at runtime. */
     interface __RPCMapSkinReference extends __RPCMapRefCounted {
     }
     /** @deprecated Internal use. Does not exist at runtime. */

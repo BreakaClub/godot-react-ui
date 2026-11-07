@@ -17,6 +17,7 @@ mod filter;
 mod filter_faults;
 mod filter_render;
 mod focus;
+mod font_fallback;
 // The faces a root draws text with: the registry `registerFontFace` fills and CSS font matching over it.
 mod fonts;
 mod geometry;
@@ -25,6 +26,7 @@ mod grid_style;
 mod keyboard_input;
 mod keymap;
 mod layout;
+mod missing_glyphs;
 mod motion;
 mod mount;
 mod paint;
@@ -47,6 +49,7 @@ mod shadow_mask;
 mod snapshot;
 mod stacking;
 mod style_engine;
+mod system_fonts;
 // The text longhands, their inheritance and the arithmetic of line boxes and font matching (Godot-free).
 mod text_input;
 mod text_style;
@@ -226,6 +229,8 @@ pub struct ReactUiRoot {
     font: Option<Gd<Font>>,
     /// The faces registered for this root (`register_font_face`) and the fonts made from them.
     fonts: FontBook,
+    /// What the root does about characters no font has (`font_fallback.rs`).
+    fallbacks: font_fallback::Fallbacks,
     viewport_size: Vector2,
     /// The viewport width the computed styles were last resolved for.
     styled_viewport: Viewport,
@@ -315,6 +320,7 @@ impl IControl for ReactUiRoot {
             dispatch_depth: 0,
             font: None,
             fonts: FontBook::default(),
+            fallbacks: font_fallback::Fallbacks::default(),
             viewport_size: Vector2::ZERO,
             styled_viewport: Viewport {
                 width: 0.0,
@@ -373,6 +379,8 @@ impl IControl for ReactUiRoot {
             .get_theme_default_font()
             .or_else(|| ThemeDb::singleton().get_fallback_font());
         self.fonts.set_theme_font(self.font.clone());
+        self.font = self.fonts.theme_font();
+        self.fallbacks.start();
         let mut ring = StyleBoxFlat::new_gd();
         ring.set_draw_center(false);
         ring.set_border_width_all(FOCUS_RING_WIDTH);
@@ -579,6 +587,11 @@ impl ReactUiRoot {
     #[signal]
     fn events_ready();
 
+    /// Emitted when text was shaped with characters that no font has, and the owner's script has asked to be told (`set_missing_glyph_reporting`): it fetches
+    /// a font for them and hands it to `add_font_fallbacks`. `take_missing_codepoints` has the characters.
+    #[signal]
+    fn missing_glyphs_ready();
+
     /// Apply one layer's commit payload (plan section 4.1): validate all of it, then mount it. An
     /// empty return is success; anything else describes why nothing changed.
     #[func]
@@ -594,7 +607,10 @@ impl ReactUiRoot {
         let parse_micros = micros(parse_started);
         self.ensure_render_roots();
         match self.run_commit(layer, &payload, parse_micros) {
-            Ok(()) => GString::new(),
+            Ok(()) => {
+                self.settle_missing_glyphs();
+                GString::new()
+            }
             Err(error) => GString::from(&error),
         }
     }
@@ -628,7 +644,59 @@ impl ReactUiRoot {
             return GString::from(&error);
         }
         self.refresh_font_users();
+        self.settle_missing_glyphs();
         GString::new()
+    }
+
+    /// Ask to be told of the characters text is shaped with that no font has, which `missing_glyphs_ready` and `take_missing_codepoints` do. A script that can
+    /// fetch a font for them listens; where the platform has system fonts the root looks in them itself, and a script that listens is told only of the characters
+    /// they do not have. Nothing is looked for until somebody asked.
+    #[func]
+    fn set_missing_glyph_reporting(&mut self, enabled: bool) {
+        self.fallbacks.listen(enabled);
+    }
+
+    /// The characters text was shaped with that no font has, since the last call, as code points; empty when there are none. They are the characters
+    /// `missing_glyphs_ready` was emitted for.
+    #[func]
+    fn take_missing_codepoints(&mut self) -> PackedInt32Array {
+        self.fallbacks.take_for_script()
+    }
+
+    /// Add `fonts` behind the fonts text is shaped with, as fallbacks for the characters none of them has, and shape again the text that was missing
+    /// some, once for all of them. A face that turned `allow_system_fallback` off is left as it is, and the theme font is not touched (a font that has them
+    /// behind it takes its place). A face registered later has them too. An empty string means success; anything else says why nothing changed.
+    #[func]
+    fn add_font_fallbacks(&mut self, fonts: VarArray) -> GString {
+        let mut added = Vec::with_capacity(fonts.len());
+        for (index, value) in fonts.iter_shared().enumerate() {
+            match value.try_to::<Gd<Font>>() {
+                Ok(font) => added.push(font),
+                Err(error) => {
+                    return GString::from(&format!("fonts[{index}] is not a Font: {error}"));
+                }
+            }
+        }
+        if self.font.is_none() {
+            return GString::from("the root has no theme font yet");
+        }
+        self.add_fallbacks_and_reshape(&added);
+        self.settle_missing_glyphs();
+        GString::new()
+    }
+
+    /// The system font families tried, in order, for a character no font has and the text server found no system font for, which on macOS 26 is every Han
+    /// character (`docs/tracks/font-slices.md`). The library has a list for each system language; an app with its own gives it here, and an empty list looks
+    /// nowhere.
+    #[func]
+    fn set_system_font_candidates(&mut self, families: PackedStringArray) {
+        self.fallbacks.set_candidates(
+            families
+                .as_slice()
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
+        );
     }
 
     #[func]
@@ -1256,6 +1324,8 @@ impl ReactUiRoot {
     /// points may call this (plan 3.3 rule 1); events queued anywhere else wait for the next
     /// delivery or the owner's per-frame `dispatchEvents()`.
     fn deliver(&mut self) {
+        // An edit that put characters no font has into a text field has shaped it already; the fonts for them are looked for now.
+        self.settle_missing_glyphs();
         if self.dispatch_depth > 0 || self.events.is_empty() || !self.base().is_inside_tree() {
             return;
         }

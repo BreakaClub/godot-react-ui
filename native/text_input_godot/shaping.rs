@@ -334,8 +334,13 @@ impl ReactUiRoot {
         };
         let multiline = state.buffer.config().multiline;
         let metrics = Metrics::of(&font, font_size);
+        // What the field shows, for the characters no font has (`font_fallback.rs`).
+        let shown = display_string(state);
+        let noted: Vec<String> = std::iter::once(shown.clone())
+            .chain(placeholder.clone())
+            .collect();
         state.shaped = Some(Shaped {
-            display: shape(&font, &display_string(state), font_size, multiline),
+            display: shape(&font, &shown, font_size, multiline),
             placeholder: placeholder.map(|text| shape(&font, &text, font_size, multiline)),
             font_size,
         });
@@ -352,6 +357,10 @@ impl ReactUiRoot {
         self.paint_dirty.insert(tag);
         // The text elements assistive technologies read were made from the old shaping.
         self.discard_text_accessibility(tag);
+        self.forget_missing_glyphs(tag);
+        for text in &noted {
+            self.note_missing_glyphs(Some(tag), text, &font, font_size);
+        }
         // A new font size or placeholder moves the caret.
         self.note_text_input_box_changed(tag);
         true

@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use godot::builtin::{Transform2D, VarDictionary};
 use godot::classes::text_server::FontStyle;
-use godot::classes::{Font, FontFile, FontVariation};
+use godot::classes::{Font, FontFile, FontVariation, SystemFont};
 use godot::prelude::*;
 
 use crate::text_style::face::{FaceChoice, FaceDesc, match_face};
@@ -120,11 +120,42 @@ impl ResolvedFont {
 /// The registry of faces and the cache of fonts made from it.
 #[derive(Default)]
 pub(crate) struct FontBook {
+    /// The font text uses when it names no family: the one the root took from its theme, with the fallbacks that were added to the root since.
     theme: Option<Gd<Font>>,
+    /// The font the root took from its theme, as it is (`theme` is a variation of it once a fallback has been added).
+    theme_original: Option<Gd<Font>>,
     faces: Vec<Face>,
     variations: HashMap<VariationKey, Gd<FontVariation>>,
-    /// Changes whenever a face is registered: a text shaped before it may be shaped with other fonts now.
+    /// The fonts that were added as fallbacks for characters no font had (`add_fallbacks`), in the order added.
+    added: Vec<Gd<Font>>,
+    /// Changes whenever a face is registered or a fallback is added: a text shaped before it may be shaped with other fonts now.
     epoch: u64,
+}
+
+/// Whether a font may have fonts added to it that it did not ask for: the same switch as the engine's system fallback, `allow_system_fallback`,
+/// which a font that wants to be drawn with its own glyphs and nothing else turns off. A font of a kind without the switch allows it.
+fn allows_fallback(font: &Gd<Font>) -> bool {
+    if let Ok(file) = font.clone().try_cast::<FontFile>() {
+        return file.is_allow_system_fallback();
+    }
+    if let Ok(system) = font.clone().try_cast::<SystemFont>() {
+        return system.is_allow_system_fallback();
+    }
+    true
+}
+
+/// `font`'s own fallbacks, then `added`, each once: what its `fallbacks` become when the added fonts are put behind it.
+fn with_added(font: &Gd<Font>, added: &[Gd<Font>]) -> Array<Gd<Font>> {
+    let mut list = font.get_fallbacks();
+    for extra in added {
+        if !list
+            .iter_shared()
+            .any(|have| have.instance_id() == extra.instance_id())
+        {
+            list.push(extra);
+        }
+    }
+    list
 }
 
 fn tag(bytes: &[u8; 4]) -> i64 {
@@ -134,7 +165,64 @@ fn tag(bytes: &[u8; 4]) -> i64 {
 impl FontBook {
     /// The font text uses when nothing names another. It stays the one the root took from its theme.
     pub(crate) fn set_theme_font(&mut self, font: Option<Gd<Font>>) {
-        self.theme = font;
+        self.theme_original = font;
+        self.theme = self
+            .theme_original
+            .as_ref()
+            .map(|theme| self.theme_with_added(theme));
+        self.variations.clear();
+    }
+
+    /// The font text that names no family is shaped with: the theme font, or a variation of it that has the added fallbacks behind its own. The theme font is the
+    /// engine's, shared with every control, so the fallbacks are not put into it.
+    pub(crate) fn theme_font(&self) -> Option<Gd<Font>> {
+        self.theme.clone()
+    }
+
+    fn theme_with_added(&self, theme: &Gd<Font>) -> Gd<Font> {
+        if self.added.is_empty() || !allows_fallback(theme) {
+            return theme.clone();
+        }
+        let mut variation = FontVariation::new_gd();
+        variation.set_base_font(theme);
+        variation.set_fallbacks(&with_added(theme, &self.added));
+        variation.upcast()
+    }
+
+    /// Put `fonts` behind every registered face that allows it, and behind the theme font, as fallbacks for the characters that none of its fonts have; text
+    /// shaped before is shaped with other fonts now (`epoch`). The faces' fonts are the owner's, registered for this; the theme's is not touched. A face
+    /// registered later has them too. Returns whether anything was added.
+    pub(crate) fn add_fallbacks(&mut self, fonts: &[Gd<Font>]) -> bool {
+        let before = self.added.len();
+        for font in fonts {
+            if !self
+                .added
+                .iter()
+                .any(|have| have.instance_id() == font.instance_id())
+            {
+                self.added.push(font.clone());
+            }
+        }
+        if self.added.len() == before {
+            return false;
+        }
+        for face in &mut self.faces {
+            Self::attach(&mut face.font, &self.added);
+        }
+        self.theme = self
+            .theme_original
+            .as_ref()
+            .map(|theme| self.theme_with_added(theme));
+        self.variations.clear();
+        self.epoch += 1;
+        true
+    }
+
+    fn attach(font: &mut Gd<Font>, added: &[Gd<Font>]) {
+        if allows_fallback(font) {
+            let list = with_added(font, added);
+            font.set_fallbacks(&list);
+        }
     }
 
     /// A number that changes with every registered face (see [`FontBook::register`]).
@@ -169,6 +257,8 @@ impl FontBook {
             weight_max,
             italic,
         };
+        let mut font = font;
+        Self::attach(&mut font, &self.added);
         match self
             .faces
             .iter_mut()
@@ -228,10 +318,12 @@ impl FontBook {
     /// browser would add for the weight, the slant, the features and the letter-spacing.
     pub(crate) fn resolve(&mut self, style: &ShapingStyle) -> Result<ResolvedFont, String> {
         let theme = self.theme.clone().ok_or("the root has no theme font yet")?;
+        // What the theme font is (its weights) is read from the font the engine has, not from the variation that adds the fallbacks behind it.
+        let theme_original = self.theme_original.clone().unwrap_or_else(|| theme.clone());
         let named = self.faces_of(&style.families);
         // The faces CSS matching chooses among, and where each comes from (`None` is the theme font).
         let (descs, sources): (Vec<FaceDesc>, Vec<Option<usize>>) = if named.is_empty() {
-            (vec![Self::theme_desc(&theme)], vec![None])
+            (vec![Self::theme_desc(&theme_original)], vec![None])
         } else {
             (
                 named.iter().map(|&index| self.faces[index].desc).collect(),
