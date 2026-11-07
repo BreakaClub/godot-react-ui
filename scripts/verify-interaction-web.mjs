@@ -2247,6 +2247,10 @@ async function runTouchFormsScenario() {
   };
   await tapField('form-name');
   await expectFocused((await find('form-name')).id, 'A tap focuses the name field');
+  // The tap brings the soft keyboard up, which moves the browser's focus from the canvas to the engine's keyboard element, and the
+  // engine reports a canvas blur as the window losing focus; the finger must not be cancelled by it (native/text_input_godot/platform.rs).
+  await waitUntil('a tap on a text input is a click', async () => (await formReadout()).nameClicks === 1);
+  check('and the finger was not cancelled on its way', (await formReadout()).nameClicks === 1);
   await waitUntil('the engine focuses its hidden DOM input', async () => page.evaluate(() => {
     const active = document.activeElement;
     return active?.tagName === 'INPUT' && active.style.display === 'block';
@@ -2949,7 +2953,7 @@ async function runTouchWorkflow() {
   if (wanted('drag')) await section('drag', runTouchDragScenario);
   if (wanted('combobox')) {
     await section('combobox', () => runTouchComboboxScenario({
-      demo, page, frames, snapshot, find, check, waitUntil, nodeExists, text, pointerPoint, keyboardElement,
+      demo, page, frames, snapshot, find, check, waitUntil, nodeExists, text, pointerPoint, pagePoint, keyboardElement,
     }));
   }
 }

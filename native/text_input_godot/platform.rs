@@ -54,9 +54,28 @@ impl ReactUiRoot {
     /// notification panics at `bind_mut` ("already bound"). Holding the base guard marks the borrow
     /// inaccessible for the duration of `call`, which is what makes a re-entrant call legal: the
     /// guard is the same one `self.base_mut().grab_focus()` takes.
+    ///
+    /// **Those notifications are not the window losing focus.** On the Web `GodotDisplayVK.show` focuses the soft
+    /// keyboard's element, which blurs the canvas, and the engine reports a canvas blur as the window losing focus
+    /// (`NOTIFICATION_WM_WINDOW_FOCUS_OUT`) unless the IME element is the one focused (`DisplayServerWeb::
+    /// _send_window_event_callback` drops the notification then, but has no such rule for the soft keyboard). The
+    /// page has not lost focus, and a root that believed it had cancelled every pointer: a finger that tapped a text
+    /// input got `pointerdown`, `focus` and `pointercancel`, and never a `click` (measured in Chrome: `touchstart`,
+    /// the canvas `blur` ten milliseconds later inside the same handler, `touchend` after). So a window focus
+    /// notification delivered while a call runs is ignored ([`Self::engine_is_moving_focus`]).
     fn call_engine<R>(&mut self, call: impl FnOnce() -> R) -> R {
-        let _reentrancy = self.base_mut();
-        call()
+        self.text_inputs.engine_focus_calls += 1;
+        let reentrancy = self.base_mut();
+        let result = call();
+        drop(reentrancy);
+        self.text_inputs.engine_focus_calls -= 1;
+        result
+    }
+
+    /// Whether an engine call of this root's own is running that moves the browser's focus: a window focus
+    /// notification now says nothing about the window (see [`Self::call_engine`]).
+    pub(crate) fn engine_is_moving_focus(&self) -> bool {
+        self.text_inputs.engine_focus_calls > 0
     }
 
     fn window_id(&self) -> i32 {

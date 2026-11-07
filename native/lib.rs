@@ -386,6 +386,9 @@ impl IControl for ReactUiRoot {
 
     fn on_notification(&mut self, what: ControlNotification) {
         match what {
+            // The root's own call moved the browser's focus to the engine's keyboard or IME element: the window did not change.
+            ControlNotification::WM_WINDOW_FOCUS_IN | ControlNotification::WM_WINDOW_FOCUS_OUT
+                if self.engine_is_moving_focus() => {}
             ControlNotification::RESIZED if self.font.is_some() => {
                 self.sync_viewport();
                 self.flush_layout();

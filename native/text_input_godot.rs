@@ -263,6 +263,10 @@ pub(crate) struct TextInputRoot {
     /// keyboard's is, have not been processed yet: until the next frame the input's caret is only 0, where `ReplaceText`
     /// left it. Whatever is read of the selection in that time is not where the user is.
     pub(crate) keyboard_presses_pending: bool,
+    /// How many engine calls that move the browser's focus between the canvas and the engine's own IME and soft
+    /// keyboard elements are running (`ReactUiRoot::call_engine`). A window focus notification that arrives inside
+    /// one is the library's own doing, not the window gaining or losing focus.
+    pub(crate) engine_focus_calls: u32,
 }
 
 #[cfg(test)]

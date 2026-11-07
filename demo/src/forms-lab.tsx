@@ -10,9 +10,11 @@ interface FormState {
   notes: string;
   comments: string;
   submitted: number;
+  /** `click`s the name field received: a tap on it must be one, whatever the soft keyboard does to the window's focus. */
+  nameClicks: number;
 }
 
-const INITIAL_STATE: FormState = { name: '', password: '', code: '', shout: '', notes: '', comments: '', submitted: 0 };
+const INITIAL_STATE: FormState = { name: '', password: '', code: '', shout: '', notes: '', comments: '', submitted: 0, nameClicks: 0 };
 
 /** The `maxLength` of the code field, in UTF-16 units. */
 const CODE_MAX_LENGTH = 6;
@@ -56,6 +58,7 @@ export function FormsLab() {
         <Text className={`w-24 ${labelClass}`}>Name</Text>
         <TextInput
           testID="form-name" className={field} placeholder="Your name" value={state.name} onSubmit={submit}
+          onClick={() => setState(current => ({ ...current, nameClicks: current.nameClicks + 1 }))}
           onChange={(event: UIInputEvent) => { patch({ name: event.value }); note(`input:${event.inputType}`); }}
           onCompositionStart={() => note('compositionstart')}
           onCompositionUpdate={(event: UICompositionEvent) => note(`compositionupdate:${event.data}`)}
