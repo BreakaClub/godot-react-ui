@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Button, Text, View } from 'godot-react-ui';
 import { FONT_SAMPLES, sampleNamed, type FontSample } from './font-slices-data';
-import { currentFontSlices, requestFontsFor, subscribeToFontSlices, type FontSlicesView } from './font-slices-store';
+import { currentFontSlices, subscribeToFontSlices, type FontSlicesView } from './font-slices-store';
 
 export interface FontSlicesLabProps {
   /** Show this sample alone, bare, as the verifier does; without it the lab has its buttons. */
@@ -54,8 +54,6 @@ export function FontSlicesLab({ sample: only }: FontSlicesLabProps) {
   const [chosen, setChosen] = useState(FONT_SAMPLES[0]?.id ?? '');
   const view = useFontSlices();
   const sample = sampleNamed(only ?? chosen);
-  // Until the root reports the characters its text has no glyph for (native work that waits on the missing-glyph track), the lab asks for them.
-  useEffect(() => { requestFontsFor(sample.text); }, [sample]);
   return (
     <View testID="fs-page" className="flex-1 gap-3 bg-white p-4">
       {only === undefined && (

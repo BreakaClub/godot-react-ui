@@ -38,7 +38,7 @@ export const DEMO_ENTRY_POINTS = [
   // The keystroke cost diagnostic that drives the code panel (docs/tracks/keystroke-profile.md).
   'demo/src/profile-keystrokes.ts',
   // The font fallback lab (docs/tracks/font-slices.md): its samples (which the Chrome reference reads too), the loader's store and the owner's host for the loader.
-  'demo/src/font-slices-data.ts', 'demo/src/font-slices-store.ts', 'demo/src/font-fallback.ts',
+  'demo/src/font-slices-data.ts', 'demo/src/font-slices-store.ts', 'demo/src/font-fallback.ts', 'demo/src/verify-font-fallback.ts',
 ];
 
 // The scripts the deployed playground starts as Godot scripts: the demo's owner (`main.tscn`), the autoload that starts another scene, and the

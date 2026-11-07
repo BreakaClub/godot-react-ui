@@ -1,7 +1,7 @@
 export const ONLY_PREFIX: string;
 
 export const NATIVE_INTERACTION_SECTIONS: readonly [
-  'events', 'cooperation', 'pointers', 'keyboard', 'positioning', 'inputs', 'scroll', 'selection', 'drag', 'forms', 'combobox', 'dropdown-touch', 'hidpi', 'filters', 'glass', 'paint',
+  'font-fallback', 'events', 'cooperation', 'pointers', 'keyboard', 'positioning', 'inputs', 'scroll', 'selection', 'drag', 'forms', 'combobox', 'dropdown-touch', 'hidpi', 'filters', 'glass', 'paint',
   'navigator', 'transforms', 'layout-utilities', 'text-styles', 'rich-text', 'filters-sizes', 'filters-cost', 'filters-faults', 'transforms-faults', 'live-compile', 'code-editor',
 ];
 export const NATIVE_OPT_IN_SECTIONS: readonly ['filters-sizes', 'filters-cost', 'filters-faults', 'transforms-faults', 'live-compile'];

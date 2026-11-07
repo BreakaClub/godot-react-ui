@@ -303,8 +303,9 @@ export async function runFontSlicesScenario({ browser, base, check, viewport, ex
         await settle(page);
       }
       await page.evaluate(() => globalThis.godotReactDemo.fontSlicesIdle());
-      const status = (await demo(page, 'fontSlices')).status;
-      check('a page whose text every registered font has fetches nothing: no manifest, no index, no slice', fetched.length === 0 && status.requests === 0 && status.manifest === 'unrequested', { fetched, status });
+      const view = await demo(page, 'fontSlices');
+      const status = view.status;
+      check('a page whose text every registered font has fetches nothing: no manifest, no index, no slice', view.installed === true && fetched.length === 0 && status.requests === 0 && status.manifest === 'unrequested', { fetched, view });
     } finally {
       await page.close();
     }

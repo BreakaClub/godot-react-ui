@@ -17,6 +17,8 @@ import { measureFilterCost, verifyFilterFaults, verifyFilterSizes, verifyFilters
 import { GLASS_FAULT_CONTROLS, verifyGlass } from './verify-glass';
 import { verifyLiveCompile } from './verify-live-compile';
 import { verifyCodeEditor } from './verify-code-editor';
+import { verifyFontFallback } from './verify-font-fallback';
+import type { FontSlicesLabProps } from './font-slices-lab';
 import { verifyNavigator } from './verify-navigator';
 import { verifyRichText } from './verify-rich-text';
 import { verifyTextStyles } from './verify-text-styles';
@@ -53,6 +55,8 @@ export interface InteractionInspection extends DemoInspection {
   textLines(testID: string): unknown;
   /** One page of the rich text lab, or a file of highlighted lines (`verify-rich-text.ts`). */
   showRichText(props: RichTextLabProps): void;
+  /** The font fallback lab, with one of its samples (`verify-font-fallback.ts`). */
+  showFontSlices(props: FontSlicesLabProps): void;
   /** The lab navigator in place of the app, with `extraLabs` listed after the demo's own. */
   showNavigator(options?: NavigatorOptions): void;
   /** The geometry queries of the text with a test id: where its caret is at an offset, what a point lands on, what a range covers (`verify-code-editor.ts`). */
@@ -3620,6 +3624,8 @@ export async function runInteractionVerification(owner: Node, api: InteractionIn
       sectionChecks[name] = assertionTally.count - checksBefore;
     }
   };
+  // First: a face keeps what was added for characters no font has, so this must come before any section that shows such text (`verify-font-fallback.ts`).
+  if (sections.has('font-fallback')) await timed('font-fallback', () => verifyFontFallback(api));
   const timing = sections.has('events') ? await timed('events', () => verifyEvents(api, owner, directory, capture)) : null;
   if (sections.has('cooperation')) await timed('cooperation', () => verifyGodotCooperation(owner, api, capture));
   if (sections.has('pointers')) await timed('pointers', () => verifyPointers(owner, api, capture));

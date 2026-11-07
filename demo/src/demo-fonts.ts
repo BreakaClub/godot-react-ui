@@ -1,4 +1,4 @@
-import { Font, FontFile, GArray, OS, ResourceLoader, Rid, SystemFont, TextServer, TextServerManager, type ReactUiRoot } from 'godot';
+import { FontFile, ResourceLoader, Rid, SystemFont, TextServer, TextServerManager, type ReactUiRoot } from 'godot';
 import { registerFontFace } from '../../src';
 import { DEMO_FACES } from './text-styles-data';
 
@@ -13,26 +13,10 @@ export const BARE_FAMILY = 'bare';
 const BARE_FACE_FILE = 'OpenSans-Variable.ttf';
 const BARE_FACE_WEIGHTS: [number, number] = [300, 800];
 
-/**
- * The system families that have Han characters, in the order they are tried (`SystemFont.fontNames`: the first one the system has is
- * used). The engine does look for a system font for a character no font has (`TextServerAdvanced::_find_sys_font_for_text`), and it asks
- * the platform for one font file. macOS 26 answers for Han with `PingFangUI.ttc`, which is made of `hvgl` outlines that FreeType cannot
- * open, so every glyph of it is missing and the character is a hex box (docs/tracks/missing-glyph.md). These families are ones FreeType
- * reads, found by shaping the character in every family `OS.getSystemFonts()` lists. The Web has no system fonts.
- */
-const HAN_SYSTEM_FAMILIES = ['Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans CJK SC', 'WenQuanYi Micro Hei'];
-
 /** The first face registered for each family, to shape text with the way a paragraph of that family is. */
 const registeredFonts = new Map<string, FontFile>();
 /** The size the characters of {@link fontsOfText} are shaped at. */
 const PROBE_FONT_SIZE = 16;
-
-function createHanFallback(): SystemFont | undefined {
-  if (!OS.hasFeature('system_fonts')) return undefined;
-  const font = new SystemFont();
-  font.fontNames = HAN_SYSTEM_FAMILIES;
-  return font;
-}
 
 /**
  * The font each character of `text` is drawn with when a paragraph of `family` shapes it, as the text server decides: the name of the
@@ -57,6 +41,20 @@ export function fontsOfText(family: string, text: string): (string | undefined)[
   }
 }
 
+/**
+ * The names of the fonts behind the first face registered for `family`, in order: what the face had of its own and what the library added since
+ * (docs/tracks/font-slices.md). A system font is named by the family it was asked for, so that naming it does not read its file.
+ */
+export function fallbackNamesOf(family: string): string[] {
+  const font = registeredFonts.get(family);
+  if (font === undefined) throw new Error(`No face of ${family} is registered`);
+  return Array.from({ length: font.fallbacks.size() }, (_, index) => {
+    const fallback = font.fallbacks.get(index);
+    if (!(fallback instanceof SystemFont)) return fallback.getFontName();
+    return Array.from({ length: fallback.fontNames.size() }, (__, name) => fallback.fontNames.get(name)).join('|');
+  });
+}
+
 /** The font of `file`. A load answers the one cached resource of a file, so a face that needs settings of its own is loaded again, uncached. */
 function loadFace(file: string, cache = ResourceLoader.CacheMode.CacheModeReuse): FontFile {
   const path = `${FONT_DIRECTORY}/${file}`;
@@ -71,15 +69,14 @@ function loadFace(file: string, cache = ResourceLoader.CacheMode.CacheModeReuse)
 /**
  * Register the demo's faces with a root: Open Sans (variable, upright and italic) as `sans`, PT Serif (two static faces) as
  * `serif`, JetBrains Mono (variable) as `mono`. The library needs none of them; the text styles lab and its Chrome reference use
- * these files, so a browser and the library draw the same fonts. Each of them falls back to the engine's system fonts, and, where
- * the platform has them, to a system family with Han characters (see {@link HAN_SYSTEM_FAMILIES}); `bare` has no fallback.
+ * these files, so a browser and the library draw the same fonts. Each of them falls back to the engine's system fonts; for the
+ * characters those do not have, the library adds a font when the text that has them first appears (a system font FreeType can read,
+ * or on the Web a downloaded slice: docs/tracks/font-slices.md), and nothing is read until then. `bare` has no fallback at all.
  */
 export function registerDemoFonts(root: ReactUiRoot): void {
-  const hanFallback = createHanFallback();
   for (const face of DEMO_FACES) {
     const font = loadFace(face.file);
     font.allowSystemFallback = true;
-    if (hanFallback !== undefined) font.fallbacks = GArray.create<Font>([hanFallback]);
     registerFontFace(root, { family: face.family, weight: face.weight, style: face.style, font });
     if (!registeredFonts.has(face.family)) registeredFonts.set(face.family, font);
   }

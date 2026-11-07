@@ -51,6 +51,11 @@ export const FONT_SAMPLES: readonly FontSample[] = [
     pieces: [['Open Sans と ', ''], ['日本語 and 한국어', 'text-red-600'], [' and 😀 in one line.', '']],
   },
   {
+    id: 'unmapped', label: 'No font', language: 'en',
+    text: 'A private use character no font has: \uE000.',
+    pieces: [['A private use character ', ''], ['no font has', 'text-red-600'], [': \uE000.', '']],
+  },
+  {
     id: 'latin', label: 'Latin only', language: 'en',
     text: 'Hamburgefonstiv: a line every registered font has the glyphs for.',
     pieces: [['Hamburgefonstiv: ', ''], ['a line every registered font', 'text-red-600'], [' has the glyphs for.', '']],

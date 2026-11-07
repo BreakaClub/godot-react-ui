@@ -7,8 +7,6 @@ import type { FontSliceLoader, FontSliceStatus } from '../../src';
  */
 export interface FontSlicesOwner {
   readonly loader: FontSliceLoader;
-  /** Ask for fonts for the characters of `text` that no registered font has. */
-  requestFonts(text: string): void;
 }
 
 let owner: FontSlicesOwner | undefined;
@@ -45,9 +43,4 @@ export function subscribeToFontSlices(listener: () => void): () => void {
 /** The loader's state moved: a manifest, an index or a slice arrived or failed. */
 export function changed(): void {
   for (const listener of [...listeners]) listener();
-}
-
-/** Ask the installed loader for fonts for the characters of `text` no registered font has; nothing when none is installed (natively the system has them). */
-export function requestFontsFor(text: string): void {
-  owner?.requestFonts(text);
 }

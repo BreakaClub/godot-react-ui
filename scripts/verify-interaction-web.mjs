@@ -551,6 +551,9 @@ async function loadPage(viewport) {
     typeof globalThis.godotReactDemo?.snapshot === 'function'), STARTUP_TIMEOUT_MS);
   await currentPackObserver.verifyPackTransfer();
   check('GodotJS initialized the inspection API', true);
+  // The sections that look at hex boxes (a character no font has) and at the geometry of text with them hold the boxes still; the downloaded fonts that replace
+  // them are the `font-slices` section's, which opens a page of its own for each of its groups (scripts/verify-font-slices-web.mjs).
+  await page.evaluate(() => globalThis.godotReactDemo.configureFontSlices(null));
 }
 report.timing = {};
 
