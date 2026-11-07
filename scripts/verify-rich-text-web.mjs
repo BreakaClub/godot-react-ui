@@ -17,6 +17,66 @@ const SETTLE_FRAMES = 4;
 const INSIDE_SHARE = 0.25;
 const ABOVE_BASELINE_PX = 4;
 const CHARACTER_STRIDE = 2;
+/** A pixel of the glyph samples is ink when its green level is below this (a share of 255 of white): they are red on white. */
+const INK_GREEN_BELOW = 128;
+/** A glyph is searched for this far (logical px) outside its text's box. */
+const GLYPH_SCAN_MARGIN_PX = 4;
+/** The Web has no system fonts (`OS_Web` does not report `system_fonts`), so every character no registered font has is a hex box. */
+const GLYPH_SAMPLES = ['glyph-box-plain', 'glyph-box-span', 'glyph-box-other', 'glyph-han-plain', 'glyph-han-span', 'glyph-han-tracked', 'glyph-han-box', 'glyph-thai-plain', 'glyph-thai-tracked'];
+
+/** The pixels of `rect` (and a margin) of `image` from the top left of its ink to the bottom right of it, or `undefined`. */
+function inkCrop(image, ratio, rect) {
+  const from = (value) => Math.max(0, Math.floor((value - GLYPH_SCAN_MARGIN_PX) * ratio));
+  const to = (value, limit) => Math.min(limit, Math.ceil((value + GLYPH_SCAN_MARGIN_PX) * ratio));
+  const [x0, y0] = [from(rect.x), from(rect.y)];
+  const [x1, y1] = [to(rect.x + rect.width, image.width), to(rect.y + rect.height, image.height)];
+  const at = (x, y) => (y * image.width + x) * image.channels;
+  let [left, top, right, bottom] = [x1, y1, x0 - 1, y0 - 1];
+  for (let y = y0; y < y1; y += 1) {
+    for (let x = x0; x < x1; x += 1) {
+      if (image.pixels[at(x, y) + 1] >= INK_GREEN_BELOW) continue;
+      [left, top, right, bottom] = [Math.min(left, x), Math.min(top, y), Math.max(right, x), Math.max(bottom, y)];
+    }
+  }
+  if (right < left) return undefined;
+  const levels = [];
+  for (let y = top; y <= bottom; y += 1) for (let x = left; x <= right; x += 1) levels.push(image.pixels[at(x, y)], image.pixels[at(x, y) + 1], image.pixels[at(x, y) + 2]);
+  return { width: right - left + 1, height: bottom - top + 1, levels };
+}
+
+/** The most a level differs between two crops, or `Infinity` when they are not the same size. */
+function cropDifference(a, b) {
+  if (a === undefined || b === undefined || a.width !== b.width || a.height !== b.height) return Infinity;
+  return a.levels.reduce((worst, level, index) => Math.max(worst, Math.abs(level - b.levels[index])), 0);
+}
+
+/**
+ * The glyph page, on the Web: no font has the characters of its samples that the demo's faces lack, so a Han and a Thai character in plain, coloured
+ * and letter-spaced text are each the hex box the text server draws for a character no font has, the same box in every way of drawing it, and the
+ * private-use character is the same box in plain text and in a span (docs/tracks/missing-glyph.md).
+ */
+async function verifyGlyphs(context) {
+  const { demo, page, frames, snapshot, find, check, capture, decodePng, actionTimeoutMs } = context;
+  for (let index = 0; index < SETTLE_FRAMES; index += 1) await frames();
+  await demo('showRichText', { page: 'glyphs' });
+  for (let index = 0; index < SETTLE_FRAMES; index += 1) await frames();
+  const dpr = await page.evaluate(() => globalThis.devicePixelRatio);
+  await capture(`rich-text-glyphs-${dpr === 1 ? 'dpr1' : 'web-dpr2'}`);
+  const canvas = await page.$('canvas');
+  const image = decodePng(Buffer.from(await canvas.screenshot({ type: 'png', timeout: actionTimeoutMs })));
+  await canvas.dispose();
+  const ratio = image.width / (await snapshot()).width;
+  const crops = {};
+  for (const id of GLYPH_SAMPLES) crops[id] = inkCrop(image, ratio, (await find(id)).rect);
+  const size = (id) => (crops[id] === undefined ? 'no ink' : `${crops[id].width}x${crops[id].height}`);
+  check(`glyphs: the same character no font has is the same hex box in plain text and in a span (ratio ${dpr})`,
+    crops['glyph-box-plain'] !== undefined && cropDifference(crops['glyph-box-plain'], crops['glyph-box-span']) === 0, { plain: size('glyph-box-plain'), span: size('glyph-box-span') });
+  check(`glyphs: another character is another box (ratio ${dpr})`, cropDifference(crops['glyph-box-plain'], crops['glyph-box-other']) > 0);
+  for (const id of ['glyph-han-plain', 'glyph-han-span', 'glyph-han-tracked']) {
+    check(`glyphs: ${id} is the hex box of the character, as the Web has no font for it (ratio ${dpr})`, crops['glyph-han-box'] !== undefined && cropDifference(crops[id], crops['glyph-han-box']) === 0, { drawn: size(id), box: size('glyph-han-box') });
+  }
+  check(`glyphs: a Thai character is the same box plain and letter-spaced (ratio ${dpr})`, crops['glyph-thai-plain'] !== undefined && cropDifference(crops['glyph-thai-plain'], crops['glyph-thai-tracked']) === 0, { plain: size('glyph-thai-plain'), tracked: size('glyph-thai-tracked') });
+}
 
 export async function runRichTextScenario(context) {
   const { demo, page, frames, find, check, capture, moveTo } = context;
@@ -126,6 +186,7 @@ export async function runRichTextScenario(context) {
   await settle();
   const after = await demo('activity');
   check('a change of a span\'s colour shapes no paragraph again and repaints one', after.paragraphBuilds === before.paragraphBuilds && after.paragraphRepaints === before.paragraphRepaints + 1, { before, after });
+  await verifyGlyphs(context);
   await demo('restoreDemo');
   await settle();
 }

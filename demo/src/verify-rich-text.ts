@@ -81,6 +81,11 @@ const INK_GREEN_BELOW = 0.5;
 const GLYPH_SCAN_MARGIN_PX = 4;
 /** How far a level (of 255) of one glyph's pixel may be from the same pixel of the same glyph drawn another way. */
 const GLYPH_TOLERANCE_LEVELS = 0;
+/**
+ * How far (device px) a hex box drawn glyph by glyph may be below the one the text server draws in plain text: a line drawn glyph by glyph
+ * has its baseline on a device pixel (`StyledParagraph::draw_lines`, as a browser draws it), and the server's box is at the baseline as laid out.
+ */
+const BASELINE_SNAP_DEVICE_PX = 1;
 /** The font size of the glyph samples (`text-base`), which the text server sizes a hex box from. */
 const GLYPH_FONT_SIZE = 16;
 /** The rows of a hex box in units of its size (`TextServer::draw_hex_code_box`), so its size over this is the unit it is drawn in. */
@@ -726,6 +731,9 @@ function verifyTransforms(api: RichTextInspection): number {
 
 /** The pixels of a glyph sample from the top left of its ink to the bottom right of it. */
 interface Crop {
+  /** Where the top left of the ink is in the picture, in device pixels. */
+  readonly left: number;
+  readonly top: number;
   readonly width: number;
   readonly height: number;
   /** Red, green and blue of each pixel from the top left, in levels of 255. */
@@ -753,7 +761,7 @@ function inkCrop(image: Image, ratio: number, rect: LayoutRect): Crop | undefine
       levels.push(Math.round(color.r * LEVELS), Math.round(color.g * LEVELS), Math.round(color.b * LEVELS));
     }
   }
-  return { width: right - left + 1, height: bottom - top + 1, levels };
+  return { left, top, width: right - left + 1, height: bottom - top + 1, levels };
 }
 
 /** The most a level differs between two crops, or `Infinity` when they are not the same size. */
@@ -812,6 +820,9 @@ async function verifyGlyphs(owner: Node, api: RichTextInspection, scale: number)
   const boxDifference = cropDifference(plain, inSpan);
   assert(boxDifference <= GLYPH_TOLERANCE_LEVELS,
     `glyph-box-span: the hex box in a span is ${sizeOf(inSpan)} px and ${boxDifference} levels from the plain text's (${sizeOf(plain)}) at ratio ${scale}`);
+  const boxShift = { x: inSpan.left - plain.left, y: inSpan.top - plain.top };
+  assert(boxShift.x === 0 && Math.abs(boxShift.y) <= BASELINE_SNAP_DEVICE_PX,
+    `glyph-box-span: the hex box in a span is ${boxShift.x} px right and ${boxShift.y} px below the plain text's, at ratio ${scale}; only its baseline's snap to a device pixel (${BASELINE_SNAP_DEVICE_PX}) is expected`);
   assert(isRedOnWhite(plain) && isRedOnWhite(inSpan), 'The hex boxes are in the red of the text and of the span, not the text round the span');
   await expectFailure('a hex box of another character passing as the same box', () => {
     assert(cropDifference(plain, other) <= GLYPH_TOLERANCE_LEVELS, 'the control expects another character to draw the same box');
@@ -843,7 +854,7 @@ async function verifyGlyphs(owner: Node, api: RichTextInspection, scale: number)
     assert(isRedOnWhite(hanPlain) && isRedOnWhite(hanSpan), 'The Han glyphs are in the red of the text and of the span');
   }
   console.log(`GODOT_REACT_RICH_TEXT_GLYPHS ${JSON.stringify({
-    scale, ratio, hanFont: hanFont ?? null, thaiFont: thaiFont ?? null, boxPixels: sizeOf(plain), hanPixels: sizeOf(hanPlain), boxDifference, hanDifference, trackedDifference,
+    scale, ratio, hanFont: hanFont ?? null, thaiFont: thaiFont ?? null, boxPixels: sizeOf(plain), boxShift, hanPixels: sizeOf(hanPlain), boxDifference, hanDifference, trackedDifference,
     thaiTrackedDifference, hanAgainstBox: Number.isFinite(hanAgainstBox) ? hanAgainstBox : 'another size',
     withSystemFallback: fontsOfText('sans', String.fromCodePoint(MISSING_CHARACTER)),
   })}`);

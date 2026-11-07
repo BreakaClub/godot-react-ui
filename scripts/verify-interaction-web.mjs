@@ -2921,7 +2921,7 @@ async function runWorkflow(viewport) {
   }
 
   if (wanted('rich-text')) {
-    await section('rich-text', () => runRichTextScenario({ demo, page, frames, find, check, capture, moveTo }));
+    await section('rich-text', () => runRichTextScenario({ demo, page, frames, snapshot, find, check, capture, decodePng, moveTo, actionTimeoutMs: ACTION_TIMEOUT_MS }));
   }
   if (wanted('text-styles')) {
     await section('text-styles', () => runTextStylesScenario({ demo, page, frames, find, check, capture, moveTo }));
