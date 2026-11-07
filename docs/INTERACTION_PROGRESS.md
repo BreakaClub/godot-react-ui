@@ -4,7 +4,7 @@ Evidence log for `docs/INTERACTION_PLAN.md`. One section per phase, and one per 
 track's full report is `docs/tracks/<name>.md`): commands run, pass/fail counts, artifact paths inspected,
 and every choice the plan left open. Raw command logs are kept outside the repository; the numbers below
 are copied from them. The F0 and F4 measurements stand side by side in Phase F4, "F4 criteria, measured,
-beside the F0 baseline". The last section, "Final acceptance", is for the coordinator.
+beside the F0 baseline". "Final acceptance" is for the coordinator; the section after it covers the tracks built since, and ends with a "Batch regression" subsection for the coordinator.
 
 ## Environment notes that apply to every phase
 
@@ -2169,3 +2169,169 @@ Built on the `filter-fixes` branch from `4ea0bd8` after an independent read of P
 **F0 and F4 side by side:** "Phase F4", "F4 criteria, measured, beside the F0 baseline" above; F0's own tables are in "Phase F0", section 4.
 
 **Not verified by any run:** native IME and VoiceOver by hand; platform focus and text actions through a real adapter; Safari and real mobile devices; a low-end GPU's filter cost; Windows and Linux. The README's limits list the rest.
+
+## Batch of 7 and 8 November 2026: the tracks since final acceptance (D52 to D70)
+
+After "Final acceptance" (`d282fee`, 7 November), the tracks below ran in parallel, each on its own branch and worktree, and merged into `main`, which stood at `99ba6f0` when this section was written
+(`git log --oneline d282fee..99ba6f0`: 122 commits, the last 49 of them after `9697dd6`). Each entry has the commits, what landed, and the evidence its own notes record, on the agent's own tree;
+the full regression over the merged tree is the "Batch regression" subsection at the end, and until it is filled in nothing below is a claim about `main` as a whole. Commits are listed by hash because the
+tracks' commits interleave in `git log`; the full report of each track is `docs/tracks/<name>.md`, and the decisions are in the plan's D52 to D70. Where two notes disagree, the later commit's wins and the entry says so.
+
+### Quiet windows (`f961c64`, `8dcc5fe`, `9a4472b`; D66)
+
+Native verifier windows no longer take focus on macOS: `scripts/quiet-window/quiet_window.m` is loaded through `DYLD_INSERT_LIBRARIES` into automated runs (`scripts/native-run.mjs`, `scripts/quiet-window.mjs`), and a run whose log lacks `QUIET_WINDOW_LOADED` fails.
+
+- **Evidence** (`docs/tracks/quiet-windows.md`): a scene that draws a known colour for 120 frames and reads it back from the viewport texture returned it on Breaka's engine with Compatibility, Mobile and Forward+ (9.7, 10.1 and 8.8 ms a frame) and on stock 4.7.2 with Compatibility (11.0 ms), with `has_focus` and `window_is_focused` false and `window_can_draw` true; Godot and SystemUIServer never appeared as the frontmost application in the two runs that sampled `lsappinfo front` every 100 ms.
+- **Not covered:** that every verifier section passes without ever having had OS focus (a section that depended on it would be a bug in the section).
+
+### Lab navigator (`146f231`, `e1c4fc0`, `0387a88`, `68a7a1c`, `f613d99`, `f31dd70`; D62)
+
+The demo opens on a navigator over a lab registry (`demo/src/labs.tsx`), with `--lab=<id>` and `?lab=<id>` deep links, window labs and scene labs, and an error boundary per lab.
+
+- **Evidence:** the track's own "Evidence so far" was written with window runs paused (a first native run at scale one passed all 20 labs of the time; the portrait window, scale two and the Web section were not yet run). Later runs: native `navigator` 7,232 checks landscape and 6,592 portrait on Breaka's engine and 7,232 on stock (web-fixes), 7,560 landscape on both engines (single-build); Web `navigator` 1,833 checks (1,845 assertions, 118 captures; web-fixes) and 1,903 checks (1,915 assertions, 122 captures; single-build); 25 labs opened in the landscape pass of the release pack (web-load). `pnpm test` 500 tests at the first run (three failed on registration lists and were fixed).
+- **Notes disagree:** the navigator notes say the Web section was "not run yet"; web-fixes and single-build ran it, and those are later.
+
+### Combobox (`3bc75ee`, `cd4683c`, `fe9eb75`, `5ed6e70`, `1b0eed7`, `73b0236`, `df0d7f3`, `a44f94d`, `68615c8`, `8ef3c87`, `09d9fa7`; finishing `209dad8`, `6227828`, `24d25c5`; D59)
+
+The kit `Combobox` and `Combobox` with chips, the popup code factored out of `Select`, `aria-activedescendant` and `aria-controls`, and a fix for a tap on a `TextInput` that was never a click on the Web.
+
+- **Evidence** (`docs/tracks/combobox.md`): 98 unit tests of the component, 46 one-line mutants of `src/kit/*` all killed (43 at once, 3 after tests were added), the 151 `Select`, kit and overlay tests unchanged by the refactor; at the finishing pass `pnpm test` 630, `cargo test` 694, Web on Breaka `combobox` 180 checks and `touch` 59 (256 assertions, 41 captures), Web on stock 180 and 57 (the one recorded gap is `touch-cancel`), and the check that a tap on a text input is a click failed on stock with the fix switched off; `verify:a11y --engine=stock` passed with the combobox in the lab. Native `combobox` 1,562 and 1,572 checks (landscape, portrait) in the dropdown-touch gate.
+- **Not verified:** native windows in the finishing pass (the coordinator ran the native section), what native costs for a long list, an expectation for the combobox in the platform accessibility tree, a real touch device.
+
+### Portal containers (`4fc733b`; D60)
+
+Each `<Portal>` has its own container in the overlay layer, so any number can be open at once (`src/renderer.ts`, `src/components.tsx`). Found by a press from one open combobox straight to another, which no check did because each pressed away first.
+
+- **Evidence:** the commit adds renderer tests (`tests/renderer.test.ts`) and changes the native and Web `combobox` sections to press from one open combobox to another and the Web section to rest the pointer, use the keys and wheel without moving (a move of the pointer takes the active option). No separate run is recorded in the track notes; the combobox and dropdown-touch gates that followed ran with it.
+
+### Transforms and the `starting:` variant (`38eadca`, `a4101cb`, `0380fcf`, `48b8028`, `512dd8f`, `8721e7b`, `76418ad`, `31fc929`, `a31d58a`; D55, D56)
+
+`transform`, `transformOrigin` and `transformParts` through every reader of geometry, transitions, the containing-block rule, and the `starting:` variant.
+
+- **Evidence** (`docs/tracks/transforms.md`): native `transforms` Compatibility 5,139 and 3,425 checks (landscape, portrait), Mobile 5,543 and 3,789, Forward+ 5,545 and 3,775; Web 252 checks (264 assertions, 56 captures); the Chrome comparison of 34 case-and-ratio pairs (interiors exact; transitions within 0.00077 of Chrome's matrix and 0.096 px of its offset at worst); seven negative controls (`transforms-faults`) each failing its check. The drag count before and after was added to the section by `31fc929`. `8721e7b` also carries the browser's Shift+scroll and Ctrl/Cmd+C fixes in the Web shell and the native input code.
+- **Later:** box meshes (below) replaced `square_box.rs` and changed the edge figures; `docs/tracks/transforms.md` carries both.
+
+### 3D transform feasibility (`6f5d257`; D57)
+
+An experiment, not a feature (`experiments/transform3d/`; nothing under `native/`, `src/` or `demo/` changed).
+
+- **Evidence** (`docs/tracks/transforms-3d-feasibility.md`): against headless Chrome 156 on both engines and all three renderers the interior differs by 0.01 to 0.13 levels of 255 on average for perspective, `preserve-3d` cubes and intersecting planes by 0.9 to 1.6, nested surfaces by 1.1 to 1.3; 50 surfaces with a spinning transform cost 0.04 ms of engine CPU and 1.5 ms of GPU on Mobile; estimate 4,000 lines and six weeks. `pnpm test` 467 and `pnpm test:types` ran (they do not touch it).
+- **Not run:** the Web (WebGL2), the real-3D-quad alternative's colours on Mobile and Forward+, `cargo` (nothing in `native/` changed).
+
+### Text utilities (`3c922f0`, `19910f2`, merge `5956068`; finishing `1e5c3c0`, `3ecff0d`, `c14df0e`, `90ea9ce`; D52)
+
+Weights, families, line heights, tracking, case, decoration, overflow, wrapping and numerals; the face registry (`registerFontFace`); the `text-styles` section and its Chrome ink comparison.
+
+- **Evidence** (`docs/tracks/utilities-text.md`): `text-styles` native on Breaka's engine landscape (ratios 1 and 2) 7,798 checks and portrait 3,900, the same counts on stock; Web 164 checks and 52 captures; ink over Chrome's `antialiased` 1.002 and 1.005 at ratios 1 and 2 (the control, Chrome's default smoothing, 1.127 and 1.152); `cargo test` 695, Clippy clean, 66 of 66 in the TypeScript test files that cover it. The `hidpi` section had failed at content scale 1.5 with the merged utilities (baselines on half rows) and passed after `c14df0e`; the same run then failed `glass` at ratio 2, because the sheet's corner now sits over the blurred heading, whose line height changed, and that was fixed on main by `04d9bb6` (a glass corner is judged by its cleanest corner).
+- **Note:** the file still holds a `<<FILL-FULL>>` placeholder where a full-run table was to go, and it records `decoration-solid|double|dotted|dashed|wavy` as not accepted; rich text (`0315bb8`, later) accepts them.
+
+### Paint utilities (`ee4669d`, `7ba949f`, `11c8b27`; D53)
+
+Box shadows, rings, outlines, borders and corners by side, linear gradients, `boxShadow` as a transition property.
+
+- **Evidence** (`docs/tracks/utilities-paint.md`): `paint` 1,545 checks a run, landscape and portrait, on Compatibility, Mobile and Forward+ with Breaka's engine and the three renderers with stock; Web four viewports, 48 captures, 104 checks; `cargo test` 756, `pnpm test` 643; four negative controls; against Chrome every page but `glass` has a 99th percentile of one level or less, and the shadows, rings, outlines and plain gradients have no pixel more than 32 levels off.
+- **Left:** the arcs of a plain rounded box (one `StyleBoxFlat` call) and the ends of one-sided borders on a curve, which differ from Chrome's by up to a quarter of the contrast on a pixel or two.
+
+### Layout and motion utilities, and the Tailwind audit (`0cb8c52`, `9382f6b`, `4ec42cc`, `5dc18fd`, `ef94c54`, `db52efe`, `70d488e`, `ac4d6be`; D54)
+
+Margins, sizes, grid tracks and placement, alignment, `order`, `visibility`, `block`, `container`; the transition classes; `docs/tracks/tailwind-coverage.md`.
+
+- **Evidence** (`docs/tracks/utilities-layout-motion.md`): Taffy lays the lab out within 0.5 px of Chrome's `getBoundingClientRect` on every edge of 582 boxes at two window sizes; `layout-utilities` passed on Breaka's engine (5,187 and 4,928 assertions) and on stock (7,637 and 7,873); nine transition scenarios compared with Chrome's paused `CSSTransition`; `cargo test` 732, `pnpm test` 646; four negative controls.
+- **Not green when written:** `verify:motion:web` failed twice on timing (a 600 ms paint transition observed three times at 26, 309 and 626 ms on a host at load average 63); nothing the track changed is on that path, and it was to be rerun on a quiet host. The coverage audit counts 4,641 of 11,344 class names (40.9 %, from 3,020) and 11 of 103 variants; it was generated before the paint utilities merged.
+
+### Live compile (`f646bcc`, `bc76387`, `4250d7a`, `53e54b5`, `2d8b823`, `7b8bfd5`, `4dc4998`, `4bbe35e`, `c8ffe4d`, `ffd1354`, `4050d18`, `ba968e0`, `54ad430`, `bf44844`; D63) and production React (`58b9d61`; D64)
+
+Bun's TypeScript checker, parser and printer as a demo-only GDExtension (`live-compile/`), the live session, the module registry and the Fast Refresh swap.
+
+- **Evidence** (`docs/tracks/live-compile.md`): Bun's checker against `tsc` agrees on 37 of 37 cases; 31 lab files compile; the `live-compile` section passed natively in both windows (1,516 assertions each, 1,541 in the single-build run) on Breaka's engine and on stock, and in Chrome; an edit reaches the pixels in a median of 33.3 ms natively and 45.2 ms in Chrome; tests 7 of 7, 12 of 12 and 5 of 5 for the compiler, registry and session. The Web side module is 8.7 MB (2.34 MB brotli).
+- **Left:** completions; a render that throws loses the state of the tree that threw; Safari, iPad.
+
+### Code editor evaluation (`1b53973`, `4733f29`)
+
+An evaluation and design with measurements (`docs/tracks/code-editor-evaluation.md`; no library code changed): CodeMirror 6's headless model with our own view and input. The headless route is 413 KB minified (141 KB gzipped); a native `TextInput` holding a 47 KB file cost 486 ms a keystroke and 249 ms to mount.
+
+### Code editor (`fe3caf4`, `c04c2cf`, `59c2a58`, `d214bc8`, `e427f9b`, `c0ecae4`, `067a52c`, `8c341ba`, `c7abcce`, `61ff910`, `98af890`; on rich text `9ed9a44`, `894c97d`; first version `9697dd6`; D67)
+
+The Code button's panel replaced: a workspace over the live session, a windowed view of lines, carets, selection, hover, problems and status; then each line moved onto rich text.
+
+- **Evidence** (`docs/tracks/code-editor.md`): after the move onto spans the page with the panel open is 301 nodes where it was 446, mounting the panel takes 251 commands where it took 409, a keystroke to ink is a median of 13.4 to 24.8 ms (was 18.1 to 20.5) and the last key to the page about 230 ms; every column of the first twelve lines has its caret on `column * advance` to 0.05 px (443 carets); sections on Breaka's engine: `code-editor` 3,546 assertions landscape, `live-compile` 1,541, `navigator` 7,560, the same on stock; Web in Chrome 132 checks and 153 assertions over four pages including a touch page; 36 mutants of the model, controller, annotations and session killed.
+- **Notes disagree:** single-build counts `code-editor` as 2,555 checks (Breaka) and 2,552 (stock) in its own run, against 3,546 in this note; the runs are different trees and windows and the difference was not investigated.
+- **Not verified:** a real phone or tablet soft keyboard, a real IME, native at ratio 2, Safari and Firefox, the stock engine's Web export.
+
+### Rich text (`0315bb8`, `a9d8243`, `160b46d`, `4d1bc31`, `6791356`, `85bda2d`, `efaa96d`, `2e511bc`, `85c7dc5`, `87df379`, `495e3d0`, `bad0fb3`, `452428a`, `cee425e`, `db2aba5`, `cbf8407`; D68)
+
+Nested `Text` as one attributed paragraph, inlays, decoration styles (`text-decoration-style` and the wavy line), `getCaretRect`, `getOffsetAtPoint`, `getRangeRects`.
+
+- **Evidence** (`docs/tracks/rich-text.md`): `rich-text` 24,967 checks landscape and 12,518 portrait on Breaka's engine, on stock, and on Mobile and Forward+; Web 108 checks, 120 assertions, 40 captures; against Chrome, per channel, decoration-only texts have a mean difference of 0.26 (ratio 1) and 0.18 (ratio 2) and text 2.41 and 6.06, with ink over Chrome's 0.991 to 1.029; a thousand highlighted lines cost 995 nodes and 381 KB in one commit, 367 ms of JavaScript; three native mutations each fail the section.
+- **Not run:** the stock engine's Web export, a real high-density display, right-to-left text, the platform accessibility tree, the other sections after the rebase onto web-load.
+
+### Box mesh (`41d1bbd`, `58b8b79`, `4e66bb7`, `386eb19`, `91c4502`; D58)
+
+One mesh path for boxes under a transform, with a feather per axis; `native/square_box.rs` removed; the crate formatted with rustfmt (`41d1bbd`).
+
+- **Evidence** (`docs/tracks/box-mesh.md`): `cargo test` 869, Clippy and `cargo fmt --check` clean, `pnpm test` 853; native on Breaka's engine `transforms` 5,283 and 3,590 checks, `paint` 1,545, `glass` 1,796 and 1,680, `hidpi` 466 and 484 (landscape, portrait), Mobile and Forward+ `transforms` both windows, Web `transforms` and `paint` 368 assertions and 104 captures, stock `transforms` 5,365 and 3,546; rounded cards turned, scaled, mirrored or skewed fall from 0.7 to 3.0 to 0.03 to 0.19 mean edge difference per channel, and the squeezed-edge rows read 0.901 / 0.099 and 0.802 / 0.198 where 0.9 / 0.1 and 0.8 / 0.2 are wanted; the negative controls held in both windows.
+- **Left:** `rotateX` and `rotateY` at ratio 2 are 1.6 / 3.4 / 3.8 and 10.8 % beyond 24 levels (Chrome's own resampling); mixed-colour borders, outlines and shadow rings keep one feather; gradient, inset-shadow and border colours were not compared with Chrome under a transform.
+
+### Dropdown touch (`d25f536`, `fdf6cfc`, `53d23b8`; D61)
+
+The `Select` list pans under a finger (one condition in `src/kit/select.tsx`); a `dropdown-touch` lab and section.
+
+- **Evidence** (`docs/tracks/dropdown-touch.md`): the section failed on the unfixed code with `moved: 0` natively and on the Web, and passes: native 675 and 671 checks (landscape, portrait) on Breaka's engine, 683 and 671 on stock, Web 96 checks; `pnpm test` 883; the `combobox`, `inputs`, `scroll`, `positioning` and `navigator` sections passed with the fix; two negative controls (the old `Select` line, and the same line added to the `Combobox`) each fail their row. No Rust changed.
+- **Not verified:** a real phone (the `Combobox` is the one to look at, because of the soft keyboard), the release export, Mobile and Forward+.
+
+### Web deployment and load (`c28718c`, `7b0705b`; `038987d`, `7c91f3d`, `29faf5c`, `375e1b0`; D65)
+
+The Worker and deploy tooling for react.breaka.club, then immutable brotli releases behind a pointer and a stripped release pack. `7b0705b` (ETag revalidation) is superseded by the release layout.
+
+- **Evidence** (`docs/tracks/web-deploy.md`, `docs/tracks/web-load.md`): a cold load went from 66.58 MiB to 12.16 MiB and, throttled to 20 Mbit/s with 40 ms added, from 29.8 s to 6.7 s; a returning visitor after a deploy downloads 2.01 MiB; the release pack is 30 files and 6.6 MiB (was 154 and 52.7 MiB); `pnpm test` 723, `cargo test` 810; `verify:web` 261 assertions on both the debug export and the release pack; the Web interaction verifier 15 sections, 2,473 assertions, 336 captures on the debug export (without `navigator` and `transforms`, which failed on `main` for the reasons below); `check:site` through the Worker on `wrangler dev` passed; rollback exercised against local state.
+- **Not done:** nothing was deployed and no remote write was made by the track; whether Cloudflare's edge passes the stored brotli through to Chrome as stored is documented, not observed; other browsers; the stock engine's release export.
+
+### Web verifier fixes (`1229f0b`, `4e781e9`, `375e1b0`; D70)
+
+The Web `transforms` and `navigator` sections failed on `main` because their checks were wrong (a 100 px Chrome wheel is 3 ticks, not 1; the portrait menu was read closed), not the library.
+
+- **Evidence** (`docs/tracks/web-fixes.md`): both sections pass (transforms 252 checks, navigator 1,833); the whole Web interaction verifier passed with `partial: false`, 17 sections, four viewports, 4,558 assertions and 510 captures; native `transforms,navigator` passed on both engines; two negative controls; `pnpm test` 723.
+- **Environment finding:** a stock native run in a tree whose installed live-compile library was Breaka's failed on every section ("godot-rust compiled against newer Godot version"); the single build removes that.
+
+### Engine switch (`b82e40c`, `9dba853`; superseded by D69)
+
+A switch between per-profile native builds, and the early refusal of an installed extension of the wrong profile. `pnpm switch:engine` and the per-profile native directories are gone; the early refusal of the installed extension, the stamped target directory of the live-compile build, `installFile` and the mutation-control method survive (`docs/tracks/engine-switch.md`, header).
+
+- **Evidence when it was built:** a switch cost 0.05 s where a build cost 46.5 s to 2 min 32 s; `pnpm test` 867; 18 mutations caught.
+
+### Single native build (`6885cd8`, `1029442`, `99ba6f0`; D69)
+
+The native UI library and the live-compile extension are one build per platform, bound to Godot 4.7.2 and loaded by both engine profiles.
+
+- **Evidence** (`docs/tracks/single-build.md`): `pnpm build:native` 177 s and the extension 117 s on a cold target directory (50 s for the one rebuild after the rebase onto `53d23b8`); the installed files had the same hashes and inodes after runs on both engines; `verify.mjs --interaction --only=navigator,live-compile,code-editor,rich-text,transforms,paint` passed in both windows on Breaka's 4.8 (282 s) and on stock 4.7.2 (286 s), with `Initialize godot-rust (API v4.7.2 ..., runtime v4.8.beta ...)` and `... runtime v4.7.2 ...` in the logs; after the rebase `--only=paint` passed on both; `verify:a11y --engine=stock` passed (partial, seven recorded engine gaps); Web `navigator` passed (1,903 checks); `pnpm test` 890, `cargo test` 869, Clippy and `cargo fmt --check` clean; 24 mutations all caught.
+- **Not verified:** the sections that did not run (events, scroll, selection, drag, forms, the filters, glass, text input): a method used only by one of them would fail at its first call in 4.8 if its hash were missing from 4.8's class table, so the regression on Breaka's engine below is the thing to watch; `--probe` and `--faults` builds were not made; the stock Web build and its verifiers were not run.
+
+### Batch regression
+
+**Pending.** To be filled in by the coordinator with the full regression over the merged tree, from a clean build of the one native library and both Web exports. No number in this subsection has been measured yet.
+
+| Gate | Breaka engine | Stock engine |
+| --- | --- | --- |
+| `cargo test --locked` (once) | pending | |
+| Clippy, default, `probe`, `filter-faults` | pending | |
+| `cargo fmt --check` | pending | |
+| `pnpm test` | pending | |
+| `pnpm test:types` | pending | pending |
+| `verify` | pending | pending |
+| `verify:motion` | pending | pending |
+| `verify:interaction`, every default section, both viewports | pending | pending |
+| `verify:interaction --only=live-compile` | pending | pending |
+| `verify:world` | pending | pending |
+| `verify:text-layout` (probe build) | pending | pending |
+| `verify:a11y` | pending | pending |
+| `filters,glass,paint,transforms,rich-text` on `--renderer=mobile` and `--renderer=forward_plus` | pending | |
+| `filters-faults`, `transforms-faults` (negative controls, `--faults` build) | pending | |
+| `verify:web` | pending | pending |
+| `verify:motion:web` | pending | pending |
+| `verify:interaction:web`, all sections with touch | pending | pending |
+| `verify-world-web` | pending | pending |
+| `verify-live-compile-web` | pending | |
+| `node scripts/live-compile-agreement.mjs` | pending | |
+| `check:site` against a local `wrangler dev` of the release export | pending | |
+
+**Failures, re-runs, disturbances and anything not run:** pending.
