@@ -1,6 +1,6 @@
 # Fabric renderer and interaction plan
 
-Status: plan v2.11, 7 November 2026. Done: Phase 0 (`9f4a02c`), Phase 1 (`0d11607`), Phase F0
+Status: plan v2.12, 8 November 2026. Done: Phase 0 (`9f4a02c`), Phase 1 (`0d11607`), Phase F0
 (`4f7dd0d`), Phase F1 (`ce99bea`), Phase F2 (`578b461`), Phase F3 (`07a8344`), Phase F4 (`e60f6e5`;
 its numbers and decisions D7 to D10 are in the progress log and the decision log below), Phase I1
 (`edf6081`; decisions D11 to D13), Phase I2 (`fd11f41`; decisions D14 to D16), Phase I3 (`dec1f5d`; decisions D17 to
@@ -12,6 +12,10 @@ D42). Phase I9 (`400bea3`; D43). The freshness guard (`941334b`). Phase I7 with 
 world-space typing, which finishes I8, I10's `TextInput` part and I11 (`539e787`; D44). HiDPI (`6c6abd7`, hardened in `5b7faba`; D45). Verifier
 integrity (D46). Scroll bar elements, which finish I10 (D47). `TextInput` fixes (D48). Phase V1, filters and frosted glass (`abdc077`; D40, D49). Input fixes (D50).
 Filter fixes (`6a7815c`; D51). Every phase is done, and final acceptance passed (progress log, "Final acceptance").
+Parallel tracks of 7 and 8 November, after final acceptance (D52 to D70): the Tailwind utilities (text D52, paint D53, layout and motion D54), 2D transforms (D55; the `starting:` variant D56;
+3D assessed and not built D57; boxes drawn from one mesh path with a feather per axis D58), the kit `Combobox` (D59), a container for each `<Portal>` (D60), `Select` lists that pan under a
+finger (D61), the lab navigator (D62), live compile, production React in the demo and the code editor (D63, D64, D67), rich text (D68), Web hosting and the Web verifier fixes (D65, D70),
+test windows that never take focus (D66) and the single native build bound to Godot 4.7.2 (D69). Their evidence is in the progress log; their full regression is its "Batch regression" section.
 
 v1 of this plan (`7f0a96c`) was rejected because it built every interaction feature on the
 prototype's commit path, which re-walks and re-sends the whole tree on every change. v2 replaces
@@ -451,7 +455,7 @@ not a reason to wait.
   properties D38 sets, so VoiceOver reads a scroll view's contents but not its position; a stock `ScrollContainer` conveys position
   through a child `AXScrollBar`. So each scrollable axis gets a scroll bar element (`SCROLL_BAR`, value and range, `Increment`/`Decrement`
   mapped to `scroll_by`), built after I7 because both change the accessibility code. Group and radio-group roles and a mixed checkbox
-  are gaps in the engine's API, reported as `GODOT_REACT_A11Y_GAP`. Stock's debug Web template needs `use_closure_compiler=no`.
+  are gaps in the engine's API, reported as `GODOT_REACT_A11Y_GAP`. Stock's debug Web template needs `use_closure_compiler=no`. **Partly replaced by D69:** the native UI library and live-compile extension are one build bound to Godot 4.7.2 and loaded by both profiles, so `--engine=` now applies to the Web builds, the typings and the evidence directories, not to `build:native`.
 - **D43 (I9)**: drag and drop. Decisions I9-1 to I9-16 are in `docs/tracks/drag-and-drop.md`, which is part of this log. Those that change plan
   text: the touch hold starts a drag from `process()` because a held finger sends no input, the one exception to 3.10 rule 1 (I9-2); a scroll
   under a stationary pointer is looked at again on the next frame, so a JS `scrollTo` never emits cancelable events (I9-3); Escape arrives
@@ -510,8 +514,8 @@ not a reason to wait.
   group's blur at its edge; blur near the render target's edge re-reads the edge texels; a root in a `SubViewport` sees only that viewport; a rotated root blurs by its
   mean scale; a drag ghost shows a filtered source unfiltered. Cost on an M1 Max at 1120x800: about 0.2 to 1.6 ms a panel on Compatibility, 1.2 to 1.9 ms on Mobile.
   First use compiles the shader (about 50 ms on Compatibility, up to 1 s on Mobile with a cold cache); the notes give a warm-up recipe, and nothing runs it automatically.
-  `src/styles.ts` also gained colour opacity modifiers (`bg-white/20`) on all 22 palette colours. Known missing utilities: `shadow-*`, font weights, `leading-*`,
-  `tracking-*`, gradients, `border-b`, `ring`, `ml-auto`, `transition-*` classes, plus `sticky` and `scale-*`, which 2.3 excludes.
+  `src/styles.ts` also gained colour opacity modifiers (`bg-white/20`) on all 22 palette colours. Known missing utilities when this was written: `shadow-*`, font weights, `leading-*`,
+  `tracking-*`, gradients, `border-b`, `ring`, `ml-auto`, `transition-*` classes, plus `sticky` and `scale-*`, which 2.3 excluded. All but `sticky` are built since (D52 to D55).
 - **D50 (input fixes)**: from an independent review; per-finding detail is in `docs/tracks/input-fixes.md`, part of this log. **Replaces D15(b)**: a `click` goes to the
   nearest common inclusive ancestor of the press and release targets, mouse and touch alike, as the UI Events spec and browsers do; two parts of one enabled button
   still click the button; a release on a disabled element or over nothing clicks nothing. A touch pan and a thumb drag now honour JS capture, as 3.12 rule 1 and D33
@@ -523,6 +527,161 @@ not a reason to wait.
   which keeps rectangles right under a camera or canvas-layer move. Limits: a Compatibility group's buffer is the opaque target's RGB10_A2 back buffer
   (`drivers/gles3/storage/texture_storage.cpp:2567`), so alpha inside a `filter` has four levels (0.5 comes out 0.333); a scrolled `TextInput`'s own text overflow is not in a group's
   extent. The truncation fix is unit-tested but did not reproduce on a real renderer.
+- **D52 (text utilities)**: font weights and families, line heights, tracking, case, decoration, overflow, wrapping and numerals as Tailwind v3.4.17 spells them, drawn as
+  Chrome draws them. Decisions T1 to T15 (the text-utilities ones, not D44's) are in `docs/tracks/utilities-text.md`, part of this log. Those that bind later work: faces are
+  registered per root by a `#[func]` (`registerFontFace(family, weightMin, weightMax, italic, font)`; `src/fonts.ts`), not process-wide, and matched by CSS Fonts 4 step 4
+  with the browser's synthesis for a missing bold or italic; text that names no registered family keeps the theme font, so a tree with none of this costs nothing (T1, T2).
+  Tailwind's size classes carry their paired line heights, so `text-sm` is 20 px a line where it was the font's 23 and every layout with text changed (T3, T14). Letter
+  spacing is the text server's own fractional advance: `embolden * size / 64` px is added to each glyph it shapes, so a `FontVariation` with the right `embolden` shapes the
+  text with exactly that spacing and everything the server reports (wrapping, carets, selection) is real geometry; the emboldened outlines are never drawn, a tracked paragraph
+  is drawn glyph by glyph, and this relies on engine behaviour its documentation does not state (a formula test and the verifier's tracking pages fail if it stops being true)
+  (T4). Min-content is `f32::MIN_POSITIVE`, not 0, because the text server wraps only when `width > 0` (T8). Unset `white-space` behaves as `pre-wrap` (React Native's `Text`),
+  so no existing text changed (T7). The shown text, after case and white-space changes, is what is shaped, selected and copied; offsets JS sees count it (T6). At a fractional
+  display ratio every baseline is snapped to a device pixel (T15). `antialiased` compiles to no style: the library's text is within 0.2 % and 0.5 % of Chrome's `antialiased`
+  ink and 11 % and 13 % lighter than Chrome's default smoothing, which is Chrome's, not DPI scaling (T13). `TextInput` is not styled. (The `decoration-solid|double|dotted|dashed|wavy`
+  classes the notes list as not accepted were added afterwards, D68.)
+- **D53 (paint utilities)**: `shadow-*`, `ring-*`, `outline-*`, `border-{t,r,b,l,x,y}`, `rounded-{t,r,b,l,tl,tr,br,bl}` and linear gradients, compiled as Tailwind v3 does and drawn as
+  Chrome draws them. Decisions P1 to P11 are in `docs/tracks/utilities-paint.md`, part of this log. Those that bind later work: shadows, rings, outlines and the sides of a border
+  are one mechanism, a baked coverage mask (a Gaussian of the layer's rounded rectangle, analytic for a ring) times a colour, baked once per key on the CPU in device pixels,
+  cached, shared by every box with the same layer and drawn as a tinted nine-patch (`StyleBoxFlat`'s shadow was measured and rejected: it has no spread, no inset, one shadow a
+  box, and fills the shadow's rectangle under a translucent panel); a gradient is a mesh over a baked one-pixel ramp; neither uses a per-element material (P1, P2, P4). A plain
+  box is still one `StyleBoxFlat` call (P3). The utilities compose as Tailwind's stylesheet does and across variants: `boxShadowParts` and `gradientParts` carry the
+  `--tw-*` variables and merge per variable, natively too, so `shadow-sm ring-1 focus:ring-2` keeps the shadow (P5). A shorthand set after a side resets it and a side set
+  after the shorthand wins, following the class order as the rest of the cascade does, which differs from Tailwind's stylesheet order for `border-t-4 border-2` (P6). Setting any
+  outline longhand takes the native focus ring from the element (P7). `boxShadow` is a native transition property, interpolated by Stylo (P8). An outer shadow is cut out of the
+  box only where its background lets the backdrop through, and a fill stops half way under an opaque border, as Blink does (P10, P11). Not drawn: dashed, dotted and double
+  borders and outlines.
+- **D54 (layout and motion utilities)**: the layout classes that have a meaning under Flexbox, Grid and Taffy's block layout, and the transition classes, each compared with Chrome
+  under Tailwind's own CSS. Decisions 1 to 11 are in `docs/tracks/utilities-layout-motion.md`, part of this log. Those that bind later work: `vw` and `vh` stay in the layers and
+  are resolved to pixels in the computed style (Taffy has none), and layout refuses an unresolved one; `min-content`, `max-content` and `fit-content` are for `width`, `height` and
+  `flexBasis` only, since Taffy's minimum and maximum sizes take none; a grid item's span is its own field and a line wins over a span, in either class order; `order` reorders
+  Taffy's children, not painting or hit testing; `visibility` is inherited and removes the element from painting, pointer targets, focus, accessibility and selection while
+  layout is unchanged; `justify-content` defaults to `normal`; `block` and `flow-root` are Taffy block layout, and `inline*`, `table*`, `contents`, `space-*`, `divide-*`, `float-*`
+  and the rest throw with a message that names what to use (`src/utilities/hints.ts`). Transition classes set longhands (`transitionParts`) that compose across variants, so
+  `transition-colors hover:duration-500` works, and `transition-all` never throws: a change that cannot animate jumps quietly. Colour and border colour animate, and text that
+  inherits a moving colour follows it. `TRANSITION_PROPERTIES` in `src/types.ts` and `TransitionProperty::ANIMATABLE` in `native/props.rs` are the one place a new animatable
+  property is added. `docs/tracks/tailwind-coverage.md` measures what compiles (4,641 of 11,344 class names, 40.9 %, up from 3,020 at `d282fee`; it was
+  generated before the paint utilities (D53) merged, and it lists `hyphens-*`, `indent-*`, `align-*` and `text-wrap` as owed to the text track, which did not build them).
+- **D55 (transforms)**: `transform`, `transformOrigin` and `transformParts` (Tailwind's `translate-*`, `rotate-*`, `skew-*`, `scale-*`, `origin-*`), drawn by giving an element's
+  canvas item the matrix. Design and Chrome comparison are in `docs/tracks/transforms.md`, part of this log. Stylo parses and validates the value in a throwaway document (nothing
+  here parses CSS; `perspective()` and a projective `matrix3d()` are refused with a message that says so, and `em`, `ex`, `ch`, `lh` and viewport units are refused because they would
+  resolve against the scratch element), and interpolates it (function by function for matching lists, else by decomposing the matrices), so transitions and `starting:` run on the
+  native clock with nothing re-recorded. The matrix is 4 x 4 in `f64` and flattened to the canvas affine per element, as `transform-style: flat` does, so a perspective pass can be
+  added later without redoing the rest. Layout ignores transforms, except that a transformed element is the containing block of its `absolute` and `fixed` descendants; `zIndex`
+  makes no stacking context for a transform (3.15); scrollable overflow ignores transforms. Every reader of geometry goes through the matrix: hit testing (the point through the
+  inverse), `getRect()` (the bounding box), the focus ring, selection and the text caret, scroll and pan deltas, drag auto-scroll and the ghost, accessibility bounds, filter extents
+  and `scrollIntoView`. Text and rounded corners rasterise at `Oversampling` times the scale the transforms put on them (the larger column of the accumulated linear map, rounded up to an
+  eighth, never below a quarter), and again once an animation settles. An `overflow` clip in a frame a transform rotates or skews is drawn as the bounding box of the rotated rectangle with one `ERROR` per element, because Godot's clips are
+  axis aligned and `clip_children` has Compatibility's two bits of alpha and does not nest; hit testing is exact. The negative controls of `transforms-faults` each fail their check.
+- **D56 (`starting:` variant)**: `starting:` is CSS `@starting-style` (`PseudoState::Starting`; commit `8721e7b`). A node's `starting` layers are resolved, in addition to its resting
+  style, when it is first mounted or shown from `display: none` and only if some layer uses the state; the node then transitions from them, through the same Stylo path as any other
+  transition, so `starting:opacity-0 transition duration-500` composes. An ordinary state change on a mounted node does not apply it. `validate_motion` applies on a first mount, so
+  an explicit `properties: ['width']` that starts from `starting:w-1/2` and ends at pixels is a rejected commit, as an update is.
+- **D57 (3D transforms, assessed)**: an experiment (`docs/tracks/transforms-3d-feasibility.md`, `experiments/transform3d/`; nothing under `native/`, `src/` or `demo/` changed) answers
+  whether HTML's 3D transforms mid-tree can be matched. They can, with a render target per element whose transform is not affine in its own plane (any `perspective()`, a parent's
+  `perspective`, `rotateX/Y` seen through a perspective) and per face of a `preserve-3d` context: the subtree is flattened into a surface drawn as one canvas item whose fragment shader
+  applies the inverse homography (the engine gives it no W). Against headless Chrome, on both engines and all three renderers, the interior differs by 0.01 to 0.13 levels of 255
+  on average, `preserve-3d` cubes and intersecting planes by 0.9 to 1.6 (BSP sorted), nested surfaces by 1.1 to 1.3; a spinning transform re-renders nothing. The alternatives
+  that avoid the render target all fail one of the CSS features (section 7 of the notes). Not built: about 4,000 lines of Rust and six weeks, the Web is untested, and memory is 0.25 to 4 MB per element. The matrix
+  path of D55 already exposes what the design asks for (the 4 x 4, `TransformClass`, the homography, `max_magnification`, the determinant sign, `interpolate`), except the
+  `preserve-3d` flags and a parent's `perspective`, which need properties that do not exist yet.
+- **D58 (box mesh, a feather per axis)**: `docs/tracks/box-mesh.md`, decisions B1 to B6 (box-mesh's, not single-build's). Under a map that is more than a move every box is drawn from
+  one mesh path (`native/box_mesh.rs`; `native/square_box.rs` is gone), because `StyleBoxFlat` antialiases with one feather length and a rounded box under `rotateX(50deg)`, which
+  squeezes y to 0.64, had a ramp narrower than a pixel across its horizontal edges (the top row covered 1.0 and the bottom 0.0 where the box covers 0.8 and 0.2). On the pixel grid
+  nothing changes, so a plain translation stays on `StyleBoxFlat` and the `hidpi` parity with a Godot `Panel` (D45, H4) holds, and an untransformed tree costs nothing (B1). The
+  feather is two vectors, the columns of the inverse transpose of the map for the box's x and y axes (`Feather::along`), because lengths alone cannot say what a skew does to an arc
+  (B2). A rectangle with square corners is a grid of exact vertex coverage and anything with a rounded corner is loops (a fan inside a strip); a border is four loops, and a
+  border thinner than the feather swaps the middle two so the straight edges stay exact (B3, B4). Fixed on the way: a transformed square box with only a bottom border was painted
+  entirely in the border colour (B5). Borders whose sides differ in colour, outlines, shadow rings and the focus ring stay baked masks or strokes with one isotropic feather (B6).
+  Edge pixels of a rounded card turned, scaled, mirrored or skewed differ from Chrome's by 0.03 to 0.19 on average where they were 0.7 to 3.0, and none is beyond 24 levels where 2.4 % to 3.7 % were; the squeezed `rotateX` and `rotateY` cases improved less (at ratio 2, `rotateX` from 2.45 / 5.42 / 6.42 to 1.61 / 3.43 / 3.76 per channel), and what is left of them is Chrome's own resampling of a squeezed layer.
+- **D59 (Combobox)**: `docs/tracks/combobox.md`, decisions 1 to 14. The kit `Combobox` is the WAI-ARIA editable combobox with list autocomplete, with a `multiple` mode whose
+  choices are chips. `Chips` wraps the `Input` (there is no `display: contents`, so the input could not otherwise take the room left on the chips' line), and the props are typed by
+  `multiple` with a discriminated union and no cast. The placement, item registry and drawn caret are shared with `Select` in `src/kit/popup.tsx`, not copied. Keyboard focus stays in
+  the input; the active option is named by two new props, `aria-activedescendant` and `aria-controls`, which take the `id` of an element handle because native has no DOM ids
+  (`UIAriaProps`, `native/props.rs`; the accessibility registry gives each element a generation and sends again any node whose related element changed). A mouse press on the list is
+  prevented to keep focus in the input and a touch press is not, since a prevented press is never a pan (D33). There is no backdrop: leaving is `blur`, and the list closes on a wheel
+  that reaches the root and was not over it, which needed the first document-level listener a component has (`useRootEvent`). Tab commits nothing; Backspace on an empty input
+  moves onto the last chip and a second press removes it, and a key repeat does neither. No `items` prop and no virtualisation. **A library defect found by its touch page:** a tap on
+  a `TextInput` was never a click on the Web, because showing the soft keyboard focuses the engine's element, which blurs the canvas, which the engine reports as
+  `WM_WINDOW_FOCUS_OUT`, which the root answers with `cancel_all_pointers()` (D6) before the finger lifts; `ReactUiRoot::call_engine` now counts the engine calls that move the
+  browser's focus and `on_notification` ignores those two notifications while one runs. A real focus loss still cancels the pointers.
+- **D60 (Portal containers)**: each `<Portal>` has its own container (`createPortalContainer`, `PortalContainer` in `src/renderer.ts`; commit `4fc733b`). React's persistent mode
+  replaces a portal container's whole child list whenever that portal changes and empties it when the portal is deleted, so portals that shared the overlay layer's one container
+  erased each other: two opened in one commit lost the first, and closing one removed the other. The overlay layer's top level is now the children of the portals that have any,
+  oldest first (`LayerContainer.portals`), committed together, so what opened last paints on top. A `<Portal>` renders a stable container made with `useState`, which must last as
+  long as the `<Portal>`, since React remounts a portal whose container changes. Found by a press from one open combobox straight to another, which the sections now do.
+- **D61 (touch exemption for `Select`)**: `docs/tracks/dropdown-touch.md`. The `Select` list prevented every press on it that was not on a scrollbar thumb, and a prevented
+  `pointerdown` is never a pan (3.12 rule 4, D33), so a finger could not scroll the list or the page behind it, and every item below the first screenful was out of reach (the lab
+  menu of the phone navigator, every `Select` of the Controls and Transforms labs). The fix is one condition, `event.pointerType !== 'touch'`, which the `Combobox` list already had;
+  D33 is unchanged, because the kit `Slider` and the drag lab's locked chip use a prevented press to opt out of gestures. The cause is in shared code, so it was never
+  Web-specific (the native screen-touch check failed with the same value, `moved: 0`). A press now focuses the item under the finger, which shows its `focus:` highlight until focus
+  moves. Left: a finger that begins a swipe on a `Combobox`'s clear, trigger or a chip's remove button still cannot pan the page. A new lab and section, `dropdown-touch`.
+- **D62 (lab navigator)**: `docs/tracks/lab-navigator.md`, decisions N1 to N15. The demo opens on a navigation shell built from the library's own kit and utility classes, over a
+  lab registry that is one array (`demo/src/labs.tsx`): `LabName` and `labElement` are derived from it, so adding a lab is one entry (id, title, description, group, how it is shown,
+  its TSX sources) (N1). One tree is responsive by variant classes, a sidebar from 1024 logical pixels and a top bar with a `Select` below it, so a resize never reaches React (N2). A
+  lab that needs the whole window gets a card and a button, not an automatic takeover (N3); world space is a scene lab and its way back is a Godot `Button` on a `CanvasLayer` under the
+  tree's root window (N4); a game-surface lab needs every ancestor `pointer-events-none` (N6). Previous and next are Alt+Down and Alt+Up, which no control or text input uses (N9).
+  What a run opens with is decided in `demo/src/launch.ts`: a run that injects its own input opens the single-page playground, which keeps the verifiers as they were (N8).
+- **D63 (live compile)**: `docs/tracks/live-compile.md`, decisions L1 to L11. The demo can compile and type-check a lab's TSX inside the running page, with Bun's TypeScript checker and
+  its parser and printer, as a separate, demo-only GDExtension, `live-compile/` (its own cargo workspace, patches and Rust nightly; nothing in the package depends on it). It is an
+  extension and not a worker because GodotJS's V8 has no `WebAssembly` on either engine (measured); the same code is a Web side module. The checker runs on its own thread, answers
+  through `poll()`, and never holds a frame; a newer check supersedes one that has not begun. Type errors do not block running; a syntax error does. Compile adds a lowering pass of our
+  own over Bun's AST (live bindings through `require` namespaces, exports as getters). The module registry is stable under edits (a namespace is a `Proxy` over the current exports),
+  an edit is transactional, and a render that throws is rolled back by running the last good source again, which loses the state of the tree that threw. Bun's diagnostics agree with
+  `tsc`'s on all 37 cases (codes and positions); a check is 5 to 27 ms and an edit reaches the pixels in about 33 ms natively and 45 ms in Chrome.
+- **D64 (production React in the demo)**: `scripts/build.mjs` defines `process.env.NODE_ENV` as `"production"`, so the demo's bundles contain the production builds of React and
+  `react-reconciler`; `dist/` leaves both external (commit `58b9d61`). `createRoot` registers with `__REACT_DEVTOOLS_GLOBAL_HOOK__` on the first root if a page installed one, as
+  production bundle type 0, and the host config gained `rendererVersion` and `rendererPackageName`. React Fast Refresh in the code editor runs through stable family proxy
+  components (`demo/src/live-compile-refresh.ts`) instead of `react-refresh/runtime`, which works only with the development reconciler. The F4 figures were measured with development React.
+- **D65 (Web hosting and load)**: `docs/tracks/web-deploy.md` and `docs/tracks/web-load.md` (W1 to W8). react.breaka.club took 66.6 MiB cold, 52.7 MiB of it a pack sent without
+  compression, and every deploy emptied every visitor's cache (`Clear-Site-Data`). Each file is compressed once, at deploy, with brotli 11 (it beats zstd 19 by 6 to 8 % on the
+  binaries and 21 % on the pack), and the Worker sends the stored bytes with `Content-Encoding: br` when the browser's own `Accept-Encoding` allows it (Cloudflare rewrites the
+  header; the original is in `request.cf.clientAcceptEncoding`). A release is immutable and content-addressed under `react-demo/v2/` (manifest, objects, brotli copies) and the pointer
+  `current.json` is the only thing that moves, one atomic write, so a half-uploaded release is never shown and a rollback is one object write. Versioned URLs are by path (`<base
+  href="/r/<release>/">`, `.wasm` and `.pck` redirecting to `/o/<hash>/<name>`), because Godot builds its URLs itself and no query can be added. The release export is staged on a
+  copy of `demo/` without the 39 verification scripts and the source maps (30 files, 6.6 MiB, was 154 and 52.7 MiB), and `assertReleasePack` reads the pack's directory as the engine
+  does and fails the build otherwise. A cold visit is 12.2 MiB and a returning visitor after a deploy 2.0 MiB. Whether Cloudflare's edge passes the stored brotli through was not
+  observed (the local runtime re-encodes it). The bare address redirects to `?demo=navigator`; the isolation headers are on every response.
+- **D66 (test windows never take focus)**: Ben's rule, 7 November, with nine tracks running. The engine cannot be asked: `show_window` always activates the application, an unbundled
+  one in three steps the first of which focuses SystemUIServer, and `WINDOW_FLAG_NO_FOCUS` only sets a flag read after the window has focus. `scripts/quiet-window/quiet_window.m`,
+  loaded through `DYLD_INSERT_LIBRARIES` into automated runs only, forces the accessory activation policy, makes the activation calls do nothing, makes the window unable to become
+  key or main, transparent and click-through at a level above full screen on every Space, and keeps `occlusionState` visible so the engine keeps drawing. It fails closed:
+  `QUIET_WINDOW_LOADED` must be in the log. `pnpm demo` and `pnpm dev` do not load it. This replaces the earlier allowance of one brief focus interruption a run. A launcher script
+  strips `DYLD_INSERT_LIBRARIES`, so `directLaunch` in `scripts/engine.mjs` names the stock wrapper's binary.
+- **D67 (code editor)**: `docs/tracks/code-editor-evaluation.md` (the evaluation and design) and `docs/tracks/code-editor.md` (C1 to C21). The text is CodeMirror 6's headless
+  `EditorState` and Lezer, and the view and the input are ours, because no editor that needs the DOM can run here and a native `TextInput` holding the file cost 486 ms a keystroke
+  at the end of a 47 KB value. `demo/src/editor/` is hidden from Godot by a `.gdignore` (each file would otherwise be a script resource and a bundle). The input is a `TextInput`
+  holding one zero-width space, so a soft keyboard's Backspace has something to delete; every `beforeinput` is prevented and answered by a transaction. Copy and Cut call the
+  clipboard port, Paste is the platform's event. Results are for a document version and are mapped through later edits or dropped. A line is one `Text` with nested `Text` spans
+  (D68), on a monospace grid where a line is printable ASCII and placed by its own text through `getCaretRect`, `getOffsetAtPoint` and `getRangeRects` elsewhere; the move off a `Text`
+  per run took the page from 446 to 301 nodes. A class the library does not have is not sent to the page, because it would be a render that throws; without the compiler the code is
+  shown read-only with the reason. The Code button is not offered below 768 logical pixels.
+- **D68 (rich text)**: `docs/tracks/rich-text.md`. A `Text` with nested `Text` is one native node whose `text` is the source text and whose `spans` prop is a tree of
+  `{start, end, style?, inlay?, children?}` (UTF-16 offsets; a tree because a zero-width inlay at a span's end is inside or after it). **This reverses the non-goal "rich/nested text
+  runs" of 2.3.** The flattening is in the renderer's host config, as React Native does with virtual text nodes: the host context says a `Text` is inside a `Text`, the nested one becomes
+  a `SpanInstance` that is never committed, and the parent reads `native` lazily because React appends a clone's children after creating it; an app with no nested `Text` takes the old
+  path. A nested `Text` accepts only `children`, `className`, `style` and `inlay`, its style only colour, background, family, weight, style and the decoration longhands (anything
+  else throws, naming it), and breakpoint and state classes throw because a span is not restyled. Natively the display text (the shown text with the inlays spliced in) is one shaped
+  paragraph, one `add_string` per run of one font, and a glyph takes the colour of the segment its cluster starts in; a change that only recolours or decorates is painted again with no
+  shaping (`paragraphBuilds` and `paragraphRepaints` in `getActivity`). An inlay is generated text that offsets, selection, copy and the accessible name skip, with a caret on either
+  side. The three queries `getCaretRect`, `getOffsetAtPoint` and `getRangeRects` are on `UIHandle`, not a new type, in the space of `getRect()`. Decoration styles
+  (`decoration-solid|double|dotted|dashed|wavy`, `text-decoration-style`) are drawn from geometry read off Chrome's pixels, each fragment restarting its pattern as Chrome does; the
+  wave and round dots are baked pictures leased from the shadow-mask cache.
+- **D69 (one native build, bound to Godot 4.7.2)**: `docs/tracks/single-build.md`, decisions B1 to B8 (single-build's, not box-mesh's); it supersedes stock-engine S2 to S4 and the whole of
+  `docs/tracks/engine-switch.md` for native. A GDExtension loads in the Godot it was bound to or a newer one, never an older (godot-rust refuses with "compiled against newer Godot
+  version"), so a build bound to 4.7.2 loads in Breaka's 4.8 and one bound to 4.8 cannot load in 4.7.2, which was the late failure that started the engine-switch track. The native UI
+  library and the live-compile extension are therefore one build per platform, bound to `NATIVE_BINDING_API` (`scripts/native-binding.mjs`: `version: '4.7.2'` and the dump pair
+  `native/api/stock-4.7.2`, read from the dump's header so the record and the files cannot drift), and loaded by both engine profiles (B1, B2). A native stamp records the API and the
+  dump hash and no profile; a Web side module's stamp still records its engine; a stamp that names a profile is refused once (B3). `--engine=` is refused by the native builds (B4), and
+  an engine older than the API is refused before the builds are looked at (B5). Removed: `pnpm switch:engine`, the per-profile native target directories, `assessInstall` and
+  `switchBuild` (B6); kept: `installFile`, the early refusal of an installed extension on every native run, the stamped target directories (B7). Stock typings move to
+  `target/stock-typings` (B8). What stays per profile is the Web (a side module is linked with the Emscripten of the engine that loads it), the GodotJS typings and the evidence
+  directories. The cost: Breaka's 4.8 runs a library whose class table is 4.7.2's, so a method it calls must exist in 4.8 with the hash it was bound with (lazy function tables look
+  each up on first use). A worktree that built both engines' native libraries and extensions spent about 9 min 30 s and 3.2 GB of extra target directories; it now builds once, in about 4 min.
+- **D70 (Web verifier facts)**: `docs/tracks/web-fixes.md`. Two Web sections failed on `main` because their checks were wrong, not the library: Godot's Web display server makes a pixel
+  wheel delta `d` into `0.03 * d` ticks, so Chrome's 100 px notch is 3 ticks at ratio 1 and 1.5 at 2 where a native notch is 1 (`notchTicks()`), and the portrait navigator keeps its labs in
+  a menu whose items exist only while it is open. A section that provokes a console error on purpose announces it (`expectedConsoleErrors`) and must see it appear, so a case that stops
+  provoking it fails.
 
 The plan is written so an implementer can execute it phase by phase without re-deciding the
 architecture. Where it says **must**, it is a contract. Where it says *suggested*, use judgement and
@@ -621,11 +780,15 @@ pnpm verify:text-layout              # text layout probe (needs the probe build:
 pnpm verify:a11y                     # accessibility lab; exit 2 "not verified" on Breaka's engine (no AccessKit)
 ```
 
-Every build, run and verify script takes `--engine=stock` (or `GODOT_REACT_ENGINE=stock`; README, "Engine profiles"). The verify
-scripts refuse an installed build that predates the sources (the freshness guard, `docs/tracks/freshness.md`). Options of
+The verify scripts, `pnpm demo`, the Web build and the typings checks take `--engine=stock` (or `GODOT_REACT_ENGINE=stock`; README, "Engine
+profiles and installed builds"); the native builds (`pnpm build:native`, `node scripts/build-live-compile.mjs`) are one build bound to Godot 4.7.2
+that both profiles load, and refuse the flag (D69). The verify scripts refuse an installed build that predates the sources, was bound to
+another API or is the wrong variant (the freshness guard, `docs/tracks/freshness.md`, `docs/tracks/single-build.md`); the refusal names the
+command that fixes it. Options of
 `scripts/verify.mjs`: `--only=<section>[,<section>]` (interaction only), `--renderer=gl_compatibility|mobile|forward_plus`,
-`--viewport=WxH`, `--faults` (with `--only=filters-faults`, on the library `pnpm build:native --faults` makes) and `--no-retry` (negative
-controls). A failed window is run again only after a disturbance (D22, D46).
+`--viewport=WxH`, `--faults` (with `--only=filters-faults` or `--only=transforms-faults`, on the library `pnpm build:native --faults` makes) and
+`--no-retry` (negative controls). The opt-in sections (`filters-sizes`, `filters-cost`, `filters-faults`, `transforms-faults`, `live-compile`)
+run only when named. Native verifier windows never take focus on macOS (D66). A failed window is run again only after a disturbance (D22, D46).
 
 Web (see `docs/WEB.md` for toolchain requirements). The Web verifiers serve the export themselves, on a free port that only they
 know, and refuse an export that is older than the sources (D46); run them with no server and no port:
@@ -752,13 +915,22 @@ selection, drag and drop, accessibility, positioning); all are built now, and it
 7. **Text selection** with `user-select: text`, opt-in.
 8. **Text input**: `<TextInput>` single and multi-line, owned natively, with caret, selection, IME,
    Web/mobile virtual keyboard, clipboard, undo/redo, React Native's controlled-input protocol. (Built; native IME has not been checked by hand.)
-9. **Component kit** from primitives: Checkbox, Switch, RadioGroup, Slider, Select, TextField,
-   ScrollView. (Built; hand-built, D28.)
+9. **Component kit** from primitives: Checkbox, Switch, RadioGroup, Slider, Select, Combobox (single and with chips), TextField,
+   ScrollView. (Built; hand-built, D28, D59.)
 10. **HTML-style drag and drop** inside a root, with a usable result when a drag ends outside the UI.
 11. **Accessibility** through Godot's `AccessibilityServer` sub-elements. (Built, with scroll bar elements; the macOS tree was read on the `stock` engine
     profile only, Breaka's engine has no accessibility driver, and VoiceOver was not run by hand.)
 12. **World-space UI**: a verified recipe for a root inside a `SubViewport` on a 3D quad (`docs/WORLD_SPACE.md`, with its limits; the anchored label is verified natively only).
 13. **Filters and frosted glass**: `filter` and `backdrop-filter` with blur and the CSS colour functions (Phase V1, D40, D49, D51; limits in the README).
+
+Added after final acceptance (the parallel tracks of 7 and 8 November; each is a decision, not a phase):
+
+14. **Tailwind utilities that match Chrome**: text (weights, families, line heights, tracking, case, decoration, wrapping), paint (shadows, rings, outlines, borders and
+    corners by side, linear gradients), layout (margins, sizes, grid tracks and placement, alignment, `order`, `visibility`) and the transition classes (D52 to D54).
+15. **2D transforms** (`transform`, `transformOrigin`, Tailwind's transform utilities) through every reader of geometry, with boxes drawn from one mesh path (D55, D58); 3D is
+    assessed and not built (D57).
+16. **Rich text**: nested `Text` as one attributed paragraph, inlays, decoration styles and the text geometry queries (D68).
+17. **A demo that is a product page**: a lab navigator, a revealable code editor over live compile, and a hosted Web build (D62, D63, D65, D67).
 
 ### 2.3 Non-goals
 
@@ -770,21 +942,23 @@ Write these into the README limits when the plan is complete (done: README, "Cur
 - A custom engine module. If a Web engine bug is proven, fix it in `~/Development/godot/platform/web`,
   not with an export-time patch, and only after reporting it.
 - Godot drag-and-drop interop with other `Control`s (3.19 explains why).
-- Raw text outside `<Text>` (React Native's rule), rich/nested text runs, `contenteditable`.
+- Raw text outside `<Text>` (React Native's rule), `contenteditable`. (Rich/nested text runs were in this list; D68 reverses it.)
 - CSS stacking contexts: `zIndex` orders siblings, as in React Native (3.15).
 - Touch text-selection handles, long-press menus, native context menus, spellcheck.
-- Animated programmatic scrolling, overscroll bounce, `position: sticky`, transforms, rounded clip
-  masks, native list virtualization.
+- Animated programmatic scrolling, overscroll bounce, `position: sticky`, rounded clip
+  masks, native list virtualization. (Transforms were in this list; 2D transforms are built, D55. 3D transforms are assessed and not built, D57.)
 - Pen-specific pointer data (pen input is reported as `mouse`).
 
 **Left out in the build, beyond these non-goals** (each is recorded in the decision log or a track note, and the README lists them with the
 non-goals): scrollbar track clicks (D34); drag and drop with files or `setDragImage`, and a glass drag ghost (D49); word-granularity dragging after a
 double click in document selection, caret affinity, highlighting a selected line break and auto-scroll while selecting (D41); `aria-labelledby` and
 `aria-describedby` (D44 T15); the `Select` press-drag-release, groups and `item-aligned` (select-anchor track), and `ScrollView` pull to refresh and snap
-points; images, general `@keyframes`, custom materials, Grid track placement, and the Tailwind utilities `styles.ts` rejects (D49: box shadows, font and text
-utilities, gradients, per-side borders, `ring`, auto margins, transition classes, transforms, among others); that both overflow axes clip together (D30).
+points; images, general `@keyframes`, custom materials, and the Tailwind utilities `styles.ts` still rejects (D54: `space-*`, `divide-*`, floats, inline and table layout, `sticky`,
+dashed, dotted and double borders and outlines, radial and conic gradients, `text-wrap`, among others, and the variants `dark:`, `group-*:`, `peer-*:`, `first:`, `before:` and `print:`);
+`perspective` and `preserve-3d` (D57); exact `overflow` clips under a rotation or skew (D55); that both overflow axes clip together (D30). (The text, paint, layout and transform
+utilities that D49 listed as missing are built, D52 to D55.)
 Recorded as not verified: native IME by hand, VoiceOver by hand, the platform accessibility tree on Breaka's engine (it has no driver) and on Windows, Linux and the Web, Safari and
-mobile devices, the release Web preset, and a transparent render target under a filter.
+mobile devices, most of the release Web export on Breaka's engine, the single native build across every section on Breaka's engine (D69), and a transparent render target under a filter.
 
 ---
 
@@ -1019,6 +1193,11 @@ box        transform = location relative to paint parent; modulate alpha = opaci
 - `canvas_item_set_clip` clips an item's own drawing and its children, which is how `Control`'s
   `clip_contents` clips child controls; the `content` item's clip rect is in its own coordinates.
 - `Control::draw()` no longer paints elements (it may stay empty or be removed).
+- **As built after the utility tracks (D53, D55, D58).** A box item's custom rect is its border box plus the reach of its outer shadows, and an outline has an item of its own; a
+  filter group measures the reach of everything below it. An element with a transform gives its box item `location x matrix` (`RenderNode::item_transform`) and everything below it
+  follows, with no re-record. A box with a decoration draws in layers, as CSS paints them: fill, gradient, inset shadows, border. Shadows, rings, outlines and the sides of a border are
+  baked coverage masks drawn as tinted nine-patches (`shadow_mask.rs`, `box_draw.rs`), gradients are meshes over a baked ramp (`gradient.rs`), and every box under a map that is more
+  than a move is a feathered mesh (`box_mesh.rs`); a plain box is still one `StyleBoxFlat` call, and no element has a material of its own except the effect items of D49.
 
 ### 3.9 JS renderer (persistent host config)
 
@@ -1074,6 +1253,13 @@ fibers. A rejected commit is recorded in the root's failure slot and thrown at t
 **Removed.** `flush()`, the `committed` style-key map, the `Container`/`Instance` parent links,
 `applyBatch`, `refreshStyles` (breakpoints are native), and JS pseudo-state flags. `findByTestID`
 becomes a native query.
+
+**As built after the utility tracks (D60, D68).** A container is a `LayerContainer` (layer 0, or layer 1 with its `portals` list) or a `PortalContainer`. React's persistent mode calls
+`replaceContainerChildren` for a portal with that portal's whole child list, so each `<Portal>` has a container of its own (made once with `useState`) and the overlay layer's top level is
+the children of the portals that have any, oldest first, committed together with one `commit(1, ...)`. `createTextInstance` still throws outside a `Text`. Inside one
+(`getChildHostContext` makes a `text` host `INSIDE_TEXT`) a string is a `RichRun` and a nested `Text` a `SpanInstance`: no tag, never committed, no ref. The outer `Text` instance reads
+`native` lazily in `makeInstance`, because React appends a clone's children after creating it, and `flattenRichText` (`src/rich-text.ts`) makes its `text` and `spans` when the commit walk
+first reads them; an app with no nested `Text` takes the old path.
 
 ### 3.10 Events
 
@@ -1247,6 +1433,9 @@ Rules (all **must**):
   too: `LineEdit`'s rule, not a line; D44 T14). `ui_copy` copies (nodes joined by `\n`),
   `ui_text_select_all` selects all selectable text. A text change in the range clears the selection.
   `selectionchange` to root listeners; `root.getSelection()` queries native. `selectionColor`.
+- **Rich text (D68).** A `Text` may hold nested `Text` spans and inlays (the `spans` prop, 4.2). Offsets crossing to JS count the shown text without inlays; native keeps a display/source
+  map (`text_span/offsets.rs`) and, for case and white-space changes, where each source character went (`text_style/flow.rs`). `getCaretRect`, `getOffsetAtPoint` and `getRangeRects`
+  (`text_geometry.rs`, 4.4) answer in the space of `getRect()`, through a transform's inverse and at any display ratio.
 
 ### 3.18 Text input
 
@@ -1343,7 +1532,7 @@ element.
 
 Built only from `View`, `Text`, `Button`, `TextInput`, events, focus, capture, `Portal` and
 transitions. No transforms, images or icon fonts: checkmarks are filled inner boxes; switch thumbs move
-by transitioning a spacer's `width`.
+by transitioning a spacer's `width`. `Select` and `Combobox` share `src/kit/popup.tsx` (the measured placement, the item registry, the drawn caret); `Combobox` is D59.
 
 ### 3.24 Module layout (as built)
 
@@ -1367,6 +1556,8 @@ elsewhere need `pub(crate)` (never `pub`). All `#[func]`/`#[signal]` declaration
 | `pointer_input.rs`, `pointer_state.rs`, `keyboard_input.rs`, `scroll_input.rs`, `selection_input.rs`, `drag_input.rs`, `drag_ghost.rs`, `clipboard.rs` | the input glue of each feature, the drag ghost, the clipboard (`DisplayServer`'s or the verifier's in-memory one) | no |
 | `filter_render.rs`, `filter_faults.rs` (feature `filter-faults`), `snapshot.rs`, `probe.rs` and `text_layout_probe.rs` (feature `probe`) | filter effects and their negative controls, the diagnostics snapshot, the build-time probes | no |
 | `motion.rs`, `style_engine.rs`, `layout.rs`, `paint.rs`, `geometry.rs`, `profile.rs` | existing, adapted to tags | mixed |
+| `text_style.rs` (`text_style/`), `text_span.rs` (`text_span/`), `text_decoration.rs` (`text_decoration/`), `box_shadow.rs`, `gradient.rs`, `rrect.rs`, `shadow_mask.rs`, `box_mesh.rs`, `paint_style.rs`, `grid_style.rs`, `transition.rs`, `transform.rs`, `utility_layouts.rs` | the text longhands, their inheritance and line boxes; the spans of a `Text`; decoration geometry; shadow lists; gradients; rounded rectangles; baked masks; box meshes; what a style says about paint; grid tracks and placement; transition declarations; transform parsing and evaluation; the layout utilities against Taffy | yes |
+| `text_paragraph.rs` (`text_paragraph/`), `text_geometry.rs`, `fonts.rs`, `box_draw.rs`, `box_paint.rs`, `transform_state.rs` | Godot glue: the styled paragraph, the three text queries, the face registry, masks and meshes drawn into canvas items, what a box item records, the root's side of transforms | no |
 
 TypeScript (`src/`): `native.ts` (host interface, payload types, validating parsers), `renderer.ts`
 (persistent host config, drain loop), `commit.ts` (commit walk and payload), `events.ts` (Phase 1 dispatch, rebased on paths),
@@ -1415,8 +1606,10 @@ A diff is the same shape with any field optionally `null` (reset).
 | `ariaValueMin`, `ariaValueMax`, `ariaValueNow` | finite number | I10 |
 | `ariaLive` | `off\|polite\|assertive` | I10 |
 | `ariaOrientation` | `horizontal\|vertical` | I10 |
+| `ariaActiveDescendant`, `ariaControls` | the tag of an element (a nonzero integer; JS sends the `id` of a handle) | D59 |
+| `spans` | array of `{start, end, style?, inlay?, children?}` (`Text` only; "Rich text" in `native/PROTOCOL.md`) | D68 |
 
-`StyleLayers = { layers: [{ minWidth?: number, states?: ("hover"|"active"|"focus"|"focusVisible"|"focusWithin"|"disabled")[], style: StyleSpec }] }`.
+`StyleLayers = { layers: [{ minWidth?: number, states?: ("hover"|"active"|"focus"|"focusVisible"|"focusWithin"|"disabled"|"starting")[], style: StyleSpec }] }`.
 `StyleSpec` is today's style property set (`native/protocol.rs`) in longhand form, minus `disabled`
 (now a prop) and minus `overflow` (replaced by `overflowX`/`overflowY`), plus these additions:
 
@@ -1438,7 +1631,14 @@ A diff is the same shape with any field optionally `null` (reset).
 | `filter`, `backdropFilter` (CSS filter text) with `filterParts`, `backdropFilterParts` (one field per function, set by the utilities) | `blur`, `brightness`, `contrast`, `grayscale`, `hue-rotate`, `invert`, `opacity`, `saturate`, `sepia`, and `drop-shadow` on `filter` only | no | V1 | `blur-md`, `brightness-110`, `drop-shadow-lg`, `backdrop-blur-lg`, `backdrop-saturate-150`, `filter-none`, `backdrop-filter-none` |
 
 Variants in `styles.ts`: `sm: md: lg: xl: 2xl:` (unchanged thresholds), `hover:`, `active:`, `focus:`,
-`focus-visible:`, `focus-within:`, `disabled:`, and combinations.
+`focus-visible:`, `focus-within:`, `disabled:`, `starting:` (D56), and combinations.
+
+Added after final acceptance (D52 to D56; the wire names and value types are `src/types.ts`'s `Style`, and `native/PROTOCOL.md` lists them): the layout longhands `alignContent`, `justifyItems`,
+`justifySelf`, `order`, `aspectRatio`, `boxSizing`, `visibility` (inherited), `display: block|flow-root`, `gridTemplateColumns|Rows` as track lists, `gridAutoFlow|Columns|Rows`,
+`gridColumn|RowStart|End|Span`; the text longhands `fontFamily`, `fontWeight`, `fontStyle`, `lineHeight`, `letterSpacing`, `textTransform`, `textDecoration*`, `textUnderlineOffset`,
+`textOverflow`, `whiteSpace`, `wordBreak`, `overflowWrap`, `lineClamp` and the numeral features (inherited, except `textOverflow` and `lineClamp`; a decoration propagates to the text below instead); the paint
+longhands `borderStyle`, `border<Corner>Radius`, `border<Side>Width|Color`, `outline*`, `boxShadow` with `boxShadowParts`, `backgroundImage` with `gradientParts`; `transform`,
+`transformOrigin` and `transformParts`; and `transitionParts` beside `transition`, whose `properties` may be `'all'` and may name `color`, `borderColor`, `transform` and `boxShadow`.
 
 ### 4.3 Events
 
@@ -1489,6 +1689,8 @@ Event methods (Phase 1): `#[signal] events_ready()`, `drain_events() -> GString`
 | `_set_text(text, emit_signal)` (Godot VK hook), `_on_web_clipboard_text(arguments)`, `_on_web_clipboard_refused(arguments)` (Web paste callbacks) | I7 |
 | `_on_accessibility_action(data, tag, action)`, `_on_accessibility_scroll_bar_action(data, tag, axis, action)` (callback targets), `get_text_line_elements(tag) -> Array<Rid>` | I10 |
 | `get_activity()`, `set_profiling(enabled)`, `take_profile()` (diagnostics), static `isolate_clipboard(isolated)`, `clipboard_text()`, `set_clipboard_text(text)` (verifier clipboard, D46) | F0 to F4, D46 |
+| `register_font_face(family, weight_min, weight_max, italic, font) -> GString` (empty on success; a face for CSS font matching, per root) | D52 |
+| `get_caret_rect(tag, offset, side)`, `get_offset_at_point(tag, x, y)`, `get_range_rects(tag, start, end)` (JSON: rectangles and positions of a `Text`'s shown text, root-local), `get_text_lines(tag)` (the lines as drawn, for verifiers) | D68 |
 
 `native/PROTOCOL.md` is the exact, current list of the surface (it also names the probe classes of the `probe` feature).
 
@@ -2066,6 +2268,22 @@ backdrop's result). Compatibility, Mobile and Forward+ each have a measured mode
 nothing and logs one error. The gate's Web run is Compatibility only; the RenderingDevice renderers were run natively with `--renderer=`. Limits are in the README
 ("Filters and frosted glass") and D49 and D51; a transparent render target (a `SubViewport` with `transparent_bg`) was not measured.
 
+### Parallel tracks of 7 and 8 November 2026 — built after final acceptance (D52 to D70)
+
+Each was built on its own branch from `d282fee` or later, by a track with its own notes under `docs/tracks/`; the decision log above is the plan's record of them, and the progress log
+("Batch of 7 and 8 November 2026") has one entry per track with its commits and evidence. They are not phases: none was specified here beforehand.
+
+| Track | Notes | Decisions |
+| --- | --- | --- |
+| Text, paint, and layout and motion utilities; the Tailwind audit | `utilities-text.md`, `utilities-paint.md`, `utilities-layout-motion.md`, `tailwind-coverage.md` | D52, D53, D54 |
+| Transforms; the 3D assessment; box meshes | `transforms.md`, `transforms-3d-feasibility.md`, `box-mesh.md` | D55 to D58 |
+| Combobox; the Portal fix; `Select` under a finger | `combobox.md`, `dropdown-touch.md` | D59 to D61 |
+| Lab navigator; live compile; code editor and its evaluation; rich text | `lab-navigator.md`, `live-compile.md`, `code-editor.md`, `code-editor-evaluation.md`, `rich-text.md` | D62, D63, D64, D67, D68 |
+| Web hosting and load; the Web verifier fixes; windows that never take focus | `web-deploy.md`, `web-load.md`, `web-fixes.md`, `quiet-windows.md` | D65, D70, D66 |
+| The single native build (`engine-switch.md` is superseded by it) | `single-build.md` | D69 |
+
+**Gate**: each track ran its own narrowest checks; the full regression of 0.4.1 over the merged tree is the progress log's "Batch regression".
+
 ### Final acceptance
 
 All gates pass from a clean build, and the full regression run of 0.4.1 (every native and Web verifier) passes; README limits list exactly 2.3 plus anything recorded as not done;
@@ -2074,7 +2292,8 @@ flow; the progress log has every gate's evidence and the F0/F4 measurements side
 
 State at the end of the build: the documents above were brought into line with the code on 7 November 2026 (README "Current limits" is the 2.3 non-goals plus the recorded
 not-done and not-verified items; `native/PROTOCOL.md` lists every `#[func]`; the F0 and F4 tables stand side by side in the progress log's Phase F4 section). The
-gates' evidence is not in yet: the full regression run is recorded in the progress log's "Final acceptance" section when it is done.
+full regression run is recorded in the progress log's "Final acceptance" section (passed on 7 November 2026, from a clean build of `ac4a8ac`). The parallel tracks built after it
+(D52 to D70) have their own entries and a "Batch regression" section there, which holds their full regression when it has been run.
 
 ---
 
@@ -2145,6 +2364,11 @@ drift.
   use untyped `VarArray` if an array parameter is ever needed.
 - The JS name of `events_ready` is `eventsReady`; `Signal.connect(Callable.create(fn))` /
   `disconnect` (Phase 1).
+- A GDExtension loads in the Godot API it was bound to or a newer one and never an older: godot-rust refuses with "compiled against newer Godot version" (D69,
+  `docs/tracks/single-build.md`). With `lazy-function-tables` a library bound to 4.7.2 and run in Breaka's 4.8 looks up each method it calls on first use, with the hash it was bound with.
+- GodotJS's V8 12.4 (the monolith GodotJS ships, `v8_enable_webassembly = false`) has no `WebAssembly`, `Intl`, `Worker`, `TextEncoder`, `queueMicrotask`, `fetch`, `structuredClone` or
+  `performance` natively, on either engine, on the main thread or in a `JSWorker`; `setTimeout`, `SharedArrayBuffer`, `Atomics`, `require`, `eval` and `new Function` exist
+  (`docs/tracks/live-compile.md`, `docs/tracks/select-anchor.md`). A library that needs one of the missing ones needs a shim or a native extension (D63).
 
 ### 7.3 Text, IME, keyboard, clipboard
 
@@ -2202,6 +2426,10 @@ drift.
 | Filters cost GPU time per panel | Measured on Compatibility and Mobile (`docs/tracks/filters.md`); shaders compile on first use, nothing warms them up automatically |
 | Web engine bug after an IME composition ended by a focus move (`ime_started` stays set) | Open: the fix belongs in the engine (D48), not worked around here |
 | Breaka's engine has no accessibility driver | The macOS tree was read on the `stock` profile (D42); Breaka's engine ends `verify:a11y` "not verified" |
+| A library bound to 4.7.2 calls a method that Breaka's 4.8 class table lacks, and fails at its first call | Not seen in the sections run on both engines (D69); the batch regression on Breaka's engine is the check, and `native/api/README.md` records the one known mismatch of the stock tables |
+| Letter spacing relies on the text server adding `embolden * size / 64` px to each glyph's advance, which its documentation does not state | A formula test (`native/fonts.rs`) and the tracking pages of the `text-styles` section fail if it stops being true (D52) |
+| `overflow` clips under a rotation or skew are the bounding box of the rotated rectangle | One `ERROR` per element names the problem and the fix; an exact clip needs a render target per clipped element (D55) |
+| The production edge may re-encode the stored brotli | The worst case is what the `.wasm` files already got; the `curl` that shows it is in `docs/tracks/web-load.md` (D65) |
 
 Open questions (defaults in brackets, all three as built): Tab at the last element leaves the root instead of wrapping?
 [wrap]. Default `userSelect` at the root? [`none`]. `Button` defaults to `cursor: pointer`? [no].
@@ -2291,7 +2519,7 @@ Record the actions present at runtime (`InputMap.hasAction`) in I7A.
 | implicit `Text` / `text` | STATIC_TEXT |
 | `link` | LINK |
 | `list` / `listitem` / `listbox` / `option` | LIST / LIST_ITEM / LIST_BOX / LIST_BOX_OPTION |
-| `combobox` | BUTTON with a popup type (copy what Godot's `OptionButton` does; record it) |
+| `combobox` | BUTTON with a popup type (copy what Godot's `OptionButton` does; record it); a `TextInput` with `role="combobox"` is a TEXT_FIELD with the list popup type and `expanded`, the server having no combobox role (D59) |
 | `menu` / `menuitem` / `menuitemcheckbox` / `menuitemradio` | MENU / MENU_ITEM / MENU_ITEM_CHECK_BOX / MENU_ITEM_RADIO |
 | `tablist` / `tab` / `tabpanel` | TAB_BAR / TAB / TAB_PANEL |
 | `dialog` | DIALOG (`FLAG_MODAL` when `ariaModal`) |
