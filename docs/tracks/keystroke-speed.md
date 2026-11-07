@@ -206,6 +206,20 @@ CodeMirror's selection transaction 0.07. What was left uncut and why:
   and 8 Backspaces with a frame before each key, the live recompile awaited between bursts. Nothing generates real input; the keys are `Input.parseInputEvent` calls.
 * `scripts/profile-keystrokes.mjs --sample=<seconds>` has macOS `sample` look at the Godot process; the engine has no symbols, so it shows the library and V8 only.
 
+## What was run on the final tree (`8a7a6aa`; the commit after it is these notes)
+
+| Command | Result |
+| --- | --- |
+| `pnpm test:types` | clean |
+| `pnpm test` | 907 tests, 907 pass (the first run on the branch failed 2: the guard tests that list every script, now listing `keystroke-ab.mjs`) |
+| `cargo fmt --check`, `cargo test`, `cargo clippy --all-targets -- -D warnings` | clean; 878 tests pass (876 on main, plus the layout, text-measure and paragraph tests) |
+| `node scripts/verify.mjs --interaction --only=code-editor,rich-text,text-styles,layout-utilities,scroll,inputs,navigator,live-compile`, Breaka's engine | **PASSED**, landscape and portrait, 533 s. Checks (landscape): inputs 4118, scroll 2689, navigator 7774, layout-utilities 7323, text-styles 7798, rich-text 24967, live-compile 1541, code-editor 3546 (the portrait window is a phone width, which offers no Code button: 2 by design) |
+| the same with `--engine=stock` | **PASSED**, landscape and portrait, 521 s. inputs 4118, scroll 2681, navigator 7774, layout-utilities 7663, text-styles 7798, rich-text 24967, live-compile 1541, code-editor 3546 |
+| `pnpm build:web`, `node scripts/verify-interaction-web.mjs --only=code-editor,rich-text` | **PASSED**: rich-text 108 checks, code-editor 132, 261 assertions, 59 captures (headless Chrome, 113 s) |
+
+The first native and Web runs of the branch's end state **failed** in the code-editor section with React error #185 (cause 3); that is how the `Carets` finding was made. Between that run and these, the
+only change is `8a7a6aa`. The unit-test mutation controls and the A/B pairs are described with each cause.
+
 ## Decisions
 
 * **Measure builds against each other in the same minutes** (`keystroke-ab.mjs`), and read the difference of a pair, not a figure from another day. The diagnosis's V8 profiles were used to find
@@ -228,7 +242,7 @@ CodeMirror's selection transaction 0.07. What was left uncut and why:
 
 * **Targets.** A typed character is not "well under 1 ms" and a caret move is not under 0.5 ms; see "Result" and the sections on causes 6 and 7 for where the rest goes and what would move it.
 * Breaka's engine at both sites; the stock engine at the attribute site only; the Compatibility renderer only (the layout and JS changes do not depend on the renderer, the glyph cache issues the
-  same canvas commands as before; Mobile and Forward+ were not run). The Web `code-editor` and `rich-text` passes ran (below); no keystroke timing was taken on the Web.
+  same canvas commands as before; Mobile and Forward+ were not run). The Web `code-editor` and `rich-text` passes ran (above); no keystroke timing was taken on the Web.
 * Keys are injected one frame apart. A person types about 100 ms apart, which the diagnosis found 0.1 to 0.3 ms dearer (cold caches); not re-measured.
 * The text-layout probe (`pnpm verify:text-layout`, `--features probe`) was not run. `GodotParagraph::lay_out` and its callers are unchanged; `facts()` has a new path behind it.
   `selection_input::lay_out` (caret, hit tests, selection rectangles) still reads glyphs without the cache: it is not on the typing path.
