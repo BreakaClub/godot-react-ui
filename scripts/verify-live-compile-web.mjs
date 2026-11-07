@@ -39,21 +39,25 @@ function check(name, condition, detail) {
   assert.ok(condition, `${name}${detail === undefined ? '' : `: ${JSON.stringify(detail)}`}`);
 }
 
-/** The pack must carry the extension and the project this tree built: a stale pack would judge old code. */
-function checkPack() {
+/**
+ * The export must carry the extension and the project this tree built: a stale export would judge old code. The Web side module is served
+ * beside the page, as the UI extension's is; the project is in the pack, whole, so its head and tail identify it there.
+ */
+function checkExport() {
+  const installed = readFileSync(resolve(INSTALL_DIRECTORY, 'bin', WEB_LIBRARY_NAME));
+  const exported = readFileSync(resolve(exportDirectory, WEB_LIBRARY_NAME));
+  check(`The export serves ${WEB_LIBRARY_NAME} as it is now (${installed.length} bytes)`, installed.equals(exported),
+    'run `node scripts/build-live-compile-web.mjs` and `node scripts/build-web.mjs --export-only` after a change to the extension');
   const pack = readFileSync(resolve(exportDirectory, 'index.pck'));
-  for (const file of [resolve(INSTALL_DIRECTORY, 'bin', WEB_LIBRARY_NAME), resolve(root, 'demo/live-compile/project.json')]) {
-    const bytes = readFileSync(file);
-    const head = bytes.subarray(0, SIGNATURE_BYTES);
-    const tail = bytes.subarray(Math.max(0, bytes.length - SIGNATURE_BYTES));
-    check(`The pack carries ${file.slice(root.length + 1)} as it is now (${bytes.length} bytes)`, pack.includes(head) && pack.includes(tail),
-      'run `node scripts/build-live-compile-web.mjs` and `node scripts/build-web.mjs --export-only` after a change to the extension or the project');
-  }
-  return pack.length;
+  const project = readFileSync(resolve(root, 'demo/live-compile/project.json'));
+  check(`The pack carries demo/live-compile/project.json as it is now (${project.length} bytes)`,
+    pack.includes(project.subarray(0, SIGNATURE_BYTES)) && pack.includes(project.subarray(project.length - SIGNATURE_BYTES)),
+    'run `node scripts/live-compile-project.mjs` and `node scripts/build-web.mjs --export-only`');
+  return { packBytes: pack.length, sideModuleBytes: exported.length, projectBytes: project.length };
 }
 
 await mkdir(output, { recursive: true });
-const packBytes = checkPack();
+const exportSizes = checkExport();
 const server = await startVerificationServer(engine);
 let browser;
 let page;
@@ -112,7 +116,7 @@ try {
   const facts = report.console.map((entry) => entry.text).find((text) => text.includes('GODOT_REACT_LIVE_COMPILE '));
   check('The section reported its measurements', facts !== undefined);
   report.facts = JSON.parse(facts.slice(facts.indexOf('{')));
-  report.packBytes = packBytes;
+  report.exportSizes = exportSizes;
   report.passed = true;
 } catch (error) {
   report.error = error instanceof Error ? error.stack : String(error);
@@ -124,5 +128,5 @@ try {
   await server.close();
   await writeEvidence(output, report);
 }
-const passed = process.exitCode ? undefined : passedLine('GODOT_REACT_WEB_LIVE_COMPILE_VERIFY_PASSED', report, output, { facts: report.facts, sectionMs: report.sectionMs, packBytes: report.packBytes });
+const passed = process.exitCode ? undefined : passedLine('GODOT_REACT_WEB_LIVE_COMPILE_VERIFY_PASSED', report, output, { facts: report.facts, sectionMs: report.sectionMs, exportSizes: report.exportSizes });
 if (passed !== undefined) console.log(passed);
