@@ -2,8 +2,11 @@
 // the keystrokes (docs/tracks/keystroke-profile.md). Only the Profiler domain is used: the Debugger domain deoptimises.
 //
 //   node scripts/profile-keystrokes.mjs [--site=attribute|function] [--warmup=200] [--bursts=25] [--inserts=8]
-//                                       [--cpu=25|off|enabled] [--coverage] [--standalone] [--no-inspector] [--bench] [--move] [--out=<directory>] [--engine=stock]
+//                                       [--cpu=25|off|enabled] [--coverage] [--standalone] [--no-inspector] [--bench] [--move] [--out=<directory>] [--demo=<directory>] [--engine=stock]
 //
+// - `--demo=<directory>` runs a copy of the demo project that `scripts/keystroke-ab.mjs snapshot` made, with the library and the bundle it was made with
+//   (the installed library is not checked against the working tree then: the copy is the build it names).
+
 // - `--standalone` attaches no client at all: the demo runs the steps itself and prints the keystrokes (the run the profiler's cost is measured against).
 // - `--gap=<frames>` leaves that many frames between keystrokes (default 1; a burst must stay under the workspace's 600 ms, so use few inserts).
 // - `--after-prepare=<js>` evaluates that expression in the demo once the caret is in place (for a throwaway patch that needs to know when to start).
@@ -45,7 +48,7 @@ function option(name, fallback) {
 
 rejectUnknownArguments(process.argv.slice(2), {
   flags: ['--coverage', '--standalone', '--no-inspector', '--bench', '--move'],
-  prefixes: ['--site=', '--warmup=', '--bursts=', '--inserts=', '--cpu=', '--keystrokes=', '--bench-warmup=', '--renderer-profile=', '--gap=', '--after-prepare=', '--out='],
+  prefixes: ['--site=', '--warmup=', '--bursts=', '--inserts=', '--cpu=', '--keystrokes=', '--bench-warmup=', '--renderer-profile=', '--gap=', '--after-prepare=', '--out=', '--demo='],
 });
 const site = option('site', 'attribute');
 const warmup = Number(option('warmup', DEFAULT_WARMUP));
@@ -77,15 +80,18 @@ function freePort() {
 }
 
 const engine = selectEngine();
-engine.prepareNative();
-importDemo(engine.godot);
+const demoDirectory = resolve(root, option('demo', 'demo'));
+if (option('demo', undefined) === undefined) {
+  engine.prepareNative();
+  importDemo(engine.godot);
+}
 
 /**
  * The bundle the run was made with, kept by its hash beside the runs: a CPU profile and a coverage report name positions in `main.js`, and the
  * analysis needs the source map and the text of that very bundle, not whatever the next build leaves in `demo/.godot`.
  */
 function keepBundle() {
-  const directory = resolve(root, 'demo/.godot/GodotJS/src');
+  const directory = resolve(demoDirectory, '.godot/GodotJS/src');
   const hash = createHash('sha256').update(readFileSync(resolve(directory, 'main.js'))).digest('hex').slice(0, 12);
   const kept = resolve(root, 'artifacts/keystroke-profile/bundles');
   mkdirSync(kept, { recursive: true });
@@ -97,11 +103,11 @@ function keepBundle() {
 const bundle = keepBundle();
 const inspectorPort = await freePort();
 // The project's settings are overridden by `override.cfg` beside `project.godot`; this run's copy is removed when it ends.
-const overrideFile = resolve(root, 'demo/override.cfg');
+const overrideFile = resolve(demoDirectory, 'override.cfg');
 writeFileSync(overrideFile, `[GodotJS]\n\nruntime/debugger/debugger_port=${inspectorOff ? 0 : inspectorPort}\n`);
 process.on('exit', () => rmSync(overrideFile, { force: true }));
 const { command, env } = quietLaunch(engine.godot, { ...process.env, GODOT_REACT_ARTIFACTS: output });
-const child = spawn(command, ['--audio-driver', 'Dummy', '--path', resolve(root, 'demo'), '--resolution', '1120x800', '--', ...(standalone ? ['--profile-keystrokes=standalone', `--site=${site}`, `--warmup=${warmup}`, `--bursts=${bursts}`, `--inserts=${inserts}`, `--renderer-profile=${rendererProfile ? 'on' : 'off'}`] : ['--profile-keystrokes'])], {
+const child = spawn(command, ['--audio-driver', 'Dummy', '--path', demoDirectory, '--resolution', '1120x800', '--', ...(standalone ? ['--profile-keystrokes=standalone', `--site=${site}`, `--warmup=${warmup}`, `--bursts=${bursts}`, `--inserts=${inserts}`, `--move=${move ? 'on' : 'off'}`, `--renderer-profile=${rendererProfile ? 'on' : 'off'}`] : ['--profile-keystrokes'])], {
   env, stdio: ['ignore', 'pipe', 'pipe'],
 });
 let log = '';

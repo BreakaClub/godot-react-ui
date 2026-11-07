@@ -1,0 +1,35 @@
+diff --git a/native/layout.rs b/native/layout.rs
+index 5ec963e..ff520c9 100644
+--- a/native/layout.rs
++++ b/native/layout.rs
+@@ -19,12 +19,15 @@ pub(crate) fn compute_tree(tree: &mut TaffyTree<TextContext>, root: NodeId, size
+             width: AvailableSpace::Definite(size.x),
+             height: AvailableSpace::Definite(size.y),
+         },
+-        |inputs, _, context, style| {
++        |inputs, _id, context, style| {
+             let mut output = taffy::compute_leaf_layout(
+                 inputs,
+                 style,
+                 |_, _| 0.0,
+                 |known, available| {
++                    if std::env::var_os("KEYSTROKE_TRACE_MEASURE").is_some() {
++                        eprintln!("KTM node={:?} mode={:?} known={:?}x{:?} avail={:?}x{:?} parent={:?}x{:?} axis={:?}", _id, inputs.run_mode, known.width, known.height, available.width, available.height, inputs.parent_size.width, inputs.parent_size.height, inputs.axis);
++                    }
+                     let measured = match context.as_ref() {
+                         None => return Size::ZERO,
+                         Some(TextContext::Paragraph(paragraph)) => {
+diff --git a/native/mount.rs b/native/mount.rs
+index b32d3c1..5e1ba55 100644
+--- a/native/mount.rs
++++ b/native/mount.rs
+@@ -1216,6 +1216,9 @@ impl ReactUiRoot {
+         self.tree
+             .set_node_context(node.layout, context)
+             .expect("a mounted node has a layout node");
++        if std::env::var_os("KEYSTROKE_TRACE_MEASURE").is_some() {
++            eprintln!("KTC tag={tag} node={:?} text={:?}", node.layout, node.props.text.as_deref().map(|text| text.chars().take(24).collect::<String>()));
++        }
+         self.layout_dirty.insert(tag);
+         self.paint_dirty.insert(tag);
+         self.content_generation += 1;

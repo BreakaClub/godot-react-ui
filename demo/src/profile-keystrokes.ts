@@ -81,11 +81,13 @@ const LAB_SOURCE = 'res://src/inputs-lab.tsx';
 /** The characters typed, in turn; letters only, so the highlight sees an identifier or the inside of a string and nothing else. */
 const TYPED = 'abcdefghijklmnopqrstuvwxyz';
 const STANDALONE_ARGUMENT = '--profile-keystrokes=standalone';
-/** What a standalone run does unless `--site=`, `--warmup=`, `--bursts=`, `--inserts=` or `--renderer-profile=off` say otherwise. */
+/** What a standalone run does unless `--site=`, `--warmup=`, `--bursts=`, `--inserts=`, `--move=on` or `--renderer-profile=off` say otherwise. */
 const DEFAULT_WARMUP = 200;
 const DEFAULT_BURSTS = 25;
 const DEFAULT_INSERTS = 8;
 const FRAMES_AFTER_OPEN = 30;
+/** Bursts of arrow keys before a standalone run of them is measured (the warm-up types, which does not warm the paths an arrow takes). */
+const MOVE_WARMUP_BURSTS = 6;
 /** The width of the editor's grid probe in columns (`view/grid-probe.tsx`): a click half a column into the first line only needs the column's width roughly. */
 const PROBE_COLUMNS = 400;
 const MIB = 1024 * 1024;
@@ -355,8 +357,10 @@ export function installKeystrokeProfile(owner: Node, api: KeystrokeProfileInspec
     await warmup(Number(argument('warmup') ?? DEFAULT_WARMUP));
     const all: KeystrokeRecord[] = [];
     const inserts = Number(argument('inserts') ?? DEFAULT_INSERTS);
+    const moving = argument('move') === 'on';
+    for (let index = 0; moving && index < MOVE_WARMUP_BURSTS; index += 1) await burst({ inserts, move: true, rendererProfile: false });
     for (let index = 0; index < Number(argument('bursts') ?? DEFAULT_BURSTS); index += 1) {
-      all.push(...await burst({ inserts, rendererProfile: argument('renderer-profile') !== 'off' }));
+      all.push(...await burst({ inserts, move: moving, rendererProfile: argument('renderer-profile') !== 'off' }));
       await settle();
     }
     console.log('GODOT_REACT_KEYSTROKE_PROFILE_RESULT', JSON.stringify(all));
