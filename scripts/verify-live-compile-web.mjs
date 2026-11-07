@@ -108,6 +108,11 @@ try {
     await new Promise((resolveWait) => setTimeout(resolveWait, POLL_MS));
   }
   check('The demo started with the live-compile section', true);
+  // The page's realm is the one GodotJS runs the demo's scripts in on the Web (the browser's own engine): what it offers, for the notes.
+  report.realm = await page.evaluate(() => ({
+    webAssembly: typeof WebAssembly, worker: typeof Worker, newFunction: new Function('a', 'return a + 1')(1), indirectEval: (0, eval)('1+2'),
+  }));
+  check('The Web realm has WebAssembly and allows new Function and eval', report.realm.webAssembly === 'object' && report.realm.newFunction === 2 && report.realm.indirectEval === 3, report.realm);
   const timed = Date.now();
   await page.evaluate(() => globalThis.godotReactLiveCompile());
   report.sectionMs = Date.now() - timed;
@@ -128,5 +133,5 @@ try {
   await server.close();
   await writeEvidence(output, report);
 }
-const passed = process.exitCode ? undefined : passedLine('GODOT_REACT_WEB_LIVE_COMPILE_VERIFY_PASSED', report, output, { facts: report.facts, sectionMs: report.sectionMs, exportSizes: report.exportSizes });
+const passed = process.exitCode ? undefined : passedLine('GODOT_REACT_WEB_LIVE_COMPILE_VERIFY_PASSED', report, output, { facts: report.facts, realm: report.realm, sectionMs: report.sectionMs, exportSizes: report.exportSizes });
 if (passed !== undefined) console.log(passed);
