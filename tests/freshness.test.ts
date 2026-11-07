@@ -1,13 +1,15 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { selectEngine, type Engine } from '../scripts/engine.mjs';
 import {
-  collectContentInputs, collectInputs, compareInputs, exportFileProblems, findProblem, prepareTarget, readStamp, requireBuild, requireExport, stampFor, writeStamp, type BuildInputs, type BuildStamp,
+  collectContentInputs, collectInputs, compareInputs, describeBinding, exportFileProblems, findProblem, installFile, prepareTarget, readStamp, requireBuild, requireExport, stampFor, writeStamp, type BuildInputs, type BuildStamp,
 } from '../scripts/freshness.mjs';
+import { WEB_LIBRARY_NAME, writeGdextension } from '../scripts/live-compile-build.mjs';
+import { nativeSourceInputs, nativeVariant } from '../scripts/native-binding.mjs';
 import { ensureStockTypings } from '../scripts/typings.mjs';
 
 // The freshness guard (scripts/freshness.mjs, docs/tracks/freshness.md): a build records the content of what it was
@@ -134,13 +136,14 @@ test('the filters negative-controls build is a feature set of its own: a default
   assert.match(check(repo, install(repo, faults), standard) ?? '', /cargo features differ: built with \[filter-faults\], wanted \[\]/u);
   assert.match(check(repo, install(repo, standard), faults) ?? '', /cargo features differ: built with \[\], wanted \[filter-faults\]/u);
   assert.equal(check(repo, install(repo, faults), faults), undefined, 'a faults build is fresh for a faults run');
-  // The engine layer picks the feature, the target directory and the rebuild command for it.
-  const breaka = selectEngine([], {});
-  assert.deepEqual(breaka.features('native', { faults: true }), ['filter-faults']);
-  assert.deepEqual(breaka.features('native'), []);
-  assert.notEqual(breaka.sourceInputs('native', { faults: true }).digest, breaka.sourceInputs('native').digest);
-  assert.match(breaka.targets.nativeFaults, /target\/faults$/u);
-  assert.notEqual(breaka.targets.nativeFaults, selectEngine(['--engine=stock'], {}).targets.nativeFaults);
+  // The native variants pick the feature, the target directory and the rebuild command for it: one of each, none per profile.
+  assert.deepEqual(nativeVariant({ faults: true }).features, ['filter-faults']);
+  assert.deepEqual(nativeVariant().features, []);
+  assert.notEqual(nativeSourceInputs({ faults: true }).digest, nativeSourceInputs().digest);
+  assert.match(nativeVariant({ faults: true }).target, /target\/faults$/u);
+  assert.match(nativeVariant({ probe: true }).target, /target\/probe$/u);
+  assert.equal(nativeVariant({ faults: true }).fix, 'pnpm build:native --faults');
+  assert.throws(() => nativeVariant({ probe: true, faults: true }), /separate builds/u);
 });
 
 test('a build of the current sources is accepted, however old or new its files are', () => {
@@ -319,23 +322,24 @@ test('a Web export is also stale when its pack, shell or engine template were ma
   assert.deepEqual(exportFileProblems(directory, { files: [{ name: 'index.pck', bytes: 1, sha256: 'x' }] }), ['index.pck is missing']);
 });
 
-test('each profile hashes its own API dump and its own features', () => {
+test('the native build hashes the one 4.7.2 dump pair for every profile, and the Web build its profile\'s own', () => {
   const breaka = selectEngine([], {});
   const stock = selectEngine(['--engine=stock'], {});
-  const breakaDumps = Object.keys(breaka.sourceInputs('native').inputs).filter(path => path.startsWith('native/api/'));
-  const stockDumps = Object.keys(stock.sourceInputs('native').inputs).filter(path => path.startsWith('native/api/'));
-  assert.deepEqual(breakaDumps, ['native/api/extension_api.json', 'native/api/gdextension_interface.json']);
-  assert.deepEqual(stockDumps, ['native/api/stock-4.7.2/extension_api.json', 'native/api/stock-4.7.2/gdextension_interface.json']);
-  assert.notEqual(breaka.sourceInputs('native').digest, stock.sourceInputs('native').digest);
-  assert.deepEqual(breaka.features('native'), []);
-  assert.deepEqual(breaka.features('native', { probe: true }), ['probe']);
-  assert.deepEqual(breaka.features('web'), ['web']);
-  assert.deepEqual(breaka.features('web', { probe: true }), ['web', 'probe']);
-  assert.notEqual(breaka.sourceInputs('web').digest, breaka.sourceInputs('native').digest);
+  const dumps = (inputs: BuildInputs): string[] => Object.keys(inputs.inputs).filter(path => path.startsWith('native/api/'));
+  const stockDumps = ['native/api/stock-4.7.2/extension_api.json', 'native/api/stock-4.7.2/gdextension_interface.json'];
+  assert.deepEqual(dumps(nativeSourceInputs()), stockDumps, 'the native build is bound to 4.7.2, whichever engine runs it');
+  assert.deepEqual(dumps(breaka.webSourceInputs()), ['native/api/extension_api.json', 'native/api/gdextension_interface.json']);
+  assert.deepEqual(dumps(stock.webSourceInputs()), stockDumps);
+  assert.notEqual(breaka.webSourceInputs().digest, stock.webSourceInputs().digest);
+  assert.deepEqual(nativeVariant().features, []);
+  assert.deepEqual(nativeVariant({ probe: true }).features, ['probe']);
+  assert.deepEqual(breaka.webFeatures(), ['web']);
+  assert.deepEqual(breaka.webFeatures({ probe: true }), ['web', 'probe']);
+  assert.notEqual(breaka.webSourceInputs().digest, nativeSourceInputs().digest);
 });
 
 test('the stock typecheck refuses a stale stock library by name and never builds or generates anything', () => {
-  const refusal = 'The stock library built in target/stock is stale: ... Run `pnpm build:native --engine=stock` first.';
+  const refusal = 'The native library built in target is stale: ... Run `pnpm build:native` first.';
   // `godot` is a path that cannot run: reaching the editor (the generation) would fail differently.
   const engine: Engine = {
     ...selectEngine(['--engine=stock'], { GODOT: '/nonexistent/godot' }),
@@ -347,12 +351,9 @@ test('the stock typecheck refuses a stale stock library by name and never builds
 // A script that runs an installed build must check it first; a new one that forgets would run unguarded again. This lists
 // every script that selects an engine and the guard it must call, and fails for one that is not listed.
 const GUARDS: Record<string, readonly string[]> = {
-  // Stamps the target directory (what `switch:engine` installs from) and cleans the crates unless that stamp vouches for the sources, then installs by rename.
-  'build-live-compile.mjs': ['writeStamp(layout.builtStamp', 'prepareTarget(', 'installFile('],
   // The Web side module of live-compile: a build, which installs it beside the native library; the section that uses it checks the stamp (live-compile-build.mjs).
   'build-live-compile-web.mjs': ['writeGdextension('],
-  'build-native.mjs': ['beginBuild('],
-  'build-web.mjs': ['beginBuild(', 'requireInstalledWasm('],
+  'build-web.mjs': ['beginWebBuild(', 'requireInstalledWasm('],
   'dev.mjs': ['prepareNative('],
   'generate-types.mjs': ['prepareNative(', 'generateStockTypings('],
   // Reads the captures a verifier left and lays them out: it runs no build, so there is nothing to guard.
@@ -360,8 +361,6 @@ const GUARDS: Record<string, readonly string[]> = {
   'probe-web.mjs': ['requireFreshWebExport('],
   'run.mjs': ['prepareNative('],
   'serve-web.mjs': ['requireFreshWebExport('],
-  // Installs the profile's own target builds over the installed ones; it never compiles (docs/tracks/engine-switch.md).
-  'switch-engine.mjs': ['switchLibrary(', 'switchLiveCompile('],
   'test-types.mjs': ['ensureStockTypings('],
   'verify-a11y.mjs': ['prepareNative('],
   'verify-interaction-web.mjs': ['requireFreshWebExport('],
@@ -383,4 +382,84 @@ test('every script that selects an engine is guarded against a stale build', () 
     const source = readFileSync(join(scripts, name), 'utf8');
     for (const call of calls) assert.ok(source.includes(call), `${name} must call ${call}`);
   }
+});
+
+// ---- A stamp says what the build is bound to ------------------------------------------------------------------------------------------------------------
+
+test('a stamp is bound to a profile (a Web side module) or to a Godot API (a native build), one of the two', () => {
+  const repo = makeRepo();
+  const inputs = repo.inputs();
+  const library = write(repo.root, 'bin/lib.dylib', 'library');
+  const binding = { api: '4.7.2', dump: 'cd'.repeat(32) };
+  const native = stampFor({ library, binding, probe: false, inputs });
+  assert.deepEqual(native.binding, binding);
+  assert.equal(Object.hasOwn(native, 'engine'), false);
+  const web = stampFor({ library, engine: 'stock', probe: false, inputs });
+  assert.equal(web.engine, 'stock');
+  assert.equal(Object.hasOwn(web, 'binding'), false);
+  assert.throws(() => stampFor({ library, probe: false, inputs } as never), /one of the two/u);
+  assert.throws(() => stampFor({ library, engine: 'stock', binding, probe: false, inputs } as never), /one of the two/u);
+  assert.equal(describeBinding(binding), 'Godot API 4.7.2 (dump cdcdcdcdcdcd)');
+});
+
+test('a build is checked against the identity it was asked for: a Web module against a profile, a native build against a binding, never one for the other', () => {
+  const repo = makeRepo();
+  const inputs = repo.inputs();
+  const library = write(repo.root, 'bin/lib.dylib', 'library');
+  const binding = { api: '4.7.2', dump: 'cd'.repeat(32) };
+  const common = { library, probe: false, current: inputs, subject: 'installed lib.dylib' };
+  const bound = stampFor({ library, binding, probe: false, inputs });
+  assert.equal(findProblem({ ...common, stamp: bound, binding }), undefined);
+  assert.match(findProblem({ ...common, stamp: bound, binding: { ...binding, api: '4.8.0' } }) ?? '', /bound to Godot API 4\.7\.2 \(dump cdcdcdcdcdcd\), not bound to Godot API 4\.8\.0/u);
+  assert.match(findProblem({ ...common, stamp: bound, binding: { ...binding, dump: 'ef'.repeat(32) } }) ?? '', /dump cdcdcdcdcdcd\), not bound to Godot API 4\.7\.2 \(dump efefefefefef/u);
+  assert.match(findProblem({ ...common, stamp: bound, engine: 'stock' }) ?? '', /is bound to Godot API 4\.7\.2 \(dump cdcdcdcdcdcd\), not the stock profile's\./u, 'a native stamp is not a profile\'s build');
+  const profile = stampFor({ library, engine: 'stock', probe: false, inputs });
+  assert.equal(findProblem({ ...common, stamp: profile, engine: 'stock' }), undefined);
+  assert.match(findProblem({ ...common, stamp: profile, binding }) ?? '', /is the stock profile's build, made before native builds were bound to one Godot API, not bound to Godot API 4\.7\.2/u);
+  assert.match(findProblem({ ...common, stamp: undefined, binding }) ?? '', /^No build of lib\.dylib bound to Godot API 4\.7\.2 \(dump cdcdcdcdcdcd\) is available/u);
+});
+
+// ---- The install -----------------------------------------------------------------------------------------------------------------------------------------------
+
+test('an install replaces the file by a rename: a process that has the old library open keeps reading the old library', () => {
+  const root = mkdtempSync(join(tmpdir(), 'install-'));
+  const destination = write(root, 'install/lib.dylib', 'old library, mapped by a running Godot');
+  const source = write(root, 'target/lib.dylib', 'new library');
+  const mapped = openSync(destination, 'r');
+  try {
+    const before = statSync(destination).ino;
+    installFile(source, destination);
+    assert.equal(readFileSync(destination, 'utf8'), 'new library');
+    assert.notEqual(statSync(destination).ino, before, 'the directory entry now names another file');
+    assert.equal(readFileSync(mapped, 'utf8'), 'old library, mapped by a running Godot', 'the open file is untouched (copyFileSync over it would have rewritten it in place)');
+  } finally {
+    closeSync(mapped);
+  }
+  assert.deepEqual(readdirSync(join(root, 'install')), ['lib.dylib'], 'no staged file is left behind');
+});
+
+test('an install of a file that is not the one its stamp describes installs nothing', () => {
+  const root = mkdtempSync(join(tmpdir(), 'install-'));
+  const destination = write(root, 'install/lib.dylib', 'old');
+  const source = write(root, 'target/lib.dylib', 'new, but another build finished under the stamp');
+  assert.throws(() => installFile(source, destination, { sha256: '0'.repeat(64) }), /not the file its stamp describes/u);
+  assert.equal(readFileSync(destination, 'utf8'), 'old');
+  assert.deepEqual(readdirSync(join(root, 'install')), ['lib.dylib']);
+  installFile(source, join(root, 'made/for/it/lib.dylib'));
+  assert.equal(readFileSync(join(root, 'made/for/it/lib.dylib'), 'utf8'), 'new, but another build finished under the stamp');
+});
+
+test('the live-compile manifest is rewritten only when it differs, and by a rename a reader never sees half of', () => {
+  const root = mkdtempSync(join(tmpdir(), 'manifest-'));
+  const manifest = join(root, 'live_compile.gdextension');
+  writeGdextension({ installDirectory: root });
+  const first = statSync(manifest).ino;
+  assert.doesNotMatch(readFileSync(manifest, 'utf8'), /web\./u);
+  writeGdextension({ installDirectory: root });
+  assert.equal(statSync(manifest).ino, first, 'the same manifest is not rewritten');
+  write(root, `bin/${WEB_LIBRARY_NAME}`, 'web side module');
+  writeGdextension({ installDirectory: root });
+  assert.notEqual(statSync(manifest).ino, first);
+  assert.match(readFileSync(manifest, 'utf8'), new RegExp(`web\\.release\\.threads\\.wasm32 = "res://addons/live-compile/bin/${WEB_LIBRARY_NAME}"`, 'u'));
+  assert.deepEqual(readdirSync(root).filter(name => name.endsWith('.tmp')), []);
 });

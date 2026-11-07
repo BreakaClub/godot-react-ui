@@ -1,13 +1,17 @@
+import type { BuildInputs, BuildRecord } from './freshness.mjs';
+
+export type { BuildInputs, BuildRecord };
+
 export const ENGINE_VARIABLE: string;
 export const ENGINE_FLAG: string;
 export const DEFAULT_ENGINE: string;
-/** The Cargo package both builds compile, and the one a stale target has cleaned. */
+/** The Cargo package the native and the Web build compile, and the one a stale target has cleaned. */
 export const CARGO_PACKAGE: string;
 
 export interface WebProfile {
   /** The export preset in `demo/export_presets.cfg` that carries this profile's engine templates. */
   presetName: string;
-  /** The Emscripten SDK root the side module is linked with. */
+  /** The Emscripten SDK root the side module is linked with (4.0.11 for stock, 6.0.12 for Breaka's). */
   emscripten: string;
   /** Whether the templates use Breaka's lazy function-table ABI (the extension's final link must match). */
   lazyFunctionTable: boolean;
@@ -16,81 +20,47 @@ export interface WebProfile {
   reportsCancelledTouch: boolean;
 }
 
-/** Which artifact a build makes: the native library, or the Web side module. */
-export type BuildKind = 'native' | 'web';
-
-/** What a build is made from (scripts/freshness.mjs): cargo features and a content hash of every input file. */
-export interface BuildInputs {
-  features: string[];
-  digest: string;
-  inputs: Record<string, string>;
-}
-
-/** What `Engine.switchLibrary` did (scripts/freshness.mjs `switchBuild`), and the target directory it installs from. */
-export interface SwitchLibraryResult {
-  outcome: 'current' | 'installed' | 'needs-build';
-  /** Why the installed library was not usable (undefined for `current`). */
-  problem: string | undefined;
-  /** Only with `needs-build`: why the target directory's library cannot be installed. */
-  builtProblem?: string;
-  /** Only with `needs-build`: the command that compiles the library. */
-  fix?: string;
-  target: string;
-}
-
-/** The steps that record a build, returned by `Engine.beginBuild`. */
-export interface BuildRecord {
-  /** Cargo has succeeded: stamp its output. Throws if the sources changed while it ran. */
-  compiled(): void;
-  /** The artifact is in place: stamp the installed copy. */
-  installed(): void;
-}
-
 export interface Engine {
   name: string;
   description: string;
   /** The Godot binary: `GODOT` if set, else the profile's. */
   godot: string;
   versionPrefix: string;
-  /** The directory of the API dump pair, undefined for the default profile (`.cargo/config.toml` names its own). */
-  apiDirectory: string | undefined;
+  /** The directory of the API dump pair the profile's Web build is bound to. The native builds are bound to `NATIVE_BINDING_API` instead. */
+  apiDirectory: string;
   artifacts: string;
-  /** `nativeFaults` is the filters negative-controls build's (cargo feature `filter-faults`). */
-  targets: { native: string; nativeProbe: string; nativeFaults: string; web: string; webProbe: string };
+  /** The profile's Web cargo target directories. The native builds have none per profile (scripts/native-binding.mjs `NATIVE_TARGETS`). */
+  targets: { web: string; webProbe: string };
   web: WebProfile;
   root: string;
-  libraryName: string;
-  installDirectory: string;
-  installedLibrary: string;
   /** `release` if the arguments say `--release`, else `debug`. */
   webMode(argv?: readonly string[]): 'debug' | 'release';
   artifactPath(...names: string[]): string;
-  bindingEnvironment(): Record<string, string>;
+  /** The API dump pair the profile's Web build binds against, as godot-rust's environment variables. */
+  webBindingEnvironment(): Record<string, string>;
+  /** The `godot --version` line. Throws if the binary is not the profile's, or is older than the API the native builds are bound to. */
   verifiedVersion(): string;
-  /** Throws unless the installed native library is this profile's build of the current sources; the message ends with the command that fixes it. */
-  requireInstalledLibrary(options?: { probe?: boolean; faults?: boolean }): void;
   /**
-   * Throws unless every build a demo run loads is this profile's build of the current sources: the native library and, if one is installed,
-   * the live-compile extension (`liveCompile: false` skips it, for a run that takes it out of the project).
+   * Throws unless every native build a demo run loads may be loaded: the UI library and, if one is installed, the live-compile extension
+   * (`liveCompile: false` skips it, for a run that takes it out of the project). Bound to `NATIVE_BINDING_API`, the variant asked for, built from the
+   * current sources; the profile does not enter into it.
    */
   requireInstalledBuilds(options?: { probe?: boolean; faults?: boolean; liveCompile?: boolean }): void;
-  /** Install the native library the profile's target directory holds when the installed one is not usable and that one is current. */
-  switchLibrary(options?: { probe?: boolean; faults?: boolean }): SwitchLibraryResult;
   /** Throws unless the installed Web side module is this profile's build of the current sources. */
   requireInstalledWasm(options?: { probe?: boolean }): void;
   installedWasmStamp(): Record<string, unknown> | undefined;
-  /** Throws unless the library in the profile's native target directory is its build of the current sources. */
+  /** Throws unless the library in the native target directory is a build of the current sources bound to the native API. */
   requireBuiltLibrary(): void;
   /** Throws unless the Web export (`--release` or debug) carries this profile's side module built from the current sources. */
   requireFreshWebExport(options?: { probe?: boolean }): void;
   prepareNative(options?: { probe?: boolean; faults?: boolean; liveCompile?: boolean }): string;
-  /** The cargo features a build of `kind` enables. */
-  features(kind: BuildKind, options?: { probe?: boolean; faults?: boolean }): string[];
-  sourceInputs(kind: BuildKind, options?: { probe?: boolean; faults?: boolean }): BuildInputs;
+  /** The cargo features a Web build enables. */
+  webFeatures(options?: { probe?: boolean }): string[];
+  webSourceInputs(options?: { probe?: boolean }): BuildInputs;
   /** The inputs of the pack, shell and engine template of the Web export in `mode` (scripts/web-content.mjs). */
   webContentInputs(mode: string): BuildInputs;
-  /** Hash the inputs, have `clean` run if cargo's last output is not provably a build of them, and return the recording steps. */
-  beginBuild(kind: BuildKind, options: { probe?: boolean; faults?: boolean; clean: () => void }): BuildRecord;
+  /** Hash the Web build's inputs, have `clean` run if cargo's last output is not provably a build of them, and return the recording steps. */
+  beginWebBuild(options: { probe?: boolean; clean: () => void }): BuildRecord;
 }
 
 export function argsWithoutEngine(argv: readonly string[]): string[];

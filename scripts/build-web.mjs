@@ -43,7 +43,7 @@ const wasmPath = join(root, 'demo', 'addons', 'godot-react-ui', 'bin', 'godot_re
 const buildTimeoutMs = 15 * 60 * 1000;
 const env = {
   ...process.env,
-  ...engine.bindingEnvironment(),
+  ...engine.webBindingEnvironment(),
   PATH: [dirname(cargo), join(sdk, 'upstream', 'emscripten'), join(sdk, 'node', '24.19.0_64bit', 'bin'), process.env.PATH ?? ''].join(delimiter),
   EM_CONFIG: join(sdk, '.emscripten'),
   CARGO_TARGET_DIR: targetDirectory,
@@ -108,10 +108,10 @@ print(json.dumps({'binaryen':env['ENV']['EM_BINARYEN_ROOT'],'linkFlags':env['LIN
   // Cargo rebuilds from file modification times, so a source restored to old content with its old mtime keeps the
   // artifact built from the other content (docs/tracks/freshness.md). `beginBuild` hashes the inputs and, unless the
   // target's own stamp says its artifact is a build of exactly these, cleans this crate (not its dependencies) first.
-  const build = engine.beginBuild('web', {
+  const build = engine.beginWebBuild({
     probe, clean: () => run(cargo, [`+${toolchain}`, 'clean', '--locked', '-p', CARGO_PACKAGE, '--release', '--target', 'wasm32-unknown-emscripten']),
   });
-  run(cargo, [`+${toolchain}`, 'build', '--locked', '--release', '--lib', '--features', engine.features('web', { probe }).join(','), '-Zbuild-std', '--target', 'wasm32-unknown-emscripten']);
+  run(cargo, [`+${toolchain}`, 'build', '--locked', '--release', '--lib', '--features', engine.webFeatures({ probe }).join(','), '-Zbuild-std', '--target', 'wasm32-unknown-emscripten']);
   build.compiled();
   const compiled = join(targetDirectory, 'wasm32-unknown-emscripten', 'release', 'godot_react_ui.wasm');
   const wasm = readFileSync(compiled);
@@ -174,7 +174,7 @@ if (!args.has('--wasm-only')) {
     emscripten: readFileSync(join(sdk, 'upstream', 'emscripten', 'emscripten-version.txt'), 'utf8').trim().replaceAll('"', ''),
     ...(lazyTable ? { binaryenManifestSha256: manifestHash } : {}), modules,
     api: ['extension_api.json', 'gdextension_interface.json'].map(name => {
-      const path = join(engine.apiDirectory ?? join(root, 'native', 'api'), name);
+      const path = join(engine.apiDirectory, name);
       return { name, path, sha256: hash(readFileSync(path)) };
     }),
     files: readdirSync(output).filter(name => name !== 'build-receipt.json' && statSync(join(output, name)).isFile()).map(name => ({

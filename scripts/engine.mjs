@@ -1,54 +1,62 @@
 import { spawnSync } from 'node:child_process';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { assessInstall, collectInputs, installRefusal, prepareTarget, readStamp, requireBuild, requireExport, stampFor, switchBuild, writeStamp } from './freshness.mjs';
+import { beginBuild, collectInputs, readStamp, requireBuild, requireExport } from './freshness.mjs';
 import { liveCompileRefusal } from './live-compile-build.mjs';
+import { CARGO_PACKAGE, NATIVE_BINDING_API, NATIVE_INSTALL_DIRECTORY, nativeRefusal, requireBuiltNative } from './native-binding.mjs';
 import { webContentInputs } from './web-content.mjs';
 
 /**
- * Engine profiles (docs/tracks/stock-engine.md).
+ * Engine profiles (docs/tracks/stock-engine.md; the native split is docs/tracks/single-build.md).
  *
  * `breaka` is the default: Breaka's custom Godot 4.8 with its GodotJS. `stock` is an unmodified Godot 4.7.2 with
- * upstream GodotJS. A profile decides which Godot binary runs the demo, which API dump the Rust extension is bound
- * against, where cargo keeps that profile's build cache, where a run's evidence goes and how the Web build is made.
+ * upstream GodotJS. A profile decides which Godot binary runs the demo, where a run's evidence goes, which GodotJS typings the
+ * project is checked against and how the **Web** build is made.
+ *
+ * What a profile does not decide is the native build. There is one native UI library and one native live-compile extension per
+ * platform, bound to the oldest Godot API either profile runs (`NATIVE_BINDING_API`, scripts/native-binding.mjs) and loaded by both
+ * engines: a GDExtension loads in the Godot it was bound to or a newer one. The Web is per profile: a Web side module must be linked with
+ * the Emscripten of the engine that loads it (4.0.11 for `stock`, 6.0.12 for `breaka`, and Breaka's lazy function-table ABI), so each
+ * profile has its own Web target directories, receipts and dump binding (`apiDirectory`).
  *
  * Select one the same way for every script: `--engine=stock` on the command line (`pnpm verify --engine=stock`) or
  * `GODOT_REACT_ENGINE=stock` in the environment. The flag wins over the variable. A script that resolves a profile
  * from the flag exports it as `GODOT_REACT_ENGINE` so the scripts it starts agree. `GODOT` still overrides the
  * profile's Godot binary; the binary's version is checked against the profile before anything runs.
  *
- * The profile also owns the freshness guard (docs/tracks/freshness.md, scripts/freshness.mjs): the build scripts record
- * what each installed build was made from, and every script that runs one refuses it when the sources have moved on.
+ * The freshness guard (docs/tracks/freshness.md, scripts/freshness.mjs): the build scripts record what each installed build was made from,
+ * and every script that runs one refuses it when the sources have moved on or it is bound to another API.
  */
 // `import.meta.url`, not `import.meta.dirname`: the unit tests load this file through tsx's CommonJS bridge.
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const stockRoot = '/Users/ben/Development/godot-stock';
-const libraryName = process.platform === 'darwin' ? 'libgodot_react_ui.dylib'
-  : process.platform === 'linux' ? 'libgodot_react_ui.so' : 'godot_react_ui.dll';
-const installDirectory = resolve(root, 'demo/addons/godot-react-ui/bin');
+// The Web side module is installed beside the native library, where the one `react_ui.gdextension` names both.
+const installDirectory = NATIVE_INSTALL_DIRECTORY;
 
 export const ENGINE_VARIABLE = 'GODOT_REACT_ENGINE';
 export const ENGINE_FLAG = '--engine=';
 export const DEFAULT_ENGINE = 'breaka';
-/** The Cargo package both builds compile, and the one a stale target has cleaned. */
-export const CARGO_PACKAGE = 'godot-react-ui';
+/** The Cargo package both the native and the Web build compile, and the one a stale target has cleaned. */
+export { CARGO_PACKAGE };
 const API_DUMPS = ['extension_api.json', 'gdextension_interface.json'];
 const WEB_RECEIPT = 'build-receipt.json';
 
-/** The Godot version a binary must report for each profile (`godot --version`). */
+/**
+ * The Godot a binary must report for each profile (`godot --version`), and everything else that is per profile. The `web` block is why the Web
+ * stays per profile: a Web side module is linked with the Emscripten SDK of the engine whose templates load it (4.0.11 stock, 6.0.12 Breaka's with the
+ * lazy function-table ABI), and the two cannot load each other's. The native libraries have no such coupling and are not here (scripts/native-binding.mjs).
+ */
 const profiles = {
   breaka: {
     name: 'breaka',
     description: "Breaka's custom Godot 4.8 with its GodotJS",
     godot: '/Applications/Godot48.app/Contents/MacOS/Godot',
     versionPrefix: '4.8.',
-    // `.cargo/config.toml` selects these two files; the default profile leaves cargo's own environment alone.
-    apiDirectory: undefined,
+    // The dump pair the Web side module of this profile is bound to: Breaka's 4.8, which `native/api` holds. (The native builds are bound
+    // to the 4.7.2 dumps, for every profile: NATIVE_BINDING_API.)
+    apiDirectory: resolve(root, 'native/api'),
     artifacts: resolve(root, 'artifacts'),
-    targets: {
-      native: resolve(root, 'target'), nativeProbe: resolve(root, 'target/probe'), nativeFaults: resolve(root, 'target/faults'),
-      web: resolve(root, 'target/web'), webProbe: resolve(root, 'target/web-probe'),
-    },
+    targets: { web: resolve(root, 'target/web'), webProbe: resolve(root, 'target/web-probe') },
     web: {
       presetName: 'Web',
       emscripten: '/Users/ben/Development/emsdk-breaka-6.0.12-20261027',
@@ -73,10 +81,7 @@ const profiles = {
     versionPrefix: '4.7.',
     apiDirectory: resolve(root, 'native/api/stock-4.7.2'),
     artifacts: resolve(root, 'artifacts/stock'),
-    targets: {
-      native: resolve(root, 'target/stock'), nativeProbe: resolve(root, 'target/stock-probe'), nativeFaults: resolve(root, 'target/stock-faults'),
-      web: resolve(root, 'target/stock-web'), webProbe: resolve(root, 'target/stock-web-probe'),
-    },
+    targets: { web: resolve(root, 'target/stock-web'), webProbe: resolve(root, 'target/stock-web-probe') },
     web: {
       presetName: 'Web (stock)',
       emscripten: `${stockRoot}/emsdk`,
@@ -89,44 +94,41 @@ const profiles = {
   },
 };
 
-const nativeStamp = resolve(installDirectory, 'react_ui.build.json');
 const webLibrary = resolve(installDirectory, 'godot_react_ui.web.wasm');
 const webStamp = resolve(installDirectory, 'react_ui.web.build.json');
 
 /**
- * The two artifacts a build makes, by kind: the cargo features that build uses, its cargo target directory, where
- * cargo leaves the artifact, where it is installed (the `.gdextension` names that path) and the stamp beside each.
- * `fix` is the command that rebuilds it; `installFix`, where there is one, the command that installs a current build from the target directory
- * (scripts/switch-engine.mjs).
+ * What the Web build of a profile is made of: the cargo features, its cargo target directory, where cargo leaves the artifact, where it is
+ * installed (the `.gdextension` names that path) and the stamp beside each. `fix` is the command that rebuilds it.
  */
-function buildKinds(profile) {
-  const flag = `${ENGINE_FLAG}${profile.name}`;
+function webKind(profile) {
   return {
-    native: {
-      // The negative-controls build (cargo feature `filter-faults`, native/filter_faults.rs) is a feature set of its own:
-      // it never ships, and a default run refuses it because the stamp's features differ.
-      features: (probe, faults) => [...probe ? ['probe'] : [], ...faults ? ['filter-faults'] : []],
-      target: (probe, faults) => probe ? profile.targets.nativeProbe : faults ? profile.targets.nativeFaults : profile.targets.native,
-      built: target => resolve(target, 'release', libraryName),
-      targetStamp: target => resolve(target, 'react_ui.build.json'),
-      installed: resolve(installDirectory, libraryName), installedStamp: nativeStamp,
-      fix: (probe, faults) => `pnpm build:native${probe ? ' --probe' : ''}${faults ? ' --faults' : ''} ${flag}`,
-      installFix: (probe, faults) => `pnpm switch:engine${probe ? ' --probe' : ''}${faults ? ' --faults' : ''} ${flag}`,
-    },
-    web: {
-      features: probe => probe ? ['web', 'probe'] : ['web'],
-      target: probe => probe ? profile.targets.webProbe : profile.targets.web,
-      built: target => resolve(target, 'wasm32-unknown-emscripten/release/godot_react_ui.wasm'),
-      targetStamp: target => resolve(target, 'react_ui.web.build.json'),
-      installed: webLibrary, installedStamp: webStamp,
-      fix: probe => `pnpm build:web --wasm-only${probe ? ' --probe' : ''} ${flag}`,
-    },
+    features: probe => probe ? ['web', 'probe'] : ['web'],
+    target: probe => probe ? profile.targets.webProbe : profile.targets.web,
+    built: target => resolve(target, 'wasm32-unknown-emscripten/release/godot_react_ui.wasm'),
+    targetStamp: target => resolve(target, 'react_ui.web.build.json'),
+    installed: webLibrary, installedStamp: webStamp,
+    fix: probe => `pnpm build:web --wasm-only${probe ? ' --probe' : ''} ${ENGINE_FLAG}${profile.name}`,
   };
 }
 
-/** The API dump pair a profile's cargo build binds against (the default profile's is the one `.cargo/config.toml` names). */
+/** The API dump pair a profile's Web build binds against. */
 function apiFiles(profile) {
-  return API_DUMPS.map(name => resolve(profile.apiDirectory ?? resolve(root, 'native/api'), name));
+  return API_DUMPS.map(name => resolve(profile.apiDirectory, name));
+}
+
+/** The first three numbers of a `godot --version` line (`4.8.beta.custom_build.1225394ce` is 4.8.0, `4.7.2.stable...` is 4.7.2). */
+function versionNumbers(version) {
+  const found = /^(\d+)\.(\d+)(?:\.(\d+))?/u.exec(version);
+  return found === null ? [0, 0, 0] : [Number(found[1]), Number(found[2]), Number(found[3] ?? 0)];
+}
+
+/** Whether version `a` is the same as `b` or newer (both as `versionNumbers`). */
+function atLeast(a, b) {
+  for (let index = 0; index < b.length; index += 1) {
+    if (a[index] !== b[index]) return (a[index] ?? 0) > (b[index] ?? 0);
+  }
+  return true;
 }
 
 /** Remove every `--engine=` flag from an argument list, for scripts that reject arguments they do not know. */
@@ -158,38 +160,12 @@ export function selectEngine(argv = process.argv.slice(2), env = process.env) {
   const profile = profiles[selectEngineName(argv, env)];
   env[ENGINE_VARIABLE] = profile.name;
   const godot = env.GODOT === undefined || env.GODOT === '' ? profile.godot : env.GODOT;
-  const kinds = buildKinds(profile);
-  const sourceInputs = (kind, probe, faults = false) => collectInputs({ root, apiFiles: apiFiles(profile), features: kinds[kind].features(probe, faults) });
-  const requireInstalled = (kind, { probe, faults = false }) => requireBuild({
-    library: kinds[kind].installed, stamp: readStamp(kinds[kind].installedStamp), engine: profile.name, probe,
-    current: sourceInputs(kind, probe, faults), subject: `installed ${basename(kinds[kind].installed)}`, fix: kinds[kind].fix(probe, faults),
-  });
-  // The installed native library and the one in this profile's target directory, as checks against the sources now. A switch of profile
-  // installs the second when it is current (a copy); only when it is not does a compile make one.
-  const nativeBuilds = ({ probe, faults }) => {
-    const spec = kinds.native;
-    const target = spec.target(probe, faults);
-    const current = sourceInputs('native', probe, faults);
-    const check = (library, stamp, subject) => ({ library, stamp: readStamp(stamp), engine: profile.name, probe, current, subject });
-    return {
-      target,
-      installed: check(spec.installed, spec.installedStamp, `installed ${basename(spec.installed)}`),
-      built: check(spec.built(target), spec.targetStamp(target), `${profile.name} library built in ${relative(root, target)}`),
-    };
-  };
-  const nativeRefusal = ({ probe, faults }) => {
-    const { target, installed, built } = nativeBuilds({ probe, faults });
-    return installRefusal(assessInstall({ installed, built }), {
-      buildFix: kinds.native.fix(probe, faults), installFix: kinds.native.installFix(probe, faults), builtSubject: `The ${profile.name} library built in ${relative(root, target)}`,
-    });
-  };
+  const web = webKind(profile);
+  const webSourceInputs = probe => collectInputs({ root, apiFiles: apiFiles(profile), features: web.features(probe) });
   return {
     ...profile,
     godot,
     root,
-    libraryName,
-    installDirectory,
-    installedLibrary: resolve(installDirectory, libraryName),
     /** The Web export mode the arguments ask for: `release` if they say `--release`, else `debug`. */
     webMode(argv = process.argv.slice(2)) {
       return argv.includes('--release') ? 'release' : 'debug';
@@ -197,16 +173,17 @@ export function selectEngine(argv = process.argv.slice(2), env = process.env) {
     /** An evidence directory below this profile's artifacts root (`artifacts/<name>` or `artifacts/stock/<name>`). */
     artifactPath: (...names) => resolve(profile.artifacts, ...names),
     /**
-     * The API dump pair cargo binds against, as environment variables, for either profile. The default profile's is also what
-     * `.cargo/config.toml` names, but cargo's `[env]` does not override a variable that is already set: a shell that still
-     * exports the stock pair would bind a default build to the stock engine under a stamp that says breaka. Setting both here
-     * means the stamp's inputs (the same files) are what cargo reads.
+     * The API dump pair the profile's Web build binds against, as environment variables. Cargo's `[env]` does not override a variable that is already set,
+     * so a Web build sets both itself; the stamp's inputs are the same files. (The native builds bind to `NATIVE_BINDING_API`, for every profile.)
      */
-    bindingEnvironment: () => {
+    webBindingEnvironment: () => {
       const [api, bindings] = apiFiles(profile);
       return { GDRUST_GODOT_API_JSON: api, GDRUST_GODOT_INTERFACE_JSON: bindings };
     },
-    /** The `godot --version` line of the selected binary. Throws if it is not the profile's engine. */
+    /**
+     * The `godot --version` line of the selected binary. Throws if it is not the profile's engine, or older than the Godot API the native builds are
+     * bound to (an extension does not load in an older Godot than it was bound to).
+     */
     verifiedVersion() {
       const result = spawnSync(godot, ['--version'], { encoding: 'utf8', timeout: 30_000 });
       if (result.error) throw new Error(`Cannot run ${godot} --version: ${result.error.message}`);
@@ -214,64 +191,45 @@ export function selectEngine(argv = process.argv.slice(2), env = process.env) {
       if (!version.startsWith(profile.versionPrefix)) {
         throw new Error(`Engine profile "${profile.name}" expects Godot ${profile.versionPrefix}x, but ${godot} reports "${version}". Select the profile that matches the binary (${ENGINE_FLAG}<name> or ${ENGINE_VARIABLE}), or point GODOT at the right one.`);
       }
+      if (!atLeast(versionNumbers(version), versionNumbers(NATIVE_BINDING_API.version))) {
+        throw new Error(`${godot} reports Godot "${version}", older than ${NATIVE_BINDING_API.version}, the API the native builds are bound to: a GDExtension loads in the Godot it was bound to or a newer one.`);
+      }
       return version;
     },
     /**
-     * Fail unless the installed native library is this profile's build of the current sources, so a run never
-     * exercises a library bound to the other engine or older than the code. `probe` says whether the Phase
-     * F0/text-layout probe build is wanted (it never ships); `faults` says whether the filters negative-controls
-     * build is (it never ships either, and no other run accepts it).
-     */
-    requireInstalledLibrary({ probe = false, faults = false } = {}) {
-      const refusal = nativeRefusal({ probe, faults });
-      if (refusal !== undefined) throw new Error(refusal);
-    },
-    /**
-     * Fail unless every build a demo run loads is the profile's build of the current sources: the native library, and the live-compile
-     * extension if one is installed (it is loaded by every run of the demo, not only by the sections that use it, and the other
-     * profile's fails late inside Godot; docs/tracks/engine-switch.md). Both are checked, and a refusal names each one's fix.
-     * `liveCompile: false` is for a run that takes the extension out of the project while Godot runs (`gen:types`).
+     * Fail unless every native build a demo run loads may be loaded: the UI library, and the live-compile extension if one is installed (it is
+     * loaded by every run of the demo, not only by the sections that use it). Each must be bound to `NATIVE_BINDING_API`, be the variant asked for
+     * (`probe` is the Phase F0/text-layout probe build, `faults` the filters negative-controls build; neither ships) and be built from the current
+     * sources. The profile does not enter into it. Both are checked, and a refusal names each one's fix. `liveCompile: false` is for a run that takes
+     * the extension out of the project while Godot runs (`gen:types`).
      */
     requireInstalledBuilds({ probe = false, faults = false, liveCompile = true } = {}) {
-      const refusals = [nativeRefusal({ probe, faults }), liveCompile ? liveCompileRefusal(this) : undefined].filter(refusal => refusal !== undefined);
+      const refusals = [nativeRefusal({ probe, faults }), liveCompile ? liveCompileRefusal() : undefined].filter(refusal => refusal !== undefined);
       if (refusals.length > 0) throw new Error(refusals.join('\n'));
     },
     /**
-     * Everything a native run needs to be sure of before it starts: the binary is the profile's engine and the
-     * installed builds are the profile's builds of the current sources. Logs which engine the evidence will come from.
+     * Everything a native run needs to be sure of before it starts: the binary is the profile's engine, at least as new as the API the native
+     * builds are bound to, and the installed native builds are bound to that API and built from the current sources. Logs which engine the
+     * evidence will come from.
      */
     prepareNative({ probe = false, faults = false, liveCompile = true } = {}) {
       const version = this.verifiedVersion();
       this.requireInstalledBuilds({ probe, faults, liveCompile });
-      console.log(`Engine profile ${profile.name} (${profile.description}): ${godot}, Godot ${version}`);
+      console.log(`Engine profile ${profile.name} (${profile.description}): ${godot}, Godot ${version}; native builds bound to Godot API ${NATIVE_BINDING_API.version}`);
       return version;
     },
-    /** The same two, for the Web side module `build:web` installs. */
-    requireInstalledWasm: ({ probe = false } = {}) => requireInstalled('web', { probe }),
+    /** The Web side module `build:web` installs for this profile: refuse it unless it is this profile's build of the current sources. */
+    requireInstalledWasm: ({ probe = false } = {}) => requireBuild({
+      library: web.installed, stamp: readStamp(web.installedStamp), engine: profile.name, probe,
+      current: webSourceInputs(probe), subject: `installed ${basename(web.installed)}`, fix: web.fix(probe),
+    }),
     /** The stamp of the installed Web side module, for the receipt of an export made from it. */
     installedWasmStamp: () => readStamp(webStamp),
     /**
-     * Fail unless the library cargo left in this profile's native target directory is the profile's build of the
-     * current sources. The stock typings are generated from it, not from whatever is installed.
+     * Fail unless the library cargo left in the native target directory is a build of the current sources bound to the native API. The stock
+     * typings are generated from it, not from whatever is installed.
      */
-    requireBuiltLibrary() {
-      const kind = kinds.native;
-      const target = kind.target(false);
-      requireBuild({
-        library: kind.built(target), stamp: readStamp(kind.targetStamp(target)), engine: profile.name, probe: false,
-        current: sourceInputs('native', false), subject: `${profile.name} library built in ${relative(root, target)}`, fix: kind.fix(false),
-      });
-    },
-    /**
-     * Install the library this profile's target directory holds over the installed one, if the installed one is not the profile's build
-     * of the current sources and the target's is: a staged copy and a stamp, no compile (docs/tracks/engine-switch.md). `needs-build`
-     * says only a compile makes one.
-     */
-    switchLibrary({ probe = false, faults = false } = {}) {
-      const { target, installed, built } = nativeBuilds({ probe, faults });
-      const result = switchBuild({ installed, built, destination: kinds.native.installed, stampPath: kinds.native.installedStamp, fix: kinds.native.fix(probe, faults) });
-      return { ...result, target };
-    },
+    requireBuiltLibrary: requireBuiltNative,
     /**
      * Fail unless the Web export a verifier or the server is about to use carries the profile's side module built
      * from the current sources (the export's receipt records the side module's stamp).
@@ -280,7 +238,7 @@ export function selectEngine(argv = process.argv.slice(2), env = process.env) {
       const mode = this.webMode();
       const directory = this.artifactPath(`web-${mode}`);
       requireExport({
-        directory, receiptName: WEB_RECEIPT, libraryName: 'godot_react_ui.web.wasm', engine: profile.name, probe, current: sourceInputs('web', probe),
+        directory, receiptName: WEB_RECEIPT, libraryName: 'godot_react_ui.web.wasm', engine: profile.name, probe, current: webSourceInputs(probe),
         content: webContentInputs({ root, presetName: profile.web.presetName, mode }),
         subject: `Web export ${relative(root, directory)}`,
         fix: `pnpm build:web${mode === 'release' ? ' --release' : ''}${probe ? ' --probe' : ''} ${ENGINE_FLAG}${profile.name}`,
@@ -288,38 +246,22 @@ export function selectEngine(argv = process.argv.slice(2), env = process.env) {
     },
     /** The inputs of the pack, shell and engine template of the Web export in `mode` (scripts/web-content.mjs); the receipt records them. */
     webContentInputs: mode => webContentInputs({ root, presetName: profile.web.presetName, mode }),
-    /** The cargo features a build of `kind` (`native` or `web`) enables; the build scripts pass exactly these. */
-    features: (kind, { probe = false, faults = false } = {}) => kinds[kind].features(probe, faults),
-    /** The content hashes a build of `kind` is made from (scripts/freshness.mjs). */
-    sourceInputs: (kind, { probe = false, faults = false } = {}) => sourceInputs(kind, probe, faults),
+    /** The cargo features a Web build enables; `build:web` passes exactly these. */
+    webFeatures: ({ probe = false } = {}) => web.features(probe),
+    /** The content hashes a Web build is made from (scripts/freshness.mjs). */
+    webSourceInputs: ({ probe = false } = {}) => webSourceInputs(probe),
     /**
-     * Start a build of `kind` (`native` or `web`): hash its inputs and, if the artifact cargo left from the last build
-     * is not provably a build of them, have `clean` remove this crate's artifacts so cargo cannot keep it. Returns the
-     * steps that record the build: `compiled()` once cargo has succeeded (stamps cargo's output; throws if the sources
-     * changed while it ran) and `installed()` once the artifact is in place.
+     * Start a Web build: hash its inputs and, if the artifact cargo left from the last build is not provably a build of them, have `clean` remove
+     * this crate's artifacts so cargo cannot keep it. Returns the steps that record the build: `compiled()` once cargo has succeeded (stamps
+     * cargo's output; throws if the sources changed while it ran) and `installed()` once the side module is in place.
      */
-    beginBuild(kind, { probe = false, faults = false, clean }) {
-      const spec = kinds[kind];
-      const target = spec.target(probe, faults);
-      const built = spec.built(target);
-      const subject = `${profile.name} ${kind === 'native' ? 'library' : 'side module'} built in ${relative(root, target)}`;
-      const inputs = sourceInputs(kind, probe, faults);
-      prepareTarget({
-        stampPath: spec.targetStamp(target), library: built, engine: profile.name, probe, current: inputs, subject,
-        clean: reason => {
-          console.log(`${reason} Cleaning ${CARGO_PACKAGE} so cargo rebuilds it from the current sources (its dependencies stay cached).`);
-          clean();
-        },
+    beginWebBuild({ probe = false, clean }) {
+      const target = web.target(probe);
+      return beginBuild({
+        identity: { engine: profile.name }, probe, collect: () => webSourceInputs(probe),
+        built: web.built(target), targetStamp: web.targetStamp(target), installed: web.installed, installedStamp: web.installedStamp,
+        subject: `${profile.name} side module built in ${relative(root, target)}`, compiler: 'the Web build', fix: web.fix(probe), crate: CARGO_PACKAGE, clean,
       });
-      return {
-        compiled() {
-          if (sourceInputs(kind, probe, faults).digest !== inputs.digest) {
-            throw new Error(`The sources changed while ${kind === 'native' ? 'cargo' : 'the Web build'} was compiling them, so the result cannot be stamped. Run \`${spec.fix(probe, faults)}\` again.`);
-          }
-          writeStamp(spec.targetStamp(target), stampFor({ library: built, engine: profile.name, probe, inputs }));
-        },
-        installed: () => writeStamp(spec.installedStamp, stampFor({ library: spec.installed, engine: profile.name, probe, inputs })),
-      };
     },
   };
 }

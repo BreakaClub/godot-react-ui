@@ -65,7 +65,7 @@ engine.prepareNative({ faults });
 // fresh, or the section would run the live path against an old compiler.
 const usesLiveCompile = requested.includes('live-compile') || ((requested.length === 0 || requested.includes('code-editor')) && existsSync(INSTALLED_LIBRARY));
 if (usesLiveCompile) {
-  requireLiveCompile(engine);
+  requireLiveCompile();
   const project = spawnSync('node', [resolve(root, 'scripts/live-compile-project.mjs')], { cwd: root, stdio: 'inherit' });
   if (project.error) throw project.error;
   if (project.status !== 0) process.exit(project.status ?? 1);

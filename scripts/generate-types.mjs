@@ -7,7 +7,7 @@ import { generateStockTypings } from './typings.mjs';
 import { GDEXTENSION_FILE } from './live-compile-build.mjs';
 
 // `breaka` (the default) lets Breaka's editor write `demo/typings` and `demo/gen`, which are tracked. `stock` leaves
-// them alone and writes the stock editor's declarations to `target/stock/typings` (scripts/typings.mjs).
+// them alone and writes the stock editor's declarations to `target/stock-typings/typings` (scripts/typings.mjs).
 const root = resolve(import.meta.dirname, '..');
 const engine = selectEngine();
 const godot = engine.godot;

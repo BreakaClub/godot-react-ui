@@ -46,21 +46,29 @@ test('a resolved profile is exported so the scripts it starts agree', () => {
   assert.equal(env.GODOT_REACT_ENGINE, 'stock');
 });
 
-test('the stock profile binds to its own dumps and keeps its caches and evidence apart', () => {
+test('the Web builds of the two profiles bind to their own dumps and keep their caches and evidence apart', () => {
   const stock = selectEngine(['--engine=stock'], {});
   const breaka = selectEngine([], {});
-  assert.match(stock.bindingEnvironment().GDRUST_GODOT_API_JSON ?? '', /native\/api\/stock-4\.7\.2\/extension_api\.json$/u);
-  assert.match(stock.bindingEnvironment().GDRUST_GODOT_INTERFACE_JSON ?? '', /native\/api\/stock-4\.7\.2\/gdextension_interface\.json$/u);
-  // The default profile names its own dumps too (the ones `.cargo/config.toml` selects): cargo's `[env]` does not override a variable
-  // a shell already exports, so a stock pair left in the environment cannot redirect a default build.
-  assert.match(breaka.bindingEnvironment().GDRUST_GODOT_API_JSON ?? '', /native\/api\/extension_api\.json$/u);
-  assert.match(breaka.bindingEnvironment().GDRUST_GODOT_INTERFACE_JSON ?? '', /native\/api\/gdextension_interface\.json$/u);
-  assert.doesNotMatch(breaka.bindingEnvironment().GDRUST_GODOT_API_JSON ?? '', /stock/u);
+  assert.match(stock.webBindingEnvironment().GDRUST_GODOT_API_JSON ?? '', /native\/api\/stock-4\.7\.2\/extension_api\.json$/u);
+  assert.match(stock.webBindingEnvironment().GDRUST_GODOT_INTERFACE_JSON ?? '', /native\/api\/stock-4\.7\.2\/gdextension_interface\.json$/u);
+  // Breaka's Web side module binds to Breaka's own 4.8 dump pair. Cargo's `[env]` does not override a variable a shell already exports, so the build
+  // sets both itself and a pair left in the environment cannot redirect it.
+  assert.match(breaka.webBindingEnvironment().GDRUST_GODOT_API_JSON ?? '', /native\/api\/extension_api\.json$/u);
+  assert.match(breaka.webBindingEnvironment().GDRUST_GODOT_INTERFACE_JSON ?? '', /native\/api\/gdextension_interface\.json$/u);
+  assert.doesNotMatch(breaka.webBindingEnvironment().GDRUST_GODOT_API_JSON ?? '', /stock/u);
   const stockTargets = Object.values(stock.targets);
   const breakaTargets = Object.values(breaka.targets);
   assert.equal(new Set([...stockTargets, ...breakaTargets]).size, stockTargets.length + breakaTargets.length);
+  assert.deepEqual(Object.keys(stock.targets).sort(), ['web', 'webProbe'], 'a profile has Web target directories and no native ones');
   assert.match(stock.artifactPath('native'), /artifacts\/stock\/native$/u);
   assert.match(breaka.artifactPath('native'), /artifacts\/native$/u);
+});
+
+test('the Web side modules are linked with the Emscripten of their own engine', () => {
+  assert.match(selectEngine(['--engine=stock'], {}).web.emscripten, /godot-stock\/emsdk$/u);
+  assert.match(selectEngine([], {}).web.emscripten, /emsdk-breaka-6\.0\.12-/u);
+  assert.equal(selectEngine(['--engine=stock'], {}).web.lazyFunctionTable, false);
+  assert.equal(selectEngine([], {}).web.lazyFunctionTable, true);
 });
 
 test('GODOT overrides the profile binary, and the stock default is its wrapper', () => {

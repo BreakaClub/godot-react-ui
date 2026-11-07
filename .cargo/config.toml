@@ -1,3 +1,6 @@
+# The Godot API every native build is bound to: 4.7.2, the oldest engine either profile runs. The scripts set the same two files themselves
+# (scripts/native-binding.mjs `NATIVE_BINDING_API`; a test holds the two together), because cargo's `[env]` does not override a variable that is
+# already set. A plain `cargo test` or `cargo clippy` reads this. The Web builds of each profile set their own pair (scripts/engine.mjs).
 [env]
-GDRUST_GODOT_API_JSON = { value = "native/api/extension_api.json", relative = true }
-GDRUST_GODOT_INTERFACE_JSON = { value = "native/api/gdextension_interface.json", relative = true }
+GDRUST_GODOT_API_JSON = { value = "native/api/stock-4.7.2/extension_api.json", relative = true }
+GDRUST_GODOT_INTERFACE_JSON = { value = "native/api/stock-4.7.2/gdextension_interface.json", relative = true }

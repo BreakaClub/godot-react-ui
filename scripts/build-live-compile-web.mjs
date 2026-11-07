@@ -15,7 +15,7 @@ import { homedir } from 'node:os';
 import { delimiter, dirname, join, resolve } from 'node:path';
 import { rejectUnknownArguments } from './arguments.mjs';
 import { selectEngine } from './engine.mjs';
-import { INSTALL_DIRECTORY, targetDirectoryOf, writeGdextension } from './live-compile-build.mjs';
+import { INSTALL_DIRECTORY, TARGET_DIRECTORY, writeGdextension } from './live-compile-build.mjs';
 
 rejectUnknownArguments(process.argv.slice(2));
 const root = resolve(import.meta.dirname, '..');
@@ -28,13 +28,13 @@ const manifestHash = process.env.BINARYEN_MANIFEST_SHA256 ?? '895bb89edd5e5c0f39
 const python = process.env.SCONS_PYTHON ?? '/opt/homebrew/Cellar/scons/4.9.1/libexec/bin/python';
 const cargo = process.env.CARGO ?? resolve(homedir(), '.cargo/bin/cargo');
 const workspace = resolve(root, 'live-compile');
-const targetDirectory = join(targetDirectoryOf(engine), 'web');
+const targetDirectory = join(TARGET_DIRECTORY, 'web');
 const WASM_NAME = 'live_compile.web.wasm';
 const BUILD_TIMEOUT_MS = 30 * 60 * 1000;
 
 const env = {
   ...process.env,
-  ...engine.bindingEnvironment(),
+  ...engine.webBindingEnvironment(),
   PATH: [dirname(cargo), join(sdk, 'upstream', 'emscripten'), join(sdk, 'node', '24.19.0_64bit', 'bin'), process.env.PATH ?? ''].join(delimiter),
   EM_CONFIG: join(sdk, '.emscripten'),
   CARGO_TARGET_DIR: targetDirectory,
