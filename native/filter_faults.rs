@@ -78,6 +78,24 @@ pub(crate) enum Fault {
     /// A root that is back in the tree keeps the transform its plans were made for, so an effect that was committed while
     /// it was outside is never planned.
     KeepTransformOutOfTree,
+    /// Hit testing ignores an element's transform: the point is tested against the layout box, not the turned or scaled one
+    /// (`docs/tracks/transforms.md`, negative controls; the transforms section shares this build).
+    TransformHitFlat,
+    /// The bounding box of a turned or scaled rectangle is the untransformed rectangle moved by the map's translation, so
+    /// `getRect()` of a rotated element is its layout size.
+    TransformRectUnbounded,
+    /// The focus ring of a turned element is drawn on its bounding box, not in its own frame.
+    TransformRingFlat,
+    /// Text, rounded corners and scroll bar ends are rasterised at the viewport's scale whatever transform scales them.
+    TransformRasterUnscaled,
+    /// A transformed element is not the containing block of the absolute elements below it (only a positioned one is).
+    TransformNoContainingBlock,
+    /// The feather of a square-cornered box under a transform is one length sized for the axis the transform stretches most (as
+    /// `StyleBoxFlat` has it) and not one per axis, so it is narrower than a pixel on the squeezed axis and a straight edge there
+    /// comes out hard.
+    TransformFeatherUniform,
+    /// A box with square corners under a transform is left to `StyleBoxFlat`, which antialiases only a rounded or skewed one.
+    TransformSquaresHard,
 }
 
 #[cfg(feature = "filter-faults")]
@@ -108,6 +126,13 @@ impl Fault {
             Fault::DualFilterOnForwardPlus => "dual-filter-on-forward-plus",
             Fault::KeepTransformOutOfTree => "keep-transform-out-of-tree",
             Fault::WindowTransform => "window-transform",
+            Fault::TransformHitFlat => "transform-hit-flat",
+            Fault::TransformRectUnbounded => "transform-rect-unbounded",
+            Fault::TransformRingFlat => "transform-ring-flat",
+            Fault::TransformRasterUnscaled => "transform-raster-unscaled",
+            Fault::TransformNoContainingBlock => "transform-no-containing-block",
+            Fault::TransformFeatherUniform => "transform-feather-uniform",
+            Fault::TransformSquaresHard => "transform-squares-hard",
         }
     }
 }

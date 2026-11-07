@@ -56,10 +56,10 @@ function CardText() {
   );
 }
 
-function cardStyle(transform: string, origin: string | undefined): Style {
+function cardStyle(transform: string, origin: string | undefined, squareCorners = false): Style {
   return {
     position: 'absolute', left: CARD.left, top: CARD.top, width: CARD.width, height: CARD.height,
-    borderRadius: CARD.radius, borderWidth: CARD.border, borderColor: CARD.borderColor, backgroundColor: CARD.fill,
+    borderRadius: squareCorners ? 0 : CARD.radius, borderWidth: CARD.border, borderColor: CARD.borderColor, backgroundColor: CARD.fill,
     padding: CARD.padding, transform, ...(origin === undefined ? {} : { transformOrigin: origin }),
   };
 }
@@ -74,6 +74,8 @@ const BEHAVIOUR_OPTIONS: readonly CaseOption[] = [
   { id: 'combined', label: 'Combined transition (transform + paint + size)', caption: 'Simultaneous transform, opacity, backgroundColor and height transition.' },
   { id: 'loop', label: 'Looping transform animation', caption: 'Continuous multi-step transform + colour loop driven by a timer.' },
   { id: 'starting', label: '@starting-style (starting: mount transition)', caption: 'Tailwind starting: variant animates opacity, scale, rotate and translate on mount.' },
+  { id: 'contain', label: 'Containing block of a transformed element', caption: 'An absolute and a fixed child are placed in a translated static parent, as in CSS.' },
+  { id: 'edge', label: 'Squeezed edges (antialiasing on one axis)', caption: 'A rounded and a plain box scaled 0.6 on y, and a plain square turned 30 degrees: the plain ones keep a one-pixel antialiasing ramp on every edge.' },
   { id: 'hit', label: 'Hit testing (rotated & scaled)', caption: 'Click the turned bar, the scaled parent and its rotated child.' },
   { id: 'hover', label: 'Hover scale (1.25x)', caption: 'Hover the card: hit testing grows with the scaled box.' },
   { id: 'utilities', label: 'Tailwind transform utilities', caption: '-translate-x-1/2 -translate-y-1/4 rotate-6 hover:scale-110 origin-top-left.' },
@@ -149,7 +151,7 @@ function TransformControls({ name }: { name: string }) {
 function ShapeCard({ spec }: { spec: ShapeCase }) {
   return (
     <Stage>
-      <View testID="transform-card" style={cardStyle(spec.transform, spec.origin)}>
+      <View testID="transform-card" style={cardStyle(spec.transform, spec.origin, spec.squareCorners === true)}>
         <CardText />
         {spec.child === undefined ? null : (
           <View
@@ -213,6 +215,63 @@ function HitPage() {
       <Text testID="hit-counts" className="text-xs text-slate-600" style={{ position: 'absolute', left: 8, bottom: 8 }}>
         {`bar ${clicks.bar} child ${clicks.child} parent ${clicks.parent}`}
       </Text>
+    </Stage>
+  );
+}
+
+/** A rounded and a square-cornered box squeezed on one axis, and a square turned, for the antialiasing of their straight edges. */
+function EdgePage() {
+  const { edge } = BEHAVIOUR;
+  return (
+    <Stage>
+      <View
+        testID="edge-box"
+        style={{
+          position: 'absolute', left: edge.left, top: edge.top, width: edge.width, height: edge.height,
+          borderRadius: 8, backgroundColor: '#b45309', transform: edge.transform, transformOrigin: 'top',
+        }}
+      />
+      <View
+        testID="edge-flat"
+        style={{
+          position: 'absolute', left: BEHAVIOUR.edgeFlat.left, top: BEHAVIOUR.edgeFlat.top, width: BEHAVIOUR.edgeFlat.width, height: BEHAVIOUR.edgeFlat.height,
+          backgroundColor: '#b45309', transform: BEHAVIOUR.edgeFlat.transform, transformOrigin: 'top',
+        }}
+      />
+      <View
+        testID="edge-square"
+        style={{
+          position: 'absolute', left: BEHAVIOUR.turnedSquare.left, top: BEHAVIOUR.turnedSquare.top,
+          width: BEHAVIOUR.turnedSquare.size, height: BEHAVIOUR.turnedSquare.size,
+          backgroundColor: '#b45309', transform: BEHAVIOUR.turnedSquare.transform,
+        }}
+      />
+    </Stage>
+  );
+}
+
+/** A static element under a translate: the containing block of an absolute child and of a fixed one. */
+function ContainPage() {
+  const { contain } = BEHAVIOUR;
+  return (
+    <Stage>
+      <View
+        testID="contain-parent"
+        style={{
+          // Static, placed by margins: it is the containing block of what is below it only because it is transformed.
+          marginLeft: contain.left, marginTop: contain.top, width: contain.width, height: contain.height,
+          backgroundColor: '#e0e7ff', transform: contain.transform,
+        }}
+      >
+        <View
+          testID="contain-absolute"
+          style={{ position: 'absolute', left: contain.absolute.left, top: contain.absolute.top, width: contain.absolute.size, height: contain.absolute.size, backgroundColor: '#be123c' }}
+        />
+        <View
+          testID="contain-fixed"
+          style={{ position: 'fixed', left: contain.fixed.left, top: contain.fixed.top, width: contain.fixed.size, height: contain.fixed.size, backgroundColor: '#047857' }}
+        />
+      </View>
     </Stage>
   );
 }
@@ -477,7 +536,8 @@ function CombinedPage() {
 }
 
 const LOOP_STEP_MS = 280;
-const LOOP_KEYFRAMES: ReadonlyArray<{ readonly transform: string; readonly bg: `#${string}`; readonly opacity: number }> = [
+interface LoopFrame { readonly transform: string; readonly bg: `#${string}`; readonly opacity: number }
+const LOOP_KEYFRAMES: readonly [LoopFrame, ...LoopFrame[]] = [
   { transform: 'translate(0px, 0px) rotate(0deg) scale(1)', bg: '#4f46e5', opacity: 1 },
   { transform: 'translate(64px, -18px) rotate(45deg) scale(1.2)', bg: '#0891b2', opacity: 0.75 },
   { transform: 'translate(128px, 0px) rotate(90deg) scale(0.9)', bg: '#db2777', opacity: 0.5 },
@@ -499,7 +559,7 @@ function LoopPage() {
       clearInterval(timer);
     };
   }, [running]);
-  const frame = LOOP_KEYFRAMES[step] ?? LOOP_KEYFRAMES[0]!;
+  const frame = LOOP_KEYFRAMES[step] ?? LOOP_KEYFRAMES[0];
   return (
     <Stage>
       <View
@@ -601,6 +661,8 @@ function ActiveCasePage({ name }: { name: string }) {
     case 'combined': return <CombinedPage />;
     case 'loop': return <LoopPage />;
     case 'starting': return <StartingPage />;
+    case 'contain': return <ContainPage />;
+    case 'edge': return <EdgePage />;
     case 'hit': return <HitPage />;
     case 'hover': return <HoverPage />;
     case 'utilities': return <UtilitiesPage />;

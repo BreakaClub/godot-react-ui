@@ -41,6 +41,7 @@ use godot::prelude::Vector2;
 use crate::ROOT_TARGET;
 
 use crate::diff::Parent;
+use crate::filter_faults::{self as faults, Fault};
 use crate::geometry::{BoxRect, intersect_clip, intersects};
 use crate::props::PositionSpec;
 use crate::transform::{Affine2, Placement};
@@ -60,7 +61,8 @@ pub(crate) struct Stacking {
 impl Stacking {
     /// Whether the element is the containing block of the absolute elements below it.
     fn is_containing_block(&self) -> bool {
-        self.position.is_positioned() || self.transformed
+        self.position.is_positioned()
+            || (self.transformed && !faults::active(Fault::TransformNoContainingBlock))
     }
 }
 
@@ -223,7 +225,9 @@ fn hit_node<T: PaintTree>(tree: &T, tag: u32, point_in_parent: Vector2) -> Optio
     let mut local = point_in_parent - frame.location;
     if let Some(placement) = frame.placement {
         // A matrix with no inverse draws nothing, so nothing in it is hit.
-        local = placement.inverse?.apply(local);
+        if !faults::active(Fault::TransformHitFlat) {
+            local = placement.inverse?.apply(local);
+        }
     }
     let scrolled = frame.scroll.map_or(Vector2::ZERO, |scroll| scroll.offset);
     if let Some(scroll) = frame.scroll

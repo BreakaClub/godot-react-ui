@@ -16,7 +16,7 @@ import { measureFilterCost, verifyFilterFaults, verifyFilterSizes, verifyFilters
 import { GLASS_FAULT_CONTROLS, verifyGlass } from './verify-glass';
 import { verifyLiveCompile } from './verify-live-compile';
 import { verifyNavigator } from './verify-navigator';
-import { verifyTransforms } from './verify-transforms';
+import { verifyTransformFaults, verifyTransforms } from './verify-transforms';
 import type { LayoutUtilitiesPage } from './layout-utilities-lab';
 import { verifyLayoutUtilities } from './verify-layout-utilities';
 import { verifyTextInput } from './verify-text-input';
@@ -3624,6 +3624,7 @@ export async function runInteractionVerification(owner: Node, api: InteractionIn
   if (sections.has('live-compile')) await timed('live-compile', () => verifyLiveCompile(owner, api, capture));
   if (sections.has('filters-sizes')) await timed('filters-sizes', () => verifyFilterSizes(owner, api, capture));
   if (sections.has('filters-cost')) await timed('filters-cost', () => measureFilterCost(owner, api));
+  if (sections.has('transforms-faults')) await timed('transforms-faults', () => verifyTransformFaults(owner, api));
   if (sections.has('filters-faults')) await timed('filters-faults', () => verifyFilterFaults(owner, api, capture, GLASS_FAULT_CONTROLS));
 
   // A section that asserted nothing passed nothing; a run that left sections out says so (the verify script prints it).

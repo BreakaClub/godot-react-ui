@@ -13,7 +13,7 @@
 //       <out>/<case>-dpr<k>.png (Chrome, ours and their difference side by side) and <out>/report.json.
 //
 // Input is Chrome's own; no real OS input is generated.
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import puppeteer from 'puppeteer-core';
@@ -55,7 +55,7 @@ body { margin: 0; font-family: 'Engine Inter', sans-serif; background: white; }
 function cardMarkup(spec) {
   const origin = spec.origin === undefined ? '' : `transform-origin:${spec.origin};`;
   const child = spec.child === undefined ? '' : `<div id="child" style="position:absolute;left:${CHILD.left}px;top:${CHILD.top}px;width:${CHILD.width}px;height:${CHILD.height}px;border-radius:${CHILD.radius}px;border:${CHILD.border}px solid ${CHILD.borderColor};background:${CHILD.fill};transform:${spec.child.transform};${spec.child.origin === undefined ? '' : `transform-origin:${spec.child.origin};`}"></div>`;
-  return `<div id="card" class="card" style="left:${CARD.left}px;top:${CARD.top}px;width:${CARD.width}px;height:${CARD.height}px;border-radius:${CARD.radius}px;border:${CARD.border}px solid ${CARD.borderColor};background:${CARD.fill};padding:${CARD.padding}px;transform:${spec.transform};${origin}">
+  return `<div id="card" class="card" style="left:${CARD.left}px;top:${CARD.top}px;width:${CARD.width}px;height:${CARD.height}px;border-radius:${spec.squareCorners === true ? 0 : CARD.radius}px;border:${CARD.border}px solid ${CARD.borderColor};background:${CARD.fill};padding:${CARD.padding}px;transform:${spec.transform};${origin}">
     <span id="title" class="text-xl" style="color:${CARD.ink}">${CARD.title}</span><span id="body" class="text-sm" style="color:${CARD.ink}">${CARD.body}</span>${child}</div>`;
 }
 
@@ -219,11 +219,34 @@ async function compareImages(browser, chromePath, nativePath, mask, scale) {
         for (let y = y0; y < y1; y += 1) for (let x = x0; x < x1; x += 1) masked[y * width + x] = 1;
       }
       const channels = ['r', 'g', 'b'];
-      const worst = [0, 0, 0];
-      const sum = [0, 0, 0];
-      const histogram = [new Uint32Array(256), new Uint32Array(256), new Uint32Array(256)];
-      let counted = 0;
-      let visibly = 0;
+      // Edges are where the picture changes quickly: a pixel whose Chrome neighbour (or itself) steps by more than EDGE_STEP levels,
+      // and the pixels one device pixel around it. Everything else not left out as text is interior (flat fill or flat ground).
+      const EDGE_STEP = 8;
+      const stepsAt = (x, y) => {
+        const here = (y * a.width + x) * 4;
+        let biggest = 0;
+        for (const [dx, dy] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) {
+          const nx = x + dx; const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+          const there = (ny * a.width + nx) * 4;
+          for (let channel = 0; channel < 3; channel += 1) biggest = Math.max(biggest, Math.abs(a.data[here + channel] - a.data[there + channel]));
+        }
+        return biggest;
+      };
+      const sharp = new Uint8Array(width * height);
+      for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1) sharp[y * width + x] = stepsAt(x, y) > EDGE_STEP ? 1 : 0;
+      const edge = new Uint8Array(width * height);
+      for (let y = 0; y < height; y += 1) {
+        for (let x = 0; x < width; x += 1) {
+          if (!sharp[y * width + x]) continue;
+          for (let dy = -1; dy <= 1; dy += 1) for (let dx = -1; dx <= 1; dx += 1) {
+            const nx = x + dx; const ny = y + dy;
+            if (nx >= 0 && ny >= 0 && nx < width && ny < height) edge[ny * width + nx] = 1;
+          }
+        }
+      }
+      const classes = { interior: null, edge: null };
+      for (const name of Object.keys(classes)) classes[name] = { counted: 0, visible: 0, worst: [0, 0, 0], sum: [0, 0, 0], histogram: [new Uint32Array(256), new Uint32Array(256), new Uint32Array(256)] };
       const diff = new ImageData(width, height);
       for (let y = 0; y < height; y += 1) {
         for (let x = 0; x < width; x += 1) {
@@ -233,22 +256,31 @@ async function compareImages(browser, chromePath, nativePath, mask, scale) {
           diff.data[index] = diff.data[index + 1] = diff.data[index + 2] = Math.min(255, biggest * 4);
           diff.data[index + 3] = 255;
           if (masked[y * width + x]) { diff.data[index] = 80; diff.data[index + 1] = 0; diff.data[index + 2] = 80; continue; }
-          counted += 1;
+          const group = classes[edge[y * width + x] ? 'edge' : 'interior'];
+          group.counted += 1;
           for (let channel = 0; channel < 3; channel += 1) {
-            worst[channel] = Math.max(worst[channel], pixel[channel]);
-            sum[channel] += pixel[channel];
-            histogram[channel][pixel[channel]] += 1;
+            group.worst[channel] = Math.max(group.worst[channel], pixel[channel]);
+            group.sum[channel] += pixel[channel];
+            group.histogram[channel][pixel[channel]] += 1;
           }
-          if (biggest > visible) visibly += 1;
+          if (biggest > visible) group.visible += 1;
         }
       }
-      const percentile = (channel, share) => {
-        let seen = 0;
-        for (let level = 0; level < 256; level += 1) {
-          seen += histogram[channel][level];
-          if (seen >= counted * share) return level;
-        }
-        return 255;
+      const summarise = (group) => {
+        const percentile = (channel, share) => {
+          let seen = 0;
+          for (let level = 0; level < 256; level += 1) {
+            seen += group.histogram[channel][level];
+            if (seen >= group.counted * share) return level;
+          }
+          return 255;
+        };
+        return {
+          compared: group.counted, visible: group.visible, visibleShare: group.visible / Math.max(1, group.counted),
+          worst: Object.fromEntries(channels.map((name, i) => [name, group.worst[i]])),
+          typical: Object.fromEntries(channels.map((name, i) => [name, group.sum[i] / Math.max(1, group.counted)])),
+          p99: Object.fromEntries(channels.map((name, i) => [name, percentile(i, 0.99)])),
+        };
       };
       // The text: where the ink is and how much, in the rectangles that were left out of the comparison.
       const ink = image => {
@@ -274,10 +306,7 @@ async function compareImages(browser, chromePath, nativePath, mask, scale) {
       canvas.width = width; canvas.height = height;
       canvas.getContext('2d').putImageData(diff, 0, 0);
       return {
-        compared: counted, visible: visibly, visibleShare: visibly / Math.max(1, counted),
-        worst: Object.fromEntries(channels.map((name, i) => [name, worst[i]])),
-        typical: Object.fromEntries(channels.map((name, i) => [name, sum[i] / Math.max(1, counted)])),
-        p99: Object.fromEntries(channels.map((name, i) => [name, percentile(i, 0.99)])),
+        interior: summarise(classes.interior), edge: summarise(classes.edge),
         textChrome: ink(a), textNative: ink(b),
         diffPng: canvas.toDataURL('image/png').split(',')[1],
       };
@@ -343,6 +372,8 @@ async function diff(nativeDirectory, chromeDirectory, outDirectory) {
         const mask = reference[key].text.map(box => ({ x: box.x - margin, y: box.y - margin, width: box.width + 2 * margin, height: box.height + 2 * margin }));
         const chromePath = resolve(chromeDirectory, `chrome-${key}.png`);
         const nativePath = resolve(nativeDirectory, `transforms-${key}.png`);
+        // The Web verifier's window has its own name; a directory holds the captures of one run.
+        if (await access(nativePath).then(() => false, () => true)) continue;
         const result = await compareImages(browser, chromePath, nativePath, mask, scale);
         if (result.error !== undefined) throw new Error(`${key}: ${result.error}`);
         const { diffPng, ...numbers } = result;
@@ -358,7 +389,11 @@ async function diff(nativeDirectory, chromeDirectory, outDirectory) {
     await browser.close();
   }
   await writeFile(resolve(outDirectory, 'report.json'), `${JSON.stringify(report, null, 2)}\n`);
-  const row = (key, entry) => `${key.padEnd(22)} worst ${['r', 'g', 'b'].map(c => String(entry.worst[c]).padStart(3)).join(' ')}  typical ${['r', 'g', 'b'].map(c => entry.typical[c].toFixed(2).padStart(5)).join(' ')}  p99 ${['r', 'g', 'b'].map(c => String(entry.p99[c]).padStart(3)).join(' ')}  >${VISIBLE_LEVELS}: ${(entry.visibleShare * 100).toFixed(3)}%  text centre ${Math.hypot(entry.textNative.x - entry.textChrome.x, entry.textNative.y - entry.textChrome.y).toFixed(2)}px ink ${(entry.textNative.mass / Math.max(1e-9, entry.textChrome.mass)).toFixed(3)}x mid ${entry.textNative.midShare.toFixed(3)}/${entry.textChrome.midShare.toFixed(3)}`;
+  const three = (values, digits) => ['r', 'g', 'b'].map(channel => (digits === undefined ? String(values[channel]) : values[channel].toFixed(digits)).padStart(digits === undefined ? 3 : 5)).join(' ');
+  const row = (key, entry) => {
+    const text = `text centre ${Math.hypot(entry.textNative.x - entry.textChrome.x, entry.textNative.y - entry.textChrome.y).toFixed(2)}px, ink ${(entry.textNative.mass / Math.max(1e-9, entry.textChrome.mass)).toFixed(3)}x, partly covered ${entry.textNative.midShare.toFixed(3)} (Chrome ${entry.textChrome.midShare.toFixed(3)})`;
+    return ['interior', 'edge'].map(part => `${key.padEnd(22)} ${part.padEnd(8)} n ${String(entry[part].compared).padStart(7)}  worst ${three(entry[part].worst)}  typical ${three(entry[part].typical, 3)}  p99 ${three(entry[part].p99)}  >${VISIBLE_LEVELS}: ${(entry[part].visibleShare * 100).toFixed(3)}%`).join('\n') + `\n${' '.repeat(22)} ${text}`;
+  };
   for (const [key, entry] of Object.entries(report)) console.log(row(key, entry));
   console.log(`Wrote ${Object.keys(report).length} comparisons to ${outDirectory}`);
 }

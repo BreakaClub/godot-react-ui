@@ -1,5 +1,5 @@
 import {
-  Color, Engine, Image, InputEventMouseButton, InputEventMouseMotion, MouseButton, MouseButtonMask, Node, Vector2, Window,
+  Color, Engine, Image, InputEventMouseButton, InputEventMouseMotion, MouseButton, MouseButtonMask, Node, OS, Vector2, Window,
 } from 'godot';
 import type { UISelection } from '../../src';
 import type { NativeActivity, NativeMatrix, NativeSnapshot, NativeSnapshotNode } from '../../src/native';
@@ -8,7 +8,7 @@ import { GOLDEN_ANCHOR_RECT, GOLDEN_BAR_RECT, GOLDEN_SHAPE_RECTS, GOLDEN_TRANSIT
 import { sendTransition, setTransformCase } from './transform-lab';
 import { grab, settleFrames } from './verify-filters';
 import { assertionTally, parseVerifierEvent } from './verifier-input';
-import { typeText } from './verify-text-input';
+import { pressAction, typeText } from './verify-text-input';
 
 /**
  * The `transforms` section of the interaction verifier (docs/tracks/transforms.md). The shape cases are drawn at device
@@ -24,6 +24,8 @@ export interface TransformsInspection {
   activity(): NativeActivity;
   selection(): UISelection | undefined;
   scrollTo(testID: string, top: number): void;
+  /** Give the root's Control Godot's key focus (a window never has the OS's, so a key reaches nothing until it has this). */
+  grabSurfaceFocus(): void;
 }
 
 /** `overflowing`: test ids of nodes that reach past the window by design. */
@@ -57,6 +59,10 @@ const STAGE_COLOR = new Color(0xf8 / LEVELS, 0xfa / LEVELS, 0xfc / LEVELS, 1);
 const CARD_FILL = new Color(0xfd / LEVELS, 0xe6 / LEVELS, 0x8a / LEVELS, 1);
 const CHILD_COLOR = new Color(0xbe / LEVELS, 0x12 / LEVELS, 0x3c / LEVELS, 1);
 const INK_COLOR = new Color(0x0f / LEVELS, 0x17 / LEVELS, 0x2a / LEVELS, 1);
+/** The focus ring's colour (`FOCUS_RING_COLOR` in native/lib.rs): a 2 px inset stroke, so one logical pixel inside an edge is on it. */
+const FOCUS_RING_COLOR = new Color(0.49, 0.66, 1.0, 1);
+const FOCUS_RING_TOLERANCE = 0.06;
+const FOCUS_RING_PROBE_INSET = 1;
 
 function assert(condition: unknown, message: string): asserts condition {
   assertionTally.count += 1;
@@ -134,7 +140,8 @@ function colourApart(a: Color, b: Color): number {
 }
 
 function pixelAt(image: Image, ratio: number, at: Vector2): Color {
-  return image.getPixel(Math.round(at.x * ratio), Math.round(at.y * ratio));
+  // The pixel a point falls in.
+  return image.getPixel(Math.floor(at.x * ratio), Math.floor(at.y * ratio));
 }
 
 function ratioOf(image: Image, api: TransformsInspection): number {
@@ -200,8 +207,21 @@ async function wheel(at: Vector2, which: MouseButton): Promise<void> {
   await frames(SETTLE_FRAMES);
 }
 
+/** The case `showCase` last put up, and a light one to leave for before putting the same case up again. */
+let shownCase: string | undefined;
+const NEUTRAL_CASE = 'shape:identity';
+
+/**
+ * Put a case up on a page that has just been mounted: a negative control runs a check twice on one page, and a page that stays
+ * mounted keeps what it drew and where it put the focus, so the second run would be the first one's picture, not the fault's.
+ */
 async function showCase(api: TransformsInspection, name: string): Promise<void> {
+  if (shownCase === name) {
+    setTransformCase(NEUTRAL_CASE);
+    await frames(SETTLE_FRAMES);
+  }
   setTransformCase(name);
+  shownCase = name;
   await frames(SETTLE_FRAMES);
   assert(api.find('transform-stage') !== undefined || name !== '', `The case ${name} did not mount`);
 }
@@ -216,6 +236,7 @@ async function checkShapes(owner: Node, api: TransformsInspection, capture: Tran
     const golden = GOLDEN_SHAPE_RECTS[spec.name];
     assert(golden, `No golden rectangle for ${spec.name}`);
     sameRect(card.rect, golden, `${spec.name} (${suffix}): the card's rectangle is the box round it`);
+    console.log('GODOT_REACT_TRANSFORMS_MEASURE', JSON.stringify({ shape: spec.name, suffix, rectApartPx: round(Math.max(Math.abs(card.rect.x - golden.x), Math.abs(card.rect.y - golden.y), Math.abs(card.rect.width - golden.width), Math.abs(card.rect.height - golden.height)), 4) }));
     assert((card.transform === null) === (spec.transform === 'none'), `${spec.name}: the card reports a transform only if it has one`);
     const image = grab(owner);
     const ratio = ratioOf(image, api);
@@ -281,6 +302,132 @@ async function checkHit(api: TransformsInspection, capture: TransformsCapture, s
   const collapsed = node(api, 'hit-collapsed');
   assert(await hover(api, new Vector2(430, 70)) !== collapsed.id, 'An element scaled to nothing is hit nowhere');
   await capture(`transforms-hit-${suffix}`, ['hit-bar', 'hit-parent', 'hit-child', 'hit-collapsed']);
+}
+
+/** A keyboard focus on the turned bar draws the ring turned with it, on the bar's own edges and not on the box round it. */
+async function checkFocusRing(owner: Node, api: TransformsInspection): Promise<void> {
+  await showCase(api, 'hit');
+  const bar = node(api, 'hit-bar');
+  api.grabSurfaceFocus();
+  await frames(SETTLE_FRAMES);
+  await pressAction('ui_focus_next');
+  await frames(SETTLE_FRAMES);
+  const snapshot = api.snapshot();
+  assert(snapshot.focused === bar.id && snapshot.focusVisible, 'A Tab press puts the keyboard focus on the turned bar');
+  const spec = BEHAVIOUR.bar;
+  const levels = [{ location: new Vector2(spec.left, spec.top), matrix: matrixOf(api, 'hit-bar') }];
+  const image = grab(owner);
+  const ratio = ratioOf(image, api);
+  const onEdges = [
+    new Vector2(spec.width / 2, FOCUS_RING_PROBE_INSET), new Vector2(spec.width / 2, spec.height - FOCUS_RING_PROBE_INSET),
+    new Vector2(FOCUS_RING_PROBE_INSET, spec.height / 2), new Vector2(spec.width - FOCUS_RING_PROBE_INSET, spec.height / 2),
+  ];
+  for (const local of onEdges) {
+    const at = worldOf(levels, local);
+    const seen = pixelAt(image, ratio, at);
+    assert(colourApart(seen, FOCUS_RING_COLOR) <= FOCUS_RING_TOLERANCE, `The focus ring turns with the bar: its own edge point ${round(local.x)},${round(local.y)} (drawn at ${round(at.x)},${round(at.y)}) is ${seen.toHtml(false)}, not the ring`);
+  }
+}
+
+/** A transformed static element is the containing block of an absolute and of a fixed child: each is placed in the parent's frame, and moves with it. */
+async function checkContainingBlock(api: TransformsInspection): Promise<void> {
+  await showCase(api, 'contain');
+  const { contain } = BEHAVIOUR;
+  const shift = new Vector2(40, 30);
+  const expected = [
+    ['contain-absolute', new Vector2(contain.left + shift.x + contain.absolute.left, contain.top + shift.y + contain.absolute.top)],
+    ['contain-fixed', new Vector2(contain.left + shift.x + contain.fixed.left, contain.top + shift.y + contain.fixed.top)],
+  ] as const;
+  for (const [testID, at] of expected) {
+    const { rect } = node(api, testID);
+    assert(Math.abs(rect.x - at.x) <= RECT_TOLERANCE_PX && Math.abs(rect.y - at.y) <= RECT_TOLERANCE_PX,
+      `${testID} is placed in its transformed parent's frame (${round(at.x)},${round(at.y)}), as CSS does: ${round(rect.x)},${round(rect.y)}`);
+  }
+  assert(node(api, 'contain-absolute').paintParent === node(api, 'contain-parent').id && node(api, 'contain-fixed').paintParent === node(api, 'contain-parent').id,
+    'and both are painted by it');
+}
+
+/** The box of the `edge` page: its fill (`#b45309`), whose blue channel the coverage is read from. */
+const EDGE_FILL_BLUE = 0x09 / LEVELS;
+/** An edge row's coverage may differ from the area the box covers in it by this (a one pixel ramp reads within 0.05; a ramp under 0.7 px, 0.2). */
+const EDGE_COVERAGE_TOLERANCE = 0.12;
+/** A pixel is partly covered when its coverage is between these. */
+const PARTLY_COVERED_MIN = 0.1;
+const PARTLY_COVERED_MAX = 0.9;
+/** Of the scanlines across a turned box's slanted edge, this share must show a partly covered pixel (all of them do, with a one pixel ramp). */
+const SLANTED_EDGE_ROWS_ANTIALIASED = 0.85;
+
+/**
+ * What a box squeezed on one axis shows in the two rows its top and bottom edges fall in, next to the share of each row the box covers
+ * (a browser's coverage), and what is wrong with it if `assert`: more than [`EDGE_COVERAGE_TOLERANCE`] away. The feather of a box
+ * drawn from triangles (square corners) is one length on each of its axes, so the squeezed axis keeps a one pixel ramp; the one
+ * `StyleBoxFlat` gives a rounded corner is one length for both, which is exact on the stretched axis and 0.6 of a pixel on the
+ * squeezed one, where the edge comes out nearly hard (`docs/tracks/transforms.md`, "Against Chrome": widening it to a pixel on the
+ * squeezed axis blurs the stretched one, which was measured to be further from Chrome's).
+ */
+function squeezedEdgeProblems(image: Image, ratio: number, api: TransformsInspection, suffix: string, testID: 'edge-flat' | 'edge-box'): string[] {
+  const box = node(api, testID);
+  const spec = testID === 'edge-flat' ? BEHAVIOUR.edgeFlat : BEHAVIOUR.edge;
+  const column = Math.round((spec.left + spec.width / 2) * ratio);
+  const coverageIn = (row: number): number => (STAGE_COLOR.b - image.getPixel(column, row).b) / (STAGE_COLOR.b - EDGE_FILL_BLUE);
+  const top = box.rect.y * ratio;
+  const bottom = (box.rect.y + box.rect.height) * ratio;
+  const topRow = Math.floor(top);
+  const bottomRow = Math.floor(bottom);
+  const topWant = topRow + 1 - top;
+  const bottomWant = bottom - bottomRow;
+  const measure = testID === 'edge-flat' ? 'squeezedEdge' : 'squeezedRoundedEdge';
+  console.log('GODOT_REACT_TRANSFORMS_MEASURE', JSON.stringify({ [measure]: suffix, top: round(coverageIn(topRow), 3), topWant: round(topWant, 3), bottom: round(coverageIn(bottomRow), 3), bottomWant: round(bottomWant, 3) }));
+  if (testID === 'edge-box') return [];
+  const problems: string[] = [];
+  if (Math.abs(coverageIn(topRow) - topWant) > EDGE_COVERAGE_TOLERANCE) {
+    problems.push(`A squeezed box's top edge is antialiased (${suffix}): row ${topRow} is covered ${round(coverageIn(topRow), 3)} where the box covers ${round(topWant, 3)} of it`);
+  }
+  if (Math.abs(coverageIn(bottomRow) - bottomWant) > EDGE_COVERAGE_TOLERANCE) {
+    problems.push(`A squeezed box's bottom edge is antialiased (${suffix}): row ${bottomRow} is covered ${round(coverageIn(bottomRow), 3)} where the box covers ${round(bottomWant, 3)} of it`);
+  }
+  return problems;
+}
+
+/**
+ * A plain square-cornered box turned 30 degrees has antialiased edges: across its slanted left edge, most scanlines have a partly
+ * covered pixel. `StyleBoxFlat` antialiases only boxes with a rounded corner (or a skew), so a square box drew every edge hard
+ * and a turned one came out as a staircase where a browser's is smooth.
+ */
+function turnedSquareProblems(image: Image, ratio: number, api: TransformsInspection, suffix: string): string[] {
+  const { rect } = node(api, 'edge-square');
+  const coverageAt = (x: number, y: number): number => (STAGE_COLOR.b - image.getPixel(x, y).b) / (STAGE_COLOR.b - EDGE_FILL_BLUE);
+  const top = Math.round((rect.y + rect.height * 0.3) * ratio);
+  const bottom = Math.round((rect.y + rect.height * 0.7) * ratio);
+  let rows = 0;
+  let softRows = 0;
+  for (let y = top; y <= bottom; y += 1) {
+    let x = Math.round(rect.x * ratio);
+    const limit = Math.round((rect.x + rect.width / 2) * ratio);
+    while (x < limit && coverageAt(x, y) < PARTLY_COVERED_MIN) x += 1;
+    let soft = false;
+    while (x < limit && coverageAt(x, y) < 0.97) {
+      const coverage = coverageAt(x, y);
+      if (coverage > PARTLY_COVERED_MIN && coverage < PARTLY_COVERED_MAX) soft = true;
+      x += 1;
+    }
+    rows += 1;
+    if (soft) softRows += 1;
+  }
+  const share = softRows / Math.max(1, rows);
+  console.log('GODOT_REACT_TRANSFORMS_MEASURE', JSON.stringify({ turnedSquare: suffix, rows, antialiasedRowShare: round(share, 3) }));
+  return share >= SLANTED_EDGE_ROWS_ANTIALIASED ? [] : [`A square box turned 30 degrees has antialiased edges (${suffix}): ${round(share * 100, 1)}% of the scanlines across its left edge show a partly covered pixel`];
+}
+
+/** What the edge checks found wrong, kept until the section's end so one run shows every device pixel ratio. */
+const edgeProblems: string[] = [];
+
+async function checkEdges(owner: Node, api: TransformsInspection, suffix: string): Promise<void> {
+  await showCase(api, 'edge');
+  const image = grab(owner);
+  const ratio = ratioOf(image, api);
+  squeezedEdgeProblems(image, ratio, api, suffix, 'edge-box');
+  edgeProblems.push(...squeezedEdgeProblems(image, ratio, api, suffix, 'edge-flat'), ...turnedSquareProblems(image, ratio, api, suffix));
 }
 
 /** A card that scales on hover is still hovered where its scaled box reaches past the layout one, and stops being where that does not. */
@@ -552,6 +699,7 @@ async function checkTransition(api: TransformsInspection, spec: TransitionCase, 
       else worstOffset = Math.max(worstOffset, apart);
     }
   }
+  console.log('GODOT_REACT_TRANSFORMS_MEASURE', JSON.stringify({ transition: spec.name, samples: samples.length, worstMatrix: round(worstMatrix, 5), worstOffsetPx: round(worstOffset, 4) }));
   assert(worstMatrix <= MATRIX_TOLERANCE && worstOffset <= RECT_TOLERANCE_PX, `${spec.name}: against Chrome the matrix is within ${round(worstMatrix, 4)} and the offset within ${round(worstOffset, 3)} px over ${samples.length} samples`);
   assert(midway !== undefined, `${spec.name}: the transition passed halfway`);
   assert(midway.boxRecords === before.boxRecords && midway.contentRecords === before.contentRecords && midway.layoutPasses === before.layoutPasses,
@@ -634,6 +782,7 @@ async function checkLoop(api: TransformsInspection): Promise<void> {
 /** Tailwind `starting:` (`@starting-style`) transitions on mount and when shown from `display: none`. */
 async function checkStarting(api: TransformsInspection): Promise<void> {
   setTransformCase('starting');
+  shownCase = 'starting';
   let sawMountTransition = false;
   const started = Date.now();
   while (Date.now() - started < 800) {
@@ -670,10 +819,13 @@ async function checkStarting(api: TransformsInspection): Promise<void> {
 }
 
 export async function verifyTransforms(owner: Node, api: TransformsInspection, capture: TransformsCapture): Promise<void> {
+  edgeProblems.length = 0;
   api.showLab('transforms');
   await settleFrames();
   await checkShapes(owner, api, capture, 'dpr1');
   await checkHit(api, capture, 'dpr1');
+  await checkFocusRing(owner, api);
+  await checkContainingBlock(api);
   await checkHover(api);
   await checkUtilities(api);
   await checkInput(api, capture);
@@ -687,6 +839,7 @@ export async function verifyTransforms(owner: Node, api: TransformsInspection, c
   await checkCombined(api);
   await checkLoop(api);
   await checkStarting(api);
+  await checkEdges(owner, api, 'dpr1');
   // Device pixel ratio two: the window's content scale, as a retina display has it (the logical window is half as wide,
   // so the 520 x 320 stage fits in the landscape window's 560 x 400 logical size).
   if (api.snapshot().width >= STAGE.width * RETINA_SCALE) {
@@ -698,10 +851,127 @@ export async function verifyTransforms(owner: Node, api: TransformsInspection, c
       await checkShapes(owner, api, capture, 'dpr2');
       await checkHit(api, capture, 'dpr2');
       await checkSharpness(owner, api, capture, 'dpr2');
+      await checkEdges(owner, api, 'dpr2');
     } finally {
       win.contentScaleFactor = 1;
       contentScale = 1;
       await frames(SETTLE_FRAMES);
     }
   }
+  assert(edgeProblems.length === 0, edgeProblems.join('; '));
+}
+
+// ---- Negative controls ------------------------------------------------------------------------------------------------
+
+/** The environment variable that names the fault that is on (`native/filter_faults.rs`); the library must be a `--faults` build. */
+const FAULT_ENV = 'GODOT_REACT_FILTER_FAULT';
+
+interface TransformFaultControl {
+  fault: string;
+  /** What the check guards, for the log and the failure message. */
+  guards: string;
+  run(owner: Node, api: TransformsInspection): Promise<void>;
+  /** The assertion that must fail with the fault on (not some other one). */
+  fails: RegExp;
+  /** Why the control cannot show on this window, when it cannot (the window has no room for a content scale of two). */
+  notApplicable?(api: TransformsInspection): string | undefined;
+}
+
+/** Run `check` at a device pixel ratio of two (the window's content scale), then put the window back. */
+async function atRetina(owner: Node, check: () => Promise<void>): Promise<void> {
+  const win = window(owner);
+  win.contentScaleFactor = RETINA_SCALE;
+  contentScale = RETINA_SCALE;
+  await frames(SETTLE_FRAMES);
+  try {
+    await check();
+  } finally {
+    win.contentScaleFactor = 1;
+    contentScale = 1;
+    await frames(SETTLE_FRAMES);
+  }
+}
+
+async function assertEdges(owner: Node, api: TransformsInspection, suffix: string, problems: (image: Image, ratio: number) => string[]): Promise<void> {
+  await showCase(api, 'edge');
+  const image = grab(owner);
+  const found = problems(image, ratioOf(image, api));
+  assert(found.length === 0, found.join('; '));
+  void suffix;
+}
+
+const silent: TransformsCapture = async () => undefined;
+
+const TRANSFORM_FAULT_CONTROLS: readonly TransformFaultControl[] = [
+  {
+    fault: 'transform-hit-flat', guards: 'a point is hit through the inverse of the matrix (the turned bar)',
+    run: (_, api) => checkHit(api, silent, 'fault'), fails: /The turned bar is hit at its own point/u,
+  },
+  {
+    fault: 'transform-rect-unbounded', guards: 'getRect() is the bounding box of the transformed border box',
+    run: (owner, api) => checkShapes(owner, api, silent, 'fault'), fails: /the card's rectangle is the box round it/u,
+  },
+  {
+    fault: 'transform-ring-flat', guards: 'the focus ring turns with the element',
+    run: checkFocusRing, fails: /The focus ring turns with the bar/u,
+  },
+  {
+    fault: 'transform-raster-unscaled', guards: 'text under a scale is rasterised at that scale',
+    run: (owner, api) => checkSharpness(owner, api, silent, 'fault'), fails: /Scaled text is as sharp as the same text at its size/u,
+  },
+  {
+    fault: 'transform-feather-uniform', guards: 'a straight edge of a square box on the squeezed axis of a transform keeps a one pixel antialiasing ramp',
+    run: (owner, api) => atRetina(owner, () => assertEdges(owner, api, 'dpr2', (image, ratio) => squeezedEdgeProblems(image, ratio, api, 'dpr2', 'edge-flat'))),
+    fails: /A squeezed box's top edge is antialiased/u,
+    notApplicable: api => (api.snapshot().width >= STAGE.width * RETINA_SCALE ? undefined : 'the window has no room for a content scale of two'),
+  },
+  {
+    fault: 'transform-squares-hard', guards: 'a square box turned 30 degrees has antialiased edges',
+    run: (owner, api) => assertEdges(owner, api, 'dpr1', (image, ratio) => turnedSquareProblems(image, ratio, api, 'dpr1')),
+    fails: /A square box turned 30 degrees has antialiased edges/u,
+  },
+  {
+    fault: 'transform-no-containing-block', guards: 'a transformed element is the containing block of its absolute and fixed children',
+    run: (_, api) => checkContainingBlock(api), fails: /is placed in its transformed parent's frame|and both are painted by it/u,
+  },
+];
+
+/**
+ * The opt-in `transforms-faults` section (`pnpm verify --interaction --only=transforms-faults --faults --no-retry`): every control's
+ * check passes with its fault off and fails, with its own message, with it on.
+ */
+export async function verifyTransformFaults(owner: Node, api: TransformsInspection): Promise<void> {
+  api.showLab('transforms');
+  await settleFrames();
+  const problems: string[] = [];
+  try {
+    for (const control of TRANSFORM_FAULT_CONTROLS) {
+      const skipped = control.notApplicable?.(api);
+      if (skipped !== undefined) {
+        console.log('GODOT_REACT_TRANSFORMS_FAULT_SKIPPED', JSON.stringify({ fault: control.fault, why: skipped }));
+        continue;
+      }
+      OS.unsetEnvironment(FAULT_ENV);
+      await control.run(owner, api);
+      OS.setEnvironment(FAULT_ENV, control.fault);
+      let failure: unknown;
+      try {
+        await control.run(owner, api);
+      } catch (error) {
+        failure = error;
+      }
+      OS.unsetEnvironment(FAULT_ENV);
+      const message = failure instanceof Error ? failure.message : String(failure);
+      if (failure === undefined) {
+        problems.push(`With "${control.fault}" on, the check for "${control.guards}" still passes (is the installed library a --faults build?)`);
+      } else if (!control.fails.test(message)) {
+        problems.push(`With "${control.fault}" on, the check for "${control.guards}" fails for another reason: ${message}`);
+      } else {
+        console.log('GODOT_REACT_TRANSFORMS_FAULT', JSON.stringify({ fault: control.fault, guards: control.guards, failure: message.slice(0, 240) }));
+      }
+    }
+  } finally {
+    OS.unsetEnvironment(FAULT_ENV);
+  }
+  assert(problems.length === 0, `${problems.length} negative control(s) did not hold:\n${problems.join('\n')}`);
 }

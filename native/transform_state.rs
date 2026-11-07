@@ -10,8 +10,11 @@ use std::collections::BTreeSet;
 
 use godot::global::godot_error;
 
+use godot::prelude::Vector2;
+
 use crate::ReactUiRoot;
 use crate::diff::Parent;
+use crate::filter_faults::{self as faults, Fault};
 use crate::render_tree::Oversampling;
 use crate::transform::{Linear2, NodeTransform, evaluate};
 
@@ -33,6 +36,34 @@ pub(crate) struct TransformRoot {
     animating: BTreeSet<u32>,
     /// Elements that clip (`overflow`) in a frame a transform rotates or skews, already reported.
     turned_clips: BTreeSet<u32>,
+}
+
+/// What a transform makes of how an element is rasterised, from the accumulated linear map of its frame.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Raster {
+    /// The factor text, rounded corners and scroll bar ends are rasterised at, on top of the viewport's: the larger column of
+    /// the map, rounded up (so a glyph is at least as fine as the stretched axis wants).
+    pub scale: f32,
+    /// A box with square corners is drawn from feathered triangles (`square_box.rs`), because `StyleBoxFlat` antialiases only a
+    /// rounded or skewed box and its edges are not on pixels once the map is more than a move.
+    pub soften_squares: bool,
+    /// How long, along the element's own x and y, that box's feather is for it to be one device pixel across its edges there, in
+    /// units of one viewport device pixel ([`Linear2::edge_feather`]). The triangles can be feathered per axis; `StyleBoxFlat` cannot
+    /// (one `anti_aliasing_size`), so a rounded corner keeps the feather of [`Self::scale`], exact on the stretched axis (see
+    /// "Against Chrome" in `docs/tracks/transforms.md` for what widening it for the squeezed one costs).
+    pub edge_feather: Vector2,
+}
+
+impl Raster {
+    pub(crate) fn of(linear: &Linear2) -> Raster {
+        // A collapsed map paints nothing, so what its feather is does not matter.
+        let (x, y) = linear.edge_feather().unwrap_or((1.0, 1.0));
+        Raster {
+            scale: raster_factor(linear.scale_factor()),
+            soften_squares: *linear != Linear2::IDENTITY,
+            edge_feather: Vector2::new(x, y),
+        }
+    }
 }
 
 /// `scale` as the factor to rasterise at: rounded up to a step, and not below the minimum.
@@ -160,22 +191,41 @@ impl ReactUiRoot {
     /// transforms above it last settled.
     pub(crate) fn node_oversampling(&self, tag: u32) -> Oversampling {
         let base = self.oversampling();
-        if self.transform_root.transformed.is_empty() {
+        if self.transform_root.transformed.is_empty()
+            || faults::active(Fault::TransformRasterUnscaled)
+        {
             return base;
         }
-        match self
-            .mounted
-            .nodes
-            .get(&tag)
-            .and_then(|node| node.raster_scale)
-        {
-            Some(scale) if scale != 1.0 => Oversampling::from_factor(base.factor() * scale),
+        match self.mounted.nodes.get(&tag).and_then(|node| node.raster) {
+            Some(raster) if raster.scale != 1.0 => {
+                Oversampling::from_factor(base.factor() * raster.scale)
+            }
             _ => base,
         }
     }
 
-    /// Give `tag` the raster scale of the frame it is drawn in, if it has none yet (a node mounted under a transform).
-    pub(crate) fn ensure_raster_scale(&mut self, tag: u32) {
+    /// The feather, along the element's own x and y, of `tag`'s box if it has square corners and is to be drawn from feathered
+    /// triangles ([`Raster::soften_squares`]); `None` when it is not.
+    pub(crate) fn node_square_feather(&self, tag: u32) -> Option<Vector2> {
+        if self.transform_root.transformed.is_empty() || faults::active(Fault::TransformSquaresHard)
+        {
+            return None;
+        }
+        let raster = self.mounted.nodes.get(&tag)?.raster?;
+        if !raster.soften_squares {
+            return None;
+        }
+        let device_pixel = self.oversampling().feather();
+        // The fault is the feather of one length, sized by the stretched axis, as `StyleBoxFlat` has it.
+        Some(if faults::active(Fault::TransformFeatherUniform) {
+            Vector2::splat(device_pixel / raster.scale)
+        } else {
+            raster.edge_feather * device_pixel
+        })
+    }
+
+    /// Give `tag` the raster of the frame it is drawn in, if it has none yet (a node mounted under a transform).
+    pub(crate) fn ensure_raster(&mut self, tag: u32) {
         if self.transform_root.transformed.is_empty() {
             return;
         }
@@ -183,16 +233,16 @@ impl ReactUiRoot {
             .mounted
             .nodes
             .get(&tag)
-            .is_some_and(|node| node.raster_scale.is_none());
+            .is_some_and(|node| node.raster.is_none());
         if !missing || self.transform_chain_animating(tag) {
             return;
         }
-        let scale = self
+        let raster = self
             .mounted
             .absolute_affine(tag, self.viewport_box())
-            .map_or(1.0, |affine| raster_factor(affine.linear.scale_factor()));
+            .map(|affine| Raster::of(&affine.linear));
         if let Some(node) = self.mounted.nodes.get_mut(&tag) {
-            node.raster_scale = Some(scale);
+            node.raster = raster;
         }
     }
 
@@ -213,12 +263,12 @@ impl ReactUiRoot {
                     transform.placement.affine.linear
                 })
                 .then(&parent_linear);
-            let scale = raster_factor(linear.scale_factor());
-            if node.raster_scale != Some(scale) {
-                node.raster_scale = Some(scale);
-                if node.paints_at_oversampling() {
-                    self.paint_dirty.insert(current);
-                }
+            let raster = Raster::of(&linear);
+            if node.raster != Some(raster) {
+                node.raster = Some(raster);
+                // What is drawn from it (text, a feather, the choice of how a square box is drawn) is re-recorded if its key says
+                // it changed; most nodes' keys do not.
+                self.paint_dirty.insert(current);
             }
             for child in &node.paint_children {
                 stack.push((*child, linear));
@@ -289,4 +339,79 @@ pub(crate) fn transform_changed(
     old.transform_origin != new.transform_origin
         || old.has_transform() != new.has_transform()
         || (new.has_transform() && old.transform_list() != new.transform_list())
+}
+
+#[cfg(test)]
+mod tests {
+    use godot::prelude::Vector2;
+
+    use super::*;
+    use crate::transform::{TransformList, evaluate};
+
+    fn raster_of(css: &str) -> Raster {
+        let list = TransformList::parse(css).expect(css);
+        let value = evaluate(list.computed(), None, Vector2::new(100.0, 50.0)).expect(css);
+        Raster::of(&value.placement.affine.linear)
+    }
+
+    #[test]
+    fn an_untransformed_frame_is_one_to_one_and_keeps_square_boxes_on_the_pixel_grid() {
+        let raster = Raster::of(&Linear2::IDENTITY);
+        assert_eq!(raster.scale, 1.0);
+        assert_eq!(raster.edge_feather, Vector2::new(1.0, 1.0));
+        assert!(!raster.soften_squares);
+    }
+
+    #[test]
+    fn a_turned_or_scaled_frame_softens_square_boxes_and_a_turn_keeps_a_pixel_a_pixel() {
+        for css in [
+            "rotate(30deg)",
+            "rotate(-77deg)",
+            "scale(0.5) rotate(45deg)",
+        ] {
+            let raster = raster_of(css);
+            assert!(raster.soften_squares, "{css}");
+        }
+        let turned = raster_of("rotate(30deg)");
+        assert!(
+            (turned.edge_feather.x - 1.0).abs() < 1e-5
+                && (turned.edge_feather.y - 1.0).abs() < 1e-5
+        );
+        let doubled = raster_of("scale(2)");
+        assert!(
+            (doubled.edge_feather.x - 0.5).abs() < 1e-5
+                && (doubled.edge_feather.y - 0.5).abs() < 1e-5
+        );
+    }
+
+    /// `rotateX(50deg)` squeezes y to 0.643 and leaves x: the box's feather is a pixel on each axis, which is longer than a pixel's
+    /// length on y, where a feather of one length sized for x is 0.64 of a pixel and a straight edge comes out hard.
+    #[test]
+    fn a_squeezed_axis_gets_a_longer_feather_and_the_stretched_one_keeps_its_own() {
+        let raster = raster_of("rotateX(50deg)");
+        let squeeze = 50.0_f32.to_radians().cos();
+        assert!(
+            (raster.edge_feather.x - 1.0).abs() < 1e-5,
+            "{:?}",
+            raster.edge_feather
+        );
+        assert!(
+            (raster.edge_feather.y - 1.0 / squeeze).abs() < 1e-4,
+            "{:?}",
+            raster.edge_feather
+        );
+        // The raster of text is still the stretched axis's.
+        assert_eq!(raster.scale, 1.0);
+    }
+
+    #[test]
+    fn a_collapsed_map_has_a_harmless_feather() {
+        let raster = Raster::of(&Linear2 {
+            a: 0.0,
+            b: 0.0,
+            c: 0.0,
+            d: 0.0,
+        });
+        assert_eq!(raster.edge_feather, Vector2::new(1.0, 1.0));
+    }
 }

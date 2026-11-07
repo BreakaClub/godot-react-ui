@@ -30,6 +30,7 @@ use style::values::computed::transform::{
 };
 use style::values::generics::transform::ToMatrix;
 
+use crate::filter_faults::{self as faults, Fault};
 use crate::geometry::BoxRect;
 use crate::props::StyleSpec;
 
@@ -130,6 +131,22 @@ impl Linear2 {
         straight || quarter
     }
 
+    /// How long a feather must be along the element's own x axis and along its y axis to measure one device pixel across a
+    /// straight edge there (an edge whose normal is that axis): the distance between the two parallel device-space lines a local
+    /// shift of that length opens up, which is the inverse transpose's column for that axis. `rotateX(50deg)` squeezes y to 0.64,
+    /// so a feather of one pixel on y is 1.56 long, and one of one pixel on x is 1. `None` for a collapsed map, which paints
+    /// nothing.
+    pub(crate) fn edge_feather(&self) -> Option<(f32, f32)> {
+        let det = self.determinant();
+        if !det.is_finite() || det.abs() < SINGULAR_DETERMINANT {
+            return None;
+        }
+        Some((
+            self.c.hypot(self.d) / det.abs(),
+            self.a.hypot(self.b) / det.abs(),
+        ))
+    }
+
     /// The larger of the lengths the unit x and y vectors are stretched to: the factor glyphs must be
     /// rasterised at to stay sharp under this map.
     pub(crate) fn scale_factor(&self) -> f32 {
@@ -208,6 +225,13 @@ impl Affine2 {
     pub(crate) fn bounds_of(&self, rect: BoxRect) -> BoxRect {
         // A translation moves the box and keeps its size exactly.
         if self.linear == Linear2::IDENTITY {
+            return BoxRect {
+                x: rect.x + self.e,
+                y: rect.y + self.f,
+                ..rect
+            };
+        }
+        if faults::active(Fault::TransformRectUnbounded) {
             return BoxRect {
                 x: rect.x + self.e,
                 y: rect.y + self.f,
@@ -754,11 +778,49 @@ pub(crate) struct Placement {
 /// A transform evaluated for one border box: the full matrix, origin included, and what the canvas draws.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct NodeTransform {
-    /// The 4 x 4 matrix about the origin, as CSS defines it. The canvas uses [`Self::placement`]; a
-    /// perspective pass would use this.
+    /// The 4 x 4 matrix about the origin, as CSS defines it, in f64 and in euclid's row-vector layout (`m41` is the
+    /// x translation). The canvas uses [`Self::placement`]; a perspective pass reads this (see the accessors below,
+    /// which are what `docs/tracks/transforms-3d-feasibility.md` asks the matrix path to expose).
     #[allow(dead_code)]
-    pub matrix: Matrix3D,
+    pub matrix: Transform3D<f64>,
     pub placement: Placement,
+}
+
+/// What a matrix is, for deciding how it is drawn: `Identity` and `Translate` need no map at all, `Affine2D` is every
+/// matrix without a projective row (a 3D rotation without perspective included: it is drawn through its x, y and offset
+/// terms, which is what `transform-style: flat` shows), and `Projective` is what needs a render target.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TransformClass {
+    Identity,
+    Translate,
+    Affine2D,
+    Projective,
+}
+
+/// The class of `matrix`. The one place that says what this library cannot draw yet: [`evaluate`] refuses `Projective`.
+pub(crate) fn classify(matrix: &Transform3D<f64>) -> TransformClass {
+    let projective =
+        matrix.m14 != 0.0 || matrix.m24 != 0.0 || matrix.m34 != 0.0 || matrix.m44 != 1.0;
+    if projective {
+        return TransformClass::Projective;
+    }
+    let linear_is_identity = matrix.m11 == 1.0
+        && matrix.m12 == 0.0
+        && matrix.m13 == 0.0
+        && matrix.m21 == 0.0
+        && matrix.m22 == 1.0
+        && matrix.m23 == 0.0
+        && matrix.m31 == 0.0
+        && matrix.m32 == 0.0
+        && matrix.m33 == 1.0;
+    match (
+        linear_is_identity,
+        matrix.m41 == 0.0 && matrix.m42 == 0.0 && matrix.m43 == 0.0,
+    ) {
+        (true, true) => TransformClass::Identity,
+        (true, false) => TransformClass::Translate,
+        (false, _) => TransformClass::Affine2D,
+    }
 }
 
 fn cast(value: f64) -> f32 {
@@ -884,10 +946,10 @@ pub(crate) fn evaluate(
     let about = Transform3D::translation(-x, -y, -z)
         .then(&matrix)
         .then(&Transform3D::translation(x, y, z));
-    let matrix = to_f32(&about);
-    if is_projective(&matrix) {
+    if classify(&about) == TransformClass::Projective {
         return Err(format!("transform: {PERSPECTIVE_UNSUPPORTED}"));
     }
+    let matrix = to_f32(&about);
     let affine = Affine2 {
         linear: Linear2 {
             a: matrix.m11,
@@ -912,7 +974,7 @@ pub(crate) fn evaluate(
         return Err("transform: the matrix has a value that is not finite".into());
     }
     Ok(NodeTransform {
-        matrix,
+        matrix: about,
         placement: Placement {
             affine,
             inverse: affine.inverse(),
@@ -924,6 +986,105 @@ impl NodeTransform {
     /// Identity transforms are not kept: an element whose matrix does nothing is an element without one.
     pub(crate) fn is_identity(&self) -> bool {
         self.placement.affine.is_identity()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn class(&self) -> TransformClass {
+        classify(&self.matrix)
+    }
+
+    /// The matrix as CSS writes it: row-major, acting on column vectors (`m[0][3]` is the x translation).
+    #[allow(dead_code)]
+    pub(crate) fn column_vector_matrix(&self) -> [[f64; 4]; 4] {
+        let m = &self.matrix;
+        [
+            [m.m11, m.m21, m.m31, m.m41],
+            [m.m12, m.m22, m.m32, m.m42],
+            [m.m13, m.m23, m.m33, m.m43],
+            [m.m14, m.m24, m.m34, m.m44],
+        ]
+    }
+
+    /// The 3 x 3 map of the element's plane (z = 0) to the screen, acting on `(x, y, 1)`: the third row is the divisor.
+    #[allow(dead_code)]
+    pub(crate) fn homography(&self) -> [[f64; 3]; 3] {
+        let m = &self.matrix;
+        [
+            [m.m11, m.m21, m.m41],
+            [m.m12, m.m22, m.m42],
+            [m.m14, m.m24, m.m44],
+        ]
+    }
+
+    /// The sign of the plane map's determinant: `1` front facing, `-1` mirrored or seen from behind (what
+    /// `backface-visibility` and mirrored text ask), `0` collapsed.
+    #[allow(dead_code)]
+    pub(crate) fn determinant_sign(&self) -> i8 {
+        let h = self.homography();
+        let det = h[0][0] * (h[1][1] * h[2][2] - h[1][2] * h[2][1])
+            - h[0][1] * (h[1][0] * h[2][2] - h[1][2] * h[2][0])
+            + h[0][2] * (h[1][0] * h[2][1] - h[1][1] * h[2][0]);
+        if det > 0.0 {
+            1
+        } else if det < 0.0 {
+            -1
+        } else {
+            0
+        }
+    }
+
+    /// The largest factor the map magnifies the element's box by, in device pixels per pixel of the element: the largest
+    /// singular value of the map's Jacobian, taken at the four corners of a box of `size` (exact for an affine map, which
+    /// has one Jacobian). What a raster has to be drawn at to stay sharp. `None` if a corner is behind the eye.
+    #[allow(dead_code)]
+    pub(crate) fn max_magnification(&self, size: Vector2) -> Option<f64> {
+        let h = self.homography();
+        let mut largest = 0.0_f64;
+        for (x, y) in [
+            (0.0, 0.0),
+            (f64::from(size.x), 0.0),
+            (0.0, f64::from(size.y)),
+            (f64::from(size.x), f64::from(size.y)),
+        ] {
+            let w = h[2][0] * x + h[2][1] * y + h[2][2];
+            if w <= 0.0 {
+                return None;
+            }
+            let px = (h[0][0] * x + h[0][1] * y + h[0][2]) / w;
+            let py = (h[1][0] * x + h[1][1] * y + h[1][2]) / w;
+            let jacobian = [
+                [(h[0][0] - px * h[2][0]) / w, (h[0][1] - px * h[2][1]) / w],
+                [(h[1][0] - py * h[2][0]) / w, (h[1][1] - py * h[2][1]) / w],
+            ];
+            // The largest singular value: the square root of the larger eigenvalue of J^T J.
+            let (a, b, c, d) = (
+                jacobian[0][0],
+                jacobian[0][1],
+                jacobian[1][0],
+                jacobian[1][1],
+            );
+            let (p, q, r) = (a * a + c * c, a * b + c * d, b * b + d * d);
+            let mean = (p + r) / 2.0;
+            let radius = ((p - r) / 2.0).hypot(q);
+            largest = largest.max((mean + radius).max(0.0).sqrt());
+        }
+        Some(largest)
+    }
+}
+
+impl TransformList {
+    /// The list a fraction of the way from this one to `other` (`progress` 0 is this one, 1 is `other`): function by function
+    /// where the lists match, else by decomposing their matrices (CSS Transforms 1, "interpolation of transforms"). What a
+    /// transition samples; `None` where the lists cannot be mixed.
+    #[allow(dead_code)]
+    pub(crate) fn interpolate(
+        &self,
+        other: &TransformList,
+        progress: f64,
+    ) -> Option<ComputedTransform> {
+        self.computed
+            .animate(&other.computed, Procedure::Interpolate { progress })
+            .ok()
     }
 }
 
@@ -1241,5 +1402,176 @@ mod tests {
             wider.placement.affine.apply(Vector2::new(0.0, 0.0)),
             (75.0, 0.0),
         );
+    }
+
+    fn evaluated(css: &str, width: f32, height: f32) -> NodeTransform {
+        let list = TransformList::parse(css).expect(css);
+        evaluate(list.computed(), None, Vector2::new(width, height)).expect(css)
+    }
+
+    /// What `docs/tracks/transforms-3d-feasibility.md` asks the matrix path to expose, for the matrices it can hold today.
+    #[test]
+    fn the_matrix_path_exposes_the_class_the_homography_the_magnification_and_the_orientation() {
+        assert_eq!(
+            evaluated("translate(10px, 20px)", 100.0, 50.0).class(),
+            TransformClass::Translate
+        );
+        assert_eq!(
+            evaluated("rotate(30deg)", 100.0, 50.0).class(),
+            TransformClass::Affine2D
+        );
+        assert_eq!(
+            evaluated("rotateY(40deg) skewX(5deg)", 100.0, 50.0).class(),
+            TransformClass::Affine2D
+        );
+        let identity = Transform3D::<f64>::identity();
+        assert_eq!(classify(&identity), TransformClass::Identity);
+        let mut projective = identity;
+        projective.m34 = -0.002;
+        assert_eq!(
+            classify(&projective),
+            TransformClass::Projective,
+            "evaluate refuses exactly this"
+        );
+
+        // The 3 x 3 of the z = 0 plane, acting on (x, y, 1): scale(2, 3) about the origin (0 0).
+        let list = TransformList::parse("scale(2, 3)").unwrap();
+        let origin = TransformOriginSpec::parse("0 0").unwrap();
+        let scaled = evaluate(list.computed(), Some(&origin), Vector2::new(10.0, 10.0)).unwrap();
+        assert_eq!(
+            scaled.homography(),
+            [[2.0, 0.0, 0.0], [0.0, 3.0, 0.0], [0.0, 0.0, 1.0]]
+        );
+        let columns = scaled.column_vector_matrix();
+        assert_eq!(
+            (columns[0][0], columns[1][1], columns[3][3]),
+            (2.0, 3.0, 1.0)
+        );
+        let moved = evaluated("translate(7px, 9px)", 10.0, 10.0).column_vector_matrix();
+        assert_eq!(
+            (moved[0][3], moved[1][3]),
+            (7.0, 9.0),
+            "the translation is in the last column, as CSS writes it"
+        );
+
+        assert_eq!(evaluated("rotate(30deg)", 40.0, 40.0).determinant_sign(), 1);
+        assert_eq!(
+            evaluated("scale(-1, 1)", 40.0, 40.0).determinant_sign(),
+            -1,
+            "a mirror"
+        );
+        assert_eq!(evaluated("scale(0)", 40.0, 40.0).determinant_sign(), 0);
+
+        let size = Vector2::new(100.0, 50.0);
+        let near = |actual: Option<f64>, expected: f64| {
+            let actual = actual.expect("in front of the eye");
+            assert!(
+                (actual - expected).abs() < 1e-6,
+                "{actual} is not {expected}"
+            );
+        };
+        near(
+            evaluated("rotate(30deg)", 100.0, 50.0).max_magnification(size),
+            1.0,
+        );
+        near(
+            evaluated("scale(2, 3)", 100.0, 50.0).max_magnification(size),
+            3.0,
+        );
+        // The largest singular value of [[1, 1], [0, 1]] (skewX(45deg)) is the golden ratio.
+        near(
+            evaluated("skewX(45deg)", 100.0, 50.0).max_magnification(size),
+            (1.0 + 5.0_f64.sqrt()) / 2.0,
+        );
+        // A projective map magnifies more where it brings the plane nearer: w falls from 1 to 0.8 across the box.
+        let mut tilted = evaluated("translate(0px, 0px)", 100.0, 50.0);
+        tilted.matrix.m14 = -0.002;
+        let magnified = tilted.max_magnification(size).expect("w stays positive");
+        assert!(magnified > 1.2, "{magnified}");
+        tilted.matrix.m14 = -0.02;
+        assert_eq!(
+            tilted.max_magnification(size),
+            None,
+            "a corner behind the eye"
+        );
+    }
+
+    #[test]
+    fn two_lists_interpolate_as_a_transition_samples_them() {
+        let from = TransformList::parse("rotate(0deg) scale(1)").unwrap();
+        let to = TransformList::parse("rotate(90deg) scale(2)").unwrap();
+        let middle = from
+            .interpolate(&to, 0.5)
+            .expect("matching lists mix function by function");
+        let value = evaluate(&middle, None, Vector2::new(100.0, 50.0)).unwrap();
+        let expected = 1.5 * std::f32::consts::FRAC_1_SQRT_2;
+        let [a, b, ..] = value.placement.affine.to_array();
+        assert!(
+            (a - expected).abs() < 1e-4 && (b - expected).abs() < 1e-4,
+            "{a} {b}"
+        );
+        // Lists that do not match mix as matrices, and 0 and 1 are the lists themselves.
+        let rotated = TransformList::parse("rotate(30deg)").unwrap();
+        let shifted = TransformList::parse("translateX(40px)").unwrap();
+        let start = rotated.interpolate(&shifted, 0.0).expect("decomposition");
+        let at_start = evaluate(&start, None, Vector2::new(100.0, 50.0)).unwrap();
+        let [a, b, ..] = at_start.placement.affine.to_array();
+        assert!((a - 30.0_f32.to_radians().cos()).abs() < 1e-4 && (b - 0.5).abs() < 1e-4);
+    }
+
+    #[test]
+    fn an_edge_feather_is_one_device_pixel_across_an_edge_on_each_axis() {
+        let near = |actual: (f32, f32), want: (f32, f32)| {
+            assert!(
+                (actual.0 - want.0).abs() < 1e-5 && (actual.1 - want.1).abs() < 1e-5,
+                "{actual:?} is not {want:?}"
+            );
+        };
+        near(Linear2::IDENTITY.edge_feather().unwrap(), (1.0, 1.0));
+        // A turn keeps a pixel a pixel.
+        let turn = 30.0_f32.to_radians();
+        let rotation = Linear2 {
+            a: turn.cos(),
+            b: turn.sin(),
+            c: -turn.sin(),
+            d: turn.cos(),
+        };
+        near(rotation.edge_feather().unwrap(), (1.0, 1.0));
+        // `rotateX(50deg)` squeezes y: a pixel on y is a longer stretch of the element's own axis.
+        let squeeze = 50.0_f32.to_radians().cos();
+        let flat = Linear2 {
+            a: 1.0,
+            b: 0.0,
+            c: 0.0,
+            d: squeeze,
+        };
+        near(flat.edge_feather().unwrap(), (1.0, 1.0 / squeeze));
+        near(
+            Linear2 {
+                a: 2.0,
+                b: 0.0,
+                c: 0.0,
+                d: 0.5,
+            }
+            .edge_feather()
+            .unwrap(),
+            (0.5, 2.0),
+        );
+        // A skew along x slants the edges whose normal is x, so a shift along x crosses them at an angle: the feather is longer by
+        // the secant of it.
+        let shear = Linear2 {
+            a: 1.0,
+            b: 0.0,
+            c: 1.0,
+            d: 1.0,
+        };
+        near(shear.edge_feather().unwrap(), (2.0_f32.sqrt(), 1.0));
+        let collapsed = Linear2 {
+            a: 0.0,
+            b: 0.0,
+            c: 0.0,
+            d: 0.0,
+        };
+        assert_eq!(collapsed.edge_feather(), None);
     }
 }

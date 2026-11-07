@@ -37,6 +37,7 @@ mod scroll_input;
 mod selection;
 mod selection_input;
 mod snapshot;
+mod square_box;
 mod stacking;
 mod style_engine;
 // The text longhands, their inheritance and the arithmetic of line boxes and font matching (Godot-free).

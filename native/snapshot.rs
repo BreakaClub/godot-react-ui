@@ -84,7 +84,7 @@ impl ReactUiRoot {
                     "props": node.props,
                     "rect": rect, "clipRect": inherited_clip,
                     "transform": node.transform.map(|transform| transform.placement.affine.to_array()),
-                    "rasterScale": node.raster_scale,
+                    "rasterScale": node.raster.map(|raster| raster.scale),
                     "presentation": self.presentation_json(tag),
                     "scroll": self.scroll_state_json(tag),
                     "textInput": self.text_input_snapshot_json(tag),

@@ -151,7 +151,7 @@ pub(crate) struct MountedNode {
     pub(crate) transform: Option<NodeTransform>,
     /// The scale text and rounded corners are rasterised at on top of the viewport's, for the transforms on the element
     /// and above it (`transform_state.rs`). `None` until the element has been placed.
-    pub(crate) raster_scale: Option<f32>,
+    pub(crate) raster: Option<crate::transform_state::Raster>,
 }
 
 #[derive(Default)]
@@ -466,6 +466,8 @@ impl MountedNode {
             Kind::View | Kind::Button => {
                 self.computed.border_radius.unwrap_or(0.0).round() > 0.0
                     || self.render.has_scroller()
+                    // A square box a transform moves off the pixel grid is drawn from feathered triangles.
+                    || self.raster.is_some_and(|raster| raster.soften_squares)
             }
         }
     }
@@ -913,7 +915,7 @@ impl ReactUiRoot {
                 )
             }),
             transform: None,
-            raster_scale: None,
+            raster: None,
         };
         self.mounted.breakpoints.register(tag, props.style.as_ref());
         self.mounted

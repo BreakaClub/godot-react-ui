@@ -53,8 +53,8 @@ checkSectionNames(requested, NATIVE_INTERACTION_SECTIONS);
 // `--faults` runs against the filters negative-controls library (`pnpm build:native --faults`, the `filters-faults` section);
 // every other run refuses that library, and this one refuses a default build.
 const faults = process.argv.includes('--faults');
-if (faults && !requested.includes('filters-faults')) {
-  throw new Error('--faults is for the filters-faults section: pass --only=filters-faults.');
+if (faults && !requested.some(name => name === 'filters-faults' || name === 'transforms-faults')) {
+  throw new Error('--faults is for the filters-faults and transforms-faults sections: pass --only=filters-faults or --only=transforms-faults.');
 }
 // Fail first if the binary or the installed library belongs to the other engine profile.
 engine.prepareNative({ faults });

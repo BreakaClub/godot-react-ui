@@ -27,6 +27,8 @@ export interface ShapeCase {
   readonly origin?: string;
   /** The nested case: the card also holds a child with this transform. */
   readonly child?: { readonly transform: string; readonly origin?: string };
+  /** The card has square corners, which are drawn from feathered triangles, not `StyleBoxFlat` (`native/square_box.rs`). */
+  readonly squareCorners?: true;
   /** What the case shows. */
   readonly note: string;
 }
@@ -49,6 +51,9 @@ export const SHAPE_CASES: readonly ShapeCase[] = [
     name: 'nested', transform: 'rotate(10deg)', child: { transform: 'scale(0.8) translate(10px, 6px) rotate(-5deg)' },
     note: 'a turned parent holding a transformed child, flattened per element',
   },
+  { name: 'square-rotate', transform: 'rotate(15deg)', squareCorners: true, note: 'square corners, turned: a staircase if the edges are hard' },
+  { name: 'square-rotate-x', transform: 'rotateX(50deg)', squareCorners: true, note: 'square corners, y squeezed: a pixel of feather on each axis' },
+  { name: 'square-skew', transform: 'skewX(-18deg) skewY(6deg)', squareCorners: true, note: 'square corners, sheared' },
 ];
 
 /** The cases whose pictures are compared pixel by pixel with Chrome's. */
@@ -104,5 +109,16 @@ export const BEHAVIOUR = {
   /** A popover trigger, turned, and the popover anchored to its bounding box. */
   anchor: { left: 160, top: 120, width: 120, height: 40, transform: 'rotate(40deg)' },
   /** Clipping: the same clipped box under a scale (exact) and under a rotation (a bounding box, with an error logged). */
+  /** A static element under a translate, the containing block of an absolute and of a fixed child (CSS: a transform makes one). */
+  contain: { left: 100, top: 80, width: 200, height: 120, transform: 'translate(40px, 30px)', absolute: { left: 10, top: 10, size: 30 }, fixed: { left: 70, top: 10, size: 30 } },
+  /**
+   * A box squeezed to 0.6 on y about its top edge and moved 0.1 px down: its straight edges fall inside a pixel row, so their
+   * antialiasing shows. Twice: with square corners (drawn from feathered triangles, whose feather is one pixel on each axis) and rounded
+   * (`StyleBoxFlat`, whose one feather length is exact on the stretched axis and 0.6 of a pixel on the squeezed one).
+   */
+  edge: { left: 100, top: 100, width: 200, height: 100, transform: 'translateY(0.1px) scaleY(0.6)' },
+  edgeFlat: { left: 100, top: 200, width: 200, height: 100, transform: 'translateY(0.1px) scaleY(0.6)' },
+  /** A plain square-cornered box turned 30 degrees: all four edges are slanted, so a hard edge shows as a staircase. */
+  turnedSquare: { left: 340, top: 80, size: 100, transform: 'rotate(30deg)' },
   clipped: { left: 90, top: 100, size: 100, scale: 'scale(1.3)', rotate: 'rotate(30deg)', gap: 220 },
 } as const;

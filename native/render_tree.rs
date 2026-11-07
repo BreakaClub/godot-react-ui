@@ -37,6 +37,7 @@ use crate::paint::parse_color;
 use crate::profile::{Sample, micros};
 use crate::props::Kind;
 use crate::selection_input::{highlight_paint, highlight_rects};
+use crate::square_box;
 use crate::text_paragraph::StyledParagraph;
 use crate::transform::{Affine2, Placement};
 
@@ -110,9 +111,13 @@ pub(crate) struct BoxKey {
     pub border_color: Color,
     pub border_width: i32,
     pub radius: i32,
-    /// Only rounded corners are antialiased (`StyleBoxFlat`), so only they depend on the scale; a square box
-    /// keeps `Oversampling::NONE` and is not re-recorded when the scale changes.
+    /// The scale the antialiasing feather of a rounded corner is sized for (`StyleBoxFlat`, one feather length). Square corners are
+    /// not antialiased by it, so any other box keeps `Oversampling::NONE` and is not re-recorded when the scale changes.
     pub oversampling: Oversampling,
+    /// A box with square corners that a transform has moved off the pixel grid is drawn from feathered triangles
+    /// (`square_box.rs`), because `StyleBoxFlat` antialiases only a rounded or skewed box: this is their feather along the box's own x
+    /// and y (`Raster::edge_feather`), one device pixel across an edge on each axis. `None` for any other box.
+    pub square_feather: Option<Vector2>,
 }
 
 impl BoxKey {
@@ -817,6 +822,20 @@ impl RenderNode {
         let bounds = Rect2::new(Vector2::ZERO, key.size);
         let mut rs = server();
         rs.canvas_item_clear(self.box_item);
+        if let Some(feather) = key.square_feather {
+            // The feather reaches half its width past the edge.
+            let reach = feather / 2.0;
+            rs.canvas_item_set_custom_rect_ex(self.box_item, true)
+                .rect(Rect2::new(
+                    bounds.position - reach,
+                    bounds.size + reach * 2.0,
+                ))
+                .done();
+            drop(rs);
+            self.record_square(&key, feather);
+            self.box_key = Some(key);
+            return true;
+        }
         rs.canvas_item_set_custom_rect_ex(self.box_item, true)
             .rect(bounds)
             .done();
@@ -845,6 +864,30 @@ impl RenderNode {
         }
         self.box_key = Some(key);
         true
+    }
+
+    /// Draw a box with square corners from feathered triangles: the fill, then the border ring over it, as CSS paints them. Under
+    /// an opaque border the fill stops beneath the ring's inner edge, so no fringe of it shows past the outer one.
+    fn record_square(&self, key: &BoxKey, feather: Vector2) {
+        let outer = square_box::Rect::from_size(key.size);
+        let width = key.border_width as f32;
+        let ring = key.border_width > 0 && key.border_color.a > 0.0;
+        let inner = outer.inset(width);
+        if key.background.a > 0.0 {
+            let fill = if ring && key.border_color.a >= 1.0 {
+                square_box::under_border(outer, inner, feather)
+            } else {
+                square_box::fill(outer, feather)
+            };
+            square_box::draw(self.box_item, &fill, key.background);
+        }
+        if ring {
+            square_box::draw(
+                self.box_item,
+                &square_box::ring(outer, inner, feather),
+                key.border_color,
+            );
+        }
     }
 
     /// Forget the recorded box and draw nothing (a zero-size element).
@@ -1119,8 +1162,9 @@ impl ReactUiRoot {
     /// Bring one node's canvas items up to date. Returns whether its box and its content were
     /// re-recorded.
     fn paint_node(&mut self, tag: u32) -> (bool, bool) {
-        self.ensure_raster_scale(tag);
+        self.ensure_raster(tag);
         let oversampling = self.node_oversampling(tag);
+        let square_feather = self.node_square_feather(tag);
         let motion = self.sampled.get(&tag).map(|sampled| {
             (
                 sampled.opacity,
@@ -1175,6 +1219,7 @@ impl ReactUiRoot {
             } else {
                 Oversampling::NONE
             },
+            square_feather: if radius == 0 { square_feather } else { None },
         };
         let boxed = node.render.record_box(box_key, &mut node.visual.background);
         // A text input draws its own text in the items under its scroll item (`paint_text_input`).
@@ -1223,13 +1268,17 @@ impl ReactUiRoot {
             // through the map that draws the element, so it turns with it; the clip stays the bounding box
             // the engine clips to.
             let (rect, transform) = match self.mounted.absolute_affine(tag, viewport) {
-                Some(affine) if !affine.is_translation() => (
-                    Rect2::new(
-                        Vector2::ZERO,
-                        Vector2::new(rect_size(node)[0], rect_size(node)[1]),
-                    ),
-                    Some(affine),
-                ),
+                Some(affine)
+                    if !affine.is_translation() && !faults::active(Fault::TransformRingFlat) =>
+                {
+                    (
+                        Rect2::new(
+                            Vector2::ZERO,
+                            Vector2::new(rect_size(node)[0], rect_size(node)[1]),
+                        ),
+                        Some(affine),
+                    )
+                }
                 _ => (rect.godot_rect(), None),
             };
             Some(RingKey {
@@ -1238,7 +1287,7 @@ impl ReactUiRoot {
                 clip: clip.map(BoxRect::godot_rect),
                 radius,
                 oversampling: if radius > 0 {
-                    self.oversampling
+                    self.node_oversampling(tag)
                 } else {
                     Oversampling::NONE
                 },
