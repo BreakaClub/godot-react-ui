@@ -195,7 +195,7 @@ All on this machine, through the gate, one run each, logs in `artifacts/logs/`; 
 | `pnpm test` | 883 tests, 883 pass (two new in `tests/select.test.ts`; `tests/labs.test.ts`, `tests/navigator.test.ts` and the section-name tests cover the new lab and section) |
 | `cargo fmt --check` | clean. No Rust changed, so `cargo test` and `cargo clippy --all-targets -- -D warnings` were **not** run. |
 | `node scripts/verify.mjs --interaction --only=dropdown-touch`, Breaka's engine (`pnpm build:native` first: the worktree's cached library was of older sources) | landscape and portrait PASSED, 675 and 671 checks |
-| the same with `--engine=stock` (`pnpm build:native --engine=stock`, then back with `pnpm switch:engine`) | landscape and portrait PASSED, 683 and 671 checks |
+| the same with `--engine=stock` (`pnpm build:native --engine=stock`, then back with `pnpm switch:engine`; both since replaced by one native build for both engines, `docs/tracks/single-build.md`) | landscape and portrait PASSED, 683 and 671 checks |
 | `--only=inputs,scroll,combobox --engine=stock` | landscape and portrait PASSED (inputs 4118, scroll 2693 and 2679, combobox 1562 and 1572) |
 | `--only=positioning,inputs,scroll,combobox,dropdown-touch,navigator`, Breaka's engine (so the new section runs after combobox, and the sections that open a `Select` ran with the fix) | landscape and portrait PASSED (positioning 766, inputs 4118, scroll 2679, combobox 1562 and 1572, dropdown-touch 675 and 673, navigator 7774 and 7130) |
 | `pnpm build:web --export-only`, then `node scripts/verify-interaction-web.mjs --only=combobox,dropdown-touch,navigator,touch,drag` | PASSED: dropdown-touch 96, combobox 180, navigator 1973, touch 59, drag 135 |

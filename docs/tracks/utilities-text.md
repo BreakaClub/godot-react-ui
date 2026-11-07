@@ -190,7 +190,7 @@ Results (this worktree, `text-finish`; every heavy command through the gate; the
 | `cargo clippy --locked --all-targets -- -D warnings` | clean |
 | `tests/utilities-text.test.ts`, `text-styles-golden`, `script-arguments`, `verifier-sections`, `demo-entry-points`, `styles` | 66 of 66 |
 
-<<FILL-FULL>>
+This track did not run the full suite; the batch's full regression covers it (`docs/INTERACTION_PROGRESS.md`, "Batch regression").
 
 ## What `tests/utilities-text.test.ts` covers
 

@@ -44,7 +44,7 @@ keystroke on the wire: the line's whole `spans` array goes down with its text, a
 a comment with three emoji and two CJK characters has its carets up to 0.89 of a column off the grid, a press across an emoji lands on the nearer caret, Right moves over both code units, and the selection band
 is under exactly the three emoji in the raster.
 
-Sections, on both engines (`pnpm switch:engine` between them): default engine `code-editor` 3,546 assertions (landscape; the portrait window runs 2 more), `live-compile` 1,541, `navigator` 7,560; stock
+Sections, on both engines (then switched with `pnpm switch:engine`, since removed: one native build now serves both, `docs/tracks/single-build.md`): default engine `code-editor` 3,546 assertions (landscape; the portrait window runs 2 more), `live-compile` 1,541, `navigator` 7,560; stock
 engine (Godot 4.7.2): the same three, 3,546, 1,541 and 7,560 (`artifacts/logs/rich-final-default-1.log`, `rich-stock-sections.log`). Stock: mount 151 ms, 251 commands, keystroke to ink median 15.8 ms (p95 28.7).
 
 Checked in the section: a press puts the caret within a pixel; drag, double, triple and Shift+click; the keys of the table (Alt/Ctrl word jumps and the rest; the Node tests run every bound
