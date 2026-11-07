@@ -582,19 +582,21 @@ mod lab {
             known: Vec::new(),
         };
         let inherited = InheritedStyle::default();
-        let class_node =
-            |built: &mut Built, class_name: &str, inherited: &InheritedStyle, children: &[NodeId]| {
-                let computed = resolve(
-                    Some(&lab.compiled[class_name]),
-                    false,
-                    inherited,
-                    &conditions_for(viewport),
-                );
-                built
-                    .tree
-                    .new_with_children(computed.taffy_style().unwrap(), children)
-                    .unwrap()
-            };
+        let class_node = |built: &mut Built,
+                          class_name: &str,
+                          inherited: &InheritedStyle,
+                          children: &[NodeId]| {
+            let computed = resolve(
+                Some(&lab.compiled[class_name]),
+                false,
+                inherited,
+                &conditions_for(viewport),
+            );
+            built
+                .tree
+                .new_with_children(computed.taffy_style().unwrap(), children)
+                .unwrap()
+        };
         let page_style = resolve(
             Some(&lab.compiled[&lab.page_class]),
             false,
@@ -699,11 +701,15 @@ mod lab {
                     if expected[2] == 0.0 && expected[3] == 0.0 {
                         checked += 1;
                         if actual[2] != 0.0 || actual[3] != 0.0 {
-                            mismatches.push(format!("{size} {} [{id}]: taffy {actual:?} should have no size", page.name));
+                            mismatches.push(format!(
+                                "{size} {} [{id}]: taffy {actual:?} should have no size",
+                                page.name
+                            ));
                         }
                         continue;
                     }
-                    let edges = |rect: [f32; 4]| [rect[0], rect[1], rect[0] + rect[2], rect[1] + rect[3]];
+                    let edges =
+                        |rect: [f32; 4]| [rect[0], rect[1], rect[0] + rect[2], rect[1] + rect[3]];
                     let difference = edges(actual)
                         .into_iter()
                         .zip(edges(expected))
@@ -746,8 +752,12 @@ fn conditions_for(viewport: Viewport) -> StyleConditions {
 fn flex_one_in_a_column_of_unknown_height_is_not_chromes() {
     let heights = |basis: &str| {
         let mut scene = Scene::new();
-        let a = scene.leaf(&format!(r#"{{"height":16,"flexGrow":1,"flexShrink":1,"flexBasis":{basis}}}"#));
-        let b = scene.leaf(&format!(r#"{{"height":24,"flexGrow":1,"flexShrink":1,"flexBasis":{basis}}}"#));
+        let a = scene.leaf(&format!(
+            r#"{{"height":16,"flexGrow":1,"flexShrink":1,"flexBasis":{basis}}}"#
+        ));
+        let b = scene.leaf(&format!(
+            r#"{{"height":24,"flexGrow":1,"flexShrink":1,"flexBasis":{basis}}}"#
+        ));
         let column = scene.node(r#"{"width":240}"#, &[a, b]);
         let root = scene.node(r#"{"alignItems":"flex-start"}"#, &[column]);
         scene.compute(root, 400.0, 400.0);

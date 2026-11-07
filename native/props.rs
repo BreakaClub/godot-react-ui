@@ -17,6 +17,10 @@ use taffy::style::{
 use taffy::style_helpers::auto;
 
 use crate::filter::{FilterKind, FilterList, FilterParts};
+use crate::grid_style::{
+    AutoKeyword, GridAutoFlowSpec, GridLineSpec, GridTemplateSpec, GridTrackSpec, auto_tracks,
+    placement, validate_auto_tracks,
+};
 use crate::text_style::spec::{MAX_FONT_WEIGHT, MIN_FONT_WEIGHT};
 use crate::text_style::{
     DecorationLines, DecorationThicknessSpec, FontStyleSpec, LetterSpacingSpec, LineClampSpec,
@@ -25,10 +29,6 @@ use crate::text_style::{
     WordBreakSpec,
 };
 use crate::transform::{TransformList, TransformOriginSpec, TransformParts};
-use crate::grid_style::{
-    AutoKeyword, GridAutoFlowSpec, GridLineSpec, GridTemplateSpec, GridTrackSpec, auto_tracks,
-    placement, validate_auto_tracks,
-};
 pub use crate::transition::Easing;
 use crate::transition::{
     PropertiesKeyword, TransitionParts, TransitionProperties, merge_transition,

@@ -1170,7 +1170,10 @@ mod tests {
         near(middle.values[&1].height.as_px().expect("height"), 120.0);
         near(middle.values[&1].opacity, 0.6);
         for channel in &middle.values[&1].background_color[..3] {
-            assert!(*channel > 0.2 && *channel < 0.8, "color interpolated: {channel}");
+            assert!(
+                *channel > 0.2 && *channel < 0.8,
+                "color interpolated: {channel}"
+            );
         }
         let [a, _, _, d, _, f] = matrix_at(&middle, 1);
         near(a, 1.0);
@@ -1179,7 +1182,10 @@ mod tests {
 
         let forward_end = scene.sample(1.0);
         assert!(!forward_end.active);
-        near(forward_end.values[&1].height.as_px().expect("height"), 160.0);
+        near(
+            forward_end.values[&1].height.as_px().expect("height"),
+            160.0,
+        );
         near(forward_end.values[&1].opacity, 1.0);
         let [a, _, _, d, _, _] = matrix_at(&forward_end, 1);
         near(a, 1.5);
@@ -1193,7 +1199,10 @@ mod tests {
         scene.sync(1.0);
         let back_middle = scene.sample(1.5);
         assert!(back_middle.active);
-        near(back_middle.values[&1].height.as_px().expect("height"), 120.0);
+        near(
+            back_middle.values[&1].height.as_px().expect("height"),
+            120.0,
+        );
         near(back_middle.values[&1].opacity, 0.6);
         let [a, _, _, d, _, f] = matrix_at(&back_middle, 1);
         near(a, 1.0);

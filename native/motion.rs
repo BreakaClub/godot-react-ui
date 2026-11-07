@@ -199,9 +199,10 @@ impl ReactUiRoot {
             let Some(node) = self.mounted.nodes.get(&change.tag) else {
                 continue;
             };
-            let before = change.starting.as_ref().or_else(|| {
-                node.geometry.laid_out.then_some(change.previous.as_ref()?)
-            });
+            let before = change
+                .starting
+                .as_ref()
+                .or_else(|| node.geometry.laid_out.then_some(change.previous.as_ref()?));
             let Some(previous) = before else {
                 continue;
             };
