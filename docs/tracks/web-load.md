@@ -218,7 +218,7 @@ the same value to the last digit. Control: the debug export rebuilt with the web
 same failure, same value. So it is deterministic and present in the base. Not investigated further (it is the scroll and transforms code, not this track); the history of `native/scroll.rs`
 puts `8721e7b` (the Shift+scroll change in the web shell and the scroll code) closest to it, which is a suspect, not a finding.
 
-`navigator`: "portrait: Escape in the filter clears it" (`scripts/verify-navigator-web.mjs:156`; after Escape the check counts `lab-menu-item-*` nodes, and in the portrait layout those belong to the menu's list). Failed in the
+`navigator`: "portrait: Escape in the filter clears it" (`scripts/verify-navigator-web.mjs:156`; after Escape the check counts `lab-menu-item-*` nodes, which in the portrait layout I take to exist only while the menu's list is open; a reading of the check, not tested). Failed in the
 full run, alone, and with the base web shell (rebuilt and run the same way), so also deterministic and in the base; the landscape pass of the same section passes, for the debug and for the stripped release pack.
 Not investigated. Neither failure is hidden by the 2,473-assertion pass above: those two sections are the ones left out of it, and I did not edit either verifier.
 
