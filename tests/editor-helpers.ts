@@ -79,7 +79,7 @@ export function keyEvent(key: string, modifiers: Modifiers = {}): KeyEventFields
   const typed = modifiers.shift === true && key.length === 1 ? key.toUpperCase() : key;
   return {
     key: typed, code: codeOf(key), shiftKey: modifiers.shift === true, ctrlKey: modifiers.ctrl === true,
-    altKey: modifiers.alt === true, metaKey: modifiers.meta === true, isComposing: false,
+    altKey: modifiers.alt === true, metaKey: modifiers.meta === true, isComposing: false, timeStamp: 0,
   };
 }
 

@@ -31,6 +31,8 @@ import { PointerSelection, type PointerDown } from './pointer-selection';
 /** The fields of a `keydown` the controller reads; `UIKeyboardEvent` has them. */
 export interface KeyEventFields extends KeyChord {
   readonly isComposing: boolean;
+  /** Milliseconds on the engine's tick clock when native queued the event (`UISyntheticEvent.timeStamp`). */
+  readonly timeStamp: number;
 }
 
 /** The `inputType`s of a `beforeinput` the text input makes (`UIBeforeInputEvent.inputType`). */
@@ -64,6 +66,13 @@ export interface EditorControllerOptions {
 
 type Listener = () => void;
 
+/**
+ * After a soft keyboard's text reaches the input (`insertReplacementText`: the engine's `_set_text`), the engine presses Right once for
+ * each character the keyboard's caret is past (`DisplayServerWeb::_vk_input_text_callback`), a frame later. They are not the person's
+ * arrows and must not move the editor's caret; they come within this long of the text.
+ */
+const SOFT_KEYBOARD_PRESS_WINDOW_MS = 250;
+
 /** How long a composition that has ended waits for the commit that follows it before its preedit is taken away. */
 const COMPOSITION_COMMIT_WAIT_MS = 50;
 
@@ -84,6 +93,8 @@ export class EditorController {
   private currentMetrics: ViewMetrics;
   private currentComposition: Composition | undefined;
   private compositionEnded = false;
+  /** How many of the engine's Right presses after a soft keyboard's text are still to come, and when the text came. */
+  private softKeyboardPresses = { remaining: 0, at: 0 };
   private compositionTimer: ReturnType<typeof setTimeout> | undefined;
   private isFocused = false;
   private revisionCount = 0;
@@ -240,6 +251,7 @@ export class EditorController {
   keyDown(event: KeyEventFields): boolean {
     // The IME owns the keys of a composition.
     if (event.isComposing) return false;
+    if (this.isSoftKeyboardPress(event)) return true;
     const handler = this.keymap.lookup(event);
     if (handler === undefined) return false;
     const acted = handler.command(this.commandContext());
@@ -250,11 +262,15 @@ export class EditorController {
    * A `beforeinput` on the sink: the edit native was about to make, as a transaction on the document. Always handled, so that the
    * sink's own buffer stays empty.
    */
-  beforeInput(kind: InputKind, data: string | null): void {
+  beforeInput(kind: InputKind, data: string | null, timeStamp = 0): void {
     const context = this.commandContext();
     switch (kind) {
-      case 'insertText':
-      case 'insertReplacementText': {
+      case 'insertReplacementText':
+        // The soft keyboard's element holds the whole text it sent, and the engine moves the caret in it by pressing Right.
+        this.softKeyboardPresses = { remaining: data?.length ?? 0, at: timeStamp };
+        this.typeSoftKeyboardText(context, data);
+        return;
+      case 'insertText': {
         const composed = this.currentComposition !== undefined;
         this.endComposition();
         typeText(context, data ?? '', composed ? 'input.type.compose' : 'input.type');
@@ -273,6 +289,21 @@ export class EditorController {
       case 'historyRedo': this.run(codeMirrorCommand(redo)); return;
       default: throw new ExhaustiveCheckError(kind);
     }
+  }
+
+  private typeSoftKeyboardText(context: CommandContext, data: string | null): void {
+    const composed = this.currentComposition !== undefined;
+    this.endComposition();
+    typeText(context, data ?? '', composed ? 'input.type.compose' : 'input.type');
+  }
+
+  /** Whether a key is one of the Right presses the engine makes after a soft keyboard's text: consumed, and counted off. */
+  private isSoftKeyboardPress(event: KeyEventFields): boolean {
+    const pending = this.softKeyboardPresses;
+    const plainRight = event.key === 'ArrowRight' && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey;
+    if (!plainRight || pending.remaining === 0 || event.timeStamp - pending.at > SOFT_KEYBOARD_PRESS_WINDOW_MS) return false;
+    this.softKeyboardPresses = { remaining: pending.remaining - 1, at: pending.at };
+    return true;
   }
 
   /** The IME began a composition: its preedit is shown at the caret until the committed text arrives. */

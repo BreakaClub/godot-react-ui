@@ -275,7 +275,7 @@ export function EditorView({ workspace, file }: EditorViewProps) {
 
   const onBeforeInput = (event: UIBeforeInputEvent): void => {
     hover.cancel();
-    controller.beforeInput(event.inputType, event.data);
+    controller.beforeInput(event.inputType, event.data, event.timeStamp);
     // The editor's text is the controller's; the input's own buffer is never allowed to hold any.
     event.preventDefault();
   };

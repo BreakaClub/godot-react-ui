@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { openEditor, parseMarked, marked } from './editor-helpers';
+import { keyEvent, openEditor, parseMarked, marked } from './editor-helpers';
 
 // The editor's model and keymap, in Node with no Godot and no React: what a key, a typed character, a paste or a pointer press does
 // to the text and the selections (demo/src/editor/). Selections are drawn into the text: `|` a caret, `<abc>` a selection.
@@ -363,7 +363,7 @@ test('a composition that ends without a commit loses its preedit', async () => {
 
 test('a key during a composition is the IME\'s', () => {
   const editor = openEditor('a|');
-  assert.equal(editor.editor.keyDown({ ...{ key: 'ArrowLeft', code: 'ArrowLeft', shiftKey: false, ctrlKey: false, altKey: false, metaKey: false }, isComposing: true }), false);
+  assert.equal(editor.editor.keyDown({ ...{ key: 'ArrowLeft', code: 'ArrowLeft', shiftKey: false, ctrlKey: false, altKey: false, metaKey: false, timeStamp: 0 }, isComposing: true }), false);
   assert.equal(editor.marked(), 'a|');
 });
 
@@ -398,4 +398,24 @@ test('a drag selects between where it began and where it is; Shift+click extends
   editor.editor.pointerDown({ offset: 8, clicks: 1, shiftKey: true, altKey: false });
   editor.editor.pointerUp();
   assert.equal(editor.marked(), '01<234567>89', 'the anchor stayed at 2');
+});
+
+test('a soft keyboard\'s text is typed, and the Right presses the engine makes after it are not the person\'s', () => {
+  const editor = openEditor('ab|cd');
+  const right = (timeStamp: number) => editor.editor.keyDown({ ...keyEvent('ArrowRight'), timeStamp });
+  editor.editor.beforeInput('insertReplacementText', 'XY', 1000);
+  assert.equal(editor.marked(), 'abXY|cd');
+  assert.equal(right(1010), true, 'the first press is the engine\'s');
+  assert.equal(right(1011), true, 'and the second');
+  assert.equal(editor.marked(), 'abXY|cd', 'neither moved the caret');
+  right(1012);
+  assert.equal(editor.marked(), 'abXYc|d', 'a third is the person\'s');
+  const late = openEditor('ab|cd');
+  late.editor.beforeInput('insertReplacementText', 'X', 1000);
+  late.editor.keyDown({ ...keyEvent('ArrowRight'), timeStamp: 1000 + 500 });
+  assert.equal(late.marked(), 'abXc|d', 'a Right long after the text is an arrow');
+  const modified = openEditor('ab|cd');
+  modified.editor.beforeInput('insertReplacementText', 'X', 1000);
+  modified.editor.keyDown({ ...keyEvent('ArrowRight', { shift: true }), timeStamp: 1001 });
+  assert.equal(modified.marked(), 'abX<c>d', 'Shift+Right is never the engine\'s');
 });
