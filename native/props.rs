@@ -1010,6 +1010,11 @@ pub struct PropsSpec {
     pub aria_value_now: Option<f64>,
     pub aria_live: Option<LiveSpec>,
     pub aria_orientation: Option<OrientationSpec>,
+    /// The option a combobox is on while focus stays in its input (`aria-activedescendant`), and the
+    /// element it controls (`aria-controls`, its list). Native has no DOM ids, so each names an element
+    /// by its tag; the tag must be that of an element exposed in the accessibility tree when it is built.
+    pub aria_active_descendant: Option<u32>,
+    pub aria_controls: Option<u32>,
     /// `TextInput` only (plan 4.2). The text a text input starts with; later changes are ignored, as
     /// in the DOM (the buffer owns the text, `setTextAndSelection` replaces it).
     pub default_value: Option<String>,
@@ -1114,6 +1119,10 @@ pub struct PropsDiff {
     #[serde(default)]
     pub aria_orientation: Patch<OrientationSpec>,
     #[serde(default)]
+    pub aria_active_descendant: Patch<u32>,
+    #[serde(default)]
+    pub aria_controls: Patch<u32>,
+    #[serde(default)]
     pub default_value: Patch<String>,
     #[serde(default)]
     pub placeholder: Patch<String>,
@@ -1164,6 +1173,10 @@ impl PropsSpec {
             aria_value_now: diff.aria_value_now.apply(&self.aria_value_now),
             aria_live: diff.aria_live.apply(&self.aria_live),
             aria_orientation: diff.aria_orientation.apply(&self.aria_orientation),
+            aria_active_descendant: diff
+                .aria_active_descendant
+                .apply(&self.aria_active_descendant),
+            aria_controls: diff.aria_controls.apply(&self.aria_controls),
             default_value: diff.default_value.apply(&self.default_value),
             placeholder: diff.placeholder.apply(&self.placeholder),
             multiline: diff.multiline.apply(&self.multiline),
@@ -1236,8 +1249,17 @@ impl PropsSpec {
         Ok(())
     }
 
-    /// The numeric `aria-value*` props are finite, and a range runs from its minimum up.
+    /// The numeric `aria-value*` props are finite, a range runs from its minimum up, and the elements
+    /// `aria-activedescendant` and `aria-controls` name are tags of elements (tag 0 is a layer).
     fn validate_accessibility(&self) -> Result<(), String> {
+        for (name, tag) in [
+            ("ariaActiveDescendant", self.aria_active_descendant),
+            ("ariaControls", self.aria_controls),
+        ] {
+            if tag == Some(0) {
+                return Err(format!("{name} must be the tag of an element, not 0"));
+            }
+        }
         for (name, value) in [
             ("ariaValueMin", self.aria_value_min),
             ("ariaValueMax", self.aria_value_max),
@@ -2108,7 +2130,8 @@ mod tests {
             "ariaPlaceholder":"p","ariaHidden":true,"ariaDisabled":true,"ariaExpanded":false,
             "ariaSelected":true,"ariaReadOnly":true,"ariaRequired":true,"ariaModal":true,
             "ariaChecked":"mixed","ariaValueMin":0,"ariaValueMax":10,"ariaValueNow":3.5,
-            "ariaLive":"assertive","ariaOrientation":"vertical"}"#,
+            "ariaLive":"assertive","ariaOrientation":"vertical",
+            "ariaActiveDescendant":7,"ariaControls":9}"#,
         )
         .unwrap();
         assert_eq!(merged.role, Some(RoleSpec::Slider));
@@ -2118,17 +2141,22 @@ mod tests {
         assert_eq!(merged.aria_value_now, Some(3.5));
         assert_eq!(merged.aria_live, Some(LiveSpec::Assertive));
         assert_eq!(merged.aria_orientation, Some(OrientationSpec::Vertical));
+        assert_eq!(merged.aria_active_descendant, Some(7));
+        assert_eq!(merged.aria_controls, Some(9));
         assert!(merged.exposure().hidden);
         // Absent keys are kept, null resets.
         let reset = merge_diff(
             &merged,
             Kind::View,
-            r#"{"role":null,"ariaChecked":null,"ariaValueNow":null,"ariaLabel":"Other"}"#,
+            r#"{"role":null,"ariaChecked":null,"ariaValueNow":null,"ariaLabel":"Other",
+            "ariaActiveDescendant":null}"#,
         )
         .unwrap();
         assert_eq!(reset.role, None);
         assert_eq!(reset.aria_checked, None);
         assert_eq!(reset.aria_value_now, None);
+        assert_eq!(reset.aria_active_descendant, None, "null resets");
+        assert_eq!(reset.aria_controls, Some(9), "an absent key is kept");
         assert_eq!(reset.aria_label.as_deref(), Some("Other"));
         assert_eq!(reset.aria_value_max, Some(10.0));
         assert!(!PropsSpec::default().exposure().hidden);
@@ -2199,6 +2227,11 @@ mod tests {
             r#"{"ariaOrientation":"diagonal"}"#,
             r#"{"ariaHidden":"true"}"#,
             r#"{"ariaValueNow":"3"}"#,
+            r#"{"ariaActiveDescendant":"7"}"#,
+            r#"{"ariaActiveDescendant":-1}"#,
+            r#"{"ariaActiveDescendant":0}"#,
+            r#"{"ariaControls":0}"#,
+            r#"{"ariaControls":1.5}"#,
             r#"{"ariaLabel":3}"#,
             r#"{"ariaImaginary":true}"#,
             r#"{"aria-label":"x"}"#,

@@ -379,6 +379,38 @@ impl ReactUiRoot {
         self.apply_scroll_bar_elements(&mut server, &bars);
     }
 
+    /// The elements this one names (`aria-activedescendant`, `aria-controls`), which exist by now: every
+    /// exposed element was created before any element is set. One that is not in the tree is hidden or
+    /// unexposed, which is the caller's mistake, said once per change of the element.
+    fn apply_relations(
+        &self,
+        server: &mut Gd<AccessibilityServer>,
+        element: Rid,
+        tag: u32,
+        props: &AxProps,
+    ) {
+        for (name, related) in [
+            ("aria-activedescendant", props.active_descendant),
+            ("aria-controls", props.controls),
+        ] {
+            let Some(related) = related else {
+                continue;
+            };
+            let Some(target) = self.accessibility.registry.element(related) else {
+                godot_error!(
+                    "ReactUiRoot: element {tag}'s {name} names element {related}, which is not in the accessibility tree \
+                     (it is gone, hidden or has no role)"
+                );
+                continue;
+            };
+            if name == "aria-activedescendant" {
+                server.update_set_active_descendant(element, target);
+            } else {
+                server.update_add_related_controls(element, target);
+            }
+        }
+    }
+
     /// Set everything on one element. A node already sent to the platform is replaced by a new one
     /// that has only a role and a name, so every property is set here, every time.
     fn apply_accessibility(
@@ -442,6 +474,7 @@ impl ReactUiRoot {
         if let Some(live) = props.live {
             server.update_set_live(element, server_live(live));
         }
+        self.apply_relations(server, element, tag, props);
         if let Some(vertical) = props.vertical {
             server.update_set_list_orientation(element, vertical);
         }

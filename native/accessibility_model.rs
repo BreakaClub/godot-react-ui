@@ -142,14 +142,21 @@ impl Resolved {
 /// element is not exposed itself (its children attach to the nearest exposed ancestor).
 ///
 /// A `TextInput` is a text field whatever its `role` says (as an HTML `<input>` is), unless the role
-/// takes it out of the tree (`none`, `presentation`). A `View` with `role="textbox"` is still not
-/// exposed: it has no text, selection or editing for an assistive technology to use, and exposing it
-/// would claim a field the user cannot read or edit.
+/// takes it out of the tree (`none`, `presentation`). `role="combobox"` makes it an editable combobox,
+/// which the server has no role for (it has the select-only `OptionButton` shape, a button): a text
+/// field that opens a list popup, which is how AccessKit expresses one. A `View` with `role="textbox"`
+/// is still not exposed: it has no text, selection or editing for an assistive technology to use, and
+/// exposing it would claim a field the user cannot read or edit.
 pub(crate) fn resolve_role(kind: Kind, props: &PropsSpec) -> Option<Resolved> {
     if kind == Kind::TextInput {
+        let field = Resolved::editable_text(props.is_multiline());
         return match props.role {
             Some(RoleSpec::None | RoleSpec::Presentation) => None,
-            _ => Some(Resolved::editable_text(props.is_multiline())),
+            Some(RoleSpec::ComboBox) => Some(Resolved {
+                popup_list: true,
+                ..field
+            }),
+            _ => Some(field),
         };
     }
     let Some(role) = props.role else {
@@ -454,7 +461,21 @@ pub(crate) struct AxProps {
     pub(crate) scroll: Option<AxScroll>,
     /// A text field's text and selection.
     pub(crate) text_field: Option<AxTextField>,
+    /// The element a combobox is on while focus stays in its input, and the one it controls, by tag
+    /// (`aria-activedescendant`, `aria-controls`). The registry turns a tag into the element it holds.
+    pub(crate) active_descendant: Option<u32>,
+    pub(crate) controls: Option<u32>,
     pub(crate) actions: AxActions,
+}
+
+impl AxProps {
+    /// The elements this one names, by tag: the registry sends the element again when one of them is
+    /// replaced by a new element.
+    pub(crate) fn related_tags(&self) -> impl Iterator<Item = u32> {
+        [self.active_descendant, self.controls]
+            .into_iter()
+            .flatten()
+    }
 }
 
 /// The state description of a checkbox that is neither checked nor unchecked. `AccessibilityServer`
@@ -576,6 +597,8 @@ pub(crate) fn props_of(source: &impl AxSource, entry: &AxEntry) -> AxProps {
             .map(|orientation| orientation == OrientationSpec::Vertical),
         scroll: node.scroll,
         text_field: node.text_field.clone().filter(|_| resolved.text_field),
+        active_descendant: props.aria_active_descendant,
+        controls: props.aria_controls,
         actions: AxActions {
             click: resolved.activates && !entry.disabled,
             focus: (matches!(node.kind, Kind::Button | Kind::TextInput)
@@ -724,6 +747,9 @@ pub(crate) trait ElementServer {
 
 struct Slot<Id> {
     id: Id,
+    /// Which element this is: tags are reused by nothing, but an element is freed and made again when it
+    /// moves, and what names it by tag (`aria-activedescendant`) then holds an element that is gone.
+    generation: u64,
     parent: Option<u32>,
     children: Vec<u32>,
     /// What was last set on the element; `None` until it has been set.
@@ -731,6 +757,9 @@ struct Slot<Id> {
     /// A child was added or removed since the element was last set: its node must be sent again to
     /// list the new children.
     children_changed: bool,
+    /// The elements it named when it was last set, with the generation each had then (`None`: it had
+    /// none). Another element in their place means the node must be sent again.
+    related: Vec<(u32, Option<u64>)>,
     /// The scroll bar elements of this element, which are its children after the ones in `children`.
     bars: scroll_bars::ScrollBarSlots<Id>,
 }
@@ -742,6 +771,8 @@ pub(crate) struct Registry<Id> {
     roots: Vec<u32>,
     /// Something that decides what is exposed may have changed since the last [`Registry::prune`].
     structure_dirty: bool,
+    /// The generation the next element made gets.
+    next_generation: u64,
 }
 
 impl<Id> Default for Registry<Id> {
@@ -750,6 +781,7 @@ impl<Id> Default for Registry<Id> {
             slots: HashMap::new(),
             roots: Vec::new(),
             structure_dirty: false,
+            next_generation: 0,
         }
     }
 }
@@ -900,14 +932,17 @@ impl<Id: Copy> Registry<Id> {
                 if let Some(slot) = parent.and_then(|tag| self.slots.get_mut(&tag)) {
                     slot.children_changed = true;
                 }
+                self.next_generation += 1;
                 self.slots.insert(
                     *tag,
                     Slot {
                         id,
+                        generation: self.next_generation,
                         parent,
                         children: Vec::new(),
                         applied: None,
                         children_changed: false,
+                        related: Vec::new(),
                         bars: scroll_bars::ScrollBarSlots::default(),
                     },
                 );
@@ -916,18 +951,30 @@ impl<Id: Copy> Registry<Id> {
         }
     }
 
+    /// The elements `props` names, with the generation each has now.
+    fn generations_of(&self, props: &AxProps) -> Vec<(u32, Option<u64>)> {
+        props
+            .related_tags()
+            .map(|tag| (tag, self.slots.get(&tag).map(|slot| slot.generation)))
+            .collect()
+    }
+
     /// Whether the element for `tag` must be set completely: it has never been, its properties
-    /// differ from what was set, or its children changed.
+    /// differ from what was set, its children changed, or an element it names was made again.
     pub(crate) fn needs_apply(&self, tag: u32, props: &AxProps) -> bool {
-        self.slots
-            .get(&tag)
-            .is_some_and(|slot| slot.children_changed || slot.applied.as_ref() != Some(props))
+        self.slots.get(&tag).is_some_and(|slot| {
+            slot.children_changed
+                || slot.applied.as_ref() != Some(props)
+                || slot.related != self.generations_of(props)
+        })
     }
 
     pub(crate) fn mark_applied(&mut self, tag: u32, props: AxProps) {
+        let related = self.generations_of(&props);
         if let Some(slot) = self.slots.get_mut(&tag) {
             slot.applied = Some(props);
             slot.children_changed = false;
+            slot.related = related;
         }
     }
 }
@@ -1974,6 +2021,51 @@ mod tests {
     }
 
     #[test]
+    fn an_element_is_set_again_when_an_element_it_names_is_made_again() {
+        let mut registry = Registry::default();
+        let mut server = FakeServer::new();
+        let shape = [(1, None), (2, None), (3, Some(2))];
+        sync(&mut registry, &mut server, &desired_of(&shape));
+        let names = AxProps {
+            active_descendant: Some(3),
+            controls: Some(2),
+            ..sample_props()
+        };
+        let plain = sample_props();
+        registry.mark_applied(1, names.clone());
+        registry.mark_applied(2, plain.clone());
+        registry.mark_applied(3, plain.clone());
+        assert!(!registry.needs_apply(1, &names), "nothing it names moved");
+
+        // The named element leaves the tree and comes back: a new element stands in its place.
+        sync(
+            &mut registry,
+            &mut server,
+            &desired_of(&[(1, None), (2, None)]),
+        );
+        assert!(
+            registry.needs_apply(1, &names),
+            "an element it named is gone"
+        );
+        registry.mark_applied(1, names.clone());
+        assert!(!registry.needs_apply(1, &names));
+        sync(&mut registry, &mut server, &desired_of(&shape));
+        assert!(
+            registry.needs_apply(1, &names),
+            "the element it named is another element now, though its tag is the same"
+        );
+        registry.mark_applied(3, plain);
+        registry.mark_applied(1, names.clone());
+        assert!(!registry.needs_apply(1, &names));
+
+        // An element that names nothing is not touched by any of this.
+        let alone = sample_props();
+        registry.mark_applied(2, alone.clone());
+        sync(&mut registry, &mut server, &desired_of(&shape));
+        assert!(!registry.needs_apply(2, &alone));
+    }
+
+    #[test]
     fn changed_properties_need_an_apply_and_equal_ones_do_not() {
         let mut registry = Registry::default();
         let mut server = FakeServer::new();
@@ -2202,6 +2294,68 @@ mod tests {
         // A `View` with `role="textbox"` has nothing to read or edit and stays unexposed.
         let view = Tree::single(Kind::View, props(r#"{"role":"textbox"}"#));
         assert!(entries(&view).is_empty());
+    }
+
+    #[test]
+    fn a_text_input_with_the_combobox_role_is_a_text_field_that_opens_a_list() {
+        let plain = text_input(text_input_props("{}"), field("a", (1, 1)));
+        assert!(!all_props(&plain)[0].popup_list);
+
+        let combobox = text_input(
+            text_input_props(r#"{"role":"combobox","ariaExpanded":true,"ariaLabel":"Fruit"}"#),
+            field("ap", (2, 2)),
+        );
+        assert_eq!(entries(&combobox), vec![(1, None, AxRole::TextField)]);
+        let all = all_props(&combobox);
+        let props = &all[0];
+        assert!(
+            props.popup_list,
+            "the list popup is what makes it a combobox"
+        );
+        assert_eq!(props.expanded, Some(true));
+        assert_eq!(props.name, "Fruit");
+        assert_eq!(props.text_field.as_ref().unwrap().text, "ap");
+        assert!(props.actions.set_selection && props.actions.edit && props.actions.focus);
+        assert!(
+            !props.actions.click,
+            "a text field is not pressed: the practices put the open on the keys and the trigger"
+        );
+
+        // A `View` with the role is the select-only pattern, a button that opens a list.
+        let view = Tree::single(Kind::View, props_of_json(r#"{"role":"combobox"}"#));
+        assert_eq!(entries(&view), vec![(1, None, AxRole::Button)]);
+
+        let multiline = text_input(
+            text_input_props(r#"{"role":"combobox","multiline":true}"#),
+            field("", (0, 0)),
+        );
+        assert_eq!(
+            entries(&multiline),
+            vec![(1, None, AxRole::MultilineTextField)]
+        );
+    }
+
+    fn props_of_json(json: &str) -> PropsSpec {
+        props(json)
+    }
+
+    #[test]
+    fn an_element_names_the_active_option_and_the_list_it_controls_by_tag() {
+        let mut tree = text_input(
+            text_input_props(r#"{"role":"combobox","ariaActiveDescendant":7,"ariaControls":5}"#),
+            field("", (0, 0)),
+        );
+        tree.add(5, Kind::View, props(r#"{"role":"listbox"}"#), &[7]);
+        tree.add(7, Kind::View, props(r#"{"role":"option"}"#), &[]);
+        tree.roots = vec![1, 5];
+        let all = all_props(&tree);
+        assert_eq!(
+            (all[0].active_descendant, all[0].controls),
+            (Some(7), Some(5))
+        );
+        assert_eq!(all[0].related_tags().collect::<Vec<_>>(), vec![7, 5]);
+        assert_eq!((all[1].active_descendant, all[1].controls), (None, None));
+        assert_eq!(all[1].related_tags().count(), 0);
     }
 
     #[test]
