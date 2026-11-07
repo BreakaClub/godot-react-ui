@@ -88,11 +88,28 @@ export default {
       headers.set('Content-Type', contentTypes[ext]);
     }
 
-    // Cache control
-    if (ext === '.html') {
+    // Cache control: unhashed filenames (.pck, .wasm, .js) must always revalidate via ETag
+    // (`no-cache, must-revalidate`) rather than serving stale from disk cache.
+    if (ext === '.html' || ext === '.json') {
       headers.set('Cache-Control', 'no-store');
     } else {
-      headers.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=86400');
+      headers.set('Cache-Control', 'no-cache, must-revalidate');
+    }
+
+    // Evict any previously cached subresources (e.g. from an earlier deploy or stale-while-revalidate)
+    // whenever the HTML revision ETag changes.
+    if (relativePath === 'index.html' && etag) {
+      const cleanEtag = String(etag).replace(/^W\/|"/g, '');
+      const cookieHeader = request.headers.get('cookie') ?? '';
+      const currentRev = cookieHeader
+        .split(';')
+        .map(part => part.trim())
+        .find(part => part.startsWith('react_demo_rev='))
+        ?.slice('react_demo_rev='.length);
+      if (currentRev !== cleanEtag) {
+        headers.set('Clear-Site-Data', '"cache"');
+        headers.set('Set-Cookie', `react_demo_rev=${cleanEtag}; Path=/; Max-Age=31536000; SameSite=Lax; Secure`);
+      }
     }
 
     // Cross-origin isolation headers for SharedArrayBuffer / Wasm threads

@@ -15,8 +15,9 @@ Matches the deployment pattern used by `breaka-rpg` for `game.breaka.club` and `
   - Request to bare root `/` without query parameters redirects (302) to `/?demo=navigator` so visitors land in the Lab Navigator.
   - Query parameters (`?lab=<id>`, `?demo=navigator`, `?demo=app`) are passed through to the Web demo shell.
 - **Caching**:
-  - HTML documents (`.html`) are served with `Cache-Control: no-store` to ensure prompt updates.
-  - Binaries and scripts (`.wasm`, `.pck`, `.js`) are served with ETag support and `Cache-Control: public, max-age=300, stale-while-revalidate=86400`.
+  - HTML documents (`.html`) and `.json` receipts are served with `Cache-Control: no-store`.
+  - Unhashed binaries and scripts (`.wasm`, `.pck`, `.js`) are served with ETag support (`304 Not Modified`) and `Cache-Control: no-cache, must-revalidate` so browsers always revalidate before using a cached asset.
+  - Whenever `index.html`'s ETag changes (which happens on every build whose `.pck` or `.wasm` byte size changes), the Worker emits `Clear-Site-Data: "cache"` and updates the `react_demo_rev` cookie on the first document load so stale subresources are evicted immediately.
 
 ## Scripts
 
