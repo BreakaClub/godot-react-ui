@@ -18,6 +18,7 @@ declare module 'godot' {
     requestQuery(requestJson: string): number;
     poll(): string;
     start(): void;
+    diagnostics(): string;
   }
 }
 
@@ -145,4 +146,10 @@ export function readProject(): Project {
   const text = FileAccess.getFileAsString(PROJECT_RESOURCE);
   if (text === '') throw new Error(`${PROJECT_RESOURCE} is missing or empty: run "node scripts/live-compile-project.mjs" (the export needs it in the pack too)`);
   return parseProject(text);
+}
+
+/** TEMPORARY DIAGNOSTICS (docs/tracks/live-compile-async.md): the extension's trace of the service pipeline, or null when the class is not there. */
+export function liveCompileDiagnostics(): unknown {
+  if (!ClassDB.classExists('LiveCompile')) return null;
+  return JSON.parse(new LiveCompile().diagnostics());
 }

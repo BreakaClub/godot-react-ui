@@ -27,7 +27,7 @@ import { observeInputFailure, runVerification } from './verify';
 import { BenchmarkApp, type BenchmarkProps } from './benchmark';
 import { runProbe } from './probe';
 import { openLiveSession } from './live-compile-open';
-import { readProject } from './live-compile-host';
+import { liveCompileDiagnostics, readProject } from './live-compile-host';
 import type { CodeSupport } from './editor/lab-code';
 import { verifyLiveCompile } from './verify-live-compile';
 import { installRefreshHook } from './live-compile-refresh';
@@ -190,6 +190,8 @@ export default class Main extends Node {
         if (file === undefined) throw new Error(`The live-compile project has no source for the lab ${id}`);
         return file.text;
       },
+      /** TEMPORARY DIAGNOSTICS: the live-compile extension's trace (docs/tracks/live-compile-async.md). */
+      liveCompileDiagnostics: () => liveCompileDiagnostics(),
       /** A lab compiled from its source and kept up to date as the source changes (`live-compile-session.ts`), for the `live-compile` section. */
       openLiveSession: (labId: string, exportName: string) => openLiveSession({ root: this.requireRenderer(), labId, exportName }),
       /** One page of the paint lab on its own (`docs/tracks/utilities-paint.md`), at the stage's size, from the window's corner. */
