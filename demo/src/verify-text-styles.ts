@@ -3,7 +3,10 @@ import {
 } from 'godot';
 import type { UISelection } from '../../src';
 import type { LayoutRect, NativeSnapshot, NativeSnapshotNode } from '../../src/native';
-import { GOLDEN_TEXTS, type GoldenLine, type GoldenText } from './text-styles-golden';
+import { GOLDEN_TEXTS, type GoldenInk, type GoldenLine, type GoldenText } from './text-styles-golden';
+import {
+  GLYPH_INK_FLOOR, inkDeviations, measureTextInk, type InkDeviation, type InkImage, type TextInk,
+} from './text-ink';
 import { PAGES, type TextSample } from './text-styles-data';
 import { click, drag } from './verify-text-input';
 import { grab, settleFrames } from './verify-filters';
@@ -14,8 +17,10 @@ import { assertionTally, parseVerifierEvent, verifierClipboard } from './verifie
  * shown at device pixel ratios one and two and held to the numbers headless Chrome reports for the same classes
  * (`text-styles-golden.ts`, written by `scripts/text-styles-reference.mjs --golden`): the box of each text, and for each of its
  * lines the left and right ends of the glyphs and the baseline, all within a pixel. The pictures are captured for the per
- * channel comparison (`scripts/text-styles-reference.mjs --diff`). The texts the lab marks for selection are selected with the
- * pointer, where Chrome's characters are, and copied. Controls show that each comparison fails for a text of another style.
+ * channel comparison (`scripts/text-styles-reference.mjs --diff`). The ink of every line is held to Chrome's too: the right edge of
+ * what is drawn, and for the white space page the ink of every character (`verifyInk`; a layout number says where a glyph is, the
+ * ink says it was drawn). The texts the lab marks for selection are selected with the pointer, where Chrome's characters are, and
+ * copied. Controls show that each comparison fails for a text of another style.
  */
 export interface TextStylesInspection {
   snapshot(): NativeSnapshot;
@@ -46,6 +51,14 @@ const CHARACTER_STRIDE = 7;
 const HIGHLIGHT_ROW_INSET_PX = 1;
 /** A right edge this far from Chrome's is listed in the log, though it passes. */
 const LARGE_SPREAD_PX = 0.25;
+/** The bytes of a pixel of the picture `inkImageOf` makes. */
+const RGBA_CHANNELS = 4;
+/** How far the control moves the end of a line's ink: well outside the tolerance, well inside a line. */
+const INK_CONTROL_SHIFT_PX = 10;
+/** The device pixel ratio of the pass that draws the white space page along the path a fractional ratio takes (`StyledParagraph::draw`). */
+const FRACTIONAL_SCALE = 1.5;
+/** The page the characters' ink is held to Chrome's on. */
+const GLYPH_INK_PAGE = 'whitespace';
 
 function assert(condition: unknown, message: string): asserts condition {
   assertionTally.count += 1;
@@ -232,6 +245,70 @@ function verifyNumbers(api: TextStylesInspection, pageId: string, label: string)
   return page.samples.length;
 }
 
+// ---- The ink ----------------------------------------------------------------------------------------------------------
+
+function describeInk(found: readonly InkDeviation[]): string {
+  const show = (value: number | null): string => (value === null ? 'none' : value.toFixed(2));
+  return found.map(each => `${each.what}: ${show(each.ours)} against Chrome's ${show(each.chrome)}`).join('; ');
+}
+
+/**
+ * Hold what is drawn to what Chrome draws, at device pixel ratio `scale`: for every text of the page, the right edge of the ink of each
+ * line, and for the white space page the ink of every character. A layout number (`verifyNumbers`) says where a glyph is; this says it was
+ * drawn there. Returns how many edges and characters were compared.
+ */
+function verifyInk(owner: Node, api: TextStylesInspection, pageId: string, label: string, scale: number): { edges: number; glyphs: number } {
+  const page = PAGES.find(candidate => candidate.id === pageId);
+  assert(page, `No page ${pageId}`);
+  const image = inkImageOf(grab(owner));
+  const edgeSpread: Spread = { count: 0, sum: 0, worst: 0 };
+  let glyphs = 0;
+  let thinnest = Number.POSITIVE_INFINITY;
+  let thickest = 0;
+  for (const sample of page.samples) {
+    const chrome = golden(sample.id);
+    const reference = chrome.ink[String(scale)];
+    assert(reference, `Chrome has no ink numbers for ${sample.id} at ratio ${scale}; run scripts/text-styles-reference.mjs --golden`);
+    const ours = measureTextInk(image, scale, chrome);
+    chrome.lines.forEach((_, index) => {
+      const mine = ours.edges[index];
+      const edge = reference.edges[index];
+      if (typeof mine === 'number' && typeof edge === 'number') addTo(edgeSpread, mine - edge);
+    });
+    (reference.glyphs ?? []).forEach((expected, index) => {
+      const mine = ours.glyphs?.[index];
+      if (mine === undefined || expected < GLYPH_INK_FLOOR) return;
+      glyphs += 1;
+      thinnest = Math.min(thinnest, mine / expected);
+      thickest = Math.max(thickest, mine / expected);
+    });
+    const found = inkDeviations(ours, reference, chrome.cells, [...sample.text]);
+    assertionTally.count += 1;
+    if (found.length > 0) {
+      differing.push(`${label}: ${sample.id} (${sample.note}): ${describeInk(found)}`);
+      console.log(`GODOT_REACT_TEXT_STYLES_INK_DIFF ${differing.at(-1)}`);
+    }
+    if (sample.id === 'justify' && reference.glyphs !== undefined) verifyInkControls(ours, reference, chrome.cells, [...sample.text]);
+  }
+  console.log(`GODOT_REACT_TEXT_STYLES_INK ${label}: ${showSpread('line ink edge', edgeSpread)}; ${glyphs} characters, ink share ${glyphs === 0 ? 'none' : `${thinnest.toFixed(2)} to ${thickest.toFixed(2)}`} of Chrome's`);
+  return { edges: edgeSpread.count, glyphs };
+}
+
+/**
+ * The ink comparison must fail where it should. The justified text's own numbers are changed as a missing glyph and a short line change
+ * them, and the comparison must find one more difference for each: the first character not drawn, and the second line ending ten pixels
+ * early. (Not the last of the first line, which is the glyph a clip can lose: where it is lost the comparison has already found it.)
+ */
+function verifyInkControls(ours: TextInk, reference: GoldenInk, cells: GoldenText['cells'], characters: readonly string[]): void {
+  const already = inkDeviations(ours, reference, cells, characters).length;
+  const undrawn = { ...ours, glyphs: (ours.glyphs ?? []).map((ink, index) => (index === 0 ? 0 : ink)) };
+  assert(inkDeviations(undrawn, reference, cells, characters).length > already,
+    'Control: the justified text without the ink of its first character passes; the comparison cannot tell a missing glyph');
+  const short = { ...ours, edges: ours.edges.map((edge, index) => (index === 1 && edge !== null ? edge - INK_CONTROL_SHIFT_PX : edge)) };
+  assert(inkDeviations(short, reference, cells, characters).length > already,
+    'Control: the justified text with its second line ending early passes; the comparison cannot tell a short line');
+}
+
 // ---- Selection, hit testing and copy -------------------------------------------------------------------------------
 
 function keyEvent(keycode: Key, pressed: boolean, ctrl: boolean, meta: boolean): void {
@@ -299,6 +376,12 @@ async function verifyHitTesting(api: TextStylesInspection, sample: TextSample): 
     checked += 1;
   }
   return checked;
+}
+
+/** The picture as bytes: RGBA, row after row. */
+function inkImageOf(image: Image): InkImage {
+  if (image.getFormat() !== Image.Format.FormatRgba8) image.convert(Image.Format.FormatRgba8);
+  return { width: image.getWidth(), height: image.getHeight(), channels: RGBA_CHANNELS, pixels: new Uint8Array(image.getData().toArrayBuffer()) };
 }
 
 /** The first and last x (logical) of a row of the picture that has the selection highlight's blue tint, or `undefined` for none. */
@@ -433,6 +516,7 @@ async function verifyScale(owner: Node, api: TextStylesInspection, capture: Text
     await showPage(api, page.id);
     compared += verifyNumbers(api, page.id, `${page.id} at ratio ${scale}`);
     controls += verifyControls(api, page.id);
+    if (page.id === GLYPH_INK_PAGE) verifyInk(owner, api, page.id, `${page.id} at ratio ${scale}`, scale);
     await capture(`text-styles-${page.id}-dpr${scale}`);
   }
   const selecting = await verifySelecting(owner, api);
@@ -442,11 +526,13 @@ async function verifyScale(owner: Node, api: TextStylesInspection, capture: Text
 
 export async function verifyTextStyles(owner: Node, api: TextStylesInspection, capture: TextStylesCapture): Promise<void> {
   let compared = 0;
+  // The window's logical width at ratio one: the pages only fit the ratios the window is wide enough for.
+  const windowWidth = api.snapshot().width;
   try {
     compared += (await verifyScale(owner, api, capture, 1)).compared;
     // Device pixel ratio two is the window's content scale, as a retina display has it: the logical window is half as wide, so
     // the lab's pages only fit the landscape window.
-    if (api.snapshot().width >= PAGE_WIDTH_PX * RETINA_SCALE) compared += (await verifyScale(owner, api, capture, RETINA_SCALE)).compared;
+    if (windowWidth >= PAGE_WIDTH_PX * RETINA_SCALE) compared += (await verifyScale(owner, api, capture, RETINA_SCALE)).compared;
   } finally {
     window(owner).contentScaleFactor = 1;
     contentScale = 1;

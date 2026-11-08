@@ -3,9 +3,12 @@
 // of every text and the baseline and the two ends of every line to the numbers headless Chrome reports for the same classes
 // (scripts/text-styles-golden.json, written by `node --import tsx scripts/text-styles-reference.mjs --golden`), selects with Chrome's own
 // mouse where Chrome's characters are, and captures every page for the per channel comparison
-// (`node --import tsx scripts/text-styles-reference.mjs --diff --native=<capture directory>`).
+// (`node --import tsx scripts/text-styles-reference.mjs --diff --native=<capture directory>`). It also reads the canvas: the right edge
+// of every line's ink, and for the white space page the ink of every character, are held to Chrome's (docs/tracks/justify-clip.md).
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { decodePng } from './png.mjs';
+import { inkDeviations, measureTextInk } from './text-ink.mjs';
 
 const golden = JSON.parse(await readFile(resolve(import.meta.dirname, 'text-styles-golden.json'), 'utf8'));
 
@@ -40,8 +43,41 @@ export function deviations(box, ours, chrome, comparison) {
   return found;
 }
 
+/** What the library draws is Chrome's too: the end of each line's ink, and the ink of each character, from a picture of the canvas. */
+async function inkFailures(page, snapshot, pageId, ids, dpr) {
+  const canvas = await page.$('canvas');
+  const picture = decodePng(Buffer.from(await canvas.screenshot({ type: 'png' })));
+  await canvas.dispose();
+  // The picture is as many pixels per logical pixel as it is wider than the root.
+  const scale = picture.width / (await snapshot()).width;
+  const failures = [];
+  const compared = { edges: 0, glyphs: 0 };
+  for (const id of ids) {
+    const chrome = golden[id];
+    const reference = chrome.ink[String(dpr)];
+    if (reference === undefined) {
+      failures.push(`${id}: Chrome has no ink numbers at ratio ${dpr}`);
+      continue;
+    }
+    const ours = measureTextInk(picture, scale, chrome);
+    compared.edges += reference.edges.length;
+    compared.glyphs += reference.glyphs?.length ?? 0;
+    const found = inkDeviations(ours, reference, chrome.cells, [...chrome.copy]);
+    if (found.length > 0) failures.push(`${id}: ${found.map((each) => `${each.what}: ${each.ours?.toFixed(2) ?? 'none'} against ${each.chrome?.toFixed(2) ?? 'none'}`).join('; ')}`);
+    if (id === 'justify' && reference.glyphs !== undefined) {
+      // Controls: the numbers of the justified text with a glyph not drawn, and with a line ending early, are found.
+      const already = found.length;
+      const undrawn = { ...ours, glyphs: ours.glyphs.map((ink, index) => (index === 0 ? 0 : ink)) };
+      if (inkDeviations(undrawn, reference, chrome.cells, [...chrome.copy]).length <= already) failures.push('Control: the justified text without the ink of its first character passes');
+      const short = { ...ours, edges: ours.edges.map((edge, index) => (index === 1 && edge !== null ? edge - 10 : edge)) };
+      if (inkDeviations(short, reference, chrome.cells, [...chrome.copy]).length <= already) failures.push('Control: the justified text with its second line ending early passes');
+    }
+  }
+  return { failures, compared, scale };
+}
+
 export async function runTextStylesScenario(context) {
-  const { demo, page, frames, find, check, capture, moveTo } = context;
+  const { demo, page, frames, find, check, capture, moveTo, snapshot } = context;
   const settle = async () => { for (let index = 0; index < SETTLE_FRAMES; index += 1) await frames(); };
   const pages = [...new Set(Object.values(golden).map((entry) => entry.page))];
   const idsOf = (pageId) => Object.entries(golden).filter(([, entry]) => entry.page === pageId).map(([id]) => id);
@@ -59,6 +95,10 @@ export async function runTextStylesScenario(context) {
       if (found.length > 0) failures.push(`${id}: ${describe(found)}`);
     }
     check(`${pageId}: every text is within ${TOLERANCE_PX} px of Chrome's (ratio ${dpr})`, failures.length === 0, failures);
+    if (pageId === 'whitespace') {
+      const ink = await inkFailures(page, snapshot, pageId, idsOf(pageId), dpr);
+      check(`${pageId}: what is drawn ends where Chrome's ink ends, and every character has its ink (ratio ${dpr}, ${ink.compared.edges} lines, ${ink.compared.glyphs} characters)`, ink.failures.length === 0, ink.failures);
+    }
     await capture(`text-styles-${pageId}-${dpr === 1 ? 'dpr1' : 'web-dpr2'}`);
   }
 
