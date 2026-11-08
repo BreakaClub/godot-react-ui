@@ -1,6 +1,8 @@
+import './setup';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createElement as h, type ReactNode } from 'react';
+import { createMemoryHistory } from '@tanstack/react-router';
 import { Text } from '../src';
 import { LABS, labsInOrder, type InlineLab, type Lab, type SceneLab } from '../demo/src/labs';
 import { Navigator, type NavigatorProps } from '../demo/src/navigator';
@@ -397,4 +399,18 @@ test('the code of a read-only lab cannot be edited', () => {
 test('the Code button is not offered for a lab that is a window or a scene', () => {
   const m = mount({ code: withoutCompiler, initialLab: 'world' });
   assert.equal(m.has('toggle-code'), false);
+});
+
+test('tanstack router history navigation updates the selected lab and stage', async () => {
+  const history = createMemoryHistory({ initialEntries: ['/labs/counter'] });
+  const m = mount({ history });
+  assert.equal(m.title(), 'Counter');
+  assert.ok(m.has('counter-lab'));
+
+  history.push('/labs/transforms');
+  await new Promise(resolve => setTimeout(resolve, 10));
+
+  assert.equal(m.title(), 'Transforms');
+  assert.ok(m.has('transform-stage'));
+  assert.equal(m.props('lab-item-transforms').ariaSelected, true);
 });

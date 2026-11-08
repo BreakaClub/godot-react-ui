@@ -1,6 +1,15 @@
 import { useState, type ReactNode } from 'react';
-import { Button, Portal, ScrollView, Text, View, type UIHandle, type UIPointerEvent, type UITextPosition } from '../../src';
-import type { LayoutRect } from '../../src/native';
+import {
+  Button,
+  Portal,
+  ScrollView,
+  Text,
+  View,
+  type LayoutRect,
+  type UIHandle,
+  type UIPointerEvent,
+  type UITextPosition,
+} from 'godot-react-ui';
 import { LabIntro, LabLimit, Readout } from './lab-parts';
 import { PAGES, PAGE_CLASS, TONES, span, type RichPage, type RichSample, type Run } from './rich-text-data';
 

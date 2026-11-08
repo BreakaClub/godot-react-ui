@@ -21,7 +21,11 @@ const builder = await context({
   absWorkingDir: root, bundle: true, platform: 'neutral', target: 'es2022', format: 'cjs', sourcemap:true,
   entryPoints: [...DEMO_ENTRY_POINTS], outdir: 'demo/.godot/GodotJS/src',
   external: ['godot', 'godot.lib.api', 'godot.annotations', 'godot-jsb'],
-  define: {'process.env.NODE_ENV':'"development"'},
+  conditions: ['browser'],
+  define: {
+    'process.env.NODE_ENV': '"development"',
+    'self': 'globalThis',
+  },
 });
 await builder.watch();
 const child = spawn(godot, ['--audio-driver','Dummy','--editor','--path',resolve(root,'demo')],{stdio:'inherit'});

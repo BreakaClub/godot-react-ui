@@ -1,9 +1,33 @@
-import { Component, Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type MutableRefObject, type ReactNode } from 'react';
+import React, { Component, createContext, Fragment, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type MutableRefObject, type ReactNode } from 'react';
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  Outlet,
+  RouterProvider,
+  useParams,
+  type RouterHistory,
+} from '@tanstack/react-router';
 import { Button, Portal, ScrollView, Select, Text, TextField, View, type UIHandle, type UIInputEvent, type UIKeyboardEvent } from 'godot-react-ui';
 import { LAB_GROUPS, LABS, filterLabs, labsInOrder, type Lab, type SceneLab, type WindowLab } from './labs';
 import { ExpectedVisibleProvider } from './lab-parts';
 import { CodeEditor } from './code-editor';
 import { labCodeKey, openLabCode, releaseLabCode, type CodeSupport, type LabCode } from './editor/lab-code';
+
+declare global {
+  // eslint-disable-next-line no-var
+  var scrollTo: ((x?: number, y?: number) => void) | undefined;
+  // eslint-disable-next-line no-var
+  var self: typeof globalThis | undefined;
+}
+
+if (typeof globalThis.scrollTo === 'undefined') {
+  globalThis.scrollTo = () => {};
+}
+if (typeof globalThis.self === 'undefined') {
+  globalThis.self = globalThis;
+}
 
 /**
  * The demo's shop window: every lab behind one navigation shell, built from the library's own kit and utility classes.
@@ -31,6 +55,8 @@ export interface NavigatorProps {
   onOpenScene?: (lab: SceneLab) => void;
   /** What the code panel needs to edit a lab live. Without it there is no Code button. */
   code?: CodeSupport;
+  /** An optional router history (e.g. MemoryHistory in tests, HashHistory on web). */
+  history?: RouterHistory;
 }
 
 const NEXT = 1;
@@ -404,90 +430,116 @@ function LabHeader({ lab, missing, position, onStep, canEdit, codeOpen, onToggle
   );
 }
 
-export function Navigator({ labs = LABS, initialLab, onLabChange, onOpenScene, code: codeSupport }: NavigatorProps) {
-  const ordered = useMemo(() => labsInOrder(labs), [labs]);
-  const requested = initialLab === undefined ? undefined : ordered.find(lab => lab.id === initialLab);
-  const [selectedId, setSelectedId] = useState<string | undefined>(initialLab === undefined ? ordered[FIRST_LAB]?.id : requested?.id);
-  const [missing, setMissing] = useState<string | undefined>(initialLab !== undefined && requested === undefined ? initialLab : undefined);
-  const [query, setQuery] = useState('');
-  const [windowOpen, setWindowOpen] = useState(false);
-  const [codeOpen, setCodeOpen] = useState(false);
-  const [showExpected, setShowExpected] = useState(false);
-  const handles = useRef(new Map<string, UIHandle>());
+interface NavigatorContextValue {
+  labs: readonly Lab[];
+  ordered: readonly Lab[];
+  selectedId: string | undefined;
+  selected: Lab | undefined;
+  missing: string | undefined;
+  query: string;
+  setQuery: (q: string) => void;
+  windowOpen: boolean;
+  setWindowOpen: (open: boolean) => void;
+  codeOpen: boolean;
+  setCodeOpen: (action: boolean | ((open: boolean) => boolean)) => void;
+  showExpected: boolean;
+  setShowExpected: (action: boolean | ((open: boolean) => boolean)) => void;
+  handles: MutableRefObject<Map<string, UIHandle>>;
+  choose: (id: string) => void;
+  step: (delta: number) => void;
+  onOpenScene?: (lab: SceneLab) => void;
+  codeSupport?: CodeSupport;
+  livePage?: ComponentType;
+  codePanel?: { lab: Lab; code: LabCode };
+}
 
-  const visible = useMemo(() => filterLabs(ordered, query), [ordered, query]);
-  const selected = ordered.find(lab => lab.id === selectedId);
-  const labCode = useLabCode(selected, codeSupport, codeOpen);
-  const livePage = labCode !== undefined && labCode.kind === 'live' ? labCode.session.Lab : undefined;
-  const codePanel = codeOpen && selected !== undefined && labCode !== undefined ? { lab: selected, code: labCode } : undefined;
-  // The narrow menu always holds the current lab, even one the filter has hidden, so it can show its name.
-  const menuLabs = useMemo(() => ordered.filter(lab => lab.id === selectedId || visible.includes(lab)), [ordered, selectedId, visible]);
-  // Previous and next walk what the filter shows; with the filter matching nothing, every lab.
-  const walk = visible.length > 0 ? visible : ordered;
-  const position = selected === undefined ? '' : `${ordered.indexOf(selected) + 1} of ${ordered.length}`;
+const NavigatorContext = createContext<NavigatorContextValue | null>(null);
 
-  const choose = (id: string) => {
-    setSelectedId(id);
-    setMissing(undefined);
-    setWindowOpen(false);
-    onLabChange?.(id);
-  };
-  const step = (delta: number) => {
-    const target = neighbour(walk, selectedId, delta);
-    if (target !== undefined) choose(target.id);
-  };
+function useNavigatorContext(): NavigatorContextValue {
+  const ctx = useContext(NavigatorContext);
+  if (ctx === null) throw new Error('useNavigatorContext must be used within Navigator');
+  return ctx;
+}
+
+function StageOutlet() {
+  const ctx = useNavigatorContext();
+  const params = useParams({ strict: false });
+  const labId = ctx.selectedId ?? params.labId;
+  const lab = labId !== undefined ? ctx.ordered.find(l => l.id === labId) : undefined;
+
+  if (lab === undefined) {
+    return (
+      <ScrollView testID="lab-scroll" className="absolute inset-0">
+        <MissingLab id={ctx.missing ?? params.labId ?? ''} labs={ctx.ordered} />
+      </ScrollView>
+    );
+  }
+
+  if (lab.kind !== 'inline') {
+    // The card is centred in the area and scrolls in a window too short for it.
+    return (
+      <ScrollView key={lab.id} testID="lab-scroll" className="absolute inset-0" contentClassName="items-center justify-center p-6">
+        <LaunchCard lab={lab} onOpenWindow={() => ctx.setWindowOpen(true)} onOpenScene={ctx.onOpenScene} />
+      </ScrollView>
+    );
+  }
+
+  if (lab.surface === 'game') {
+    return (
+      <View key={lab.id} className="absolute inset-0">
+        <LabPage lab={lab} page={ctx.livePage} />
+      </View>
+    );
+  }
+
+  return (
+    <ScrollView key={lab.id} testID="lab-scroll" className="absolute inset-0" contentClassName={lab.padded === true ? PAGE_PADDING : undefined}>
+      <LabPage lab={lab} page={ctx.livePage} />
+    </ScrollView>
+  );
+}
+
+function NavigatorShell() {
+  const ctx = useNavigatorContext();
+  const { selected, codePanel } = ctx;
+
+  const visible = useMemo(() => filterLabs(ctx.ordered, ctx.query), [ctx.ordered, ctx.query]);
+  const menuLabs = useMemo(() => ctx.ordered.filter(lab => lab.id === ctx.selectedId || visible.includes(lab)), [ctx.ordered, ctx.selectedId, visible]);
+  const position = selected === undefined ? '' : `${ctx.ordered.indexOf(selected) + 1} of ${ctx.ordered.length}`;
+
   const focusFirst = () => {
     const first = visible[FIRST_LAB];
-    if (first !== undefined) handles.current.get(first.id)?.focus();
+    if (first !== undefined) ctx.handles.current.get(first.id)?.focus();
   };
   const submitFilter = () => {
     const first = visible[FIRST_LAB];
-    if (first !== undefined) choose(first.id);
+    if (first !== undefined) ctx.choose(first.id);
   };
   const onKeyDown = (event: UIKeyboardEvent) => {
     if (event.defaultPrevented) return;
-    if (event.key === 'Escape' && windowOpen) {
+    if (event.key === 'Escape' && ctx.windowOpen) {
       event.preventDefault();
-      setWindowOpen(false);
+      ctx.setWindowOpen(false);
       return;
     }
-    if (windowOpen || !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-    if (event.key === 'ArrowDown') { event.preventDefault(); step(NEXT); }
-    else if (event.key === 'ArrowUp') { event.preventDefault(); step(PREVIOUS); }
+    if (ctx.windowOpen || !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    if (event.key === 'ArrowDown') { event.preventDefault(); ctx.step(NEXT); }
+    else if (event.key === 'ArrowUp') { event.preventDefault(); ctx.step(PREVIOUS); }
   };
 
   // One lab owns the whole window: nothing of the shell is mounted behind it.
-  if (windowOpen && selected !== undefined && selected.kind === 'window') {
+  if (ctx.windowOpen && selected !== undefined && selected.kind === 'window') {
     return (
       <View testID="navigator" tabIndex={-1} className="w-full h-full" onKeyDown={onKeyDown}>
-        <ExpectedVisibleProvider value={showExpected}>
+        <ExpectedVisibleProvider value={ctx.showExpected}>
           <LabPage lab={selected} />
         </ExpectedVisibleProvider>
-        <WindowBar lab={selected} onBack={() => setWindowOpen(false)} />
+        <WindowBar lab={selected} onBack={() => ctx.setWindowOpen(false)} />
       </View>
     );
   }
 
   const game = selected !== undefined && selected.kind === 'inline' && selected.surface === 'game';
-  let stage: ReactNode;
-  if (selected === undefined) {
-    stage = <ScrollView testID="lab-scroll" className="absolute inset-0"><MissingLab id={missing ?? ''} labs={ordered} /></ScrollView>;
-  } else if (selected.kind !== 'inline') {
-    // The card is centred in the area and scrolls in a window too short for it.
-    stage = (
-      <ScrollView key={selected.id} testID="lab-scroll" className="absolute inset-0" contentClassName="items-center justify-center p-6">
-        <LaunchCard lab={selected} onOpenWindow={() => setWindowOpen(true)} onOpenScene={onOpenScene} />
-      </ScrollView>
-    );
-  } else if (game) {
-    stage = <View key={selected.id} className="absolute inset-0"><LabPage lab={selected} page={livePage} /></View>;
-  } else {
-    stage = (
-      <ScrollView key={selected.id} testID="lab-scroll" className="absolute inset-0" contentClassName={selected.padded === true ? PAGE_PADDING : undefined}>
-        <LabPage lab={selected} page={livePage} />
-      </ScrollView>
-    );
-  }
 
   return (
     <View testID="navigator" tabIndex={-1} className={`w-full h-full lg:flex-row ${game ? 'pointer-events-none' : ''}`} onKeyDown={onKeyDown}>
@@ -495,7 +547,7 @@ export function Navigator({ labs = LABS, initialLab, onLabChange, onOpenScene, c
       <View testID="navigator-bar" className="lg:hidden bg-white pointer-events-auto">
         <View className="flex-row flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
           <BrandMark />
-          <Select.Root value={selectedId ?? null} onValueChange={choose}>
+          <Select.Root value={ctx.selectedId ?? null} onValueChange={ctx.choose}>
             <Select.Trigger testID="lab-menu" aria-label="Lab" className="min-w-[180px] flex-1">
               <Select.Value testID="lab-menu-value" placeholder="Choose a lab" />
               <Select.Icon />
@@ -510,7 +562,7 @@ export function Navigator({ labs = LABS, initialLab, onLabChange, onOpenScene, c
               ))}
             </Select.Content>
           </Select.Root>
-          <FilterField testID="lab-menu-filter" className="min-w-[160px] flex-1" query={query} onQuery={setQuery} onSubmit={submitFilter} />
+          <FilterField testID="lab-menu-filter" className="min-w-[160px] flex-1" query={ctx.query} onQuery={ctx.setQuery} onSubmit={submitFilter} />
         </View>
         <Rule />
       </View>
@@ -526,10 +578,10 @@ export function Navigator({ labs = LABS, initialLab, onLabChange, onOpenScene, c
                 <Text className="text-xs text-slate-500">Labs</Text>
               </View>
             </View>
-            <FilterField testID="lab-filter" query={query} onQuery={setQuery} onSubmit={submitFilter} onEnterList={focusFirst} />
+            <FilterField testID="lab-filter" query={ctx.query} onQuery={ctx.setQuery} onSubmit={submitFilter} onEnterList={focusFirst} />
           </View>
           <ScrollView testID="lab-sidebar-scroll" focusable={false} className="min-h-0 flex-1" contentClassName="px-2 pb-4">
-            <LabList labs={visible} selectedId={selectedId} onChoose={choose} handles={handles} />
+            <LabList labs={visible} selectedId={ctx.selectedId} onChoose={ctx.choose} handles={ctx.handles} />
           </ScrollView>
           <Rule />
           <View className="px-4 py-3">
@@ -542,14 +594,14 @@ export function Navigator({ labs = LABS, initialLab, onLabChange, onOpenScene, c
       <View className="min-h-0 min-w-0 flex-1">
         <LabHeader
           lab={selected}
-          missing={missing}
+          missing={ctx.missing}
           position={position}
-          onStep={step}
-          canEdit={codeSupport !== undefined && selected?.kind === 'inline' && selected.sources.length > 0}
-          codeOpen={codeOpen}
-          onToggleCode={() => setCodeOpen(open => !open)}
-          showExpected={showExpected}
-          onToggleExpected={() => setShowExpected(open => !open)}
+          onStep={ctx.step}
+          canEdit={ctx.codeSupport !== undefined && selected?.kind === 'inline' && selected.sources.length > 0}
+          codeOpen={ctx.codeOpen}
+          onToggleCode={() => ctx.setCodeOpen(open => !open)}
+          showExpected={ctx.showExpected}
+          onToggleExpected={() => ctx.setShowExpected(open => !open)}
         />
         {/* The stage keeps its place in the tree whether or not the code is beside it, so the lab on it keeps its state when the panel is shown or hidden. */}
         <View className={`relative min-h-0 flex-1 overflow-hidden ${codePanel ? 'flex-col xl:flex-row' : ''} ${game ? 'pointer-events-none' : ''}`}>
@@ -559,8 +611,8 @@ export function Navigator({ labs = LABS, initialLab, onLabChange, onOpenScene, c
             aria-label="Lab"
             className={`relative min-h-0 min-w-0 flex-1 overflow-hidden ${game ? 'pointer-events-none' : 'bg-slate-50'}`}
           >
-            <ExpectedVisibleProvider value={showExpected}>
-              {stage}
+            <ExpectedVisibleProvider value={ctx.showExpected}>
+              <Outlet />
             </ExpectedVisibleProvider>
           </View>
           {codePanel ? (
@@ -574,5 +626,125 @@ export function Navigator({ labs = LABS, initialLab, onLabChange, onOpenScene, c
         </View>
       </View>
     </View>
+  );
+}
+
+export function Navigator({ labs = LABS, initialLab, onLabChange, onOpenScene, code: codeSupport, history: historyProp }: NavigatorProps) {
+  const ordered = useMemo(() => labsInOrder(labs), [labs]);
+  const requested = initialLab === undefined ? undefined : ordered.find(lab => lab.id === initialLab);
+  const [selectedId, setSelectedId] = useState<string | undefined>(initialLab === undefined ? ordered[FIRST_LAB]?.id : requested?.id);
+  const [missing, setMissing] = useState<string | undefined>(initialLab !== undefined && requested === undefined ? initialLab : undefined);
+  const [query, setQuery] = useState('');
+  const [windowOpen, setWindowOpen] = useState(false);
+  const [codeOpen, setCodeOpen] = useState(false);
+  const [showExpected, setShowExpected] = useState(false);
+  const handles = useRef(new Map<string, UIHandle>());
+
+  const selected = ordered.find(lab => lab.id === selectedId);
+  const labCode = useLabCode(selected, codeSupport, codeOpen);
+  const livePage = labCode !== undefined && labCode.kind === 'live' ? labCode.session.Lab : undefined;
+  const codePanel = codeOpen && selected !== undefined && labCode !== undefined ? { lab: selected, code: labCode } : undefined;
+
+  const router = useMemo(() => {
+    const rootRoute = createRootRoute({
+      component: NavigatorShell,
+    });
+    const labRoute = createRoute({
+      getParentRoute: () => rootRoute,
+      path: '/labs/$labId',
+      component: StageOutlet,
+    });
+    const indexRoute = createRoute({
+      getParentRoute: () => rootRoute,
+      path: '/',
+      component: StageOutlet,
+    });
+    const routeTree = rootRoute.addChildren([indexRoute, labRoute]);
+
+    const initialEntry = initialLab !== undefined
+      ? `/labs/${initialLab}`
+      : (ordered[FIRST_LAB] !== undefined ? `/labs/${ordered[FIRST_LAB].id}` : '/');
+
+    const history = historyProp ?? createMemoryHistory({ initialEntries: [initialEntry] });
+
+    const r = createRouter({
+      routeTree,
+      history,
+      isServer: false,
+      origin: 'http://localhost',
+      scrollRestorationBehavior: 'manual',
+    });
+
+    const matches = r.matchRoutes(r.latestLocation);
+    r.stores.setMatches(matches);
+    return r;
+  }, [ordered, initialLab, historyProp]);
+
+  // Synchronize history navigation (back/forward or external) with local state
+  useEffect(() => {
+    return router.history.subscribe(() => {
+      const loc = router.latestLocation;
+      const match = loc.pathname.match(/^\/labs\/(.+)$/);
+      if (match) {
+        const id = match[1];
+        const lab = ordered.find(l => l.id === id);
+        if (lab) {
+          setSelectedId(lab.id);
+          setMissing(undefined);
+        } else {
+          setSelectedId(undefined);
+          setMissing(id);
+        }
+        setWindowOpen(false);
+      }
+    });
+  }, [router, ordered]);
+
+  const choose = (id: string) => {
+    setSelectedId(id);
+    setMissing(undefined);
+    setWindowOpen(false);
+    const next = router.buildLocation({ to: '/labs/$labId', params: { labId: id } });
+    router.stores.setMatches(router.matchRoutes(next));
+    router.commitLocation(next);
+    onLabChange?.(id);
+  };
+
+  const visible = useMemo(() => filterLabs(ordered, query), [ordered, query]);
+  // Previous and next walk what the filter shows; with the filter matching nothing, every lab.
+  const walk = visible.length > 0 ? visible : ordered;
+
+  const step = (delta: number) => {
+    const target = neighbour(walk, selectedId, delta);
+    if (target !== undefined) choose(target.id);
+  };
+
+  const contextValue: NavigatorContextValue = {
+    labs,
+    ordered,
+    selectedId,
+    selected,
+    missing,
+    query,
+    setQuery,
+    windowOpen,
+    setWindowOpen,
+    codeOpen,
+    setCodeOpen,
+    showExpected,
+    setShowExpected,
+    handles,
+    choose,
+    step,
+    onOpenScene,
+    codeSupport,
+    livePage,
+    codePanel,
+  };
+
+  return (
+    <NavigatorContext.Provider value={contextValue}>
+      <RouterProvider router={router} />
+    </NavigatorContext.Provider>
   );
 }

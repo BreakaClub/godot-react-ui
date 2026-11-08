@@ -10,7 +10,11 @@ const root = resolve(import.meta.dirname, '..');
 const shared = {
   absWorkingDir: root, bundle: true, platform: 'neutral', target: 'es2022',
   sourcemap: true, format: 'cjs', external: ['godot', 'godot.lib.api', 'godot.annotations', 'godot-jsb'],
-  define: { 'process.env.NODE_ENV': '"production"' },
+  conditions: ['browser'],
+  define: {
+    'process.env.NODE_ENV': '"production"',
+    'self': 'globalThis',
+  },
 };
 await build({...shared, entryPoints: [...DEMO_ENTRY_POINTS], outdir: 'demo/.godot/GodotJS/src'});
 await build({...shared, entryPoints: ['src/index.ts'], outfile: 'dist/index.js', external: [...shared.external, 'react', 'react/*', 'react-reconciler', 'react-reconciler/constants']});
