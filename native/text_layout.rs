@@ -779,6 +779,44 @@ impl<S: ParagraphSource> TextLayout<S> {
             .copied())
     }
 
+    /// The word `point` (in the layout's coordinates) is over, as a long press on text selects one: the point must be inside the
+    /// glyphs of a line, on a grapheme that is part of a word. White space and punctuation, the gaps between lines and the empty room
+    /// beside or below a line's glyphs have no word (`None`), where a double click's [`TextLayout::word_range_at`] takes the nearest.
+    pub(crate) fn word_under(
+        &self,
+        point: Vector2,
+    ) -> Result<Option<(usize, usize)>, TextLayoutError> {
+        let on_line = |line: &Line| {
+            !line.range.is_empty()
+                && line.top() <= point.y
+                && point.y < line.top() + line.height()
+                && line.origin.x <= point.x
+                && point.x < line.origin.x + line.width
+        };
+        if !self.lines.iter().any(on_line) {
+            return Ok(None);
+        }
+        // The grapheme under the point is on one side of the nearest boundary: the one whose run contains the point.
+        let boundary = self.hit(point)?.offset;
+        let before = self
+            .previous_grapheme(boundary)?
+            .map(|start| (start, boundary));
+        let after = self.next_grapheme(boundary)?.map(|end| (boundary, end));
+        for (start, end) in before.into_iter().chain(after) {
+            let over = self.selection_rects(start, end)?.iter().any(|run| {
+                run.rect.position.x <= point.x && point.x < run.rect.position.x + run.rect.size.x
+            });
+            if over {
+                return Ok(self
+                    .word_ranges()?
+                    .iter()
+                    .find(|(word_start, word_end)| *word_start <= start && end <= *word_end)
+                    .copied());
+            }
+        }
+        Ok(None)
+    }
+
     /// The `TextBoundaries::word_range` contract: the word that contains `offset`, preferring the one
     /// that starts there, else the one that ends there; in the gap between words, the gap.
     pub(crate) fn word_range_at(&self, offset: usize) -> Result<(usize, usize), TextLayoutError> {

@@ -54,7 +54,7 @@ type Highlight = (usize, usize);
 /// Everything text selection keeps beside the model.
 #[derive(Default)]
 pub(crate) struct SelectionState {
-    selection: TextSelection,
+    pub(crate) selection: TextSelection,
     /// The primary button went down on selectable text and is still down: moving the mouse extends the
     /// selection.
     dragging: bool,
@@ -260,7 +260,7 @@ impl ReactUiRoot {
     }
 
     /// [`ReactUiRoot::selection_document`], with an error (a tag listed twice: a bug) logged.
-    fn selection_document_or_report(&self) -> Option<Document> {
+    pub(crate) fn selection_document_or_report(&self) -> Option<Document> {
         match self.selection_document() {
             Ok(document) => Some(document),
             Err(error) => {
@@ -272,7 +272,7 @@ impl ReactUiRoot {
 
     /// The document, with a selection that no longer describes it cleared first (a node it covered
     /// stopped being selectable or its text shrank: see `TextSelection::clear_if_stale`).
-    fn current_selection_document(&mut self) -> Option<Document> {
+    pub(crate) fn current_selection_document(&mut self) -> Option<Document> {
         let document = self.selection_document_or_report()?;
         if self.selecting.selection.clear_if_stale(&document) {
             self.selecting.dragging = false;
@@ -334,7 +334,7 @@ impl ReactUiRoot {
     // ---- Geometry ----------------------------------------------------------------------------------
 
     /// The layout of node `tag`'s paragraph, or `None` for a node with no text (it has no paragraph).
-    fn text_layout_of(&self, tag: u32) -> Result<Option<GodotTextLayout>, String> {
+    pub(crate) fn text_layout_of(&self, tag: u32) -> Result<Option<GodotTextLayout>, String> {
         let node = self
             .mounted
             .nodes
@@ -349,7 +349,7 @@ impl ReactUiRoot {
     }
 
     /// The offset map of node `tag`'s paragraph, if it has inlays.
-    fn offset_map_of(&self, tag: u32) -> Option<&OffsetMap> {
+    pub(crate) fn offset_map_of(&self, tag: u32) -> Option<&OffsetMap> {
         self.mounted
             .nodes
             .get(&tag)?
@@ -446,10 +446,11 @@ impl ReactUiRoot {
     /// The model changed (or was just cleared): repaint the nodes whose highlight changed and queue
     /// `selectionchange`. `document` is the one the model was changed against; `None` for a selection
     /// that was cleared.
-    fn selection_changed(&mut self, document: Option<&Document>) {
+    pub(crate) fn selection_changed(&mut self, document: Option<&Document>) {
         self.sync_highlights(document);
         self.sync_web_selected_text(document);
         self.events.push_selection_change(event_time_ms());
+        self.sync_touch_chrome();
     }
 
     /// Keep `window.__godotReactSelectedText` in step with the active selection on the Web so the
@@ -675,15 +676,15 @@ impl ReactUiRoot {
         true
     }
 
-    /// The mouse moved with the primary button down on selectable text: the focus follows the pointer.
-    pub(crate) fn selection_drag_moved(&mut self, hit: Option<u32>) {
-        if !self.selecting.dragging {
-            return;
-        }
-        let Some(document) = self.current_selection_document() else {
-            return;
-        };
-        let position = self.pointer;
+    /// Where the focus of a drag whose pointer is at `position` (root-local) goes: the point of the selectable text under it (`hit`), or,
+    /// over anything else, what [`drag_target`] says. `None` if the document has nothing selectable or the point cannot be placed (an
+    /// `ERROR` line says why).
+    pub(crate) fn drag_point(
+        &self,
+        document: &Document,
+        hit: Option<u32>,
+        position: Vector2,
+    ) -> Option<SelectionPoint> {
         let over_text = hit.filter(|tag| document.node(*tag).is_some_and(|node| node.selectable));
         let target = match over_text {
             Some(tag) => Some(DragTarget::Inside(tag)),
@@ -699,22 +700,32 @@ impl ReactUiRoot {
                 drag_target(&boxes, position)
             }
         };
-        let point = match target {
-            None => return,
-            Some(DragTarget::Inside(tag)) => {
-                match self.selection_point_at(&document, tag, position) {
-                    Ok((point, _)) => point,
-                    Err(error) => {
-                        godot_error!("ReactUiRoot: cannot extend the selection: {error}");
-                        return;
-                    }
+        match target? {
+            DragTarget::Inside(tag) => match self.selection_point_at(document, tag, position) {
+                Ok((point, _)) => Some(point),
+                Err(error) => {
+                    godot_error!("ReactUiRoot: cannot extend the selection: {error}");
+                    None
                 }
-            }
-            Some(DragTarget::StartOf(tag)) => SelectionPoint { tag, offset: 0 },
-            Some(DragTarget::EndOf(tag)) => SelectionPoint {
+            },
+            DragTarget::StartOf(tag) => Some(SelectionPoint { tag, offset: 0 }),
+            DragTarget::EndOf(tag) => Some(SelectionPoint {
                 tag,
                 offset: document.node(tag).map_or(0, |node| node.len),
-            },
+            }),
+        }
+    }
+
+    /// The mouse moved with the primary button down on selectable text: the focus follows the pointer.
+    pub(crate) fn selection_drag_moved(&mut self, hit: Option<u32>) {
+        if !self.selecting.dragging {
+            return;
+        }
+        let Some(document) = self.current_selection_document() else {
+            return;
+        };
+        let Some(point) = self.drag_point(&document, hit, self.pointer) else {
+            return;
         };
         match self.selecting.selection.extend(&document, point) {
             Ok(true) => self.selection_changed(Some(&document)),
@@ -723,6 +734,21 @@ impl ReactUiRoot {
                 godot_error!("ReactUiRoot: cannot extend the selection: {error}");
             }
         }
+    }
+
+    /// Select from `anchor` to `focus` (both in `document`): the selection a gesture other than the mouse's makes. Returns whether it
+    /// changed, after telling JS and repainting if it did.
+    pub(crate) fn select_points(
+        &mut self,
+        document: &Document,
+        anchor: SelectionPoint,
+        focus: SelectionPoint,
+    ) -> Result<bool, SelectionError> {
+        let changed = self.selecting.selection.select(document, anchor, focus)?;
+        if changed {
+            self.selection_changed(Some(document));
+        }
+        Ok(changed)
     }
 
     /// The primary button went up, or the pointer was cancelled: the selection stays, the drag ends.
@@ -767,7 +793,7 @@ impl ReactUiRoot {
 
     /// Put the selected text on the clipboard, the selected nodes' text joined by `\n`. Returns whether
     /// there was anything to copy.
-    fn copy_selection(&mut self) -> bool {
+    pub(crate) fn copy_selection(&mut self) -> bool {
         if !self.selecting.selection.is_active() {
             return false;
         }
@@ -793,7 +819,7 @@ impl ReactUiRoot {
     }
 
     /// Select all selectable text. Returns whether there is any.
-    fn select_all_text(&mut self) -> bool {
+    pub(crate) fn select_all_text(&mut self) -> bool {
         let Some(document) = self.current_selection_document() else {
             return false;
         };

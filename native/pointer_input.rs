@@ -206,6 +206,8 @@ impl ReactUiRoot {
             }
         }
         if primary {
+            // A mouse makes a selection of its own, or none: the handles and menu of a touch's are gone.
+            self.touch_selection_mouse_pressed();
             // Gesture arbitration after an un-prevented `pointerdown` (plan 3.12): a pointer JS captured
             // is its element's (rule 1), then a press on a scrollbar thumb drags the thumb (rule 2), then a
             // press inside a draggable element may become a drag once it moves (rule 3, which also keeps
@@ -317,6 +319,10 @@ impl ReactUiRoot {
     /// scene tree while handling `pointerdown`.
     fn press_touch(&mut self, id: u32, position: Vector2) -> bool {
         self.modality = Modality::Pointer;
+        // The handles and the menu of a touch selection are the root's own: a finger on them is no element's.
+        if self.touch_chrome_press(id, position) {
+            return true;
+        }
         let hit = self.mounted.hit_test(position);
         let target = hit.filter(|tag| !self.mounted.is_disabled(*tag));
         let detail = self.clicks.press(
@@ -351,17 +357,24 @@ impl ReactUiRoot {
             // Inside a draggable element a touch held still becomes a drag; one that moves first is
             // declined and goes on to pan or stay pointer events (plan 3.12 rules 3 and 4). A touch that
             // only stopped a coasting flick starts nothing.
-            if !prevented && self.scrolling.coasting.is_empty() {
-                self.begin_drag_gesture(touch_drag_pointer(id), position, hit);
-            }
+            let flicking = !self.scrolling.coasting.is_empty();
+            let draggable = !prevented
+                && !flicking
+                && self.begin_drag_gesture(touch_drag_pointer(id), position, hit);
             // A finger JS took (`setPointerCapture` in a `pointerdown` handler) is its element's, not a
             // pan's, as a prevented press is (plan 3.12 rule 1, D33).
-            let may_pan = !prevented && !self.pointers.captured_by_js(id);
+            let captured = self.pointers.captured_by_js(id);
+            let may_pan = !prevented && !captured;
             self.begin_touch_pan(id, target, position, may_pan);
+            // Selectable text and a text input held still become a selection of the word under the finger (plan D71); a draggable
+            // element's hold is the drag's.
+            if !prevented && !captured && !draggable && !flicking {
+                self.touch_selection_arm_hold(id, position, hit);
+            }
         }
-        // A touch starts no text selection (touch selection handles are a non-goal, plan 2.3).
-        self.run_pointerdown_default(hit, prevented, false);
-        if !prevented {
+        // A touch selection survives the press: a pan scrolls it and keeps it, and a tap clears it when the finger lifts (plan D71).
+        self.run_pointerdown_default(hit, prevented, self.touch_selection_holds_document());
+        if !prevented && !self.touch_defers_caret(id, hit, position, detail) {
             self.text_input_pointer_down(hit, position, detail, false, false);
         }
         true
@@ -385,6 +398,10 @@ impl ReactUiRoot {
             self.queue(target, EventPayload::PointerUp(up));
         }
         self.leave_touch(id, position, press.target);
+        // The caret a press in a selected text input waited to place goes where the finger lifted, and a tap ends the touch selection.
+        if !stopped_a_fling {
+            self.touch_selection_tapped(id, position);
+        }
         self.text_input_pointer_up(hit);
         if !stopped_a_fling && let Some(target) = self.click_target(press.target, hit, capture) {
             let data = self.touch_pointer_data(position, id, DOM_BUTTON_PRIMARY, 0, press.detail);
@@ -428,13 +445,19 @@ impl ReactUiRoot {
                 return;
             }
         } else if touch.is_canceled() {
+            self.touch_selection_cancelled(id);
             self.touch_pan_cancelled(id);
             self.cancel_pointer(id);
+        } else if self.touch_selection_released(id, position) {
+            // A finger that selected, or dragged a handle, or pressed the menu, ended with it.
         } else if !self.drag_pointer_released(id, position) && !self.touch_pan_ended(id) {
             // A finger that was dragging ended with its drop. A finger that was panning has no
             // pointer left to release (it was cancelled when the pan began), and its flick, if any,
             // is under way.
             self.release_touch(id, position);
+        }
+        if !touch.is_pressed() {
+            self.touch_selection_lifted(id);
         }
         self.base_mut().accept_event();
     }
@@ -445,6 +468,12 @@ impl ReactUiRoot {
         let Some(id) = touch_pointer_id(drag.get_index()) else {
             return;
         };
+        // A finger that selected a word by a long press, or drags a handle, is the selection's. One still waiting to be a long press
+        // stops waiting once it leaves the slop, and is what it was.
+        if self.touch_selection_moved(id, drag.get_position()) {
+            self.base_mut().accept_event();
+            return;
+        }
         // A finger that is dragging something is the drag's. One that moved too far before the hold
         // elapsed is declined by the drag, and the pan below decides what it is.
         if self.drag_pointer_moved(id, drag.get_position()) {
@@ -528,6 +557,7 @@ impl ReactUiRoot {
         self.end_all_touch_pans();
         self.end_thumb_drag();
         self.end_selection_drag();
+        self.touch_selection_cancel_all();
     }
 
     /// The default action of a primary `pointerdown`, mouse or touch: the nearest enabled button

@@ -1533,3 +1533,61 @@ fn the_caret_after_a_trailing_line_break_is_a_line_the_buffer_can_move_to_and_fr
     );
     assert_eq!(buffer.focus(), 3);
 }
+
+#[test]
+fn a_long_press_selects_the_word_whose_letters_it_is_over() {
+    let layout = layout("hello world foo", -1.0, TextAlignment::Left);
+    let y = 25.0;
+    // Over the "e" of "hello", and over its last letter, whose nearest boundary is the end of the word.
+    assert_eq!(
+        layout.word_under(Vector2::new(5.0 + 13.0, y)),
+        Ok(Some((0, 5)))
+    );
+    assert_eq!(
+        layout.word_under(Vector2::new(5.0 + 49.0, y)),
+        Ok(Some((0, 5)))
+    );
+    // Over the first letter of the next word, whose nearest boundary is the start of it.
+    assert_eq!(
+        layout.word_under(Vector2::new(5.0 + 61.0, y)),
+        Ok(Some((6, 11)))
+    );
+    assert_eq!(
+        layout.word_under(Vector2::new(5.0 + 145.0, y)),
+        Ok(Some((12, 15)))
+    );
+    // Past the last glyph there is no word.
+    assert_eq!(layout.word_under(Vector2::new(5.0 + 151.0, y)), Ok(None));
+}
+
+#[test]
+fn a_long_press_on_white_space_selects_nothing_even_beside_a_word() {
+    let layout = layout("hello world foo", -1.0, TextAlignment::Left);
+    let y = 25.0;
+    // The space between the words, on either side of its middle: the nearest boundary is the end of "hello" or the start of "world", and
+    // a double click would take that word. A long press is over the space.
+    assert_eq!(layout.word_under(Vector2::new(5.0 + 51.0, y)), Ok(None));
+    assert_eq!(layout.word_under(Vector2::new(5.0 + 58.0, y)), Ok(None));
+}
+
+#[test]
+fn a_long_press_beside_below_or_between_lines_selects_nothing() {
+    let layout = layout("hello world foo", 60.0, TextAlignment::Left);
+    // Right of the first line's glyphs ("hello " is six cells): empty room, though the line's range ends at a word.
+    assert_eq!(layout.word_under(Vector2::new(5.0 + 61.0, 25.0)), Ok(None));
+    // Left of the glyphs, above the first line and below the last one.
+    assert_eq!(layout.word_under(Vector2::new(2.0, 25.0)), Ok(None));
+    assert_eq!(layout.word_under(Vector2::new(20.0, 15.0)), Ok(None));
+    assert_eq!(layout.word_under(Vector2::new(20.0, 200.0)), Ok(None));
+    // The second line's word is where the second line is.
+    assert_eq!(
+        layout.word_under(Vector2::new(5.0 + 12.0, 36.0)),
+        Ok(Some((6, 11)))
+    );
+}
+
+#[test]
+fn an_empty_text_has_no_word_to_press() {
+    let layout = layout("", -1.0, TextAlignment::Left);
+    assert_eq!(layout.word_under(Vector2::new(5.0, 22.0)), Ok(None));
+}

@@ -39,7 +39,7 @@ fn rect_json(rect: BoxRect) -> Value {
 
 impl ReactUiRoot {
     /// The mounted `Text` `tag`, or `None`.
-    fn text_node(&self, tag: u32) -> Option<&crate::mount::MountedNode> {
+    pub(crate) fn text_node(&self, tag: u32) -> Option<&crate::mount::MountedNode> {
         self.mounted
             .nodes
             .get(&tag)
@@ -47,7 +47,7 @@ impl ReactUiRoot {
     }
 
     /// `rect`, in the frame of the node, as the rectangle that bounds it where it is drawn.
-    fn text_rect_to_root(&self, tag: u32, rect: Rect2) -> Result<BoxRect, String> {
+    pub(crate) fn text_rect_to_root(&self, tag: u32, rect: Rect2) -> Result<BoxRect, String> {
         let affine = self
             .mounted
             .absolute_affine(tag, self.viewport_box())
@@ -132,7 +132,7 @@ impl ReactUiRoot {
     }
 
     /// The carets at display offset `display` of `text`. `Before` at the start of a soft wrapped line is the end of the line above.
-    fn carets_at(
+    pub(crate) fn carets_at(
         layout: &GodotTextLayout,
         text: &str,
         display: usize,

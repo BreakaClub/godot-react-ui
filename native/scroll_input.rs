@@ -218,6 +218,7 @@ impl ReactUiRoot {
         }
         self.update_focus_ring();
         self.drag_scrolled();
+        self.touch_selection_scrolled();
     }
 
     /// The part of a scroll that belongs to the container alone (`scrolled` does the rest once per

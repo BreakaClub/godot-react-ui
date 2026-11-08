@@ -174,6 +174,18 @@ impl Document {
         self.nodes.iter().filter(|node| node.selectable)
     }
 
+    /// Where `left` is against `right` in reading order: by the place of their nodes in the document, then by offset. `None` if either
+    /// node is not in the document.
+    pub(crate) fn compare(
+        &self,
+        left: SelectionPoint,
+        right: SelectionPoint,
+    ) -> Option<std::cmp::Ordering> {
+        let left_position = *self.positions.get(&left.tag)?;
+        let right_position = *self.positions.get(&right.tag)?;
+        Some((left_position, left.offset).cmp(&(right_position, right.offset)))
+    }
+
     fn position(&self, tag: u32) -> Result<usize, SelectionError> {
         self.positions
             .get(&tag)
@@ -517,6 +529,29 @@ mod tests {
             node(DELTA, DELTA_TEXT, true),
         ])
         .expect("the fixture has distinct tags")
+    }
+
+    #[test]
+    fn points_compare_by_their_node_in_the_document_then_by_offset() {
+        let point = |tag, offset| SelectionPoint { tag, offset };
+        let document = document();
+        assert_eq!(
+            document.compare(point(ALPHA, 9), point(GAMMA, 0)),
+            Some(std::cmp::Ordering::Less)
+        );
+        assert_eq!(
+            document.compare(point(DELTA, 0), point(ALPHA, 5)),
+            Some(std::cmp::Ordering::Greater)
+        );
+        assert_eq!(
+            document.compare(point(GAMMA, 2), point(GAMMA, 2)),
+            Some(std::cmp::Ordering::Equal)
+        );
+        assert_eq!(
+            document.compare(point(GAMMA, 2), point(GAMMA, 3)),
+            Some(std::cmp::Ordering::Less)
+        );
+        assert_eq!(document.compare(point(UNKNOWN, 0), point(GAMMA, 0)), None);
     }
 
     fn text_of(tag: u32) -> Option<&'static str> {

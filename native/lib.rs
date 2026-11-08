@@ -72,6 +72,9 @@ mod text_decoration;
 mod text_geometry;
 // The spans of a `Text`: nested `Text` in JS is one attributed paragraph, with inlays and per-span styles.
 mod text_span;
+// Touch text selection (plan D71): the long press, the handles and the edit menu, Godot-free; `touch_selection_input.rs` is the glue.
+mod touch_selection;
+mod touch_selection_input;
 mod transform;
 mod transform_state;
 mod transition;
@@ -123,6 +126,7 @@ use style_engine::{DimensionAxis, DimensionOverrides, SampledStyle, StyleEngine}
 use text_input_godot::TextInputRoot;
 use text_measure::MeasuredText;
 use text_paragraph::StyledParagraph;
+use touch_selection_input::TouchSelectionState;
 
 const DEFAULT_FONT_SIZE: i32 = 16;
 const MILLISECONDS_PER_SECOND: f64 = 1000.0;
@@ -198,6 +202,8 @@ pub struct ReactUiRoot {
     /// The document's text selection, the gesture that is extending it and what each node paints of
     /// it (`selection_input.rs`).
     selecting: SelectionState,
+    /// The long press, handles and edit menu of a selection a touch made (`touch_selection_input.rs`).
+    touch_selection: TouchSelectionState,
     /// The drag-and-drop machine, its session and its ghost (`drag_input.rs`).
     drag: DragRuntime,
     /// Nodes whose layout inputs changed since the last geometry pass.
@@ -304,6 +310,7 @@ impl IControl for ReactUiRoot {
             scrolling: ScrollInputState::default(),
             effects: Effects::default(),
             selecting: SelectionState::default(),
+            touch_selection: TouchSelectionState::default(),
             drag: DragRuntime::default(),
             layout_dirty: BTreeSet::new(),
             ordered_parents: BTreeSet::new(),
@@ -437,6 +444,7 @@ impl IControl for ReactUiRoot {
                 self.effects.release();
                 self.layer_items.clear();
                 self.ring_item = None;
+                self.touch_selection.release();
             }
             ControlNotification::MOUSE_EXIT => {
                 self.pointer_known = false;
@@ -532,6 +540,9 @@ impl IControl for ReactUiRoot {
         if self.drag_wants_frames() {
             self.tick_drag(delta);
         }
+        if self.touch_selection_wants_frames() {
+            self.tick_touch_selection(delta);
+        }
         if self.text_input_wants_frames() {
             self.tick_text_input(delta);
         }
@@ -548,7 +559,7 @@ impl IControl for ReactUiRoot {
     /// space and `pointer-events: none` regions reach whatever lies underneath (plan 3.11). Called
     /// during routing; it reads the mounted tree and changes nothing.
     fn has_point(&self, point: Vector2) -> bool {
-        self.mounted.hit_test(point).is_some()
+        self.mounted.hit_test(point).is_some() || self.touch_chrome_hit(point)
     }
 
     fn get_cursor_shape(&self, at_position: Vector2) -> i32 {
@@ -744,6 +755,12 @@ impl ReactUiRoot {
             .to_string()
             .as_str()
             .into()
+    }
+
+    /// The handles and edit menu of a selection a touch made, as they are on screen (`touch_selection_input.rs`): `null` when there are none.
+    #[func]
+    fn get_touch_selection(&self) -> GString {
+        self.touch_selection_json().to_string().as_str().into()
     }
 
     #[func]
@@ -1420,6 +1437,7 @@ impl ReactUiRoot {
         }
         self.refresh_interaction();
         self.text_input_focus_changed(previous, next);
+        self.sync_touch_chrome();
         // The focus ring is drawn by the paint pass, but focus does not always restyle anything
         // (only elements with a `focus:` class do), and a restyle is what normally leads to a
         // pass. Without this the ring would wait for the next unrelated paint.
