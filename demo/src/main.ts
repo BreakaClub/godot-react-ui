@@ -27,7 +27,8 @@ import { observeInputFailure, runVerification } from './verify';
 import { BenchmarkApp, type BenchmarkProps } from './benchmark';
 import { runProbe } from './probe';
 import { openLiveSession } from './live-compile-open';
-import { liveCompileDiagnostics, readProject } from './live-compile-host';
+import { openExtensionHost, readProject } from './live-compile-host';
+import type { ExtensionHost } from './live-compile-service';
 import type { CodeSupport } from './editor/lab-code';
 import { verifyLiveCompile } from './verify-live-compile';
 import { installRefreshHook } from './live-compile-refresh';
@@ -120,6 +121,10 @@ export default class Main extends Node {
   private recovery: ReturnType<typeof setTimeout> | null = null;
   /** The loader of fonts for characters no registered font has (the Web only: `docs/tracks/font-slices.md`), and what it was last configured with. */
   private fontSlices: DemoFontSlices | undefined = undefined;
+  /** The live-compile service of this page, made at the first lab that is edited and ended with the node: one thread however many labs are opened. */
+  private liveCompile: ExtensionHost | undefined = undefined;
+  /** Services a verifier holds to use up a browser's pool of workers (`holdLiveCompileThreads`). */
+  private readonly heldServices: ExtensionHost[] = [];
   private fontSliceOptions: FontSliceSettings | null = {};
 
   override _ready(): void {
@@ -190,10 +195,24 @@ export default class Main extends Node {
         if (file === undefined) throw new Error(`The live-compile project has no source for the lab ${id}`);
         return file.text;
       },
-      /** TEMPORARY DIAGNOSTICS: the live-compile extension's trace (docs/tracks/live-compile-async.md). */
-      liveCompileDiagnostics: () => liveCompileDiagnostics(),
       /** A lab compiled from its source and kept up to date as the source changes (`live-compile-session.ts`), for the `live-compile` section. */
-      openLiveSession: (labId: string, exportName: string) => openLiveSession({ root: this.requireRenderer(), labId, exportName }),
+      openLiveSession: (labId: string, exportName: string) => openLiveSession({ host: this.requireLiveCompile(), root: this.requireRenderer(), labId, exportName }),
+      /** The service the live sessions share (`ExtensionHost`): its state, a ping, and the hooks the `live-compile` section tries. */
+      liveCompile: () => this.requireLiveCompile(),
+      /** Ends the page's service, as leaving the page does: the next session starts a new one, with a new thread. */
+      restartLiveCompile: () => this.closeLiveCompile(),
+      /**
+       * Starts `count` services more, each with a thread of its own and nothing to do: what a page has in hand when it has opened more labs than the
+       * garbage collector has taken back (one service for each, before the page shared one). A browser's pool has eight workers, so a service started
+       * after these needs a worker that the pool cannot give at once. Returns how many are held.
+       */
+      holdLiveCompileThreads: (count: number) => {
+        for (let index = 0; index < count; index += 1) this.heldServices.push(openExtensionHost());
+        return this.heldServices.length;
+      },
+      releaseLiveCompileThreads: () => {
+        for (const held of this.heldServices.splice(0)) held.close();
+      },
       /** One page of the paint lab on its own (`docs/tracks/utilities-paint.md`), at the stage's size, from the window's corner. */
       showPaintPage: (page: string) => this.requireRenderer().render(createElement(PaintLab, { page })),
       /** The filters lab (plan Phase V1): rendered again with new props, so a change is an ordinary commit. */
@@ -622,7 +641,9 @@ export default class Main extends Node {
   private codeSupport(): CodeSupport {
     const onMac = ['macos', 'web_macos', 'ios', 'web_ios'].some(feature => OS.hasFeature(feature));
     return {
-      openSession: lab => openLiveSession({ root: this.requireRenderer(), labId: lab.id, exportName: lab.component.name, embedded: true }),
+      openSession: lab => openLiveSession({
+        host: this.requireLiveCompile(), root: this.requireRenderer(), labId: lab.id, exportName: lab.component.name, embedded: true, placeholder: lab.component,
+      }),
       readSource: path => FileAccess.getFileAsString(path),
       platform: onMac ? 'mac' : 'other',
       // The browser's clipboard is read asynchronously and the engine's own read answers one call late (docs/tracks/text-input.md): on the Web the
@@ -633,6 +654,18 @@ export default class Main extends Node {
       },
       now: () => Time.getTicksUsec() / MICROSECONDS_PER_MILLISECOND,
     };
+  }
+
+  /** The page's live-compile service; throws, saying how to build it, when the extension is not there. */
+  private requireLiveCompile(): ExtensionHost {
+    this.liveCompile ??= openExtensionHost();
+    return this.liveCompile;
+  }
+
+  /** Ends the page's live-compile service, and with it the thread and every request still outstanding. */
+  private closeLiveCompile(): void {
+    this.liveCompile?.close();
+    this.liveCompile = undefined;
   }
 
   /** Leave for the scene `lab` is, with a Godot button to come back to the navigator on the same lab. */
@@ -700,6 +733,9 @@ export default class Main extends Node {
   override _exitTree(): void {
     this.cancelRecovery();
     if (this.renderer) this.unmount();
+    // The service thread ends, and a browser takes its worker back for the pool.
+    this.closeLiveCompile();
+    for (const held of this.heldServices.splice(0)) held.close();
     Reflect.deleteProperty(globalThis, 'godotReactDemo');
   }
 

@@ -6,7 +6,7 @@ import type { HexColor } from '../highlight';
 /** The strip under the editor: where the caret is, what became of the last text sent to the page, and what the type check found. */
 
 const RUN_COLORS: Readonly<Record<RunKind, HexColor>> = {
-  ready: '#94a3b8', unavailable: '#fcd34d', pending: '#94a3b8', swapped: '#6ee7b7',
+  ready: '#94a3b8', unavailable: '#fcd34d', pending: '#94a3b8', compiling: '#94a3b8', swapped: '#6ee7b7',
   'compile-failed': '#fda4af', 'class-error': '#fda4af', 'evaluation-failed': '#fda4af', 'render-failed': '#fdba74', broken: '#fda4af',
 };
 
