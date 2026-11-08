@@ -290,6 +290,95 @@ panelTest('a press puts the caret at the column under the pointer, within a pixe
   }
 });
 
+/** The `scrollTo` requests the editor has made of its scroll container since `since`. */
+function scrollRequestsSince(s: Scenario, since: number): Array<{ x?: number; y?: number }> {
+  const scroller = tag(s, 'code-scroll');
+  return s.host.scrollRequests.slice(since).filter(request => request.method === 'scrollTo' && request.tag === scroller);
+}
+
+panelTest('a press gives the keyboard to the input only once it stands at the new caret: a focused input is scrolled into view, so one at the old caret would scroll the editor', (s) => {
+  const sink = tag(s, 'editor-input-sink');
+  const focused: Array<{ top: unknown; left: unknown }> = [];
+  const focus = s.host.focusNode.bind(s.host);
+  s.host.focusNode = (target, visible) => {
+    if (target === sink) focused.push({ top: styleOf(s, 'editor-input-sink').top, left: styleOf(s, 'editor-input-sink').left });
+    return focus(target, visible);
+  };
+  const line = 12;
+  click(s, pointAt(s, line, 9));
+  assert.equal(textOf(s, 'code-status-position'), `Ln ${line}, Col 10`);
+  assert.ok(focused.length > 0, 'the press took the keyboard');
+  const caret = styleOf(s, 'code-caret');
+  for (const stood of focused) assert.deepEqual(stood, { top: caret.top, left: styleOf(s, 'editor-input-sink').left }, 'the input stood at the new caret when it was focused');
+  assert.equal(caret.top, (line - 1) * LINE_HEIGHT);
+  // The same press on the caret that is there, and a tap (a touch has no press: the click is what places the caret).
+  const before = focused.length;
+  click(s, pointAt(s, line, 9));
+  assert.ok(focused.length > before, 'a press on the caret that is there takes the keyboard again');
+});
+
+panelTest('a press scrolls only to show a line that is partly in view, and only until it is whole: the lines near the edge of the view stay where they are', (s) => {
+  const state = s.host.scrollStatesByTestID.get('code-scroll');
+  assert.ok(state !== undefined);
+  const visibleLines = state.clientHeight / LINE_HEIGHT;
+  assert.equal(visibleLines, Math.floor(visibleLines), 'the test viewport holds whole lines');
+  const since = s.host.scrollRequests.length;
+  // The second line from the bottom used to scroll: the reveal kept two lines clear of the edge.
+  for (const line of [3, 12, visibleLines - 2, visibleLines - 1, visibleLines]) {
+    click(s, pointAt(s, line, 4));
+    assert.equal(textOf(s, 'code-status-position').startsWith(`Ln ${line}, `), true, `the caret is on line ${line}`);
+  }
+  assert.deepEqual(scrollRequestsSince(s, since), [], 'a press on a line that is whole in view scrolls nothing, the second from the bottom and the last included');
+  // The last line only partly in view is scrolled up by the part that is out, and no further.
+  const PART_HIDDEN_PX = 8;
+  s.host.scrollStatesByTestID.set('code-scroll', { ...state, clientHeight: state.clientHeight - PART_HIDDEN_PX });
+  click(s, pointAt(s, visibleLines, 6));
+  const requests = scrollRequestsSince(s, since);
+  assert.equal(requests.length, 1, 'a press on a line that is cut off scrolls once');
+  assert.equal(requests[0]?.y, PART_HIDDEN_PX, 'by the part of the line that was out of view');
+});
+
+panelTest('a key that moves the caret keeps two lines of context, as it did', (s) => {
+  const state = s.host.scrollStatesByTestID.get('code-scroll');
+  assert.ok(state !== undefined);
+  const visibleLines = state.clientHeight / LINE_HEIGHT;
+  const CONTEXT_LINES = 2;
+  const since = s.host.scrollRequests.length;
+  const down = (): void => { s.host.keyDown(s.uiRoot, 'ArrowDown'); };
+  for (let line = 2; line <= visibleLines - CONTEXT_LINES; line += 1) down();
+  assert.deepEqual(scrollRequestsSince(s, since), [], `down to line ${visibleLines - CONTEXT_LINES}, which keeps two lines below it`);
+  down();
+  const requests = scrollRequestsSince(s, since);
+  assert.equal(requests.length, 1, 'the next line is within two of the edge, and scrolls');
+  assert.equal(requests[0]?.y, (visibleLines - CONTEXT_LINES + 1) * LINE_HEIGHT + CONTEXT_LINES * LINE_HEIGHT - state.clientHeight);
+});
+
+panelTest('a drag over the lines at the edge of the view selects them and scrolls nothing: only a pointer beyond the edge scrolls', (s) => {
+  const state = s.host.scrollStatesByTestID.get('code-scroll');
+  assert.ok(state !== undefined);
+  const visibleLines = state.clientHeight / LINE_HEIGHT;
+  const content = tag(s, 'code-content');
+  const since = s.host.scrollRequests.length;
+  const from = pointAt(s, 5, 3);
+  const down = s.host.pointerEvent(content, 'pointerdown', { ...from, viewportX: from.x, viewportY: from.y, cancelable: true, buttons: 1 });
+  s.host.pointersDown.add(down.pointerId);
+  s.host.events.push(down);
+  s.uiRoot.dispatchEvents();
+  for (const line of [10, visibleLines - 3, visibleLines - 1, visibleLines]) {
+    const over = pointAt(s, line, 6);
+    s.host.events.push(s.host.pointerEvent(content, 'pointermove', { ...over, viewportX: over.x, viewportY: over.y, buttons: 1 }));
+    s.uiRoot.dispatchEvents();
+  }
+  s.host.events.push(s.host.pointerEvent(content, 'pointerup', { ...pointAt(s, visibleLines, 6) }));
+  s.host.pointersDown.delete(down.pointerId);
+  s.uiRoot.dispatchEvents();
+  const { main } = workspace(s).active.controller.model.state.selection;
+  const doc = workspace(s).active.controller.model.doc;
+  assert.equal(doc.lineAt(main.head).number, visibleLines, 'the selection reached the last line');
+  assert.equal(doc.lineAt(main.anchor).number, 5, 'from where the press was');
+  assert.deepEqual(scrollRequestsSince(s, since), [], 'and nothing scrolled');
+});
+
 /** The number of the first blank line of the source, which a test types a line into. */
 function blankLine(s: Scenario): number {
   const { doc } = workspace(s).active.controller.model;

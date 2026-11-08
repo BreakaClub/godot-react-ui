@@ -77,6 +77,13 @@ export interface EditorControllerOptions {
 type Listener = () => void;
 
 /**
+ * How much room around the caret a reveal keeps in view. A key that moved the caret keeps a few lines and columns of context around it, as an
+ * editor's scroll-off does; a press puts the caret under the pointer, which is in view already, so all it may ask is that the caret's line and
+ * character are shown whole (a line only partly in view at the edge of the viewport) and no more.
+ */
+export type RevealMargin = 'context' | 'minimal';
+
+/**
  * After a soft keyboard's text reaches the input (`insertReplacementText`: the engine's `_set_text`), the engine presses Right once for
  * each character the keyboard's caret is past (`DisplayServerWeb::_vk_input_text_callback`), a frame later. They are not the person's
  * arrows and must not move the editor's caret; they come within this long of the text.
@@ -112,6 +119,8 @@ export class EditorController {
   private isFocused = false;
   private revisionCount = 0;
   private revealCount = 0;
+  private revealKind: RevealMargin = 'context';
+  private keyboardCount = 0;
   private pointer: PointerSelection | undefined;
   private bracketsFor: { state: object; ranges: ReturnType<typeof matchedBrackets> } | undefined;
   private mergedDiagnostics: { checker: readonly EditorDiagnostic[]; local: readonly EditorDiagnostic[]; merged: readonly EditorDiagnostic[] } | undefined;
@@ -135,6 +144,16 @@ export class EditorController {
   /** Grows when the caret should be brought into view. */
   get revealEpoch(): number {
     return this.revealCount;
+  }
+
+  /** How much room the reveal that `revealEpoch` last announced keeps around the caret. */
+  get revealMargin(): RevealMargin {
+    return this.revealKind;
+  }
+
+  /** Grows when the view should give the keyboard to its input again (`requestKeyboard`). */
+  get keyboardEpoch(): number {
+    return this.keyboardCount;
   }
 
   get metrics(): ViewMetrics {
@@ -366,15 +385,25 @@ export class EditorController {
 
   // ---- The pointer ---------------------------------------------------------------------------------------------------------
 
-  /** A press on the text at `offset`. The selection follows `pointerMove` until `pointerUp`. */
+  /**
+   * A press on the text at `offset`. The selection follows `pointerMove` until `pointerUp`. The caret is where the pointer is, so it is
+   * revealed with no margin: only a line that is partly out of view is scrolled, and only until it is whole.
+   */
   pointerDown(down: PointerDown): void {
     this.pointer = new PointerSelection(this.model.state, down);
-    this.setSelection(this.pointer.selectionAt(this.model.state, down.offset));
+    // The request comes first so that the render the new selection causes sees it; a press on the caret that is there changes no selection,
+    // and the line may still be only partly in view.
+    this.requestReveal('minimal');
+    if (!this.select(this.pointer.selectionAt(this.model.state, down.offset))) this.changed();
   }
 
+  /**
+   * The pointer of a press is over `offset`. The selection follows it and nothing is revealed: the pointer is inside the viewport, or the
+   * autoscroll (`view/autoscroll.ts`) is carrying the viewport after it, and a reveal of its own would scroll under a pointer that holds still.
+   */
   pointerMove(offset: number): void {
     if (this.pointer === undefined) return;
-    this.setSelection(this.pointer.selectionAt(this.model.state, offset));
+    this.select(this.pointer.selectionAt(this.model.state, offset));
   }
 
   pointerUp(): void {
@@ -391,7 +420,7 @@ export class EditorController {
    */
   dragSelectionEnd(fixed: number, offset: number): void {
     if (offset === fixed) return;
-    this.setSelection(EditorSelection.single(fixed, offset));
+    this.select(EditorSelection.single(fixed, offset));
   }
 
   /** The menu's Select All: the whole document. */
@@ -399,10 +428,20 @@ export class EditorController {
     this.setSelection(EditorSelection.single(0, this.model.doc.length));
   }
 
+  /** Moves the selection and brings the caret into view with the context a key keeps (a jump to a problem, Select All). */
   setSelection(selection: EditorSelection): void {
     if (selection.eq(this.model.state.selection)) return;
-    this.model.dispatch({ selection, userEvent: 'select.pointer' });
-    this.revealCount += 1;
+    this.requestReveal('context');
+    this.select(selection);
+  }
+
+  /**
+   * Asks the view to give the keyboard to its input again. The view does it once it has drawn the input at the caret: a focused input is
+   * brought into view by the platform, and one still at the caret's old place would scroll the editor back there.
+   */
+  requestKeyboard(): void {
+    this.keyboardCount += 1;
+    this.changed();
   }
 
   /** Runs an editor command as the keymap would. */
@@ -444,8 +483,20 @@ export class EditorController {
       this.localDiagnostics.follow(update.transaction.changes);
       this.inlays.follow(update.transaction.changes);
     }
-    if (update.transaction.scrollIntoView) this.revealCount += 1;
+    if (update.transaction.scrollIntoView) this.requestReveal('context');
     this.changed();
+  }
+
+  /** Dispatches a selection; false when it is the one there is. */
+  private select(selection: EditorSelection): boolean {
+    if (selection.eq(this.model.state.selection)) return false;
+    this.model.dispatch({ selection, userEvent: 'select.pointer' });
+    return true;
+  }
+
+  private requestReveal(margin: RevealMargin): void {
+    this.revealKind = margin;
+    this.revealCount += 1;
   }
 
   private changed(): void {

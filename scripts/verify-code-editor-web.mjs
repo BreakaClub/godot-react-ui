@@ -39,6 +39,23 @@ const SYNTAX_JUNK = ' = = ;';
 const EMERALD_100 = '#d1fae5';
 const PAGE_BACKGROUND = '#f8fafc';
 
+/** Pointer and scroll (docs/tracks/editor-pointer.md): the characters a drag covers, and how many characters the line a press or a drag is made on has at least. */
+const POINTER_DRAG_COLUMNS = 6;
+const POINTER_LINE_MIN_CHARACTERS = 30;
+const POINTER_COLUMN = 10;
+const POINTER_MIN_VISIBLE_LINES = 8;
+/** A pointer that moves this far between a press and its release (a real mouse does, a little). */
+const NUDGE_PX = 1;
+/** Of a half-hidden line, a press this far inside its edge is on the part that shows; the part that shows is this much more than the scrollbar drawn over the foot of the code. */
+const HIDDEN_LINE_INSET_PX = 1;
+const VISIBLE_PART_BEYOND_TRACK_PX = 4;
+const SCROLL_TOLERANCE_PX = 0.5;
+const CUT_LINES = 3;
+const WHEEL_NOTCH_PX = 100;
+const WHEEL_DEADLINE_MS = 10_000;
+/** The selection's colour without its alpha (demo/src/editor/theme.ts). */
+const SELECTION_COLOUR_PREFIX = '#2563eb';
+
 const near = (actual, expected, tolerance = COLUMN_TOLERANCE_PX) => Math.abs(actual - expected) <= tolerance;
 
 /** The 1-based line and 0-based column of the first `needle` in `source`. */
@@ -134,6 +151,170 @@ function helpers(context) {
   };
 }
 
+/**
+ * What Ben saw in Firefox and Chrome: a click mid-file highlighted a slab of text, the next click scrolled, a drag selected a slab and scrolled, and
+ * the first click after a scroll scrolled again. One cause: the editor took the keyboard for its input before the input stood at the new caret, and
+ * focusing an input brings it into view, so a caret that the wheel had scrolled out of view pulled the editor back to it from under the press.
+ * Each sequence is made with the browser's own mouse and wheel, after the caret has been left where the wheel takes it out of view.
+ */
+async function pointerAndScroll(context, h, lines, toTop) {
+  const { demo, page, frames, find, check, waitUntil } = h;
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const apart = () => sleep(CLICK_SEQUENCE_PAUSE_MS);
+  const grid = await h.grid();
+  const lineHeight = grid.lineHeight;
+  const scroller = () => find('code-scroll');
+  const scrollTop = async () => (await scroller()).scroll.scrollTop;
+  const clientHeight = (await scroller()).scroll.clientHeight;
+  const wholeLines = Math.floor(clientHeight / lineHeight);
+  check(`The code shows at least ${POINTER_MIN_VISIBLE_LINES} whole lines`, wholeLines >= POINTER_MIN_VISIBLE_LINES, wholeLines);
+  const lineWithText = (from) => {
+    const index = lines.findIndex((text, at) => at + 1 >= from && text.length >= POINTER_LINE_MIN_CHARACTERS);
+    if (index < 0) throw new Error(`The source has no line of ${POINTER_LINE_MIN_CHARACTERS} characters at or after line ${from}`);
+    return index + 1;
+  };
+  const firstWhole = async () => Math.ceil((await scrollTop()) / lineHeight) + 1;
+  const lastWhole = async () => Math.floor(((await scrollTop()) + clientHeight) / lineHeight);
+  const lineInTheMiddle = async () => {
+    const line = lineWithText((await firstWhole()) + Math.floor(wholeLines / 2));
+    if (line < (await firstWhole()) || line > (await lastWhole())) throw new Error(`The line with text nearest the middle (${line}) is not in view`);
+    return line;
+  };
+  const track = (await scroller()).scroll.tracks?.x ?? null;
+  const pressableBottom = async () => (track === null ? (await scroller()).rect.y + clientHeight : track.y);
+  const bottomMost = async () => {
+    const contentTop = (await find('code-content')).rect.y;
+    let line = await lastWhole();
+    while (line > 1 && contentTop + line * lineHeight > (await pressableBottom())) line -= 1;
+    return line;
+  };
+  const selection = async () => {
+    let characters = 0;
+    let from;
+    let to;
+    const numbers = [...(await h.drawnLines()).keys()].sort((a, b) => a - b);
+    for (const number of numbers) {
+      for (const span of await h.spansOf(`code-line-${number}`)) {
+        if (span.inlay !== undefined || String(span.style.backgroundColor ?? '').slice(0, SELECTION_COLOUR_PREFIX.length).toLowerCase() !== SELECTION_COLOUR_PREFIX) continue;
+        characters += span.end - span.start;
+        from ??= { line: number, column: span.start };
+        to = { line: number, column: span.end };
+      }
+    }
+    return { characters, from, to };
+  };
+  const pressedAt = async (line, column, what) => {
+    const before = await scrollTop();
+    await apart();
+    await h.click(await h.boundaryAt(line, column));
+    const wanted = Math.min(column, (lines[line - 1] ?? '').length);
+    const position = await h.statusPosition();
+    check(`${what}: the caret is under the pointer`, position?.line === line && position.column === wanted, { position, line, wanted });
+    check(`${what} does not scroll the code`, Math.abs((await scrollTop()) - before) <= SCROLL_TOLERANCE_PX, { before, after: await scrollTop() });
+    const selected = await selection();
+    check(`${what} leaves a caret and no selection`, selected.characters === 0, selected);
+  };
+  const wheelUntil = async (deltaY, reached) => {
+    const rect = (await scroller()).rect;
+    await context.moveTo({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 });
+    const deadline = Date.now() + WHEEL_DEADLINE_MS;
+    while (!(await reached())) {
+      if (Date.now() > deadline) throw new Error('The wheel did not take the code where this step needs it');
+      await page.mouse.wheel({ deltaX: 0, deltaY });
+      await frames();
+    }
+    // The code is still when its offset has been the same for several frames.
+    let last = Number.NaN;
+    let still = 0;
+    while (still < 5) {
+      await frames();
+      const now = await scrollTop();
+      still = now === last ? still + 1 : 0;
+      last = now;
+    }
+  };
+  const wheelPastAPage = () => wheelUntil(WHEEL_NOTCH_PX, async () => (await scrollTop()) > clientHeight);
+
+  await toTop();
+  // A click mid-file, and the next, scroll nothing.
+  const middle = await lineInTheMiddle();
+  await pressedAt(middle, POINTER_COLUMN, `A click on line ${middle}`);
+  const next = lineWithText(middle + 1);
+  await pressedAt(next, POINTER_COLUMN, `The next click, on line ${next}`);
+  // The lines at the edges are not scrolled when they are whole in view, the second from the bottom included (it used to be: a reveal kept two lines clear).
+  const bottom = await bottomMost();
+  const top = await firstWhole();
+  for (const [line, what] of [
+    [bottom - 1, 'the second line from the bottom'], [bottom, 'the last line that shows whole'], [top + 1, 'the second line from the top'], [top, 'the first line that shows whole'],
+  ]) await pressedAt(line, POINTER_COLUMN, `A click on ${what} (line ${line})`);
+  // A line that is cut off at an edge is scrolled by the part that is out, and no further: the top one, then the bottom one.
+  await demo('scrollTo', 'code-scroll', CUT_LINES * lineHeight + lineHeight / 2);
+  await frames();
+  const cutTop = CUT_LINES + 1;
+  const cutTopAt = await h.boundaryAt(cutTop, POINTER_COLUMN);
+  await apart();
+  await h.click({ x: cutTopAt.x, y: (await scroller()).rect.y + HIDDEN_LINE_INSET_PX });
+  check(`A click on the visible part of the half-hidden top line is on line ${cutTop}`, (await h.statusPosition())?.line === cutTop, await h.statusPosition());
+  check('and scrolls it by the half that was out, no more', Math.abs((await scrollTop()) - CUT_LINES * lineHeight) <= SCROLL_TOLERANCE_PX, await scrollTop());
+  const shown = (track === null ? 0 : track.height) + VISIBLE_PART_BEYOND_TRACK_PX;
+  const bottomEdgeLines = wholeLines + CUT_LINES + 1;
+  const cutBottomFrom = bottomEdgeLines * lineHeight + shown - clientHeight;
+  await demo('scrollTo', 'code-scroll', cutBottomFrom);
+  await frames();
+  const cutBottom = bottomEdgeLines + 1;
+  const cutBottomAt = await h.boundaryAt(cutBottom, POINTER_COLUMN);
+  await apart();
+  await h.click({ x: cutBottomAt.x, y: (await scroller()).rect.y + clientHeight - shown + HIDDEN_LINE_INSET_PX });
+  check(`A click on the visible part of the cut-off bottom line is on line ${cutBottom}`, (await h.statusPosition())?.line === cutBottom, await h.statusPosition());
+  check('and scrolls it by the part that was out, no more', Math.abs((await scrollTop()) - (cutBottomFrom + lineHeight - shown)) <= SCROLL_TOLERANCE_PX, { from: cutBottomFrom, to: await scrollTop() });
+
+  // The first click after the wheel is a click like any other: the caret is on the first lines, the wheel takes it out of view, and the click is mid-view.
+  await toTop();
+  await apart();
+  await h.click(await h.boundaryAt(2, 0));
+  await wheelPastAPage();
+  const afterWheel = await lineInTheMiddle();
+  await pressedAt(afterWheel, POINTER_COLUMN, `The first click after the wheel, on line ${afterWheel}`);
+
+  // A drag selects from the press to the pointer, and nothing else, after a scroll as at any time.
+  const dragLine = await lineInTheMiddle();
+  const scrolledBeforeDrag = await scrollTop();
+  await apart();
+  await h.drag(await h.boundaryAt(dragLine, POINTER_COLUMN), await h.boundaryAt(dragLine, POINTER_COLUMN + POINTER_DRAG_COLUMNS));
+  const dragged = await selection();
+  check(`A drag over ${POINTER_DRAG_COLUMNS} characters after the wheel selects them, from where it was pressed`, dragged.characters === POINTER_DRAG_COLUMNS && dragged.from?.line === dragLine && dragged.from.column === POINTER_COLUMN, dragged);
+  check('and does not scroll', Math.abs((await scrollTop()) - scrolledBeforeDrag) <= SCROLL_TOLERANCE_PX, { before: scrolledBeforeDrag, after: await scrollTop() });
+  await h.press('KeyC', ['Meta']);
+  await waitUntil('Copy reaches the browser clipboard', async () => (await h.clipboard()) === (lines[dragLine - 1] ?? '').slice(POINTER_COLUMN, POINTER_COLUMN + POINTER_DRAG_COLUMNS));
+  check('and Copy has exactly those characters', true);
+
+  // A real mouse moves a little between the press and the release. The caret is out of view again.
+  await toTop();
+  await apart();
+  await h.click(await h.boundaryAt(2, 0));
+  await wheelPastAPage();
+  const nudgeLine = await lineInTheMiddle();
+  const scrolledBeforeNudge = await scrollTop();
+  const pressPoint = await h.boundaryAt(nudgeLine, POINTER_COLUMN);
+  await apart();
+  const down = await context.pagePoint(pressPoint.x, pressPoint.y);
+  await page.mouse.move(down.x, down.y);
+  await frames();
+  await page.mouse.down();
+  await frames();
+  for (const nudge of [NUDGE_PX, NUDGE_PX * 2]) {
+    await page.mouse.move(down.x + nudge, down.y);
+    await frames();
+  }
+  await page.mouse.up();
+  await frames();
+  const nudged = await selection();
+  check(`A press that moves ${NUDGE_PX * 2} px before it is released selects at most the character it moved over`, nudged.characters <= 1, nudged);
+  check('and the code stayed where it was', Math.abs((await scrollTop()) - scrolledBeforeNudge) <= SCROLL_TOLERANCE_PX, { before: scrolledBeforeNudge, after: await scrollTop() });
+  check('and the caret is on the line that was pressed', (await h.statusPosition())?.line === nudgeLine, await h.statusPosition());
+  await toTop();
+}
+
 /** The panel in a viewport with a mouse and a keyboard. */
 export async function runCodeEditorScenario(context) {
   const h = helpers(context);
@@ -220,6 +401,9 @@ export async function runCodeEditorScenario(context) {
   const drawn = await h.drawnLines();
   check('After the wheel the first line is not an element and the ones drawn read as the source', !drawn.has(1) && [...drawn].every(([n, t]) => t === lines[n - 1]), [...drawn.keys()]);
   await toTop();
+
+  // Ben's sequences: clicks and drags at the edges, after a scroll, and with a nudge (docs/tracks/editor-pointer.md).
+  await pointerAndScroll(context, h, lines, toTop);
 
   // An edit reaches the page, and the counter keeps its count.
   for (let presses = 0; presses < 3; presses += 1) await context.click('inputs-next');
@@ -446,6 +630,16 @@ export async function runTouchCodeEditorScenario(context) {
   check('A pan scrolls the code', !drawn.has(1), [...drawn.keys()]);
   const afterPan = await h.statusPosition();
   check('and does not move the caret', afterPan?.line === 6 && afterPan.column === 3, afterPan);
+  // A tap after the pan is a tap like any other: the caret was left off the view, and the tap does not pull the code back to it.
+  const panned = (await context.find('code-scroll')).scroll;
+  const tapLine = lines.findIndex((text, at) => at + 1 >= Math.ceil(panned.scrollTop / grid.lineHeight) + 3 && text.length >= 20) + 1;
+  const tapAt = await h.boundaryAt(tapLine, 7);
+  const scrollerRect = (await context.find('code-scroll')).rect;
+  check('The line to tap is in view after the pan', tapLine > 0 && tapAt.y > scrollerRect.y && tapAt.y < scrollerRect.y + scrollerRect.height, { tapLine, tapAt, scrollerRect });
+  await tap({ x: tapAt.x - grid.advance * 0.3, y: tapAt.y });
+  const tapped = await h.statusPosition();
+  check('A tap after the pan puts the caret under the finger', tapped?.line === tapLine && tapped.column === 7, { tapped, tapLine });
+  check('and does not scroll the code', Math.abs((await context.find('code-scroll')).scroll.scrollTop - panned.scrollTop) <= SCROLL_TOLERANCE_PX, { before: panned.scrollTop, after: (await context.find('code-scroll')).scroll.scrollTop });
 
   // A long press selects the word under the finger and shows the handles and the menu the editor draws itself (docs/tracks/touch-selection.md); the
   // soft keyboard comes back when the finger lifts, the menu's Copy writes the browser's clipboard, and a finger that goes on moving extends the selection.

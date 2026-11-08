@@ -122,6 +122,24 @@ const LETTER_Z = 0x5a;
 /** A line shorter than this is a short line, and a press this many columns in is far past its end and still inside the panel. */
 const SHORT_LINE_COLUMNS = 30;
 const PAST_THE_END_COLUMN = 60;
+/** Pointer and scroll (docs/tracks/editor-pointer.md): the characters a drag covers, and the line a press or a drag is made on has at least this many. */
+const POINTER_DRAG_COLUMNS = 6;
+const POINTER_LINE_MIN_CHARACTERS = 30;
+/** The column a press lands on. */
+const POINTER_COLUMN = 10;
+/** The least number of whole lines the code must show for these checks to mean anything: the edge lines and the middle ones are different lines. */
+const POINTER_MIN_VISIBLE_LINES = 8;
+/** Wheel ticks that carry the code a page and more: a caret on the first lines is out of view after them. */
+const POINTER_WHEEL_TICKS = 12;
+/** Fewer ticks than that, back up. */
+const POINTER_WHEEL_BACK_TICKS = 5;
+/** A pointer that moves this far between a press and its release (a real mouse does, a little). */
+const NUDGE_PX = 1;
+/** The part of a half-hidden line that shows, beyond the scrollbar drawn over the foot of the code: a press this far inside its edge is on it. */
+const HIDDEN_LINE_INSET_PX = 1;
+const VISIBLE_PART_BEYOND_TRACK_PX = 4;
+/** Scroll offsets are fractions of a pixel: they agree to this much. */
+const SCROLL_TOLERANCE_PX = 0.5;
 /** A held drag this far below the code scrolls it; it has scrolled once it has moved this far. */
 const AUTOSCROLL_OVERSHOOT_PX = 40;
 const AUTOSCROLL_MIN_PX = 40;
@@ -629,6 +647,163 @@ async function verifyTouchSelection(api: CodeEditorInspection, source: string, c
   await toTop(api);
 }
 
+// ---- Pointer and scroll: the sequences of docs/tracks/editor-pointer.md --------------------------------------------------------------------------------
+
+interface SelectionOnScreen {
+  readonly characters: number;
+  readonly from: Position | undefined;
+  readonly to: Position | undefined;
+}
+
+/** The characters of the lines that are elements that the selection's colour is behind, and where they begin and end. */
+function selectionOnScreen(api: CodeEditorInspection): SelectionOnScreen {
+  let characters = 0;
+  let from: Position | undefined;
+  let to: Position | undefined;
+  for (const number of [...drawnLines(api).keys()].sort((a, b) => a - b)) {
+    for (const span of textSpansOf(api, number)) {
+      if (String(span.style.backgroundColor).slice(0, SELECTION_BOX_PREFIX.length).toLowerCase() !== SELECTION_BOX_PREFIX) continue;
+      characters += span.end - span.start;
+      from ??= { line: number, column: span.start };
+      to = { line: number, column: span.end };
+    }
+  }
+  return { characters, from, to };
+}
+
+/**
+ * What Ben saw in the browser: a click mid-file highlighted a slab of text, the next click scrolled, a drag selected a slab and scrolled, and the
+ * first click after a scroll scrolled again. They have one cause: the editor took the keyboard for its input *before* the input stood at the new
+ * caret, and focusing an input brings it into view (as `focus()` does in a browser), so a caret scrolled out of view by the wheel pulled the
+ * editor back to it from under the press, and the pointer's next move was then over other text. Each sequence is made with the pointer and the
+ * wheel, after the caret has been left where the wheel takes it out of view.
+ */
+async function verifyPointerAndScroll(api: CodeEditorInspection, sourceLines: readonly string[], command: Modifiers): Promise<void> {
+  await toTop(api);
+  const grid = gridOf(api);
+  const lineHeight = grid.lineHeight;
+  const view = () => node(api, 'code-scroll');
+  const clientHeight = view().scroll?.clientHeight ?? 0;
+  const wholeLines = Math.floor(clientHeight / lineHeight);
+  assert(wholeLines >= POINTER_MIN_VISIBLE_LINES, `The code shows at least ${POINTER_MIN_VISIBLE_LINES} whole lines: ${wholeLines}`);
+  /** The first line at or after `from` that has text enough to press and drag on. */
+  const lineWithText = (from: number): number => {
+    const index = sourceLines.findIndex((text, at) => at + 1 >= from && text.length >= POINTER_LINE_MIN_CHARACTERS);
+    assert(index >= 0, `The source has a line of ${POINTER_LINE_MIN_CHARACTERS} characters at or after line ${from}`);
+    return index + 1;
+  };
+  /** The first line that is whole in view, and the last. */
+  const firstWhole = (): number => Math.ceil((view().scroll?.scrollTop ?? 0) / lineHeight) + 1;
+  const lastWhole = (): number => Math.floor(((view().scroll?.scrollTop ?? 0) + clientHeight) / lineHeight);
+  /** The line with text nearest the middle of the view, after it has scrolled. */
+  const lineInTheMiddle = (): number => {
+    const line = lineWithText(firstWhole() + Math.floor(wholeLines / 2));
+    assert(line >= firstWhole() && line <= lastWhole(), `A line with text (${line}) is in the middle of the view (${firstWhole()} to ${lastWhole()})`);
+    return line;
+  };
+  const track = view().scroll?.tracks?.x;
+  /** The foot of the code is under a scrollbar when the content is wider than the view: a press there is the scrollbar's. */
+  const pressableBottom = (): number => (track === null || track === undefined ? view().rect.y + clientHeight : track.y);
+  const bottomMost = (): number => {
+    const contentTop = node(api, 'code-content').rect.y;
+    let line = lastWhole();
+    while (line > 1 && contentTop + line * lineHeight > pressableBottom()) line -= 1;
+    return line;
+  };
+  const noSelection = (what: string): void => {
+    const selected = selectionOnScreen(api);
+    assert(selected.characters === 0, `${what} leaves a caret and no selection: ${selected.characters} characters from ${JSON.stringify(selected.from)} to ${JSON.stringify(selected.to)}`);
+  };
+  const pressedAt = async (line: number, column: number, what: string): Promise<void> => {
+    const scrolled = scrollTopOf(api);
+    await click(boundaryAt(api, line, column));
+    const wanted = Math.min(column, (sourceLines[line - 1] ?? '').length);
+    assert(statusPosition(api).line === line && statusPosition(api).column === wanted, `${what}: the caret is under the pointer, at ${line}:${wanted}, not ${textOf(api, 'code-status-position')}`);
+    assert(Math.abs(scrollTopOf(api) - scrolled) <= SCROLL_TOLERANCE_PX, `${what} does not scroll the code: ${scrolled} then ${scrollTopOf(api)}`);
+    noSelection(what);
+  };
+
+  // A click mid-file, and the next, scroll nothing. The caret has to be somewhere else first: the first line.
+  const middle = lineInTheMiddle();
+  await pressedAt(middle, POINTER_COLUMN, `A click on line ${middle}`);
+  const next = lineWithText(middle + 1);
+  assert(next <= lastWhole(), `The next line with text (${next}) is in view`);
+  await pressedAt(next, POINTER_COLUMN, `The next click, on line ${next}`);
+
+  // The lines at the edges: a line that is whole in view is not scrolled, the second from the bottom included (it used to be: a reveal kept two lines clear).
+  for (const [line, what] of [
+    [bottomMost() - 1, 'the second line from the bottom'], [bottomMost(), 'the last line that shows whole'],
+    [firstWhole() + 1, 'the second line from the top'], [firstWhole(), 'the first line that shows whole'],
+  ] as const) await pressedAt(line, POINTER_COLUMN, `A click on ${what} (line ${line})`);
+
+  // A line that is cut off at an edge is scrolled by the part that is out, no further: the top one, then the bottom one.
+  const CUT_LINES = 3;
+  api.scrollTo('code-scroll', CUT_LINES * lineHeight + lineHeight / 2);
+  await settleFrames();
+  const cutTop = CUT_LINES + 1;
+  const cutTopPress = boundaryAt(api, cutTop, POINTER_COLUMN);
+  await click(new Vector2(cutTopPress.x, view().rect.y + HIDDEN_LINE_INSET_PX));
+  assert(statusPosition(api).line === cutTop, `A click on the visible part of the half-hidden top line is on line ${cutTop}: ${textOf(api, 'code-status-position')}`);
+  assert(Math.abs(scrollTopOf(api) - CUT_LINES * lineHeight) <= SCROLL_TOLERANCE_PX, `and scrolls it by the half that was out, no more: ${scrollTopOf(api)}`);
+  const trackHeight = track === null || track === undefined ? 0 : track.height;
+  const shown = trackHeight + VISIBLE_PART_BEYOND_TRACK_PX;
+  assert(shown < lineHeight, `The part of a cut-off line that shows (${shown}) is less than a line (${lineHeight})`);
+  const bottomEdgeLines = wholeLines + CUT_LINES + 1;
+  const cutBottomAt = bottomEdgeLines * lineHeight + shown - clientHeight;
+  api.scrollTo('code-scroll', cutBottomAt);
+  await settleFrames();
+  const cutBottom = bottomEdgeLines + 1;
+  const cutBottomPress = boundaryAt(api, cutBottom, POINTER_COLUMN);
+  await click(new Vector2(cutBottomPress.x, view().rect.y + clientHeight - shown + HIDDEN_LINE_INSET_PX));
+  assert(statusPosition(api).line === cutBottom, `A click on the visible part of the cut-off bottom line is on line ${cutBottom}: ${textOf(api, 'code-status-position')}`);
+  assert(Math.abs(scrollTopOf(api) - (cutBottomAt + lineHeight - shown)) <= SCROLL_TOLERANCE_PX, `and scrolls it by the part that was out, no more: ${cutBottomAt} then ${scrollTopOf(api)}`);
+
+  // The first click after the wheel is a click like any other: the caret is on the first lines, the wheel takes it far out of view, and the click is mid-view.
+  await toTop(api);
+  await click(boundaryAt(api, 2, 0));
+  const scroller = centerOf(view().rect);
+  await wheel(scroller, true, POINTER_WHEEL_TICKS);
+  assert(scrollTopOf(api) > clientHeight, `The wheel took the caret out of view: scrolled ${scrollTopOf(api)} of a view ${clientHeight} high`);
+  const afterWheel = lineInTheMiddle();
+  await pressedAt(afterWheel, POINTER_COLUMN, `The first click after the wheel, on line ${afterWheel}`);
+
+  // A drag selects from the press to the pointer, and nothing else, after a scroll as at any time.
+  await wheel(scroller, false, POINTER_WHEEL_BACK_TICKS);
+  const dragLine = lineInTheMiddle();
+  const scrolledBeforeDrag = scrollTopOf(api);
+  await drag(boundaryAt(api, dragLine, POINTER_COLUMN), boundaryAt(api, dragLine, POINTER_COLUMN + POINTER_DRAG_COLUMNS));
+  const dragged = selectionOnScreen(api);
+  assert(dragged.characters === POINTER_DRAG_COLUMNS && dragged.from?.line === dragLine && dragged.from.column === POINTER_COLUMN, `A drag over ${POINTER_DRAG_COLUMNS} characters after the wheel selects them: ${dragged.characters} characters from ${JSON.stringify(dragged.from)}`);
+  assert(Math.abs(scrollTopOf(api) - scrolledBeforeDrag) <= SCROLL_TOLERANCE_PX, `and does not scroll: ${scrolledBeforeDrag} then ${scrollTopOf(api)}`);
+  await pressKey(Key.KeyC, command);
+  assert(verifierClipboard.get() === (sourceLines[dragLine - 1] ?? '').slice(POINTER_COLUMN, POINTER_COLUMN + POINTER_DRAG_COLUMNS), `and Copy has exactly those characters: ${JSON.stringify(verifierClipboard.get())}`);
+
+  // A real mouse moves a little between the press and the release. The caret is far out of view again.
+  await toTop(api);
+  await click(boundaryAt(api, 2, 0));
+  await wheel(scroller, true, POINTER_WHEEL_TICKS);
+  const nudgeLine = lineInTheMiddle();
+  const scrolledBeforeNudge = scrollTopOf(api);
+  const pressPoint = boundaryAt(api, nudgeLine, POINTER_COLUMN);
+  await new Promise(resolve => setTimeout(resolve, CLICK_SEQUENCE_PAUSE_MS));
+  move(pressPoint);
+  await frames(CLICK_PAUSE_FRAMES);
+  leftButton(pressPoint, true);
+  await frames(CLICK_PAUSE_FRAMES);
+  for (const nudge of [NUDGE_PX, NUDGE_PX * 2]) {
+    move(new Vector2(pressPoint.x + nudge, pressPoint.y), true);
+    await frames(1);
+  }
+  leftButton(new Vector2(pressPoint.x + NUDGE_PX * 2, pressPoint.y), false);
+  await settleFrames();
+  const nudged = selectionOnScreen(api);
+  assert(nudged.characters <= 1, `A press that moves ${NUDGE_PX * 2} px before it is released selects at most the character it moved over: ${nudged.characters} from ${JSON.stringify(nudged.from)} to ${JSON.stringify(nudged.to)}`);
+  assert(Math.abs(scrollTopOf(api) - scrolledBeforeNudge) <= SCROLL_TOLERANCE_PX, `and the code stayed where it was: ${scrolledBeforeNudge} then ${scrollTopOf(api)}`);
+  assert(statusPosition(api).line === nudgeLine, `and the caret is on the line that was pressed: ${textOf(api, 'code-status-position')}`);
+
+  await toTop(api);
+}
+
 export async function verifyCodeEditor(owner: Node, api: CodeEditorInspection, capture: CodeEditorCapture): Promise<void> {
   const facts: Record<string, unknown> = {};
   const mac = OS.hasFeature('macos');
@@ -809,6 +984,7 @@ export async function verifyCodeEditor(owner: Node, api: CodeEditorInspection, c
   assert(verifierClipboard.get().startsWith((sourceLines[3] ?? '').slice(2)) && verifierClipboard.get().split('\n').length > AUTOSCROLL_PAST_LINE - 4, `The selection reaches back to where the drag began: ${verifierClipboard.get().split('\n').length} lines`);
   await toTop(api);
   assert(lineText(api, 1) === sourceLines[0], 'The code is back at the top');
+  await verifyPointerAndScroll(api, sourceLines, command);
 
   // ---- The keyboard moves the caret ----------------------------------------------------------------------------------------------------------------------
   await click(boundaryAt(api, 5, 0));
