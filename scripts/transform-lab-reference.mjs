@@ -117,9 +117,10 @@ function caseMarkup(id) {
       abs(60, 240, undefined, undefined, { background: '#0f172a', borderRadius: px(6), padding: '6px 12px' }, text('xs', 'white', 'Toggle combined transition')),
       abs(320, 236, undefined, undefined, { background: '#059669', borderRadius: px(9999), padding: '8px 16px' }, text('xs', 'white', 'Hover &amp; press me')),
     ].join('') };
+    // The library's loop is paused at its first step for the picture (transform-lab-web-capture.mjs), so its button says Resume.
     case 'loop': return { stage: [
       abs(130, 96, 140, 96, { borderRadius: px(16), padding: px(12), background: '#4f46e5', opacity: 1, transform: 'translate(0px, 0px) rotate(0deg) scale(1)' }, `${text('base', 'white', 'Looping')}${text('xs', 'white', 'step 0')}`),
-      abs(60, 248, undefined, undefined, { flexDirection: 'row', alignItems: 'center', gap: px(8) }, `${labButton({ background: '#0f172a', padding: '6px 12px' }, 'Pause loop')}${labButton({ background: '#4f46e5', padding: '6px 12px' }, 'Next keyframe')}`),
+      abs(60, 248, undefined, undefined, { flexDirection: 'row', alignItems: 'center', gap: px(8) }, `${labButton({ background: '#0f172a', padding: '6px 12px' }, 'Resume loop')}${labButton({ background: '#4f46e5', padding: '6px 12px' }, 'Next keyframe')}`),
     ].join('') };
     case 'starting': return { stage: [
       abs(50, 76, 200, 110, { borderRadius: px(16), padding: px(12), background: '#4f46e5' }, `${text('base', 'white', '@starting-style')}${text('xs', '#e0e7ff', 'mount 0')}`),

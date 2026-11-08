@@ -70,6 +70,8 @@ const FOCUS_RING_PROBE_INSET = 1;
 /** The outline a tap leaves on the part it hit (`HIT_FLASH` in transform-lab.tsx): 3 px wide, 2 px outside the border box, so 3.5 px out is the middle of it. */
 const HIT_FLASH_COLOR = new Color(0xf5 / LEVELS, 0x9e / LEVELS, 0x0b / LEVELS, 1);
 const HIT_OUTLINE_PROBE_PX = 3.5;
+/** The label of a centred bar is as far from the middle as the box round its turned text is off the box round the bar (rounding of two bounding boxes). */
+const LABEL_CENTRE_TOLERANCE_PX = 2;
 /** A point of the hit page's stage with nothing on it (stage coordinates): the bottom right corner. */
 const HIT_BARE_STAGE_POINT = new Vector2(480, 300);
 /** Where along the bar's top edge the outline is read (a share of its width): not its middle, which the guide's thin outline of the unturned box crosses. */
@@ -299,6 +301,12 @@ async function checkHit(owner: Node, api: TransformsInspection, capture: Transfo
   }
   await click(worldOf(levels, new Vector2(spec.width / 2, spec.height / 2)));
   assert(node(api, 'hit-count-bar').text === '1', `A click on the bar counts once: ${node(api, 'hit-count-bar').text}`);
+  // The bar's label is in the middle of the bar: a `Button` is a plain flex column and puts a label at its top left corner unless the lab centres it.
+  const label = api.snapshot().nodes.find(entry => entry.parent === bar.id && entry.kind === 'text');
+  assert(label !== undefined, 'The turned bar has its label');
+  const labelAt = centreOf(label.rect);
+  const barAt = centreOf(bar.rect);
+  assert(Math.hypot(labelAt.x - barAt.x, labelAt.y - barAt.y) <= LABEL_CENTRE_TOLERANCE_PX, `The turned bar's label is in its middle: its centre is ${round(labelAt.x)},${round(labelAt.y)} and the bar's ${round(barAt.x)},${round(barAt.y)}`);
   // The part a tap landed on is outlined where it is drawn: the outline turns with the bar, three pixels wide and two outside its top edge.
   const flashed = grab(owner);
   const turned = matrixOf(api, 'hit-bar');
