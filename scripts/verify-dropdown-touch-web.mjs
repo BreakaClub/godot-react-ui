@@ -39,7 +39,7 @@ const DROPDOWNS = [
 ];
 
 export async function runTouchDropdownScenario(context) {
-  const { demo, page, frames, snapshot, find, check, capture, waitUntil, nodeExists, text, pagePoint } = context;
+  const { demo, page, frames, snapshot, find, check, capture, waitUntil, nodeExists, text, pagePoint, withNominalFrameStep } = context;
   const readout = async () => JSON.parse(await text('dd-json'));
   const scrollTop = async (testID) => (await find(testID)).scroll.scrollTop;
   const maxScrollTop = async (testID) => (await find(testID)).scroll.maxScrollTop;
@@ -148,9 +148,12 @@ export async function runTouchDropdownScenario(context) {
   const verifyFlick = async (dropdown) => {
     const where = `${dropdown.name}, a flick`;
     await openList(dropdown, 0);
-    await finger.down(centreOf((await find(dropdown.list)).rect));
-    for (let step = 0; step < FLICK_STEPS; step += 1) await finger.moveBy(-FLICK_STEP_PX);
-    await finger.up();
+    // The release velocity is the finger's distance over the engine's frame step, which this job's host decides: it is held (verify-interaction-web.mjs).
+    await withNominalFrameStep(async () => {
+      await finger.down(centreOf((await find(dropdown.list)).rect));
+      for (let step = 0; step < FLICK_STEPS; step += 1) await finger.moveBy(-FLICK_STEP_PX);
+      await finger.up();
+    });
     const released = await scrollTop(dropdown.list);
     const deadline = Date.now() + COAST_DEADLINE_MS;
     let last = Number.NaN;
