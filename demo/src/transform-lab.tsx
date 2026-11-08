@@ -93,7 +93,7 @@ function Stage({ children, onClick, onClickCapture }: StageProps) {
   const fit = useContext(StageFit);
   const stage = (
     <View
-      testID="transform-stage" onClick={onClick} onClickCapture={onClickCapture}
+      testID="transform-stage" className="shrink-0" onClick={onClick} onClickCapture={onClickCapture}
       style={{
         width: STAGE.width, height: STAGE.height, backgroundColor: STAGE.background,
         ...(fit === 1 ? {} : { transform: `scale(${fit})`, transformOrigin: 'top left' }),
@@ -103,7 +103,8 @@ function Stage({ children, onClick, onClickCapture }: StageProps) {
     </View>
   );
   if (fit === 1) return stage;
-  // Layout ignores a transform, so the box the scaled stage is drawn in has the scaled size, and clips what layout still gives the stage's 520 px.
+  // Layout ignores a transform, so the box the scaled stage is drawn in has the scaled size, and clips what layout still gives the stage's 520 px
+  // (the stage does not shrink to the box: it is a fixed canvas, drawn smaller by the scale).
   return <View className="overflow-hidden" style={{ width: STAGE.width * fit, height: STAGE.height * fit }}>{stage}</View>;
 }
 

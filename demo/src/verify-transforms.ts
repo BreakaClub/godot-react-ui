@@ -36,6 +36,8 @@ export type TransformsCapture = (name: string, overflowing?: readonly string[]) 
 const FRAME_POLL_MS = 10;
 const SETTLE_FRAMES = 4;
 const RETINA_SCALE = 2;
+/** The height of the root at a content scale of two: the stage, the hit page's results, the case list and the longest caption fit in it (the window's own is 400). */
+const RETINA_ROOT_HEIGHT_PX = 640;
 /** The matrix the library reports may differ from Chrome's by this in a, b, c and d, and by `RECT_TOLERANCE_PX` in e, f and rectangles. */
 const MATRIX_TOLERANCE = 0.01;
 const RECT_TOLERANCE_PX = 0.75;
@@ -68,6 +70,10 @@ const FOCUS_RING_PROBE_INSET = 1;
 /** The outline a tap leaves on the part it hit (`HIT_FLASH` in transform-lab.tsx): 3 px wide, 2 px outside the border box, so 3.5 px out is the middle of it. */
 const HIT_FLASH_COLOR = new Color(0xf5 / LEVELS, 0x9e / LEVELS, 0x0b / LEVELS, 1);
 const HIT_OUTLINE_PROBE_PX = 3.5;
+/** A point of the hit page's stage with nothing on it (stage coordinates): the bottom right corner. */
+const HIT_BARE_STAGE_POINT = new Vector2(480, 300);
+/** Where along the bar's top edge the outline is read (a share of its width): not its middle, which the guide's thin outline of the unturned box crosses. */
+const HIT_OUTLINE_PROBE_ALONG = 0.25;
 
 function assert(condition: unknown, message: string): asserts condition {
   assertionTally.count += 1;
@@ -297,7 +303,7 @@ async function checkHit(owner: Node, api: TransformsInspection, capture: Transfo
   const flashed = grab(owner);
   const turned = matrixOf(api, 'hit-bar');
   const up = new Vector2(-turned[2], -turned[3]).normalized();
-  const edge = worldOf(levels, new Vector2(spec.width / 2, 0));
+  const edge = worldOf(levels, new Vector2(spec.width * HIT_OUTLINE_PROBE_ALONG, 0));
   const outline = new Vector2(edge.x + up.x * HIT_OUTLINE_PROBE_PX, edge.y + up.y * HIT_OUTLINE_PROBE_PX);
   const outlineSeen = pixelAt(flashed, ratioOf(flashed, api), outline);
   assert(colourApart(outlineSeen, HIT_FLASH_COLOR) <= COLOR_TOLERANCE, `A tap on the bar outlines it: ${round(outline.x)},${round(outline.y)} (outside its top edge) is ${outlineSeen.toHtml(false)}, not the amber outline`);
@@ -897,11 +903,6 @@ export async function verifyTransforms(owner: Node, api: TransformsInspection, c
   edgeProblems.length = 0;
   api.showLab('transforms');
   await settleFrames();
-  // A root narrower than the stage (`--viewport=412x915`) has the lab scaled to fit: the rest of the section reads the stage at its own size.
-  if (api.snapshot().width < STAGE.width) {
-    await checkPhone(api, capture, 'phone');
-    return;
-  }
   await checkShapes(owner, api, capture, 'dpr1');
   await checkHit(owner, api, capture, 'dpr1');
   await checkFocusRing(owner, api);
@@ -926,6 +927,10 @@ export async function verifyTransforms(owner: Node, api: TransformsInspection, c
     const win = window(owner);
     win.contentScaleFactor = RETINA_SCALE;
     contentScale = RETINA_SCALE;
+    await frames(SETTLE_FRAMES);
+    // The window's logical 400 px holds the stage; the case list and the caption under it do not fit, so the root is given the height they need (the
+    // window shows the part of it the stage is in, which is all these checks read).
+    api.resizeSurface(api.snapshot().width, RETINA_ROOT_HEIGHT_PX);
     await frames(SETTLE_FRAMES);
     try {
       await checkShapes(owner, api, capture, 'dpr2');
@@ -967,6 +972,30 @@ function overflowingOnPhone(option: string): readonly string[] {
   return PHONE_OVERFLOWING[option] ?? [];
 }
 
+/** The cases whose clip is in a frame that a transform turns (`checkInput`, `checkScroll` and `checkClip` announce the same report). */
+const TURNED_CLIP_CASES: ReadonlySet<string> = new Set(['input', 'scroll', 'clip']);
+/** The loop page has four steps (`LOOP_KEYFRAMES`); the most presses of Next keyframe that bring it back to its first. */
+const LOOP_STEPS = 4;
+/** How long a case's transitions may take to end when it is brought to rest before it is captured. */
+const REST_DEADLINE_MS = 3000;
+
+/**
+ * A case that animates on its own is brought to rest before it is captured, so that the picture and the geometry check read one state: the loop is paused at
+ * its first step, and what transitions a case has (a mount transition, a step of the loop) are waited out. The generic geometry check compares the boxes
+ * round turned content, which overlap while a card is turned 45 degrees.
+ */
+async function bringToRest(api: TransformsInspection, option: string): Promise<void> {
+  if (option === 'loop') {
+    await click(centreOf(node(api, 'loop-toggle').rect));
+    for (let presses = 0; presses < LOOP_STEPS && api.find('loop-step-label')?.text !== 'step 0'; presses += 1) await click(centreOf(node(api, 'loop-step').rect));
+  }
+  const started = Date.now();
+  while (api.snapshot().transitions.length > 0) {
+    assert(Date.now() - started < REST_DEADLINE_MS, `${option}: its transitions have not ended after ${REST_DEADLINE_MS} ms`);
+    await frames(1);
+  }
+}
+
 function insideWidth(rect: GoldenRect, width: number): boolean {
   return rect.x >= -RECT_TOLERANCE_PX && rect.x + rect.width <= width + RECT_TOLERANCE_PX;
 }
@@ -976,6 +1005,10 @@ function insideWidth(rect: GoldenRect, width: number): boolean {
  * caption and the results are laid out at that width (the caption wraps), and nothing of the lab reaches past the right edge. Each case
  * is captured for the comparison with Chrome's page (`scripts/transform-lab-reference.mjs`); the capture also holds the generic geometry
  * check, which a 520 px stage in a 412 px root fails ("escapes right"). A tap on the hit page goes through the stage's scale and the bar's turn.
+ *
+ * The root is resized to the phone's width, not the window (and not a `--viewport=412x915` run): input is injected in window pixels, which are the root's
+ * only while the window's content is not stretched; `--viewport` stretches it with its aspect kept and letterboxes it, so a press at the toggle's root-local
+ * point landed in the black bar and no pointer reached the root (found with the inspector attached: `pointers` was empty after the move).
  */
 async function checkPhone(api: TransformsInspection, capture: TransformsCapture, suffix: string): Promise<void> {
   const full = api.snapshot();
@@ -987,7 +1020,10 @@ async function checkPhone(api: TransformsInspection, capture: TransformsCapture,
     assert(width === PHONE_WIDTH_PX, `The root is a phone's ${PHONE_WIDTH_PX} px wide, not ${width}`);
     const fit = PHONE_WIDTH_PX / STAGE.width;
     for (const option of CASE_OPTIONS) {
+      // These cases clip in a turned frame, which the library reports once per element it mounts: announced, as the checks that show them at full size do.
+      if (TURNED_CLIP_CASES.has(option.id)) console.log('GODOT_REACT_EXPECT_ERROR clips its content (overflow) in a frame that a transform rotates or skews');
       await showCase(api, option.id);
+      await bringToRest(api, option.id);
       const lab = node(api, 'transform-lab');
       assert(insideWidth(lab.rect, width), `${option.id}: the lab is no wider than the phone: ${JSON.stringify(lab.rect)}`);
       const stage = node(api, 'transform-stage');
@@ -1024,8 +1060,7 @@ async function tapHitThroughTheFit(api: TransformsInspection): Promise<void> {
   assert(await hover(api, barAt) === bar.id, `The turned bar in the fitted stage is hit where it is drawn (${round(barAt.x)},${round(barAt.y)})`);
   await click(barAt);
   assert(node(api, 'hit-count-bar').text === '1', `A tap on the bar in the fitted stage counts once: ${node(api, 'hit-count-bar').text}`);
-  const fit = matrixOf(api, 'transform-stage')[0];
-  const bare = new Vector2(8 * fit, 8 * fit);
+  const bare = apply(matrixOf(api, 'transform-stage'), HIT_BARE_STAGE_POINT);
   await click(bare);
   assert(node(api, 'hit-count-empty').text === '1', `A tap on the bare stage in the fitted stage is a miss: ${node(api, 'hit-count-empty').text}`);
 }
