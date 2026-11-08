@@ -243,11 +243,11 @@ const OPACITY_CULLED_BELOW: f32 = 0.007;
 /// The canvas items of one mounted element, plus what they currently show.
 pub(crate) struct RenderNode {
     pub(crate) box_item: Rid,
-    pub(crate) content_item: Rid,
+    pub(crate) content_item: Option<Rid>,
     /// Where the element's outermost item is attached and its sibling index, remembered so the group
     /// of a `filter` can take the box item's place in the tree and give it back.
     parent: Rid,
-    draw_index: i32,
+    pub(crate) draw_index: i32,
     pub(crate) backdrop: Option<BackdropItems>,
     pub(crate) group: Option<GroupItems>,
     /// Scroll containers only: the item child boxes attach to, translated by minus the scroll offset.
@@ -290,15 +290,14 @@ const EDIT_TEXT_DRAW_INDEX: i32 = 0;
 const EDIT_CARET_DRAW_INDEX: i32 = 1;
 
 impl RenderNode {
-    /// Two detached items, the content item below the box item.
+    /// A single detached canvas item. A separate content item is created only when clipping,
+    /// scrolling, or simultaneous box and text content requires one.
     pub(crate) fn new() -> Self {
         let mut rs = server();
         let box_item = rs.canvas_item_create();
-        let content_item = rs.canvas_item_create();
-        rs.canvas_item_set_parent(content_item, box_item);
         Self {
             box_item,
-            content_item,
+            content_item: None,
             parent: Rid::Invalid,
             draw_index: 0,
             backdrop: None,
@@ -360,10 +359,36 @@ impl RenderNode {
         }
     }
 
+    /// Return the content item, creating it under `box_item` if it does not exist yet.
+    pub(crate) fn ensure_content_item(&mut self) -> Rid {
+        *self.content_item.get_or_insert_with(|| {
+            let mut rs = server();
+            let item = rs.canvas_item_create();
+            rs.canvas_item_set_parent(item, self.box_item);
+            item
+        })
+    }
+
+    /// The canvas item text content draws into: `content_item` if present, else creates `content_item`
+    /// if the box has visible painting or clipping, otherwise `box_item`.
+    fn content_draw_item(&mut self) -> Rid {
+        if let Some(content_item) = self.content_item {
+            return content_item;
+        }
+        let box_has_visuals = self.box_key.as_ref().is_some_and(BoxKey::is_visible);
+        if box_has_visuals || self.clip.is_some() || self.scroll_item.is_some() {
+            self.ensure_content_item()
+        } else {
+            self.box_item
+        }
+    }
+
     /// The item the element's child boxes attach to: the scroll item of a scroll container, else the
-    /// content item.
+    /// content item if present, else the box item.
     pub(crate) fn child_item(&self) -> Rid {
-        self.scroll_item.unwrap_or(self.content_item)
+        self.scroll_item
+            .or(self.content_item)
+            .unwrap_or(self.box_item)
     }
 
     pub(crate) fn has_scroller(&self) -> bool {
@@ -376,9 +401,10 @@ impl RenderNode {
         if self.has_scroller() {
             return;
         }
+        let content_item = self.ensure_content_item();
         let mut rs = server();
         let scroll_item = rs.canvas_item_create();
-        rs.canvas_item_set_parent(scroll_item, self.content_item);
+        rs.canvas_item_set_parent(scroll_item, content_item);
         let overlay_item = rs.canvas_item_create();
         rs.canvas_item_set_parent(overlay_item, self.box_item);
         rs.canvas_item_set_draw_index(overlay_item, OVERLAY_DRAW_INDEX);
@@ -472,6 +498,11 @@ impl RenderNode {
             .flatten()
         {
             rs.free_rid(item);
+        }
+        if self.clip.is_none() && self.content_key.is_none() {
+            if let Some(item) = self.content_item.take() {
+                rs.free_rid(item);
+            }
         }
         self.scroll_offset = Vector2::ZERO;
         self.overlay_key = None;
@@ -826,24 +857,39 @@ impl RenderNode {
         if self.box_key.as_ref() == Some(&key) {
             return false;
         }
+        let is_visible = key.is_visible();
+        let was_visible = self.box_key.as_ref().is_some_and(BoxKey::is_visible);
         let mut rs = server();
-        rs.canvas_item_clear(self.box_item);
-        // The engine culls an item by its rectangle: the border box and, past it, the outer shadows.
-        rs.canvas_item_set_custom_rect_ex(self.box_item, true)
-            .rect(key.paint_rect())
-            .done();
-        drop(rs);
-        let mut leases = Vec::new();
-        draw_box(
-            self.box_item,
-            &key,
-            background,
-            faults::active(Fault::SingleBorderDraw),
-            &mut leases,
-        );
-        // The textures the new recording needs are held before the old recording's are let go: a box that changes
-        // its colour keeps its shadow's mask.
-        self.leases = leases;
+        if is_visible {
+            if self.content_item.is_none() && self.content_key.is_some() {
+                drop(rs);
+                self.ensure_content_item();
+                self.content_key = None;
+                rs = server();
+            }
+            rs.canvas_item_clear(self.box_item);
+            // The engine culls an item by its rectangle: the border box and, past it, the outer shadows.
+            rs.canvas_item_set_custom_rect_ex(self.box_item, true)
+                .rect(key.paint_rect())
+                .done();
+            drop(rs);
+            let mut leases = Vec::new();
+            draw_box(
+                self.box_item,
+                &key,
+                background,
+                faults::active(Fault::SingleBorderDraw),
+                &mut leases,
+            );
+            self.leases = leases;
+        } else {
+            if was_visible {
+                rs.canvas_item_clear(self.box_item);
+                rs.canvas_item_set_custom_rect_ex(self.box_item, false)
+                    .done();
+            }
+            self.leases.clear();
+        }
         self.box_key = Some(key);
         true
     }
@@ -893,7 +939,7 @@ impl RenderNode {
             || self
                 .box_key
                 .as_ref()
-                .is_some_and(|key| key.oversampling != Oversampling::NONE)
+                .is_some_and(|key| key.is_visible() && key.oversampling != Oversampling::NONE)
     }
 
     /// How far the recorded box's outer shadows and its outline reach past the border box (top, right, bottom, left), in
@@ -915,7 +961,9 @@ impl RenderNode {
         if self.box_key.is_none() {
             return false;
         }
-        server().canvas_item_clear(self.box_item);
+        if self.box_key.as_ref().is_some_and(BoxKey::is_visible) {
+            server().canvas_item_clear(self.box_item);
+        }
         self.leases.clear();
         self.box_key = None;
         true
@@ -928,24 +976,37 @@ impl RenderNode {
             return false;
         }
         self.clip = clip;
+        if clip.is_some() {
+            self.ensure_content_item();
+        } else if self.scroll_item.is_none()
+            && self.content_key.is_none()
+            && !self.box_key.as_ref().is_some_and(BoxKey::is_visible)
+        {
+            if let Some(item) = self.content_item.take() {
+                server().free_rid(item);
+            }
+        }
         self.assert_clip();
         true
     }
 
     /// `canvas_item_clear` resets an item's clip flag, so every re-record asserts the clip again.
     fn assert_clip(&self) {
+        let Some(content_item) = self.content_item else {
+            return;
+        };
         let mut rs = server();
         match self.clip {
             Some(clip) => {
-                rs.canvas_item_set_custom_rect_ex(self.content_item, true)
+                rs.canvas_item_set_custom_rect_ex(content_item, true)
                     .rect(clip)
                     .done();
-                rs.canvas_item_set_clip(self.content_item, true);
+                rs.canvas_item_set_clip(content_item, true);
             }
             None => {
-                rs.canvas_item_set_custom_rect_ex(self.content_item, false)
+                rs.canvas_item_set_custom_rect_ex(content_item, false)
                     .done();
-                rs.canvas_item_set_clip(self.content_item, false);
+                rs.canvas_item_set_clip(content_item, false);
             }
         }
     }
@@ -963,26 +1024,27 @@ impl RenderNode {
         if self.content_key == Some(key) {
             return false;
         }
-        server().canvas_item_clear(self.content_item);
+        let target_item = self.content_draw_item();
+        server().canvas_item_clear(target_item);
         let mut leases = Vec::new();
         if let Some(paragraph) = paragraph {
             paragraph.set_width(key.content_width);
             // A span's background is under the selection, which is under the text.
             paragraph.draw_backgrounds(
-                self.content_item,
+                target_item,
                 key.origin,
                 key.content_width,
                 key.oversampling.factor(),
             );
             if let Some(selection) = key.selection {
                 crate::selection_input::draw_highlight(
-                    self.content_item,
+                    target_item,
                     &highlight(paragraph, selection),
                     selection.color,
                 );
             }
             leases = paragraph.draw(
-                self.content_item,
+                target_item,
                 key.origin,
                 key.content_width,
                 key.color,
@@ -1001,7 +1063,8 @@ impl RenderNode {
         if self.content_key.is_none() {
             return false;
         }
-        server().canvas_item_clear(self.content_item);
+        let item = self.content_item.unwrap_or(self.box_item);
+        server().canvas_item_clear(item);
         self.content_leases.clear();
         self.assert_clip();
         self.content_key = None;
@@ -1020,13 +1083,12 @@ impl Drop for RenderNode {
             rs.free_rid(items.text);
             rs.free_rid(items.caret);
         }
-        for item in [self.scroll_item, self.overlay_item, self.outline_item]
+        for item in [self.scroll_item, self.overlay_item, self.outline_item, self.content_item]
             .into_iter()
             .flatten()
         {
             rs.free_rid(item);
         }
-        rs.free_rid(self.content_item);
         rs.free_rid(self.box_item);
     }
 }
@@ -1224,9 +1286,24 @@ impl ReactUiRoot {
         let clip = node
             .clips_content()
             .then(|| node.geometry.padding_box().godot_rect());
+        let child_item_before = node.render.child_item();
         let clip_changed = node.render.set_clip(clip);
+        let child_item_after = node.render.child_item();
+        let reparent_children = if child_item_before != child_item_after {
+            Some((node.paint_children.clone(), child_item_after))
+        } else {
+            None
+        };
         if clip_changed && clip.is_some() {
             self.note_clip_in_turned_frame(tag);
+        }
+        if let Some((children, target_item)) = reparent_children {
+            for child_tag in children {
+                if let Some(child) = self.mounted.nodes.get_mut(&child_tag) {
+                    child.render.attach(target_item);
+                    child.render.set_draw_index(child.render.draw_index);
+                }
+            }
         }
         let Some(node) = self.mounted.nodes.get_mut(&tag) else {
             return (false, false);

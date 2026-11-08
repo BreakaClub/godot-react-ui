@@ -270,26 +270,22 @@ impl ReactUiRoot {
         if wants == node.render.has_scroller() {
             return;
         }
-        if wants {
+        let (item, children) = if wants {
             node.render.make_scroller();
-        }
-        let item = if wants {
-            node.render.child_item()
+            (node.render.child_item(), node.paint_children.clone())
         } else {
-            node.render.content_item
+            node.render.remove_scroller();
+            node.scroll = ScrollState::default();
+            (node.render.child_item(), node.paint_children.clone())
         };
-        let children = node.paint_children.clone();
+        if !wants {
+            self.forget_scroll(tag);
+        }
         for child in children {
             if let Some(child) = self.mounted.nodes.get_mut(&child) {
                 child.render.attach(item);
+                child.render.set_draw_index(child.render.draw_index);
             }
-        }
-        if !wants {
-            if let Some(node) = self.mounted.nodes.get_mut(&tag) {
-                node.render.remove_scroller();
-                node.scroll = ScrollState::default();
-            }
-            self.forget_scroll(tag);
         }
         self.hit_stale = true;
     }

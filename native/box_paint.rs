@@ -59,6 +59,13 @@ impl BorderKey {
         self.widths.iter().any(|width| *width > 0)
     }
 
+    pub fn has_visible_border(&self) -> bool {
+        self.widths
+            .iter()
+            .zip(&self.colors)
+            .any(|(width, color)| *width > 0 && color.a > 0.0)
+    }
+
     /// The sides whose border is opaque: painted over the fill's edge, it hides the edge's antialiasing.
     pub fn opaque_sides(&self) -> [bool; 4] {
         std::array::from_fn(|side| self.widths[side] > 0 && self.colors[side].a >= 1.0)
@@ -189,6 +196,11 @@ pub(crate) struct BoxKey {
 }
 
 impl BoxKey {
+    /// Whether the box has any visible pixels (background, border, shadow, or gradient).
+    pub fn is_visible(&self) -> bool {
+        self.background.a > 0.0 || self.border.has_visible_border() || self.decoration.is_some()
+    }
+
     /// Whether the key's drawing depends on the scale it is drawn at.
     pub fn depends_on_oversampling(border: &BorderKey, decoration: Option<&Decoration>) -> bool {
         border.is_rounded() || border.needs_mesh() || decoration.is_some()
