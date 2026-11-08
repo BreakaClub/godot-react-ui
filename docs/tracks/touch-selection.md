@@ -6,7 +6,17 @@ TS1 and up so as not to collide with the plan's.
 
 Ben's report, from his phone on `https://react.breaka.club`: "Text selection not working on mobile web."
 
-__RESULT__
+**Result.** A long press now selects the word under the finger on mobile web and natively, with two drag handles and an edit menu, in selectable `Text`, in `TextInput` (single and multi-line) and in the code editor. Nothing here is a
+regression fix: the feature was never built (D71 reverses the non-goal). The work is the native root's touch selection (`native/touch_selection*.rs`), a JS query for its chrome (`root.getTouchSelection()`), the code editor's own
+version, a lab and a verifier section (native and Web). Checks run on both engines, both windows, three renderers and real Chrome touch events at DPR 1 and 2; **no real iOS or Android device and no real soft keyboard was available**.
+
+| Commit | What |
+| --- | --- |
+| `b38c398` | D71 in the plan, and the touch part of the 2.3 non-goal narrowed to spellcheck and the OS's own menus |
+| `00128cc` | The native root: the long press, the handles, the menu, the model with its unit tests |
+| `cce0cd7` | The lab, `getTouchSelection()` and its types and typings, the native section, the Web scenario, the late-capture pan rule |
+| `f0fad06` | The code editor's long press, handles and menu; the tap origin noted for any un-prevented press |
+| `167ece5`, the commits after it | These notes, the polish (a ring round the menu, the removed mouse hook, checks that can fail) and the evidence |
 
 ## Reproduction (before)
 
@@ -143,7 +153,59 @@ The native section (`demo/src/verify-touch-selection.ts`, `--only=touch-selectio
   and Select All, Copy puts `useState` on the clipboard, the end handle dragged five columns extends it by exactly five, a tap hides everything, white space selects nothing, a swipe scrolls, and the finger that selected by
   holding extends the selection down three lines without panning the editor (this is the check that fails without the late-capture rule).
 
-__GATES__
+### Gates
+
+All through the gate, on this machine (load average 11 to 16 while they ran), one run each unless said, logs in `artifacts/logs/` (`final-*.log`, `control-*.log`). Chrome headless through puppeteer-core, every Godot window silent
+(`--audio-driver Dummy` through `scripts/native-run.mjs`), the clipboard the in-memory one (D46), no OS input.
+
+| Command | Result |
+| --- | --- |
+| `cargo fmt --check` | clean |
+| `cargo clippy --locked --all-targets -- -D warnings` | clean |
+| `cargo test --locked` | 914 passed (18 new: `touch_selection` 13, `TextLayout::word_under` 4, `Document::compare` 1) |
+| `pnpm test:types`, and `--engine=stock` | clean |
+| `pnpm test` | 971 passed (10 new in `tests/touch-selection.test.ts` and `tests/editor-touch-selection.test.ts`, among them the one that holds the editor's numbers to the Rust file; `tests/labs.test.ts` pins the filter result of "text selection" to both labs now) |
+| `node scripts/verify.mjs --interaction --only=touch-selection,selection,forms,scroll,drag,dropdown-touch,code-editor,navigator` (Breaka's 4.8) | landscape and portrait PASSED. Checks, landscape / portrait: touch-selection 424 / 424, selection 942 / 942, forms 1,273 / 1,261, scroll 2,679 / 2,677, drag 2,767 / 2,756, dropdown-touch 675 / 669, navigator 8,202 / 7,540, code-editor 4,149 / 2 (the portrait window has no Code button, C16) |
+| the same with `--engine=stock` (Godot 4.7.2) | landscape and portrait PASSED: 424, 942, 1,261, 2,681, 2,744, 675, 8,202, 4,149 landscape |
+| `--only=touch-selection --renderer=mobile`, and `--renderer=forward_plus` | both windows PASSED, 424 checks each (the chrome draws in all three renderers) |
+| `node scripts/verify-interaction-web.mjs --only=touch-selection,selection,forms,scroll,drag,dropdown-touch,code-editor,navigator,touch` (debug export, Breaka's template) | PASSED: 3,053 assertions, 222 captures. touch-selection 82 (touch page at DPR 1 and a retina page at DPR 2), code-editor 141 (its touch step included), forms 234, scroll 84, selection 84, drag 135, dropdown-touch 96, navigator 2,113, touch 59 |
+
+Two harness findings on the way, both mine: the Web editor step first picked a word from the original source after an earlier step had typed into that line, and a Web swipe that lifted at speed flicked the lab page far enough to scroll the selection
+out of view (the dropdown-touch track's finding: a finger rests 300 ms before it lifts). The first native version of the code editor's held-finger check moved the finger down at the top of the code, where a pan scrolls nothing, so it could
+not fail; it moves up now (below, `late-capture`).
+
+### Negative controls
+
+**On main's code.** The same section with main's native sources (`git checkout a1bba11 -- native/`, built, the new verifier on top): native `touch-selection` fails at its first behavioural check, "A long press selects the word under the
+finger: nothing is selected" (`artifacts/logs/control-main-native.log`). The Web scenario against a Web export built from main's native sources fails at its first one too: "A long press selects the word under the finger, offsets 10 to 15: null" (`artifacts/logs/control-main-web.log`). Before it was written, the reproduction above showed the same on the live site.
+
+**Mutations.** One temporary build with a switch per mutation (`TS_NC`, an environment variable the run set, in `artifacts/scratch/nc-patch.py`; none is in any commit), one window of the section each, `--no-retry`:
+
+| Mutation | The check that failed |
+| --- | --- |
+| a hold never arms (main's behaviour) | the long press selects the word under the finger |
+| a long press takes the nearest word, as a double click does (`word_range_at`) | "A long press on the space between two words selects nothing" |
+| the hold is 100 ms short | "Before the hold has elapsed nothing is selected" |
+| the finger's pointer is not cancelled when the hold fires | "The long press ended the finger's pointer events with a pointercancel: 0" |
+| a handle may collapse the selection | "A start handle dragged past the end flips the selection": the selection is gone |
+| a touch press clears a touch selection when it goes down | "A swipe keeps the selection" |
+| a tap does not clear the document's selection | "A tap elsewhere clears the selection and the handles" |
+| a dragged handle ignores its grab offset | "Dragging the end handle right extends the selection to 19": it reached 74 |
+| no autoscroll for a selecting finger | "A handle held at the bottom edge of the list scrolls it: 0" |
+| the menu does not step aside while the page scrolls | "and the menu steps aside while the page scrolls" |
+| a pan ignores a pointer JS captured since the press (`--only=code-editor`) | "The finger that selected does not pan the editor: 58.6" |
+| a mouse press does not end the touch selection | **passed**: a mouse press collapses or clears the selection by itself, so the hook was dead code and was removed (TS10) |
+
+Not mutation tested: the pure rules have unit tests (`menu_actions`, `layout_menu`, `Hold`, the handle geometry, `word_under`) that were not run against mutants; the Web-only checks (the keyboard element's text and selection, the clipboard's
+user activation) were run against main's export, not against mutants of the library.
+
+### Rasters inspected
+
+Native, landscape (1120 x 800, DPR 1, `artifacts/native-interaction/landscape/`): `touch-selection-01-word` (the word, two handles, the menu over it), `-02-end-dragged`, `-03-all`, `-04-list-autoscrolled` (the list scrolled, one handle,
+the menu over the visible end), `-05-input` (a field's word, four-segment menu), `-06-area-autoscrolled`, `code-editor-touch-01-word` (the dark menu with Cut, Copy, Select All over the code; the polish adds the ring round it) and
+`-02-extended`. Web, DPR 1: `touch/touch-selection-01-word`, `-02`, `-03`, `-05-input`; Web retina (DPR 2, `touch-retina/touch-selection-07-retina`): the ball is a smooth circle with its white ring, the stem is 2 logical px, the menu's corners, shadow
+and 14 px labels are crisp. I looked at all of them: handles on the right edges, the menu clear of the handles, nothing clipped except by a scroller. There is no CSS reference to compare a handle with (the platforms draw their own), so no per-channel
+difference against Chrome is reported; the numbers that are checked are positions (a handle's stem on the caret within 1.5 px) and the colour of a pixel of the ball and of the menu (within 18 of 255, at DPR 1 and 2).
 
 ## Not verified
 

@@ -458,7 +458,8 @@ export async function runTouchCodeEditorScenario(context) {
     await frames();
   };
   const rest = (ms) => page.evaluate((duration) => new Promise((resolve) => setTimeout(resolve, duration)), ms);
-  const lineIndex = lines.findIndex((line, index) => index >= 3 && /[A-Za-z]{5,}/u.test(line));
+  // A line the earlier steps of this scenario did not edit (they typed into line 4), so the source's word is the document's.
+  const lineIndex = lines.findIndex((line, index) => index >= 8 && /[A-Za-z]{5,}/u.test(line));
   const match = /[A-Za-z]{5,}/u.exec(lines[lineIndex] ?? '');
   check('The lab source has a word to select', lineIndex >= 0 && match !== null, lines.slice(0, 8));
   const wordLine = lineIndex + 1;
@@ -483,7 +484,9 @@ export async function runTouchCodeEditorScenario(context) {
   const copy = await h.centerOf('code-touch-menu-copy');
   await touch('touchStart', copy);
   await touch('touchEnd', copy);
-  check('Copy in the menu writes the selected word to the browser\'s clipboard', await page.evaluate(() => navigator.clipboard.readText()) === picked, picked);
+  const clipboardText = () => page.evaluate(() => navigator.clipboard.readText());
+  await waitUntil('Copy wrote the clipboard', async () => (await clipboardText()) === picked);
+  check('Copy in the menu writes the selected word to the browser\'s clipboard', (await clipboardText()) === picked, picked);
   // The finger moves up, which would scroll the code down (a finger moving down at the top of the code scrolls nothing).
   const scrolledBefore = (await context.find('code-scroll')).scroll.scrollTop;
   const heldAt = await h.boundaryAt(wordLine, match.index + 2);
@@ -497,7 +500,8 @@ export async function runTouchCodeEditorScenario(context) {
   const copyAgain = await h.centerOf('code-touch-menu-copy');
   await touch('touchStart', copyAgain);
   await touch('touchEnd', copyAgain);
-  const extended = await page.evaluate(() => navigator.clipboard.readText());
+  await waitUntil('Copy wrote the extended selection', async () => (await clipboardText()) !== picked);
+  const extended = await clipboardText();
   check('and extends the selection up the lines', extended.endsWith(picked) && extended.includes('\n'), extended.slice(-40));
   await tap(await h.boundaryAt(wordLine + 1, 4));
   check('A tap elsewhere hides the handles and the menu', !(await nodeExists('code-handle-start')) && !(await nodeExists('code-touch-menu')));
