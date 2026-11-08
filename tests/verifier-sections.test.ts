@@ -119,7 +119,7 @@ test('the Web job deadline grows with the sections a job executes, and never fal
 });
 
 test('every Web job has at least half again its measured time, and the floor covers a job of few sections', () => {
-  const byName = new Map(WEB_INTERACTION_JOBS.map((job) => [job.name, job.sections.length]));
+  const byName = new Map<string, number>(WEB_INTERACTION_JOBS.map((job) => [job.name, job.sections.length]));
   const deadline = (name: string): number => webInteractionJobDeadlineMs(byName.get(name) ?? 0);
   for (const viewport of ['landscape', 'portrait', 'retina-landscape', 'retina-portrait']) {
     assert.ok(deadline(viewport) > MEASURED_VIEWPORT_JOB_MS * 1.5, `${viewport}: ${deadline(viewport)} ms against ${MEASURED_VIEWPORT_JOB_MS} ms measured`);

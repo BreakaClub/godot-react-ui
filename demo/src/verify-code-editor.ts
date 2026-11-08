@@ -8,7 +8,7 @@ import type { NativeProfile } from '../../src/native';
 import { TYPE_ERROR, anchorOffset, applyEdits } from '../../scripts/live-compile-edits.mjs';
 import type { NavigatorOptions } from './main';
 import { THEME } from './editor/theme';
-import { assertionTally, parseVerifierEvent, verifierClipboard, waitForNewClickSequence } from './verifier-input';
+import { assertionTally, CLICK_SEQUENCE_PAUSE_MS, parseVerifierEvent, verifierClipboard, waitForNewClickSequence } from './verifier-input';
 import { grab, settleFrames } from './verify-filters';
 import { fontsOfText } from './demo-fonts';
 import { click, drag, move, typeText } from './verify-text-input';

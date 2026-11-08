@@ -20,13 +20,18 @@ import { NO_SUBSCRIPTION, RecordingHost } from './recording-host';
 const root = resolve(__dirname, '..');
 const LAB_PATH = '/project/lab/inputs-lab.tsx';
 const LAB_SOURCE = readFileSync(resolve(root, 'demo/src/inputs-lab.tsx'), 'utf8');
+const PARTS_PATH = '/project/lab/lab-parts.tsx';
+const PARTS_SOURCE = readFileSync(resolve(root, 'demo/src/lab-parts.tsx'), 'utf8');
 
 const host = cliHost();
 
 const project: Project = {
   version: 1,
   libDir: '/libs',
-  files: [{ path: LAB_PATH, text: LAB_SOURCE }],
+  files: [
+    { path: LAB_PATH, text: LAB_SOURCE },
+    { path: PARTS_PATH, text: PARTS_SOURCE },
+  ],
   labs: { inputs: { config: '/project/tsconfig.inputs.json', sources: [LAB_PATH] } },
 };
 
@@ -66,7 +71,7 @@ function backgroundOfPage(): unknown {
   return fakeHost.nodes.get(fakeHost.findByTestId('inputs-lab'))?.props.style;
 }
 
-const RECOLOUR = (text: string): string => text.replace('bg-slate-50', 'bg-emerald-100').replace('>Inputs</Text>', '>Inputs, live</Text>');
+const RECOLOUR = (text: string): string => text.replace('bg-slate-50', 'bg-emerald-100').replace('title="The input kit"', 'title="The input kit, live"');
 const HOOK_ORDER = (text: string): string => text.replace(
   '  const [state, setState] = useState<InputsState>(INITIAL_STATE);\n  const [reversed, setReversed] = useState(false);',
   '  const [reversed, setReversed] = useState(false);\n  const [state, setState] = useState<InputsState>(INITIAL_STATE);',
@@ -74,7 +79,7 @@ const HOOK_ORDER = (text: string): string => text.replace(
 
 test('the lab compiled from its source mounts', { skip: NEEDS_CLI }, async () => {
   await session.open();
-  assert.ok(texts().includes('Inputs'), `the title is on the page: ${texts().slice(0, 4).join(' / ')}`);
+  assert.ok(texts().includes('The input kit'), `the title is on the page: ${texts().slice(0, 4).join(' / ')}`);
   assert.equal(counter(), 'Next 0');
 });
 
@@ -87,7 +92,7 @@ test('an edit changes the page and a counter keeps its count', { skip: NEEDS_CLI
   const report = await session.update(LAB_PATH, RECOLOUR(LAB_SOURCE));
   assert.equal(report.outcome, 'swapped', report.error);
   assert.deepEqual(report.evaluated, [LAB_PATH]);
-  assert.ok(texts().includes('Inputs, live') && !texts().includes('Inputs'), `the title reads the new text: ${texts().slice(0, 4).join(' / ')}`);
+  assert.ok(texts().includes('The input kit, live') && !texts().includes('The input kit'), `the title reads the new text: ${texts().slice(0, 4).join(' / ')}`);
   assert.notEqual(JSON.stringify(backgroundOfPage()), before, 'the page style changed');
   assert.equal(counter(), 'Next 3', 'the state survived the edit');
   press();
