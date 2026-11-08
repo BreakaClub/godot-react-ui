@@ -5,8 +5,9 @@ import { resolve } from 'node:path';
 import test from 'node:test';
 import {
   INTERACTION_MINIMUM_DEADLINE_MS, INTERACTION_SECTION_ALLOWANCE_MS, INTERACTION_START_ALLOWANCE_MS, NATIVE_INTERACTION_SECTIONS,
-  NATIVE_OPT_IN_SECTIONS, ONLY_PREFIX, WEB_INTERACTION_SECTIONS, checkSectionNames, describeSections, interactionDeadlineMs, requestedSections,
-  sectionsToRun,
+  NATIVE_OPT_IN_SECTIONS, ONLY_PREFIX, WEB_INTERACTION_MINIMUM_DEADLINE_MS, WEB_INTERACTION_SECTION_ALLOWANCE_MS,
+  WEB_INTERACTION_START_ALLOWANCE_MS, WEB_INTERACTION_SECTIONS, checkSectionNames, describeSections, interactionDeadlineMs, requestedSections,
+  sectionsToRun, webInteractionDeadlineMs,
 } from '../scripts/verifier-sections.mjs';
 
 // Which sections an interaction verifier runs and when a run is partial (plan 0.4.1; scripts/verifier-sections.mjs).
@@ -100,4 +101,18 @@ test('the native interaction deadline grows with the sections a window runs, and
   assert.equal(full, INTERACTION_START_ALLOWANCE_MS + INTERACTION_SECTION_ALLOWANCE_MS * DEFAULT_SECTIONS.length);
   assert.ok(full > MEASURED_DEFAULT_RUN_MS * 1.5, `the default run (${full} ms) has at least half again its measured time`);
   assert.ok(interactionDeadlineMs(DEFAULT_SECTIONS.length + 1) > full, 'one more section raises it');
+});
+
+// The Web run's 20 sections took up to 1,151 s on 8 November 2026, before `font-slices` was added (scripts/verifier-sections.mjs).
+const MEASURED_WEB_SECTIONS = 20;
+const MEASURED_WEB_RUN_MS = 1_151_000;
+
+test('the Web interaction deadline grows with the sections a run executes, and never falls below its old flat value', () => {
+  assert.equal(webInteractionDeadlineMs(1), WEB_INTERACTION_MINIMUM_DEADLINE_MS, 'one section keeps the floor');
+  const full = webInteractionDeadlineMs(WEB_INTERACTION_SECTIONS.length);
+  assert.equal(full, WEB_INTERACTION_START_ALLOWANCE_MS + WEB_INTERACTION_SECTION_ALLOWANCE_MS * WEB_INTERACTION_SECTIONS.length);
+  const measuredPerSection = MEASURED_WEB_RUN_MS / MEASURED_WEB_SECTIONS;
+  const expected = measuredPerSection * WEB_INTERACTION_SECTIONS.length;
+  assert.ok(full > expected * 1.5, `the whole run (${full} ms) has at least half again the ${Math.round(expected)} ms its sections are expected to take`);
+  assert.ok(webInteractionDeadlineMs(WEB_INTERACTION_SECTIONS.length + 1) > full, 'one more section raises it');
 });

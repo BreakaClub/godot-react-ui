@@ -27,3 +27,8 @@ export const INTERACTION_SECTION_ALLOWANCE_MS: number;
 export const INTERACTION_MINIMUM_DEADLINE_MS: number;
 /** The deadline of one native interaction window that runs `sectionCount` sections: a hang guard that grows with the sections. */
 export function interactionDeadlineMs(sectionCount: number): number;
+export const WEB_INTERACTION_START_ALLOWANCE_MS: number;
+export const WEB_INTERACTION_SECTION_ALLOWANCE_MS: number;
+export const WEB_INTERACTION_MINIMUM_DEADLINE_MS: number;
+/** The deadline of one Web interaction run that executes `sectionCount` sections: a hang guard that grows with the sections. */
+export function webInteractionDeadlineMs(sectionCount: number): number;

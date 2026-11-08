@@ -61,3 +61,19 @@ export const INTERACTION_MINIMUM_DEADLINE_MS = 300_000;
 export function interactionDeadlineMs(sectionCount) {
   return Math.max(INTERACTION_MINIMUM_DEADLINE_MS, INTERACTION_START_ALLOWANCE_MS + INTERACTION_SECTION_ALLOWANCE_MS * sectionCount);
 }
+
+// The Web interaction run's deadline is the same kind of hang guard, for the whole browser run: every section in four viewports, then the
+// touch page. Measured on 8 November 2026 (main 36fb6e5, Breaka's debug export, headless Chrome, load average 13 to 20): the 20 sections
+// took 1,133 to 1,151 s in three whole runs, a mean of 58 s a section. The flat 1,200 s it had before expired on the touch page of the next
+// whole run, after `font-slices` became the 21st section.
+/** What the run needs before its first section: the browser, the page, the engine's start and the demo's ready line. */
+export const WEB_INTERACTION_START_ALLOWANCE_MS = 180_000;
+/** Allowance for each section the run executes: about 1.6 times the measured mean, so the whole run has about 1.9 times its measured time. */
+export const WEB_INTERACTION_SECTION_ALLOWANCE_MS = 90_000;
+/** The guard of a run with few sections: the flat value it had before, so no run that passed then is cut shorter now. */
+export const WEB_INTERACTION_MINIMUM_DEADLINE_MS = 1_200_000;
+
+/** The deadline of one Web interaction run that executes `sectionCount` sections. */
+export function webInteractionDeadlineMs(sectionCount) {
+  return Math.max(WEB_INTERACTION_MINIMUM_DEADLINE_MS, WEB_INTERACTION_START_ALLOWANCE_MS + WEB_INTERACTION_SECTION_ALLOWANCE_MS * sectionCount);
+}

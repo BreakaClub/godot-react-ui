@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
 import { rejectUnknownArguments } from './arguments.mjs';
 import { selectEngine } from './engine.mjs';
-import { WEB_INTERACTION_SECTIONS, describeSections, requestedSections } from './verifier-sections.mjs';
+import { WEB_INTERACTION_SECTIONS, describeSections, requestedSections, webInteractionDeadlineMs } from './verifier-sections.mjs';
 import { isolateBrowserClipboard } from './web-clipboard.mjs';
 import { startVerificationServer } from './web-verify.mjs';
 import { runComboboxScenario, runTouchComboboxScenario } from './verify-combobox-web.mjs';
@@ -45,9 +45,6 @@ const executablePath = process.env.CHROME ?? '/Applications/Google Chrome.app/Co
 const output = engine.artifactPath('web-interaction-verification');
 const STARTUP_TIMEOUT_MS = 180_000;
 const ACTION_TIMEOUT_MS = 15_000;
-// Four viewports of every section and the touch page, with the scroll and drag sections waiting on real time (momentum, the touch
-// hold, edge auto-scroll), in one browser.
-const TOTAL_TIMEOUT_MS = 1_200_000;
 const POLL_MS = 50;
 // `--only=<section>[,<section>]` runs just those sections (plan 0.4.1); the names are the native verifier's, and `touch`
 // is this verifier's touch page. An unknown name is an error: a typo must not skip a section.
@@ -55,6 +52,9 @@ const POLL_MS = 50;
 const SECTIONS = WEB_INTERACTION_SECTIONS;
 const coverage = describeSections(SECTIONS, [], requestedSections(process.argv.slice(2)));
 const wanted = (name) => coverage.run.includes(name);
+// Four viewports of every section and the touch page, with the scroll and drag sections waiting on real time (momentum, the touch
+// hold, edge auto-scroll), in one browser: a hang guard that grows with the sections run (scripts/verifier-sections.mjs has the measurements).
+const TOTAL_TIMEOUT_MS = webInteractionDeadlineMs(coverage.run.length);
 const GEOMETRY_TOLERANCE = 2;
 const DISPATCH_SAMPLES = 40;
 // Hover paint of the crossing panel's parent: slate-100 at rest, slate-200 while hovered.
