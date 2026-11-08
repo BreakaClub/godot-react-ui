@@ -60,7 +60,11 @@ const ACCELERATED_TIME_SCALE = 4;
 export async function waitEngineTime(ms: number): Promise<void> {
   Engine.timeScale = ACCELERATED_TIME_SCALE;
   try {
-    await new Promise(resolve => setTimeout(resolve, ms / ACCELERATED_TIME_SCALE));
+    const startedMs = Time.getTicksMsec();
+    // The clock is read after every timer: a timer fires early (see `waitForNewClickSequence`), and the engine's time is the real time that passed, times the rate.
+    while ((Time.getTicksMsec() - startedMs) * ACCELERATED_TIME_SCALE < ms) {
+      await new Promise(resolve => setTimeout(resolve, ms / ACCELERATED_TIME_SCALE - (Time.getTicksMsec() - startedMs)));
+    }
   } finally {
     Engine.timeScale = 1;
   }
@@ -74,10 +78,16 @@ export const CLICK_SEQUENCE_PAUSE_MS = 650;
  * count runs on the engine's tick clock (`event_time_ms`, native/lib.rs), real time that `Engine.timeScale` does not scale, so this waits for time to pass.
  * Only what is left of the pause is waited: the settles and the checks since that press have used some of it, and a pause counted from now would hold the
  * verifier for time that has already passed. With no press yet there is nothing to wait for.
+ *
+ * The tick clock is read again after every wait. A GodotJS timer fires early (the timers advance by the whole milliseconds of each frame, so a timer
+ * set for 370 ms fired after about 300 ms in the first run of this), and the pause is only worth its margin over the 500 ms interval if it is a pause on that clock.
  */
 export async function waitForNewClickSequence(): Promise<void> {
-  const remainingMs = CLICK_SEQUENCE_PAUSE_MS - (Time.getTicksMsec() - lastPointerPressMs);
-  if (remainingMs > 0) await new Promise(resolve => setTimeout(resolve, remainingMs));
+  for (;;) {
+    const remainingMs = CLICK_SEQUENCE_PAUSE_MS - (Time.getTicksMsec() - lastPointerPressMs);
+    if (remainingMs <= 0) return;
+    await new Promise(resolve => setTimeout(resolve, remainingMs));
+  }
 }
 
 /** Whether the arguments after `--` ask for a verifier or the probe: runs that inject their own input. */
