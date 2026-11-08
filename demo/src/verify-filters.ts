@@ -6,7 +6,7 @@ import {
   TEXT_CHANGE_LEFT, TEXT_CHANGE_TOP, type FiltersLabProps,
 } from './filters-lab';
 import type { GlassInspection } from './verify-glass';
-import { assertionTally, parseVerifierEvent } from './verifier-input';
+import { assertionTally, parseVerifierEvent, waitEngineTime } from './verifier-input';
 
 /**
  * The `filters` section of the interaction verifier (plan Phase V1). Every claim is read from the rendered pixels of a
@@ -697,6 +697,13 @@ async function verifyNativeState(owner: Node, api: FiltersInspection, capture: F
   await capture('filters-native-state');
 }
 
+/**
+ * The lab's transitions last 400 ms (`fade` in filters-lab.tsx), on the engine's clock. This much of it lets one run out, so the page is at rest before the next
+ * hover, and this much lets the one the sampling above watched reach its end.
+ */
+const TRANSITION_RUN_OUT_MS = 600;
+const TRANSITION_END_MS = 500;
+
 async function verifyTransitions(owner: Node, api: FiltersInspection): Promise<void> {
   api.showFilters({ scene: 'native', variant: 'transition' });
   await settleFrames();
@@ -726,7 +733,7 @@ async function verifyTransitions(owner: Node, api: FiltersInspection): Promise<v
 
   // Per-function interpolation: the card's blur stays while its brightness goes from 1 to 1.1.
   hoverAt(new Vector2(2, 2));
-  await wait(600);
+  await waitEngineTime(TRANSITION_RUN_OUT_MS);
   hoverAt(centreOf(api, 'filter-card'));
   const seen: string[] = [];
   for (let step = 0; step < 14; step += 1) {
@@ -737,9 +744,9 @@ async function verifyTransitions(owner: Node, api: FiltersInspection): Promise<v
   }
   const middle = seen.find(text => /^blur\(4px\) brightness\(1\.0\d+\)$/u.test(text));
   assert(middle, `Mid-transition the filter is blur(4px) with a brightness between 1 and 1.1: ${seen.join(' | ')}`);
-  await wait(500);
+  await waitEngineTime(TRANSITION_END_MS);
   hoverAt(new Vector2(2, 2));
-  await wait(600);
+  await waitEngineTime(TRANSITION_RUN_OUT_MS);
 }
 
 // ---- A filter on a subtree ---------------------------------------------------------------------------------------------

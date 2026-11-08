@@ -4,7 +4,7 @@ import {
 import type { UISelection } from '../../src';
 import type { LayoutRect, NativeTouchHandle, NativeTouchMenuAction, NativeTouchSelection } from '../../src/native';
 import type { InteractionInspection } from './verify-interaction';
-import { assertionTally, parseVerifierEvent, verifierClipboard } from './verifier-input';
+import { assertionTally, parseVerifierEvent, verifierClipboard, waitEngineTime } from './verifier-input';
 
 /**
  * Touch text selection (`docs/tracks/touch-selection.md`), natively, with the screen-touch and screen-drag events a phone sends: a long
@@ -26,7 +26,7 @@ const HOLD_MS = 500;
 const EARLY_MS = 250;
 /** The real time a finger is held for the hold to have elapsed on the engine's clock, with slack for frames. */
 const HELD_MS = HOLD_MS + 350;
-/** How long a finger rests at a container's edge for it to autoscroll a good way. */
+/** How long, on the engine's clock, a finger rests at a container's edge for it to autoscroll a good way (the scroll is `velocity * delta`). */
 const AUTOSCROLL_REST_MS = 900;
 /** An offset is a float and a frame may land half a step apart: this much slack either way. */
 const SCROLL_TOLERANCE_PX = 1.5;
@@ -500,7 +500,7 @@ async function verifyList(api: Api, capture: (name: string) => Promise<void>): P
   touch(from, true);
   await frames(TOUCH_PAUSE_FRAMES);
   await glide(from, rest);
-  await sleep(AUTOSCROLL_REST_MS);
+  await waitEngineTime(AUTOSCROLL_REST_MS);
   await frames(TOUCH_PAUSE_FRAMES);
   const scrolled = scrollTop(api, 'ts-scroll');
   assert(scrolled > list.height, `A handle held at the bottom edge of the list scrolls it: ${scrolled}`);
@@ -611,7 +611,7 @@ async function verifyArea(api: Api, capture: (name: string) => Promise<void>): P
   touch(ballOf(handle), true);
   await frames(TOUCH_PAUSE_FRAMES);
   await glide(ballOf(handle), rest);
-  await sleep(AUTOSCROLL_REST_MS);
+  await waitEngineTime(AUTOSCROLL_REST_MS);
   await frames(TOUCH_PAUSE_FRAMES);
   assert(scrollTop(api, 'ts-area') > 0, `A handle held at the bottom edge of a text area scrolls its text: ${scrollTop(api, 'ts-area')}`);
   assert(inputState(api, 'ts-area').end > five.end + 10, `and the selection follows down the text: ${inputState(api, 'ts-area').end}`);
