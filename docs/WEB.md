@@ -45,6 +45,12 @@ The source shell `demo/web-shell.html` passes `--audio-driver Dummy` to the Web
 runtime too. Add `?verify=1` to launch the demo's real-input verifier; ordinary
 launches remain interactive.
 
+A page that hosts the canvas must keep the canvas out of the document's size, on both engine profiles. The engine sizes the canvas from
+`window.innerWidth` and `innerHeight` every frame, in pixels, and a phone turned from landscape back to portrait still has the landscape-sized canvas when the
+browser measures the page: a canvas that counts toward the document's size makes mobile Chrome zoom out to fit it, which makes `innerWidth` the wider size, and the
+page stays that wide (the root laid out at the landscape width, off the screen). The shell therefore puts the canvas in a fixed, clipping `#stage` and sets
+`minimum-scale=1` in its viewport meta (`docs/tracks/rotation.md`; the Web verifier's `rotation` section holds a page to it).
+
 The Rust binding is generated against checked-in API dumps, and which pair binds what depends on the target (`native/api/README.md`). The Web side module of the `breaka`
 profile is bound to the custom Godot 4.8 dumps under `native/api/`, which `scripts/build-web.mjs` sets for the cargo child process; the `stock` profile's Web side module is bound to
 `native/api/stock-4.7.2/`. The native builds are not bound to Breaka's dumps any more: the UI library and the live-compile extension are one build bound to the 4.7.2 pair for both

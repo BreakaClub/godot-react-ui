@@ -7,7 +7,7 @@ export const SIZE_TOLERANCE_PX = 1;
 export const OVERFLOW_TOLERANCE_PX = 2;
 
 /**
- * The page as one moment of it was observed (`observeRotation` in the verifier) and the viewport the emulated device has: every layer the size
+ * The page as one moment of it was observed (`observe` in the verifier) and the viewport the emulated device has: every layer the size
  * passes through, from the browser's layout viewport to the nodes of the root.
  *
  * @typedef {object} RotationObservation
