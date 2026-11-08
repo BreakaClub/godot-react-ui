@@ -662,38 +662,6 @@ async function demo(method, ...args) {
   return page.evaluate((name, parameters) => globalThis.godotReactDemo[name](...parameters), method, args);
 }
 
-/** What one frame of the engine's clock is while a finger flicks: a frame at 60 Hz, which is what a swipe is measured against. */
-const NOMINAL_FRAME_MS = 1000 / 60;
-/** How many animation frames are timed to find out how long this host takes to draw one. */
-const FRAME_STEP_SAMPLES = 8;
-/** The slowest the engine's clock is run to keep the frame step: a page that draws less than once a second would not finish the gesture. */
-const MIN_FRAME_STEP_SCALE = 1 / 60;
-
-/**
- * Run `gesture` with the engine's clock at the rate that makes each frame advance it by one 60 Hz frame, however long the host takes to draw a frame. A
- * finger's release velocity is its distance over the engine's `delta` (`VelocityTracker` in native/scroll.rs); the jobs of this run share the host, and on
- * a busy one a frame lasts longer, so the same swipe is a slow one and flings nothing. This is the motion check's pattern (docs/tracks/regression-fixes.md,
- * `setTimeScale`): the check then does not depend on how long the browser's steps take. The clock is back at 1 when the gesture ends, as the finger lifts.
- */
-async function withNominalFrameStep(gesture) {
-  const frameMs = await page.evaluate((samples) => new Promise((resolve) => {
-    const stamps = [];
-    const tick = (stamp) => {
-      stamps.push(stamp);
-      if (stamps.length > samples) resolve((stamps[stamps.length - 1] - stamps[0]) / samples);
-      else requestAnimationFrame(tick);
-    };
-    requestAnimationFrame(tick);
-  }), FRAME_STEP_SAMPLES);
-  const scale = Math.min(1, Math.max(MIN_FRAME_STEP_SCALE, NOMINAL_FRAME_MS / frameMs));
-  await demo('setTimeScale', scale);
-  try {
-    return await gesture();
-  } finally {
-    await demo('setTimeScale', 1);
-  }
-}
-
 async function focusedId() {
   return (await snapshot()).focused;
 }
@@ -1699,17 +1667,15 @@ async function runTouchScrollScenario() {
 
   await demo('resetPointerCancels');
   const cancelsBefore = await demo('pointerCancels');
-  await withNominalFrameStep(async () => {
-    await touchAt('touchStart', start);
-    let finger = start;
-    for (let step = 1; step <= SWIPE_STEPS; step += 1) {
-      finger = { x: start.x, y: start.y - step * SWIPE_STEP_PX };
-      await touchAt('touchMove', finger);
-    }
-    // The finger lifts while it is still moving: the release velocity is sampled over the last frames, and a finger that rested
-    // for over a tenth of a second flings nothing (native/scroll.rs `MOMENTUM_SAMPLE_INTERVAL_S`), so nothing is awaited before it.
-    await touchAt('touchEnd', finger);
-  });
+  await touchAt('touchStart', start);
+  let finger = start;
+  for (let step = 1; step <= SWIPE_STEPS; step += 1) {
+    finger = { x: start.x, y: start.y - step * SWIPE_STEP_PX };
+    await touchAt('touchMove', finger);
+  }
+  // The finger lifts while it is still moving: the release velocity is sampled over the last frames, and a finger that rested
+  // for over a tenth of a second flings nothing (native/scroll.rs `MOMENTUM_SAMPLE_INTERVAL_S`), so nothing is awaited before it.
+  await touchAt('touchEnd', finger);
   await waitUntil('the swipe scrolls the list', async () => (await scrollOf('touch-list')).scrollTop > 0);
   check('A swipe starting on a button pans the list', (await scrollOf('touch-list')).scrollTop > 0, await scrollOf('touch-list'));
   check('The pointer was cancelled when the pan began', (await demo('pointerCancels')) === cancelsBefore + 1, await demo('pointerCancels'));
@@ -3117,7 +3083,7 @@ async function runTouchWorkflow() {
   }
   if (wanted('dropdown-touch')) {
     await section('dropdown-touch', () => runTouchDropdownScenario({
-      demo, page, frames, snapshot, find, check, capture, waitUntil, nodeExists, text, pagePoint, withNominalFrameStep,
+      demo, page, frames, snapshot, find, check, capture, waitUntil, nodeExists, text, pagePoint,
     }));
   }
   if (wanted('touch-selection')) {
