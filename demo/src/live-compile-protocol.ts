@@ -102,15 +102,19 @@ function diagnosticsOf(value: unknown): CompileDiagnostic[] {
   return value;
 }
 
-export function parseCompileResult(json: string): CompileResult {
-  const reply: unknown = JSON.parse(json);
-  if (!isRecord(reply)) throw new Error(`The compiler's reply is not an object: ${json.slice(0, 200)}`);
+/** The compiler's answer, as the service's JSON had it (a `compile` reply's `result`). */
+export function compileResultOf(reply: unknown): CompileResult {
+  if (!isRecord(reply)) throw new Error(`The compiler's reply is not an object: ${JSON.stringify(reply)?.slice(0, 200)}`);
   if (reply.ok === true) {
     const { code, imports, exports } = reply;
     if (typeof code !== 'string' || !isStringArray(imports) || !isStringArray(exports)) throw new Error('The compiler said ok without code, imports and exports');
     return { ok: true, code, imports, exports, diagnostics: diagnosticsOf(reply.diagnostics) };
   }
   return { ok: false, diagnostics: diagnosticsOf(reply.diagnostics) };
+}
+
+export function parseCompileResult(json: string): CompileResult {
+  return compileResultOf(JSON.parse(json));
 }
 
 function isCheckDiagnostic(value: unknown): value is CheckDiagnostic {
@@ -123,30 +127,80 @@ function isCheckReport(value: unknown): value is CheckReport {
     && isStringArray(value.incomplete) && typeof value.deepestStack === 'number';
 }
 
+/** What `ping` says: the library's name and the Bun revision its parser and printer come from. */
+export interface Pong {
+  readonly name: string;
+  readonly bunRevision: string;
+}
+
 /** A reply `poll` handed over: the id of the request it answers, and what came of it. */
 export type Reply =
   | { readonly id: number; readonly kind: 'check'; readonly outcome: CheckOutcome }
-  | { readonly id: number; readonly kind: 'query'; readonly serviceMs: number; readonly result: Record<string, unknown> };
+  | { readonly id: number; readonly kind: 'query'; readonly serviceMs: number; readonly result: Record<string, unknown> }
+  | { readonly id: number; readonly kind: 'compile'; readonly serviceMs: number; readonly result: CompileResult }
+  | { readonly id: number; readonly kind: 'ping'; readonly serviceMs: number; readonly result: Pong }
+  | { readonly id: number; readonly kind: 'stall'; readonly serviceMs: number };
 
 export function parseReply(json: string): Reply {
   const reply: unknown = JSON.parse(json);
-  if (!isRecord(reply) || typeof reply.id !== 'number' || (reply.kind !== 'check' && reply.kind !== 'query')) throw new Error(`A reply of the service is not one: ${json.slice(0, 200)}`);
-  if (reply.kind === 'query') {
-    if (!isRecord(reply.result)) throw new Error('A query has no result');
-    return { id: reply.id, kind: 'query', serviceMs: typeof reply.ms === 'number' ? reply.ms : 0, result: reply.result };
+  if (!isRecord(reply) || typeof reply.id !== 'number') throw new Error(`A reply of the service is not one: ${json.slice(0, 200)}`);
+  const { id } = reply;
+  const serviceMs = typeof reply.ms === 'number' ? reply.ms : 0;
+  switch (reply.kind) {
+    case 'query':
+      if (!isRecord(reply.result)) throw new Error('A query has no result');
+      return { id, kind: 'query', serviceMs, result: reply.result };
+    case 'compile':
+      return { id, kind: 'compile', serviceMs, result: compileResultOf(reply.result) };
+    case 'ping':
+      if (!isRecord(reply.result) || typeof reply.result.name !== 'string' || typeof reply.result.bunRevision !== 'string') throw new Error('A ping has no name and revision');
+      return { id, kind: 'ping', serviceMs, result: { name: reply.result.name, bunRevision: reply.result.bunRevision } };
+    case 'stall':
+      return { id, kind: 'stall', serviceMs };
+    case 'check':
+      return parseCheckReply(reply, id);
+    default:
+      throw new Error(`A reply of the service is not one: ${json.slice(0, 200)}`);
   }
+}
+
+function parseCheckReply(reply: Record<string, unknown>, id: number): Reply {
   if (reply.superseded === true) {
     if (typeof reply.by !== 'number') throw new Error('A superseded check says nothing of what superseded it');
-    return { id: reply.id, kind: 'check', outcome: { kind: 'superseded', by: reply.by } };
+    return { id, kind: 'check', outcome: { kind: 'superseded', by: reply.by } };
   }
   const result = reply.result;
   if (!isRecord(result)) throw new Error('A check has no result');
   if (result.ok === true && isCheckReport(result.report) && typeof reply.ms === 'number') {
-    return { id: reply.id, kind: 'check', outcome: { kind: 'checked', report: result.report, serviceMs: reply.ms } };
+    return { id, kind: 'check', outcome: { kind: 'checked', report: result.report, serviceMs: reply.ms } };
   }
   const first = Array.isArray(result.diagnostics) ? result.diagnostics[0] : undefined;
   const message = isCompileDiagnostic(first) ? first.message : `the check failed: ${JSON.stringify(result).slice(0, 300)}`;
-  return { id: reply.id, kind: 'check', outcome: { kind: 'failed', message } };
+  return { id, kind: 'check', outcome: { kind: 'failed', message } };
+}
+
+/** What the extension can say of its queue without asking the thread (`LiveCompile.state`). */
+export interface ServiceState {
+  /** A service object has been made for this host (it is made at the first request or `start`). */
+  readonly started: boolean;
+  /** The service thread has begun running, and has not ended: in a browser, its worker has started. */
+  readonly threadRunning: boolean;
+  readonly queued: number;
+  /** The id of the request being served, or null. */
+  readonly running: number | null;
+  /** Replies finished and not yet taken. */
+  readonly replies: number;
+  /** The service threads running in the whole process. */
+  readonly threadsAlive: number;
+}
+
+export function parseServiceState(json: string): ServiceState {
+  const state: unknown = JSON.parse(json);
+  if (!isRecord(state) || typeof state.started !== 'boolean' || typeof state.threadRunning !== 'boolean' || typeof state.queued !== 'number'
+    || (state.running !== null && typeof state.running !== 'number') || typeof state.replies !== 'number' || typeof state.threadsAlive !== 'number') {
+    throw new Error(`The service's state is not one: ${json.slice(0, 200)}`);
+  }
+  return { started: state.started, threadRunning: state.threadRunning, queued: state.queued, running: state.running, replies: state.replies, threadsAlive: state.threadsAlive };
 }
 
 /** The project the editor opens: `scripts/live-compile-project.mjs` writes it. */
