@@ -228,6 +228,23 @@ test('a stall is a request like any other and can be taken back', async () => {
   await assert.rejects(stall, RequestCancelled);
 });
 
+test('a service that never answers is called dead after the deadline, and says what its queue looked like; no call waited for it', async () => {
+  const service = new FakeService();
+  const host = new ExtensionHost(service, 30);
+  const started = Date.now();
+  const request = host.compile('/p/a.tsx', 'A', true, new RequestScope());
+  assert.ok(Date.now() - started < 30, 'the call returned at once');
+  await assert.rejects(request, /did not answer request 1 \(compile\) within 0\.03 s; its state is \{"started":true,"threadRunning":true,"queued":1/u);
+  assert.deepEqual(service.cancelled, [1], 'the request was taken back');
+  assert.equal(host.outstandingCount, 0);
+  // A request that is answered in time leaves no deadline behind.
+  const fine = host.compile('/p/b.tsx', 'B', true, new RequestScope());
+  service.answer(2, compiled(2, 'X'));
+  await fine;
+  await pause(60);
+  assert.equal(host.outstandingCount, 0);
+});
+
 test('the replies of the service parse: compile, ping and stall', () => {
   const compile = parseReply(compiled(3, 'CODE'));
   assert.ok(compile.kind === 'compile' && compile.id === 3 && compile.result.ok && compile.result.code === 'CODE' && compile.serviceMs === 1.5);

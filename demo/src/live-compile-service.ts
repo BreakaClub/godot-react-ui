@@ -28,6 +28,32 @@ export interface ServiceLink {
 
 /** How soon `poll` asks again while a request is outstanding. Nothing polls while none is. */
 const POLL_INTERVAL_MS = 1;
+const MILLISECONDS_PER_SECOND = 1000;
+
+/** A timer that can be put away. */
+class Deadline {
+  private timer: ReturnType<typeof setTimeout> | undefined;
+
+  constructor(expired: () => void, ms: number) {
+    this.timer = setTimeout(() => {
+      this.timer = undefined;
+      expired();
+    }, ms);
+  }
+
+  cancel(): void {
+    if (this.timer === undefined) return;
+    clearTimeout(this.timer);
+    this.timer = undefined;
+  }
+}
+
+/**
+ * How long a request may wait for its answer before the host calls the service dead. A thread that trapped (in a browser, a panic ends it) answers
+ * nothing, and an editor that says "Compiling" for ever is no better than one that hangs. It is a timer: nothing waits for it, and the
+ * longest request of a lab (a first check) is a fraction of a second (docs/tracks/live-compile-async.md).
+ */
+export const REQUEST_DEADLINE_MS = 30_000;
 
 /** A request that has been made and not answered. */
 interface Outstanding {
@@ -35,18 +61,20 @@ interface Outstanding {
   /** Settles the request's promise with the reply, if it is the kind that was asked for. */
   readonly deliver: (reply: Reply) => void;
   readonly reject: (error: Error) => void;
-  /** Forgets the cancellation the request registered with its scope. */
-  readonly release: () => void;
+  /** The request is settled one way or another: its cancellation with its scope is forgotten and its deadline is not waited for. */
+  readonly finish: () => void;
 }
 
 export class ExtensionHost implements LiveCompileHost {
   private readonly service: ServiceLink;
   private readonly outstanding = new Map<number, Outstanding>();
+  private readonly deadlineMs: number;
   private polling = false;
   private closed = false;
 
-  constructor(service: ServiceLink) {
+  constructor(service: ServiceLink, deadlineMs: number = REQUEST_DEADLINE_MS) {
     this.service = service;
+    this.deadlineMs = deadlineMs;
   }
 
   compile(path: string, source: string, refresh: boolean, scope: RequestScope): Promise<CompileResult> {
@@ -104,7 +132,7 @@ export class ExtensionHost implements LiveCompileHost {
     const cancelled = [...this.outstanding.values()];
     this.outstanding.clear();
     for (const request of cancelled) {
-      request.release();
+      request.finish();
       request.reject(new RequestCancelled());
     }
     this.service.stop();
@@ -123,11 +151,20 @@ export class ExtensionHost implements LiveCompileHost {
     const id = send();
     return new Promise((resolve, reject) => {
       const isAsked = (reply: Reply): reply is Extract<Reply, { readonly kind: K }> => reply.kind === kind;
-      const release = scope?.onCancel(() => {
+      const forgetScope = scope?.onCancel(() => {
         this.outstanding.delete(id);
+        deadline.cancel();
         this.service.cancel(id);
         reject(new RequestCancelled());
       }) ?? (() => {});
+      const deadline = new Deadline(() => {
+        // The service has not answered in all this time. Its queue is read without asking the thread, so the message can say what it looks like.
+        if (!this.outstanding.delete(id)) return;
+        forgetScope();
+        const state = this.service.state();
+        this.service.cancel(id);
+        reject(new Error(`The live-compile service did not answer request ${id} (${kind}) within ${this.deadlineMs / MILLISECONDS_PER_SECOND} s; its state is ${state}`));
+      }, this.deadlineMs);
       this.outstanding.set(id, {
         kind,
         deliver: reply => {
@@ -135,7 +172,10 @@ export class ExtensionHost implements LiveCompileHost {
           else reject(new Error(`The service answered request ${id}, a ${kind}, with a ${reply.kind}`));
         },
         reject,
-        release,
+        finish: () => {
+          forgetScope();
+          deadline.cancel();
+        },
       });
       this.schedulePoll();
     });
@@ -156,7 +196,7 @@ export class ExtensionHost implements LiveCompileHost {
         const request = this.outstanding.get(reply.id);
         if (request === undefined) throw new Error(`The service answered request ${reply.id} (${reply.kind}), which nobody is waiting for`);
         this.outstanding.delete(reply.id);
-        request.release();
+        request.finish();
         request.deliver(reply);
       }
     } finally {
