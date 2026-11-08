@@ -227,13 +227,26 @@ export function EditorView({ workspace, file }: EditorViewProps) {
     if (grid === undefined || main === undefined) return;
     const state = scrollerRef.current?.getScrollState();
     if (state === undefined) return;
-    const margin = REVEAL_MARGIN_LINES * grid.lineHeight;
+    // A key that moved the caret keeps some context round it; a press put it under the pointer, so only a line that is partly in view is moved.
+    const withContext = controller.revealMargin === 'context';
+    const margin = withContext ? REVEAL_MARGIN_LINES * grid.lineHeight : 0;
     const top = scrollToReveal(state.scrollTop, state.clientHeight, yOfLine(main.line, grid), yOfLine(main.line, grid) + grid.lineHeight, margin);
     const textWidth = state.clientWidth - grid.gutterWidth;
     const caretX = (caretLeft(main, grid) ?? xOfColumn(main.column, grid)) - grid.gutterWidth;
-    const left = scrollToReveal(state.scrollLeft, textWidth, caretX, caretX + grid.advance, REVEAL_MARGIN_COLUMNS * grid.advance);
+    const left = scrollToReveal(state.scrollLeft, textWidth, caretX, caretX + grid.advance, withContext ? REVEAL_MARGIN_COLUMNS * grid.advance : 0);
     if (top !== state.scrollTop || left !== state.scrollLeft) scrollerRef.current?.scrollTo({ top, left });
   }, [controller.revealEpoch, grid === undefined]);
+
+  // Give the keyboard to the input again when something asked for it (`takeKeyboard`). This is after the render that moved the input to the
+  // caret, and after the reveal above: focusing an input brings it into view, as `focus()` does in a browser, so an input still standing at the
+  // caret's old place (scrolled out of view by the wheel since) would scroll the editor back to it, from under a press that is in progress.
+  const keyboardHandled = useRef(controller.keyboardEpoch);
+  useLayoutEffect(() => {
+    if (keyboardHandled.current === controller.keyboardEpoch) return;
+    keyboardHandled.current = controller.keyboardEpoch;
+    sinkRef.current?.blur();
+    sinkRef.current?.focus();
+  });
 
   const hover = useMemo(() => new HoverTracker<TooltipLine[]>(
     async target => {
@@ -346,15 +359,12 @@ export function EditorView({ workspace, file }: EditorViewProps) {
   }
 
   /**
-   * Gives the keyboard to the input again. Focusing the element that has the focus is no change, and the platform's text session (the IME
-   * on a desktop browser, the soft keyboard on a touch one) is begun by a change of focus: after the browser has given its focus to the
-   * canvas or the keyboard has been put away, a press that only calls `focus()` would leave the editor without either. A press is the
-   * gesture a browser allows that in.
+   * Asks for the keyboard to go to the input again, once it stands at the caret (the layout effect above). Focusing the element that has the
+   * focus is no change, and the platform's text session (the IME on a desktop browser, the soft keyboard on a touch one) is begun by a change of
+   * focus: after the browser has given its focus to the canvas or the keyboard has been put away, a press that only calls `focus()` would leave
+   * the editor without either. A press is the gesture a browser allows that in.
    */
-  const takeKeyboard = (): void => {
-    sinkRef.current?.blur();
-    sinkRef.current?.focus();
-  };
+  const takeKeyboard = (): void => { controller.requestKeyboard(); };
 
   /**
    * A finger held still on a word (`LongPress`): the word is selected, the finger is the selection's from now on (JS captures it, so it no
@@ -385,10 +395,10 @@ export function EditorView({ workspace, file }: EditorViewProps) {
     const offset = offsetAt(event.x, event.y);
     if (offset === undefined) return;
     hover.cancel();
-    takeKeyboard();
     event.currentTarget.setPointerCapture(event.pointerId);
     pointerRef.current = { x: event.x, y: event.y };
     controller.pointerDown({ offset, clicks: clicks.current.press(event.x, event.y, event.timeStamp), shiftKey: event.shiftKey, altKey: event.altKey });
+    takeKeyboard();
     event.preventDefault();
   };
 
@@ -429,9 +439,9 @@ export function EditorView({ workspace, file }: EditorViewProps) {
     }
     const offset = offsetAt(event.x, event.y);
     if (offset === undefined) return;
-    takeKeyboard();
     controller.pointerDown({ offset, clicks: Math.max(1, event.detail), shiftKey: false, altKey: false });
     controller.pointerUp();
+    takeKeyboard();
   };
 
   /** Where the selection's end `offset` is, in the content's frame: a stem the height of its line. `undefined` for a line that is not laid out. */

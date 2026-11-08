@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { EditorSelection } from '@codemirror/state';
 import { SINK_TEXT } from '../demo/src/editor/sink';
 import { keyEvent, openEditor, parseMarked, marked } from './editor-helpers';
 
@@ -399,6 +400,53 @@ test('a drag selects between where it began and where it is; Shift+click extends
   editor.editor.pointerDown({ offset: 8, clicks: 1, shiftKey: true, altKey: false });
   editor.editor.pointerUp();
   assert.equal(editor.marked(), '01<234567>89', 'the anchor stayed at 2');
+});
+
+test('a press asks for a reveal that keeps no margin, a drag asks for none, and a key or a jump keeps context', () => {
+  const editor = openEditor('0123456789\nabcdefghij\nklmnopqrst');
+  const { editor: controller } = editor;
+  const pressed = controller.revealEpoch;
+  controller.pointerDown({ offset: 3, clicks: 1, shiftKey: false, altKey: false });
+  assert.equal(controller.revealEpoch, pressed + 1, 'a press asks for a reveal');
+  assert.equal(controller.revealMargin, 'minimal', 'with no margin: it is under the pointer');
+  controller.pointerMove(14);
+  controller.pointerMove(25);
+  controller.pointerMove(1);
+  assert.equal(controller.revealEpoch, pressed + 1, 'a drag asks for none: the pointer is in view, or the autoscroll is carrying the view after it');
+  controller.pointerUp();
+  assert.equal(editor.marked(), '0>12<3456789\nabcdefghij\nklmnopqrst', 'and the selection followed it');
+  // A press on the caret that is there changes no selection and still asks, and tells the view (the line may be only partly in view).
+  controller.pointerDown({ offset: 3, clicks: 1, shiftKey: false, altKey: false });
+  controller.pointerUp();
+  const revisionBefore = controller.revision;
+  const epochBefore = controller.revealEpoch;
+  controller.pointerDown({ offset: 3, clicks: 1, shiftKey: false, altKey: false });
+  controller.pointerUp();
+  assert.equal(controller.revealEpoch, epochBefore + 1, 'a press where the caret already is asks for a reveal');
+  assert.ok(controller.revision > revisionBefore, 'and the view is told, so the request does not wait for an unrelated render');
+  editor.press('ArrowDown');
+  assert.equal(controller.revealMargin, 'context', 'a key keeps context round the caret');
+  controller.pointerDown({ offset: 0, clicks: 1, shiftKey: false, altKey: false });
+  controller.pointerUp();
+  assert.equal(controller.revealMargin, 'minimal');
+  controller.setSelection(EditorSelection.single(15));
+  assert.equal(controller.revealMargin, 'context', 'a jump to a place (a problem in the list, Select All) keeps context');
+  const dragged = controller.revealEpoch;
+  controller.dragSelectionEnd(2, 20);
+  controller.dragSelectionEnd(2, 8);
+  assert.equal(controller.revealEpoch, dragged, 'a touch handle dragged asks for nothing either');
+});
+
+test('the view is asked for the keyboard, and told, whether or not anything else changed', () => {
+  const editor = openEditor('abc|');
+  const { editor: controller } = editor;
+  let told = 0;
+  controller.subscribe(() => { told += 1; });
+  const epoch = controller.keyboardEpoch;
+  controller.requestKeyboard();
+  assert.equal(controller.keyboardEpoch, epoch + 1);
+  assert.equal(told, 1, 'the view renders, and so gives the keyboard to its input');
+  assert.equal(editor.marked(), 'abc|', 'the request moves nothing');
 });
 
 test('a soft keyboard\'s text is typed, and the Right presses the engine makes after it are not the person\'s', () => {
