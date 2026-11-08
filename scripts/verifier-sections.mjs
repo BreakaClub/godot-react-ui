@@ -21,6 +21,31 @@ export const WEB_INTERACTION_SECTIONS = [
   'events', 'cooperation', 'pointers', 'keyboard', 'scroll', 'selection', 'touch-selection', 'drag', 'forms', 'combobox', 'dropdown-touch', 'hidpi', 'filters', 'glass', 'paint', 'navigator', 'transforms', 'text-styles', 'rich-text', 'font-slices', 'rotation', 'code-editor', 'touch',
 ];
 
+/**
+ * The Web interaction run is split into jobs that run at the same time, each in a Chrome of its own (docs/tracks/suite-speed.md has why): one for
+ * each viewport, which runs these sections on one page (`runWorkflow` in `scripts/verify-interaction-web.mjs`); the pages that are each their own
+ * case (the navigator's starts, the font slices' groups, the rotations); and the touch pages. A section appears in every job that runs part of it.
+ */
+const WEB_VIEWPORT_SECTIONS = [
+  'events', 'cooperation', 'pointers', 'keyboard', 'scroll', 'selection', 'drag', 'forms', 'combobox', 'hidpi', 'filters', 'glass', 'paint', 'navigator', 'transforms', 'text-styles', 'rich-text', 'code-editor',
+];
+export const WEB_INTERACTION_JOBS = [
+  { name: 'landscape', sections: WEB_VIEWPORT_SECTIONS },
+  { name: 'portrait', sections: WEB_VIEWPORT_SECTIONS },
+  { name: 'retina-landscape', sections: WEB_VIEWPORT_SECTIONS },
+  { name: 'retina-portrait', sections: WEB_VIEWPORT_SECTIONS },
+  { name: 'pages', sections: ['navigator', 'font-slices', 'rotation'] },
+  { name: 'touch', sections: ['touch', 'drag', 'combobox', 'dropdown-touch', 'touch-selection', 'code-editor'] },
+];
+
+/** The jobs a run executes, in report order, each with the sections of it that the run asks for. A job with none of them does not run. */
+export function webInteractionJobsToRun(requested) {
+  const run = sectionsToRun(WEB_INTERACTION_SECTIONS, [], requested);
+  return WEB_INTERACTION_JOBS
+    .map(job => ({ name: job.name, sections: job.sections.filter(name => run.includes(name)) }))
+    .filter(job => job.sections.length > 0);
+}
+
 /** Every section name the arguments ask for, across all `--only=` arguments. */
 export function requestedSections(argv) {
   return argv.filter(argument => argument.startsWith(ONLY_PREFIX)).flatMap(argument => argument.slice(ONLY_PREFIX.length).split(','));
@@ -62,18 +87,17 @@ export function interactionDeadlineMs(sectionCount) {
   return Math.max(INTERACTION_MINIMUM_DEADLINE_MS, INTERACTION_START_ALLOWANCE_MS + INTERACTION_SECTION_ALLOWANCE_MS * sectionCount);
 }
 
-// The Web interaction run's deadline is the same kind of hang guard, for the whole browser run: every section in four viewports, then the
-// touch page. Measured on 8 November 2026 (main 36fb6e5, Breaka's debug export, headless Chrome, load average 13 to 20): the 20 sections
-// took 1,133 to 1,151 s in three whole runs, a mean of 58 s a section. The flat 1,200 s it had before expired on the touch page of the next
-// whole run, after `font-slices` became the 21st section.
-/** What the run needs before its first section: the browser, the page, the engine's start and the demo's ready line. */
-export const WEB_INTERACTION_START_ALLOWANCE_MS = 180_000;
-/** Allowance for each section the run executes: about 1.6 times the measured mean, so the whole run has about 1.9 times its measured time. */
-export const WEB_INTERACTION_SECTION_ALLOWANCE_MS = 90_000;
-/** The guard of a run with few sections: the flat value it had before, so no run that passed then is cut shorter now. */
-export const WEB_INTERACTION_MINIMUM_DEADLINE_MS = 1_200_000;
+// A Web interaction job's deadline is the same kind of hang guard, for one browser's run of the sections the job executes. (Before the jobs ran
+// at the same time, one deadline covered every section in four viewports and the touch page: 1,200 s, from a measured 1,133 to 1,151 s on 8 November
+// 2026; docs/tracks/suite-speed.md has the measurements of the jobs.)
+/** What a job needs before its first section: the browser, the page, the engine's start and the demo's ready line. */
+export const WEB_INTERACTION_JOB_START_ALLOWANCE_MS = 180_000;
+/** Allowance for each section the job executes. */
+export const WEB_INTERACTION_JOB_SECTION_ALLOWANCE_MS = 90_000;
+/** The guard of a job with few sections. */
+export const WEB_INTERACTION_JOB_MINIMUM_DEADLINE_MS = 300_000;
 
-/** The deadline of one Web interaction run that executes `sectionCount` sections. */
-export function webInteractionDeadlineMs(sectionCount) {
-  return Math.max(WEB_INTERACTION_MINIMUM_DEADLINE_MS, WEB_INTERACTION_START_ALLOWANCE_MS + WEB_INTERACTION_SECTION_ALLOWANCE_MS * sectionCount);
+/** The deadline of one Web interaction job that executes `sectionCount` sections. */
+export function webInteractionJobDeadlineMs(sectionCount) {
+  return Math.max(WEB_INTERACTION_JOB_MINIMUM_DEADLINE_MS, WEB_INTERACTION_JOB_START_ALLOWANCE_MS + WEB_INTERACTION_JOB_SECTION_ALLOWANCE_MS * sectionCount);
 }
