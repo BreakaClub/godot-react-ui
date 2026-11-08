@@ -12,10 +12,23 @@
     "x": 8,
     "width": 219.313,
     "top": 9,
+    "bottom": 31,
     "baseline": 26
    }
   ],
-  "copy": "Hamburgefonstiv 0123456789"
+  "copy": "Hamburgefonstiv 0123456789",
+  "ink": {
+   "1": {
+    "edges": [
+     227
+    ]
+   },
+   "2": {
+    "edges": [
+     226.5
+    ]
+   }
+  }
  },
  "weight-sans-extralight": {
   "page": "weights-sans",
@@ -30,10 +43,23 @@
     "x": 8,
     "width": 219.313,
     "top": 41,
+    "bottom": 63,
     "baseline": 58
    }
   ],
-  "copy": "Hamburgefonstiv 0123456789"
+  "copy": "Hamburgefonstiv 0123456789",
+  "ink": {
+   "1": {
+    "edges": [
+     227
+    ]
+   },
+   "2": {
+    "edges": [
+     226.5
+    ]
+   }
+  }
  },
  "weight-sans-light": {
   "page": "weights-sans",
@@ -48,10 +74,23 @@
     "x": 8,
     "width": 219.313,
     "top": 73,
+    "bottom": 95,
     "baseline": 90
    }
   ],
-  "copy": "Hamburgefonstiv 0123456789"
+  "copy": "Hamburgefonstiv 0123456789",
+  "ink": {
+   "1": {
+    "edges": [
+     227
+    ]
+   },
+   "2": {
+    "edges": [
+     226.5
+    ]
+   }
+  }
  },
  "weight-sans-normal": {
   "page": "weights-sans",
@@ -66,10 +105,23 @@
     "x": 8,
     "width": 225.141,
     "top": 105,
+    "bottom": 127,
     "baseline": 122
    }
   ],
-  "copy": "Hamburgefonstiv 0123456789"
+  "copy": "Hamburgefonstiv 0123456789",
+  "ink": {
+   "1": {
+    "edges": [
+     233
+    ]
+   },
+   "2": {
+    "edges": [
+     232.5
+    ]
+   }
+  }
  },
  "weight-sans-medium": {
   "page": "weights-sans",
@@ -84,10 +136,23 @@
     "x": 8,
     "width": 227.641,
     "top": 137,
+    "bottom": 159,
     "baseline": 154
    }
   ],
-  "copy": "Hamburgefonstiv 0123456789"
+  "copy": "Hamburgefonstiv 0123456789",
+  "ink": {
+   "1": {
+    "edges": [
+     235
+    ]
+   },
+   "2": {
+    "edges": [
+     235
+    ]
+   }
+  }
  },
  "weight-sans-semibold": {
   "page": "weights-sans",
@@ -102,10 +167,23 @@
     "x": 8,
     "width": 230.156,
     "top": 169,
+    "bottom": 191,
     "baseline": 186
    }
   ],
-  "copy": "Hamburgefonstiv 0123456789"
+  "copy": "Hamburgefonstiv 0123456789",
+  "ink": {
+   "1": {
+    "edges": [
+     238
+    ]
+   },
+   "2": {
+    "edges": [
+     237.5
+    ]
+   }
+  }
  },
  "weight-sans-bold": {
   "page": "weights-sans",
@@ -120,6 +198,7 @@
     "x": 8,
     "width": 235.156,
     "top": 201,
+    "bottom": 223,
     "baseline": 218
    }
   ],
@@ -255,7 +334,19 @@
     243.156,
     0
    ]
-  ]
+  ],
+  "ink": {
+   "1": {
+    "edges": [
+     243
+    ]
+   },
+   "2": {
+    "edges": [
+     242.5
+    ]
+   }
+  }
  },
  "weight-sans-extrabold": {
   "page": "weights-sans",
@@ -270,10 +361,23 @@
     "x": 8,
     "width": 242.375,
     "top": 233,
+    "bottom": 255,
     "baseline": 250
    }
   ],
-  "copy": "Hamburgefonstiv 0123456789"
+  "copy": "Hamburgefonstiv 0123456789",
+  "ink": {
+   "1": {
+    "edges": [
+     250
+    ]
+   },
+   "2": {
+    "edges": [
+     250
+    ]
+   }
+  }
  },
  "weight-sans-black": {
   "page": "weights-sans",
@@ -288,10 +392,23 @@
     "x": 8,
     "width": 242.375,
     "top": 265,
+    "bottom": 287,
     "baseline": 282
    }
   ],
-  "copy": "Hamburgefonstiv 0123456789"
+  "copy": "Hamburgefonstiv 0123456789",
+  "ink": {
+   "1": {
+    "edges": [
+     250
+    ]
+   },
+   "2": {
+    "edges": [
+     250
+    ]
+   }
+  }
  },
  "weight-serif-light": {
   "page": "weights-faces",
@@ -306,10 +423,23 @@
     "x": 8,
     "width": 212.547,
     "top": 9,
+    "bottom": 31,
     "baseline": 26
    }
   ],
-  "copy": "Hamburgefonstiv 0123456789"
+  "copy": "Hamburgefonstiv 0123456789",
+  "ink": {
+   "1": {
+    "edges": [
+     220
+    ]
+   },
+   "2": {
+    "edges": [
+     220
+    ]
+   }
+  }
  },
  "weight-serif-normal": {
   "page": "weights-faces",
@@ -324,10 +454,23 @@
     "x": 8,
     "width": 212.547,
     "top": 41,
+    "bottom": 63,
     "baseline": 58
    }
   ],
-  "copy": "Hamburgefonstiv 0123456789"
+  "copy": "Hamburgefonstiv 0123456789",
+  "ink": {
+   "1": {
+    "edges": [
+     220
+    ]
+   },
+   "2": {
+    "edges": [
+     220
+    ]
+   }
+  }
  },
  "weight-serif-medium": {
   "page": "weights-faces",
@@ -342,10 +485,23 @@
     "x": 8,
     "width": 212.547,
     "top": 73,
+    "bottom": 95,
     "baseline": 90
    }
   ],
-  "copy": "Hamburgefonstiv 0123456789"
+  "copy": "Hamburgefonstiv 0123456789",
+  "ink": {
+   "1": {
+    "edges": [
+     220
+    ]
+   },
+   "2": {
+    "edges": [
+     220
+    ]
+   }
+  }
  },
  "weight-serif-semibold": {
   "page": "weights-faces",
@@ -360,10 +516,23 @@
     "x": 8,
     "width": 227.672,
     "top": 105,
+    "bottom": 127,
     "baseline": 122
    }
   ],
-  "copy": "Hamburgefonstiv 0123456789"
+  "copy": "Hamburgefonstiv 0123456789",
+  "ink": {
+   "1": {
+    "edges": [
+     235
+    ]
+   },
+   "2": {
+    "edges": [
+     235
+    ]
+   }
+  }
  },
  "weight-serif-bold": {
   "page": "weights-faces",
@@ -378,10 +547,23 @@
     "x": 8,
     "width": 227.672,
     "top": 137,
+    "bottom": 159,
     "baseline": 154
    }
   ],
-  "copy": "Hamburgefonstiv 0123456789"
+  "copy": "Hamburgefonstiv 0123456789",
+  "ink": {
+   "1": {
+    "edges": [
+     235
+    ]
+   },
+   "2": {
+    "edges": [
+     235
+    ]
+   }
+  }
  },
  "weight-serif-black": {
   "page": "weights-faces",
@@ -396,10 +578,23 @@
     "x": 8,
     "width": 227.672,
     "top": 169,
+    "bottom": 191,
     "baseline": 186
    }
   ],
-  "copy": "Hamburgefonstiv 0123456789"
+  "copy": "Hamburgefonstiv 0123456789",
+  "ink": {
+   "1": {
+    "edges": [
+     235
+    ]
+   },
+   "2": {
+    "edges": [
+     235
+    ]
+   }
+  }
  },
  "weight-mono-thin": {
   "page": "weights-faces",
@@ -414,10 +609,23 @@
     "x": 8,
     "width": 249.609,
     "top": 201,
+    "bottom": 222,
     "baseline": 217
    }
   ],
-  "copy": "Hamburgefonstiv 0123456789"
+  "copy": "Hamburgefonstiv 0123456789",
+  "ink": {
+   "1": {
+    "edges": [
+     256
+    ]
+   },
+   "2": {
+    "edges": [
+     256.5
+    ]
+   }
+  }
  },
  "weight-mono-normal": {
   "page": "weights-faces",
@@ -432,10 +640,23 @@
     "x": 8,
     "width": 249.609,
     "top": 233,
+    "bottom": 254,
     "baseline": 249
    }
   ],
-  "copy": "Hamburgefonstiv 0123456789"
+  "copy": "Hamburgefonstiv 0123456789",
+  "ink": {
+   "1": {
+    "edges": [
+     257
+    ]
+   },
+   "2": {
+    "edges": [
+     256.5
+    ]
+   }
+  }
  },
  "weight-mono-bold": {
   "page": "weights-faces",
@@ -450,10 +671,23 @@
     "x": 8,
     "width": 249.609,
     "top": 265,
+    "bottom": 286,
     "baseline": 281
    }
   ],
-  "copy": "Hamburgefonstiv 0123456789"
+  "copy": "Hamburgefonstiv 0123456789",
+  "ink": {
+   "1": {
+    "edges": [
+     257
+    ]
+   },
+   "2": {
+    "edges": [
+     257
+    ]
+   }
+  }
  },
  "weight-mono-extrabold": {
   "page": "weights-faces",
@@ -468,10 +702,23 @@
     "x": 8,
     "width": 249.609,
     "top": 297,
+    "bottom": 318,
     "baseline": 313
    }
   ],
-  "copy": "Hamburgefonstiv 0123456789"
+  "copy": "Hamburgefonstiv 0123456789",
+  "ink": {
+   "1": {
+    "edges": [
+     257
+    ]
+   },
+   "2": {
+    "edges": [
+     257
+    ]
+   }
+  }
  },
  "italic-sans": {
   "page": "styles",
@@ -486,10 +733,23 @@
     "x": 8,
     "width": 214.016,
     "top": 9,
+    "bottom": 31,
     "baseline": 26
    }
   ],
-  "copy": "Hamburgefonstiv 0123456789"
+  "copy": "Hamburgefonstiv 0123456789",
+  "ink": {
+   "1": {
+    "edges": [
+     222
+    ]
+   },
+   "2": {
+    "edges": [
+     221.5
+    ]
+   }
+  }
  },
  "italic-sans-bold": {
   "page": "styles",
@@ -504,10 +764,23 @@
     "x": 8,
     "width": 223.031,
     "top": 41,
+    "bottom": 63,
     "baseline": 58
    }
   ],
-  "copy": "Hamburgefonstiv 0123456789"
+  "copy": "Hamburgefonstiv 0123456789",
+  "ink": {
+   "1": {
+    "edges": [
+     231
+    ]
+   },
+   "2": {
+    "edges": [
+     231
+    ]
+   }
+  }
  },
  "italic-serif": {
   "page": "styles",
@@ -522,6 +795,7 @@
     "x": 8,
     "width": 212.547,
     "top": 73,
+    "bottom": 95,
     "baseline": 90
    }
   ],
@@ -657,7 +931,19 @@
     220.547,
     0
    ]
-  ]
+  ],
+  "ink": {
+   "1": {
+    "edges": [
+     222
+    ]
+   },
+   "2": {
+    "edges": [
+     222
+    ]
+   }
+  }
  },
  "italic-serif-bold": {
   "page": "styles",
@@ -672,10 +958,23 @@
     "x": 8,
     "width": 227.672,
     "top": 105,
+    "bottom": 127,
     "baseline": 122
    }
   ],
-  "copy": "Hamburgefonstiv 0123456789"
+  "copy": "Hamburgefonstiv 0123456789",
+  "ink": {
+   "1": {
+    "edges": [
+     237
+    ]
+   },
+   "2": {
+    "edges": [
+     237
+    ]
+   }
+  }
  },
  "italic-mono": {
   "page": "styles",
@@ -690,10 +989,23 @@
     "x": 8,
     "width": 249.609,
     "top": 137,
+    "bottom": 158,
     "baseline": 153
    }
   ],
-  "copy": "Hamburgefonstiv 0123456789"
+  "copy": "Hamburgefonstiv 0123456789",
+  "ink": {
+   "1": {
+    "edges": [
+     259
+    ]
+   },
+   "2": {
+    "edges": [
+     259
+    ]
+   }
+  }
  },
  "italic-mono-bold": {
   "page": "styles",
@@ -708,10 +1020,23 @@
     "x": 8,
     "width": 249.609,
     "top": 169,
+    "bottom": 190,
     "baseline": 185
    }
   ],
-  "copy": "Hamburgefonstiv 0123456789"
+  "copy": "Hamburgefonstiv 0123456789",
+  "ink": {
+   "1": {
+    "edges": [
+     259
+    ]
+   },
+   "2": {
+    "edges": [
+     259
+    ]
+   }
+  }
  },
  "italic-not": {
   "page": "styles",
@@ -726,10 +1051,23 @@
     "x": 8,
     "width": 225.141,
     "top": 201,
+    "bottom": 223,
     "baseline": 218
    }
   ],
-  "copy": "Hamburgefonstiv 0123456789"
+  "copy": "Hamburgefonstiv 0123456789",
+  "ink": {
+   "1": {
+    "edges": [
+     233
+    ]
+   },
+   "2": {
+    "edges": [
+     232.5
+    ]
+   }
+  }
  },
  "theme-normal": {
   "page": "styles",
@@ -744,10 +1082,23 @@
     "x": 8,
     "width": 230.156,
     "top": 233,
+    "bottom": 255,
     "baseline": 250
    }
   ],
-  "copy": "Hamburgefonstiv 0123456789"
+  "copy": "Hamburgefonstiv 0123456789",
+  "ink": {
+   "1": {
+    "edges": [
+     238
+    ]
+   },
+   "2": {
+    "edges": [
+     237.5
+    ]
+   }
+  }
  },
  "theme-bold": {
   "page": "styles",
@@ -762,10 +1113,23 @@
     "x": 8,
     "width": 230.156,
     "top": 265,
+    "bottom": 287,
     "baseline": 282
    }
   ],
-  "copy": "Hamburgefonstiv 0123456789"
+  "copy": "Hamburgefonstiv 0123456789",
+  "ink": {
+   "1": {
+    "edges": [
+     238
+    ]
+   },
+   "2": {
+    "edges": [
+     237.5
+    ]
+   }
+  }
  },
  "theme-italic": {
   "page": "styles",
@@ -780,10 +1144,23 @@
     "x": 8,
     "width": 230.156,
     "top": 297,
+    "bottom": 319,
     "baseline": 314
    }
   ],
-  "copy": "Hamburgefonstiv 0123456789"
+  "copy": "Hamburgefonstiv 0123456789",
+  "ink": {
+   "1": {
+    "edges": [
+     240
+    ]
+   },
+   "2": {
+    "edges": [
+     239.5
+    ]
+   }
+  }
  },
  "leading-none": {
   "page": "leading",
@@ -798,22 +1175,41 @@
     "x": 8,
     "width": 209.016,
     "top": 5,
+    "bottom": 24,
     "baseline": 20
    },
    {
     "x": 8,
     "width": 169.359,
     "top": 19,
+    "bottom": 38,
     "baseline": 34
    },
    {
     "x": 8,
     "width": 51.203,
     "top": 33,
+    "bottom": 52,
     "baseline": 48
    }
   ],
-  "copy": "The quick brown fox jumps over the lazy dog and keeps on running"
+  "copy": "The quick brown fox jumps over the lazy dog and keeps on running",
+  "ink": {
+   "1": {
+    "edges": [
+     217,
+     214,
+     176
+    ]
+   },
+   "2": {
+    "edges": [
+     217,
+     213.5,
+     176.5
+    ]
+   }
+  }
  },
  "leading-tight": {
   "page": "leading",
@@ -828,22 +1224,41 @@
     "x": 236,
     "width": 209.016,
     "top": 7,
+    "bottom": 26,
     "baseline": 22
    },
    {
     "x": 236,
     "width": 169.359,
     "top": 24.5,
+    "bottom": 43.5,
     "baseline": 39.5
    },
    {
     "x": 236,
     "width": 51.203,
     "top": 42,
+    "bottom": 61,
     "baseline": 57
    }
   ],
-  "copy": "The quick brown fox jumps over the lazy dog and keeps on running"
+  "copy": "The quick brown fox jumps over the lazy dog and keeps on running",
+  "ink": {
+   "1": {
+    "edges": [
+     445,
+     404,
+     372
+    ]
+   },
+   "2": {
+    "edges": [
+     445,
+     404.5,
+     372
+    ]
+   }
+  }
  },
  "leading-snug": {
   "page": "leading",
@@ -858,22 +1273,41 @@
     "x": 8,
     "width": 209.016,
     "top": 68.5,
+    "bottom": 87.5,
     "baseline": 83.5
    },
    {
     "x": 8,
     "width": 169.359,
     "top": 87.75,
+    "bottom": 106.75,
     "baseline": 102.75
    },
    {
     "x": 8,
     "width": 51.203,
     "top": 107,
+    "bottom": 126,
     "baseline": 122
    }
   ],
-  "copy": "The quick brown fox jumps over the lazy dog and keeps on running"
+  "copy": "The quick brown fox jumps over the lazy dog and keeps on running",
+  "ink": {
+   "1": {
+    "edges": [
+     217,
+     176,
+     59
+    ]
+   },
+   "2": {
+    "edges": [
+     217,
+     176.5,
+     59
+    ]
+   }
+  }
  },
  "leading-normal": {
   "page": "leading",
@@ -888,22 +1322,41 @@
     "x": 236,
     "width": 209.016,
     "top": 69.5,
+    "bottom": 88.5,
     "baseline": 84.5
    },
    {
     "x": 236,
     "width": 169.359,
     "top": 90.5,
+    "bottom": 109.5,
     "baseline": 105.5
    },
    {
     "x": 236,
     "width": 51.203,
     "top": 111.5,
+    "bottom": 130.5,
     "baseline": 126.5
    }
   ],
-  "copy": "The quick brown fox jumps over the lazy dog and keeps on running"
+  "copy": "The quick brown fox jumps over the lazy dog and keeps on running",
+  "ink": {
+   "1": {
+    "edges": [
+     445,
+     404,
+     287
+    ]
+   },
+   "2": {
+    "edges": [
+     445,
+     404.5,
+     287
+    ]
+   }
+  }
  },
  "leading-relaxed": {
   "page": "leading",
@@ -918,18 +1371,21 @@
     "x": 8,
     "width": 209.016,
     "top": 140.5,
+    "bottom": 159.5,
     "baseline": 155.5
    },
    {
     "x": 8,
     "width": 169.359,
     "top": 163.25,
+    "bottom": 182.25,
     "baseline": 178.25
    },
    {
     "x": 8,
     "width": 51.203,
     "top": 186,
+    "bottom": 205,
     "baseline": 201
    }
   ],
@@ -1255,7 +1711,23 @@
     59.203,
     2
    ]
-  ]
+  ],
+  "ink": {
+   "1": {
+    "edges": [
+     217,
+     176,
+     59
+    ]
+   },
+   "2": {
+    "edges": [
+     217,
+     176.5,
+     59
+    ]
+   }
+  }
  },
  "leading-loose": {
   "page": "leading",
@@ -1270,22 +1742,41 @@
     "x": 236,
     "width": 209.016,
     "top": 143.5,
+    "bottom": 162.5,
     "baseline": 158.5
    },
    {
     "x": 236,
     "width": 169.359,
     "top": 171.5,
+    "bottom": 190.5,
     "baseline": 186.5
    },
    {
     "x": 236,
     "width": 51.203,
     "top": 199.5,
+    "bottom": 218.5,
     "baseline": 214.5
    }
   ],
-  "copy": "The quick brown fox jumps over the lazy dog and keeps on running"
+  "copy": "The quick brown fox jumps over the lazy dog and keeps on running",
+  "ink": {
+   "1": {
+    "edges": [
+     445,
+     404,
+     287
+    ]
+   },
+   "2": {
+    "edges": [
+     445,
+     404.5,
+     287
+    ]
+   }
+  }
  },
  "leading-3": {
   "page": "leading-lengths",
@@ -1300,16 +1791,32 @@
     "x": 8,
     "width": 104.109,
     "top": 5,
+    "bottom": 22,
     "baseline": 18
    },
    {
     "x": 8,
     "width": 64.953,
     "top": 17,
+    "bottom": 34,
     "baseline": 30
    }
   ],
-  "copy": "Two or three short lines of text"
+  "copy": "Two or three short lines of text",
+  "ink": {
+   "1": {
+    "edges": [
+     112,
+     112
+    ]
+   },
+   "2": {
+    "edges": [
+     112,
+     112
+    ]
+   }
+  }
  },
  "leading-4": {
   "page": "leading-lengths",
@@ -1324,16 +1831,32 @@
     "x": 126,
     "width": 104.109,
     "top": 7,
+    "bottom": 24,
     "baseline": 20
    },
    {
     "x": 126,
     "width": 64.953,
     "top": 23,
+    "bottom": 40,
     "baseline": 36
    }
   ],
-  "copy": "Two or three short lines of text"
+  "copy": "Two or three short lines of text",
+  "ink": {
+   "1": {
+    "edges": [
+     230,
+     191
+    ]
+   },
+   "2": {
+    "edges": [
+     230,
+     190.5
+    ]
+   }
+  }
  },
  "leading-5": {
   "page": "leading-lengths",
@@ -1348,16 +1871,32 @@
     "x": 244,
     "width": 104.109,
     "top": 9,
+    "bottom": 26,
     "baseline": 22
    },
    {
     "x": 244,
     "width": 64.953,
     "top": 29,
+    "bottom": 46,
     "baseline": 42
    }
   ],
-  "copy": "Two or three short lines of text"
+  "copy": "Two or three short lines of text",
+  "ink": {
+   "1": {
+    "edges": [
+     348,
+     309
+    ]
+   },
+   "2": {
+    "edges": [
+     348,
+     308.5
+    ]
+   }
+  }
  },
  "leading-6": {
   "page": "leading-lengths",
@@ -1372,16 +1911,32 @@
     "x": 362,
     "width": 104.109,
     "top": 11,
+    "bottom": 28,
     "baseline": 24
    },
    {
     "x": 362,
     "width": 64.953,
     "top": 35,
+    "bottom": 52,
     "baseline": 48
    }
   ],
-  "copy": "Two or three short lines of text"
+  "copy": "Two or three short lines of text",
+  "ink": {
+   "1": {
+    "edges": [
+     466,
+     427
+    ]
+   },
+   "2": {
+    "edges": [
+     466,
+     426.5
+    ]
+   }
+  }
  },
  "leading-7": {
   "page": "leading-lengths",
@@ -1396,16 +1951,32 @@
     "x": 8,
     "width": 104.109,
     "top": 69,
+    "bottom": 86,
     "baseline": 82
    },
    {
     "x": 8,
     "width": 64.953,
     "top": 97,
+    "bottom": 114,
     "baseline": 110
    }
   ],
-  "copy": "Two or three short lines of text"
+  "copy": "Two or three short lines of text",
+  "ink": {
+   "1": {
+    "edges": [
+     112,
+     73
+    ]
+   },
+   "2": {
+    "edges": [
+     112,
+     72.5
+    ]
+   }
+  }
  },
  "leading-8": {
   "page": "leading-lengths",
@@ -1420,16 +1991,32 @@
     "x": 126,
     "width": 104.109,
     "top": 71,
+    "bottom": 88,
     "baseline": 84
    },
    {
     "x": 126,
     "width": 64.953,
     "top": 103,
+    "bottom": 120,
     "baseline": 116
    }
   ],
-  "copy": "Two or three short lines of text"
+  "copy": "Two or three short lines of text",
+  "ink": {
+   "1": {
+    "edges": [
+     230,
+     191
+    ]
+   },
+   "2": {
+    "edges": [
+     230,
+     190.5
+    ]
+   }
+  }
  },
  "leading-9": {
   "page": "leading-lengths",
@@ -1444,16 +2031,32 @@
     "x": 244,
     "width": 104.109,
     "top": 73,
+    "bottom": 90,
     "baseline": 86
    },
    {
     "x": 244,
     "width": 64.953,
     "top": 109,
+    "bottom": 126,
     "baseline": 122
    }
   ],
-  "copy": "Two or three short lines of text"
+  "copy": "Two or three short lines of text",
+  "ink": {
+   "1": {
+    "edges": [
+     348,
+     309
+    ]
+   },
+   "2": {
+    "edges": [
+     348,
+     308.5
+    ]
+   }
+  }
  },
  "leading-10": {
   "page": "leading-lengths",
@@ -1468,16 +2071,32 @@
     "x": 362,
     "width": 104.109,
     "top": 75,
+    "bottom": 92,
     "baseline": 88
    },
    {
     "x": 362,
     "width": 64.953,
     "top": 115,
+    "bottom": 132,
     "baseline": 128
    }
   ],
-  "copy": "Two or three short lines of text"
+  "copy": "Two or three short lines of text",
+  "ink": {
+   "1": {
+    "edges": [
+     466,
+     427
+    ]
+   },
+   "2": {
+    "edges": [
+     466,
+     426.5
+    ]
+   }
+  }
  },
  "leading-_1_4_": {
   "page": "leading-lengths",
@@ -1492,16 +2111,32 @@
     "x": 8,
     "width": 104.109,
     "top": 151,
+    "bottom": 168,
     "baseline": 164
    },
    {
     "x": 8,
     "width": 64.953,
     "top": 167.797,
+    "bottom": 184.797,
     "baseline": 180.797
    }
   ],
-  "copy": "Two or three short lines of text"
+  "copy": "Two or three short lines of text",
+  "ink": {
+   "1": {
+    "edges": [
+     112,
+     73
+    ]
+   },
+   "2": {
+    "edges": [
+     112,
+     72.5
+    ]
+   }
+  }
  },
  "leading-_22px_": {
   "page": "leading-lengths",
@@ -1516,16 +2151,32 @@
     "x": 126,
     "width": 104.109,
     "top": 154,
+    "bottom": 171,
     "baseline": 167
    },
    {
     "x": 126,
     "width": 64.953,
     "top": 176,
+    "bottom": 193,
     "baseline": 189
    }
   ],
-  "copy": "Two or three short lines of text"
+  "copy": "Two or three short lines of text",
+  "ink": {
+   "1": {
+    "edges": [
+     230,
+     191
+    ]
+   },
+   "2": {
+    "edges": [
+     230,
+     190.5
+    ]
+   }
+  }
  },
  "leading-slash-6": {
   "page": "leading-lengths",
@@ -1540,22 +2191,41 @@
     "x": 244,
     "width": 209.016,
     "top": 154,
+    "bottom": 173,
     "baseline": 169
    },
    {
     "x": 244,
     "width": 169.359,
     "top": 178,
+    "bottom": 197,
     "baseline": 193
    },
    {
     "x": 244,
     "width": 51.203,
     "top": 202,
+    "bottom": 221,
     "baseline": 217
    }
   ],
-  "copy": "The quick brown fox jumps over the lazy dog and keeps on running"
+  "copy": "The quick brown fox jumps over the lazy dog and keeps on running",
+  "ink": {
+   "1": {
+    "edges": [
+     453,
+     412,
+     295
+    ]
+   },
+   "2": {
+    "edges": [
+     453,
+     412.5,
+     295
+    ]
+   }
+  }
  },
  "leading-slash-loose": {
   "page": "leading-lengths",
@@ -1570,22 +2240,41 @@
     "x": 8,
     "width": 209.016,
     "top": 236,
+    "bottom": 255,
     "baseline": 251
    },
    {
     "x": 8,
     "width": 169.359,
     "top": 264,
+    "bottom": 283,
     "baseline": 279
    },
    {
     "x": 8,
     "width": 51.203,
     "top": 292,
+    "bottom": 311,
     "baseline": 307
    }
   ],
-  "copy": "The quick brown fox jumps over the lazy dog and keeps on running"
+  "copy": "The quick brown fox jumps over the lazy dog and keeps on running",
+  "ink": {
+   "1": {
+    "edges": [
+     217,
+     176,
+     59
+    ]
+   },
+   "2": {
+    "edges": [
+     217,
+     176.5,
+     59
+    ]
+   }
+  }
  },
  "size-xs": {
   "page": "sizes",
@@ -1600,10 +2289,23 @@
     "x": 8,
     "width": 206.906,
     "top": 7,
+    "bottom": 24,
     "baseline": 20
    }
   ],
-  "copy": "Sphinx of black quartz, judge my vow"
+  "copy": "Sphinx of black quartz, judge my vow",
+  "ink": {
+   "1": {
+    "edges": [
+     215
+    ]
+   },
+   "2": {
+    "edges": [
+     215
+    ]
+   }
+  }
  },
  "size-sm": {
   "page": "sizes",
@@ -1618,10 +2320,23 @@
     "x": 8,
     "width": 241.391,
     "top": 32,
+    "bottom": 51,
     "baseline": 47
    }
   ],
-  "copy": "Sphinx of black quartz, judge my vow"
+  "copy": "Sphinx of black quartz, judge my vow",
+  "ink": {
+   "1": {
+    "edges": [
+     249
+    ]
+   },
+   "2": {
+    "edges": [
+     249
+    ]
+   }
+  }
  },
  "size-base": {
   "page": "sizes",
@@ -1636,10 +2351,23 @@
     "x": 8,
     "width": 275.875,
     "top": 61,
+    "bottom": 83,
     "baseline": 78
    }
   ],
-  "copy": "Sphinx of black quartz, judge my vow"
+  "copy": "Sphinx of black quartz, judge my vow",
+  "ink": {
+   "1": {
+    "edges": [
+     284
+    ]
+   },
+   "2": {
+    "edges": [
+     283.5
+    ]
+   }
+  }
  },
  "size-lg": {
   "page": "sizes",
@@ -1654,10 +2382,23 @@
     "x": 8,
     "width": 310.359,
     "top": 94,
+    "bottom": 118,
     "baseline": 113
    }
   ],
-  "copy": "Sphinx of black quartz, judge my vow"
+  "copy": "Sphinx of black quartz, judge my vow",
+  "ink": {
+   "1": {
+    "edges": [
+     318
+    ]
+   },
+   "2": {
+    "edges": [
+     318
+    ]
+   }
+  }
  },
  "size-xl": {
   "page": "sizes",
@@ -1672,10 +2413,23 @@
     "x": 8,
     "width": 344.844,
     "top": 128,
+    "bottom": 155,
     "baseline": 149
    }
   ],
-  "copy": "Sphinx of black quartz, judge my vow"
+  "copy": "Sphinx of black quartz, judge my vow",
+  "ink": {
+   "1": {
+    "edges": [
+     353
+    ]
+   },
+   "2": {
+    "edges": [
+     352.5
+    ]
+   }
+  }
  },
  "size-2xl": {
   "page": "sizes",
@@ -1690,10 +2444,23 @@
     "x": 8,
     "width": 413.813,
     "top": 163,
+    "bottom": 196,
     "baseline": 189
    }
   ],
-  "copy": "Sphinx of black quartz, judge my vow"
+  "copy": "Sphinx of black quartz, judge my vow",
+  "ink": {
+   "1": {
+    "edges": [
+     422
+    ]
+   },
+   "2": {
+    "edges": [
+     421.5
+    ]
+   }
+  }
  },
  "size-3xl": {
   "page": "sizes",
@@ -1708,16 +2475,32 @@
     "x": 8,
     "width": 453.188,
     "top": 201,
+    "bottom": 242,
     "baseline": 233
    },
    {
     "x": 8,
     "width": 56.281,
     "top": 237,
+    "bottom": 278,
     "baseline": 269
    }
   ],
-  "copy": "Sphinx of black quartz, judge my vow"
+  "copy": "Sphinx of black quartz, judge my vow",
+  "ink": {
+   "1": {
+    "edges": [
+     461,
+     453
+    ]
+   },
+   "2": {
+    "edges": [
+     461,
+     453.5
+    ]
+   }
+  }
  },
  "tracking-tighter-sm": {
   "page": "tracking",
@@ -1732,10 +2515,23 @@
     "x": 8,
     "width": 102.141,
     "top": 8,
+    "bottom": 27,
     "baseline": 23
    }
   ],
-  "copy": "Typography 0123"
+  "copy": "Typography 0123",
+  "ink": {
+   "1": {
+    "edges": [
+     110
+    ]
+   },
+   "2": {
+    "edges": [
+     110
+    ]
+   }
+  }
  },
  "tracking-tighter-base": {
   "page": "tracking",
@@ -1750,10 +2546,23 @@
     "x": 246,
     "width": 116.734,
     "top": 9,
+    "bottom": 31,
     "baseline": 26
    }
   ],
-  "copy": "Typography 0123"
+  "copy": "Typography 0123",
+  "ink": {
+   "1": {
+    "edges": [
+     363
+    ]
+   },
+   "2": {
+    "edges": [
+     362.5
+    ]
+   }
+  }
  },
  "tracking-tight-sm": {
   "page": "tracking",
@@ -1768,10 +2577,23 @@
     "x": 8,
     "width": 107.391,
     "top": 40,
+    "bottom": 59,
     "baseline": 55
    }
   ],
-  "copy": "Typography 0123"
+  "copy": "Typography 0123",
+  "ink": {
+   "1": {
+    "edges": [
+     115
+    ]
+   },
+   "2": {
+    "edges": [
+     115
+    ]
+   }
+  }
  },
  "tracking-tight-base": {
   "page": "tracking",
@@ -1786,10 +2608,23 @@
     "x": 246,
     "width": 122.734,
     "top": 41,
+    "bottom": 63,
     "baseline": 58
    }
   ],
-  "copy": "Typography 0123"
+  "copy": "Typography 0123",
+  "ink": {
+   "1": {
+    "edges": [
+     368
+    ]
+   },
+   "2": {
+    "edges": [
+     368.5
+    ]
+   }
+  }
  },
  "tracking-normal-sm": {
   "page": "tracking",
@@ -1804,10 +2639,23 @@
     "x": 8,
     "width": 112.641,
     "top": 72,
+    "bottom": 91,
     "baseline": 87
    }
   ],
-  "copy": "Typography 0123"
+  "copy": "Typography 0123",
+  "ink": {
+   "1": {
+    "edges": [
+     120
+    ]
+   },
+   "2": {
+    "edges": [
+     120
+    ]
+   }
+  }
  },
  "tracking-normal-base": {
   "page": "tracking",
@@ -1822,6 +2670,7 @@
     "x": 246,
     "width": 128.734,
     "top": 73,
+    "bottom": 95,
     "baseline": 90
    }
   ],
@@ -1902,7 +2751,19 @@
     374.734,
     0
    ]
-  ]
+  ],
+  "ink": {
+   "1": {
+    "edges": [
+     374
+    ]
+   },
+   "2": {
+    "edges": [
+     374
+    ]
+   }
+  }
  },
  "tracking-wide-sm": {
   "page": "tracking",
@@ -1917,10 +2778,23 @@
     "x": 8,
     "width": 117.891,
     "top": 104,
+    "bottom": 123,
     "baseline": 119
    }
   ],
-  "copy": "Typography 0123"
+  "copy": "Typography 0123",
+  "ink": {
+   "1": {
+    "edges": [
+     125
+    ]
+   },
+   "2": {
+    "edges": [
+     125
+    ]
+   }
+  }
  },
  "tracking-wide-base": {
   "page": "tracking",
@@ -1935,10 +2809,23 @@
     "x": 246,
     "width": 134.734,
     "top": 105,
+    "bottom": 127,
     "baseline": 122
    }
   ],
-  "copy": "Typography 0123"
+  "copy": "Typography 0123",
+  "ink": {
+   "1": {
+    "edges": [
+     380
+    ]
+   },
+   "2": {
+    "edges": [
+     379.5
+    ]
+   }
+  }
  },
  "tracking-wider-sm": {
   "page": "tracking",
@@ -1953,10 +2840,23 @@
     "x": 8,
     "width": 123.141,
     "top": 136,
+    "bottom": 155,
     "baseline": 151
    }
   ],
-  "copy": "Typography 0123"
+  "copy": "Typography 0123",
+  "ink": {
+   "1": {
+    "edges": [
+     130
+    ]
+   },
+   "2": {
+    "edges": [
+     129.5
+    ]
+   }
+  }
  },
  "tracking-wider-base": {
   "page": "tracking",
@@ -1971,10 +2871,23 @@
     "x": 246,
     "width": 140.734,
     "top": 137,
+    "bottom": 159,
     "baseline": 154
    }
   ],
-  "copy": "Typography 0123"
+  "copy": "Typography 0123",
+  "ink": {
+   "1": {
+    "edges": [
+     385
+    ]
+   },
+   "2": {
+    "edges": [
+     385
+    ]
+   }
+  }
  },
  "tracking-widest-sm": {
   "page": "tracking",
@@ -1989,10 +2902,23 @@
     "x": 8,
     "width": 133.641,
     "top": 168,
+    "bottom": 187,
     "baseline": 183
    }
   ],
-  "copy": "Typography 0123"
+  "copy": "Typography 0123",
+  "ink": {
+   "1": {
+    "edges": [
+     140
+    ]
+   },
+   "2": {
+    "edges": [
+     139.5
+    ]
+   }
+  }
  },
  "tracking-widest-base": {
   "page": "tracking",
@@ -2007,6 +2933,7 @@
     "x": 246,
     "width": 152.734,
     "top": 169,
+    "bottom": 191,
     "baseline": 186
    }
   ],
@@ -2087,7 +3014,19 @@
     398.734,
     0
    ]
-  ]
+  ],
+  "ink": {
+   "1": {
+    "edges": [
+     396
+    ]
+   },
+   "2": {
+    "edges": [
+     396.5
+    ]
+   }
+  }
  },
  "tracking-em": {
   "page": "tracking-more",
@@ -2102,10 +3041,23 @@
     "x": 8,
     "width": 166.891,
     "top": 9,
+    "bottom": 31,
     "baseline": 26
    }
   ],
-  "copy": "Letter spacing in em"
+  "copy": "Letter spacing in em",
+  "ink": {
+   "1": {
+    "edges": [
+     173
+    ]
+   },
+   "2": {
+    "edges": [
+     173
+    ]
+   }
+  }
  },
  "tracking-px": {
   "page": "tracking-more",
@@ -2120,10 +3072,23 @@
     "x": 8,
     "width": 165.266,
     "top": 41,
+    "bottom": 63,
     "baseline": 58
    }
   ],
-  "copy": "Letter spacing in px"
+  "copy": "Letter spacing in px",
+  "ink": {
+   "1": {
+    "edges": [
+     172
+    ]
+   },
+   "2": {
+    "edges": [
+     172
+    ]
+   }
+  }
  },
  "tracking-neg": {
   "page": "tracking-more",
@@ -2138,10 +3103,23 @@
     "x": 8,
     "width": 164.328,
     "top": 73,
+    "bottom": 95,
     "baseline": 90
    }
   ],
-  "copy": "Letter spacing, negative"
+  "copy": "Letter spacing, negative",
+  "ink": {
+   "1": {
+    "edges": [
+     172
+    ]
+   },
+   "2": {
+    "edges": [
+     172
+    ]
+   }
+  }
  },
  "tracking-caps": {
   "page": "tracking-more",
@@ -2156,10 +3134,23 @@
     "x": 8,
     "width": 123.188,
     "top": 103,
+    "bottom": 120,
     "baseline": 116
    }
   ],
-  "copy": "SECTION HEADING"
+  "copy": "SECTION HEADING",
+  "ink": {
+   "1": {
+    "edges": [
+     129
+    ]
+   },
+   "2": {
+    "edges": [
+     129
+    ]
+   }
+  }
  },
  "tracking-odd": {
   "page": "tracking-more",
@@ -2174,10 +3165,23 @@
     "x": 8,
     "width": 232.344,
     "top": 128,
+    "bottom": 146,
     "baseline": 142
    }
   ],
-  "copy": "Odd size, fractional spacing 0.325 px"
+  "copy": "Odd size, fractional spacing 0.325 px",
+  "ink": {
+   "1": {
+    "edges": [
+     240
+    ]
+   },
+   "2": {
+    "edges": [
+     240
+    ]
+   }
+  }
  },
  "tracking-wrap": {
   "page": "tracking-more",
@@ -2192,18 +3196,21 @@
     "x": 8,
     "width": 185.125,
     "top": 154,
+    "bottom": 173,
     "baseline": 169
    },
    {
     "x": 8,
     "width": 190.797,
     "top": 174,
+    "bottom": 193,
     "baseline": 189
    },
    {
     "x": 8,
     "width": 75.359,
     "top": 194,
+    "bottom": 213,
     "baseline": 209
    }
   ],
@@ -2529,7 +3536,23 @@
     83.359,
     2
    ]
-  ]
+  ],
+  "ink": {
+   "1": {
+    "edges": [
+     192,
+     198,
+     83
+    ]
+   },
+   "2": {
+    "edges": [
+     192,
+     198,
+     83
+    ]
+   }
+  }
  },
  "tracking-wrap-edge": {
   "page": "tracking-more",
@@ -2544,22 +3567,41 @@
     "x": 8,
     "width": 219.516,
     "top": 222,
+    "bottom": 241,
     "baseline": 237
    },
    {
     "x": 8,
     "width": 178.109,
     "top": 242,
+    "bottom": 261,
     "baseline": 257
    },
    {
     "x": 8,
     "width": 53.656,
     "top": 262,
+    "bottom": 281,
     "baseline": 277
    }
   ],
-  "copy": "The quick brown fox jumps over the lazy dog and keeps on running"
+  "copy": "The quick brown fox jumps over the lazy dog and keeps on running",
+  "ink": {
+   "1": {
+    "edges": [
+     227,
+     185,
+     61
+    ]
+   },
+   "2": {
+    "edges": [
+     227,
+     184.5,
+     61
+    ]
+   }
+  }
  },
  "tracking-center": {
   "page": "tracking-more",
@@ -2574,10 +3616,23 @@
     "x": 86.891,
     "width": 62.219,
     "top": 290,
+    "bottom": 309,
     "baseline": 305
    }
   ],
-  "copy": "Centred"
+  "copy": "Centred",
+  "ink": {
+   "1": {
+    "edges": [
+     147
+    ]
+   },
+   "2": {
+    "edges": [
+     146.5
+    ]
+   }
+  }
  },
  "tracking-right": {
   "page": "tracking-more",
@@ -2592,10 +3647,23 @@
     "x": 134.438,
     "width": 93.563,
     "top": 318,
+    "bottom": 337,
     "baseline": 333
    }
   ],
-  "copy": "Right aligned"
+  "copy": "Right aligned",
+  "ink": {
+   "1": {
+    "edges": [
+     226
+    ]
+   },
+   "2": {
+    "edges": [
+     226
+    ]
+   }
+  }
  },
  "case-upper": {
   "page": "case",
@@ -2610,6 +3678,7 @@
     "x": 8,
     "width": 270.281,
     "top": 9,
+    "bottom": 31,
     "baseline": 26
    }
   ],
@@ -2770,7 +3839,19 @@
     278.281,
     0
    ]
-  ]
+  ],
+  "ink": {
+   "1": {
+    "edges": [
+     278
+    ]
+   },
+   "2": {
+    "edges": [
+     277.5
+    ]
+   }
+  }
  },
  "case-lower": {
   "page": "case",
@@ -2785,10 +3866,23 @@
     "x": 8,
     "width": 222.141,
     "top": 41,
+    "bottom": 63,
     "baseline": 58
    }
   ],
-  "copy": "straße, don't stop: école élève"
+  "copy": "straße, don't stop: école élève",
+  "ink": {
+   "1": {
+    "edges": [
+     230
+    ]
+   },
+   "2": {
+    "edges": [
+     229.5
+    ]
+   }
+  }
  },
  "case-capitalize": {
   "page": "case",
@@ -2803,6 +3897,7 @@
     "x": 8,
     "width": 403.5,
     "top": 73,
+    "bottom": 95,
     "baseline": 90
    }
   ],
@@ -3073,7 +4168,19 @@
     411.5,
     0
    ]
-  ]
+  ],
+  "ink": {
+   "1": {
+    "edges": [
+     410
+    ]
+   },
+   "2": {
+    "edges": [
+     410.5
+    ]
+   }
+  }
  },
  "case-normal": {
   "page": "case",
@@ -3088,10 +4195,23 @@
     "x": 8,
     "width": 106.438,
     "top": 105,
+    "bottom": 127,
     "baseline": 122
    }
   ],
-  "copy": "Left as written"
+  "copy": "Left as written",
+  "ink": {
+   "1": {
+    "edges": [
+     113
+    ]
+   },
+   "2": {
+    "edges": [
+     113.5
+    ]
+   }
+  }
  },
  "case-wrap": {
   "page": "case",
@@ -3106,22 +4226,41 @@
     "x": 8,
     "width": 203.656,
     "top": 136,
+    "bottom": 155,
     "baseline": 151
    },
    {
     "x": 8,
     "width": 212.672,
     "top": 156,
+    "bottom": 175,
     "baseline": 171
    },
    {
     "x": 8,
     "width": 89.641,
     "top": 176,
+    "bottom": 195,
     "baseline": 191
    }
   ],
-  "copy": "THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG AND KEEPS ON RUNNING"
+  "copy": "THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG AND KEEPS ON RUNNING",
+  "ink": {
+   "1": {
+    "edges": [
+     211,
+     220,
+     97
+    ]
+   },
+   "2": {
+    "edges": [
+     211,
+     220,
+     97
+    ]
+   }
+  }
  },
  "deco-underline": {
   "page": "decoration",
@@ -3136,10 +4275,23 @@
     "x": 8,
     "width": 196.969,
     "top": 9,
+    "bottom": 31,
     "baseline": 26
    }
   ],
-  "copy": "Underlined text with gjpqy"
+  "copy": "Underlined text with gjpqy",
+  "ink": {
+   "1": {
+    "edges": [
+     205
+    ]
+   },
+   "2": {
+    "edges": [
+     205
+    ]
+   }
+  }
  },
  "deco-overline": {
   "page": "decoration",
@@ -3154,10 +4306,23 @@
     "x": 8,
     "width": 105.547,
     "top": 41,
+    "bottom": 63,
     "baseline": 58
    }
   ],
-  "copy": "Overlined text"
+  "copy": "Overlined text",
+  "ink": {
+   "1": {
+    "edges": [
+     113
+    ]
+   },
+   "2": {
+    "edges": [
+     113.5
+    ]
+   }
+  }
  },
  "deco-line-through": {
   "page": "decoration",
@@ -3172,10 +4337,23 @@
     "x": 8,
     "width": 143.969,
     "top": 73,
+    "bottom": 95,
     "baseline": 90
    }
   ],
-  "copy": "Struck through text"
+  "copy": "Struck through text",
+  "ink": {
+   "1": {
+    "edges": [
+     152
+    ]
+   },
+   "2": {
+    "edges": [
+     152
+    ]
+   }
+  }
  },
  "deco-colour": {
   "page": "decoration",
@@ -3190,10 +4368,23 @@
     "x": 8,
     "width": 104.625,
     "top": 105,
+    "bottom": 127,
     "baseline": 122
    }
   ],
-  "copy": "Red underline"
+  "copy": "Red underline",
+  "ink": {
+   "1": {
+    "edges": [
+     113
+    ]
+   },
+   "2": {
+    "edges": [
+     112.5
+    ]
+   }
+  }
  },
  "deco-thick-2": {
   "page": "decoration",
@@ -3208,10 +4399,23 @@
     "x": 8,
     "width": 77.844,
     "top": 137,
+    "bottom": 159,
     "baseline": 154
    }
   ],
-  "copy": "Two pixels"
+  "copy": "Two pixels",
+  "ink": {
+   "1": {
+    "edges": [
+     86
+    ]
+   },
+   "2": {
+    "edges": [
+     86
+    ]
+   }
+  }
  },
  "deco-thick-4": {
   "page": "decoration",
@@ -3226,10 +4430,23 @@
     "x": 8,
     "width": 167.766,
     "top": 169,
+    "bottom": 191,
     "baseline": 186
    }
   ],
-  "copy": "Four pixels, offset four"
+  "copy": "Four pixels, offset four",
+  "ink": {
+   "1": {
+    "edges": [
+     176
+    ]
+   },
+   "2": {
+    "edges": [
+     176
+    ]
+   }
+  }
  },
  "deco-large": {
   "page": "decoration",
@@ -3244,10 +4461,23 @@
     "x": 8,
     "width": 148.344,
     "top": 195,
+    "bottom": 244,
     "baseline": 233
    }
   ],
-  "copy": "Large Gg"
+  "copy": "Large Gg",
+  "ink": {
+   "1": {
+    "edges": [
+     157
+    ]
+   },
+   "2": {
+    "edges": [
+     156.5
+    ]
+   }
+  }
  },
  "deco-wrap": {
   "page": "decoration",
@@ -3262,22 +4492,41 @@
     "x": 8,
     "width": 209.016,
     "top": 248,
+    "bottom": 267,
     "baseline": 263
    },
    {
     "x": 8,
     "width": 169.359,
     "top": 268,
+    "bottom": 287,
     "baseline": 283
    },
    {
     "x": 8,
     "width": 51.203,
     "top": 288,
+    "bottom": 307,
     "baseline": 303
    }
   ],
-  "copy": "The quick brown fox jumps over the lazy dog and keeps on running"
+  "copy": "The quick brown fox jumps over the lazy dog and keeps on running",
+  "ink": {
+   "1": {
+    "edges": [
+     217,
+     178,
+     59
+    ]
+   },
+   "2": {
+    "edges": [
+     217,
+     177.5,
+     59.5
+    ]
+   }
+  }
  },
  "deco-inherited": {
   "page": "decoration",
@@ -3292,10 +4541,23 @@
     "x": 8,
     "width": 237.859,
     "top": 317,
+    "bottom": 339,
     "baseline": 334
    }
   ],
-  "copy": "The parent is underlined in blue"
+  "copy": "The parent is underlined in blue",
+  "ink": {
+   "1": {
+    "edges": [
+     246
+    ]
+   },
+   "2": {
+    "edges": [
+     246
+    ]
+   }
+  }
  },
  "deco-none": {
   "page": "decoration",
@@ -3310,10 +4572,23 @@
     "x": 8,
     "width": 279.031,
     "top": 349,
+    "bottom": 371,
     "baseline": 366
    }
   ],
-  "copy": "No underline cannot undo the parent"
+  "copy": "No underline cannot undo the parent",
+  "ink": {
+   "1": {
+    "edges": [
+     287
+    ]
+   },
+   "2": {
+    "edges": [
+     287
+    ]
+   }
+  }
  },
  "truncate": {
   "page": "overflow",
@@ -3328,10 +4603,23 @@
     "x": 8,
     "width": 499.25,
     "top": 9,
+    "bottom": 31,
     "baseline": 26
    }
   ],
-  "copy": "The quick brown fox jumps over the lazy dog and keeps on running"
+  "copy": "The quick brown fox jumps over the lazy dog and keeps on running",
+  "ink": {
+   "1": {
+    "edges": [
+     204
+    ]
+   },
+   "2": {
+    "edges": [
+     203.5
+    ]
+   }
+  }
  },
  "ellipsis": {
   "page": "overflow",
@@ -3346,10 +4634,23 @@
     "x": 8,
     "width": 499.25,
     "top": 41,
+    "bottom": 63,
     "baseline": 58
    }
   ],
-  "copy": "The quick brown fox jumps over the lazy dog and keeps on running"
+  "copy": "The quick brown fox jumps over the lazy dog and keeps on running",
+  "ink": {
+   "1": {
+    "edges": [
+     204
+    ]
+   },
+   "2": {
+    "edges": [
+     203.5
+    ]
+   }
+  }
  },
  "clip": {
   "page": "overflow",
@@ -3364,10 +4665,23 @@
     "x": 8,
     "width": 499.25,
     "top": 73,
+    "bottom": 95,
     "baseline": 90
    }
   ],
-  "copy": "The quick brown fox jumps over the lazy dog and keeps on running"
+  "copy": "The quick brown fox jumps over the lazy dog and keeps on running",
+  "ink": {
+   "1": {
+    "edges": [
+     208
+    ]
+   },
+   "2": {
+    "edges": [
+     208
+    ]
+   }
+  }
  },
  "clamp-1": {
   "page": "overflow",
@@ -3382,34 +4696,59 @@
     "x": 8,
     "width": 209.016,
     "top": 104,
+    "bottom": 123,
     "baseline": 119
    },
    {
     "x": 8,
     "width": 169.359,
     "top": 124,
+    "bottom": 143,
     "baseline": 139
    },
    {
     "x": 8,
     "width": 190.938,
     "top": 144,
+    "bottom": 163,
     "baseline": 159
    },
    {
     "x": 8,
     "width": 183.359,
     "top": 164,
+    "bottom": 183,
     "baseline": 179
    },
    {
     "x": 8,
     "width": 117.484,
     "top": 184,
+    "bottom": 203,
     "baseline": 199
    }
   ],
-  "copy": "The quick brown fox jumps over the lazy dog and keeps on running. The quick brown fox jumps over the lazy dog and keeps on running."
+  "copy": "The quick brown fox jumps over the lazy dog and keeps on running. The quick brown fox jumps over the lazy dog and keeps on running.",
+  "ink": {
+   "1": {
+    "edges": [
+     227,
+     217,
+     214,
+     187,
+     217
+    ]
+   },
+   "2": {
+    "edges": [
+     227,
+     217,
+     213.5,
+     187.5,
+     217
+    ]
+   }
+  }
  },
  "clamp-2": {
   "page": "overflow",
@@ -3424,34 +4763,59 @@
     "x": 8,
     "width": 209.016,
     "top": 132,
+    "bottom": 151,
     "baseline": 147
    },
    {
     "x": 8,
     "width": 169.359,
     "top": 152,
+    "bottom": 171,
     "baseline": 167
    },
    {
     "x": 8,
     "width": 190.938,
     "top": 172,
+    "bottom": 191,
     "baseline": 187
    },
    {
     "x": 8,
     "width": 183.359,
     "top": 192,
+    "bottom": 211,
     "baseline": 207
    },
    {
     "x": 8,
     "width": 117.484,
     "top": 212,
+    "bottom": 231,
     "baseline": 227
    }
   ],
-  "copy": "The quick brown fox jumps over the lazy dog and keeps on running. The quick brown fox jumps over the lazy dog and keeps on running."
+  "copy": "The quick brown fox jumps over the lazy dog and keeps on running. The quick brown fox jumps over the lazy dog and keeps on running.",
+  "ink": {
+   "1": {
+    "edges": [
+     217,
+     187,
+     217,
+     214,
+     198
+    ]
+   },
+   "2": {
+    "edges": [
+     217,
+     187.5,
+     217,
+     213.5,
+     198.5
+    ]
+   }
+  }
  },
  "clamp-3": {
   "page": "overflow",
@@ -3466,34 +4830,59 @@
     "x": 8,
     "width": 209.016,
     "top": 180,
+    "bottom": 199,
     "baseline": 195
    },
    {
     "x": 8,
     "width": 169.359,
     "top": 200,
+    "bottom": 219,
     "baseline": 215
    },
    {
     "x": 8,
     "width": 190.938,
     "top": 220,
+    "bottom": 239,
     "baseline": 235
    },
    {
     "x": 8,
     "width": 183.359,
     "top": 240,
+    "bottom": 259,
     "baseline": 255
    },
    {
     "x": 8,
     "width": 117.484,
     "top": 260,
+    "bottom": 279,
     "baseline": 275
    }
   ],
-  "copy": "The quick brown fox jumps over the lazy dog and keeps on running. The quick brown fox jumps over the lazy dog and keeps on running."
+  "copy": "The quick brown fox jumps over the lazy dog and keeps on running. The quick brown fox jumps over the lazy dog and keeps on running.",
+  "ink": {
+   "1": {
+    "edges": [
+     217,
+     176,
+     209,
+     217,
+     214
+    ]
+   },
+   "2": {
+    "edges": [
+     217,
+     176.5,
+     209,
+     217,
+     213.5
+    ]
+   }
+  }
  },
  "clamp-none": {
   "page": "overflow",
@@ -3508,22 +4897,41 @@
     "x": 8,
     "width": 209.016,
     "top": 248,
+    "bottom": 267,
     "baseline": 263
    },
    {
     "x": 8,
     "width": 169.359,
     "top": 268,
+    "bottom": 287,
     "baseline": 283
    },
    {
     "x": 8,
     "width": 54.891,
     "top": 288,
+    "bottom": 307,
     "baseline": 303
    }
   ],
-  "copy": "The quick brown fox jumps over the lazy dog and keeps on running."
+  "copy": "The quick brown fox jumps over the lazy dog and keeps on running.",
+  "ink": {
+   "1": {
+    "edges": [
+     217,
+     176,
+     62
+    ]
+   },
+   "2": {
+    "edges": [
+     217,
+     176.5,
+     62
+    ]
+   }
+  }
  },
  "space-normal": {
   "page": "whitespace",
@@ -3538,16 +4946,307 @@
     "x": 8,
     "width": 117.578,
     "top": 8,
+    "bottom": 27,
     "baseline": 23
    },
    {
     "x": 8,
     "width": 118.5,
     "top": 28,
+    "bottom": 47,
     "baseline": 43
    }
   ],
-  "copy": "A line with runs of space and a break"
+  "copy": "A line with runs of space and a break",
+  "cells": [
+   [
+    0,
+    8,
+    16.859,
+    0
+   ],
+   [
+    3,
+    20.484,
+    24.031,
+    0
+   ],
+   [
+    4,
+    24.016,
+    27.563,
+    0
+   ],
+   [
+    5,
+    27.547,
+    36.156,
+    0
+   ],
+   [
+    6,
+    36.141,
+    44.016,
+    0
+   ],
+   [
+    10,
+    47.641,
+    58.5,
+    0
+   ],
+   [
+    11,
+    58.484,
+    62.031,
+    0
+   ],
+   [
+    12,
+    62.016,
+    67.016,
+    0
+   ],
+   [
+    13,
+    67,
+    75.609,
+    0
+   ],
+   [
+    18,
+    79.234,
+    84.969,
+    0
+   ],
+   [
+    19,
+    84.953,
+    93.547,
+    0
+   ],
+   [
+    20,
+    93.531,
+    102.141,
+    0
+   ],
+   [
+    21,
+    102.125,
+    108.813,
+    0
+   ],
+   [
+    23,
+    112.438,
+    120.875,
+    0
+   ],
+   [
+    24,
+    120.859,
+    125.578,
+    0
+   ],
+   [
+    26,
+    8,
+    14.672,
+    1
+   ],
+   [
+    27,
+    14.672,
+    23.25,
+    1
+   ],
+   [
+    28,
+    23.234,
+    31.031,
+    1
+   ],
+   [
+    29,
+    31.016,
+    37.734,
+    1
+   ],
+   [
+    30,
+    37.719,
+    45.594,
+    1
+   ],
+   [
+    32,
+    49.219,
+    57,
+    1
+   ],
+   [
+    33,
+    57,
+    65.594,
+    1
+   ],
+   [
+    34,
+    65.578,
+    74.156,
+    1
+   ],
+   [
+    36,
+    77.781,
+    85.578,
+    1
+   ],
+   [
+    38,
+    89.203,
+    97.781,
+    1
+   ],
+   [
+    39,
+    97.766,
+    103.5,
+    1
+   ],
+   [
+    40,
+    103.484,
+    111.359,
+    1
+   ],
+   [
+    41,
+    111.344,
+    119.141,
+    1
+   ],
+   [
+    42,
+    119.125,
+    126.5,
+    1
+   ]
+  ],
+  "ink": {
+   "1": {
+    "edges": [
+     126,
+     126
+    ],
+    "glyphs": [
+     24.894,
+     12.137,
+     10.388,
+     21.557,
+     22.824,
+     31.855,
+     11.333,
+     14.8,
+     24.604,
+     12.396,
+     22.227,
+     21.6,
+     17.38,
+     21.992,
+     16.694,
+     17.392,
+     28.886,
+     22.906,
+     14.965,
+     23.059,
+     22.655,
+     21.576,
+     28.894,
+     22.651,
+     28.667,
+     12.376,
+     23.075,
+     22.655,
+     23.251
+    ]
+   },
+   "2": {
+    "edges": [
+     126.5,
+     126.5
+    ],
+    "glyphs": [
+     25.774,
+     12.138,
+     9.997,
+     20.173,
+     22.026,
+     30.498,
+     10.341,
+     14.566,
+     23.788,
+     11.788,
+     20.582,
+     20.173,
+     16.845,
+     21.583,
+     16.18,
+     16.846,
+     27.969,
+     21.591,
+     15.134,
+     22.029,
+     21.591,
+     20.173,
+     27.099,
+     21.591,
+     27.02,
+     11.788,
+     22.225,
+     21.585,
+     22.73
+    ]
+   },
+   "1.5": {
+    "edges": [
+     126,
+     126.667
+    ],
+    "glyphs": [
+     25.776,
+     12.125,
+     9.99,
+     20.366,
+     21.316,
+     30.491,
+     10.499,
+     14.55,
+     23.984,
+     11.787,
+     20.584,
+     20.366,
+     16.859,
+     21.025,
+     16.345,
+     16.864,
+     27.62,
+     21.583,
+     14.383,
+     21.305,
+     21.583,
+     20.361,
+     27.087,
+     21.583,
+     26.797,
+     11.787,
+     21.318,
+     21.59,
+     22.722
+    ]
+   }
+  }
  },
  "space-nowrap": {
   "page": "whitespace",
@@ -3562,10 +5261,297 @@
     "x": 166,
     "width": 239.703,
     "top": 8,
+    "bottom": 27,
     "baseline": 23
    }
   ],
-  "copy": "A line with runs of space and a break"
+  "copy": "A line with runs of space and a break",
+  "cells": [
+   [
+    0,
+    166,
+    174.859,
+    0
+   ],
+   [
+    3,
+    178.484,
+    182.031,
+    0
+   ],
+   [
+    4,
+    182.016,
+    185.563,
+    0
+   ],
+   [
+    5,
+    185.547,
+    194.156,
+    0
+   ],
+   [
+    6,
+    194.141,
+    202.016,
+    0
+   ],
+   [
+    10,
+    205.641,
+    216.5,
+    0
+   ],
+   [
+    11,
+    216.484,
+    220.031,
+    0
+   ],
+   [
+    12,
+    220.016,
+    225.016,
+    0
+   ],
+   [
+    13,
+    225,
+    233.609,
+    0
+   ],
+   [
+    18,
+    237.234,
+    242.969,
+    0
+   ],
+   [
+    19,
+    242.953,
+    251.547,
+    0
+   ],
+   [
+    20,
+    251.531,
+    260.141,
+    0
+   ],
+   [
+    21,
+    260.125,
+    266.813,
+    0
+   ],
+   [
+    23,
+    270.438,
+    278.875,
+    0
+   ],
+   [
+    24,
+    278.859,
+    283.578,
+    0
+   ],
+   [
+    26,
+    287.203,
+    293.891,
+    0
+   ],
+   [
+    27,
+    293.875,
+    302.453,
+    0
+   ],
+   [
+    28,
+    302.438,
+    310.234,
+    0
+   ],
+   [
+    29,
+    310.219,
+    316.938,
+    0
+   ],
+   [
+    30,
+    316.922,
+    324.797,
+    0
+   ],
+   [
+    32,
+    328.422,
+    336.219,
+    0
+   ],
+   [
+    33,
+    336.203,
+    344.797,
+    0
+   ],
+   [
+    34,
+    344.781,
+    353.359,
+    0
+   ],
+   [
+    36,
+    356.984,
+    364.781,
+    0
+   ],
+   [
+    38,
+    368.406,
+    376.984,
+    0
+   ],
+   [
+    39,
+    376.969,
+    382.703,
+    0
+   ],
+   [
+    40,
+    382.688,
+    390.563,
+    0
+   ],
+   [
+    41,
+    390.547,
+    398.344,
+    0
+   ],
+   [
+    42,
+    398.328,
+    405.703,
+    0
+   ]
+  ],
+  "ink": {
+   "1": {
+    "edges": [
+     316
+    ],
+    "glyphs": [
+     24.894,
+     12.137,
+     10.388,
+     21.557,
+     22.824,
+     31.855,
+     11.333,
+     14.8,
+     24.604,
+     12.396,
+     22.227,
+     21.6,
+     17.38,
+     21.992,
+     16.694,
+     17.38,
+     29.216,
+     22.647,
+     14.212,
+     1.282,
+     13.702,
+     12.604,
+     27.345,
+     22.831,
+     7.518,
+     21.6,
+     26.102,
+     29.271,
+     10.573
+    ]
+   },
+   "2": {
+    "edges": [
+     316
+    ],
+    "glyphs": [
+     25.774,
+     12.138,
+     9.997,
+     20.173,
+     22.026,
+     30.498,
+     10.341,
+     14.566,
+     23.788,
+     11.788,
+     20.582,
+     20.173,
+     16.845,
+     21.583,
+     16.18,
+     16.846,
+     27.976,
+     21.59,
+     14.398,
+     1.28,
+     14.206,
+     13.683,
+     22.592,
+     22.029,
+     7.192,
+     18.609,
+     25.377,
+     25.948,
+     9.738
+    ]
+   },
+   "1.5": {
+    "edges": [
+     316
+    ],
+    "glyphs": [
+     25.776,
+     12.125,
+     9.99,
+     20.366,
+     21.316,
+     30.491,
+     10.499,
+     14.55,
+     23.984,
+     11.787,
+     20.584,
+     20.366,
+     16.859,
+     21.025,
+     16.345,
+     16.871,
+     27.62,
+     21.583,
+     13.82,
+     2.247,
+     14.21,
+     16.268,
+     26.578,
+     21.292,
+     7.974,
+     19.242,
+     21.06,
+     28.544,
+     10.046
+    ]
+   }
+  }
  },
  "space-pre": {
   "page": "whitespace",
@@ -3580,22 +5566,317 @@
     "x": 324,
     "width": 78.516,
     "top": 8,
+    "bottom": 27,
     "baseline": 23
    },
    {
     "x": 334.906,
     "width": 87.563,
     "top": 28,
+    "bottom": 47,
     "baseline": 43
    },
    {
     "x": 324,
     "width": 77.281,
     "top": 48,
+    "bottom": 67,
     "baseline": 63
    }
   ],
-  "copy": "A  line   with\n   runs of space\nand a break"
+  "copy": "A  line   with\n   runs of space\nand a break",
+  "cells": [
+   [
+    0,
+    324,
+    332.859,
+    0
+   ],
+   [
+    3,
+    340.125,
+    343.672,
+    0
+   ],
+   [
+    4,
+    343.656,
+    347.203,
+    0
+   ],
+   [
+    5,
+    347.188,
+    355.781,
+    0
+   ],
+   [
+    6,
+    355.766,
+    363.656,
+    0
+   ],
+   [
+    10,
+    374.547,
+    385.406,
+    0
+   ],
+   [
+    11,
+    385.391,
+    388.938,
+    0
+   ],
+   [
+    12,
+    388.922,
+    393.938,
+    0
+   ],
+   [
+    13,
+    393.922,
+    402.516,
+    0
+   ],
+   [
+    18,
+    334.906,
+    340.641,
+    1
+   ],
+   [
+    19,
+    340.625,
+    349.219,
+    1
+   ],
+   [
+    20,
+    349.203,
+    357.813,
+    1
+   ],
+   [
+    21,
+    357.797,
+    364.484,
+    1
+   ],
+   [
+    23,
+    368.109,
+    376.547,
+    1
+   ],
+   [
+    24,
+    376.531,
+    381.25,
+    1
+   ],
+   [
+    26,
+    384.875,
+    391.563,
+    1
+   ],
+   [
+    27,
+    391.547,
+    400.125,
+    1
+   ],
+   [
+    28,
+    400.109,
+    407.906,
+    1
+   ],
+   [
+    29,
+    407.891,
+    414.609,
+    1
+   ],
+   [
+    30,
+    414.594,
+    422.469,
+    1
+   ],
+   [
+    32,
+    324,
+    331.781,
+    2
+   ],
+   [
+    33,
+    331.766,
+    340.375,
+    2
+   ],
+   [
+    34,
+    340.359,
+    348.938,
+    2
+   ],
+   [
+    36,
+    352.563,
+    360.359,
+    2
+   ],
+   [
+    38,
+    363.969,
+    372.563,
+    2
+   ],
+   [
+    39,
+    372.547,
+    378.281,
+    2
+   ],
+   [
+    40,
+    378.266,
+    386.141,
+    2
+   ],
+   [
+    41,
+    386.125,
+    393.922,
+    2
+   ],
+   [
+    42,
+    393.906,
+    401.281,
+    2
+   ]
+  ],
+  "ink": {
+   "1": {
+    "edges": [
+     402,
+     422,
+     401
+    ],
+    "glyphs": [
+     24.894,
+     12.137,
+     10.357,
+     21.561,
+     22.831,
+     31.859,
+     10.451,
+     14.8,
+     25.788,
+     12.396,
+     21.902,
+     21.561,
+     17.384,
+     22.157,
+     16.561,
+     17.392,
+     29.384,
+     22.659,
+     14.965,
+     23.043,
+     22.659,
+     21.522,
+     28.886,
+     22.647,
+     28.686,
+     12.392,
+     22.871,
+     22.655,
+     23.263
+    ]
+   },
+   "2": {
+    "edges": [
+     401.5,
+     422,
+     401
+    ],
+    "glyphs": [
+     25.774,
+     12.138,
+     9.996,
+     20.164,
+     22.029,
+     30.496,
+     10.058,
+     14.562,
+     23.832,
+     11.797,
+     20.374,
+     20.164,
+     16.846,
+     21.761,
+     16.079,
+     16.844,
+     27.97,
+     21.586,
+     15.13,
+     22.026,
+     21.59,
+     20.164,
+     27.093,
+     21.586,
+     27.027,
+     11.799,
+     22.029,
+     21.586,
+     22.728
+    ]
+   },
+   "1.5": {
+    "edges": [
+     401.333,
+     422,
+     401.333
+    ],
+    "glyphs": [
+     25.776,
+     12.153,
+     10.013,
+     20.366,
+     21.305,
+     30.491,
+     10.055,
+     14.545,
+     24.521,
+     11.803,
+     20.851,
+     20.366,
+     16.871,
+     20.84,
+     16.07,
+     16.859,
+     27.637,
+     21.579,
+     14.384,
+     21.319,
+     21.59,
+     20.366,
+     27.087,
+     21.583,
+     26.796,
+     11.787,
+     21.305,
+     21.579,
+     22.722
+    ]
+   }
+  }
  },
  "space-pre-line": {
   "page": "whitespace",
@@ -3610,22 +5891,317 @@
     "x": 8,
     "width": 67.609,
     "top": 76,
+    "bottom": 95,
     "baseline": 91
    },
    {
     "x": 8,
     "width": 87.563,
     "top": 96,
+    "bottom": 115,
     "baseline": 111
    },
    {
     "x": 8,
     "width": 77.281,
     "top": 116,
+    "bottom": 135,
     "baseline": 131
    }
   ],
-  "copy": "A line with\nruns of space\nand a break"
+  "copy": "A line with\nruns of space\nand a break",
+  "cells": [
+   [
+    0,
+    8,
+    16.859,
+    0
+   ],
+   [
+    3,
+    20.484,
+    24.031,
+    0
+   ],
+   [
+    4,
+    24.016,
+    27.563,
+    0
+   ],
+   [
+    5,
+    27.547,
+    36.156,
+    0
+   ],
+   [
+    6,
+    36.141,
+    44.016,
+    0
+   ],
+   [
+    10,
+    47.641,
+    58.5,
+    0
+   ],
+   [
+    11,
+    58.484,
+    62.031,
+    0
+   ],
+   [
+    12,
+    62.016,
+    67.016,
+    0
+   ],
+   [
+    13,
+    67,
+    75.609,
+    0
+   ],
+   [
+    18,
+    8,
+    13.734,
+    1
+   ],
+   [
+    19,
+    13.719,
+    22.313,
+    1
+   ],
+   [
+    20,
+    22.297,
+    30.906,
+    1
+   ],
+   [
+    21,
+    30.891,
+    37.578,
+    1
+   ],
+   [
+    23,
+    41.188,
+    49.625,
+    1
+   ],
+   [
+    24,
+    49.609,
+    54.344,
+    1
+   ],
+   [
+    26,
+    57.969,
+    64.656,
+    1
+   ],
+   [
+    27,
+    64.641,
+    73.219,
+    1
+   ],
+   [
+    28,
+    73.203,
+    81,
+    1
+   ],
+   [
+    29,
+    80.984,
+    87.703,
+    1
+   ],
+   [
+    30,
+    87.688,
+    95.563,
+    1
+   ],
+   [
+    32,
+    8,
+    15.781,
+    2
+   ],
+   [
+    33,
+    15.766,
+    24.375,
+    2
+   ],
+   [
+    34,
+    24.359,
+    32.938,
+    2
+   ],
+   [
+    36,
+    36.563,
+    44.359,
+    2
+   ],
+   [
+    38,
+    47.969,
+    56.563,
+    2
+   ],
+   [
+    39,
+    56.547,
+    62.281,
+    2
+   ],
+   [
+    40,
+    62.266,
+    70.141,
+    2
+   ],
+   [
+    41,
+    70.125,
+    77.922,
+    2
+   ],
+   [
+    42,
+    77.906,
+    85.281,
+    2
+   ]
+  ],
+  "ink": {
+   "1": {
+    "edges": [
+     75,
+     95,
+     85
+    ],
+    "glyphs": [
+     24.894,
+     12.137,
+     10.388,
+     21.557,
+     22.824,
+     31.855,
+     11.333,
+     14.8,
+     24.604,
+     12.396,
+     21.902,
+     21.561,
+     17.392,
+     22.173,
+     16.561,
+     17.392,
+     28.886,
+     22.655,
+     14.965,
+     23.059,
+     22.659,
+     21.522,
+     28.886,
+     22.647,
+     28.686,
+     12.392,
+     22.871,
+     22.655,
+     23.263
+    ]
+   },
+   "2": {
+    "edges": [
+     74.5,
+     95,
+     85
+    ],
+    "glyphs": [
+     25.774,
+     12.138,
+     9.997,
+     20.173,
+     22.026,
+     30.498,
+     10.341,
+     14.566,
+     23.788,
+     11.799,
+     20.366,
+     20.164,
+     16.844,
+     21.689,
+     15.958,
+     16.846,
+     27.969,
+     21.591,
+     15.134,
+     22.029,
+     21.59,
+     20.164,
+     27.093,
+     21.586,
+     27.027,
+     11.799,
+     22.029,
+     21.586,
+     22.728
+    ]
+   },
+   "1.5": {
+    "edges": [
+     74.667,
+     94.667,
+     85.333
+    ],
+    "glyphs": [
+     25.776,
+     12.125,
+     9.99,
+     20.366,
+     21.316,
+     30.491,
+     10.499,
+     14.55,
+     23.984,
+     11.782,
+     20.694,
+     20.361,
+     16.859,
+     20.924,
+     16.209,
+     16.864,
+     27.624,
+     21.583,
+     14.383,
+     21.305,
+     21.59,
+     20.366,
+     27.087,
+     21.583,
+     26.796,
+     11.787,
+     21.305,
+     21.579,
+     22.722
+    ]
+   }
+  }
  },
  "space-pre-wrap": {
   "page": "whitespace",
@@ -3640,22 +6216,317 @@
     "x": 166,
     "width": 78.516,
     "top": 76,
+    "bottom": 95,
     "baseline": 91
    },
    {
     "x": 176.922,
     "width": 87.563,
     "top": 96,
+    "bottom": 115,
     "baseline": 111
    },
    {
     "x": 166,
     "width": 77.281,
     "top": 116,
+    "bottom": 135,
     "baseline": 131
    }
   ],
-  "copy": "A  line   with\n   runs of space\nand a break"
+  "copy": "A  line   with\n   runs of space\nand a break",
+  "cells": [
+   [
+    0,
+    166,
+    174.859,
+    0
+   ],
+   [
+    3,
+    182.125,
+    185.672,
+    0
+   ],
+   [
+    4,
+    185.656,
+    189.203,
+    0
+   ],
+   [
+    5,
+    189.188,
+    197.781,
+    0
+   ],
+   [
+    6,
+    197.766,
+    205.656,
+    0
+   ],
+   [
+    10,
+    216.547,
+    227.406,
+    0
+   ],
+   [
+    11,
+    227.391,
+    230.938,
+    0
+   ],
+   [
+    12,
+    230.922,
+    235.938,
+    0
+   ],
+   [
+    13,
+    235.922,
+    244.516,
+    0
+   ],
+   [
+    18,
+    176.922,
+    182.656,
+    1
+   ],
+   [
+    19,
+    182.641,
+    191.234,
+    1
+   ],
+   [
+    20,
+    191.219,
+    199.828,
+    1
+   ],
+   [
+    21,
+    199.813,
+    206.5,
+    1
+   ],
+   [
+    23,
+    210.109,
+    218.547,
+    1
+   ],
+   [
+    24,
+    218.531,
+    223.266,
+    1
+   ],
+   [
+    26,
+    226.891,
+    233.578,
+    1
+   ],
+   [
+    27,
+    233.563,
+    242.141,
+    1
+   ],
+   [
+    28,
+    242.125,
+    249.922,
+    1
+   ],
+   [
+    29,
+    249.906,
+    256.625,
+    1
+   ],
+   [
+    30,
+    256.609,
+    264.484,
+    1
+   ],
+   [
+    32,
+    166,
+    173.781,
+    2
+   ],
+   [
+    33,
+    173.766,
+    182.375,
+    2
+   ],
+   [
+    34,
+    182.359,
+    190.938,
+    2
+   ],
+   [
+    36,
+    194.563,
+    202.359,
+    2
+   ],
+   [
+    38,
+    205.969,
+    214.563,
+    2
+   ],
+   [
+    39,
+    214.547,
+    220.281,
+    2
+   ],
+   [
+    40,
+    220.266,
+    228.141,
+    2
+   ],
+   [
+    41,
+    228.125,
+    235.922,
+    2
+   ],
+   [
+    42,
+    235.906,
+    243.281,
+    2
+   ]
+  ],
+  "ink": {
+   "1": {
+    "edges": [
+     244,
+     264,
+     243
+    ],
+    "glyphs": [
+     24.894,
+     12.137,
+     10.357,
+     21.561,
+     22.831,
+     31.859,
+     10.451,
+     14.8,
+     25.788,
+     12.396,
+     21.902,
+     21.561,
+     17.384,
+     22.157,
+     16.561,
+     17.392,
+     28.906,
+     22.655,
+     14.965,
+     23.043,
+     22.659,
+     21.522,
+     28.886,
+     22.647,
+     28.686,
+     12.392,
+     22.871,
+     22.655,
+     23.263
+    ]
+   },
+   "2": {
+    "edges": [
+     243.5,
+     264,
+     243
+    ],
+    "glyphs": [
+     25.774,
+     12.138,
+     9.996,
+     20.164,
+     22.029,
+     30.496,
+     10.058,
+     14.562,
+     23.832,
+     11.797,
+     20.374,
+     20.164,
+     16.844,
+     21.761,
+     16.079,
+     16.844,
+     27.969,
+     21.586,
+     15.13,
+     22.026,
+     21.59,
+     20.164,
+     27.093,
+     21.586,
+     27.027,
+     11.799,
+     22.029,
+     21.586,
+     22.728
+    ]
+   },
+   "1.5": {
+    "edges": [
+     243.333,
+     264,
+     243.333
+    ],
+    "glyphs": [
+     25.776,
+     12.153,
+     10.013,
+     20.366,
+     21.305,
+     30.491,
+     10.055,
+     14.545,
+     24.521,
+     11.784,
+     21.028,
+     20.366,
+     16.871,
+     20.84,
+     16.07,
+     16.859,
+     27.637,
+     21.579,
+     14.384,
+     21.319,
+     21.59,
+     20.366,
+     27.087,
+     21.583,
+     26.796,
+     11.787,
+     21.305,
+     21.579,
+     22.722
+    ]
+   }
+  }
  },
  "break-normal": {
   "page": "whitespace",
@@ -3670,22 +6541,353 @@
     "x": 324,
     "width": 40.094,
     "top": 76,
+    "bottom": 95,
     "baseline": 91
    },
    {
     "x": 324,
     "width": 180.422,
     "top": 96,
+    "bottom": 115,
     "baseline": 111
    },
    {
     "x": 324,
     "width": 33.563,
     "top": 116,
+    "bottom": 135,
     "baseline": 131
    }
   ],
-  "copy": "A very Pneumonoultramicroscopic word"
+  "copy": "A very Pneumonoultramicroscopic word",
+  "cells": [
+   [
+    0,
+    324,
+    332.859,
+    0
+   ],
+   [
+    2,
+    336.484,
+    343.484,
+    0
+   ],
+   [
+    3,
+    343.469,
+    351.344,
+    0
+   ],
+   [
+    4,
+    351.344,
+    357.078,
+    0
+   ],
+   [
+    5,
+    357.063,
+    364.094,
+    0
+   ],
+   [
+    7,
+    324,
+    332.422,
+    1
+   ],
+   [
+    8,
+    332.422,
+    341.016,
+    1
+   ],
+   [
+    9,
+    341,
+    348.875,
+    1
+   ],
+   [
+    10,
+    348.859,
+    357.469,
+    1
+   ],
+   [
+    11,
+    357.453,
+    370.422,
+    1
+   ],
+   [
+    12,
+    370.406,
+    378.844,
+    1
+   ],
+   [
+    13,
+    378.828,
+    387.438,
+    1
+   ],
+   [
+    14,
+    387.422,
+    395.859,
+    1
+   ],
+   [
+    15,
+    395.844,
+    404.438,
+    1
+   ],
+   [
+    16,
+    404.422,
+    407.969,
+    1
+   ],
+   [
+    17,
+    407.953,
+    412.969,
+    1
+   ],
+   [
+    18,
+    412.953,
+    418.688,
+    1
+   ],
+   [
+    19,
+    418.672,
+    426.469,
+    1
+   ],
+   [
+    20,
+    426.453,
+    439.422,
+    1
+   ],
+   [
+    21,
+    439.406,
+    442.953,
+    1
+   ],
+   [
+    22,
+    442.938,
+    449.672,
+    1
+   ],
+   [
+    23,
+    449.656,
+    455.391,
+    1
+   ],
+   [
+    24,
+    455.375,
+    463.813,
+    1
+   ],
+   [
+    25,
+    463.797,
+    470.484,
+    1
+   ],
+   [
+    26,
+    470.469,
+    477.188,
+    1
+   ],
+   [
+    27,
+    477.172,
+    485.609,
+    1
+   ],
+   [
+    28,
+    485.594,
+    494.172,
+    1
+   ],
+   [
+    29,
+    494.156,
+    497.703,
+    1
+   ],
+   [
+    30,
+    497.688,
+    504.422,
+    1
+   ],
+   [
+    32,
+    324,
+    334.859,
+    2
+   ],
+   [
+    33,
+    334.844,
+    343.281,
+    2
+   ],
+   [
+    34,
+    343.266,
+    349,
+    2
+   ],
+   [
+    35,
+    348.984,
+    357.563,
+    2
+   ]
+  ],
+  "ink": {
+   "1": {
+    "edges": [
+     364,
+     425,
+     357
+    ],
+    "glyphs": [
+     24.894,
+     17.31,
+     23.145,
+     14.475,
+     22.129,
+     24.573,
+     21.804,
+     22.816,
+     21.549,
+     33.408,
+     21.973,
+     21.667,
+     21.973,
+     21.557,
+     12.137,
+     14.8,
+     13.58,
+     23.141,
+     53.008,
+     19.282,
+     31.867,
+     28.961,
+     41.224,
+     34.255,
+     29.439,
+     39.247,
+     49.812,
+     17.463,
+     32.388,
+     31.831,
+     22.867,
+     12.396,
+     29.655
+    ]
+   },
+   "2": {
+    "edges": [
+     364,
+     425,
+     356.5
+    ],
+    "glyphs": [
+     25.774,
+     16.654,
+     22.343,
+     12.183,
+     21.542,
+     24.4,
+     20.175,
+     22.025,
+     20.374,
+     31.491,
+     21.584,
+     20.175,
+     21.584,
+     20.374,
+     12.138,
+     14.566,
+     12.056,
+     21.586,
+     51.91,
+     19.283,
+     26.13,
+     25.805,
+     39.868,
+     29.695,
+     26.696,
+     39.075,
+     44.4,
+     18.531,
+     27.805,
+     30.496,
+     21.645,
+     11.788,
+     27.294
+    ]
+   },
+   "1.5": {
+    "edges": [
+     364,
+     425.333,
+     356.667
+    ],
+    "glyphs": [
+     25.776,
+     16.643,
+     21.347,
+     12.078,
+     21.631,
+     24.437,
+     20.366,
+     21.305,
+     20.566,
+     31.712,
+     20.842,
+     20.366,
+     20.84,
+     20.577,
+     12.125,
+     14.55,
+     11.786,
+     21.59,
+     52.239,
+     18.046,
+     25.11,
+     26.773,
+     38.039,
+     30.839,
+     26.799,
+     39.969,
+     44.181,
+     17.799,
+     28.15,
+     30.487,
+     20.84,
+     11.782,
+     27.197
+    ]
+   }
+  }
  },
  "break-words": {
   "page": "whitespace",
@@ -3700,28 +6902,363 @@
     "x": 432,
     "width": 40.094,
     "top": 76,
+    "bottom": 95,
     "baseline": 91
    },
    {
     "x": 432,
     "width": 94.688,
     "top": 96,
+    "bottom": 115,
     "baseline": 111
    },
    {
     "x": 432,
     "width": 85.734,
     "top": 116,
+    "bottom": 135,
     "baseline": 131
    },
    {
     "x": 432,
     "width": 33.563,
     "top": 136,
+    "bottom": 155,
     "baseline": 151
    }
   ],
-  "copy": "A very Pneumonoultramicroscopic word"
+  "copy": "A very Pneumonoultramicroscopic word",
+  "cells": [
+   [
+    0,
+    432,
+    440.859,
+    0
+   ],
+   [
+    2,
+    444.484,
+    451.484,
+    0
+   ],
+   [
+    3,
+    451.469,
+    459.344,
+    0
+   ],
+   [
+    4,
+    459.344,
+    465.078,
+    0
+   ],
+   [
+    5,
+    465.063,
+    472.094,
+    0
+   ],
+   [
+    7,
+    432,
+    440.422,
+    1
+   ],
+   [
+    8,
+    440.422,
+    449.016,
+    1
+   ],
+   [
+    9,
+    449,
+    456.875,
+    1
+   ],
+   [
+    10,
+    456.859,
+    465.469,
+    1
+   ],
+   [
+    11,
+    465.453,
+    478.422,
+    1
+   ],
+   [
+    12,
+    478.406,
+    486.844,
+    1
+   ],
+   [
+    13,
+    486.828,
+    495.438,
+    1
+   ],
+   [
+    14,
+    495.422,
+    503.859,
+    1
+   ],
+   [
+    15,
+    503.844,
+    512.438,
+    1
+   ],
+   [
+    16,
+    512.422,
+    515.969,
+    1
+   ],
+   [
+    17,
+    515.953,
+    520.969,
+    1
+   ],
+   [
+    18,
+    520.953,
+    526.688,
+    1
+   ],
+   [
+    19,
+    432,
+    439.781,
+    2
+   ],
+   [
+    20,
+    439.766,
+    452.75,
+    2
+   ],
+   [
+    21,
+    452.734,
+    456.281,
+    2
+   ],
+   [
+    22,
+    456.266,
+    462.984,
+    2
+   ],
+   [
+    23,
+    462.969,
+    468.703,
+    2
+   ],
+   [
+    24,
+    468.688,
+    477.125,
+    2
+   ],
+   [
+    25,
+    477.109,
+    483.797,
+    2
+   ],
+   [
+    26,
+    483.781,
+    490.516,
+    2
+   ],
+   [
+    27,
+    490.5,
+    498.938,
+    2
+   ],
+   [
+    28,
+    498.922,
+    507.5,
+    2
+   ],
+   [
+    29,
+    507.484,
+    511.031,
+    2
+   ],
+   [
+    30,
+    511.016,
+    517.734,
+    2
+   ],
+   [
+    32,
+    432,
+    442.859,
+    3
+   ],
+   [
+    33,
+    442.844,
+    451.281,
+    3
+   ],
+   [
+    34,
+    451.266,
+    457,
+    3
+   ],
+   [
+    35,
+    456.984,
+    465.563,
+    3
+   ]
+  ],
+  "ink": {
+   "1": {
+    "edges": [
+     472,
+     527,
+     517,
+     465
+    ],
+    "glyphs": [
+     24.894,
+     17.31,
+     23.145,
+     14.475,
+     22.129,
+     43.427,
+     42.686,
+     31.439,
+     43.388,
+     56.518,
+     40.714,
+     50.067,
+     43.055,
+     23.38,
+     12.137,
+     14.8,
+     13.58,
+     22.659,
+     33.376,
+     10.357,
+     14.961,
+     13.145,
+     23.008,
+     17.392,
+     14.957,
+     21.973,
+     29.027,
+     10.639,
+     14.965,
+     31.831,
+     22.867,
+     12.396,
+     29.655
+    ]
+   },
+   "2": {
+    "edges": [
+     472,
+     526.5,
+     517.5,
+     464.5
+    ],
+    "glyphs": [
+     25.774,
+     16.654,
+     22.343,
+     12.183,
+     21.542,
+     40.407,
+     41.352,
+     30.626,
+     40.735,
+     50.668,
+     39.011,
+     44.388,
+     42.93,
+     21.109,
+     12.138,
+     14.566,
+     12.056,
+     21.59,
+     31.48,
+     9.983,
+     15.133,
+     11.799,
+     21.593,
+     16.845,
+     15.133,
+     21.583,
+     27.976,
+     9.997,
+     15.134,
+     30.496,
+     21.645,
+     11.788,
+     27.294
+    ]
+   },
+   "1.5": {
+    "edges": [
+     472,
+     526.667,
+     517.333,
+     464.667
+    ],
+    "glyphs": [
+     25.776,
+     16.643,
+     21.347,
+     12.078,
+     21.631,
+     40.537,
+     40.464,
+     32.769,
+     40.809,
+     50.388,
+     40.858,
+     47.801,
+     41.61,
+     21.485,
+     12.125,
+     14.55,
+     11.784,
+     21.59,
+     31.671,
+     9.99,
+     14.383,
+     11.784,
+     20.842,
+     16.871,
+     14.384,
+     20.863,
+     27.627,
+     10.01,
+     14.383,
+     30.487,
+     20.84,
+     11.782,
+     27.197
+    ]
+   }
+  }
  },
  "break-all": {
   "page": "whitespace",
@@ -3736,22 +7273,353 @@
     "x": 8,
     "width": 98.563,
     "top": 164,
+    "bottom": 183,
     "baseline": 179
    },
    {
     "x": 8,
     "width": 98.344,
     "top": 184,
+    "bottom": 203,
     "baseline": 199
    },
    {
     "x": 8,
     "width": 64.422,
     "top": 204,
+    "bottom": 223,
     "baseline": 219
    }
   ],
-  "copy": "A very Pneumonoultramicroscopic word"
+  "copy": "A very Pneumonoultramicroscopic word",
+  "cells": [
+   [
+    0,
+    8,
+    16.859,
+    0
+   ],
+   [
+    2,
+    20.484,
+    27.484,
+    0
+   ],
+   [
+    3,
+    27.469,
+    35.344,
+    0
+   ],
+   [
+    4,
+    35.344,
+    41.078,
+    0
+   ],
+   [
+    5,
+    41.063,
+    48.094,
+    0
+   ],
+   [
+    7,
+    51.703,
+    60.141,
+    0
+   ],
+   [
+    8,
+    60.125,
+    68.734,
+    0
+   ],
+   [
+    9,
+    68.719,
+    76.594,
+    0
+   ],
+   [
+    10,
+    76.578,
+    85.172,
+    0
+   ],
+   [
+    11,
+    85.156,
+    98.141,
+    0
+   ],
+   [
+    12,
+    98.125,
+    106.563,
+    0
+   ],
+   [
+    13,
+    8,
+    16.594,
+    1
+   ],
+   [
+    14,
+    16.578,
+    25.016,
+    1
+   ],
+   [
+    15,
+    25,
+    33.594,
+    1
+   ],
+   [
+    16,
+    33.594,
+    37.141,
+    1
+   ],
+   [
+    17,
+    37.125,
+    42.125,
+    1
+   ],
+   [
+    18,
+    42.109,
+    47.844,
+    1
+   ],
+   [
+    19,
+    47.828,
+    55.625,
+    1
+   ],
+   [
+    20,
+    55.609,
+    68.594,
+    1
+   ],
+   [
+    21,
+    68.578,
+    72.125,
+    1
+   ],
+   [
+    22,
+    72.109,
+    78.828,
+    1
+   ],
+   [
+    23,
+    78.813,
+    84.547,
+    1
+   ],
+   [
+    24,
+    84.531,
+    92.969,
+    1
+   ],
+   [
+    25,
+    92.953,
+    99.641,
+    1
+   ],
+   [
+    26,
+    99.625,
+    106.344,
+    1
+   ],
+   [
+    27,
+    8,
+    16.422,
+    2
+   ],
+   [
+    28,
+    16.422,
+    25,
+    2
+   ],
+   [
+    29,
+    24.984,
+    28.531,
+    2
+   ],
+   [
+    30,
+    28.516,
+    35.234,
+    2
+   ],
+   [
+    32,
+    38.859,
+    49.719,
+    2
+   ],
+   [
+    33,
+    49.703,
+    58.141,
+    2
+   ],
+   [
+    34,
+    58.125,
+    63.859,
+    2
+   ],
+   [
+    35,
+    63.844,
+    72.422,
+    2
+   ]
+  ],
+  "ink": {
+   "1": {
+    "edges": [
+     106,
+     106,
+     71
+    ],
+    "glyphs": [
+     24.894,
+     17.31,
+     23.145,
+     14.475,
+     22.129,
+     24.573,
+     21.561,
+     22.831,
+     21.463,
+     33.392,
+     21.992,
+     21.576,
+     21.973,
+     21.459,
+     12.506,
+     14.8,
+     12.396,
+     23.141,
+     33.408,
+     10.639,
+     14.965,
+     12.6,
+     22.184,
+     17.537,
+     14.957,
+     21.976,
+     28.855,
+     10.953,
+     14.965,
+     31.855,
+     22.341,
+     12.396,
+     29.631
+    ]
+   },
+   "2": {
+    "edges": [
+     106,
+     106,
+     71.5
+    ],
+    "glyphs": [
+     25.774,
+     16.654,
+     22.343,
+     12.183,
+     21.542,
+     24.42,
+     20.161,
+     22.029,
+     20.374,
+     31.494,
+     21.588,
+     20.173,
+     21.588,
+     20.382,
+     12.229,
+     14.553,
+     11.796,
+     21.652,
+     31.494,
+     9.996,
+     15.128,
+     11.797,
+     21.583,
+     16.846,
+     15.128,
+     21.583,
+     27.976,
+     9.997,
+     15.134,
+     30.495,
+     21.599,
+     11.796,
+     27.16
+    ]
+   },
+   "1.5": {
+    "edges": [
+     106,
+     106,
+     71.333
+    ],
+    "glyphs": [
+     25.776,
+     16.643,
+     21.347,
+     12.078,
+     21.631,
+     24.411,
+     20.366,
+     21.309,
+     20.561,
+     31.671,
+     20.84,
+     20.354,
+     20.842,
+     20.584,
+     12.125,
+     14.55,
+     11.803,
+     21.872,
+     31.679,
+     9.989,
+     14.379,
+     11.803,
+     21.142,
+     16.871,
+     14.383,
+     20.842,
+     27.62,
+     10.013,
+     14.384,
+     30.496,
+     20.901,
+     11.803,
+     27.392
+    ]
+   }
+  }
  },
  "justify": {
   "page": "whitespace",
@@ -3766,34 +7634,1030 @@
     "x": 116,
     "width": 220,
     "top": 164,
+    "bottom": 183,
     "baseline": 179
    },
    {
     "x": 116,
     "width": 220,
     "top": 184,
+    "bottom": 203,
     "baseline": 199
    },
    {
     "x": 116,
     "width": 220,
     "top": 204,
+    "bottom": 223,
     "baseline": 219
    },
    {
     "x": 116,
     "width": 220,
     "top": 224,
+    "bottom": 243,
     "baseline": 239
    },
    {
     "x": 116,
     "width": 117.484,
     "top": 244,
+    "bottom": 263,
     "baseline": 259
    }
   ],
-  "copy": "The quick brown fox jumps over the lazy dog and keeps on running. The quick brown fox jumps over the lazy dog and keeps on running."
+  "copy": "The quick brown fox jumps over the lazy dog and keeps on running. The quick brown fox jumps over the lazy dog and keeps on running.",
+  "cells": [
+   [
+    0,
+    116,
+    123.719,
+    0
+   ],
+   [
+    1,
+    123.703,
+    132.297,
+    0
+   ],
+   [
+    2,
+    132.297,
+    140.172,
+    0
+   ],
+   [
+    4,
+    145.984,
+    154.563,
+    0
+   ],
+   [
+    5,
+    154.547,
+    163.156,
+    0
+   ],
+   [
+    6,
+    163.141,
+    166.688,
+    0
+   ],
+   [
+    7,
+    166.672,
+    173.391,
+    0
+   ],
+   [
+    8,
+    173.375,
+    180.75,
+    0
+   ],
+   [
+    10,
+    186.563,
+    195.141,
+    0
+   ],
+   [
+    11,
+    195.125,
+    200.875,
+    0
+   ],
+   [
+    12,
+    200.859,
+    209.297,
+    0
+   ],
+   [
+    13,
+    209.281,
+    220.141,
+    0
+   ],
+   [
+    14,
+    220.125,
+    228.719,
+    0
+   ],
+   [
+    16,
+    234.547,
+    239.266,
+    0
+   ],
+   [
+    17,
+    239.25,
+    247.688,
+    0
+   ],
+   [
+    18,
+    247.672,
+    255.016,
+    0
+   ],
+   [
+    20,
+    260.828,
+    264.391,
+    0
+   ],
+   [
+    21,
+    264.375,
+    272.969,
+    0
+   ],
+   [
+    22,
+    272.953,
+    285.938,
+    0
+   ],
+   [
+    23,
+    285.922,
+    294.5,
+    0
+   ],
+   [
+    24,
+    294.484,
+    301.172,
+    0
+   ],
+   [
+    26,
+    306.984,
+    315.422,
+    0
+   ],
+   [
+    27,
+    315.406,
+    322.422,
+    0
+   ],
+   [
+    28,
+    322.406,
+    330.281,
+    0
+   ],
+   [
+    29,
+    330.266,
+    336,
+    0
+   ],
+   [
+    31,
+    116,
+    121,
+    1
+   ],
+   [
+    32,
+    120.984,
+    129.578,
+    1
+   ],
+   [
+    33,
+    129.563,
+    137.438,
+    1
+   ],
+   [
+    35,
+    151.188,
+    154.75,
+    1
+   ],
+   [
+    36,
+    154.734,
+    162.531,
+    1
+   ],
+   [
+    37,
+    162.516,
+    169.094,
+    1
+   ],
+   [
+    38,
+    169.078,
+    176.094,
+    1
+   ],
+   [
+    40,
+    189.844,
+    198.438,
+    1
+   ],
+   [
+    41,
+    198.422,
+    206.859,
+    1
+   ],
+   [
+    42,
+    206.844,
+    214.453,
+    1
+   ],
+   [
+    44,
+    228.203,
+    236,
+    1
+   ],
+   [
+    45,
+    235.984,
+    244.578,
+    1
+   ],
+   [
+    46,
+    244.563,
+    253.156,
+    1
+   ],
+   [
+    48,
+    266.891,
+    274.266,
+    1
+   ],
+   [
+    49,
+    274.25,
+    282.125,
+    1
+   ],
+   [
+    50,
+    282.109,
+    289.984,
+    1
+   ],
+   [
+    51,
+    289.969,
+    298.563,
+    1
+   ],
+   [
+    52,
+    298.547,
+    305.234,
+    1
+   ],
+   [
+    54,
+    318.984,
+    327.422,
+    1
+   ],
+   [
+    55,
+    327.406,
+    336,
+    1
+   ],
+   [
+    57,
+    116,
+    121.734,
+    2
+   ],
+   [
+    58,
+    121.719,
+    130.313,
+    2
+   ],
+   [
+    59,
+    130.297,
+    138.906,
+    2
+   ],
+   [
+    60,
+    138.891,
+    147.484,
+    2
+   ],
+   [
+    61,
+    147.469,
+    151.016,
+    2
+   ],
+   [
+    62,
+    151,
+    159.609,
+    2
+   ],
+   [
+    63,
+    159.594,
+    167.203,
+    2
+   ],
+   [
+    64,
+    167.188,
+    170.891,
+    2
+   ],
+   [
+    66,
+    181.781,
+    189.5,
+    2
+   ],
+   [
+    67,
+    189.484,
+    198.078,
+    2
+   ],
+   [
+    68,
+    198.078,
+    205.953,
+    2
+   ],
+   [
+    70,
+    216.828,
+    225.422,
+    2
+   ],
+   [
+    71,
+    225.406,
+    234,
+    2
+   ],
+   [
+    72,
+    233.984,
+    237.531,
+    2
+   ],
+   [
+    73,
+    237.516,
+    244.234,
+    2
+   ],
+   [
+    74,
+    244.219,
+    251.594,
+    2
+   ],
+   [
+    76,
+    262.484,
+    271.063,
+    2
+   ],
+   [
+    77,
+    271.047,
+    276.781,
+    2
+   ],
+   [
+    78,
+    276.766,
+    285.203,
+    2
+   ],
+   [
+    79,
+    285.188,
+    296.063,
+    2
+   ],
+   [
+    80,
+    296.047,
+    304.641,
+    2
+   ],
+   [
+    82,
+    315.531,
+    320.25,
+    2
+   ],
+   [
+    83,
+    320.234,
+    328.672,
+    2
+   ],
+   [
+    84,
+    328.656,
+    336,
+    2
+   ],
+   [
+    86,
+    116,
+    119.547,
+    3
+   ],
+   [
+    87,
+    119.531,
+    128.125,
+    3
+   ],
+   [
+    88,
+    128.109,
+    141.094,
+    3
+   ],
+   [
+    89,
+    141.078,
+    149.656,
+    3
+   ],
+   [
+    90,
+    149.641,
+    156.328,
+    3
+   ],
+   [
+    92,
+    167.281,
+    175.719,
+    3
+   ],
+   [
+    93,
+    175.703,
+    182.703,
+    3
+   ],
+   [
+    94,
+    182.688,
+    190.563,
+    3
+   ],
+   [
+    95,
+    190.547,
+    196.281,
+    3
+   ],
+   [
+    97,
+    207.234,
+    212.25,
+    3
+   ],
+   [
+    98,
+    212.234,
+    220.828,
+    3
+   ],
+   [
+    99,
+    220.813,
+    228.688,
+    3
+   ],
+   [
+    101,
+    239.641,
+    243.188,
+    3
+   ],
+   [
+    102,
+    243.172,
+    250.969,
+    3
+   ],
+   [
+    103,
+    250.953,
+    257.531,
+    3
+   ],
+   [
+    104,
+    257.516,
+    264.547,
+    3
+   ],
+   [
+    106,
+    275.5,
+    284.078,
+    3
+   ],
+   [
+    107,
+    284.063,
+    292.5,
+    3
+   ],
+   [
+    108,
+    292.484,
+    300.094,
+    3
+   ],
+   [
+    110,
+    311.047,
+    318.844,
+    3
+   ],
+   [
+    111,
+    318.828,
+    327.422,
+    3
+   ],
+   [
+    112,
+    327.422,
+    336,
+    3
+   ],
+   [
+    114,
+    116,
+    123.359,
+    4
+   ],
+   [
+    115,
+    123.344,
+    131.219,
+    4
+   ],
+   [
+    116,
+    131.203,
+    139.078,
+    4
+   ],
+   [
+    117,
+    139.078,
+    147.656,
+    4
+   ],
+   [
+    118,
+    147.641,
+    154.328,
+    4
+   ],
+   [
+    120,
+    157.938,
+    166.375,
+    4
+   ],
+   [
+    121,
+    166.359,
+    174.969,
+    4
+   ],
+   [
+    123,
+    178.594,
+    184.328,
+    4
+   ],
+   [
+    124,
+    184.313,
+    192.906,
+    4
+   ],
+   [
+    125,
+    192.891,
+    201.5,
+    4
+   ],
+   [
+    126,
+    201.484,
+    210.078,
+    4
+   ],
+   [
+    127,
+    210.063,
+    213.625,
+    4
+   ],
+   [
+    128,
+    213.609,
+    222.203,
+    4
+   ],
+   [
+    129,
+    222.188,
+    229.813,
+    4
+   ],
+   [
+    130,
+    229.797,
+    233.484,
+    4
+   ]
+  ],
+  "ink": {
+   "1": {
+    "edges": [
+     336,
+     335,
+     336,
+     335,
+     233
+    ],
+    "glyphs": [
+     18.11,
+     25.133,
+     22.824,
+     29.039,
+     21.463,
+     10.388,
+     14.953,
+     23.251,
+     28.667,
+     12.396,
+     23.4,
+     31.835,
+     21.561,
+     16.561,
+     22.698,
+     18.776,
+     15.384,
+     21.463,
+     33.388,
+     28.882,
+     17.384,
+     22.318,
+     17.31,
+     23.145,
+     12.396,
+     14.8,
+     25.788,
+     22.816,
+     12.137,
+     22.651,
+     19.122,
+     22.129,
+     28.863,
+     21.973,
+     33.31,
+     22.655,
+     21.576,
+     28.894,
+     23.263,
+     23.11,
+     22.816,
+     29.02,
+     17.384,
+     21.976,
+     21.557,
+     12.396,
+     21.902,
+     21.561,
+     21.576,
+     10.388,
+     21.765,
+     33.176,
+     2.161,
+     18.106,
+     25.161,
+     22.816,
+     29.012,
+     21.463,
+     10.388,
+     14.965,
+     23.251,
+     28.667,
+     12.396,
+     23.122,
+     31.835,
+     21.576,
+     16.561,
+     22.698,
+     18.776,
+     14.722,
+     21.463,
+     33.388,
+     28.882,
+     17.384,
+     22.078,
+     17.325,
+     23.588,
+     12.392,
+     14.8,
+     24.592,
+     22.831,
+     12.145,
+     22.655,
+     17.686,
+     22.114,
+     29.192,
+     22.165,
+     33.176,
+     22.659,
+     21.522,
+     28.894,
+     23.263,
+     22.863,
+     22.824,
+     28.882,
+     17.384,
+     21.976,
+     21.561,
+     12.392,
+     21.459,
+     21.576,
+     21.557,
+     10.388,
+     22.212,
+     33.173,
+     3.29
+    ]
+   },
+   "2": {
+    "edges": [
+     336,
+     335,
+     335.5,
+     335,
+     232.5
+    ],
+    "glyphs": [
+     18.118,
+     23.841,
+     22.029,
+     27.21,
+     20.382,
+     9.996,
+     15.128,
+     22.728,
+     27.028,
+     11.796,
+     21.664,
+     30.494,
+     20.161,
+     16.079,
+     22.306,
+     17.892,
+     14.633,
+     20.374,
+     31.491,
+     27.976,
+     16.846,
+     21.604,
+     16.654,
+     22.206,
+     11.788,
+     14.566,
+     24.045,
+     22.026,
+     12.118,
+     21.591,
+     16.785,
+     21.542,
+     27.093,
+     21.584,
+     32.603,
+     21.591,
+     20.173,
+     27.099,
+     22.728,
+     22.039,
+     22.026,
+     27.97,
+     16.846,
+     21.583,
+     20.175,
+     11.799,
+     20.366,
+     20.164,
+     20.175,
+     9.997,
+     20.301,
+     32.599,
+     2.139,
+     18.118,
+     24.114,
+     22.026,
+     27.214,
+     20.374,
+     9.997,
+     15.134,
+     22.712,
+     27.027,
+     11.799,
+     21.606,
+     30.494,
+     20.173,
+     16.079,
+     22.306,
+     17.892,
+     14.284,
+     20.382,
+     31.494,
+     27.969,
+     16.845,
+     21.675,
+     16.656,
+     22.107,
+     11.799,
+     14.563,
+     23.773,
+     22.028,
+     12.138,
+     21.586,
+     17.032,
+     21.542,
+     27.094,
+     21.588,
+     32.604,
+     21.59,
+     20.175,
+     27.093,
+     22.725,
+     22.069,
+     22.029,
+     27.969,
+     16.845,
+     21.583,
+     20.175,
+     11.796,
+     20.44,
+     20.175,
+     20.173,
+     9.996,
+     20.168,
+     32.608,
+     2.191
+    ]
+   },
+   "1.5": {
+    "edges": [
+     336,
+     334.667,
+     335.333,
+     335.333,
+     232.667
+    ],
+    "glyphs": [
+     18.114,
+     24.225,
+     21.305,
+     26.984,
+     20.577,
+     9.989,
+     14.377,
+     22.722,
+     26.797,
+     11.787,
+     20.84,
+     30.487,
+     20.366,
+     16.07,
+     22.159,
+     17.893,
+     14.505,
+     20.584,
+     31.679,
+     27.62,
+     16.871,
+     21.169,
+     16.652,
+     21.624,
+     11.784,
+     14.55,
+     23.984,
+     21.316,
+     12.127,
+     21.59,
+     16.695,
+     21.537,
+     27.102,
+     21.133,
+     33.361,
+     21.579,
+     20.354,
+     27.102,
+     22.74,
+     21.309,
+     21.316,
+     27.62,
+     16.871,
+     20.842,
+     20.354,
+     11.782,
+     20.694,
+     20.361,
+     20.366,
+     10.01,
+     20.411,
+     33.358,
+     2.613,
+     18.111,
+     24.064,
+     21.309,
+     26.982,
+     20.561,
+     9.99,
+     14.379,
+     22.74,
+     26.797,
+     11.784,
+     20.84,
+     30.491,
+     20.354,
+     16.345,
+     21.708,
+     17.884,
+     14.327,
+     20.566,
+     31.712,
+     27.627,
+     16.871,
+     20.986,
+     16.647,
+     21.309,
+     11.787,
+     14.55,
+     23.997,
+     21.316,
+     12.125,
+     21.583,
+     17.023,
+     21.539,
+     27.083,
+     20.842,
+     33.349,
+     21.572,
+     20.366,
+     27.083,
+     22.722,
+     21.309,
+     21.305,
+     27.627,
+     16.871,
+     20.842,
+     20.361,
+     11.782,
+     20.694,
+     20.366,
+     20.366,
+     9.99,
+     20.641,
+     33.361,
+     2.264
+    ]
+   }
+  }
  },
  "align-end": {
   "page": "whitespace",
@@ -3808,22 +8672,524 @@
     "x": 18.984,
     "width": 209.016,
     "top": 272,
+    "bottom": 291,
     "baseline": 287
    },
    {
     "x": 58.641,
     "width": 169.359,
     "top": 292,
+    "bottom": 311,
     "baseline": 307
    },
    {
     "x": 176.797,
     "width": 51.203,
     "top": 312,
+    "bottom": 331,
     "baseline": 327
    }
   ],
-  "copy": "The quick brown fox jumps over the lazy dog and keeps on running"
+  "copy": "The quick brown fox jumps over the lazy dog and keeps on running",
+  "cells": [
+   [
+    0,
+    18.984,
+    26.703,
+    0
+   ],
+   [
+    1,
+    26.688,
+    35.281,
+    0
+   ],
+   [
+    2,
+    35.281,
+    43.156,
+    0
+   ],
+   [
+    4,
+    46.766,
+    55.359,
+    0
+   ],
+   [
+    5,
+    55.344,
+    63.938,
+    0
+   ],
+   [
+    6,
+    63.922,
+    67.469,
+    0
+   ],
+   [
+    7,
+    67.453,
+    74.172,
+    0
+   ],
+   [
+    8,
+    74.156,
+    81.531,
+    0
+   ],
+   [
+    10,
+    85.156,
+    93.734,
+    0
+   ],
+   [
+    11,
+    93.719,
+    99.453,
+    0
+   ],
+   [
+    12,
+    99.438,
+    107.875,
+    0
+   ],
+   [
+    13,
+    107.859,
+    118.734,
+    0
+   ],
+   [
+    14,
+    118.719,
+    127.313,
+    0
+   ],
+   [
+    16,
+    130.938,
+    135.656,
+    0
+   ],
+   [
+    17,
+    135.641,
+    144.078,
+    0
+   ],
+   [
+    18,
+    144.063,
+    151.406,
+    0
+   ],
+   [
+    20,
+    155.031,
+    158.578,
+    0
+   ],
+   [
+    21,
+    158.563,
+    167.172,
+    0
+   ],
+   [
+    22,
+    167.156,
+    180.125,
+    0
+   ],
+   [
+    23,
+    180.109,
+    188.688,
+    0
+   ],
+   [
+    24,
+    188.672,
+    195.359,
+    0
+   ],
+   [
+    26,
+    198.984,
+    207.422,
+    0
+   ],
+   [
+    27,
+    207.406,
+    214.422,
+    0
+   ],
+   [
+    28,
+    214.406,
+    222.281,
+    0
+   ],
+   [
+    29,
+    222.266,
+    228,
+    0
+   ],
+   [
+    31,
+    58.641,
+    63.641,
+    1
+   ],
+   [
+    32,
+    63.625,
+    72.219,
+    1
+   ],
+   [
+    33,
+    72.203,
+    80.078,
+    1
+   ],
+   [
+    35,
+    83.703,
+    87.25,
+    1
+   ],
+   [
+    36,
+    87.234,
+    95.031,
+    1
+   ],
+   [
+    37,
+    95.016,
+    101.594,
+    1
+   ],
+   [
+    38,
+    101.578,
+    108.609,
+    1
+   ],
+   [
+    40,
+    112.234,
+    120.813,
+    1
+   ],
+   [
+    41,
+    120.797,
+    129.234,
+    1
+   ],
+   [
+    42,
+    129.219,
+    136.844,
+    1
+   ],
+   [
+    44,
+    140.453,
+    148.25,
+    1
+   ],
+   [
+    45,
+    148.234,
+    156.844,
+    1
+   ],
+   [
+    46,
+    156.828,
+    165.406,
+    1
+   ],
+   [
+    48,
+    169.031,
+    176.391,
+    1
+   ],
+   [
+    49,
+    176.375,
+    184.266,
+    1
+   ],
+   [
+    50,
+    184.25,
+    192.125,
+    1
+   ],
+   [
+    51,
+    192.109,
+    200.688,
+    1
+   ],
+   [
+    52,
+    200.672,
+    207.359,
+    1
+   ],
+   [
+    54,
+    210.984,
+    219.422,
+    1
+   ],
+   [
+    55,
+    219.406,
+    228,
+    1
+   ],
+   [
+    57,
+    176.797,
+    182.531,
+    2
+   ],
+   [
+    58,
+    182.516,
+    191.109,
+    2
+   ],
+   [
+    59,
+    191.094,
+    199.703,
+    2
+   ],
+   [
+    60,
+    199.688,
+    208.281,
+    2
+   ],
+   [
+    61,
+    208.266,
+    211.813,
+    2
+   ],
+   [
+    62,
+    211.797,
+    220.406,
+    2
+   ],
+   [
+    63,
+    220.391,
+    228,
+    2
+   ]
+  ],
+  "ink": {
+   "1": {
+    "edges": [
+     228,
+     227,
+     228
+    ],
+    "glyphs": [
+     18.11,
+     25.133,
+     22.824,
+     29.012,
+     21.459,
+     10.388,
+     14.965,
+     23.251,
+     28.667,
+     12.376,
+     22.196,
+     32,
+     21.878,
+     16.365,
+     24.294,
+     18.776,
+     14.722,
+     21.463,
+     33.392,
+     28.882,
+     17.384,
+     22.318,
+     17.31,
+     23.145,
+     12.396,
+     14.8,
+     25.271,
+     22.824,
+     12.145,
+     23.325,
+     17.686,
+     22.114,
+     28.886,
+     22.639,
+     33.173,
+     22.647,
+     21.561,
+     28.863,
+     23.263,
+     22.855,
+     22.824,
+     28.882,
+     17.384,
+     21.976,
+     21.557,
+     12.373,
+     21.675,
+     21.576,
+     21.522,
+     10.388,
+     21.71,
+     33.176
+    ]
+   },
+   "2": {
+    "edges": [
+     228,
+     227,
+     228
+    ],
+    "glyphs": [
+     18.118,
+     23.841,
+     22.029,
+     27.199,
+     20.374,
+     9.997,
+     15.134,
+     22.73,
+     27.028,
+     11.788,
+     21.783,
+     30.495,
+     20.17,
+     16.079,
+     22.301,
+     17.892,
+     14.284,
+     20.374,
+     31.494,
+     27.969,
+     16.845,
+     21.604,
+     16.654,
+     22.206,
+     11.788,
+     14.553,
+     23.776,
+     22.029,
+     12.118,
+     21.591,
+     16.785,
+     21.542,
+     27.079,
+     21.6,
+     32.608,
+     21.59,
+     20.164,
+     27.093,
+     22.725,
+     22.069,
+     22.029,
+     27.969,
+     16.845,
+     21.583,
+     20.175,
+     11.788,
+     20.382,
+     20.161,
+     20.164,
+     9.983,
+     20.164,
+     32.603
+    ]
+   },
+   "1.5": {
+    "edges": [
+     228,
+     226.667,
+     228
+    ],
+    "glyphs": [
+     18.114,
+     23.97,
+     21.309,
+     26.982,
+     20.561,
+     9.99,
+     14.379,
+     22.74,
+     26.797,
+     11.784,
+     20.84,
+     30.491,
+     20.354,
+     16.209,
+     22.018,
+     17.884,
+     14.661,
+     20.577,
+     31.671,
+     27.637,
+     16.864,
+     21.169,
+     16.652,
+     21.624,
+     11.784,
+     14.55,
+     23.984,
+     21.316,
+     12.125,
+     21.583,
+     16.702,
+     21.537,
+     27.083,
+     20.84,
+     33.349,
+     21.583,
+     20.366,
+     27.083,
+     22.743,
+     21.346,
+     21.305,
+     27.637,
+     16.864,
+     20.842,
+     20.354,
+     11.803,
+     20.866,
+     20.366,
+     20.361,
+     10.013,
+     20.417,
+     33.358
+    ]
+   }
+  }
  },
  "nums-proportional": {
   "page": "numerals",
@@ -3838,10 +9204,23 @@
     "x": 8,
     "width": 118.094,
     "top": 9,
+    "bottom": 31,
     "baseline": 26
    }
   ],
-  "copy": "1111 8888 0000"
+  "copy": "1111 8888 0000",
+  "ink": {
+   "1": {
+    "edges": [
+     126
+    ]
+   },
+   "2": {
+    "edges": [
+     125.5
+    ]
+   }
+  }
  },
  "nums-tabular": {
   "page": "numerals",
@@ -3856,10 +9235,23 @@
     "x": 8,
     "width": 118.094,
     "top": 41,
+    "bottom": 63,
     "baseline": 58
    }
   ],
-  "copy": "1111 8888 0000"
+  "copy": "1111 8888 0000",
+  "ink": {
+   "1": {
+    "edges": [
+     126
+    ]
+   },
+   "2": {
+    "edges": [
+     125.5
+    ]
+   }
+  }
  },
  "nums-tabular-lining": {
   "page": "numerals",
@@ -3874,10 +9266,23 @@
     "x": 8,
     "width": 118.094,
     "top": 73,
+    "bottom": 95,
     "baseline": 90
    }
   ],
-  "copy": "1111 8888 0000"
+  "copy": "1111 8888 0000",
+  "ink": {
+   "1": {
+    "edges": [
+     126
+    ]
+   },
+   "2": {
+    "edges": [
+     125.5
+    ]
+   }
+  }
  },
  "nums-oldstyle": {
   "page": "numerals",
@@ -3892,10 +9297,23 @@
     "x": 8,
     "width": 87.188,
     "top": 105,
+    "bottom": 127,
     "baseline": 122
    }
   ],
-  "copy": "1234567890"
+  "copy": "1234567890",
+  "ink": {
+   "1": {
+    "edges": [
+     95
+    ]
+   },
+   "2": {
+    "edges": [
+     95
+    ]
+   }
+  }
  },
  "nums-zero": {
   "page": "numerals",
@@ -3910,10 +9328,23 @@
     "x": 8,
     "width": 76.813,
     "top": 137,
+    "bottom": 158,
     "baseline": 153
    }
   ],
-  "copy": "0O 1l 10"
+  "copy": "0O 1l 10",
+  "ink": {
+   "1": {
+    "edges": [
+     84
+    ]
+   },
+   "2": {
+    "edges": [
+     83.5
+    ]
+   }
+  }
  },
  "nums-antialiased": {
   "page": "numerals",
@@ -3928,9 +9359,22 @@
     "x": 8,
     "width": 225.141,
     "top": 169,
+    "bottom": 191,
     "baseline": 186
    }
   ],
-  "copy": "Hamburgefonstiv 0123456789"
+  "copy": "Hamburgefonstiv 0123456789",
+  "ink": {
+   "1": {
+    "edges": [
+     233
+    ]
+   },
+   "2": {
+    "edges": [
+     232.5
+    ]
+   }
+  }
  }
 }

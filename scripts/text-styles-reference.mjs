@@ -10,7 +10,8 @@
 //       applies to glyphs, and the files are named chrome-aa-<page>-dpr<N>.
 //   node --import tsx scripts/text-styles-reference.mjs --golden
 //       Writes demo/src/text-styles-golden.ts and scripts/text-styles-golden.json: the numbers Chrome reports for every text (box,
-//       lines, the text a copy gives, where each character of the selection texts is). The native and Web verifiers hold the
+//       lines, the text a copy gives, where each character of the selection texts is) and the ink Chrome draws for them (the right
+//       edge of each line's ink, and the ink of every character of the white space page). The native and Web verifiers hold the
 //       library to them; do not edit by hand.
 //   node --import tsx scripts/text-styles-reference.mjs --diff --native=<dir> [--chrome=<dir>] [--out=<dir>]
 //       Compares the native verifier's captures (<dir>/text-styles-<page>-dpr<N>.png) with Chrome's (default smoothing and
@@ -24,6 +25,8 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import puppeteer from 'puppeteer-core';
 import { rejectUnknownArguments } from './arguments.mjs';
+import { decodePng } from './png.mjs';
+import { measureTextInk } from './text-ink.mjs';
 // tsx loads the TypeScript data module as CommonJS, whose named exports an ES module reads through the default.
 import textData from '../demo/src/text-styles-data.ts';
 
@@ -35,7 +38,12 @@ const root = resolve(import.meta.dirname, '..');
 const executablePath = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const argument = name => process.argv.find(value => value.startsWith(`--${name}=`))?.slice(name.length + 3);
 const VIEWPORTS = [['dpr1', 1120, 800, 1], ['dpr2', 560, 400, 2]];
+/** The window of the native verifier's pass at a fractional ratio (1120 x 800 device pixels at 1.5), for the pages in `FRACTIONAL_PAGES` only. */
+const FRACTIONAL_VIEWPORT = ['dpr1.5', 746, 533, 1.5];
+const FRACTIONAL_PAGES = ['whitespace'];
 const SETTLE_MS = 200;
+/** The pages whose texts are also held to the ink of every character (`demo/src/verify-text-styles.ts`, `verifyInk`). */
+const GLYPH_INK_PAGES = ['whitespace'];
 /** The family names of the faces, as scripts/text-styles-reference.css uses them. */
 const FAMILY_NAMES = { sans: 'OpenSans', serif: 'PTSerif', mono: 'JetBrainsMono' };
 
@@ -70,7 +78,7 @@ ${css}</style>
 }
 
 /** Runs in the page: where each text's lines are. */
-async function measureTexts(ids, selectionIds) {
+async function measureTexts(ids, selectionIds, glyphIds) {
   const out = {};
   // The texts go in first, and the faces load after: a face the page has not used yet is not loaded, and the measures would be
   // the fallback font's. (`document.fonts.ready` alone resolves at once while nothing is on the page.)
@@ -130,31 +138,46 @@ async function measureTexts(ids, selectionIds) {
         chars.push([rect.left, rect.right, lineIndex]);
       }
     }
+    const shown = lines.filter(line => Number.isFinite(line.left));
+    // Where each character that has ink is: its index in the text, its left and right edge, and its line (of `shown`). White space has no ink.
+    const cells = [];
+    if (glyphIds.includes(id)) {
+      let at = 0;
+      characters.forEach((character, index) => {
+        range.setStart(text, at);
+        range.setEnd(text, at + character.length);
+        at += character.length;
+        const rect = range.getClientRects()[0];
+        if (rect === undefined || /\s/.test(character)) return;
+        cells.push([index, rect.left, rect.right, shown.findIndex(line => Math.abs(line.top - rect.top) <= 1)]);
+      });
+    }
     out[id] = {
       box: { x: box.x, y: box.y, width: box.width, height: box.height },
-      lines: lines.filter(line => Number.isFinite(line.left)).map(line => ({
-        x: line.left, width: line.right - line.left, top: line.top, baseline: baseline + (line.top - lines[0].top),
+      lines: shown.map(line => ({
+        x: line.left, width: line.right - line.left, top: line.top, bottom: line.bottom, baseline: baseline + (line.top - lines[0].top),
       })),
       copy,
       ...(chars.length > 0 ? { chars } : {}),
+      ...(cells.length > 0 ? { cells } : {}),
     };
   }
   return out;
 }
 
-async function render(outDirectory, only, smoothing = 'default') {
+async function render(outDirectory, only, smoothing = 'default', viewports = VIEWPORTS) {
   await mkdir(outDirectory, { recursive: true });
   const faces = await fontFaces();
   const css = await readFile(resolve(root, 'scripts/text-styles-reference.css'), 'utf8');
   const browser = await puppeteer.launch({ executablePath, headless: true, args: ['--no-first-run', '--no-default-browser-check', '--mute-audio'] });
   try {
-    for (const [name, width, height, scale] of VIEWPORTS) {
+    for (const [name, width, height, scale] of viewports) {
       for (const pageData of PAGES.filter(candidate => only === undefined || only.includes(candidate.id))) {
         const page = await browser.newPage();
         await page.setViewport({ width, height, deviceScaleFactor: scale });
         await page.setContent(pageHtml(pageData, faces, css, smoothing));
         await page.evaluate(() => document.fonts.ready);
-        const samples = await page.evaluate(measureTexts, pageData.samples.map(sample => sample.id), pageData.samples.filter(sample => sample.selection === true).map(sample => sample.id));
+        const samples = await page.evaluate(measureTexts, pageData.samples.map(sample => sample.id), pageData.samples.filter(sample => sample.selection === true).map(sample => sample.id), GLYPH_INK_PAGES.includes(pageData.id) ? pageData.samples.map(sample => sample.id) : []);
         // The text is set by the measurement (it keeps its white space as written); let the layout settle before the picture.
         await new Promise(done => setTimeout(done, SETTLE_MS));
         const rect = await page.evaluate(() => { const { x, y, width, height } = document.getElementById('page').getBoundingClientRect(); return { x, y, width, height }; });
@@ -202,8 +225,23 @@ const GOLDEN_JSON = resolve(root, 'scripts/text-styles-golden.json');
 /** The two windows' layouts must agree: CSS pixels do not depend on the pixel ratio. */
 const LAYOUT_TOLERANCE_PX = 0.02;
 
+/** Whether two measures of a text have the same box and lines, to within `LAYOUT_TOLERANCE_PX`: CSS pixels do not depend on the pixel ratio. */
+function sameLayout(a, b) {
+  const numbers = value => JSON.stringify(value, (_, entry) => (typeof entry === 'number' ? Math.round(entry / LAYOUT_TOLERANCE_PX) : entry));
+  return numbers(a.box) === numbers(b.box) && numbers(a.lines) === numbers(b.lines);
+}
+
+/** JSON text with each array that holds only numbers (and `null`) on one line: a character's cell, a line's edges. */
+function oneLineArrays(json) {
+  return json.replace(/\[\n\s+([^[\]{}]*?)\n\s*\]/gu, (_, items) => `[${items.replace(/\n\s+/gu, ' ')}]`);
+}
+
 async function golden(outDirectory) {
   await render(outDirectory, undefined);
+  // The ink is Chrome's with `-webkit-font-smoothing: antialiased`, which is the look the library has (docs/tracks/utilities-text.md).
+  await render(outDirectory, undefined, 'antialiased');
+  await render(outDirectory, FRACTIONAL_PAGES, 'default', [FRACTIONAL_VIEWPORT]);
+  await render(outDirectory, FRACTIONAL_PAGES, 'antialiased', [FRACTIONAL_VIEWPORT]);
   const texts = {};
   for (const page of PAGES) {
     const one = JSON.parse(await readFile(resolve(outDirectory, `chrome-${page.id}-dpr1.json`), 'utf8'));
@@ -211,18 +249,37 @@ async function golden(outDirectory) {
     for (const sample of page.samples) {
       const a = one.samples[sample.id];
       const b = two.samples[sample.id];
-      const numbers = value => JSON.stringify(value, (_, entry) => (typeof entry === 'number' ? Math.round(entry / LAYOUT_TOLERANCE_PX) : entry));
-      if (numbers(a.box) !== numbers(b.box) || numbers(a.lines) !== numbers(b.lines)) {
+      if (!sameLayout(a, b)) {
         throw new Error(`${sample.id}: Chrome lays the text out differently at ratio 2 (${JSON.stringify(a.box)} against ${JSON.stringify(b.box)})`);
       }
-      texts[sample.id] = { page: page.id, ...a };
+      const ink = {};
+      const fractional = FRACTIONAL_PAGES.includes(page.id) ? [FRACTIONAL_VIEWPORT] : [];
+      for (const [name, , , scale] of [...VIEWPORTS, ...fractional]) {
+        if (scale === FRACTIONAL_VIEWPORT[3]) {
+          const fraction = JSON.parse(await readFile(resolve(outDirectory, `chrome-${page.id}-${name}.json`), 'utf8')).samples[sample.id];
+          if (!sameLayout(a, fraction)) {
+            throw new Error(`${sample.id}: Chrome lays the text out differently at ratio ${scale} (${JSON.stringify(a.box)} against ${JSON.stringify(fraction.box)})`);
+          }
+        }
+        const picture = decodePng(await readFile(resolve(outDirectory, `chrome-aa-${page.id}-${name}.png`)));
+        ink[scale] = measureTextInk(picture, scale, a);
+      }
+      texts[sample.id] = { page: page.id, ...a, ink };
     }
   }
   const rounded = JSON.parse(JSON.stringify(texts, (_, value) => (typeof value === 'number' ? Math.round(value * 1000) / 1000 : value)));
   await writeFile(GOLDEN_JSON, `${JSON.stringify(rounded, null, 1)}\n`);
   await writeFile(GOLDEN_TS, `// Generated by \`node --import tsx scripts/text-styles-reference.mjs --golden\` from headless Chrome: what the browser reports for the
 // text styles lab's CSS (demo/src/text-styles-data.ts). The native verifier holds the library to these numbers; do not edit by hand.
-export interface GoldenLine { readonly x: number; readonly width: number; readonly top: number; readonly baseline: number }
+export interface GoldenLine { readonly x: number; readonly width: number; readonly top: number; readonly bottom: number; readonly baseline: number }
+
+/** The ink Chrome puts down for a text at one device pixel ratio (\`scripts/text-ink.mjs\`). */
+export interface GoldenInk {
+  /** For each line, the right edge of its ink, or \`null\` if the window has none. */
+  readonly edges: readonly (number | null)[];
+  /** For each of the text's \`cells\`, the ink in it; only the texts that have cells. */
+  readonly glyphs?: readonly number[];
+}
 
 export interface GoldenText {
   readonly page: string;
@@ -233,9 +290,13 @@ export interface GoldenText {
   readonly copy: string;
   /** For the selection texts: each character's left and right edge and its line. */
   readonly chars?: readonly (readonly [number, number, number])[];
+  /** For the texts held to the ink of each character: the index, left and right edge and line of every character that has ink. */
+  readonly cells?: readonly (readonly [number, number, number, number])[];
+  /** The ink at the two device pixel ratios the windows have, by ratio. */
+  readonly ink: { readonly [ratio: string]: GoldenInk };
 }
 
-export const GOLDEN_TEXTS: Readonly<Record<string, GoldenText>> = ${JSON.stringify(rounded, null, 2)};
+export const GOLDEN_TEXTS: Readonly<Record<string, GoldenText>> = ${oneLineArrays(JSON.stringify(rounded, null, 2))};
 `);
   console.log(`wrote ${GOLDEN_TS} and ${GOLDEN_JSON}: ${Object.keys(rounded).length} texts`);
 }

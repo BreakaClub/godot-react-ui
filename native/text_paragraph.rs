@@ -31,9 +31,6 @@ use crate::text_style::resolve::{Alignment, LineHeight, ShapingStyle, Wrapping};
 /// CSS `tab-size` initial value: a tab advances to the next multiple of this many spaces.
 const TAB_SIZE_SPACES: f32 = 8.0;
 
-/// How far the viewport's oversampling may be from a whole number and still count as one (the factor is an `f32` such as 1.5 or 2.0).
-const WHOLE_OVERSAMPLING_TOLERANCE: f32 = 1e-3;
-
 /// The width Taffy offers a text, as it is measured.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Offered {
@@ -404,30 +401,10 @@ impl StyledParagraph {
         oversampling: f32,
     ) -> Vec<Lease> {
         self.paragraph.set_width(width);
-        let fractional_lines = self.line_box.is_some_and(|line_box| line_box.gap != 0.0);
-        // `TextParagraph::draw` aligns a line by its width with the space it ends with; the layout aligns it without (as a
-        // browser lets that space hang), so a centred or right aligned text that wraps is drawn where the layout puts its
-        // lines. A text on one line has no space at a wrap to hang.
-        let hangs = matches!(self.style.alignment, Alignment::Center | Alignment::Right)
-            && self.paragraph.get_line_count() > 1;
-        // A line box puts a baseline on a whole logical pixel, which is a whole device pixel only when the oversampling is a
-        // whole number: 33 px at 1.5 is row 49.5, which splits the ends of the glyphs across two rows. `draw_lines` snaps
-        // each baseline to a device pixel.
-        let baselines_off_device_pixels =
-            (oversampling - oversampling.round()).abs() > WHOLE_OVERSAMPLING_TOLERANCE;
-        if !self.draws_glyphs()
-            && !self.is_decorated()
-            && !fractional_lines
-            && !hangs
-            && !baselines_off_device_pixels
-        {
-            self.paragraph
-                .draw_ex(canvas, origin)
-                .color(color)
-                .oversampling(oversampling)
-                .done();
-            return Vec::new();
-        }
+        // In CSS, text itself is not clipped to its content box width (`overflow: visible` is default;
+        // container clipping is handled by CanvasItem clip rects). `TextParagraph::draw` in Godot C++
+        // hardcodes clipping to `width`, which cuts off the last glyph of justified text and overflowing lines.
+        // We always use `draw_lines`, which draws without artificial horizontal text clipping.
         match self.draw_lines(canvas, origin, width, color, oversampling) {
             Ok(leases) => leases,
             Err(error) => {
@@ -587,12 +564,6 @@ impl StyledParagraph {
         let mut server: Gd<TextServer> = TextServerManager::singleton()
             .get_primary_interface()
             .ok_or("there is no text server")?;
-        // `TextParagraph::draw` clips every line to the paragraph's width (the widest line's when it has none).
-        let clip_width = if width > 0.0 {
-            width
-        } else {
-            self.paragraph.get_size().x
-        };
         let size = self.style.font_size;
         let (ascent, _) = self.font.chrome_extents();
         let decoration_font = draw::decoration_font(
@@ -659,23 +630,14 @@ impl StyledParagraph {
                 line_origin.x,
                 (line_origin.y * oversampling).round() / oversampling,
             );
-            let clip_left = (origin.x - line_origin.x).max(0.0);
             if glyphwise {
-                draw::draw_glyphs(
-                    &mut server,
-                    position,
-                    (clip_left, clip_left + clip_width),
-                    &drawing,
-                    line,
-                )?;
+                draw::draw_glyphs(&mut server, position, (-1.0, -1.0), &drawing, line)?;
             } else {
                 let rid = self
                     .paragraph
                     .get_line_rid(i32::try_from(index).map_err(|error| error.to_string())?);
                 server
                     .shaped_text_draw_ex(rid, canvas, position)
-                    .clip_l(f64::from(clip_left))
-                    .clip_r(f64::from(clip_left + clip_width))
                     .color(color)
                     .oversampling(oversampling)
                     .done();
