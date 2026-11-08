@@ -24,6 +24,7 @@ import { runCodeEditorScenario, runTouchCodeEditorScenario } from './verify-code
 import { runNavigatorScenario, runNavigatorStartScenario } from './verify-navigator-web.mjs';
 import { runFontSlicesScenario } from './verify-font-slices-web.mjs';
 import { runRotationScenario } from './verify-rotation-web.mjs';
+import { runLabsFitScenario } from './verify-labs-fit-web.mjs';
 import { runRichTextScenario } from './verify-rich-text-web.mjs';
 import { runTextStylesScenario } from './verify-text-styles-web.mjs';
 import { runTransformsScenario } from './verify-transforms-web.mjs';
@@ -3049,6 +3050,11 @@ try {
       // A device turned from portrait to landscape and back: each case is a page of its own, in Chrome's mobile emulation (docs/tracks/rotation.md).
       activeViewport = 'rotation';
       await section('rotation', () => runRotationScenario({ browser, base: url, check, output: resolve(output, activeViewport) }));
+    }
+    if (wanted('labs-fit')) {
+      // Every lab on Ben's phone (412 x 915 at 2.625, Chrome's mobile emulation), a page of its own (docs/tracks/lab-clarity.md).
+      activeViewport = 'labs-fit';
+      await section('labs-fit', () => runLabsFitScenario({ browser, base: url, check }));
     }
     if (wanted('touch') || wanted('drag') || wanted('combobox') || wanted('dropdown-touch') || wanted('touch-selection') || wanted('code-editor')) await runTouchWorkflow();
     checkBrowserErrors();
