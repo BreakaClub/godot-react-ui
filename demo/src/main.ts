@@ -1,7 +1,7 @@
 import { createElement, type ReactElement } from 'react';
 import {
   BaseMaterial3D, BoxMesh, Callable, Camera3D, Color, ColorRect, Control, DirAccess, DisplayServer, Engine, FileAccess, InputEvent, InputEventKey,
-  InputEventMouseButton, InputEventPanGesture, InputMap, Label, MeshInstance3D, MouseButton, Node, Node3D, ReactUiRoot, OS, StandardMaterial3D,
+  InputEventMouseButton, InputEventPanGesture, InputMap, JavaScriptBridge, Label, MeshInstance3D, MouseButton, Node, Node3D, ReactUiRoot, OS, StandardMaterial3D,
   StyleBoxFlat, Input, Time, Transform2D, Vector2, Vector2I, Vector3, Window,
 } from 'godot';
 import { createClassBinder } from 'godot.annotations';
@@ -126,6 +126,10 @@ export default class Main extends Node {
   private start: DemoStart = { kind: 'app' };
   /** The lab the user last chose in the navigator, so a navigator mounted again opens on it. */
   private currentLab: string | undefined;
+  /** Programmatic navigation callback for the active Navigator instance. */
+  private navigatorNavigate: ((id: string) => void) | undefined;
+  /** True when navigating in response to a popstate event, to avoid pushing a duplicate history entry. */
+  private handlingPopState = false;
   /** How many times `showNavigator` has been called: the key of the navigator it renders, so each call mounts a fresh one. */
   private navigatorShown = 0;
   /** The pending return of the navigator's root after a lab took it away (`recoverRoot`); at most one. */
@@ -164,6 +168,19 @@ export default class Main extends Node {
     if (logical !== undefined) this.useLogicalViewport(logical.slice(LOGICAL_VIEWPORT_ARGUMENT.length));
     this.createBackdrop();
     this.mount();
+    if (this.start.kind === 'navigator' && this.currentLab !== undefined && Engine.hasSingleton('JavaScriptBridge')) {
+      const initialLabId = this.currentLab;
+      JavaScriptBridge.eval(`
+        try {
+          const url = new URL(window.location.href);
+          if (!url.searchParams.has('lab') && !window.location.hash) {
+            url.searchParams.set('demo', 'navigator');
+            url.searchParams.set('lab', ${JSON.stringify(initialLabId)});
+            window.history.replaceState({ lab: ${JSON.stringify(initialLabId)} }, '', url.pathname + url.search + url.hash);
+          }
+        } catch (e) {}
+      `, true);
+    }
     const api = {
       snapshot: () => this.requireRenderer().getSnapshot(),
       /** What the demo's React effects and handlers have done (`getDemoLifecycle`): a disabled button's handler must not appear in it. */
@@ -192,6 +209,20 @@ export default class Main extends Node {
         // A navigator takes its `initialLab` only when it mounts, so each call mounts a new one.
         this.navigatorShown += 1;
         this.requireRenderer().render(this.navigatorElement(options));
+      },
+      /** Navigate the active lab without remounting the shell, or mount the navigator if not open. */
+      navigateLab: (id: string) => {
+        try {
+          this.handlingPopState = true;
+          if (this.navigatorNavigate) {
+            this.navigatorNavigate(id);
+          } else {
+            this.currentLab = id;
+            this.requireRenderer().render(this.navigatorElement({ initialLab: id }));
+          }
+        } finally {
+          this.handlingPopState = false;
+        }
       },
       // A page in place of the app: the HUD over the backdrop Control (plan I1), the pointer lab (I2), ...
       showLab: (name: LabName) => this.requireRenderer().render(labElement(name)),
@@ -683,9 +714,25 @@ export default class Main extends Node {
       ...props,
       key: this.navigatorShown,
       labs: [...LABS, ...extraLabs],
+      onNavigate: (navigate: (id: string) => void) => {
+        this.navigatorNavigate = navigate;
+        props.onNavigate?.(navigate);
+      },
       onLabChange: (id: string) => {
         props.onLabChange?.(id);
         this.currentLab = id;
+        if (!this.handlingPopState && Engine.hasSingleton('JavaScriptBridge')) {
+          JavaScriptBridge.eval(`
+            try {
+              const url = new URL(window.location.href);
+              if (url.searchParams.get('lab') !== ${JSON.stringify(id)}) {
+                url.searchParams.set('demo', 'navigator');
+                url.searchParams.set('lab', ${JSON.stringify(id)});
+                window.history.pushState({ lab: ${JSON.stringify(id)} }, '', url.pathname + url.search + url.hash);
+              }
+            } catch (e) {}
+          `, true);
+        }
       },
       onOpenScene: props.onOpenScene ?? ((lab: SceneLab) => this.openScene(lab)),
     });

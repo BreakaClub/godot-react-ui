@@ -414,3 +414,13 @@ test('tanstack router history navigation updates the selected lab and stage', as
   assert.ok(m.has('transform-stage'));
   assert.equal(m.props('lab-item-transforms').ariaSelected, true);
 });
+
+test('onNavigate allows external callers to navigate the lab stage', async () => {
+  let nav: ((id: string) => void) | undefined;
+  const m = mount({ onNavigate: n => { nav = n; } });
+  assert.equal(m.title(), FIRST.title);
+  assert.ok(nav !== undefined);
+  nav(SECOND.id);
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(m.title(), SECOND.title);
+});

@@ -78,6 +78,10 @@
       const missing = Engine.getMissingFeatures({ threads: $GODOT_THREADS_ENABLED });
       const args = ['--audio-driver', 'Dummy'];
       const params = new URLSearchParams(location.search);
+      const hash = location.hash.replace(/^#\/?/, '');
+      const hashParams = new URLSearchParams(hash.includes('=') ? hash : '');
+      const hashLab = hashParams.get('lab') || (hash.startsWith('labs/') ? hash.slice(5) : (hash && !hash.includes('/') && !hash.includes('?') ? hash : null));
+      const requestedLab = params.get('lab') || hashLab;
       // Arguments for the demo's scripts follow `--`. `?scene=res://world.tscn` starts that scene instead of
       // the project's main scene through the SceneLauncher autoload: Breaka's Web engine has no
       // command-line path overrides, so the scene cannot be given to the engine itself (docs/WORLD_SPACE.md).
@@ -87,10 +91,24 @@
       const userArgs = [];
       if (params.get('verify') === '1') userArgs.push('--verify');
       if (params.get('scene') !== null) userArgs.push('--scene', params.get('scene'));
-      if (params.get('lab') !== null) userArgs.push(`--lab=${params.get('lab')}`);
+      if (requestedLab !== null) userArgs.push(`--lab=${requestedLab}`);
       if (params.get('demo') !== null) userArgs.push(`--demo=${params.get('demo')}`);
-      else if (params.get('lab') === null) userArgs.push('--demo=app');
+      else if (requestedLab === null) userArgs.push('--demo=app');
       if (userArgs.length > 0) args.push('--', ...userArgs);
+
+      // Support browser back/forward and hash changes for deep linking in the live page.
+      function syncFromBrowserUrl(event) {
+        const p = new URLSearchParams(window.location.search);
+        const h = window.location.hash.replace(/^#\/?/, '');
+        const hp = new URLSearchParams(h.includes('=') ? h : '');
+        const hl = hp.get('lab') || (h.startsWith('labs/') ? h.slice(5) : (h && !h.includes('/') && !h.includes('?') ? h : null));
+        const lab = p.get('lab') || hl || (event?.state && event.state.lab);
+        if (lab && typeof window.godotReactDemo?.navigateLab === 'function') {
+          window.godotReactDemo.navigateLab(lab);
+        }
+      }
+      window.addEventListener('popstate', syncFromBrowserUrl);
+      window.addEventListener('hashchange', syncFromBrowserUrl);
       if (missing.length) {
         status.textContent = `This browser is missing required features:\n${missing.join('\n')}`;
       } else {

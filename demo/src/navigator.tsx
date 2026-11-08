@@ -57,6 +57,8 @@ export interface NavigatorProps {
   code?: CodeSupport;
   /** An optional router history (e.g. MemoryHistory in tests, HashHistory on web). */
   history?: RouterHistory;
+  /** Callback to receive a navigator controller function for external programmatic navigation. */
+  onNavigate?: (navigate: (id: string) => void) => void;
 }
 
 const NEXT = 1;
@@ -629,7 +631,7 @@ function NavigatorShell() {
   );
 }
 
-export function Navigator({ labs = LABS, initialLab, onLabChange, onOpenScene, code: codeSupport, history: historyProp }: NavigatorProps) {
+export function Navigator({ labs = LABS, initialLab, onLabChange, onOpenScene, code: codeSupport, history: historyProp, onNavigate }: NavigatorProps) {
   const ordered = useMemo(() => labsInOrder(labs), [labs]);
   const requested = initialLab === undefined ? undefined : ordered.find(lab => lab.id === initialLab);
   const [selectedId, setSelectedId] = useState<string | undefined>(initialLab === undefined ? ordered[FIRST_LAB]?.id : requested?.id);
@@ -709,6 +711,12 @@ export function Navigator({ labs = LABS, initialLab, onLabChange, onOpenScene, c
     router.commitLocation(next);
     onLabChange?.(id);
   };
+
+  const chooseRef = useRef(choose);
+  chooseRef.current = choose;
+  useEffect(() => {
+    onNavigate?.((id: string) => chooseRef.current(id));
+  }, [onNavigate]);
 
   const visible = useMemo(() => filterLabs(ordered, query), [ordered, query]);
   // Previous and next walk what the filter shows; with the filter matching nothing, every lab.
