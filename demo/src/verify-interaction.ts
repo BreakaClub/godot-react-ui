@@ -18,6 +18,7 @@ import { measureFilterCost, verifyFilterFaults, verifyFilterSizes, verifyFilters
 import { GLASS_FAULT_CONTROLS, verifyGlass } from './verify-glass';
 import { verifyLiveCompile } from './verify-live-compile';
 import { verifyCodeEditor } from './verify-code-editor';
+import { verifyKeyPassthrough } from './verify-key-passthrough';
 import { verifyFontFallback } from './verify-font-fallback';
 import type { FontSlicesLabProps } from './font-slices-lab';
 import { verifyNavigator } from './verify-navigator';
@@ -89,6 +90,14 @@ export interface InteractionInspection extends DemoInspection {
   restoreDemo(): void;
   passthrough(): PassthroughCounts;
   resetPassthrough(): void;
+  /** Whether the engine's `Input` has this key (a `Key` value) down. */
+  keyPressed(keycode: number): boolean;
+  /** Whether key chords that nothing in the root claims go to the browser (Web only; nothing happens elsewhere). */
+  setKeyPassthrough(enabled: boolean): void;
+  /** The tags of the focused element and its ancestors, the element first; empty when nothing is focused. */
+  focusedPath(): number[];
+  /** Whether native would act on this DOM key if it were pressed now: `code`, `key` and the shift, ctrl, alt and meta keys. */
+  claimsKeyChord(code: string, key: string, shift: boolean, ctrl: boolean, alt: boolean, meta: boolean): boolean;
   cursorShapeAt(x: number, y: number): Control.CursorShape;
   surfaceHasFocus(): boolean;
   /** The rectangle the root handle's `getRect()` reports: a native query for node 0, the root. */
@@ -3666,6 +3675,7 @@ export async function runInteractionVerification(owner: Node, api: InteractionIn
   if (sections.has('rich-text')) await timed('rich-text', () => verifyRichText(owner, api, capture));
   if (sections.has('live-compile')) await timed('live-compile', () => verifyLiveCompile(owner, api, capture));
   if (sections.has('code-editor')) await timed('code-editor', () => verifyCodeEditor(owner, api, capture));
+  if (sections.has('key-passthrough')) await timed('key-passthrough', () => verifyKeyPassthrough(owner, api));
   if (sections.has('filters-sizes')) await timed('filters-sizes', () => verifyFilterSizes(owner, api, capture));
   if (sections.has('filters-cost')) await timed('filters-cost', () => measureFilterCost(owner, api));
   if (sections.has('transforms-faults')) await timed('transforms-faults', () => verifyTransformFaults(owner, api));

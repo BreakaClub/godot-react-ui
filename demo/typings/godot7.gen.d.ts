@@ -1232,6 +1232,8 @@ declare module "godot" {
         get_caret_rect: "getCaretRect";
         get_offset_at_point: "getOffsetAtPoint";
         get_range_rects: "getRangeRects";
+        claims_key_chord: "claimsKeyChord";
+        focused_path: "focusedPath";
         find_by_test_id: "findByTestId";
         drain_events: "drainEvents";
         resolve_event: "resolveEvent";
@@ -1281,6 +1283,8 @@ declare module "godot" {
         getCaretRect(tag: int64, offset: int64, side: int64): string
         getOffsetAtPoint(tag: int64, x: float64, y: float64): string
         getRangeRects(tag: int64, start: int64, end: int64): string
+        claimsKeyChord(code: string, key: string, shiftKey: boolean, ctrlKey: boolean, altKey: boolean, metaKey: boolean): boolean
+        focusedPath(): PackedInt64Array
         findByTestId(testId: string): int64
         drainEvents(): string
         resolveEvent(seq: int64, defaultPrevented: boolean, dropEffect: string): string

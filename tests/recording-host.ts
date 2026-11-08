@@ -67,7 +67,8 @@ export type NativeCall =
   | 'commit' | 'takeCommitDeletions' | 'drainEvents' | 'getSnapshot' | 'getNodeRect' | 'getSize' | 'findByTestId' | 'resolveEvent'
   | 'setPointerCapture' | 'releasePointerCapture' | 'hasPointerCapture' | 'focusNode' | 'blurNode'
   | 'scrollTo' | 'scrollBy' | 'scrollIntoView' | 'getScrollState' | 'getSelection' | 'getTouchSelection' | 'clearSelection'
-  | 'setTextAndSelection' | 'setTextSelection' | 'getTextInputState' | 'getCaretRect' | 'getOffsetAtPoint' | 'getRangeRects';
+  | 'setTextAndSelection' | 'setTextSelection' | 'getTextInputState' | 'getCaretRect' | 'getOffsetAtPoint' | 'getRangeRects'
+  | 'claimsKeyChord' | 'focusedPath';
 
 /** What the fake host keeps of a text input: native's buffer, reduced to the value, the selection and the count. */
 export interface FakeTextInput {
@@ -269,6 +270,21 @@ export class RecordingHost implements NativeHost {
     if (!this.focusable.has(tag)) return `node ${tag} cannot take focus: it is not a button or text input and has no tabIndex`;
     this.focused = tag;
     return '';
+  }
+
+  /** The key chords native itself uses (a text input's editing chords, copy for a selection): native decides; a test says which, by `code`. */
+  readonly nativeKeyClaims = new Set<string>();
+
+  claimsKeyChord(code: string): boolean {
+    this.calls.push('claimsKeyChord');
+    return this.nativeKeyClaims.has(code);
+  }
+
+  focusedPath(): PackedTags {
+    this.calls.push('focusedPath');
+    const tags: number[] = [];
+    for (let tag = this.focused; tag !== null && tag !== 0; tag = this.nodes.get(tag)?.parent ?? null) tags.push(tag);
+    return { size: () => tags.length, get: (index: number) => tags[index] ?? -1 };
   }
 
   blurNode(tag: number): string {

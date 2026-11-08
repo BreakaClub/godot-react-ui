@@ -15,6 +15,7 @@ import {
 import type { EditorDiagnostic, EditorInlay } from './diagnostics';
 import { HighlightCache, ParseScheduler } from './highlight';
 import { SINK_TEXT, decodeSoftKeyboardText } from './sink';
+import { editorKeyClaims } from './key-claims';
 import { Keymap, codeMirrorCommand, type KeyChord, type Platform } from './keymap';
 import {
   LineBuilder, insertionsFor, matchedBrackets, type Composition, type LineSpec,
@@ -104,6 +105,7 @@ export class EditorController {
   readonly localDiagnostics = new AnnotationSet<EditorDiagnostic>(remapRange);
   readonly inlays = new AnnotationSet<EditorInlay>(remapPoint);
   private readonly keymap: Keymap;
+  private keyChords: readonly string[] | undefined;
   private readonly clipboard: ClipboardPort;
   private readonly linewise = new LinewiseMemory();
   private readonly highlight = new HighlightCache();
@@ -135,6 +137,12 @@ export class EditorController {
   }
 
   // ---- What the view reads -------------------------------------------------------------------------------------------------
+
+  /** The chords of the key table, spelled as `keyClaims` takes them: what the browser must not get while the editor has the keyboard. */
+  get keyClaims(): readonly string[] {
+    this.keyChords ??= editorKeyClaims(this.keymap);
+    return this.keyChords;
+  }
 
   /** Grows with everything the view draws: text, selection, composition, focus, annotations, metrics, the parse. */
   get revision(): number {

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import type { HostProps } from './components';
 import { sameSpans, type FlatText, type NativeSpan } from './rich-text';
+import { parseKeyChordsOf } from './key-claims';
 import { compileStyle, sameStyleProp, styleKey } from './styles';
 import type { CompiledStyle, UIRole } from './types';
 
@@ -157,6 +158,8 @@ export function nativeProps(
     }
     native.dragPreview = props.dragPreview;
   }
+  // JavaScript-only, like the event handlers, but a typo in a chord fails where the element is written.
+  if (props.keyClaims !== undefined) parseKeyChordsOf(props.keyClaims);
   accessibilityProps(props, native);
   if (kind === 'textinput') textInputProps(props, native);
   else rejectTextInputProps(kind, props);

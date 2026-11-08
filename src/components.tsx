@@ -7,7 +7,8 @@ import type {
 } from './events';
 import type { LayoutRect, NativeEventType, NativeScrollState, TextSide } from './native';
 import {
-  createOverlayPortal, createPortalContainer, OverlayContext, readRootSize, readTextSelection, watchRootEvent, watchRootSize, watchTextSelection,
+  claimRootKeys, createOverlayPortal, createPortalContainer, OverlayContext, readRootSize, readTextSelection, watchRootEvent, watchRootSize,
+  watchTextSelection,
   type RootSize,
 } from './renderer';
 import type { KeyboardType } from './props';
@@ -156,6 +157,15 @@ export interface UIProps extends UIAriaProps {
   onDragOver?: (event: UIDragEvent<'dragover'>) => void;
   /** The pointer was released over a target that accepted. Cancelable: `preventDefault()` reports it was handled. */
   onDrop?: (event: UIDragEvent<'drop'>) => void;
+  /**
+   * The key chords this element handles itself, while it or something inside it has focus: `['Mod+S', 'Mod+Shift+P', 'F2']`. On the Web a
+   * chord that nothing claims (Cmd+R, Cmd+F, Cmd+T, F5, F12) goes to the browser and never reaches `onKeyDown`, because whether a key is used
+   * is not known until the browser has finished with it. Typing, caret keys, Tab, Escape and Enter reach a focused element's `onKeyDown`
+   * without a claim; a chord with Cmd (Ctrl elsewhere), a function key or Ctrl+Tab does only if claimed here, on an ancestor, or by
+   * `UIRoot.claimKeys`. `Mod` is Cmd on macOS and Ctrl elsewhere; the key is a character or a name (`Enter`, `ArrowLeft`, `F5`); `+` is
+   * `Plus`. A text input claims its own editing chords without this. Native platforms keep every key and ignore it.
+   */
+  keyClaims?: readonly string[];
   /** A key press or repeat. Cancelable: `preventDefault()` keeps Tab, Enter and Space from acting. */
   onKeyDown?: (event: UIKeyboardEvent) => void;
   onKeyDownCapture?: (event: UIKeyboardEvent) => void;
@@ -373,6 +383,19 @@ export function useTextSelection(): UISelection | undefined {
   const subscribe = useCallback((listener: () => void) => watchTextSelection(overlay, listener), [overlay]);
   const read = useCallback(() => readTextSelection(overlay), [overlay]);
   return useSyncExternalStore(subscribe, read);
+}
+
+/**
+ * Claim key chords for the whole root while this component is mounted: `useKeyClaims(['Mod+K'])` beside a `useRootEvent('keydown', ...)` that
+ * handles them. A claimed chord reaches the engine and the root's listeners wherever focus is; one nobody claims goes to the browser on the Web.
+ * `UIProps.keyClaims` has the rule and the spelling. Throws for a chord that does not parse.
+ */
+export function useKeyClaims(chords: readonly string[]): void {
+  const overlay = useContext(OverlayContext);
+  if (overlay === null) throw new Error('useKeyClaims() must be used inside a root created by createRoot');
+  // A list written inline is a new array every render; the claim changes only when a chord does.
+  const spelling = chords.join('\n');
+  useLayoutEffect(() => claimRootKeys(overlay, spelling === '' ? [] : spelling.split('\n')), [overlay, spelling]);
 }
 
 /**

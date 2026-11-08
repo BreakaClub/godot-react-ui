@@ -34,7 +34,7 @@ const FOCUS_VISIBLE_NEVER: i64 = 0;
 const FOCUS_VISIBLE_ALWAYS: i64 = 1;
 
 /// The keys that press a focused button.
-fn is_activation_key(keycode: Key) -> bool {
+pub(crate) fn is_activation_key(keycode: Key) -> bool {
     keycode == Key::ENTER || keycode == Key::KP_ENTER || keycode == Key::SPACE
 }
 

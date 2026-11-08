@@ -23,6 +23,7 @@ mod fonts;
 mod geometry;
 mod gradient;
 mod grid_style;
+mod key_claims;
 mod keyboard_input;
 mod keymap;
 mod layout;
@@ -111,6 +112,7 @@ use events::{
 use filter_render::Effects;
 use focus::Modality;
 use fonts::FontBook;
+use key_claims::DomKey;
 use motion::{IntrinsicTrack, TransitionRecord};
 use mount::Mounted;
 use pointer::{
@@ -1056,6 +1058,42 @@ impl ReactUiRoot {
             Err(_) => serde_json::Value::Null,
         };
         json.to_string().as_str().into()
+    }
+
+    /// Whether the root would act on this key if it were pressed now, which keeps it from the browser on the Web (docs/tracks/key-passthrough.md).
+    /// The key is a DOM key, as a page's `keydown` has it; the answer is for the chords a browser also uses: a focused text input's
+    /// editing and clipboard chords, copy and select all for the selection, Enter and Space on a focused button. True when a control
+    /// that is not a root holds the keyboard; false when none does, or another root does.
+    #[func]
+    fn claims_key_chord(
+        &self,
+        code: GString,
+        key: GString,
+        shift_key: bool,
+        ctrl_key: bool,
+        alt_key: bool,
+        meta_key: bool,
+    ) -> bool {
+        let (code, key) = (code.to_string(), key.to_string());
+        self.key_chord_claimed(&DomKey {
+            code: &code,
+            key: &key,
+            modifiers: Modifiers {
+                shift_key,
+                ctrl_key,
+                alt_key,
+                meta_key,
+            },
+        })
+    }
+
+    /// The tags of the focused element and its ancestors, the element first; empty when nothing is focused.
+    #[func]
+    fn focused_path(&self) -> PackedInt64Array {
+        self.focused_path_tags()
+            .into_iter()
+            .map(i64::from)
+            .collect()
     }
 
     /// The tag of the first node created with `test_id`, or -1.

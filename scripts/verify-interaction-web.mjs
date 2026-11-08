@@ -30,6 +30,7 @@ import { runTouchSelectionRetinaScenario, runTouchSelectionScenario } from './ve
 import { runFiltersScenario } from './verify-filters-web.mjs';
 import { runGlassScenario } from './verify-glass-web.mjs';
 import { runCodeEditorScenario, runTouchCodeEditorScenario } from './verify-code-editor-web.mjs';
+import { runKeyPassthroughEditorScenario, runKeyPassthroughScenario } from './verify-key-passthrough-web.mjs';
 import { runNavigatorScenario, runNavigatorStartScenario } from './verify-navigator-web.mjs';
 import { runFontSlicesScenario } from './verify-font-slices-web.mjs';
 import { runRotationScenario } from './verify-rotation-web.mjs';
@@ -2996,6 +2997,15 @@ async function runWorkflow(viewport) {
     await section('code-editor', () => runCodeEditorScenario({
       demo, page, frames, snapshot, find, check, capture, click, moveTo, text, waitUntil, nodeExists, pagePoint, centerOf,
     }));
+  }
+
+  // Which keys the browser gets does not depend on the viewport: once, in the first.
+  if (wanted('key-passthrough') && viewport.name === viewports[0].name) {
+    const keyContext = { demo, page, frames, snapshot, find, check, click, text, waitUntil, nodeExists };
+    await section('key-passthrough', async () => {
+      await runKeyPassthroughScenario(keyContext);
+      await runKeyPassthroughEditorScenario(keyContext);
+    });
   }
 
   // The root can be unmounted and mounted again, and the new one starts from nothing: the lab's log and click counters do not outlive it.

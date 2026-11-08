@@ -629,6 +629,7 @@ export function EditorView({ workspace, file }: EditorViewProps) {
                 top: main === undefined ? 0 : yOfLine(main.line, grid),
                 width: 1, height: grid.lineHeight,
               }}
+              keyClaims={controller.keyClaims}
               onKeyDown={onKeyDown}
               onBeforeInput={onBeforeInput}
               onCompositionStart={(_: UICompositionEvent) => controller.compositionStart()}
