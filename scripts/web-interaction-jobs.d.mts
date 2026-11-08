@@ -18,6 +18,8 @@ export function clearJobEvidence(output: string): Promise<void>;
 export interface JobToRun {
   name: string;
   deadlineMs: number;
+  /** Runs by itself, after every other job has ended. */
+  exclusive?: boolean;
 }
 
 /** What the job process wrote and how it ended. */

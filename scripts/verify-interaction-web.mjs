@@ -58,7 +58,7 @@ if (jobName === undefined) {
   await clearJobEvidence(output);
   const results = await runJobs({
     scriptPath: fileURLToPath(import.meta.url), args: scriptArguments, output, concurrency: jobConcurrency(process.argv.slice(2), jobs.length),
-    jobs: jobs.map((job) => ({ name: job.name, deadlineMs: webInteractionJobDeadlineMs(job.sections.length) })),
+    jobs: jobs.map((job) => ({ name: job.name, deadlineMs: webInteractionJobDeadlineMs(job.sections.length), exclusive: job.exclusive })),
   });
   const merged = mergeJobReports(results);
   const failures = results.filter((result) => !jobPassed(result)).map(jobFailure);

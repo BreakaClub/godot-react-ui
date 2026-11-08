@@ -36,6 +36,8 @@ export function webInteractionJobDeadlineMs(sectionCount: number): number;
 export interface WebInteractionJob {
   name: 'landscape' | 'portrait' | 'retina-landscape' | 'retina-portrait' | 'pages' | 'touch';
   sections: readonly (typeof WEB_INTERACTION_SECTIONS)[number][];
+  /** Runs by itself, once every other job has ended. */
+  exclusive?: boolean;
 }
 /** The jobs of the Web interaction run, in report order: the viewports (named as the verifier's viewports are), the pages of their own, the touch pages. */
 export const WEB_INTERACTION_JOBS: readonly WebInteractionJob[];

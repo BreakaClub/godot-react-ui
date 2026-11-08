@@ -3032,7 +3032,11 @@ const BEYOND_THRESHOLD_PX = DRAG_THRESHOLD_PX + 2;
 /** How long a touch must stay put to become a drag (`TOUCH_DRAG_HOLD_MS`, native/drag.rs), and how long to wait for it. */
 const TOUCH_HOLD_MS = 500;
 const HOLD_DEADLINE_MS = 3000;
-/** Edge auto-scroll: how close to the list's bottom edge the pointer rests, how long (in real time) the scroll may take, how often (on the engine's clock) it is sampled. */
+/**
+ * Edge auto-scroll: how close to the list's bottom edge the pointer rests, how long the scroll may take, how often it is sampled. Real time, on purpose: the check
+ * wants a handful of samples while the list scrolls (the element under the pointer is looked up again, `targets.size >= 3`), and on the engine's clock at four times
+ * its rate the list reached its end in 4 samples where it takes 12 or 13 here, leaving that check a margin of one.
+ */
 const AUTOSCROLL_BAND_PX = 12;
 const AUTOSCROLL_DEADLINE_MS = 10_000;
 const AUTOSCROLL_SAMPLE_MS = 100;
@@ -3475,7 +3479,7 @@ async function verifyDragging(owner: Node, api: InteractionInspection, capture: 
   const deadline = Date.now() + AUTOSCROLL_DEADLINE_MS;
   while (listState().scrollTop < listState().maxScrollTop - SCROLL_TOLERANCE) {
     assert(Date.now() < deadline, `The list scrolled to ${listState().scrollTop} of ${listState().maxScrollTop} in ${AUTOSCROLL_DEADLINE_MS} ms`);
-    await waitEngineTime(AUTOSCROLL_SAMPLE_MS);
+    await new Promise(resolve => setTimeout(resolve, AUTOSCROLL_SAMPLE_MS));
     const top = listState().scrollTop;
     assert(top >= previousTop, 'Auto-scroll only goes towards the edge the pointer is at');
     previousTop = top;

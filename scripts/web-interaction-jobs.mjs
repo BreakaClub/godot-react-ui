@@ -75,35 +75,47 @@ async function readJobReport(output, job) {
 }
 
 /**
- * Run `jobs` (`[{ name, deadlineMs }]`), at most `concurrency` at a time, each as `node scriptPath ...args --job=<name>` with its output labelled
+ * Run `jobs` (`[{ name, deadlineMs, exclusive? }]`), at most `concurrency` at a time, each as `node scriptPath ...args --job=<name>` with its output labelled
  * `[name] `. Every job runs to its end whatever the others do, so a run that fails in one viewport still says how the others did. Resolves with one
  * entry for each job, in the order given: `{ job, startedAt, durationMs, code, timedOut, interrupted, report?, missing? }`, where `report` is what
  * the job wrote and `missing` says why it wrote none.
+ *
+ * An `exclusive` job runs by itself, once every other job has ended: it is one whose checks depend on how long the host takes between two of its own
+ * steps (a finger's fling needs the lift within a tenth of a second of the last move: docs/tracks/suite-speed.md), and these take as long as the
+ * other browsers let them.
  *
  * Each job's deadline is its own hang guard; this kills a job `killAfterMs` past it, when the job's own has not ended it.
  */
 export async function runJobs({ scriptPath, args, jobs, output, concurrency, env = process.env, killAfterMs = 60_000, nodePath = process.execPath }) {
   const results = new Array(jobs.length);
-  let next = 0;
-  async function worker() {
-    for (;;) {
-      const index = next;
-      next += 1;
-      if (index >= jobs.length) return;
-      const job = jobs[index];
-      const started = Date.now();
-      const supervised = await runSupervised({
-        command: nodePath, args: [scriptPath, ...args, `${JOB_ARGUMENT}${job.name}`], env, deadlineMs: job.deadlineMs + killAfterMs, outputPrefix: `[${job.name}] `,
-      });
-      const durationMs = Date.now() - started;
-      const written = await readJobReport(output, job.name);
-      results[index] = {
-        job: job.name, startedAt: started, durationMs, code: supervised.code, timedOut: supervised.timedOut, interrupted: supervised.interrupted, ...written,
-      };
-      if (!jobPassed(results[index])) console.error(`${job.name} failed; the other job(s) run to their end, and the run reports every job`);
-    }
+  async function runOne(index) {
+    const job = jobs[index];
+    const started = Date.now();
+    const supervised = await runSupervised({
+      command: nodePath, args: [scriptPath, ...args, `${JOB_ARGUMENT}${job.name}`], env, deadlineMs: job.deadlineMs + killAfterMs, outputPrefix: `[${job.name}] `,
+    });
+    const durationMs = Date.now() - started;
+    const written = await readJobReport(output, job.name);
+    results[index] = {
+      job: job.name, startedAt: started, durationMs, code: supervised.code, timedOut: supervised.timedOut, interrupted: supervised.interrupted, ...written,
+    };
+    if (!jobPassed(results[index])) console.error(`${job.name} failed; the other job(s) run to their end, and the run reports every job`);
   }
-  await Promise.all(Array.from({ length: Math.min(concurrency, jobs.length) }, worker));
+  async function runAll(indices, limit) {
+    let next = 0;
+    async function worker() {
+      for (;;) {
+        const position = next;
+        next += 1;
+        if (position >= indices.length) return;
+        await runOne(indices[position]);
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(limit, indices.length) }, worker));
+  }
+  const indices = jobs.map((_, index) => index);
+  await runAll(indices.filter(index => jobs[index].exclusive !== true), concurrency);
+  await runAll(indices.filter(index => jobs[index].exclusive === true), 1);
   return results;
 }
 

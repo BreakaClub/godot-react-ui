@@ -41,7 +41,7 @@ test('the jobs cover every section, each section is a known one, and a run that 
   assert.deepEqual([...covered].sort(), [...WEB_INTERACTION_SECTIONS].sort(), 'every section runs in some job, and no job names another');
   assert.deepEqual(webInteractionJobsToRun([]).map(job => job.name), ['landscape', 'portrait', 'retina-landscape', 'retina-portrait', 'pages', 'touch']);
   assert.deepEqual(webInteractionJobsToRun(['rotation']), [{ name: 'pages', sections: ['rotation'] }]);
-  assert.deepEqual(webInteractionJobsToRun(['touch-selection']), [{ name: 'touch', sections: ['touch-selection'] }]);
+  assert.deepEqual(webInteractionJobsToRun(['touch-selection']), [{ name: 'touch', sections: ['touch-selection'], exclusive: true }]);
   assert.deepEqual(webInteractionJobsToRun(['font-slices', 'navigator']).map(job => [job.name, job.sections]).slice(-1), [['pages', ['navigator', 'font-slices']]]);
   assert.throws(() => webInteractionJobsToRun(['positioning']), /Unknown section "positioning"/, 'a native-only name is a typo here');
   assert.deepEqual(webInteractionJobsToRun(['code-editor']).map(job => job.name), ['landscape', 'portrait', 'retina-landscape', 'retina-portrait', 'touch'], 'the viewports and the touch tablet');
@@ -88,13 +88,13 @@ else {
 
 async function runFake(
   plan: Parameters<typeof fakeVerifier>[1],
-  { concurrency, barrier, names = ['landscape', 'portrait', 'pages'], deadlineMs = 30_000, killAfterMs = 500 }: { concurrency: number; barrier: number; names?: string[]; deadlineMs?: number; killAfterMs?: number },
+  { concurrency, barrier, names = ['landscape', 'portrait', 'pages'], exclusive = [], deadlineMs = 30_000, killAfterMs = 500 }: { concurrency: number; barrier: number; names?: string[]; exclusive?: string[]; deadlineMs?: number; killAfterMs?: number },
 ) {
   const directory = mkdtempSync(join(tmpdir(), 'web-jobs-'));
   const output = join(directory, 'out');
   await clearJobEvidence(output);
   const results = await runJobs({
-    scriptPath: fakeVerifier(directory, plan, barrier), args: ['--only=events'], output, concurrency, killAfterMs, jobs: names.map(name => ({ name, deadlineMs })),
+    scriptPath: fakeVerifier(directory, plan, barrier), args: ['--only=events'], output, concurrency, killAfterMs, jobs: names.map(name => ({ name, deadlineMs, exclusive: exclusive.includes(name) })),
   });
   const events = existsSync(join(directory, 'events')) ? readFileSync(join(directory, 'events'), 'utf8').split('\n').filter(line => line !== '') : [];
   return { results, events, directory, output };
@@ -113,6 +113,17 @@ test('--jobs=n limits how many run at once, and --serial runs one after another'
   const two = await runFake({}, { concurrency: 2, barrier: 0 });
   const startsBeforeFirstEnd = two.events.slice(0, two.events.findIndex(line => line.startsWith('end ')));
   assert.ok(startsBeforeFirstEnd.length <= 2, `at most two jobs were running at once: ${two.events.join(', ')}`);
+});
+
+test('an exclusive job runs by itself after every other job has ended, and its result keeps its place in the order given', async () => {
+  const { results, events } = await runFake({}, { concurrency: 3, barrier: 0, names: ['landscape', 'touch', 'portrait', 'pages'], exclusive: ['touch'] });
+  assert.deepEqual(results.map(item => item.job), ['landscape', 'touch', 'portrait', 'pages']);
+  assert.ok(results.every(jobPassed));
+  assert.deepEqual(events.slice(-2), ['start touch', 'end touch'], 'the exclusive job is the last to start and ends the run');
+  assert.equal(events.filter(line => line.startsWith('end ')).length, 4);
+  assert.ok(events.slice(0, -2).every(line => !line.endsWith(' touch')), 'and nothing of it runs while the others do');
+  const serial = await runFake({}, { concurrency: 1, barrier: 0, names: ['touch', 'landscape'], exclusive: ['touch'] });
+  assert.deepEqual(serial.events, ['start landscape', 'end landscape', 'start touch', 'end touch'], 'with --serial too');
 });
 
 test('a job that fails fails the run, is named, and the other jobs run to their end and keep their reports', async () => {
