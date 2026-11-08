@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { Button, Portal, ScrollView, Text, View, type UIHandle, type UIPointerEvent, type UITextPosition } from '../../src';
 import type { LayoutRect } from '../../src/native';
+import { LabIntro, LabLimit, Readout } from './lab-parts';
 import { PAGES, PAGE_CLASS, TONES, span, type RichPage, type RichSample, type Run } from './rich-text-data';
 
 export interface RichTextLabProps {
@@ -30,6 +31,82 @@ const FILE_LINE_SHAPES: readonly (readonly (readonly [string, string])[])[] = [
 
 const DEFAULT_PAGE_ID = PAGES[0]?.id ?? '';
 const CARET_WIDTH_PX = 2;
+
+/** What a visitor is told about the lab as a whole, above the first page. */
+const INTRO = [
+  'Nested Text is one paragraph: a Text inside a Text is a span, as a span inside a paragraph in HTML. Spans change colour, weight, slant, background and font family, and decorate with underlines (solid, double, dotted, dashed or wavy). An inlay is generated text that is shown in the paragraph and is not part of it.',
+  'A code editor is built on this: one Text per line keeps columns exact, spans colour the syntax, wavy underlines mark errors and inlays show type hints. Chrome renders the same spans as HTML for the comparison. The pages are fixed-width columns: in a narrow window a page pans sideways.',
+];
+
+/** What one page shows, and the limit it meets where it meets one. The pages' own titles and samples are `rich-text-data.ts`'s. */
+export interface PageNote {
+  readonly id: string;
+  /** What the page shows and what to look at, in plain sentences. */
+  readonly caption: string;
+  /** A way the library differs from Chrome that the page shows, without the words "known limit". */
+  readonly limit?: string;
+}
+
+const TRANSPARENT_TEXT = 'The text is transparent on purpose, so that only the decoration is drawn.';
+const DECORATION_GEOMETRY = 'Its thickness, offset and pattern are what Chrome draws, read off Chrome\'s pixels.';
+
+export const PAGE_NOTES: readonly PageNote[] = [
+  {
+    id: 'colours',
+    caption: 'A Text inside a Text is a span: the paragraph stays one text, shaped once, and each span can change colour, weight, slant, background or font family. Spans inside spans inherit what they do not set, and a background is drawn under the text. Click the code line or the prose: a blue bar marks where the caret goes, and the line above the page gives its offset.',
+  },
+  {
+    id: 'columns',
+    caption: 'In a monospace font each character is one column wide, and splitting a line into spans must not move any of them. The first two lines hold the same forty digits, one as a single run and one as ten spans, and end at the same column. In the third each of the first ten characters is its own span. The fourth is a line of TypeScript. Click a line to place a caret.',
+  },
+  {
+    id: 'decorations-solid',
+    caption: `Solid and double underlines, each at the automatic thickness and at 1, 2 and 4 px. ${TRANSPARENT_TEXT} ${DECORATION_GEOMETRY}`,
+  },
+  {
+    id: 'decorations-dotted',
+    caption: `Dotted and dashed underlines, in the same rows. ${TRANSPARENT_TEXT}`,
+    limit: 'the pattern of a dotted or dashed line of automatic thickness, and where a dot or dash falls between device pixels, differ slightly from Chrome\'s.',
+  },
+  {
+    id: 'decorations-wavy',
+    caption: `Wavy underlines, the kind an editor draws under an error. ${TRANSPARENT_TEXT} The last row has spans inside the underlined span: the wave starts again at each one, as it does in Chrome.`,
+  },
+  {
+    id: 'decorations-over',
+    caption: `An overline in each style (solid, double, dotted, dashed and wavy) at a few thicknesses. ${TRANSPARENT_TEXT}`,
+  },
+  {
+    id: 'decorations-through',
+    caption: `A line through the text in each style, at the same thicknesses. ${TRANSPARENT_TEXT}`,
+  },
+  {
+    id: 'decorations-more',
+    caption: 'A double underline with an offset, a wavy underline under text you can see, and a wavy underline over a paragraph that wraps, where each line starts the wave again as Chrome does.',
+  },
+  {
+    id: 'inlays',
+    caption: 'An inlay is generated text shown in the paragraph that is not part of it, like the type hint an editor draws after a name. It is measured and wrapped with the text around it, but the caret, selection, copy and word boundaries skip it. Click a line: the caret goes to one side of an inlay, before or after, and the line above the page says which.',
+  },
+  {
+    id: 'transformed',
+    caption: 'The same queries under CSS transforms: a line scaled by one and a half, an empty text and a line turned a quarter. Click a line and the line above the page reports the caret position worked out for the transformed box. Not compared with Chrome.',
+  },
+  {
+    id: 'glyphs',
+    caption: 'Characters no font has. In the family with no fallback the engine draws a box that spells the code point. Han and Thai come from a system font where the platform has one; the Web has none, so Han comes from the font the page downloads (the Font fallback lab) and Thai stays a box. A coloured span or letter-spacing draws glyph by glyph and shows the same glyph. Not compared with Chrome.',
+  },
+  {
+    id: 'changes',
+    caption: 'Press Change tone. The first line\'s span changes colour from red to blue: the paragraph is repainted and not shaped again. The second line\'s span changes its text from x to xy: the paragraph is shaped again. Not compared with Chrome.',
+  },
+];
+
+function noteFor(page: RichPage): PageNote {
+  const note = PAGE_NOTES.find(candidate => candidate.id === page.id);
+  if (note === undefined) throw new Error(`The rich text lab has no note for the page "${page.id}"`);
+  return note;
+}
 
 /**
  * The handles of the lab's texts by test id (the sample's id), for the verifier, which calls their geometry queries. A handle is
@@ -89,6 +166,10 @@ function FileLines({ count, plain }: { count: number; plain: boolean }) {
  * (`scripts/rich-text-reference.mjs`) renders the same samples as nested `<span>`s, so every number can be put beside a browser's.
  *
  * The `testID` of a text is its sample's id and the one of a page is `page-<id>`.
+ *
+ * With a `page` the lab is the bare page, which the verifiers measure against Chrome pixel by pixel: nothing explains itself inside it.
+ * Without one it has its tabs and each page has its explanation around it, and the page is in a box that pans sideways, so that a window
+ * narrower than the page shows it at its real size and the page's own layout is untouched.
  */
 export function RichTextLab(props: RichTextLabProps) {
   const { page: propPage, tone: propTone, word: propWord, file, plain } = props;
@@ -105,6 +186,13 @@ export function RichTextLab(props: RichTextLabProps) {
   }
   if (propPage !== undefined) return <Page page={page} tone={tone} word={word} onMark={undefined} />;
 
+  const note = noteFor(page);
+  const clickable = page.samples.some(sample => sample.interact === true);
+  // The bar is placed in root space from where the caret was when the click landed, so it must not outlive a scroll of either box.
+  const clearMark = (): void => setMark(undefined);
+  const toned = TONES[tone % TONES.length];
+  const worded = TONES[word % TONES.length];
+  if (toned === undefined || worded === undefined) throw new Error(`There is no tone ${tone} or word ${word}`);
   return (
     <View testID="rich-text-lab" className="flex flex-col w-full h-full bg-slate-100 p-2 gap-2">
       <View className="flex flex-row flex-wrap items-center gap-1 p-1 bg-white rounded border border-slate-200">
@@ -118,17 +206,34 @@ export function RichTextLab(props: RichTextLabProps) {
             <Text className={`text-xs ${each.id === activeId ? 'text-white font-medium' : 'text-black'}`}>{each.id}</Text>
           </Button>
         ))}
-        <Button testID="tone" className="px-2 py-1 rounded bg-amber-200 ml-2" onClick={() => setOwnTone(value => value + 1)}>
-          <Text className="text-xs text-black">Change tone (the Changes page)</Text>
-        </Button>
       </View>
-      <Text testID="mark-report" className="text-xs text-slate-700 font-mono">
-        {mark === undefined
-          ? 'Click a line to put a caret in it.'
-          : `${mark.sample}: offset ${mark.position.offset}, side ${mark.position.side}; caret at x ${mark.rect.x.toFixed(2)}, y ${mark.rect.y.toFixed(2)}, ${mark.rect.height.toFixed(2)} tall`}
-      </Text>
-      <ScrollView className="flex-1 overflow-y-auto">
-        <Page page={page} tone={tone} word={word} onMark={setMark} />
+      <ScrollView className="flex-1 overflow-y-auto" contentClassName="gap-3 p-1" onScroll={clearMark}>
+        <LabIntro title="Styled runs inside one paragraph" paragraphs={INTRO} />
+        <View className="gap-1">
+          <Text className="text-sm text-slate-900">{page.title}</Text>
+          <Text className="text-sm text-slate-600">{note.caption}</Text>
+          {note.limit === undefined ? null : <LabLimit>{note.limit}</LabLimit>}
+        </View>
+        {page.id === 'changes' ? (
+          <View className="flex-row flex-wrap items-center gap-x-3 gap-y-1">
+            <Button testID="tone" className="px-3 py-2 rounded bg-amber-200 active:bg-amber-300" onClick={() => setOwnTone(value => value + 1)}>
+              <Text className="text-xs text-black">Change tone</Text>
+            </Button>
+            <Readout label="Tone now" value={`span colour ${toned.colour}, word "${worded.word}"`} />
+          </View>
+        ) : null}
+        {clickable ? (
+          <Readout
+            testID="mark-report" label="Caret"
+            value={mark === undefined
+              ? 'none yet: click a sample marked (click it) below'
+              : `${mark.sample}: offset ${mark.position.offset}, side ${mark.position.side}; at x ${mark.rect.x.toFixed(2)}, y ${mark.rect.y.toFixed(2)}, ${mark.rect.height.toFixed(2)} tall`}
+          />
+        ) : null}
+        <ScrollView horizontal testID="rich-text-pan" onScroll={clearMark}>
+          <Page page={page} tone={tone} word={word} onMark={setMark} />
+        </ScrollView>
+        <Legend page={page} />
       </ScrollView>
       {mark === undefined ? null : (
         // The rectangle is in the root's space, so it is drawn in the overlay layer, which has the root's origin.
@@ -140,6 +245,18 @@ export function RichTextLab(props: RichTextLabProps) {
           />
         </Portal>
       )}
+    </View>
+  );
+}
+
+/** What each sample of the page is, in the order the page lays them out: the page itself carries no labels. */
+function Legend({ page }: { page: RichPage }) {
+  return (
+    <View testID="rich-text-legend" className="gap-0.5">
+      <Text className="text-xs text-slate-500">The samples above, in reading order:</Text>
+      {page.samples.map((sample, index) => (
+        <Text key={sample.id} className="text-xs text-slate-600">{`${index + 1}. ${sample.note}${sample.interact === true ? ' (click it)' : ''}`}</Text>
+      ))}
     </View>
   );
 }

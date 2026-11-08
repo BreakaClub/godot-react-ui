@@ -34,6 +34,7 @@ import { runKeyPassthroughEditorScenario, runKeyPassthroughScenario } from './ve
 import { runNavigatorScenario, runNavigatorStartScenario } from './verify-navigator-web.mjs';
 import { runFontSlicesScenario } from './verify-font-slices-web.mjs';
 import { runRotationScenario } from './verify-rotation-web.mjs';
+import { runLabsFitScenario } from './verify-labs-fit-web.mjs';
 import { runRichTextScenario } from './verify-rich-text-web.mjs';
 import { runTextStylesScenario } from './verify-text-styles-web.mjs';
 import { runTransformsScenario } from './verify-transforms-web.mjs';
@@ -1692,6 +1693,8 @@ const PAGE_FILL_RGB = [0xf8, 0xfa, 0xfc];
 const GHOST_OPACITY = 0.6;
 const GHOST_PIXEL_TOLERANCE = 8;
 const GHOST_PROBE_INSET = 6;
+/** How far right of the drag lab's list the bare page the ghost rests on begins. */
+const GHOST_SPOT_GAP_PX = 16;
 /** The pointer rests this close to the list's bottom edge, inside its edge band, while it auto-scrolls. */
 const AUTOSCROLL_BAND_PX = 12;
 const AUTOSCROLL_DEADLINE_MS = 12_000;
@@ -1850,8 +1853,9 @@ async function runDragScenario() {
 
   // The ghost: the palette chip at 60 % over the page, following the pointer with the grab offset.
   const paletteRect = (await find('palette')).rect;
-  const logRect = (await find('drag-log')).rect;
-  const spot = { x: 40, y: logRect.y + logRect.height + 40 };
+  // Bare page for the ghost to rest on: beside the list, where the lab's sections (a fixed width each) leave the page free at every viewport.
+  const listBox = (await find('drag-list')).rect;
+  const spot = { x: listBox.x + listBox.width + GHOST_SPOT_GAP_PX, y: listBox.y };
   const grab = { x: paletteRect.x + paletteRect.width / 4, y: paletteRect.y + paletteRect.height / 2 };
   await press(grab);
   await moveToLogical({ x: grab.x, y: grab.y + DRAG_BEYOND_THRESHOLD_PX });
@@ -3109,6 +3113,11 @@ async function runPagesWorkflow() {
     // A device turned from portrait to landscape and back: each case is a page of its own, in Chrome's mobile emulation (docs/tracks/rotation.md).
     activeViewport = 'rotation';
     await section('rotation', () => runRotationScenario({ browser, base: url, check, output: resolve(output, activeViewport) }));
+  }
+  if (wanted('labs-fit')) {
+    // Every lab on Ben's phone (412 x 915 at 2.625, Chrome's mobile emulation), a page of its own (docs/tracks/lab-clarity.md).
+    activeViewport = 'labs-fit';
+    await section('labs-fit', () => runLabsFitScenario({ browser, base: url, check }));
   }
 }
 

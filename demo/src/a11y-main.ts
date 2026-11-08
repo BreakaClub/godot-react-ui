@@ -83,7 +83,8 @@ export default class A11yMain extends Node {
       },
     });
     this.renderer = renderer;
-    renderer.render(createElement(A11yPanel));
+    // The bare controls: the window is a fixed size with no scroll, and the platform tree it reads should hold only what it checks.
+    renderer.render(createElement(A11yPanel, { explained: false }));
   }
 
   override _process(): void {

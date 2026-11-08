@@ -78,3 +78,21 @@ export function quadPixelToLocal(quad: QuadSurface, x: number, y: number): Vec3 
     z: 0,
   };
 }
+
+/**
+ * How far from the quad's centre, straight back along the camera's line of sight, the camera must be for the quad's whole width to be
+ * on screen in a window `aspect` (width over height) wide, with a `margin` (a fraction of the half width) to spare. The view is
+ * `verticalFovRadians` tall, as a `Camera3D` with its default keep-height aspect is, so a narrow window sees less across.
+ *
+ * The quad is turned about the vertical axis by `yawRadians`, so its nearest corner is the one that reaches furthest across the view:
+ * it lies `width / 2 * cos(yaw)` off the line of sight and `width / 2 * sin(yaw)` in front of the quad's centre. The camera is taken to look
+ * at the centre; a slight pitch moves the answer by less than the margin.
+ */
+export function cameraDistanceToFit(quadWidth: number, yawRadians: number, verticalFovRadians: number, aspect: number, margin: number): number {
+  const halfWidth = quadWidth / 2;
+  const nearestAcross = halfWidth * Math.cos(yawRadians);
+  const nearestInFront = halfWidth * Math.abs(Math.sin(yawRadians));
+  const tanHalfAcross = Math.tan(verticalFovRadians / 2) * aspect * (1 - margin);
+  return nearestInFront + nearestAcross / tanHalfAcross;
+}
+

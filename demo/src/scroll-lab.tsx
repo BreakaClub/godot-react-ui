@@ -20,13 +20,23 @@ const plainRow = 'h-9 shrink-0 rounded-lg border border-slate-200 bg-white px-3 
 const box = 'h-36 w-full rounded-xl border border-slate-200 bg-white';
 const labButton = 'rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-100 active:bg-slate-200 focus:border-indigo-500';
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+/**
+ * A case: its title, a caption of what it shows and what to try, then its live controls. The captions are one to three lines at 176 px: the verifiers'
+ * two windows (1120 x 800 and 600 x 900) must still hold every case at once, so a longer caption would push a column off the bottom.
+ */
+function Section({ title, caption, children }: { title: string; caption: string; children: ReactNode }) {
   return (
     <View className="w-44 gap-1">
-      <Text className="text-xs text-slate-500">{title}</Text>
+      <Text className="text-xs text-slate-900">{title}</Text>
+      <Text className="text-xs text-slate-500">{caption}</Text>
       {children}
     </View>
   );
+}
+
+/** A column of cases. The page is a few columns, each as wide as a case, which wrap under one another on a narrow window: a case beside a taller one leaves no gap. */
+function Column({ children }: { children: ReactNode }) {
+  return <View className="w-44 gap-3">{children}</View>;
 }
 
 function indexes(count: number): number[] {
@@ -42,7 +52,7 @@ function ListSection() {
   const list = useRef<UIHandle>(null);
   const reveal = useRef<UIHandle>(null);
   return (
-    <Section title="Vertical list">
+    <Section title="Vertical list" caption="Swipe, wheel or drag the bar. Tap a row.">
       <View testID="list-wrap" onClick={() => setWrapClicks(current => current + 1)}>
         <ScrollView ref={list} testID="scroll-list" className={box} contentClassName="gap-1 p-2" onScroll={(event: UIScrollEvent) => setTop(Math.round(event.scrollTop))}>
           {indexes(short ? SHORT_LIST_ROWS : LIST_ROWS).map(index => (
@@ -63,7 +73,7 @@ function ListSection() {
 /** No handlers, no hover styles, no state: nothing React does while it scrolls. */
 function QuietSection() {
   return (
-    <Section title="Quiet list">
+    <Section title="Quiet list" caption="A list with no handlers and no state: scrolling it makes React do nothing.">
       <ScrollView testID="quiet-list" className={box} contentClassName="gap-1 p-2">
         {indexes(QUIET_ROWS).map(index => (
           <View key={index} testID={`quiet-row-${index}`} className="h-9 shrink-0 justify-center rounded-lg bg-amber-100 px-3"><Text className="text-sm text-amber-800">{`Quiet ${index}`}</Text></View>
@@ -76,7 +86,7 @@ function QuietSection() {
 function CarouselSection() {
   const [left, setLeft] = useState(0);
   return (
-    <Section title="Carousel, no scrollbar">
+    <Section title="Carousel, no scrollbar" caption="Swipe, or Shift+wheel. A handler cancels Ctrl+wheel.">
       <ScrollView
         testID="carousel"
         horizontal
@@ -102,7 +112,10 @@ function NestedSection({ contain }: { contain: boolean }) {
   const [inner, setInner] = useState(0);
   const [outer, setOuter] = useState(0);
   return (
-    <Section title={contain ? 'Nested, overscroll-contain' : 'Nested, chaining'}>
+    <Section
+      title={contain ? 'Nested, overscroll-contain' : 'Nested, chaining'}
+      caption={contain ? 'overscroll-contain: the inner end stops there.' : 'At the inner end, the outer list takes over.'}
+    >
       <ScrollView testID={`${name}-outer`} className={box} focusable={false} contentClassName="gap-1 p-2" onScroll={(event: UIScrollEvent) => setOuter(Math.round(event.scrollTop))}>
         <Text className="text-xs text-slate-500">Outer header</Text>
         <ScrollView testID={`${name}-inner`} className={`h-20 shrink-0 rounded-lg border border-indigo-200 bg-indigo-50 ${contain ? 'overscroll-contain' : ''}`} focusable={false} contentClassName="gap-1 p-1" onScroll={(event: UIScrollEvent) => setInner(Math.round(event.scrollTop))}>
@@ -130,7 +143,7 @@ function TouchSection() {
   const [vanished, setVanished] = useState(false);
   const list = useRef<UIHandle>(null);
   return (
-    <Section title="Touch list">
+    <Section title="Touch list" caption="Swipe to pan. The amber pad keeps the touch.">
       <ScrollView ref={list} testID="touch-list" className={`${box} ${bars ? 'scrollbar-[#e11d48]' : 'scrollbar-none'}`} focusable={false} contentClassName="p-2">
         <View
           testID="touch-pad"
@@ -163,7 +176,7 @@ function TouchSection() {
 function CaptureSection() {
   const [seen, setSeen] = useState({ down: 0, moves: 0, cancels: 0 });
   return (
-    <Section title="Captured pointer">
+    <Section title="Captured pointer" caption="Pointer captured: a swipe scrolls nothing.">
       <View
         testID="capture-list"
         className="h-24 w-full flex-col gap-1 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2"
@@ -186,7 +199,7 @@ function CaptureSection() {
 /** `column-reverse`: the content starts at the bottom, so the offsets run from minus the overflow to zero. */
 function ReversedSection() {
   return (
-    <Section title="Reversed list">
+    <Section title="Reversed list" caption="Starts at the bottom. Scroll up for the rest.">
       <View testID="rev-list" className="h-24 w-full flex-col-reverse gap-1 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2">
         {indexes(REVERSED_ROWS).map(index => (
           <View key={index} testID={`rev-row-${index}`} className="h-6 shrink-0 justify-center rounded bg-emerald-100 px-2"><Text className="text-xs text-emerald-800">{`Reversed ${index}`}</Text></View>
@@ -196,23 +209,33 @@ function ReversedSection() {
   );
 }
 
-/** Phase I5: scroll containers. */
+/**
+ * Phase I5: scroll containers. The cases are in three columns that keep the document order the verifier's Tab and keys walk (the list, the quiet list,
+ * the carousel, the two nested lists, the touch list, the reversed list, the captured one), and the intro is one paragraph: the page must fit its
+ * window with the captions in it (see `Section`), so there is no heading over it (the navigator's header names the lab) and `scroll-title` is the
+ * intro text, which the verifier presses and wheels over as "UI that does not scroll".
+ */
 export function ScrollLab() {
   return (
     <View testID="scroll-lab" className="w-full min-h-full bg-slate-50 p-4 gap-3">
-      <View className="gap-1">
-        <Text testID="scroll-title" className="text-2xl text-slate-900">Scrolling</Text>
-        <Text className="text-sm text-slate-500">Wheel, trackpad, touch, keys and scrollbars. Shift+wheel scrolls sideways, Ctrl+wheel is prevented on the carousel, and a nested list chains to its outer list unless it is overscroll-contain.</Text>
-      </View>
-      <View testID="scroll-sections" className="flex-row flex-wrap gap-3">
-        <ListSection />
-        <QuietSection />
-        <CarouselSection />
-        <NestedSection contain={false} />
-        <NestedSection contain />
-        <TouchSection />
-        <ReversedSection />
-        <CaptureSection />
+      <Text testID="scroll-title" className="text-sm text-slate-600">
+        Each box is a scroll container, moved by native code the way a browser moves an element with overflow: wheel, trackpad, swipe, keys and the scrollbar thumb. A scroll the inner list cannot take goes to the list around it. Not built: clicking the scrollbar track to page, and holding a gesture on the list it began on.
+      </Text>
+      <View testID="scroll-sections" className="flex-row flex-wrap items-start gap-3">
+        <Column>
+          <ListSection />
+          <QuietSection />
+        </Column>
+        <Column>
+          <CarouselSection />
+          <NestedSection contain={false} />
+          <NestedSection contain />
+        </Column>
+        <Column>
+          <TouchSection />
+          <ReversedSection />
+          <CaptureSection />
+        </Column>
       </View>
     </View>
   );

@@ -6,7 +6,7 @@ import {
 } from 'godot';
 import { createClassBinder } from 'godot.annotations';
 import { createRoot, type NativeSnapshot, type NativeSnapshotNode, type ReactRoot } from '../../src';
-import { intersectQuad, quadPixelToLocal, type QuadHit, type QuadSurface } from './world-geometry';
+import { cameraDistanceToFit, intersectQuad, quadPixelToLocal, type QuadHit, type QuadSurface } from './world-geometry';
 import { AnchoredLabel, type Anchor } from './world-label';
 import { WorldPanel } from './world-panel';
 import { runWorldVerification } from './verify-world';
@@ -30,6 +30,12 @@ const QUAD_ROTATION_DEGREES = { x: -8, y: 24, z: 0 };
 /** Far enough that the quad fits the portrait window, near enough that a panel pixel is about a screen pixel. */
 const CAMERA_POSITION = { x: 0, y: 0.25, z: 2.6 };
 const CAMERA_FOV_DEGREES = 50;
+const RADIANS_PER_DEGREE = Math.PI / 180;
+/**
+ * In a window too narrow for the quad (a phone) the camera backs away along its line of sight until the quad's width fits, with this
+ * fraction of the half width to spare. The windows the verifiers use (600 x 900 and wider) already fit, so for them it stays where it was.
+ */
+const CAMERA_FIT_MARGIN = 0.03;
 /** A backdrop behind the quad shows that the panel's transparent margin really is see-through. */
 const BACKDROP_SIZE = { x: 9, y: 6 };
 const BACKDROP_Z = -0.8;
@@ -116,6 +122,8 @@ export interface OrbiterReading {
 @bind()
 export default class WorldMain extends Node {
   private camera: Camera3D | null = null;
+  /** The window aspect the camera was last placed for (`fitCamera`); 0 before it was placed. */
+  private cameraFitAspect = 0;
   private quad: MeshInstance3D | null = null;
   private panelViewport: SubViewport | null = null;
   private surface: ReactUiRoot | null = null;
@@ -273,9 +281,9 @@ export default class WorldMain extends Node {
     camera.setName('Camera');
     camera.fov = CAMERA_FOV_DEGREES;
     this.addChild(camera);
-    camera.lookAtFromPosition(new Vector3(CAMERA_POSITION.x, CAMERA_POSITION.y, CAMERA_POSITION.z), new Vector3(0, 0, 0));
     camera.current = true;
     this.camera = camera;
+    this.fitCamera(this.viewportSize());
 
     this.addChild(this.createBackdrop());
 
@@ -388,7 +396,9 @@ export default class WorldMain extends Node {
       this.orbitPhase += delta * ORBIT_SPEED;
       this.placeOrbiterOnOrbit();
     }
-    this.fitLabelSurface();
+    const size = this.viewportSize();
+    this.fitCamera(size);
+    this.fitLabelSurface(size);
     this.updateAnchoredLabel();
   }
 
@@ -437,11 +447,27 @@ export default class WorldMain extends Node {
     return viewport.getVisibleRect().size;
   }
 
+  /**
+   * Put the camera where the quad fits the window's width: where it always was, or further back along its line of sight in a window narrower
+   * than that (`cameraDistanceToFit`). Placed again when the window's aspect changes.
+   */
+  private fitCamera(size: Vector2): void {
+    // A minimised window has no aspect to fit; the camera keeps its place until it has one.
+    if (size.x <= 0 || size.y <= 0) return;
+    const aspect = size.x / size.y;
+    if (aspect === this.cameraFitAspect) return;
+    this.cameraFitAspect = aspect;
+    const needed = cameraDistanceToFit(QUAD_WIDTH, QUAD_ROTATION_DEGREES.y * RADIANS_PER_DEGREE, CAMERA_FOV_DEGREES * RADIANS_PER_DEGREE, aspect, CAMERA_FIT_MARGIN);
+    const scale = Math.max(1, needed / CAMERA_POSITION.z);
+    this.requireCamera().lookAtFromPosition(
+      new Vector3(CAMERA_POSITION.x * scale, CAMERA_POSITION.y * scale, CAMERA_POSITION.z * scale), new Vector3(0, 0, 0),
+    );
+  }
+
   /** The label root fills the window, like the demo's: it follows the window's size. */
-  private fitLabelSurface(): void {
+  private fitLabelSurface(size: Vector2): void {
     const surface = this.labelSurface;
     if (surface === null) return;
-    const size = this.viewportSize();
     if (surface.size.x !== size.x || surface.size.y !== size.y) surface.size = size;
   }
 

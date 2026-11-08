@@ -362,6 +362,8 @@ const GUARDS: Record<string, readonly string[]> = {
   'probe-web.mjs': ['requireFreshWebExport('],
   // Drive the code panel under a V8 profiler (docs/tracks/keystroke-profile.md) and compare builds of it (docs/tracks/keystroke-speed.md): they
   // run the installed library like a verifier does, and a variant is only taken from a build that is fresh.
+  // Captures the labs in the navigator in headless Chrome from the Web export (docs/tracks/lab-clarity.md): the export is checked; the sheets and compare commands read only the files it left.
+  'lab-captures.mjs': ['requireFreshWebExport('],
   'keystroke-ab.mjs': ['prepareNative('],
   'profile-keystrokes.mjs': ['prepareNative('],
   'run.mjs': ['prepareNative('],

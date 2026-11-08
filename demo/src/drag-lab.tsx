@@ -1,8 +1,9 @@
 import { useState, type ReactNode } from 'react';
 import {
   Button, ScrollView, Text, TextInput, View,
-  type EffectAllowed, type UIDragEndEvent, type UIDragEvent, type UIPointerEvent,
+  type DropEffect, type EffectAllowed, type UIDragEndEvent, type UIDragEvent, type UIPointerEvent,
 } from 'godot-react-ui';
+import { LabIntro } from './lab-parts';
 
 /** Rows in the list, enough to need a scroll from the first row to the last. */
 const LIST_ROWS = 20;
@@ -20,25 +21,59 @@ type Board = Record<ColumnName, readonly string[]>;
 
 const INITIAL_BOARD: Board = { todo: ['a', 'b', 'c'], doing: ['d', 'e'] };
 
+/** The board is two 144 px columns and the gap between them; the other sections are as wide as their widest chip, the form. */
+const BOARD_WIDTH = 'w-[296px]';
+const SECTION_WIDTH = 'w-44';
+
 const chip = 'h-9 w-36 shrink-0 justify-center rounded-lg border border-slate-200 bg-white px-3';
 const card = 'h-9 w-full shrink-0 justify-center rounded-lg border border-slate-200 px-3 text-sm text-slate-700';
 const cardRest = 'bg-white';
-const cardTarget = 'bg-indigo-100';
-const columnRest = 'bg-slate-100';
-const columnTarget = 'bg-indigo-50';
+const cardTarget = 'bg-indigo-100 border-indigo-500';
+/** A column is a drop target, so it has an edge to be one; the pointer over it turns the edge and the fill indigo. */
+const columnRest = 'border-slate-300 bg-slate-100';
+const columnTarget = 'border-indigo-500 bg-indigo-50';
 
 /** The effect a target accepts: the one the source's `effectAllowed` offers first (copy for a palette item, else move). */
 function acceptedEffect(allowed: EffectAllowed): 'copy' | 'move' {
   return allowed === 'copy' ? 'copy' : 'move';
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+/**
+ * What a drop would do, as the library settles it: a target that takes only `only` refuses a source whose `effectAllowed` leaves it out
+ * (`none`, and the cursor shows it); the lab's sources allow `move` or `copy`, and every other target takes either.
+ */
+function negotiated(allowed: EffectAllowed, only?: 'move'): DropEffect {
+  if (only === undefined) return acceptedEffect(allowed);
+  return allowed === only ? only : 'none';
+}
+
+/**
+ * A part of the page: its name and what it shows, over its controls. The caption wraps at the section's own width, which is fixed, so a
+ * wider caption never moves a source or a target (the verifiers find free page beside the sections for a ghost to rest on).
+ */
+function Section({ title, caption, className, children }: { title: string; caption: string; className: string; children: ReactNode }) {
   return (
-    <View className="gap-1">
-      <Text className="text-xs text-slate-500">{title}</Text>
+    <View className={`gap-1 ${className}`}>
+      <Text className="text-xs text-slate-900">{title}</Text>
+      <Text className="text-xs text-slate-500">{caption}</Text>
       {children}
     </View>
   );
+}
+
+/** A chip's name, and under it in small type what makes it different. Neither takes the pointer: the chip does. */
+function ChipLabel({ name, detail }: { name: string; detail: string }) {
+  return (
+    <>
+      <Text className="pointer-events-none text-xs text-slate-700">{name}</Text>
+      <Text className="pointer-events-none select-none text-[10px] text-slate-500">{detail}</Text>
+    </>
+  );
+}
+
+/** What a drop on the target under the pointer would do, in the words the targets show. */
+function effectWords(effect: DropEffect): string {
+  return effect === 'none' ? 'refused' : effect;
 }
 
 function indexes(count: number): number[] {
@@ -66,6 +101,8 @@ function placeCard(board: Board, id: string, column: ColumnName, before: string 
 export function DragLab() {
   const [board, setBoard] = useState<Board>(INITIAL_BOARD);
   const [over, setOver] = useState<string | null>(null);
+  // The effect a drop on `over` would have: what the target allows, or `none` if the source's effectAllowed does not include it.
+  const [offer, setOffer] = useState<DropEffect>('none');
   const [log, setLog] = useState<string[]>([]);
   const [ended, setEnded] = useState('none');
   const [clicks, setClicks] = useState(0);
@@ -104,11 +141,13 @@ export function DragLab() {
     onDragEnter: (event: UIDragEvent<'dragenter'>) => {
       event.stopPropagation();
       setOver(key);
+      setOffer(negotiated(event.dataTransfer.effectAllowed, only));
       record(`dragenter ${key}`);
     },
     onDragOver: (event: UIDragEvent<'dragover'>) => {
       event.stopPropagation();
       event.dataTransfer.dropEffect = only ?? acceptedEffect(event.dataTransfer.effectAllowed);
+      setOffer(negotiated(event.dataTransfer.effectAllowed, only));
       event.preventDefault();
     },
     // A leave clears the highlight only if the pointer has not already entered something else (enter comes first).
@@ -137,23 +176,35 @@ export function DragLab() {
     }
   };
 
+  const overEffect = (key: string): string => (over === key ? effectWords(offer) : '');
+
   return (
     <View testID="drag-lab" className="w-full min-h-full bg-slate-50 p-4 gap-3" onPointerUp={(_: UIPointerEvent) => setUps(current => current + 1)}>
-      <View className="gap-1">
-        <Text testID="drag-title" className="text-2xl text-slate-900">Drag and drop</Text>
-        <Text className="text-sm text-slate-500">Drag cards between the columns and onto the trash (move only). The palette item copies, so the trash refuses it. Drag to a list's edge to scroll it. Escape cancels. The gesture chips cannot start a drag: locked (its pointerdown is prevented), captured (it captured the pointer), refused (its dragstart is prevented). The no-ghost chip drags with no ghost, and the select-text chip is a drag source whose text starts no selection. The draggable form holds a text input: a press in the field edits it and starts no drag, a press beside it drags the form, and the ghost shows the field's text.</Text>
-      </View>
+      <LabIntro
+        testID="drag-title"
+        title="Drag sources and drop targets"
+        paragraphs={[
+          'Drag cards between the columns, onto the trash, or the palette\'s copy onto a column. A mouse drags after a short move, a finger after a half-second hold.',
+          'Targets take a drop by cancelling dragover and name the effect they allow, copy or move, as in HTML. Escape cancels a drag; a swipe pans instead.',
+        ]}
+      />
       <View testID="drag-sections" className="flex-row flex-wrap gap-3">
-        <Section title="Board">
+        <Section
+          title="Board" className={BOARD_WIDTH}
+          caption="Drop a card on another card to put it before that one, or on a column's empty space to put it last. A column names the effect while a drag is over it."
+        >
           <View className="flex-row gap-2">
             {COLUMN_NAMES.map(name => (
               <View
                 key={name}
                 testID={`column-${name}`}
-                className={`w-36 min-h-32 gap-1 rounded-xl p-2 ${over === `column-${name}` ? columnTarget : columnRest}`}
+                className={`w-36 min-h-32 gap-1 rounded-xl border-2 p-2 ${over === `column-${name}` ? columnTarget : columnRest}`}
                 {...target(`column-${name}`, event => dropOnBoard(event, name, null))}
               >
-                <Text className="text-xs text-slate-500">{name}</Text>
+                <View className="pointer-events-none flex-row items-center justify-between">
+                  <Text className="text-xs text-slate-500">{name}</Text>
+                  <Text className="text-xs text-indigo-700">{overEffect(`column-${name}`)}</Text>
+                </View>
                 {board[name].map(id => (
                   <View
                     key={id}
@@ -169,7 +220,10 @@ export function DragLab() {
             ))}
           </View>
         </Section>
-        <Section title="Palette and trash">
+        <Section
+          title="Palette and trash" className={SECTION_WIDTH}
+          caption="The palette item copies. The trash takes only a move and refuses the copy; the cursor says so."
+        >
           <View testID="palette" className={`${chip} bg-amber-100`} {...source(PALETTE_ITEM, 'copy')}>
             <Text className="pointer-events-none text-sm text-amber-800">New card (copy)</Text>
           </View>
@@ -184,38 +238,44 @@ export function DragLab() {
             }, 'move')}
           >
             <Text className="pointer-events-none text-sm text-rose-800">Trash (move only)</Text>
+            <Text className="pointer-events-none text-xs text-rose-700">{over === 'trash' ? `drop: ${effectWords(offer)}` : 'drop a card here'}</Text>
           </View>
           <View testID="refuser" className="h-12 w-36 items-center justify-center rounded-xl border border-slate-200 bg-white">
             <Text className="pointer-events-none text-xs text-slate-500">Takes nothing</Text>
+            <Text className="pointer-events-none text-xs text-slate-400">it never cancels dragover</Text>
           </View>
         </Section>
-        <Section title="Gestures">
+        <Section
+          title="Gestures" className={SECTION_WIDTH}
+          caption="The first three start no drag. In the form, a press in the field edits it; anywhere else it drags the form."
+        >
           <View
             testID="locked" className={chip}
             {...source('locked', 'move')}
             onPointerDown={(event: UIPointerEvent) => event.preventDefault()}
           >
-            <Text className="pointer-events-none text-xs text-slate-700">locked</Text>
+            <ChipLabel name="locked" detail="pointerdown prevented" />
           </View>
           <View
             testID="captured" className={chip}
             {...source('captured', 'move')}
             onPointerDown={(event: UIPointerEvent) => event.currentTarget.setPointerCapture(event.pointerId)}
           >
-            <Text className="pointer-events-none text-xs text-slate-700">captured</Text>
+            <ChipLabel name="captured" detail="pointer captured" />
           </View>
           <View
             testID="refused" className={chip}
             {...source('refused', 'move')}
             onDragStart={(event: UIDragEvent<'dragstart'>) => { event.preventDefault(); record('dragstart refused'); }}
           >
-            <Text className="pointer-events-none text-xs text-slate-700">refused</Text>
+            <ChipLabel name="refused" detail="dragstart prevented" />
           </View>
           <View testID="ghostless" className={chip} dragPreview="none" {...source('ghostless', 'move')}>
-            <Text className="pointer-events-none text-xs text-slate-700">no ghost</Text>
+            <ChipLabel name="no ghost" detail="dragPreview none" />
           </View>
           <View testID="selectable" className={`${chip} select-text`} {...source('selectable', 'move')}>
             <Text testID="selectable-text" className="text-xs text-slate-700">select me</Text>
+            <Text className="pointer-events-none select-none text-[10px] text-slate-500">select-text source</Text>
           </View>
           <Text testID="selectable-plain" className="select-text text-xs text-slate-700">plain text, selectable</Text>
           <View testID="input-chip" className="w-44 shrink-0 gap-1 rounded-lg border border-slate-200 bg-white p-2" {...source('input-chip', 'move')}>
@@ -226,7 +286,10 @@ export function DragLab() {
             />
           </View>
         </Section>
-        <Section title="List (drag to its edge)">
+        <Section
+          title="List (drag to its edge)" className={SECTION_WIDTH}
+          caption="Drag a row to the list's top or bottom edge and it scrolls. Rows take drops."
+        >
           <ScrollView testID="drag-list" className="h-44 w-44 rounded-xl border border-slate-200 bg-white" focusable={false} contentClassName="gap-1 p-2">
             {indexes(LIST_ROWS).map(index => (
               <View
@@ -251,7 +314,7 @@ export function DragLab() {
               onPointerDown={(_: UIPointerEvent) => setArmed(true)}
               onPointerMove={(_: UIPointerEvent) => { if (armed) setVanished(true); }}
             >
-              <Text className="pointer-events-none text-xs text-slate-700">vanishes</Text>
+              <ChipLabel name="vanishes" detail="when pressed and moved" />
             </View>
           )}
           <Button
@@ -264,6 +327,10 @@ export function DragLab() {
         </Section>
       </View>
       <View className="gap-1">
+        <Text className="text-xs text-slate-900">What the drags did</Text>
+        <Text className="text-xs text-slate-500">
+          The board, how the last drag ended, and the log of the lab's drag events. Pointerups and clicks are the lab's own: a drag cancels the pointer, so it sends neither.
+        </Text>
         <Text testID="board-status" className="text-xs text-slate-600">{`todo: ${board.todo.join(',')} | doing: ${board.doing.join(',')}`}</Text>
         <Text testID="end-status" className="text-xs text-slate-600">{`last drag ended: ${ended}`}</Text>
         <Text testID="drop-status" className="text-xs text-slate-600">{`trash ${trashed}, list ${listDrop}, pointerups ${ups}, clicks ${clicks}`}</Text>

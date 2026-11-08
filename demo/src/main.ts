@@ -1,8 +1,8 @@
 import { createElement, type ReactElement } from 'react';
 import {
   BaseMaterial3D, BoxMesh, Callable, Camera3D, Color, ColorRect, Control, DirAccess, DisplayServer, Engine, FileAccess, InputEvent, InputEventKey,
-  InputEventMouseButton, InputEventPanGesture, InputMap, MeshInstance3D, MouseButton, Node, Node3D, ReactUiRoot, OS, StandardMaterial3D,
-  Input, Time, Transform2D, Vector2, Vector2I, Vector3, Window,
+  InputEventMouseButton, InputEventPanGesture, InputMap, Label, MeshInstance3D, MouseButton, Node, Node3D, ReactUiRoot, OS, StandardMaterial3D,
+  StyleBoxFlat, Input, Time, Transform2D, Vector2, Vector2I, Vector3, Window,
 } from 'godot';
 import { createClassBinder } from 'godot.annotations';
 import { createRoot, readActivity, takeNativeProfile, type ReactRoot, type UIHandle } from '../../src';
@@ -43,6 +43,15 @@ import { VerifierInputIsolation, injectsOwnInput } from './verifier-input';
 const bind = createClassBinder();
 const MICROSECONDS_PER_MILLISECOND = 1000;
 const BACKDROP_COLOR = new Color(0.86, 0.9, 0.84, 1);
+/**
+ * The tag the backdrop draws where it saw a press (the HUD lab, docs/tracks/lab-clarity.md): the one thing on screen that shows a press went
+ * through the React root to the Godot scene behind it. A slate-900 pill with white text, the colours the scene-return button uses.
+ */
+const PRESS_TAG_FILL = new Color(0.059, 0.09, 0.165, 0.9);
+const PRESS_TAG_PADDING = 8;
+const PRESS_TAG_CORNER_RADIUS = 12;
+/** How far down and right of the press the tag sits, so that the pointer does not cover it. */
+const PRESS_TAG_OFFSET = 14;
 /** What a verifier may configure the font slice loader with: the language the text is in, and where the manifest is. */
 interface FontSliceSettings {
   readonly language?: string;
@@ -102,6 +111,8 @@ export default class Main extends Node {
   private readonly web = OS.hasFeature('web');
   /** A full-window Control behind the React root: the "game" the HUD sits over. */
   private backdrop: ColorRect | null = null;
+  /** The backdrop's tag of the last press it saw (`passthrough.backdropPresses`), hidden until it sees one. */
+  private pressTag: Label | null = null;
   private pointerCancels = 0;
   /** `wheel` events that reached the root's own listener (every wheel tick or pan JS was shown). */
   private wheelEvents = 0;
@@ -297,7 +308,10 @@ export default class Main extends Node {
       /** `wheel` events (ticks and pans) the root's own listener saw: how many times JS was asked about one. */
       wheelEvents: () => this.wheelEvents,
       passthrough: (): PassthroughCounts => ({ ...this.passthrough, unhandledKeys: { ...this.passthrough.unhandledKeys } }),
-      resetPassthrough: () => { this.passthrough = { backdropPresses: 0, unhandledPresses: 0, unhandledWheels: 0, unhandledPans: 0, unhandledKeys: {} }; },
+      resetPassthrough: () => {
+        this.passthrough = { backdropPresses: 0, unhandledPresses: 0, unhandledWheels: 0, unhandledPans: 0, unhandledKeys: {} };
+        if (this.pressTag) this.pressTag.visible = false;
+      },
       /** Whether the engine's `Input` has this key (a `Key` value) down: a key the engine heard go down and never come up stays down (docs/tracks/key-passthrough.md). */
       keyPressed: (keycode: number) => Input.isKeyPressed(keycode),
       /** Whether key chords that nothing in the root claims go to the browser (`RootOptions.keyPassthrough`). */
@@ -454,9 +468,13 @@ export default class Main extends Node {
     backdrop.setName('GameBackdrop');
     backdrop.color = BACKDROP_COLOR;
     backdrop.mouseFilter = Control.MouseFilter.MouseFilterPass;
+    const tag = this.createPressTag();
+    backdrop.addChild(tag);
+    this.pressTag = tag;
     backdrop.guiInput.connect(Callable.create((event: InputEvent) => {
       if (event instanceof InputEventMouseButton && event.pressed && event.buttonIndex === MouseButton.MouseButtonLeft) {
         this.passthrough.backdropPresses += 1;
+        this.placePressTag(tag, backdrop.size, event.position);
       }
     }));
     // Internal and first: it is not counted among the demo's children (the verifiers count the
@@ -464,6 +482,32 @@ export default class Main extends Node {
     this.addChild(backdrop, false, Node.InternalMode.InternalModeFront);
     this.backdrop = backdrop;
     this.sizeToViewport();
+  }
+
+  /** The tag that says where the backdrop saw a press: a Label that takes no pointer, so it never changes what reaches the backdrop. */
+  private createPressTag(): Label {
+    const tag = new Label();
+    tag.setName('PressTag');
+    tag.mouseFilter = Control.MouseFilter.MouseFilterIgnore;
+    tag.visible = false;
+    const pill = new StyleBoxFlat();
+    pill.bgColor = PRESS_TAG_FILL;
+    pill.setCornerRadiusAll(PRESS_TAG_CORNER_RADIUS);
+    pill.setContentMarginAll(PRESS_TAG_PADDING);
+    tag.addThemeStyleboxOverride('normal', pill);
+    tag.addThemeColorOverride('font_color', Color.WHITE);
+    return tag;
+  }
+
+  /** Say how many presses the backdrop has seen, down and right of the last one and kept inside `room`, the backdrop's size. */
+  private placePressTag(tag: Label, room: Vector2, press: Vector2): void {
+    tag.text = `Godot saw press ${this.passthrough.backdropPresses}`;
+    const size = tag.getCombinedMinimumSize();
+    tag.position = new Vector2(
+      Math.min(Math.max(press.x + PRESS_TAG_OFFSET, 0), Math.max(room.x - size.x, 0)),
+      Math.min(Math.max(press.y + PRESS_TAG_OFFSET, 0), Math.max(room.y - size.y, 0)),
+    );
+    tag.visible = true;
   }
 
   private godotNodes: Node[] = [];
