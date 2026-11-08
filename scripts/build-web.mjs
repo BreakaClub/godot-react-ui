@@ -113,7 +113,7 @@ print(json.dumps({'binaryen':env['ENV']['EM_BINARYEN_ROOT'],'linkFlags':env['LIN
   const build = engine.beginWebBuild({
     probe, clean: () => run(cargo, [`+${toolchain}`, 'clean', '--locked', '-p', CARGO_PACKAGE, '--release', '--target', 'wasm32-unknown-emscripten']),
   });
-  run(cargo, [`+${toolchain}`, 'build', '--locked', '--release', '--lib', '--features', engine.webFeatures({ probe }).join(','), '-Zbuild-std', '--target', 'wasm32-unknown-emscripten']);
+  run(cargo, [`+${toolchain}`, 'build', '--locked', '--release', '--lib', '--config', 'profile.release.opt-level="s"', '--features', engine.webFeatures({ probe }).join(','), '-Zbuild-std', '--target', 'wasm32-unknown-emscripten']);
   build.compiled();
   const compiled = join(targetDirectory, 'wasm32-unknown-emscripten', 'release', 'godot_react_ui.wasm');
   const wasm = readFileSync(compiled);
