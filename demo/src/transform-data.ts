@@ -170,7 +170,7 @@ export const BEHAVIOUR = {
   /** A text field in a turned, scaled card. */
   input: { left: 120, top: 100, width: 280, height: 90, transform: 'rotate(-6deg) scale(1.2)' },
   /** Selectable text in a turned frame. */
-  selectable: { left: 130, top: 100, width: 280, transform: 'rotate(8deg)' },
+  selectable: { left: 90, top: 100, width: 340, transform: 'rotate(8deg)' },
   /** A draggable card, turned, and the target it is dragged to. */
   drag: { left: 60, top: 120, width: 140, height: 70, transform: 'rotate(20deg)', targetLeft: 340, targetTop: 110, targetSize: 120 },
   /** A scroll container, tilted, and one turned a quarter with its content running along its own x. */
@@ -255,7 +255,7 @@ export const BEHAVIOUR_CASES: readonly BehaviourCase[] = [
   },
   {
     id: 'scroll', label: 'Scrolling inside a rotation',
-    caption: 'Scroll the tilted list on the left and the row turned a quarter on the right, with the wheel or by dragging. Each scrolls along its own axis, not the screen\'s: the quarter-turned row scrolls sideways along itself when you move down the screen.',
+    caption: 'Scroll the tilted list on the left and the row turned a quarter on the right, with the wheel or by dragging. Each scrolls along its own axis, not the screen\'s: the quarter-turned row scrolls sideways along itself when you move down the screen. A row can show just outside the tilted list\'s edge: the library clips a turned list to the box round it, a known limit.',
   },
   {
     id: 'anchor', label: 'Popover anchor (getRect)',

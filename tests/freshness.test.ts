@@ -367,6 +367,8 @@ const GUARDS: Record<string, readonly string[]> = {
   'run.mjs': ['prepareNative('],
   'serve-web.mjs': ['requireFreshWebExport('],
   'test-types.mjs': ['ensureStockTypings('],
+  // Takes pictures of the lab from the Web export it is given: the export must be the current one.
+  'transform-lab-web-capture.mjs': ['requireFreshWebExport('],
   'verify-a11y.mjs': ['prepareNative('],
   'verify-interaction-web.mjs': ['requireFreshWebExport('],
   'verify-live-compile-web.mjs': ['requireFreshWebExport('],

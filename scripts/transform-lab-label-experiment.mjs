@@ -6,6 +6,9 @@
 import puppeteer from 'puppeteer-core';
 import { readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
+import { rejectUnknownArguments } from './arguments.mjs';
+
+rejectUnknownArguments(process.argv.slice(2), { prefixes: ['--out='] });
 
 const font = (await readFile(`${homedir()}/Development/godot/thirdparty/fonts/Inter_Regular.woff2`)).toString('base64');
 const bar = { left: 150, top: 130, width: 220, height: 56 };

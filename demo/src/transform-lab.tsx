@@ -372,7 +372,7 @@ function HoverPage() {
     <Stage>
       <View
         testID="hover-card"
-        className="hover:scale-125 active:scale-125"
+        className="hover:scale-125 active:scale-125 items-center justify-center"
         style={{
           position: 'absolute', left: hover.left, top: hover.top, width: hover.width, height: hover.height,
           backgroundColor: '#e0e7ff', borderRadius: 12, borderWidth: 2, borderColor: '#6366f1',
@@ -391,7 +391,7 @@ function UtilitiesPage() {
     <Stage>
       <View
         testID="utility-card"
-        className="-translate-x-1/2 -translate-y-1/4 rotate-6 hover:scale-110 active:scale-110 origin-top-left"
+        className="-translate-x-1/2 -translate-y-1/4 rotate-6 hover:scale-110 active:scale-110 origin-top-left items-center justify-center"
         style={{
           position: 'absolute', left: 260, top: 140, width: 120, height: 60, backgroundColor: '#fecdd3',
           borderRadius: 8, transition: { properties: ['transform'], durationMs: 0 },
@@ -452,7 +452,7 @@ function DragPage() {
   return (
     <Stage>
       <View
-        testID="drag-source" draggable
+        testID="drag-source" draggable className="items-center justify-center"
         onDragStart={(event: UIDragEvent<'dragstart'>) => { event.dataTransfer.setData('text/plain', 'card'); event.dataTransfer.effectAllowed = 'move'; }}
         style={{
           position: 'absolute', left: drag.left, top: drag.top, width: drag.width, height: drag.height,
@@ -462,7 +462,7 @@ function DragPage() {
         <Text className="text-sm text-slate-800">Drag me</Text>
       </View>
       <View
-        testID="drag-target"
+        testID="drag-target" className="items-center justify-center"
         onDragOver={(event: UIDragEvent<'dragover'>) => { event.dataTransfer.dropEffect = 'move'; event.preventDefault(); }}
         onDrop={(event: UIDragEvent<'drop'>) => { event.preventDefault(); setDropped(event.dataTransfer.getData('text/plain')); }}
         style={{

@@ -22,12 +22,12 @@ test('the helper takes the listed flags, the listed prefixes and the engine sele
 
 /** Every script that takes options. `scripts/run.mjs` is not one: it hands its arguments to Godot, which decides what it takes. */
 const SCRIPTS_WITH_OPTIONS = [
-  'analyze-keystroke-profile', 'analyze-native-detail', 'build', 'build-font-slices', 'build-live-compile', 'build-live-compile-web', 'build-native', 'build-web', 'check-site', 'deploy-web', 'dev', 'generate-types', 'keystroke-ab', 'keystroke-bench', 'live-compile-agreement', 'live-compile-project', 'navigator-captures', 'probe-web', 'profile-keystrokes', 'serve-web', 'test-types', 'verify', 'verify-a11y',
+  'analyze-keystroke-profile', 'analyze-native-detail', 'build', 'build-font-slices', 'build-live-compile', 'build-live-compile-web', 'build-native', 'build-web', 'check-site', 'deploy-web', 'dev', 'generate-types', 'keystroke-ab', 'keystroke-bench', 'live-compile-agreement', 'live-compile-project', 'navigator-captures', 'probe-web', 'profile-keystrokes', 'serve-web', 'test-types', 'transform-lab-label-experiment', 'transform-lab-web-capture', 'verify', 'verify-a11y',
   'verify-interaction-web', 'verify-live-compile-web', 'verify-motion-web', 'verify-text-layout', 'verify-web', 'verify-world', 'verify-world-web',
 ];
 
 /** Scripts run with tsx, which loads the TypeScript modules they import. */
-const TSX_SCRIPTS = ['glass-reference', 'transform-reference', 'text-styles-reference', 'rich-text-reference', 'tailwind-coverage', 'layout-utilities-reference', 'paint-reference'];
+const TSX_SCRIPTS = ['glass-reference', 'transform-reference', 'text-styles-reference', 'rich-text-reference', 'tailwind-coverage', 'layout-utilities-reference', 'paint-reference', 'transform-lab-reference'];
 
 for (const script of [...SCRIPTS_WITH_OPTIONS, ...TSX_SCRIPTS]) {
   test(`scripts/${script}.mjs refuses an argument it does not take, before it does anything`, () => {

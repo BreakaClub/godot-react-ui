@@ -24,8 +24,14 @@ const out = resolve(process.argv.find(value => value.startsWith('--out='))?.slic
 /** Ben's Android phone as Chrome emulates it (scripts/verify-rotation-web.mjs), and the desktop window the Web verifier has. */
 const DEVICES = {
   phone: { width: 412, height: 915, deviceScaleFactor: 2.625, isMobile: true, hasTouch: true },
+  // The same phone at a ratio of two: the lab sits at 276 CSS pixels in the navigator, a whole number of device pixels only at a whole ratio, and a lab placed on a half pixel
+  // is rasterised by Chrome and by the library on different sides of it (every edge then differs, whatever is drawn).
+  phone2: { width: 412, height: 915, deviceScaleFactor: 2, isMobile: true, hasTouch: true },
   desktop: { width: 1120, height: 800, deviceScaleFactor: 1, isMobile: false, hasTouch: false },
 };
+// The input, scroll and clip cases clip their content in a frame a transform turns, on purpose: the library says so once per element, as two console lines
+// (the message and where it was raised), which the Web verifier (scripts/verify-transforms-web.mjs) expects in the same words.
+const TURNED_CLIP_REPORT = [/clips its content \(overflow\) in a frame that a transform rotates or skews/, /at: godot_react_ui::.*transform_state/];
 const STARTUP_TIMEOUT_MS = 180_000;
 const POLL_MS = 50;
 const EMSCRIPTEN_STARTUP_DIAGNOSTIC = 'Blocking on the main thread is very dangerous, see https://emscripten.org/docs/porting/pthreads.html#blocking-on-the-main-browser-thread';
@@ -50,7 +56,8 @@ try {
     const page = await browser.newPage();
     await page.setViewport(device);
     page.on('console', message => {
-      if (message.type() === 'error' && !message.text().includes(EMSCRIPTEN_STARTUP_DIAGNOSTIC)) errors.push(`${name}: ${message.text()}`);
+      const expected = message.text().includes(EMSCRIPTEN_STARTUP_DIAGNOSTIC) || TURNED_CLIP_REPORT.some(report => report.test(message.text()));
+      if (message.type() === 'error' && !expected) errors.push(`${name}: ${message.text()}`);
     });
     page.on('pageerror', error => errors.push(`${name}: ${String(error)}`));
     await page.goto(new URL('/?demo=navigator&lab=transforms', server.url).href, { waitUntil: 'domcontentloaded' });
@@ -61,7 +68,6 @@ try {
     }
     const directory = resolve(out, `web-${name}`);
     await mkdir(directory, { recursive: true });
-    const cdp = await page.createCDPSession();
 
     const frames = count => page.evaluate(wanted => new Promise(done => {
       let left = wanted;
@@ -82,10 +88,8 @@ try {
       if (device.hasTouch) await page.touchscreen.tap(at.x, at.y);
       else await page.mouse.click(at.x, at.y);
     };
-    const save = async file => {
-      const { data } = await cdp.send('Page.captureScreenshot', { format: 'png' });
-      await writeFile(resolve(directory, `${file}.png`), Buffer.from(data, 'base64'));
-    };
+    // Puppeteer's own screenshot is at the emulated device pixel ratio (the protocol's, taken straight, is at one).
+    const save = file => page.screenshot({ path: resolve(directory, `${file}.png`), type: 'png' });
     const labRect = async () => (await find('transform-lab')).rect;
     // The case ids are the lab's own: its list is the single source.
     const options = await page.evaluate(() => globalThis.godotReactTransformLab.cases());
@@ -111,6 +115,11 @@ try {
       else if (offsets[name].x !== rect.x || offsets[name].y !== rect.y) {
         console.error(`${name}/${id}: the lab is at ${rect.x},${rect.y}, not where the first case had it (${offsets[name].x},${offsets[name].y})`);
         failed = true;
+      }
+      // A mouse left over the stage from a tap would hover what is under it (the hover case grows): park it on the page's corner, outside the lab.
+      if (!device.hasTouch) {
+        await page.mouse.move(0, 0);
+        await frames(SETTLE_FRAMES);
       }
       await save(slug(id));
       if (id === 'hit') {

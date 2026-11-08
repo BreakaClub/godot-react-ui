@@ -36,6 +36,9 @@ const allOptions = () => [...caseOptions(), { ...caseOptions().find(option => op
 /** Ben's Android phone as Chrome emulates it (scripts/verify-rotation-web.mjs), and the desktop window the Web verifier has. */
 export const DEVICES = {
   phone: { width: 412, height: 915, deviceScaleFactor: 2.625, isMobile: true, hasTouch: true },
+  // The same phone at a ratio of two: the lab sits at 276 CSS pixels in the navigator, a whole number of device pixels only at a whole ratio, and a lab placed on a half pixel
+  // is rasterised by Chrome and by the library on different sides of it (every edge then differs, whatever is drawn).
+  phone2: { width: 412, height: 915, deviceScaleFactor: 2, isMobile: true, hasTouch: true },
   desktop: { width: 1120, height: 800, deviceScaleFactor: 1, isMobile: false, hasTouch: false },
 };
 const SETTLE_MS = 300;
@@ -64,6 +67,8 @@ body { font-family: 'Engine Inter', sans-serif; }
 `;
 
 const px = value => `${value}px`;
+/** `items-center justify-center`: a label in the middle of its box, as the lab's classes put it. */
+const CENTRED = { alignItems: 'center', justifyContent: 'center' };
 const style = rules => Object.entries(rules).map(([name, value]) => `${name.replace(/[A-Z]/gu, letter => `-${letter.toLowerCase()}`)}:${value}`).join(';');
 const box = (rules, inner = '', extra = '') => `<div class="v" ${extra} style="${style(rules)}">${inner}</div>`;
 const abs = (left, top, width, height, rules = {}, inner = '', extra = '') => box({ position: 'absolute', left: px(left), top: px(top), ...(width === undefined ? {} : { width: px(width) }), ...(height === undefined ? {} : { height: px(height) }), ...rules }, inner, extra);
@@ -155,9 +160,9 @@ function caseMarkup(id) {
     }
     case 'hover': {
       const { hover } = BEHAVIOUR;
-      return { stage: abs(hover.left, hover.top, hover.width, hover.height, { background: '#e0e7ff', borderRadius: px(12), border: '2px solid #6366f1' }, text('sm', '#1e293b', 'Hover me')) };
+      return { stage: abs(hover.left, hover.top, hover.width, hover.height, { background: '#e0e7ff', borderRadius: px(12), border: '2px solid #6366f1', ...CENTRED }, text('sm', '#1e293b', 'Hover me')) };
     }
-    case 'utilities': return { stage: abs(260, 140, 120, 60, { background: '#fecdd3', borderRadius: px(8), transform: 'translate(-50%, -25%) rotate(6deg)', transformOrigin: 'top left' }, text('sm', '#1e293b', 'Utilities')) };
+    case 'utilities': return { stage: abs(260, 140, 120, 60, { background: '#fecdd3', borderRadius: px(8), transform: 'translate(-50%, -25%) rotate(6deg)', transformOrigin: 'top left', ...CENTRED }, text('sm', '#1e293b', 'Utilities')) };
     case 'input': {
       const { input } = BEHAVIOUR;
       return { stage: abs(input.left, input.top, input.width, input.height, { background: '#ecfeff', borderRadius: px(12), border: '2px solid #0891b2', padding: px(12), transform: input.transform },
@@ -170,8 +175,8 @@ function caseMarkup(id) {
     case 'drag': {
       const { drag } = BEHAVIOUR;
       return { stage: [
-        abs(drag.left, drag.top, drag.width, drag.height, { background: '#fde68a', borderRadius: px(10), border: '2px solid #b45309', transform: drag.transform }, text('sm', '#1e293b', 'Drag me')),
-        abs(drag.targetLeft, drag.targetTop, drag.targetSize, drag.targetSize, { background: '#dcfce7', borderRadius: px(12), transform: 'rotate(-12deg)' }, text('sm', '#1e293b', 'none')),
+        abs(drag.left, drag.top, drag.width, drag.height, { background: '#fde68a', borderRadius: px(10), border: '2px solid #b45309', transform: drag.transform, ...CENTRED }, text('sm', '#1e293b', 'Drag me')),
+        abs(drag.targetLeft, drag.targetTop, drag.targetSize, drag.targetSize, { background: '#dcfce7', borderRadius: px(12), transform: 'rotate(-12deg)', ...CENTRED }, text('sm', '#1e293b', 'none')),
       ].join('') };
     }
     case 'scroll': {
@@ -429,9 +434,9 @@ async function compare(chromeDirectory, webDirectory, nativeDirectory, outDirect
         const labRegion = { x: lab.x, y: lab.y, width: lab.width, height: lab.height };
         const figures = [
           { label: `Chrome (${name}, ${scale}x)`, data: await cropToBase64(browser, chromePath, labRegion, scale) },
-          { label: `library, Web (Chrome ${device.isMobile ? 'mobile emulation' : 'desktop'})`, data: await cropToBase64(browser, webPath, labRegion, scale) },
+          { label: `library, Web (Chrome ${device.isMobile ? 'mobile emulation' : 'desktop'}, ${scale}x)`, data: await cropToBase64(browser, webPath, labRegion, scale) },
         ];
-        const nativePath = nativeDirectory === undefined || name !== 'phone' ? undefined : resolve(nativeDirectory, `transforms-lab-${slug}-phone.png`);
+        const nativePath = nativeDirectory === undefined || name !== 'phone2' ? undefined : resolve(nativeDirectory, `transforms-lab-${slug}-phone.png`);
         if (nativePath !== undefined && await exists(nativePath)) figures.push({ label: 'library, native (device pixel ratio 1)', data: await cropToBase64(browser, nativePath, { ...labRegion, x: 0, y: 0 }, 1) });
         await sideBySide(browser, resolve(outDirectory, `${key}.png`), figures);
       }
