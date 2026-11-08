@@ -23,6 +23,8 @@ import { assertionTally } from './verifier-input';
 export interface FontFallbackInspection {
   find(testID: string): NativeSnapshotNode | undefined;
   showFontSlices(props: FontSlicesLabProps): void;
+  /** Mounts the demo app again: the section runs first in a full run, and the `events` section after it starts from the app's tabs. */
+  restoreDemo(): void;
 }
 
 const HAN_CHARACTER = 0x4e2d;
@@ -72,4 +74,7 @@ export async function verifyFontFallback(api: FontFallbackInspection): Promise<v
   assert(fontsOfText('bare', String.fromCodePoint(PRIVATE_USE_CHARACTER)).every(font => font === undefined), 'A private use character has a font in the face with no fallback');
   assert(JSON.stringify(fallbackNamesOf('sans')) === JSON.stringify(fontsNow), `A character no font has changed the fonts behind the sans face: ${JSON.stringify(fontsNow)} to ${JSON.stringify(fallbackNamesOf('sans'))}`);
   console.log(`GODOT_REACT_FONT_FALLBACK ${JSON.stringify({ hasSystemFonts, before, after, han: han[0] ?? null })}`);
+  // Leave the demo as the run started it: the next section (`events`) clicks the app's tabs.
+  api.restoreDemo();
+  await idle();
 }
