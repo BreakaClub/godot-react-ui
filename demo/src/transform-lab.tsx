@@ -228,7 +228,7 @@ function HitPage() {
         onClick={event => { if (event.target.id === event.currentTarget.id) hit('empty')(); }}
       >
         <Button
-          testID="hit-bar" onClick={hit('bar')} className="items-center justify-center"
+          testID="hit-bar" onClick={hit('bar')}
           style={{
             position: 'absolute', left: bar.left, top: bar.top, width: bar.width, height: bar.height,
             backgroundColor: '#4f46e5', borderRadius: 8, transform: bar.transform, ...outlined('bar'),

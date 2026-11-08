@@ -7,7 +7,7 @@ use serde::Deserialize as DeriveDeserialize;
 use taffy::prelude::{AvailableSpace, NodeId, Size, TaffyTree};
 
 use crate::computed_style::{InheritedStyle, PseudoStates, StyleConditions, resolve};
-use crate::props::{StyleLayers, StyleSpec, Viewport};
+use crate::props::{Kind, StyleLayers, StyleSpec, Viewport};
 
 fn style(json: &str) -> taffy::Style {
     serde_json::from_str::<StyleSpec>(json)
@@ -424,6 +424,7 @@ fn the_js_compilers_layout_and_transition_output_parses_validates_and_converts()
             .unwrap_or_else(|error| panic!("{}: {error}", case.class_name));
         for width in [400.0, 1200.0] {
             let computed = resolve(
+                Kind::View,
                 Some(&case.compiled),
                 false,
                 &InheritedStyle::default(),
@@ -454,6 +455,7 @@ fn the_fixture_resolves_to_the_layout_and_transition_the_classes_name() {
             .find(|case| case.class_name.starts_with(class_name))
             .unwrap_or_else(|| panic!("fixture case {class_name}"));
         resolve(
+            Kind::View,
             Some(&case.compiled),
             false,
             &InheritedStyle::default(),
@@ -488,7 +490,7 @@ mod lab {
     use taffy::prelude::{AvailableSpace, NodeId, Size, TaffyTree};
 
     use crate::computed_style::{ComputedStyle, InheritedStyle, resolve};
-    use crate::props::{StyleLayers, Viewport};
+    use crate::props::{Kind, StyleLayers, Viewport};
 
     use super::conditions_for;
 
@@ -554,6 +556,7 @@ mod lab {
         viewport: Viewport,
     ) -> (NodeId, ComputedStyle) {
         let computed = resolve(
+            Kind::View,
             Some(&lab.compiled[&entry.class_name]),
             false,
             inherited,
@@ -587,6 +590,7 @@ mod lab {
                           inherited: &InheritedStyle,
                           children: &[NodeId]| {
             let computed = resolve(
+                Kind::View,
                 Some(&lab.compiled[class_name]),
                 false,
                 inherited,
@@ -598,6 +602,7 @@ mod lab {
                 .unwrap()
         };
         let page_style = resolve(
+            Kind::View,
             Some(&lab.compiled[&lab.page_class]),
             false,
             &inherited,

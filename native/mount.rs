@@ -221,6 +221,7 @@ impl StyleTree for Mounted {
     fn style_inputs(&self, tag: u32) -> StyleInputs<'_> {
         let node = &self.nodes[&tag];
         StyleInputs {
+            kind: node.kind,
             layers: node.props.style.as_ref(),
             hidden: node.props.is_hidden(),
             states: self.interaction.states_of(tag, node.props.is_disabled()),
@@ -599,6 +600,8 @@ struct DryRun {
 pub(crate) struct StyleOverlay<'a> {
     mounted: &'a Mounted,
     props: HashMap<u32, &'a PropsSpec>,
+    /// The kinds of the nodes the commit creates; a mounted node's is the mounted tree's.
+    created_kinds: HashMap<u32, Kind>,
     lists: HashMap<Parent, &'a Vec<u32>>,
     new_parent: HashMap<u32, Parent>,
     pub(crate) computed: HashMap<u32, ComputedStyle>,
@@ -607,8 +610,10 @@ pub(crate) struct StyleOverlay<'a> {
 impl<'a> StyleOverlay<'a> {
     fn new(mounted: &'a Mounted, validated: &'a ValidatedCommit) -> Self {
         let mut props: HashMap<u32, &PropsSpec> = HashMap::new();
+        let mut created_kinds: HashMap<u32, Kind> = HashMap::new();
         for create in &validated.created {
             props.insert(create.tag, &create.props);
+            created_kinds.insert(create.tag, create.kind);
         }
         for update in &validated.updated {
             props.insert(update.tag, &update.props);
@@ -626,9 +631,17 @@ impl<'a> StyleOverlay<'a> {
         Self {
             mounted,
             props,
+            created_kinds,
             lists,
             new_parent,
             computed: HashMap::new(),
+        }
+    }
+
+    fn kind_of(&self, tag: u32) -> Kind {
+        match self.created_kinds.get(&tag) {
+            Some(kind) => *kind,
+            None => self.mounted.nodes[&tag].kind,
         }
     }
 
@@ -666,6 +679,7 @@ impl StyleTree for StyleOverlay<'_> {
     fn style_inputs(&self, tag: u32) -> StyleInputs<'_> {
         let props = self.props_of(tag);
         StyleInputs {
+            kind: self.kind_of(tag),
             layers: props.style.as_ref(),
             hidden: props.is_hidden(),
             states: self.mounted.interaction.states_of(tag, props.is_disabled()),

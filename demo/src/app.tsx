@@ -133,7 +133,7 @@ function InventoryCard({ item, selected, onSelect }: { item: Item; selected: boo
   return (
     <Button
       testID={`item-${item.id}`}
-      className={`p-4 rounded-xl border bg-white gap-2 hover:bg-slate-50 focus:border-indigo-500 ${selected ? accent.border : 'border-slate-200'}`}
+      className={`justify-start text-left p-4 rounded-xl border bg-white gap-2 hover:bg-slate-50 focus:border-indigo-500 ${selected ? accent.border : 'border-slate-200'}`}
       style={{ height: INVENTORY_CARD_HEIGHT, alignItems: 'stretch' }}
       onClick={() => { setSelections(value => value + 1); onSelect(); }}
     >

@@ -1,8 +1,8 @@
 //! Native style resolution: a node's computed style from its style layers, inheritance and the
 //! conditions that hold for it (plan section 3.6).
 //!
-//! A computed style is the parent's inherited properties, then every layer whose conditions hold,
-//! in order. Conditions are a minimum viewport width and pseudo-states (hover, active, focus,
+//! A computed style is the parent's inherited properties, then the user agent's own style for the kind of
+//! element (`user_agent.rs`: a `Button` centres its content), then every layer whose conditions hold, in order. Conditions are a minimum viewport width and pseudo-states (hover, active, focus,
 //! focus-visible, focus-within, disabled). Nothing here touches Godot; the mounting layer
 //! implements [`StyleTree`] over its mounted nodes and feeds [`restyle`] the nodes whose inputs
 //! changed.
@@ -11,10 +11,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ops::{Bound, Deref};
 
 use crate::props::{
-    CursorSpec, DisplaySpec, InterpolateSize, PointerEventsSpec, PseudoState, StyleLayer,
+    CursorSpec, DisplaySpec, InterpolateSize, Kind, PointerEventsSpec, PseudoState, StyleLayer,
     StyleLayers, StyleSpec, TextAlignSpec, UserSelectSpec, Viewport, VisibilitySpec,
 };
 use crate::text_style::{InheritedText, settle};
+use crate::user_agent;
 
 /// The pseudo-states that hold for one node, as a small bit set.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -148,8 +149,10 @@ fn applies(layer: &StyleLayer, conditions: &StyleConditions) -> bool {
             .all(|state| conditions.states.contains(*state))
 }
 
-/// The computed style of a node with `layers`, `hidden` (Suspense) and the given parent values.
+/// The computed style of a node of `kind` with `layers`, `hidden` (Suspense) and the given parent values: the parent's inherited values, then the
+/// user agent's style for `kind`, then the layers that apply.
 pub fn resolve(
+    kind: Kind,
     layers: Option<&StyleLayers>,
     hidden: bool,
     inherited: &InheritedStyle,
@@ -172,6 +175,7 @@ pub fn resolve(
         ..StyleSpec::default()
     };
     inherited.text.inherit_into(&mut spec);
+    user_agent::apply(kind, &mut spec);
     if let Some(layers) = layers {
         for layer in &layers.layers {
             if applies(layer, conditions) {
@@ -347,6 +351,8 @@ pub trait StyleTree {
 /// The per-node inputs to [`resolve`] other than inheritance and the viewport.
 #[derive(Clone, Copy, Debug)]
 pub struct StyleInputs<'a> {
+    /// What the node is: the user agent's own style for it is under the layers (`user_agent.rs`).
+    pub kind: Kind,
     pub layers: Option<&'a StyleLayers>,
     pub hidden: bool,
     pub states: PseudoStates,
@@ -389,12 +395,19 @@ pub fn restyle<T: StyleTree>(
             states: inputs.states,
         };
         let previous = tree.computed(tag);
-        let next = resolve(inputs.layers, inputs.hidden, &inherited, &conditions);
+        let next = resolve(
+            inputs.kind,
+            inputs.layers,
+            inputs.hidden,
+            &inherited,
+            &conditions,
+        );
         let starting = if previous.is_none_or(|prev| prev.display == Some(DisplaySpec::None))
             && next.display != Some(DisplaySpec::None)
             && states_used(inputs.layers).contains(PseudoState::Starting)
         {
             let starting = resolve(
+                inputs.kind,
                 inputs.layers,
                 inputs.hidden,
                 &inherited,
@@ -457,7 +470,7 @@ mod tests {
 
     use super::*;
     use crate::grid_style::GridTemplateSpec;
-    use crate::props::{Dimension, TransitionProperty};
+    use crate::props::{AlignSpec, Dimension, FlexDirectionSpec, JustifySpec, TransitionProperty};
 
     const WIDE: f32 = 1120.0;
     const NARROW: f32 = 600.0;
@@ -486,11 +499,138 @@ mod tests {
 
     fn computed(layers: &StyleLayers, width: f32, states: &[PseudoState]) -> ComputedStyle {
         resolve(
+            Kind::View,
             Some(layers),
             false,
             &InheritedStyle::default(),
             &conditions(width, states),
         )
+    }
+
+    /// A button's computed style with `layers` and nothing inherited.
+    fn button(layers: Option<&StyleLayers>, width: f32, states: &[PseudoState]) -> ComputedStyle {
+        resolve(
+            Kind::Button,
+            layers,
+            false,
+            &InheritedStyle::default(),
+            &conditions(width, states),
+        )
+    }
+
+    #[test]
+    fn a_button_centres_its_content_and_its_text_by_default_and_stays_a_column() {
+        let style = button(None, NARROW, &[]);
+        assert_eq!(style.align_items, Some(AlignSpec::Center));
+        assert_eq!(style.justify_content, Some(JustifySpec::Center));
+        assert_eq!(style.text_align, Some(TextAlignSpec::Center));
+        assert_eq!(
+            style.flex_direction, None,
+            "the direction is the library's default, a column, not set by the user agent"
+        );
+        assert_eq!(
+            style.padding_left, None,
+            "no padding, border or paint: those are the app's"
+        );
+        assert_eq!(style.border_left_width, None);
+        assert_eq!(style.background_color, None);
+    }
+
+    #[test]
+    fn the_other_kinds_have_no_user_agent_style() {
+        for kind in [Kind::View, Kind::Text, Kind::TextInput] {
+            let style = resolve(
+                kind,
+                None,
+                false,
+                &InheritedStyle::default(),
+                &conditions(NARROW, &[]),
+            );
+            assert_eq!(style, ComputedStyle::default(), "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn an_authors_layers_replace_a_buttons_defaults_one_property_at_a_time() {
+        let authored = layers(
+            r##"{"layers":[
+                {"style":{"alignItems":"flex-start"}},
+                {"style":{"flexDirection":"row","textAlign":"left"}}
+            ]}"##,
+        );
+        let style = button(Some(&authored), NARROW, &[]);
+        assert_eq!(style.align_items, Some(AlignSpec::FlexStart), "items-start");
+        assert_eq!(style.text_align, Some(TextAlignSpec::Left), "text-left");
+        assert_eq!(
+            style.justify_content,
+            Some(JustifySpec::Center),
+            "a property the author did not set keeps the default"
+        );
+        assert_eq!(style.flex_direction, Some(FlexDirectionSpec::Row));
+        let stretched = layers(
+            r##"{"layers":[{"style":{"alignItems":"stretch","justifyContent":"space-between"}}]}"##,
+        );
+        let style = button(Some(&stretched), NARROW, &[]);
+        assert_eq!(style.align_items, Some(AlignSpec::Stretch), "items-stretch");
+        assert_eq!(
+            style.justify_content,
+            Some(JustifySpec::SpaceBetween),
+            "justify-between"
+        );
+    }
+
+    #[test]
+    fn a_state_or_breakpoint_layer_replaces_the_default_only_while_it_holds() {
+        let authored = layers(
+            r##"{"layers":[
+                {"states":["hover"],"style":{"justifyContent":"flex-end"}},
+                {"minWidth":768,"style":{"alignItems":"flex-end"}}
+            ]}"##,
+        );
+        let rest = button(Some(&authored), NARROW, &[]);
+        assert_eq!(rest.justify_content, Some(JustifySpec::Center));
+        assert_eq!(rest.align_items, Some(AlignSpec::Center));
+        let hovered = button(Some(&authored), NARROW, &[PseudoState::Hover]);
+        assert_eq!(
+            hovered.justify_content,
+            Some(JustifySpec::FlexEnd),
+            "hover:justify-end"
+        );
+        let wide = button(Some(&authored), MD, &[]);
+        assert_eq!(wide.align_items, Some(AlignSpec::FlexEnd), "md:items-end");
+        assert_eq!(wide.justify_content, Some(JustifySpec::Center));
+    }
+
+    #[test]
+    fn what_is_inside_a_button_has_its_text_centred_and_nothing_else_of_its_style() {
+        let parent = button(None, NARROW, &[]);
+        let inside = resolve(
+            Kind::Text,
+            None,
+            false,
+            &parent.inherited(),
+            &conditions(NARROW, &[]),
+        );
+        assert_eq!(
+            inside.text_align,
+            Some(TextAlignSpec::Center),
+            "text-align inherits, so a wrapped label stays centred"
+        );
+        assert_eq!(inside.align_items, None, "the centring is the button's own");
+        assert_eq!(inside.justify_content, None);
+        let own = layers(r##"{"layers":[{"style":{"textAlign":"left"}}]}"##);
+        let left = resolve(
+            Kind::Text,
+            Some(&own),
+            false,
+            &parent.inherited(),
+            &conditions(NARROW, &[]),
+        );
+        assert_eq!(
+            left.text_align,
+            Some(TextAlignSpec::Left),
+            "text-left on what is inside"
+        );
     }
 
     #[test]
@@ -583,6 +723,7 @@ mod tests {
     fn hidden_nodes_take_no_space() {
         let layers = layers(r#"{"layers":[{"style":{"display":"grid"}}]}"#);
         let hidden = resolve(
+            Kind::View,
             Some(&layers),
             true,
             &InheritedStyle::default(),
@@ -614,7 +755,13 @@ mod tests {
             visibility: None,
         };
         let none = StyleLayers::default();
-        let child = resolve(Some(&none), false, &inherited, &conditions(WIDE, &[]));
+        let child = resolve(
+            Kind::View,
+            Some(&none),
+            false,
+            &inherited,
+            &conditions(WIDE, &[]),
+        );
         assert_eq!(child.color.as_deref(), Some("#fff"));
         assert_eq!(child.font_size, Some(18));
         assert_eq!(child.text_align, Some(TextAlignSpec::Center));
@@ -630,7 +777,13 @@ mod tests {
             r##"{"layers":[{"style":{"color":"#000","fontSize":12,"scrollbarColor":"#f00",
                 "userSelect":"none","selectionColor":"#0f0","caretColor":"#0f0"}}]}"##,
         );
-        let overridden = resolve(Some(&own), false, &inherited, &conditions(WIDE, &[]));
+        let overridden = resolve(
+            Kind::View,
+            Some(&own),
+            false,
+            &inherited,
+            &conditions(WIDE, &[]),
+        );
         assert_eq!(overridden.color.as_deref(), Some("#000"));
         assert_eq!(overridden.font_size, Some(12));
         assert_eq!(overridden.scrollbar_color.as_deref(), Some("#f00"));
@@ -641,7 +794,13 @@ mod tests {
         assert_eq!(overridden.text_align, Some(TextAlignSpec::Center));
         // A child may take pointer events back inside an element that has none.
         let auto = layers(r#"{"layers":[{"style":{"pointerEvents":"auto","cursor":"text"}}]}"#);
-        let reclaimed = resolve(Some(&auto), false, &inherited, &conditions(WIDE, &[]));
+        let reclaimed = resolve(
+            Kind::View,
+            Some(&auto),
+            false,
+            &inherited,
+            &conditions(WIDE, &[]),
+        );
         assert!(reclaimed.is_pointer_target());
         assert_eq!(reclaimed.cursor, Some(CursorSpec::Text));
         assert!(
@@ -650,6 +809,7 @@ mod tests {
         );
         assert_eq!(
             resolve(
+                Kind::View,
                 None,
                 false,
                 &InheritedStyle::default(),
@@ -666,7 +826,13 @@ mod tests {
                 "overscrollBehavior":"contain","scrollbarWidth":"none","touchAction":"none"}}]}"##,
         );
         let parent = computed(&parent, WIDE, &[]);
-        let below = resolve(None, false, &parent.inherited(), &conditions(WIDE, &[]));
+        let below = resolve(
+            Kind::View,
+            None,
+            false,
+            &parent.inherited(),
+            &conditions(WIDE, &[]),
+        );
         assert_eq!(below.background_color, None);
         assert_eq!(below.padding_top, None);
         assert_eq!(below.overscroll_behavior, None);
@@ -681,19 +847,32 @@ mod tests {
             ..InheritedStyle::default()
         };
         let none = StyleLayers::default();
-        let child = resolve(Some(&none), false, &hidden, &conditions(WIDE, &[]));
+        let child = resolve(
+            Kind::View,
+            Some(&none),
+            false,
+            &hidden,
+            &conditions(WIDE, &[]),
+        );
         assert!(child.is_invisible());
         assert!(
             !child.is_pointer_target(),
             "a hidden element takes no pointer"
         );
         let visible = layers(r#"{"layers":[{"style":{"visibility":"visible"}}]}"#);
-        let shown = resolve(Some(&visible), false, &hidden, &conditions(WIDE, &[]));
+        let shown = resolve(
+            Kind::View,
+            Some(&visible),
+            false,
+            &hidden,
+            &conditions(WIDE, &[]),
+        );
         assert!(!shown.is_invisible());
         assert!(shown.is_pointer_target());
         assert_eq!(shown.inherited().visibility, Some(VisibilitySpec::Visible));
         assert!(
             !resolve(
+                Kind::View,
                 None,
                 false,
                 &InheritedStyle::default(),
@@ -911,6 +1090,7 @@ mod tests {
             self.resolved.borrow_mut().push(tag);
             let node = &self.nodes[&tag];
             StyleInputs {
+                kind: Kind::View,
                 layers: Some(&node.layers),
                 hidden: node.hidden,
                 states: node.states,

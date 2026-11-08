@@ -147,11 +147,12 @@ function caseMarkup(id) {
       const { bar, hitParent, hitChild, hitCollapsed } = BEHAVIOUR;
       const tapped = id === TAPPED.id;
       return { after: hitResults(tapped), stage: [
-        // The lab's Button has `items-center justify-center`: the label is in the middle of the bar. A tap outlines it (`HIT_FLASH`): 3 px amber, 2 px outside.
-        abs(bar.left, bar.top, bar.width, bar.height, {
-          background: '#4f46e5', borderRadius: px(8), transform: bar.transform, alignItems: 'center', justifyContent: 'center',
-          ...(tapped ? { outline: '3px solid #f59e0b', outlineOffset: px(2) } : {}),
-        }, text('sm', 'white', 'Turned bar', { pointerEvents: 'none' }), 'id="bar"'),
+        // A bare `Button` (no alignment of the lab's own) is a browser's `<button>`: the label is in the middle of the bar, by the user agent's stylesheet. A tap
+        // outlines it (`HIT_FLASH`): 3 px amber, 2 px outside. Only the user agent's padding, border and font are reset, as the library has none.
+        `<button id="bar" style="${style({
+          position: 'absolute', left: px(bar.left), top: px(bar.top), width: px(bar.width), height: px(bar.height), border: '0', padding: '0', margin: '0', font: 'inherit',
+          background: '#4f46e5', borderRadius: px(8), transform: bar.transform, ...(tapped ? { outline: '3px solid #f59e0b', outlineOffset: px(2) } : {}),
+        })}">${text('sm', 'white', 'Turned bar', { pointerEvents: 'none' })}</button>`,
         abs(hitParent.left, hitParent.top, hitParent.size, hitParent.size, { background: '#fde68a', transform: hitParent.transform }, abs(hitChild.left, hitChild.top, hitChild.width, hitChild.height, { background: '#be123c', transform: hitChild.transform })),
         abs(hitCollapsed.left, hitCollapsed.top, hitCollapsed.size, hitCollapsed.size, { background: '#0f172a', transform: hitCollapsed.transform }),
         guide(bar.left, bar.top, bar.width, bar.height), guideLabel(bar.left, bar.top + bar.height + 2, 'unturned box'),

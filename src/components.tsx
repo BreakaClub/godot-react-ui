@@ -324,7 +324,14 @@ function withLabels(children: ReactNode): ReactNode[] {
   return labelled;
 }
 
-/** Native hit testing and keyboard activation; event closures stay in JavaScript. */
+/**
+ * Native hit testing and keyboard activation; event closures stay in JavaScript.
+ *
+ * Like a browser's `<button>`, it centres its content: a flex column with `align-items: center`, `justify-content: center` and `text-align: center`
+ * (the user agent's style, `native/user_agent.rs`), so a label sits in the middle of a button whatever size the button is given. A `className` or `style`
+ * replaces each of them as it would the browser's own: `items-start`, `justify-between`, `flex-row`, `text-left`. Padding, border and background are
+ * yours: the library adds none.
+ */
 export const Button = forwardRef<UIHandle, UIProps>((props, ref) =>
   createElement('button', { ...props, ref }, withLabels(props.children)));
 Button.displayName = 'Button';

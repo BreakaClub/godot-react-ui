@@ -41,7 +41,7 @@ const TRACK_FADE: Transition = Object.freeze({
   properties: Object.freeze(['backgroundColor' as const]), durationMs: TRACK_FADE_MS, easing: 'ease-out',
 });
 
-const ROOT_CLASS = 'flex-row items-center gap-2 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50';
+const ROOT_CLASS = 'flex-row items-center justify-start gap-2 text-left cursor-pointer disabled:cursor-not-allowed disabled:opacity-50';
 const TRACK_CLASS = 'flex-row items-center rounded-full';
 const TRACK_OFF_CLASS = 'bg-slate-300';
 const TRACK_ON_CLASS = 'bg-indigo-600';

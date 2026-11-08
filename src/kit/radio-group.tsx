@@ -75,7 +75,7 @@ function useGroup(part: string): RadioGroupContext {
 
 const ROOT_COLUMN_CLASS = 'flex-col gap-2';
 const ROOT_ROW_CLASS = 'flex-row gap-4';
-const ITEM_CLASS = 'flex-row items-center gap-2 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50';
+const ITEM_CLASS = 'flex-row items-center justify-start gap-2 text-left cursor-pointer disabled:cursor-not-allowed disabled:opacity-50';
 const CIRCLE_CLASS = 'w-5 h-5 rounded-full border-2 border-slate-400 bg-white items-center justify-center';
 const CIRCLE_SELECTED_CLASS = 'border-indigo-600';
 const DOT_CLASS = 'w-2.5 h-2.5 rounded-full bg-indigo-600';
