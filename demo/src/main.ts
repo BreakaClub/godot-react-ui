@@ -2,7 +2,7 @@ import { createElement, type ReactElement } from 'react';
 import {
   BaseMaterial3D, BoxMesh, Callable, Camera3D, Color, ColorRect, Control, DirAccess, DisplayServer, Engine, FileAccess, InputEvent, InputEventKey,
   InputEventMouseButton, InputEventPanGesture, InputMap, MeshInstance3D, MouseButton, Node, Node3D, ReactUiRoot, OS, StandardMaterial3D,
-  Time, Transform2D, Vector2, Vector2I, Vector3, Window,
+  Input, Time, Transform2D, Vector2, Vector2I, Vector3, Window,
 } from 'godot';
 import { createClassBinder } from 'godot.annotations';
 import { createRoot, readActivity, takeNativeProfile, type ReactRoot, type UIHandle } from '../../src';
@@ -277,6 +277,19 @@ export default class Main extends Node {
       wheelEvents: () => this.wheelEvents,
       passthrough: (): PassthroughCounts => ({ ...this.passthrough, unhandledKeys: { ...this.passthrough.unhandledKeys } }),
       resetPassthrough: () => { this.passthrough = { backdropPresses: 0, unhandledPresses: 0, unhandledWheels: 0, unhandledPans: 0, unhandledKeys: {} }; },
+      /** Whether the engine's `Input` has this key (a `Key` value) down: a key the engine heard go down and never come up stays down (docs/tracks/key-passthrough.md). */
+      keyPressed: (keycode: number) => Input.isKeyPressed(keycode),
+      /** Whether key chords that nothing in the root claims go to the browser (`RootOptions.keyPassthrough`). */
+      setKeyPassthrough: (enabled: boolean) => { this.requireRenderer().setKeyPassthrough(enabled); },
+      /** The tags of the focused element and its ancestors, the element first (`ReactUiRoot.focusedPath`). */
+      focusedPath: (): number[] => {
+        const path = this.requireSurface().focusedPath();
+        return Array.from({ length: path.size() }, (_, index) => path.get(index));
+      },
+      /** Whether native would act on this DOM key if it were pressed now (`ReactUiRoot.claimsKeyChord`), which is what keeps it from the browser. */
+      claimsKeyChord: (code: string, key: string, shift: boolean, ctrl: boolean, alt: boolean, meta: boolean) => (
+        this.requireSurface().claimsKeyChord(code, key, shift, ctrl, alt, meta)
+      ),
       /** What the engine says about the scale this window draws at, for the HiDPI verifiers (docs/tracks/hidpi.md). */
       scaleFacts: () => {
         const window = this.getWindow();

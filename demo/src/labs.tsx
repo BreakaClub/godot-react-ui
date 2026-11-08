@@ -14,6 +14,7 @@ import { HidpiLab } from './hidpi-lab';
 import { InputsLab } from './inputs-lab';
 import { InteractionLab } from './interaction-lab';
 import { KeyboardLab } from './keyboard-lab';
+import { KeyPassthroughLab } from './key-passthrough-lab';
 import { MotionLab } from './motion-lab';
 import { LayoutUtilitiesExplorer } from './layout-utilities-lab';
 import { PaintExplorer } from './paint-lab';
@@ -129,6 +130,11 @@ export const LABS = defineLabs([
     id: 'keyboard', kind: 'inline', group: 'Input', title: 'Keyboard',
     description: 'Tab order, the focus ring, key events and a focus trap.',
     component: KeyboardLab, sources: ['res://src/keyboard-lab.tsx'],
+  },
+  {
+    id: 'key-passthrough', kind: 'inline', group: 'Input', title: 'Key pass-through',
+    description: 'Key chords nothing claims go to the browser, so Cmd+R reloads and Cmd+F finds, while a focused input or panel keeps its own.',
+    component: KeyPassthroughLab, sources: ['res://src/key-passthrough-lab.tsx'],
   },
   {
     id: 'inputs', kind: 'inline', group: 'Input', title: 'Controls',

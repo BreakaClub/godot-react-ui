@@ -35,6 +35,8 @@ export const DEMO_ENTRY_POINTS = [
   'demo/src/verify-dropdown-touch.ts',
   // The touch text selection verifier (docs/tracks/touch-selection.md).
   'demo/src/verify-touch-selection.ts',
+  // Which key chords go to the browser: the verifier's native half (docs/tracks/key-passthrough.md).
+  'demo/src/verify-key-passthrough.ts',
   // The code panel's verifier (docs/tracks/code-editor.md). The editor itself is `demo/src/editor/`, hidden from Godot (`.gdignore`) and bundled into its importers.
   'demo/src/verify-code-editor.ts',
   // The keystroke cost diagnostic that drives the code panel (docs/tracks/keystroke-profile.md).
