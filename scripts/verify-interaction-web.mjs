@@ -22,6 +22,7 @@ import { runGlassScenario } from './verify-glass-web.mjs';
 import { runCodeEditorScenario, runTouchCodeEditorScenario } from './verify-code-editor-web.mjs';
 import { runNavigatorScenario, runNavigatorStartScenario } from './verify-navigator-web.mjs';
 import { runFontSlicesScenario } from './verify-font-slices-web.mjs';
+import { runRotationScenario } from './verify-rotation-web.mjs';
 import { runRichTextScenario } from './verify-rich-text-web.mjs';
 import { runTextStylesScenario } from './verify-text-styles-web.mjs';
 import { runTransformsScenario } from './verify-transforms-web.mjs';
@@ -3023,6 +3024,11 @@ try {
         browser, base: url, check, viewport: { width: viewports[0].width, height: viewports[0].height },
         exportDirectory: engine.artifactPath(`web-${engine.webMode()}`),
       }));
+    }
+    if (wanted('rotation')) {
+      // A device turned from portrait to landscape and back: each case is a page of its own, in Chrome's mobile emulation (docs/tracks/rotation.md).
+      activeViewport = 'rotation';
+      await section('rotation', () => runRotationScenario({ browser, base: url, check, output: resolve(output, activeViewport) }));
     }
     if (wanted('touch') || wanted('drag') || wanted('combobox') || wanted('dropdown-touch') || wanted('code-editor')) await runTouchWorkflow();
     checkBrowserErrors();

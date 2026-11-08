@@ -8,7 +8,8 @@ import { resolve } from 'node:path';
 // cross `page.evaluate`), and the start on a lab (`?lab=`) and the scene lab's round trip have their own pages: `runNavigatorStartScenario`.
 
 const SIDEBAR_WIDTH_PX = 257;
-const SIDEBAR_BREAKPOINT_PX = 1024;
+/** The window width from which the navigator shows its sidebar instead of the top bar (`lg:` in demo/src/navigator.tsx). */
+export const SIDEBAR_BREAKPOINT_PX = 1024;
 const BASELINE_LAB = 'counter';
 const GEOMETRY_TOLERANCE_PX = 2;
 const SCROLL_MARGIN_PX = 40;
