@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Button, Text, View, type Style } from 'godot-react-ui';
+import { LabIntro, Readout } from './lab-parts';
 
 export const MOTION_DURATION_MS = 600;
 export const MOTION_BASE_FONT_SIZE = 14;
@@ -53,12 +54,26 @@ function AccordionContent({ longCopy, largeText }: { longCopy: boolean; largeTex
   );
 }
 
+/** A row of controls with the name of what they act on, so the five buttons are not one undifferentiated pile. */
+function ControlRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <View className="flex-row flex-wrap items-center gap-2">
+      <Text className="w-16 text-xs text-slate-500">{label}</Text>
+      {children}
+    </View>
+  );
+}
+
 /**
  * The native height owns both visible clipping and the following sibling's
  * position. The inner card deliberately remains intrinsic-sized: partial ink
  * clipping inside motion-clip is the expected intermediate presentation, while
  * paint and input outside the clip are forbidden. No JS animation timer, sampled
  * pixel height, max-height approximation, or manual sibling offset participates.
+ *
+ * The page is also the playground's third tab, and `verify-motion.ts` and `verify-motion-web.mjs` run it in windows 800 and 900 px tall
+ * with the panel open and click the buttons by their rectangles: the text above the panel is kept to two lines, and the longer explanation sits
+ * under the card that follows the panel, so that the card stays in the window (`flow` asserts it) and the paint button is not pushed far down.
  */
 export function MotionLab() {
   const [open, setOpen] = useState(false);
@@ -70,12 +85,12 @@ export function MotionLab() {
 
   return (
     <View testID="motion-lab" className="gap-2">
-      <View className="gap-1">
-        <Text className="text-2xl text-slate-900">Motion, in the flow.</Text>
-        <Text className="text-sm text-slate-500">Expand, resize, interrupt. The layout follows the content.</Text>
-      </View>
+      <LabIntro
+        title="Motion, in the flow."
+        paragraphs={["The panel grows from 0 to its natural height (height: auto) and the card below follows, animated natively with no JavaScript timer."]}
+      />
 
-      <View className="flex-row flex-wrap gap-2">
+      <ControlRow label="Panel">
         <Button
           testID="motion-toggle"
           className="rounded-lg border border-transparent bg-indigo-600 text-white px-4 py-2 hover:bg-indigo-700 active:bg-indigo-800 focus:border-indigo-500 disabled:bg-slate-200 disabled:text-slate-400"
@@ -84,26 +99,22 @@ export function MotionLab() {
         >
           {open ? 'Collapse panel' : 'Expand panel'}
         </Button>
+        <Button testID="motion-mount-toggle" className={secondaryButton} onClick={() => setMounted(value => !value)}>
+          {mounted ? 'Remove panel' : 'Remount panel'}
+        </Button>
+      </ControlRow>
+
+      <ControlRow label="Content">
         <Button testID="motion-copy-toggle" className={secondaryButton} onClick={() => setLongCopy(value => !value)}>
           {longCopy ? 'Shorter copy' : 'Longer copy'}
         </Button>
         <Button testID="motion-width-toggle" className={secondaryButton} onClick={() => setNarrow(value => !value)}>
           {narrow ? 'Full width' : 'Narrow width'}
         </Button>
-      </View>
-
-      <View className="flex-row flex-wrap items-center gap-2">
-        <Button testID="motion-mount-toggle" className={secondaryButton} onClick={() => setMounted(value => !value)}>
-          {mounted ? 'Remove panel' : 'Remount panel'}
-        </Button>
         <Button testID="motion-font-toggle" className={secondaryButton} onClick={() => setLargeText(value => !value)}>
           {largeText ? 'Smaller text' : 'Larger text'}
         </Button>
-        <Text testID="motion-status" className="text-xs text-slate-500">
-          {mounted ? 'Mounted' : 'Removed'} · {narrow ? 'Narrow' : 'Full width'} · {longCopy ? 'Long copy' : 'Short copy'}
-        </Text>
-      </View>
-
+      </ControlRow>
       <View testID="motion-width-owner" className="gap-3 shrink-0" style={{ width: narrow ? NARROW_WIDTH : FULL_WIDTH }}>
         {mounted && (
           <View
@@ -126,6 +137,17 @@ export function MotionLab() {
         </View>
       </View>
 
+      {/* Under the card that follows the panel, so that nothing the text adds moves the panel or that card (the verifiers read both). */}
+      <View className="gap-1">
+        <Text className="text-sm text-slate-600">
+          Press Expand panel, then again part-way: it reverses from where it is. Change the content while it moves and the height retargets instead of jumping. Every control works with a tap.
+        </Text>
+        <Readout
+          label="Now" testID="motion-status"
+          value={`${mounted ? 'Mounted' : 'Removed'} · ${narrow ? 'Narrow' : 'Full width'} · ${longCopy ? 'Long copy' : 'Short copy'}`}
+        />
+      </View>
+
       <View className="rounded-xl border border-slate-200 bg-white p-4 flex-row flex-wrap items-center gap-3">
         <View
           testID="motion-paint-swatch"
@@ -138,9 +160,9 @@ export function MotionLab() {
             transition: paintTransition,
           }}
         />
-        <View className="flex-1 gap-1 min-w-0">
-          <Text className="text-base text-slate-700">Paint can move on its own.</Text>
-          <Text className="text-xs text-slate-500">Color and opacity change; this row keeps its geometry.</Text>
+        <View className="flex-1 gap-1 min-w-[160px]">
+          <Text className="text-base text-slate-700">Colour and opacity</Text>
+          <Text className="text-xs text-slate-500">{`Press Change paint: the swatch turns green and dims over ${MOTION_DURATION_MS} ms, and nothing around it moves.`}</Text>
         </View>
         <Button testID="motion-paint-toggle" className={secondaryButton} onClick={() => setPainted(value => !value)}>Change paint</Button>
       </View>

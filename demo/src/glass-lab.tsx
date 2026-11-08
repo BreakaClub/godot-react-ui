@@ -6,6 +6,16 @@ import { BASE_COLOUR, BLOBS, CARDS, DUAL_DECOR, GLASS, ROWS, SEARCH_PLACEHOLDER,
 export const GLASS_BLOB_IDS = BLOBS.map((_, index) => `glass-blob-${index}`);
 
 /**
+ * The crisp circles behind the stacked and the dual panels, in CSS pixels from their panel's left: the last one ends 460 px in, so in a window
+ * narrower than that (a phone) it reaches past the page's edge, where the scroll view clips it. They have ids so a check of what runs off a
+ * phone's edge can name them as it names the blobs.
+ */
+export const GLASS_DECOR_IDS = [
+  ...STACK_DECOR.map((_, index) => `glass-stack-decor-${index}`),
+  ...DUAL_DECOR.map((_, index) => `glass-dual-decor-${index}`),
+];
+
+/**
  * Frosted glass as a product developer would write it (plan Phase V1 showcase, `docs/tracks/filters.md`): a colourful
  * background, a glass bar fixed over a scrolling page, glass cards with a button that has a `hover:` state, two glass panels
  * overlapping, and a sheet over a `backdrop-blur-sm` scrim in a `Portal`. Every glass element uses the utilities as written
@@ -79,8 +89,8 @@ function GlassCard({ index, width, onAdd }: { index: number; width: number; onAd
 function GlassStack() {
   return (
     <View testID="glass-stack" className="relative" style={{ height: STACK_HEIGHT }}>
-      {STACK_DECOR.map(shape => (
-        <View key={shape.colour} className="absolute rounded-full" style={{ left: shape.left, top: shape.top, width: shape.size, height: shape.size, backgroundColor: shape.colour }} />
+      {STACK_DECOR.map((shape, index) => (
+        <View key={shape.colour} testID={`glass-stack-decor-${index}`} className="absolute rounded-full" style={{ left: shape.left, top: shape.top, width: shape.size, height: shape.size, backgroundColor: shape.colour }} />
       ))}
       <View testID="glass-stack-back" className={`absolute left-0 top-0 h-44 w-3/4 gap-2 rounded-3xl p-5 ${GLASS}`}>
         <Text className="text-xl text-white">Weekend mixes</Text>
@@ -101,8 +111,8 @@ export const DUAL_ROW_PX = 145;
 function GlassDual() {
   return (
     <View testID="glass-dual" className="relative" style={{ height: STACK_HEIGHT }}>
-      {DUAL_DECOR.map(shape => (
-        <View key={shape.colour} className="absolute rounded-full" style={{ left: shape.left, top: shape.top, width: shape.size, height: shape.size, backgroundColor: shape.colour }} />
+      {DUAL_DECOR.map((shape, index) => (
+        <View key={shape.colour} testID={`glass-dual-decor-${index}`} className="absolute rounded-full" style={{ left: shape.left, top: shape.top, width: shape.size, height: shape.size, backgroundColor: shape.colour }} />
       ))}
       <View testID="glass-dual-card" className={`absolute left-0 top-6 h-44 w-3/4 gap-2 rounded-3xl p-5 drop-shadow-lg ${GLASS}`}>
         <Text testID="glass-dual-title" className="text-xl text-white">Frost and shadow</Text>

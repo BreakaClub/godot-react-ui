@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { Combobox, Select, Text, View } from 'godot-react-ui';
+import { LAB_CARD_CLASS, LabCase, LabGrid, LabIntro } from './lab-parts';
 
 /** Everything the page's dropdowns hold, in one object: the readout is this object as JSON. */
 interface DropdownState {
@@ -26,9 +27,8 @@ const PAGE_TAIL_PX = 700;
 /** Spaces in the JSON readout's indentation. */
 const JSON_INDENT = 2;
 
-/** The controls are 320 px wide, so that chips wrap after a few, and fill a narrower page. */
+/** The controls are 320 px wide, so that chips wrap after a few, and fill a narrower card. */
 const CONTROL_WIDTH = 'w-full max-w-80';
-const caption = 'text-sm text-slate-600';
 
 function SelectDropdown(props: { value: string | null; onChange: (value: string) => void }): ReactNode {
   const { value, onChange } = props;
@@ -117,20 +117,56 @@ export function DropdownTouchLab(): ReactNode {
     <View testID="dropdown-touch-lab" className="w-full h-full bg-slate-50 relative">
       <View testID="dropdown-touch-page" className="absolute inset-0 overflow-y-auto">
         <View className="p-6 gap-3">
-          <View className="gap-1">
-            <Text testID="dd-title" className="text-2xl text-slate-900">Dropdown lists</Text>
-            <Text className={caption}>Open a list and pan it with a finger: the list moves, the page behind it does not.</Text>
+          <LabIntro
+            testID="dd-title"
+            title="Dropdown lists under a finger"
+            paragraphs={[
+              'A list of options must pan under a finger like any other scrolling area: it moves with the finger, keeps coasting after a flick, and the page behind it does not move. This lab holds the kit\'s three dropdowns, each with forty options.',
+              'Forty options never fit under a control, so each list is capped to the room it has and has to be panned. Use a touch screen, or scroll with the wheel or the list\'s scrollbar.',
+            ]}
+          />
+
+          <LabGrid>
+            <LabCase
+              className={LAB_CARD_CLASS}
+              title="Select"
+              caption="Tap Pick an option, then drag the list up and down with a finger. Tap an option to choose it."
+              expected="the list pans with the finger and the page behind it stays put. A drag chooses nothing; only a tap does."
+            >
+              <SelectDropdown value={state.select} onChange={select => patch({ select })} />
+            </LabCase>
+
+            <LabCase
+              className={LAB_CARD_CLASS}
+              title="Combobox"
+              caption="Tap the box to open the list, or type to filter it, then pan the list with a finger as for the select."
+              expected="the same: the list pans and the page stays put."
+            >
+              <SingleCombobox value={state.combobox} onChange={combobox => patch({ combobox })} />
+            </LabCase>
+
+            <LabCase
+              className={LAB_CARD_CLASS}
+              title="Combobox with chips"
+              caption="Each option you tap becomes a chip and the list stays open, so you can pan on and choose more."
+              expected="a tap adds a chip; a drag adds none and moves only the list."
+            >
+              <ChipsCombobox value={state.chips} onChange={chips => patch({ chips })} />
+            </LabCase>
+
+            <LabCase className={LAB_CARD_CLASS} title="Chosen values" caption="What the three controls hold, as one JSON object.">
+              <View className="rounded-lg bg-slate-900 p-3">
+                <Text testID="dd-json" className="text-xs text-emerald-300">{JSON.stringify(state, null, JSON_INDENT)}</Text>
+              </View>
+            </LabCase>
+          </LabGrid>
+
+          <View testID="dd-page-tail" style={{ height: PAGE_TAIL_PX }}>
+            <LabCase
+              title="End of the page"
+              caption="The space below is empty on purpose: it makes the page scroll. Scroll the page with a finger, then open a list and pan it, to see that the list moves and the page does not."
+            />
           </View>
-
-          <SelectDropdown value={state.select} onChange={select => patch({ select })} />
-          <SingleCombobox value={state.combobox} onChange={combobox => patch({ combobox })} />
-          <ChipsCombobox value={state.chips} onChange={chips => patch({ chips })} />
-
-          <View className="rounded-lg bg-slate-900 p-3">
-            <Text testID="dd-json" className="text-xs text-emerald-300">{JSON.stringify(state, null, JSON_INDENT)}</Text>
-          </View>
-
-          <View testID="dd-page-tail" style={{ height: PAGE_TAIL_PX }} />
         </View>
       </View>
     </View>

@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { Button, Text, View } from 'godot-react-ui';
 import { InteractionLab } from './interaction-lab';
+import { LabIntro } from './lab-parts';
 import { MotionLab } from './motion-lab';
 
 type Demo = 'counter' | 'inventory' | 'motion' | 'interaction';
@@ -50,7 +51,18 @@ function Stat({ label, value, detail }: { label: string; value: string; detail: 
   );
 }
 
-export function CounterLab() {
+/** The explanation a lab adds to the controls the playground's verifiers drive (`docs/tracks/lab-clarity.md`). */
+const explanationText = 'text-xs text-slate-500';
+
+interface PlaygroundTabProps {
+  /**
+   * The lab is a tab of the playground page (`App`), whose verifiers read the geometry of everything on it in two fixed windows: it shows its
+   * controls and nothing else, as it always did. Left off, the lab is a page of the navigator and says what it shows before the controls.
+   */
+  embedded?: boolean;
+}
+
+export function CounterLab({ embedded = false }: PlaygroundTabProps) {
   const [count, setCount] = useState(INITIAL_COUNT);
   const [step, setStep] = useState(SMALL_STEP);
   const accent = accentStyles[useContext(AccentContext)];
@@ -63,6 +75,15 @@ export function CounterLab() {
 
   return (
     <View testID="counter-lab" className="gap-4">
+      {embedded ? null : (
+        <LabIntro
+          title="React state on a native canvas"
+          paragraphs={[
+            'An ordinary React component: useState holds the count and the step size, useMemo derives the doubled value, and each button\'s onClick closes over the current step. Its boxes are not DOM elements but native ones, laid out by Rust (Taffy) with Flexbox and Grid and drawn by Godot.',
+            'Try it: press Add, then Switch to 5 and press Add again. Updates that re-render, closures that see fresh values and a disabled button that ignores presses are the basics any React renderer has to get right.',
+          ]}
+        />
+      )}
       <View testID="counter-columns" className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <View testID="counter-card" className="bg-white rounded-2xl border border-slate-200 p-6 gap-3">
           <View className="flex-row items-center justify-between gap-4">
@@ -77,7 +98,13 @@ export function CounterLab() {
             <Button testID="decrement" className={secondaryButton} onClick={() => setCount(value => value - step)}>Subtract</Button>
             <Button testID="reset" className={`${secondaryButton} disabled:bg-slate-100 disabled:text-slate-400`} disabled={count === INITIAL_COUNT} onClick={() => { lifecycle.resetPresses += 1; setCount(INITIAL_COUNT); }}>Reset</Button>
           </View>
+          {embedded ? null : (
+            <Text className={explanationText}>Add and Subtract change the count by the step size. Reset sets it back to 0 and is disabled while the count is 0.</Text>
+          )}
           <Text testID="counter-derived" className="text-sm text-slate-500">Derived with useMemo: {doubled}</Text>
+          {embedded ? null : (
+            <Text className={explanationText}>useMemo works this out from the count, so it is always twice the number above and is recomputed only when the count changes.</Text>
+          )}
         </View>
 
         <View className="rounded-2xl bg-slate-900 p-6 gap-3">
@@ -95,9 +122,15 @@ export function CounterLab() {
               Switch to {step === SMALL_STEP ? LARGE_STEP : SMALL_STEP}
             </Button>
           </View>
+          {embedded ? null : (
+            <Text className="text-xs text-slate-300">The step switches between 1 and 5 and the Add button's label follows it. Add's handler is made again on every render, so the press after a switch uses the new step.</Text>
+          )}
         </View>
       </View>
 
+      {embedded ? null : (
+        <Text className={explanationText}>The three cards say how the page is made: React TSX components, laid out by Taffy, drawn by Godot. A window narrower than 768 logical pixels stacks the two panels above and hides the code sample (md: classes), which native applies without a React render.</Text>
+      )}
       <View testID="feature-grid" className="grid grid-cols-3 gap-3">
         <Stat label="AUTHOR" value="React TSX" detail="Real components + hooks" />
         <Stat label="ARRANGE" value="Taffy" detail="Native Flexbox + Grid" />
@@ -149,7 +182,7 @@ function InventoryCard({ item, selected, onSelect }: { item: Item; selected: boo
   );
 }
 
-export function InventoryLab() {
+export function InventoryLab({ embedded = false }: PlaygroundTabProps) {
   const [items, setItems] = useState(() => itemCatalog.slice(0, INITIAL_ITEMS));
   const [category, setCategory] = useState<Category>('All');
   const [selected, setSelected] = useState<string | null>(null);
@@ -172,10 +205,20 @@ export function InventoryLab() {
 
   return (
     <View testID="inventory-lab" className="gap-4">
-      <View className="gap-1">
-        <Text className="text-2xl text-slate-900">The garden collection</Text>
-        <Text className="text-sm text-slate-500">Select a card, then reverse the order. Its local React state stays with its key.</Text>
-      </View>
+      {embedded ? (
+        <View className="gap-1">
+          <Text className="text-2xl text-slate-900">The garden collection</Text>
+          <Text className="text-sm text-slate-500">Select a card, then reverse the order. Its local React state stays with its key.</Text>
+        </View>
+      ) : (
+        <LabIntro
+          title="The garden collection"
+          paragraphs={[
+            'Each card is its own React component with its own state: how many times it was clicked. The cards are drawn from a list and each has a key, so when the list changes React matches cards by key, not by position.',
+            'Try it: click a card two or three times, then press Reverse. The cards swap places and each keeps its count, and the selected one keeps its outline: React moved the native elements instead of building new ones. A filter or Remove takes cards out of the tree, so their counts start again when they come back.',
+          ]}
+        />
+      )}
       <View className="flex-row flex-wrap justify-between gap-3">
         <View className="flex-row gap-2">
           {categories.map(value => (
@@ -188,6 +231,9 @@ export function InventoryLab() {
           <Button testID="remove-item" className={`${secondaryButton} disabled:text-slate-400`} disabled={items.length === 0} onClick={removeItem}>Remove</Button>
         </View>
       </View>
+      {embedded ? null : (
+        <Text className={explanationText}>All, Seeds and Tools show one category. Add brings back the next item from the catalogue (up to six) and Remove takes the last one away. The line under the cards names the selected card and counts the cards shown.</Text>
+      )}
       {visibleItems.length > 0 ? (
         <View testID="inventory-grid" className="grid grid-cols-2 md:grid-cols-3 gap-3">
           {visibleItems.map(item => <InventoryCard key={item.id} item={item} selected={selected === item.id} onSelect={() => setSelected(item.id)} />)}
@@ -243,7 +289,7 @@ export function App() {
           <Button testID="tab-interaction" className={`rounded-lg px-5 py-3 border focus:border-indigo-500 ${demo === 'interaction' ? `${accent.primary} border-transparent` : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'}`} onClick={() => setDemo('interaction')}>04  Interaction</Button>
         </View>
 
-        {demo === 'counter' ? <CounterLab /> : demo === 'inventory' ? <InventoryLab /> : demo === 'motion' ? <MotionLab /> : <InteractionLab />}
+        {demo === 'counter' ? <CounterLab embedded /> : demo === 'inventory' ? <InventoryLab embedded /> : demo === 'motion' ? <MotionLab /> : <InteractionLab embedded />}
 
         <View className="flex-row flex-wrap justify-between gap-2">
           <Text className="text-xs text-slate-400">React 19 · GodotJS · Rust + Taffy</Text>

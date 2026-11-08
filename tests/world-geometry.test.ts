@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { intersectQuad, quadPixelToLocal, type QuadSurface } from '../demo/src/world-geometry';
+import { cameraDistanceToFit, intersectQuad, quadPixelToLocal, type QuadSurface } from '../demo/src/world-geometry';
 
 const QUAD: QuadSurface = { width: 1.5, height: 1, pixelWidth: 480, pixelHeight: 320 };
 const PIXEL_TOLERANCE = 1e-9;
@@ -94,3 +94,25 @@ test('quadPixelToLocal inverts the pixel mapping', () => {
     near(hit.y, y, `y of (${x}, ${y})`);
   }
 });
+
+test('the camera backs away for a window too narrow for the quad, and not for one that fits it', () => {
+  const quadWidth = 1.5;
+  const yaw = 24 * Math.PI / 180;
+  const fov = 50 * Math.PI / 180;
+  const margin = 0.03;
+  const verifierDistance = 2.6;
+  // The verifiers' windows (600 x 900 and the landscape one) fit with the camera where it always was.
+  assert.ok(cameraDistanceToFit(quadWidth, yaw, fov, 600 / 900, margin) <= verifierDistance);
+  assert.ok(cameraDistanceToFit(quadWidth, yaw, fov, 1120 / 800, margin) <= verifierDistance);
+  // A phone (412 x 915) needs more distance, and the nearest corner then lies inside the view with the margin to spare.
+  const phone = 412 / 915;
+  const distance = cameraDistanceToFit(quadWidth, yaw, fov, phone, margin);
+  assert.ok(distance > verifierDistance);
+  const nearestAcross = quadWidth / 2 * Math.cos(yaw);
+  const nearestInFront = quadWidth / 2 * Math.sin(yaw);
+  const halfViewAtNearest = Math.tan(fov / 2) * phone * (distance - nearestInFront);
+  near(halfViewAtNearest, nearestAcross / (1 - margin), 'the nearest corner is at the edge of the view less the margin');
+  // The narrower the window, the further back.
+  assert.ok(cameraDistanceToFit(quadWidth, yaw, fov, 0.3, margin) > distance);
+});
+

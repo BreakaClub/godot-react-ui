@@ -65,7 +65,7 @@ interface ReadoutProps {
   value: string;
   testID?: string;
   /** The label is a name and the value what it counts or reads: `Taps` `3`. A colour matches the result to the thing it counts. */
-  colour?: string;
+  colour?: `#${string}`;
 }
 
 /** A named result, shown where the person acts: `label` in grey, `value` in dark text, wrapping as one line. */
