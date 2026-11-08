@@ -5,9 +5,9 @@ import { resolve } from 'node:path';
 import test from 'node:test';
 import {
   INTERACTION_MINIMUM_DEADLINE_MS, INTERACTION_SECTION_ALLOWANCE_MS, INTERACTION_START_ALLOWANCE_MS, NATIVE_INTERACTION_SECTIONS,
-  NATIVE_OPT_IN_SECTIONS, ONLY_PREFIX, WEB_INTERACTION_MINIMUM_DEADLINE_MS, WEB_INTERACTION_SECTION_ALLOWANCE_MS,
-  WEB_INTERACTION_START_ALLOWANCE_MS, WEB_INTERACTION_SECTIONS, checkSectionNames, describeSections, interactionDeadlineMs, requestedSections,
-  sectionsToRun, webInteractionDeadlineMs,
+  NATIVE_OPT_IN_SECTIONS, ONLY_PREFIX, WEB_INTERACTION_JOBS, WEB_INTERACTION_JOB_MINIMUM_DEADLINE_MS, WEB_INTERACTION_JOB_SECTION_ALLOWANCE_MS,
+  WEB_INTERACTION_JOB_START_ALLOWANCE_MS, WEB_INTERACTION_SECTIONS, checkSectionNames, describeSections, interactionDeadlineMs, requestedSections,
+  sectionsToRun, webInteractionJobDeadlineMs,
 } from '../scripts/verifier-sections.mjs';
 
 // Which sections an interaction verifier runs and when a run is partial (plan 0.4.1; scripts/verifier-sections.mjs).
@@ -90,29 +90,40 @@ test('both verifiers take their sections from the shared module and keep no list
   assert.doesNotMatch(web, /const SECTIONS = \[/);
 });
 
-// A landscape window's 22 default sections took 570 s on 8 November 2026 (scripts/verifier-sections.mjs has the measurement).
-const MEASURED_DEFAULT_RUN_MS = 570_000;
-const SLOWEST_SECTION_MS = 88_000;
+// A landscape window's 24 default sections took 594 s one after the other and 534 s alongside the portrait window (scripts/verifier-sections.mjs has the measurements).
+const MEASURED_SERIAL_WINDOW_MS = 594_000;
+const SLOWEST_SECTION_MS = 89_000;
 
 test('the native interaction deadline grows with the sections a window runs, and never falls below its floor', () => {
   assert.equal(interactionDeadlineMs(1), INTERACTION_MINIMUM_DEADLINE_MS, 'one section keeps the floor');
   assert.ok(interactionDeadlineMs(1) > SLOWEST_SECTION_MS * 2, 'the slowest section alone fits twice over');
   const full = interactionDeadlineMs(DEFAULT_SECTIONS.length);
   assert.equal(full, INTERACTION_START_ALLOWANCE_MS + INTERACTION_SECTION_ALLOWANCE_MS * DEFAULT_SECTIONS.length);
-  assert.ok(full > MEASURED_DEFAULT_RUN_MS * 1.5, `the default run (${full} ms) has at least half again its measured time`);
+  assert.ok(full > MEASURED_SERIAL_WINDOW_MS * 1.5, `the default run (${full} ms) has at least half again the slowest measured window`);
   assert.ok(interactionDeadlineMs(DEFAULT_SECTIONS.length + 1) > full, 'one more section raises it');
 });
 
-// The Web run's 20 sections took up to 1,151 s on 8 November 2026, before `font-slices` was added (scripts/verifier-sections.mjs).
-const MEASURED_WEB_SECTIONS = 20;
-const MEASURED_WEB_RUN_MS = 1_151_000;
+// The slowest Web job measured, with the six jobs running at the same time: a viewport job's 18 sections took up to 398 s; the pages job's three took 162 s; the touch job's six
+// about 90 s (scripts/verifier-sections.mjs has the measurements).
+const MEASURED_VIEWPORT_JOB_MS = 398_000;
+const MEASURED_PAGES_JOB_MS = 162_000;
+const MEASURED_TOUCH_JOB_MS = 90_000;
 
-test('the Web interaction deadline grows with the sections a run executes, and never falls below its old flat value', () => {
-  assert.equal(webInteractionDeadlineMs(1), WEB_INTERACTION_MINIMUM_DEADLINE_MS, 'one section keeps the floor');
-  const full = webInteractionDeadlineMs(WEB_INTERACTION_SECTIONS.length);
-  assert.equal(full, WEB_INTERACTION_START_ALLOWANCE_MS + WEB_INTERACTION_SECTION_ALLOWANCE_MS * WEB_INTERACTION_SECTIONS.length);
-  const measuredPerSection = MEASURED_WEB_RUN_MS / MEASURED_WEB_SECTIONS;
-  const expected = measuredPerSection * WEB_INTERACTION_SECTIONS.length;
-  assert.ok(full > expected * 1.5, `the whole run (${full} ms) has at least half again the ${Math.round(expected)} ms its sections are expected to take`);
-  assert.ok(webInteractionDeadlineMs(WEB_INTERACTION_SECTIONS.length + 1) > full, 'one more section raises it');
+test('the Web job deadline grows with the sections a job executes, and never falls below its floor', () => {
+  assert.equal(webInteractionJobDeadlineMs(1), WEB_INTERACTION_JOB_MINIMUM_DEADLINE_MS, 'one section keeps the floor');
+  for (const job of WEB_INTERACTION_JOBS) {
+    assert.equal(webInteractionJobDeadlineMs(job.sections.length), Math.max(WEB_INTERACTION_JOB_MINIMUM_DEADLINE_MS,
+      WEB_INTERACTION_JOB_START_ALLOWANCE_MS + WEB_INTERACTION_JOB_SECTION_ALLOWANCE_MS * job.sections.length));
+  }
+  assert.ok(webInteractionJobDeadlineMs(WEB_INTERACTION_SECTIONS.length + 1) > webInteractionJobDeadlineMs(WEB_INTERACTION_SECTIONS.length), 'one more section raises it');
+});
+
+test('every Web job has at least half again its measured time, and the floor covers a job of few sections', () => {
+  const byName = new Map(WEB_INTERACTION_JOBS.map((job) => [job.name, job.sections.length]));
+  const deadline = (name: string): number => webInteractionJobDeadlineMs(byName.get(name) ?? 0);
+  for (const viewport of ['landscape', 'portrait', 'retina-landscape', 'retina-portrait']) {
+    assert.ok(deadline(viewport) > MEASURED_VIEWPORT_JOB_MS * 1.5, `${viewport}: ${deadline(viewport)} ms against ${MEASURED_VIEWPORT_JOB_MS} ms measured`);
+  }
+  assert.ok(deadline('pages') > MEASURED_PAGES_JOB_MS * 1.5, `pages: ${deadline('pages')} ms against ${MEASURED_PAGES_JOB_MS} ms measured`);
+  assert.ok(deadline('touch') > MEASURED_TOUCH_JOB_MS * 1.5, `touch: ${deadline('touch')} ms against ${MEASURED_TOUCH_JOB_MS} ms measured`);
 });

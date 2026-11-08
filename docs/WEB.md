@@ -17,6 +17,14 @@ node scripts/verify-live-compile-web.mjs    # the code editor's compiler in Chro
 # To look at it by hand: node scripts/serve-web.mjs   (pnpm demo:web; --lab=<id> opens a lab)
 ```
 
+`verify:interaction:web` is six jobs, each a Node process with its own Chrome, export server and counters: one for each viewport (`landscape`, `portrait`,
+`retina-landscape`, `retina-portrait`), `pages` (the navigator's starts, the font slices, the rotations) and `touch`. The viewports and `pages` run at the same time;
+`touch` runs by itself once they have ended, because a finger's fling needs the lift within a tenth of a second of the engine's time after its last move, which
+Chrome's round trips only allow when the other browsers are not using the host. The run prints the same pass line one run made, with the sections' assertion
+counts added over the jobs, and `report.json` holds every job's assertions and captures (`report-<job>.json` and `browser-<job>.log` are each job's own).
+`--serial` runs the jobs one after another, `--jobs=<n>` at most n at a time, and `--job=<name>` is one job on its own (what the run starts each job with).
+A failed job does not stop the others, and the run's failure line names it. Details and the measurements: tracks/suite-speed.md.
+
 The build runs the TypeScript check and bundle before exporting with the V8 Godot
 4.8 editor. `serve-web` listens on `http://127.0.0.1:8096` (or `PORT`). `--release` selects the
 release engine template and exports the stripped release pack ("The release export and hosting"); the Rust extension is optimized in both modes.

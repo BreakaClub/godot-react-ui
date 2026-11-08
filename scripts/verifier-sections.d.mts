@@ -27,8 +27,19 @@ export const INTERACTION_SECTION_ALLOWANCE_MS: number;
 export const INTERACTION_MINIMUM_DEADLINE_MS: number;
 /** The deadline of one native interaction window that runs `sectionCount` sections: a hang guard that grows with the sections. */
 export function interactionDeadlineMs(sectionCount: number): number;
-export const WEB_INTERACTION_START_ALLOWANCE_MS: number;
-export const WEB_INTERACTION_SECTION_ALLOWANCE_MS: number;
-export const WEB_INTERACTION_MINIMUM_DEADLINE_MS: number;
-/** The deadline of one Web interaction run that executes `sectionCount` sections: a hang guard that grows with the sections. */
-export function webInteractionDeadlineMs(sectionCount: number): number;
+export const WEB_INTERACTION_JOB_START_ALLOWANCE_MS: number;
+export const WEB_INTERACTION_JOB_SECTION_ALLOWANCE_MS: number;
+export const WEB_INTERACTION_JOB_MINIMUM_DEADLINE_MS: number;
+/** The deadline of one Web interaction job that executes `sectionCount` sections: a hang guard that grows with the sections. */
+export function webInteractionJobDeadlineMs(sectionCount: number): number;
+
+export interface WebInteractionJob {
+  name: 'landscape' | 'portrait' | 'retina-landscape' | 'retina-portrait' | 'pages' | 'touch';
+  sections: readonly (typeof WEB_INTERACTION_SECTIONS)[number][];
+  /** Runs by itself, once every other job has ended. */
+  exclusive?: boolean;
+}
+/** The jobs of the Web interaction run, in report order: the viewports (named as the verifier's viewports are), the pages of their own, the touch pages. */
+export const WEB_INTERACTION_JOBS: readonly WebInteractionJob[];
+/** The jobs a run executes, in report order, each with the sections of it that the run asks for; a job with none of them is left out. */
+export function webInteractionJobsToRun(requested: readonly string[]): WebInteractionJob[];

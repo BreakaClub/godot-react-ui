@@ -1,5 +1,5 @@
 import {
-  Engine, Input, InputEvent, InputEventKey, InputEventMouse, InputEventMouseButton, InputEventScreenTouch, Node,
+  Engine, Input, InputEvent, InputEventKey, InputEventMouse, InputEventMouseButton, InputEventScreenTouch, MouseButton, Node,
   ReactUiRoot, Time, Window,
 } from 'godot';
 
@@ -26,10 +26,68 @@ const DISTURBANCE_LOG_INTERVAL_MS = 250;
 /** `InputEvent::DEVICE_ID_EMULATION`: the touch-to-mouse and mouse-to-touch translations of an injected event. */
 const DEVICE_ID_EMULATION = -1;
 
+/** When the verifier last pressed a pointer (a mouse button or a touch), on the engine's tick clock, which is also the clock the click count runs on. */
+let lastPointerPressMs = Number.NEGATIVE_INFINITY;
+
+/** The mouse buttons that are wheel ticks: the library counts clicks of the others. */
+const WHEEL_BUTTONS: readonly MouseButton[] = [
+  MouseButton.MouseButtonWheelUp, MouseButton.MouseButtonWheelDown, MouseButton.MouseButtonWheelLeft, MouseButton.MouseButtonWheelRight,
+];
+
 /** Inject `event` the way a verifier does: marked as the verifier's, so nothing can mistake it for a device's. */
 export function parseVerifierEvent(event: InputEvent): void {
   event.device = VERIFIER_DEVICE_ID;
+  const pressesButton = event instanceof InputEventMouseButton && event.pressed && !WHEEL_BUTTONS.includes(event.buttonIndex);
+  if (pressesButton || (event instanceof InputEventScreenTouch && event.pressed)) lastPointerPressMs = Time.getTicksMsec();
   Input.parseInputEvent(event);
+}
+
+/**
+ * How much faster than real time the engine's clock runs while a verifier waits for simulation time to pass (`waitEngineTime`). A frame lasts about 9 ms in a
+ * verifier window, so a frame of the accelerated clock is about 36 ms: still far finer than the 100 ms steps of the waits that use it.
+ */
+const ACCELERATED_TIME_SCALE = 4;
+
+/**
+ * Wait until `ms` of the engine's clock has passed, with the clock running `ACCELERATED_TIME_SCALE` times faster than real time, so the wait takes that
+ * much less of it (`Engine.timeScale` scales the `delta` of every `process`: the native motion, momentum and edge auto-scroll clocks advance by it,
+ * `tick_motion`, `tick_scroll`, `tick_drag` and `tick_touch_selection` in native/lib.rs). The clock goes back to 1 before this returns, whatever happens.
+ *
+ * Only for waiting on what the product runs on that `delta`. Not for a hold or a click interval, which the product counts on the tick clock
+ * (`event_time_ms`, native/lib.rs: the user's time, which `Engine.timeScale` does not scale), and not for a debounce or any other JS timer. Nothing may
+ * be sampled from a pointer in motion while it runs: a finger's velocity is its distance over the `delta` of the frames it moved in.
+ */
+export async function waitEngineTime(ms: number): Promise<void> {
+  Engine.timeScale = ACCELERATED_TIME_SCALE;
+  try {
+    const startedMs = Time.getTicksMsec();
+    // The clock is read after every timer: a timer fires early (see `waitForNewClickSequence`), and the engine's time is the real time that passed, times the rate.
+    while ((Time.getTicksMsec() - startedMs) * ACCELERATED_TIME_SCALE < ms) {
+      await new Promise(resolve => setTimeout(resolve, ms / ACCELERATED_TIME_SCALE - (Time.getTicksMsec() - startedMs)));
+    }
+  } finally {
+    Engine.timeScale = 1;
+  }
+}
+
+/** Longer than the click-count interval (`CLICK_COUNT_INTERVAL_MS` in native/pointer_state.rs, plan Appendix A, 500 ms), so a press after it begins a new click sequence. */
+export const CLICK_SEQUENCE_PAUSE_MS = 650;
+
+/**
+ * Wait until the next press would begin a new click sequence: until `CLICK_SEQUENCE_PAUSE_MS` have passed since the verifier last pressed a pointer. The
+ * count runs on the engine's tick clock (`event_time_ms`, native/lib.rs), real time that `Engine.timeScale` does not scale, so this waits for time to pass.
+ * Only what is left of the pause is waited: the settles and the checks since that press have used some of it, and a pause counted from now would hold the
+ * verifier for time that has already passed. With no press yet there is nothing to wait for.
+ *
+ * The tick clock is read again after every wait. A GodotJS timer fires early (the timers advance by the whole milliseconds of each frame, so a timer
+ * set for 370 ms fired after about 300 ms in the first run of this), and the pause is only worth its margin over the 500 ms interval if it is a pause on that clock.
+ */
+export async function waitForNewClickSequence(): Promise<void> {
+  for (;;) {
+    const remainingMs = CLICK_SEQUENCE_PAUSE_MS - (Time.getTicksMsec() - lastPointerPressMs);
+    if (remainingMs <= 0) return;
+    await new Promise(resolve => setTimeout(resolve, remainingMs));
+  }
 }
 
 /** Whether the arguments after `--` ask for a verifier or the probe: runs that inject their own input. */

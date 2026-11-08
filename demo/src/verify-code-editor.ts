@@ -8,7 +8,7 @@ import type { NativeProfile } from '../../src/native';
 import { TYPE_ERROR, anchorOffset, applyEdits } from '../../scripts/live-compile-edits.mjs';
 import type { NavigatorOptions } from './main';
 import { THEME } from './editor/theme';
-import { assertionTally, parseVerifierEvent, verifierClipboard } from './verifier-input';
+import { assertionTally, parseVerifierEvent, verifierClipboard, waitForNewClickSequence } from './verifier-input';
 import { grab, settleFrames } from './verify-filters';
 import { fontsOfText } from './demo-fonts';
 import { click, drag, move, typeText } from './verify-text-input';
@@ -128,8 +128,6 @@ const AUTOSCROLL_MIN_PX = 40;
 const AUTOSCROLL_HOLD_FRAMES = 12;
 /** Lines in view are about a dozen; a selection past this line has been carried by the scrolling. */
 const AUTOSCROLL_PAST_LINE = 14;
-/** Longer than the click-count interval (500 ms): the next press begins a new sequence. */
-const CLICK_SEQUENCE_PAUSE_MS = 650;
 const CLICK_PAUSE_FRAMES = 3;
 /** The probe sits this far inside the page's top left corner, where only its background is (the page pads its content by 24). */
 const PAGE_PROBE_INSET_PX = 6;
@@ -787,7 +785,7 @@ export async function verifyCodeEditor(owner: Node, api: CodeEditorInspection, c
   // ---- A drag past the edge of the code scrolls it, and the selection goes on growing ----------------------------------------------------------------------
   const viewEdge = node(api, 'code-scroll').rect;
   const dragStart = boundaryAt(api, 4, 2);
-  await new Promise(resolve => setTimeout(resolve, CLICK_SEQUENCE_PAUSE_MS));
+  await waitForNewClickSequence();
   move(dragStart);
   await frames(CLICK_PAUSE_FRAMES);
   leftButton(dragStart, true);

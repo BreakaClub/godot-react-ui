@@ -3,8 +3,13 @@
 // root and unmount it, at both device pixel ratios, landscape and portrait, plus a touch page.
 // Infrastructure (page observation, pack transfer check, geometry, captures) is shared in text with
 // verify-web.mjs; the scenarios mirror demo/src/verify-interaction.ts.
+//
+// The run is a set of jobs that run at the same time, each in a Chrome of its own (docs/tracks/suite-speed.md): one for each viewport, one for
+// the pages that are each their own case, one for the touch pages. Without `--job=<name>` this script starts them and reports their results as
+// one run; with it, this script is that job. `--serial` runs the jobs one after another, `--jobs=<n>` at most n at a time.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { readdirSync, statSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,7 +17,11 @@ import puppeteer from 'puppeteer-core';
 import { rejectUnknownArguments } from './arguments.mjs';
 import { decodePng } from './png.mjs';
 import { selectEngine } from './engine.mjs';
-import { WEB_INTERACTION_SECTIONS, describeSections, requestedSections, webInteractionDeadlineMs } from './verifier-sections.mjs';
+import { WEB_INTERACTION_SECTIONS, describeSections, requestedSections, webInteractionJobDeadlineMs, webInteractionJobsToRun } from './verifier-sections.mjs';
+import {
+  JOBS_ARGUMENT, JOB_ARGUMENT, SERIAL_FLAG, clearJobEvidence, emptySections, exitAfterFlush, jobArguments, jobConcurrency, jobFailure, jobLogName, jobPassed, jobReportName, mergeJobReports,
+  requestedJob, runJobs, writeMergedEvidence,
+} from './web-interaction-jobs.mjs';
 import { isolateBrowserClipboard } from './web-clipboard.mjs';
 import { startVerificationServer } from './web-verify.mjs';
 import { runComboboxScenario, runTouchComboboxScenario } from './verify-combobox-web.mjs';
@@ -30,33 +39,71 @@ import { runTransformsScenario } from './verify-transforms-web.mjs';
 import { runPaintScenario } from './verify-paint-web.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-rejectUnknownArguments(process.argv.slice(2), { flags: ['--release'], prefixes: ['--only='] });
+rejectUnknownArguments(process.argv.slice(2), { flags: ['--release', SERIAL_FLAG], prefixes: ['--only=', JOB_ARGUMENT, JOBS_ARGUMENT] });
 const engine = selectEngine();
 // Refuse an export whose side module was built from other sources than the working tree (docs/tracks/freshness.md).
 engine.requireFreshWebExport();
+// The names, the order and what counts as left out are scripts/verifier-sections.mjs, shared with the native verifier.
+// `--only=<section>[,<section>]` runs just those sections (plan 0.4.1); the names are the native verifier's, and `touch`
+// is this verifier's touch page. An unknown name is an error: a typo must not skip a section.
+const SECTIONS = WEB_INTERACTION_SECTIONS;
+const coverage = describeSections(SECTIONS, [], requestedSections(process.argv.slice(2)));
+const wanted = (name) => coverage.run.includes(name);
+const jobs = webInteractionJobsToRun(requestedSections(process.argv.slice(2)));
+const output = engine.artifactPath('web-interaction-verification');
+const jobName = requestedJob(process.argv.slice(2));
+if (jobName === undefined) {
+  // The run that starts the jobs: it opens no browser and serves nothing; each job does.
+  const scriptArguments = jobArguments(process.argv.slice(2));
+  await clearJobEvidence(output);
+  const results = await runJobs({
+    scriptPath: fileURLToPath(import.meta.url), args: scriptArguments, output, concurrency: jobConcurrency(process.argv.slice(2), jobs.length),
+    jobs: jobs.map((job) => ({ name: job.name, deadlineMs: webInteractionJobDeadlineMs(job.sections.length), exclusive: job.exclusive })),
+  });
+  const merged = mergeJobReports(results);
+  const failures = results.filter((result) => !jobPassed(result)).map(jobFailure);
+  const empty = failures.length > 0 ? [] : emptySections(coverage.run, merged.sectionChecks);
+  if (empty.length > 0) failures.push(`Section(s) ${empty.join(', ')} ran no assertion`);
+  merged.passed = failures.length === 0;
+  if (!merged.passed) merged.error = failures.join('\n');
+  await writeMergedEvidence(output, merged, results);
+  console.log(`GODOT_REACT_WEB_INTERACTION_JOBS ${JSON.stringify(merged.jobs)}`);
+  if (merged.passed) {
+    // A run that left sections out says so, here and in the summary line a person reads.
+    console.log('GODOT_REACT_WEB_INTERACTION_VERIFY_PASSED', JSON.stringify({
+      sections: coverage.run, partial: coverage.partial, skipped: coverage.skipped, sectionChecks: merged.sectionChecks,
+      assertions: merged.assertions.length, captures: merged.captures.length, timing: merged.timing, engineGaps: merged.engineGaps,
+      report: resolve(output, 'report.json'),
+    }));
+  } else {
+    console.error('GODOT_REACT_WEB_INTERACTION_VERIFY_FAILED', merged.error);
+    process.exitCode = 1;
+  }
+  // Nothing below is for the run that starts the jobs.
+  await exitAfterFlush();
+}
+const job = jobs.find((candidate) => candidate.name === jobName);
+if (job === undefined) throw new Error(`${JOB_ARGUMENT}${jobName}: no such job in this run; the jobs are ${jobs.map((candidate) => candidate.name).join(', ')}`);
 // `--release` verifies the release export (the stock profile's only Web mode that starts: docs/tracks/stock-engine.md, S10).
 const packBuffer = await readFile(engine.artifactPath(`web-${engine.webMode()}`, 'index.pck'));
 const expectedPack = {
   bytes: packBuffer.byteLength,
   sha256: createHash('sha256').update(packBuffer).digest('hex'),
 };
+// The WebAssembly files of the export, by the path a page requests them at, with their sizes: the loader reads them through the same progress stream as the
+// pack, so Chromium can report the same teardown for each (see `observePage`).
+const exportDirectory = engine.artifactPath(`web-${engine.webMode()}`);
+const expectedWasm = new Map(readdirSync(exportDirectory).filter((name) => name.endsWith('.wasm')).map((name) => [`/${name}`, statSync(resolve(exportDirectory, name)).size]));
 // Served by this verifier on a free port, or compared with the export first (scripts/web-verify.mjs).
 const server = await startVerificationServer(engine);
 const url = server.url;
 const executablePath = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const output = engine.artifactPath('web-interaction-verification');
 const STARTUP_TIMEOUT_MS = 180_000;
 const ACTION_TIMEOUT_MS = 15_000;
 const POLL_MS = 50;
-// `--only=<section>[,<section>]` runs just those sections (plan 0.4.1); the names are the native verifier's, and `touch`
-// is this verifier's touch page. An unknown name is an error: a typo must not skip a section.
-// The names, the order and what counts as left out are scripts/verifier-sections.mjs, shared with the native verifier.
-const SECTIONS = WEB_INTERACTION_SECTIONS;
-const coverage = describeSections(SECTIONS, [], requestedSections(process.argv.slice(2)));
-const wanted = (name) => coverage.run.includes(name);
-// Four viewports of every section and the touch page, with the scroll and drag sections waiting on real time (momentum, the touch
-// hold, edge auto-scroll), in one browser: a hang guard that grows with the sections run (scripts/verifier-sections.mjs has the measurements).
-const TOTAL_TIMEOUT_MS = webInteractionDeadlineMs(coverage.run.length);
+// One job's sections in one browser, with the scroll and drag sections waiting on real time (momentum, the touch hold, edge auto-scroll): a hang
+// guard that grows with the sections the job runs (scripts/verifier-sections.mjs has the measurements).
+const TOTAL_TIMEOUT_MS = webInteractionJobDeadlineMs(job.sections.length);
 const GEOMETRY_TOLERANCE = 2;
 const DISPATCH_SAMPLES = 40;
 // Hover paint of the crossing panel's parent: slate-100 at rest, slate-200 while hovered.
@@ -138,13 +185,17 @@ function check(name, condition, detail) {
 
 /** How many assertions each section made, over every viewport: a section that made none verified nothing. */
 const sectionChecks = {};
+/** How long each section took in this job, for the hang guards in scripts/verifier-sections.mjs. */
+const sectionMs = {};
 
 async function section(name, run) {
   const before = report.assertions.length;
+  const started = Date.now();
   try {
     await run();
   } finally {
     sectionChecks[name] = (sectionChecks[name] ?? 0) + report.assertions.length - before;
+    sectionMs[name] = (sectionMs[name] ?? 0) + Date.now() - started;
   }
 }
 
@@ -340,6 +391,17 @@ async function observePage(observedPage) {
   let startupComplete = false;
   let startupDiagnosticSeen = false;
   let pendingPackAbort = null;
+  // Each WebAssembly file's requests: what arrived of each, and which ended aborted before the demo was ready.
+  const wasmRequests = new Map();
+  const wasmFile = (requestUrl) => {
+    try {
+      const pathname = new URL(requestUrl).pathname;
+      return expectedWasm.has(pathname) ? pathname : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  const pendingWasmAborts = [];
   const cdp = await observedPage.createCDPSession();
   await cdp.send('Network.enable');
   const networkPack = {
@@ -355,8 +417,16 @@ async function observePage(observedPage) {
       networkPack.requestIds.add(event.requestId);
       networkPack.requests += 1;
     }
+    const file = wasmFile(event.request?.url ?? '');
+    if (file !== undefined) wasmRequests.set(event.requestId, { url: event.request.url, file, status: null, contentLength: null, receivedBytes: 0 });
   });
   cdp.on('Network.responseReceived', (event) => {
+    const wasm = wasmRequests.get(event.requestId);
+    if (wasm !== undefined) {
+      wasm.status = event.response?.status ?? null;
+      const wasmLength = event.response?.headers?.['Content-Length'] ?? event.response?.headers?.['content-length'];
+      wasm.contentLength = wasmLength === undefined ? null : Number(wasmLength);
+    }
     if (!networkPack.requestIds.has(event.requestId)) return;
     networkPack.status = event.response?.status ?? null;
     const rawLength = event.response?.headers?.['Content-Length'] ?? event.response?.headers?.['content-length'];
@@ -366,6 +436,8 @@ async function observePage(observedPage) {
     if (networkPack.requestIds.has(event.requestId)) {
       networkPack.receivedBytes += event.dataLength ?? 0;
     }
+    const wasm = wasmRequests.get(event.requestId);
+    if (wasm !== undefined) wasm.receivedBytes += event.dataLength ?? 0;
   });
   await observedPage.evaluateOnNewDocument(() => {
     const probe = {
@@ -465,9 +537,31 @@ async function observePage(observedPage) {
       pendingPackAbort = failure;
       return;
     }
+    // The same loader reads each WebAssembly file through the same stream, and several pages loading together (the jobs of this run start
+    // theirs at once) make Chromium report the same teardown for `index.wasm`. It is held the same way: accepted only once the whole file is
+    // shown to have arrived, with its status and its length (`verifyWasmTransfers`); a file that did not arrive whole fails the run.
+    if (wasmFile(failure.url) !== undefined && failure.error === 'net::ERR_ABORTED' && !startupComplete) {
+      pendingWasmAborts.push(failure);
+      return;
+    }
     report.failedRequests.push(failure);
     fatalErrors.push(JSON.stringify(failure));
   });
+  /** Accept each held WebAssembly abort whose request delivered its whole file with status 200, and fail the run for any that did not. */
+  function verifyWasmTransfers() {
+    for (const aborted of pendingWasmAborts.splice(0)) {
+      const requests = [...wasmRequests.values()].filter((request) => request.url === aborted.url);
+      const expectedBytes = expectedWasm.get(wasmFile(aborted.url));
+      const detail = { expectedBytes, requests: requests.map(({ status, contentLength, receivedBytes }) => ({ status, contentLength, receivedBytes })) };
+      const whole = requests.some((request) => request.status === 200 && request.contentLength === expectedBytes && request.receivedBytes === expectedBytes);
+      if (whole) {
+        report.expectedDiagnostics.push({ ...aborted, reason: 'Chromium ReadableStream wrapper close after verified complete WebAssembly transfer', ...detail });
+      } else {
+        report.failedRequests.push(aborted);
+        fatalErrors.push(JSON.stringify({ ...aborted, reason: 'WebAssembly transfer incomplete', ...detail }));
+      }
+    }
+  }
   return {
     async verifyPackTransfer() {
       const probe = await observedPage.evaluate(async () => {
@@ -522,8 +616,13 @@ async function observePage(observedPage) {
         });
       }
       check('Main pack transfer completed with matching byte length and SHA-256 without retry', complete, detail);
+      verifyWasmTransfers();
     },
     failIfUnverified() {
+      for (const aborted of pendingWasmAborts.splice(0)) {
+        report.failedRequests.push(aborted);
+        fatalErrors.push(JSON.stringify({ ...aborted, reason: 'aborted before the demo was ready, and the transfer was never verified' }));
+      }
       if (pendingPackAbort) {
         report.failedRequests.push(pendingPackAbort);
         fatalErrors.push(JSON.stringify({
@@ -2899,15 +2998,13 @@ async function runWorkflow(viewport) {
     }));
   }
 
-  // This page keeps running across viewports (the native verifier gets a fresh process for each),
-  // so leave a fresh root: the lab's log and click counters must not leak into the next viewport.
+  // The root can be unmounted and mounted again, and the new one starts from nothing: the lab's log and click counters do not outlive it.
   await demo('unmount');
   await demo('mount');
-  await expectText('counter-value', '0', 'A fresh root is mounted for the next viewport');
+  await expectText('counter-value', '0', 'A fresh root is mounted after the viewport\'s sections');
 }
 
 async function runTouchWorkflow() {
-  await page.close();
   activeViewport = 'touch';
   const viewport = viewports[1];
   await loadPage({ width: viewport.width, height: viewport.height, deviceScaleFactor: 1, hasTouch: true });
@@ -2980,6 +3077,49 @@ async function runTouchWorkflow() {
   }
 }
 
+/** The pages that are each a case of their own: what the demo opens with, the font slices' groups, a device turned from portrait to landscape. */
+async function runPagesWorkflow() {
+  if (wanted('navigator')) {
+    // What the demo opens with is decided as it starts, so each start is a page of its own.
+    activeViewport = 'navigator-start';
+    await section('navigator', () => runNavigatorStartScenario({
+      browser, base: url, check, viewport: { width: viewports[0].width, height: viewports[0].height, deviceScaleFactor: 1 },
+      output: resolve(output, activeViewport),
+    }));
+  }
+  if (wanted('font-slices')) {
+    // Each group is a page of its own: what a page has fetched and added is state that outlives a lab.
+    activeViewport = 'font-slices';
+    await section('font-slices', () => runFontSlicesScenario({
+      browser, base: url, check, viewport: { width: viewports[0].width, height: viewports[0].height },
+      exportDirectory: engine.artifactPath(`web-${engine.webMode()}`),
+    }));
+  }
+  if (wanted('rotation')) {
+    // A device turned from portrait to landscape and back: each case is a page of its own, in Chrome's mobile emulation (docs/tracks/rotation.md).
+    activeViewport = 'rotation';
+    await section('rotation', () => runRotationScenario({ browser, base: url, check, output: resolve(output, activeViewport) }));
+  }
+}
+
+/** This job's part of the run: one viewport's page, the pages of their own, or the touch pages. */
+async function runJob() {
+  const viewport = viewports.find((candidate) => candidate.name === job.name);
+  if (viewport !== undefined) {
+    // The page opens at this viewport's size and ratio, as a visitor's does, then `runWorkflow` sets it again and waits for the root to follow.
+    activeViewport = viewport.name;
+    await loadPage({ width: viewport.width, height: viewport.height, deviceScaleFactor: viewport.deviceScaleFactor });
+    await runWorkflow(viewport);
+  } else if (job.name === 'pages') {
+    await runPagesWorkflow();
+  } else if (job.name === 'touch') {
+    await runTouchWorkflow();
+  } else {
+    throw new Error(`No code runs the ${job.name} job`);
+  }
+}
+
+const jobStarted = Date.now();
 try {
   await withDeadline((async () => {
     browser = await puppeteer.launch({
@@ -2987,44 +3127,19 @@ try {
       args: ['--no-first-run', '--no-default-browser-check', '--mute-audio',
         '--disable-background-timer-throttling', '--disable-renderer-backgrounding'],
     });
-    await loadPage({ width: viewports[0].width, height: viewports[0].height, deviceScaleFactor: 1 });
-    for (const viewport of viewports) await runWorkflow(viewport);
-    if (wanted('navigator')) {
-      // What the demo opens with is decided as it starts, so each start is a page of its own.
-      activeViewport = 'navigator-start';
-      await section('navigator', () => runNavigatorStartScenario({
-        browser, base: url, check, viewport: { width: viewports[0].width, height: viewports[0].height, deviceScaleFactor: 1 },
-        output: resolve(output, activeViewport),
-      }));
-    }
-    if (wanted('font-slices')) {
-      // Each group is a page of its own: what a page has fetched and added is state that outlives a lab.
-      activeViewport = 'font-slices';
-      await section('font-slices', () => runFontSlicesScenario({
-        browser, base: url, check, viewport: { width: viewports[0].width, height: viewports[0].height },
-        exportDirectory: engine.artifactPath(`web-${engine.webMode()}`),
-      }));
-    }
-    if (wanted('rotation')) {
-      // A device turned from portrait to landscape and back: each case is a page of its own, in Chrome's mobile emulation (docs/tracks/rotation.md).
-      activeViewport = 'rotation';
-      await section('rotation', () => runRotationScenario({ browser, base: url, check, output: resolve(output, activeViewport) }));
-    }
-    if (wanted('touch') || wanted('drag') || wanted('combobox') || wanted('dropdown-touch') || wanted('touch-selection') || wanted('code-editor')) await runTouchWorkflow();
+    await runJob();
     checkBrowserErrors();
-    const empty = SECTIONS.filter((name) => wanted(name) && !(sectionChecks[name] > 0));
-    assert.ok(empty.length === 0, `Section(s) ${empty.join(', ')} ran no assertion`);
     report.passed = true;
-  })(), TOTAL_TIMEOUT_MS, 'Browser interaction verification');
+  })(), TOTAL_TIMEOUT_MS, `Browser interaction verification (${job.name})`);
 } catch (error) {
   currentPackObserver?.failIfUnverified();
   report.error = error instanceof Error ? error.stack : String(error);
   if (page && !page.isClosed()) {
-    await page.screenshot({ path: resolve(output, 'failure.png'), timeout: ACTION_TIMEOUT_MS }).catch((captureError) => {
+    await page.screenshot({ path: resolve(output, `failure-${job.name}.png`), timeout: ACTION_TIMEOUT_MS }).catch((captureError) => {
       report.failureCaptureError = String(captureError);
     });
   }
-  console.error('GODOT_REACT_WEB_INTERACTION_VERIFY_FAILED', report.error);
+  console.error('GODOT_REACT_WEB_INTERACTION_VERIFY_FAILED', `${job.name}:`, report.error);
   process.exitCode = 1;
 } finally {
   if (browser) await withDeadline(browser.close(), ACTION_TIMEOUT_MS, 'Closing verification browser').catch((error) => {
@@ -3034,15 +3149,18 @@ try {
   });
   await server.close();
   report.finishedAt = new Date().toISOString();
-  await writeFile(resolve(output, 'report.json'), JSON.stringify(report, null, 2) + '\n');
-  await writeFile(resolve(output, 'browser.log'), report.console.map((entry) => `[${entry.type}] ${entry.text}`).join('\n') + '\n');
+  report.job = job.name;
+  report.durationMs = Date.now() - jobStarted;
+  report.sectionChecks = sectionChecks;
+  report.sectionMs = sectionMs;
+  await writeFile(resolve(output, jobReportName(job.name)), JSON.stringify(report, null, 2) + '\n');
+  await writeFile(resolve(output, jobLogName(job.name)), report.console.map((entry) => `[${entry.type}] ${entry.text}`).join('\n') + '\n');
 }
 
 if (report.passed && !process.exitCode) {
-  // A run that left sections out says so, here and in the summary line a person reads.
-  console.log('GODOT_REACT_WEB_INTERACTION_VERIFY_PASSED', JSON.stringify({
-    sections: coverage.run, partial: coverage.partial, skipped: coverage.skipped, sectionChecks,
-    assertions: report.assertions.length, captures: report.captures.length, timing: report.timing, engineGaps: report.engineGaps,
-    report: resolve(output, 'report.json'),
+  console.log('GODOT_REACT_WEB_INTERACTION_JOB_PASSED', JSON.stringify({
+    job: job.name, sections: job.sections.filter(wanted), sectionChecks, sectionMs, assertions: report.assertions.length, captures: report.captures.length,
+    durationMs: report.durationMs, report: resolve(output, jobReportName(job.name)),
   }));
 }
+await exitAfterFlush();

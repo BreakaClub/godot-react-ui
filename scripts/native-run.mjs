@@ -1,7 +1,9 @@
-import { spawn } from 'node:child_process';
 import { cpSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import { quietLaunch, quietWindowProblem } from './quiet-window.mjs';
+import { KILL_GRACE_MS, runSupervised } from './supervised-process.mjs';
+
+export { KILL_GRACE_MS, lineWriter } from './supervised-process.mjs';
 
 /**
  * What the demo logs (demo/src/verifier-input.ts) when a run sees something its verifier did not cause: input from a
@@ -23,9 +25,6 @@ export const MAX_DISTURBED_RERUNS = 2;
  * verifier's own next input long before the assertion that failed.
  */
 export const DISTURBANCE_RELEVANCE_MS = 5_000;
-/** How long a child gets to leave after SIGTERM before it is killed. */
-export const KILL_GRACE_MS = 5_000;
-const FORWARDED_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'];
 
 /** Every JSON record the log carries after `marker`, one per line; an unreadable one is `undefined`. */
 function records(log, marker) {
@@ -117,20 +116,24 @@ export function describePass(log, successMarker) {
  * - At most `MAX_DISTURBED_RERUNS` re-runs; `retry: false` (`--no-retry`) allows none, for negative controls.
  * - This is the only retry a verify script makes.
  *
+ * `prefixOutput` starts every line the window prints with `[name] `, for windows that run at the same time (`runNativeVerifiers`).
+ *
  * `leading` are Godot arguments before the `--` that separates the scripts' own (a scene path); `scriptArgs` follow it.
  * `errorPattern` matches log lines that fail a run even if it passed its assertions. `beforeLaunch(attempt)` runs before
  * every launch, a re-run included, and throws to refuse it (the freshness check).
  */
 export async function runNativeVerifier({
   godot, project, output, name, resolution, leading = [], scriptArgs, successMarker, artifacts, errorPattern, deadlineMs,
-  retry = true, beforeLaunch, killGraceMs = KILL_GRACE_MS, quiet = true,
+  retry = true, beforeLaunch, killGraceMs = KILL_GRACE_MS, quiet = true, prefixOutput = false,
 }) {
   mkdirSync(output, { recursive: true });
   clearStaleEvidence(output);
   const disturbedFailures = [];
   for (let attempt = 1; ; attempt += 1) {
     beforeLaunch?.(attempt);
-    const launched = await launch({ godot, project, resolution, leading, scriptArgs, artifacts: artifacts ?? output, deadlineMs, killGraceMs, quiet });
+    const launched = await launch({
+      godot, project, resolution, leading, scriptArgs, artifacts: artifacts ?? output, deadlineMs, killGraceMs, quiet, outputPrefix: prefixOutput ? `[${name}] ` : '',
+    });
     const { log, code } = launched;
     // `run.log` is always the last attempt's log; every attempt keeps its own.
     writeFileSync(resolve(output, 'run.log'), log);
@@ -192,6 +195,40 @@ export function summarizeRuns(results) {
   return results.map(result => `  ${result.summary}`).join('\n');
 }
 
+/**
+ * Run the windows of one workflow (landscape and portrait) at the same time. Each is a Godot process of its own, with the retry, the
+ * deadline, the evidence directory, the freshness check, the quiet window and the failure judgement `runNativeVerifier` gives a single
+ * window; they share nothing that can race (docs/tracks/suite-speed.md has the audit). `common` are the options every window has and
+ * `windows` what differs (`name`, `resolution`, `output`, ...).
+ *
+ * Resolves with the windows' results in the order given, once every window has ended. A window that fails does not stop the others: a
+ * run that fails in one window still says how the other did, and a retry of a disturbed window is that window's own business. If one
+ * window failed, its error is thrown as it is; if several did, one error lists each. `serial` runs them one after another, a failure
+ * ending the run at once (the way every workflow ran before windows ran together), to tell whether running together changes a result.
+ */
+export async function runNativeVerifiers(common, windows, { serial = false } = {}) {
+  if (serial || windows.length === 1) {
+    const results = [];
+    for (const window of windows) results.push(await runNativeVerifier({ ...common, ...window }));
+    return results;
+  }
+  const settled = await Promise.allSettled(windows.map(async window => {
+    try {
+      return await runNativeVerifier({ ...common, ...window, prefixOutput: true });
+    } catch (error) {
+      console.error(`${window.name} failed; the other window(s) run to their end, and the run reports every window`);
+      throw error;
+    }
+  }));
+  const failures = settled.flatMap((outcome, index) => outcome.status === 'rejected' ? [{ name: windows[index].name, error: outcome.reason }] : []);
+  if (failures.length === 1) throw failures[0].error;
+  if (failures.length > 1) {
+    const lines = failures.map(({ name, error }) => `  ${name}: ${error instanceof Error ? error.message : String(error)}`);
+    throw new AggregateError(failures.map(({ error }) => error), `${failures.length} of ${windows.length} windows failed:\n${lines.join('\n')}`);
+  }
+  return settled.map(outcome => outcome.value);
+}
+
 /** Remove what an earlier invocation left beside this one's evidence, so nothing old reads as this run's. */
 function clearStaleEvidence(output) {
   for (const entry of readdirSync(output)) {
@@ -237,40 +274,13 @@ function judge(log, successMarker, errorPattern, name, code, output, killedAtDea
 }
 
 /**
- * Start Godot and wait for it, with every way out closing it: its deadline (SIGTERM, then SIGKILL after a grace), a
- * signal sent to this script (forwarded, then SIGKILL after the same grace), and this script exiting for any reason.
- * Nothing is left running, and no timer outlives the child.
+ * Start Godot and wait for it: `runSupervised` closes it on every way out (its deadline, a signal sent to this script, this script exiting).
+ * An automated window never takes focus (scripts/quiet-window.mjs, docs/tracks/quiet-windows.md).
  */
-async function launch({ godot, project, resolution, leading, scriptArgs, artifacts, deadlineMs, killGraceMs, quiet }) {
+async function launch({ godot, project, resolution, leading, scriptArgs, artifacts, deadlineMs, killGraceMs, quiet, outputPrefix }) {
   const environment = { ...process.env, GODOT_REACT_ARTIFACTS: artifacts };
-  // An automated window never takes focus (scripts/quiet-window.mjs, docs/tracks/quiet-windows.md).
   const { command, env } = quiet ? quietLaunch(godot, environment) : { command: godot, env: environment };
-  const child = spawn(command, ['--audio-driver', 'Dummy', '--path', project, '--resolution', resolution, ...leading, '--', ...scriptArgs], {
-    env, stdio: ['ignore', 'pipe', 'pipe'],
+  return runSupervised({
+    command, args: ['--audio-driver', 'Dummy', '--path', project, '--resolution', resolution, ...leading, '--', ...scriptArgs], env, deadlineMs, killGraceMs, outputPrefix,
   });
-  let log = '';
-  const collect = data => { const value = data.toString(); log += value; process.stdout.write(value); };
-  child.stdout.on('data', collect);
-  child.stderr.on('data', collect);
-  let timedOut = false;
-  let interrupted;
-  let escalation;
-  const stop = signal => {
-    child.kill(signal);
-    escalation ??= setTimeout(() => child.kill('SIGKILL'), killGraceMs);
-  };
-  const deadline = setTimeout(() => { timedOut = true; stop('SIGTERM'); }, deadlineMs);
-  const forwarders = FORWARDED_SIGNALS.map(signal => [signal, () => { interrupted = signal; stop(signal); }]);
-  for (const [signal, handler] of forwarders) process.on(signal, handler);
-  const abandon = () => child.kill('SIGKILL');
-  process.on('exit', abandon);
-  try {
-    const code = await new Promise((resolvePromise, reject) => { child.on('error', reject); child.on('exit', resolvePromise); });
-    return { log, code, timedOut, interrupted };
-  } finally {
-    clearTimeout(deadline);
-    clearTimeout(escalation);
-    for (const [signal, handler] of forwarders) process.off(signal, handler);
-    process.off('exit', abandon);
-  }
 }

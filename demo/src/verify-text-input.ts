@@ -4,7 +4,7 @@ import {
 } from 'godot';
 import type { LayoutRect, NativeSnapshotNode, NativeTextInputSnapshot } from '../../src/native';
 import type { InteractionInspection } from './verify-interaction';
-import { assertionTally, parseVerifierEvent, verifierClipboard } from './verifier-input';
+import { assertionTally, parseVerifierEvent, verifierClipboard, waitForNewClickSequence } from './verifier-input';
 
 /**
  * Phase I7: `TextInput` in a window (docs/tracks/text-input.md). Real Godot input only (`Input.parseInputEvent`, marked
@@ -89,12 +89,9 @@ function button(position: Vector2, pressed: boolean, modifiers: { shift?: boolea
   parseVerifierEvent(event);
 }
 
-/** Longer than the click-count interval (plan Appendix A, 500 ms): the next click begins a new sequence. */
-const CLICK_SEQUENCE_PAUSE_MS = 650;
-
 /** `count` quick clicks at one place: a double click selects a word, a triple click everything. */
 export async function click(position: Vector2, count = 1, modifiers: { shift?: boolean } = {}): Promise<void> {
-  await new Promise(resolve => setTimeout(resolve, CLICK_SEQUENCE_PAUSE_MS));
+  await waitForNewClickSequence();
   move(position);
   await frames(CLICK_PAUSE_FRAMES);
   for (let index = 0; index < count; index++) {
@@ -123,7 +120,7 @@ async function wheel(position: Vector2, button: MouseButton): Promise<void> {
 
 /** Press at `from`, move to `to` in a few steps with the button down, release. */
 export async function drag(from: Vector2, to: Vector2): Promise<void> {
-  await new Promise(resolve => setTimeout(resolve, CLICK_SEQUENCE_PAUSE_MS));
+  await waitForNewClickSequence();
   move(from);
   await frames(CLICK_PAUSE_FRAMES);
   button(from, true);

@@ -13,7 +13,7 @@ import { verifyCombobox } from './verify-combobox';
 import { verifyDropdownTouch } from './verify-dropdown-touch';
 import { verifyTouchSelection } from './verify-touch-selection';
 import { verifyHidpi } from './verify-hidpi';
-import { assertionTally, parseVerifierEvent, verifierClipboard } from './verifier-input';
+import { CLICK_SEQUENCE_PAUSE_MS, assertionTally, parseVerifierEvent, verifierClipboard, waitEngineTime, waitForNewClickSequence } from './verifier-input';
 import { measureFilterCost, verifyFilterFaults, verifyFilterSizes, verifyFilters } from './verify-filters';
 import { GLASS_FAULT_CONTROLS, verifyGlass } from './verify-glass';
 import { verifyLiveCompile } from './verify-live-compile';
@@ -124,8 +124,6 @@ const CHAIN_PARENT_HOVER = '#e2e8f0';
 const FAR_CORNER = new Vector2(1, 1);
 /** Inside a button's border box but outside its label. */
 const POINTER_PADDING_INSET = 4;
-/** Longer than the click-count interval (plan Appendix A, 500 ms), so the next click starts a sequence. */
-const CLICK_SEQUENCE_PAUSE_MS = 650;
 /** More than the click-count slop (4 px), so a second click there is not part of the same sequence. */
 const CLICK_SLOP_BREAKER_PX = 10;
 /** How far outside the window the knob test drags: beyond the root and the window itself. */
@@ -765,7 +763,7 @@ async function verifyPointers(owner: Node, api: InteractionInspection, capture: 
   assert(lines().filter(line => line.startsWith('dblclick')).join('|') === 'dblclick mouse#1 b0 bs0 d2', 'The dblclick carries detail 2');
   await capture('12-pointer-clicks');
   // A press after the interval starts a new sequence; so does one that is farther than the slop.
-  await new Promise(resolve => setTimeout(resolve, CLICK_SEQUENCE_PAUSE_MS));
+  await waitForNewClickSequence();
   mouseButton(pad, MouseButton.MouseButtonLeft, true);
   mouseButton(pad, MouseButton.MouseButtonLeft, false);
   await settle();
@@ -2094,6 +2092,7 @@ const TOUCH_SLOP_PX = 8;
 const FLING_STEP_PX = 15;
 const FLING_STEPS = 6;
 const MIN_COAST_PX = 30;
+/** How often, on the engine's clock, a coasting list is looked at, and how long, in real time, it may take to stop. */
 const COAST_POLL_MS = 100;
 const COAST_DEADLINE_MS = 5000;
 /** How far the thumb is dragged, and how far sideways the mouse strays while it is held. */
@@ -2638,7 +2637,7 @@ async function verifyScrolling(owner: Node, api: InteractionInspection, capture:
   const deadline = Date.now() + COAST_DEADLINE_MS;
   let last = Number.NaN;
   while (Date.now() < deadline) {
-    await new Promise(resolve => setTimeout(resolve, COAST_POLL_MS));
+    await waitEngineTime(COAST_POLL_MS);
     const now = top('touch-list');
     if (now === last) break;
     last = now;
@@ -3033,7 +3032,11 @@ const BEYOND_THRESHOLD_PX = DRAG_THRESHOLD_PX + 2;
 /** How long a touch must stay put to become a drag (`TOUCH_DRAG_HOLD_MS`, native/drag.rs), and how long to wait for it. */
 const TOUCH_HOLD_MS = 500;
 const HOLD_DEADLINE_MS = 3000;
-/** Edge auto-scroll: how close to the list's bottom edge the pointer rests, how long the scroll may take, how often it is sampled. */
+/**
+ * Edge auto-scroll: how close to the list's bottom edge the pointer rests, how long the scroll may take, how often it is sampled. Real time, on purpose: the check
+ * wants a handful of samples while the list scrolls (the element under the pointer is looked up again, `targets.size >= 3`), and on the engine's clock at four times
+ * its rate the list reached its end in 4 samples where it takes 12 or 13 here, leaving that check a margin of one.
+ */
 const AUTOSCROLL_BAND_PX = 12;
 const AUTOSCROLL_DEADLINE_MS = 10_000;
 const AUTOSCROLL_SAMPLE_MS = 100;

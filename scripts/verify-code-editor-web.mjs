@@ -419,7 +419,13 @@ export async function runTouchCodeEditorScenario(context) {
   }));
   check('The soft keyboard is up for the editor', true);
   // The keyboard's keys edit the code, and the editor's input never holds text.
-  await page.keyboard.type('XY');
+  // One letter at a time, a frame apart, as a person types. The engine presses Right once per character a frame after the soft keyboard's text arrives, and the
+  // editor keeps one count of presses to expect (`softKeyboardPresses`): two letters typed in the same millisecond, which no keyboard sends, share a count, and
+  // the second's presses are then taken for the user's own, moving the caret on (docs/tracks/suite-speed.md, "A race that was already there").
+  for (const letter of 'XY') {
+    await page.keyboard.type(letter);
+    await frames();
+  }
   await waitUntil('the typed letters are in the line', async () => ((await h.lineText(4)) ?? '').includes('XY'));
   const typed = (await h.lineText(4)) ?? '';
   check('and they stand where the caret was', typed === `${(lines[3] ?? '').slice(0, position.column)}XY${(lines[3] ?? '').slice(position.column)}`, typed);

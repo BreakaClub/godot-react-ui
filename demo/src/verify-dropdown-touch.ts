@@ -1,7 +1,7 @@
 import { Engine, InputEventScreenDrag, InputEventScreenTouch, Node, Vector2 } from 'godot';
 import type { LayoutRect, NativeScrollState, NativeSnapshotNode } from '../../src/native';
 import type { InteractionInspection } from './verify-interaction';
-import { assertionTally, parseVerifierEvent } from './verifier-input';
+import { assertionTally, parseVerifierEvent, waitEngineTime } from './verifier-input';
 
 /**
  * The dropdown lists of the kit under a finger (`docs/tracks/dropdown-touch.md`), natively, with the screen-touch and screen-drag
@@ -16,8 +16,8 @@ const SETTLE_MS = 100;
 const MIN_SETTLE_FRAMES = 2;
 const FRAME_POLL_MS = 10;
 /**
- * How long the finger rests before it lifts, so the release velocity is zero and nothing coasts: longer than the 0.1 s after which the
- * tracker samples a still finger (`MOMENTUM_SAMPLE_INTERVAL_S` in `native/scroll.rs`), and some frames after that.
+ * How long, on the engine's clock, the finger rests before it lifts, so the release velocity is zero and nothing coasts: longer than the 0.1 s of `delta` after which
+ * the tracker samples a still finger (`MOMENTUM_SAMPLE_INTERVAL_S` in `native/scroll.rs`), and some frames after that.
  */
 const REST_MS = 300;
 const REST_FRAMES = 6;
@@ -65,7 +65,7 @@ async function frames(count: number): Promise<void> {
 }
 
 async function rest(): Promise<void> {
-  await new Promise(resolve => setTimeout(resolve, REST_MS));
+  await waitEngineTime(REST_MS);
   await frames(REST_FRAMES);
 }
 
@@ -291,7 +291,7 @@ async function verifyFlick(api: Api, dropdown: Dropdown): Promise<void> {
   const deadline = Date.now() + COAST_DEADLINE_MS;
   let last = Number.NaN;
   while (Date.now() < deadline) {
-    await new Promise(resolve => setTimeout(resolve, COAST_POLL_MS));
+    await waitEngineTime(COAST_POLL_MS);
     const now = scrollOf(api, dropdown.list).scrollTop;
     if (now === last) break;
     last = now;
