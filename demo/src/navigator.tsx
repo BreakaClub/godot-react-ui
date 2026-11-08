@@ -674,7 +674,6 @@ export function Navigator({ labs = LABS, initialLab, onLabChange, onOpenScene, c
       history,
       isServer: false,
       origin: 'http://localhost',
-      scrollRestorationBehavior: 'manual',
     });
 
     const matches = r.matchRoutes(r.latestLocation);
