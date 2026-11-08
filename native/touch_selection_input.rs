@@ -236,6 +236,7 @@ impl ReactUiRoot {
         self.touch_selection.gesture = Some(gesture);
         self.touch_selection.finger = position;
         self.sync_touch_chrome();
+        self.update_process();
         true
     }
 
@@ -327,6 +328,8 @@ impl ReactUiRoot {
             // The segment looks pressed only while the finger is over it.
             Gesture::Menu { .. } => self.sync_touch_chrome(),
         }
+        // A finger that has come to the edge of a container needs frames to scroll it.
+        self.update_process();
         true
     }
 
@@ -617,6 +620,7 @@ impl ReactUiRoot {
         self.touch_selection.finger = position;
         self.touch_selection.menu_dismissed = false;
         self.sync_touch_chrome();
+        self.update_process();
     }
 
     /// Select the word of `Text` `tag` that `position` is over.
@@ -749,7 +753,13 @@ impl ReactUiRoot {
         if self.touch_selection.owner.is_none() {
             return;
         }
-        if self.scrolling.wants_frames() {
+        // A scroll the finger of a selecting gesture makes itself (a handle held at an edge) is no reason to hide the menu: it is hidden
+        // already. Any other lasts until the pan or the flick is over, which `tick_touch_selection` sees.
+        if !self
+            .touch_selection
+            .gesture
+            .is_some_and(Gesture::moves_selection)
+        {
             self.touch_selection.scroll_suppressed = true;
             self.update_process();
         }

@@ -17,6 +17,7 @@ import { isolateBrowserClipboard } from './web-clipboard.mjs';
 import { startVerificationServer } from './web-verify.mjs';
 import { runComboboxScenario, runTouchComboboxScenario } from './verify-combobox-web.mjs';
 import { runTouchDropdownScenario } from './verify-dropdown-touch-web.mjs';
+import { runTouchSelectionRetinaScenario, runTouchSelectionScenario } from './verify-touch-selection-web.mjs';
 import { runFiltersScenario } from './verify-filters-web.mjs';
 import { runGlassScenario } from './verify-glass-web.mjs';
 import { runCodeEditorScenario, runTouchCodeEditorScenario } from './verify-code-editor-web.mjs';
@@ -2988,6 +2989,25 @@ async function runTouchWorkflow() {
       demo, page, frames, snapshot, find, check, capture, waitUntil, nodeExists, text, pagePoint,
     }));
   }
+  if (wanted('touch-selection')) {
+    const selectionContext = {
+      demo, page, frames, snapshot, find, check, capture, waitUntil, nodeExists, text, pagePoint, keyboardElement,
+      canvasImage: async () => {
+        const canvas = await page.$('canvas');
+        assert.ok(canvas, 'Godot canvas vanished');
+        const image = decodePng(Buffer.from(await canvas.screenshot({ type: 'png', timeout: ACTION_TIMEOUT_MS })));
+        await canvas.dispose();
+        return image;
+      },
+    };
+    await section('touch-selection', () => runTouchSelectionScenario(selectionContext));
+    // The same gestures at a device pixel ratio of 2, where the handles and the menu are drawn in device pixels.
+    await page.close();
+    activeViewport = 'touch-retina';
+    await loadPage({ width: viewport.width, height: viewport.height, deviceScaleFactor: 2, hasTouch: true });
+    await waitUntil('the retina touch page', async () => (await snapshot()).width === viewport.width);
+    await section('touch-selection', () => runTouchSelectionRetinaScenario({ ...selectionContext, page }));
+  }
   if (wanted('code-editor')) {
     // The code panel is offered from 768 logical pixels wide, which the touch page above (a phone) is not: a page of its own, a tablet's size.
     await page.close();
@@ -3030,7 +3050,7 @@ try {
       activeViewport = 'rotation';
       await section('rotation', () => runRotationScenario({ browser, base: url, check, output: resolve(output, activeViewport) }));
     }
-    if (wanted('touch') || wanted('drag') || wanted('combobox') || wanted('dropdown-touch') || wanted('code-editor')) await runTouchWorkflow();
+    if (wanted('touch') || wanted('drag') || wanted('combobox') || wanted('dropdown-touch') || wanted('touch-selection') || wanted('code-editor')) await runTouchWorkflow();
     checkBrowserErrors();
     const empty = SECTIONS.filter((name) => wanted(name) && !(sectionChecks[name] > 0));
     assert.ok(empty.length === 0, `Section(s) ${empty.join(', ')} ran no assertion`);

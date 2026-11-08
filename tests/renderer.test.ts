@@ -151,7 +151,7 @@ test('native boundary rejects invalid data and surfaces failed commits', () => {
     setPointerCapture: () => '', releasePointerCapture: () => '', hasPointerCapture: () => false,
     focusNode: () => '', blurNode: () => '',
     scrollTo: () => '', scrollBy: () => '', scrollIntoView: () => '', getScrollState: () => 'null',
-    getSelection: () => 'null', clearSelection: () => {},
+    getSelection: () => 'null', getTouchSelection: () => 'null', clearSelection: () => {},
     setTextAndSelection: () => '', setTextSelection: () => '', getTextInputState: () => 'null',
     getCaretRect: () => 'null', getOffsetAtPoint: () => 'null', getRangeRects: () => 'null',
   };

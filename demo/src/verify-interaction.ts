@@ -4,13 +4,14 @@ import {
   MouseButton, MouseButtonMask, Node, OS, ProjectSettings, RenderingServer, ThemeDB, Time, Vector2,
 } from 'godot';
 import type { NativeActivity, NativeProfile, RendererProfile, UISelection } from '../../src';
-import type { LayoutRect, NativeScrollState, NativeSnapshot, NativeSnapshotNode } from '../../src/native';
+import type { LayoutRect, NativeScrollState, NativeSnapshot, NativeSnapshotNode, NativeTouchSelection } from '../../src/native';
 import type { BenchmarkProps } from './benchmark';
 import type { FiltersLabProps } from './filters-lab';
 import type { LabName } from './labs';
 import type { NavigatorOptions, PassthroughCounts } from './main';
 import { verifyCombobox } from './verify-combobox';
 import { verifyDropdownTouch } from './verify-dropdown-touch';
+import { verifyTouchSelection } from './verify-touch-selection';
 import { verifyHidpi } from './verify-hidpi';
 import { assertionTally, parseVerifierEvent, verifierClipboard } from './verifier-input';
 import { measureFilterCost, verifyFilterFaults, verifyFilterSizes, verifyFilters } from './verify-filters';
@@ -97,6 +98,10 @@ export interface InteractionInspection extends DemoInspection {
   simulateWindowFocusLoss(): void;
   /** The document's text selection, as `root.getSelection()` answers it. */
   selection(): UISelection | undefined;
+  /** The handles and edit menu of the selection a touch made, as `root.getTouchSelection()` answers it. */
+  touchSelection(): NativeTouchSelection | undefined;
+  /** Where the caret of text input `testID` is with the caret at `offset`; it puts the caret there (a measurement). */
+  inputCaretAt(testID: string, offset: number): LayoutRect | null;
   /** `selectionchange` events the root's own listener saw since the last reset. */
   selectionChanges(): number;
   resetSelectionChanges(): void;
@@ -3638,6 +3643,7 @@ export async function runInteractionVerification(owner: Node, api: InteractionIn
   if (sections.has('forms')) await timed('forms', () => verifyTextInput(owner, api, capture));
   if (sections.has('combobox')) await timed('combobox', () => verifyCombobox(owner, api, capture));
   if (sections.has('dropdown-touch')) await timed('dropdown-touch', () => verifyDropdownTouch(owner, api, capture));
+  if (sections.has('touch-selection')) await timed('touch-selection', () => verifyTouchSelection(owner, api, capture));
   if (sections.has('hidpi')) await timed('hidpi', () => verifyHidpi(owner, api, capture));
   if (sections.has('filters')) await timed('filters', () => verifyFilters(owner, api, capture));
   if (sections.has('glass')) await timed('glass', () => verifyGlass(owner, api, capture));

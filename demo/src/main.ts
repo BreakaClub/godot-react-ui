@@ -247,6 +247,21 @@ export default class Main extends Node {
       },
       /** The document's text selection, as `root.getSelection()` answers it. */
       selection: () => this.requireRenderer().getSelection(),
+      /** The handles and edit menu of the selection a touch made, as `root.getTouchSelection()` answers it. */
+      touchSelection: () => this.requireRenderer().getTouchSelection(),
+      /**
+       * Where the caret of the text input `testID` is when it stands at `offset`: a measurement, not an interaction. It puts the caret
+       * there (`setSelectionRange`, which sends a `selectionchange`) and reads the caret the snapshot has, which is where a press at that
+       * offset's edge lands. `null` while the caret cannot be laid out.
+       */
+      inputCaretAt: (testID: string, offset: number) => {
+        const surface = this.requireSurface();
+        const found = this.requireRenderer().findByTestID(testID);
+        if (!found?.textInput) throw new Error(`${testID} is not a text input`);
+        const error = surface.setTextSelection(found.id, offset, offset, false);
+        if (error !== '') throw new Error(`setSelectionRange on ${testID}: ${error}`);
+        return this.requireRenderer().findByTestID(testID)?.textInput?.caret ?? null;
+      },
       /** The selection lab's commits (React state changes made outside any event, as an app's timer would). */
       changeSelectionLiveText: () => selectionLabControls().changeLiveText(),
       removeSelectionTail: () => selectionLabControls().removeTail(),
@@ -608,7 +623,12 @@ export default class Main extends Node {
       openSession: lab => openLiveSession({ root: this.requireRenderer(), labId: lab.id, exportName: lab.component.name, embedded: true }),
       readSource: path => FileAccess.getFileAsString(path),
       platform: onMac ? 'mac' : 'other',
-      clipboard: { writeText: text => ReactUiRoot.setClipboardText(text) },
+      // The browser's clipboard is read asynchronously and the engine's own read answers one call late (docs/tracks/text-input.md): on the Web the
+      // editor's menu offers no Paste, and the keyboard's own paste is the way.
+      clipboard: {
+        writeText: text => ReactUiRoot.setClipboardText(text),
+        ...(Engine.hasSingleton('JavaScriptBridge') ? {} : { readText: () => ReactUiRoot.clipboardText() }),
+      },
       now: () => Time.getTicksUsec() / MICROSECONDS_PER_MILLISECOND,
     };
   }

@@ -70,6 +70,11 @@ export interface NativeHost {
   /** Drop the document's text selection. Native queues `selectionchange` if there was one. */
   clearSelection(): void;
   /**
+   * The handles and edit menu of a selection a touch made, as they are on screen, as JSON (`NativeTouchSelection`), or `null`
+   * when there are none. They are the root's own chrome, not elements: this is how a test or an app finds them.
+   */
+  getTouchSelection(): string;
+  /**
    * `setTextAndSelection(eventCount, value, start, end)` on a text input (plan 3.18): replace its text and
    * selection unless the user typed since the event count was read. `start` and `end` are UTF-16 offsets into
    * `value`, both -1 for the caret at the end. Returns '' when applied, `STALE_TEXT_COMMAND` when ignored for its
@@ -413,6 +418,38 @@ export interface NativeSelection {
   focus: NativeSelectionPoint;
   isCollapsed: boolean;
   text: string;
+}
+
+/** What a selection's handle is a handle of: the start or the end of the selection, in reading order. */
+export type NativeTouchHandleEnd = 'start' | 'end';
+
+/** One drag handle of a touch selection: the stem along the selection's edge, the ball past its end, and the square a finger grabs it by. */
+export interface NativeTouchHandle {
+  end: NativeTouchHandleEnd;
+  stem: LayoutRect;
+  ball: { x: number; y: number; radius: number };
+  target: LayoutRect;
+}
+
+/** What a segment of the edit menu does. */
+export type NativeTouchMenuAction = 'cut' | 'copy' | 'paste' | 'selectAll';
+
+export interface NativeTouchMenuItem {
+  action: NativeTouchMenuAction;
+  label: string;
+  rect: LayoutRect;
+}
+
+/**
+ * The handles and edit menu a touch selection shows (plan D71), in root-local pixels. `owner` is where the selection is: the document's, or
+ * a text input's (its tag). `gesture` is what a finger on the chrome is doing now. Either may be missing from what is on screen: a handle is
+ * not shown for an end that has scrolled out of view, and the menu steps aside while a finger moves the selection or the content scrolls.
+ */
+export interface NativeTouchSelection {
+  owner: { kind: 'document' } | { kind: 'input'; tag: number } | null;
+  gesture: 'idle' | 'extending' | 'handle' | 'menu';
+  handles: NativeTouchHandle[];
+  menu: { area: LayoutRect; items: NativeTouchMenuItem[] } | null;
 }
 
 /**
@@ -1233,6 +1270,58 @@ export function readSelection(host: NativeHost): NativeSelection | undefined {
     focus: selectionPoint(selection.focus, 'selection.focus'),
     isCollapsed: boolean(selection.isCollapsed, 'selection.isCollapsed'),
     text: string(selection.text, 'selection.text'),
+  };
+}
+
+function touchHandle(value: unknown, label: string): NativeTouchHandle {
+  const handle = record(value, label);
+  const end = string(handle.end, `${label}.end`);
+  if (end !== 'start' && end !== 'end') throw new Error(`Invalid native ${label}.end: expected start or end`);
+  const ball = record(handle.ball, `${label}.ball`);
+  return {
+    end,
+    stem: rect(handle.stem, `${label}.stem`),
+    ball: { x: number(ball.x, `${label}.ball.x`), y: number(ball.y, `${label}.ball.y`), radius: number(ball.radius, `${label}.ball.radius`) },
+    target: rect(handle.target, `${label}.target`),
+  };
+}
+
+const TOUCH_MENU_ACTIONS: readonly NativeTouchMenuAction[] = ['cut', 'copy', 'paste', 'selectAll'];
+
+function touchMenuItem(value: unknown, label: string): NativeTouchMenuItem {
+  const item = record(value, label);
+  const action = TOUCH_MENU_ACTIONS.find((candidate) => candidate === item.action);
+  if (action === undefined) throw new Error(`Invalid native ${label}.action: expected one of ${TOUCH_MENU_ACTIONS.join(', ')}`);
+  return { action, label: string(item.label, `${label}.label`), rect: rect(item.rect, `${label}.rect`) };
+}
+
+function touchOwner(value: unknown): NativeTouchSelection['owner'] {
+  if (value === null) return null;
+  const owner = record(value, 'touch selection owner');
+  const kind = string(owner.kind, 'touch selection owner.kind');
+  if (kind === 'document') return { kind };
+  if (kind === 'input') return { kind, tag: id(owner.tag, 'touch selection owner.tag') };
+  throw new Error('Invalid native touch selection owner.kind: expected document or input');
+}
+
+const TOUCH_GESTURES: readonly NativeTouchSelection['gesture'][] = ['idle', 'extending', 'handle', 'menu'];
+
+/** The handles and menu of the selection a touch made, or `undefined` when none is shown. */
+export function readTouchSelection(host: NativeHost): NativeTouchSelection | undefined {
+  const value: unknown = JSON.parse(host.getTouchSelection());
+  if (value === null) return undefined;
+  const chrome = record(value, 'touch selection');
+  const gesture = TOUCH_GESTURES.find((candidate) => candidate === chrome.gesture);
+  if (gesture === undefined) throw new Error(`Invalid native touch selection.gesture: expected one of ${TOUCH_GESTURES.join(', ')}`);
+  const menu = chrome.menu === null ? null : record(chrome.menu, 'touch selection.menu');
+  return {
+    owner: touchOwner(chrome.owner),
+    gesture,
+    handles: array(chrome.handles, 'touch selection.handles').map((entry, index) => touchHandle(entry, `touch selection.handles[${index}]`)),
+    menu: menu === null ? null : {
+      area: rect(menu.area, 'touch selection.menu.area'),
+      items: array(menu.items, 'touch selection.menu.items').map((entry, index) => touchMenuItem(entry, `touch selection.menu.items[${index}]`)),
+    },
   };
 }
 

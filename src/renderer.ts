@@ -15,9 +15,9 @@ import {
 import {
   checkCapture, checkFocus, checkScroll, commitPayload, findTag, readCaretRect, readDeletions, readEvents, readNodeRect,
   readOffsetAtPoint, readRangeRects, readScrollState,
-  readSelection, readSnapshot, readTextInputState, resolveEvent, setTextAndSelection, setTextSelection,
+  readSelection, readSnapshot, readTextInputState, readTouchSelection, resolveEvent, setTextAndSelection, setTextSelection,
   type NativeDragEndEvent, type NativeDragEvent, type NativeEvent, type NativeEventType, type NativeHost,
-  type NativePointerEvent, type NativeSnapshot, type NativeSnapshotNode,
+  type NativePointerEvent, type NativeSnapshot, type NativeSnapshotNode, type NativeTouchSelection,
 } from './native';
 import { nativeProps, scalarText, type NativeKind, type NativeProps, type PreviousProps } from './props';
 import { checkSpanProps, flattenRichText, type RichPart, type RichRun, type RichSpan } from './rich-text';
@@ -184,6 +184,11 @@ export interface UIRoot {
   getSelection(): UISelection | undefined;
   /** Clears the text selection (`selectionchange` follows if there was one). Does not touch keyboard focus. */
   clearSelection(): void;
+  /**
+   * The handles and edit menu a touch selection shows (a long press on selectable text or in a text input made it), as they are on
+   * screen, or `undefined` when there are none. They are drawn by the root, not elements; this is where a test or an app finds them.
+   */
+  getTouchSelection(): NativeTouchSelection | undefined;
   getSnapshot(): NativeSnapshot;
   /** The first element created with this `testID`, from a native query. */
   findByTestID(testID: string): NativeSnapshotNode | undefined;
@@ -924,6 +929,9 @@ export function createRoot(host: NativeHost, options: RootOptions): UIRoot {
     },
     getSelection() {
       return currentSelection(state);
+    },
+    getTouchSelection() {
+      return readTouchSelection(host);
     },
     clearSelection() {
       host.clearSelection();

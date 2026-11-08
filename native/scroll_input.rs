@@ -470,6 +470,11 @@ impl ReactUiRoot {
         };
         let mut owner_tag = None;
         let step = pan.gesture.moved(to_scroll(position), |displacement| {
+            // A pointer JS captured since the press (a long press that began a selection of its own) is its element's, as one captured in
+            // `pointerdown` is (plan 3.12 rule 1).
+            if self.pointers.captured_by_js(id) {
+                return None;
+            }
             let (tag, owner) = self.arbitrate_pan(pan.target, displacement)?;
             owner_tag = Some(tag);
             Some(owner)

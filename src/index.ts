@@ -41,7 +41,7 @@ export { readActivity, takeNativeProfile } from './native';
 export type { NativeActivity, NativeDiagnosticsHost, NativeProfile, NativeTransition } from './native';
 export type {
   NativeDragState, NativeHost, NativeScrollState, NativeSelection, NativeSnapshot, NativeSnapshotNode, NativeTextInputSnapshot,
-  NativeTextInputState, LayoutRect,
+  NativeTextInputState, NativeTouchHandle, NativeTouchHandleEnd, NativeTouchMenuAction, NativeTouchMenuItem, NativeTouchSelection, LayoutRect,
 } from './native';
 export type { NativeEvent, NativeEventType, NativePointerType } from './native';
 export { createFontSliceLoader, installFontSlices } from './font-slices';

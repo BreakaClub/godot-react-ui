@@ -24,6 +24,7 @@ import { RichTextLab } from './rich-text-lab';
 import { ScrollLab } from './scroll-lab';
 import { SelectionLab } from './selection-lab';
 import { TextStylesLab } from './text-styles-lab';
+import { TouchSelectionLab } from './touch-selection-lab';
 import { TransformLab } from './transform-lab';
 
 /**
@@ -163,6 +164,11 @@ export const LABS = defineLabs([
     id: 'selection', kind: 'inline', group: 'Text', title: 'Text selection',
     description: 'Click, double and triple click, drag, Shift+click, copy and select all on rendered text.',
     component: SelectionLab, sources: ['res://src/selection-lab.tsx'],
+  },
+  {
+    id: 'touch-selection', kind: 'inline', group: 'Text', title: 'Touch text selection',
+    description: 'Press and hold to select a word of text or of a field, drag the handles and use the menu, as on a phone.',
+    component: TouchSelectionLab, sources: ['res://src/touch-selection-lab.tsx'],
   },
   {
     id: 'text-styles', kind: 'inline', group: 'Text', title: 'Text styles',

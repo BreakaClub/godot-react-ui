@@ -1205,6 +1205,7 @@ declare module "godot" {
         set_clipboard_text: "setClipboardText";
         get_activity: "getActivity";
         take_profile: "takeProfile";
+        get_touch_selection: "getTouchSelection";
         get_snapshot: "getSnapshot";
         set_pointer_capture: "setPointerCapture";
         release_pointer_capture: "releasePointerCapture";
@@ -1253,6 +1254,7 @@ declare module "godot" {
         static setClipboardText(text: string): any
         getActivity(): string
         takeProfile(): string
+        getTouchSelection(): string
         getSnapshot(): string
         setPointerCapture(tag: int64, pointerId: int64): string
         releasePointerCapture(tag: int64, pointerId: int64): string

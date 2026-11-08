@@ -66,7 +66,7 @@ export function node(id: number, kind: 'view' | 'text' | 'button' | 'textinput')
 export type NativeCall =
   | 'commit' | 'takeCommitDeletions' | 'drainEvents' | 'getSnapshot' | 'getNodeRect' | 'getSize' | 'findByTestId' | 'resolveEvent'
   | 'setPointerCapture' | 'releasePointerCapture' | 'hasPointerCapture' | 'focusNode' | 'blurNode'
-  | 'scrollTo' | 'scrollBy' | 'scrollIntoView' | 'getScrollState' | 'getSelection' | 'clearSelection'
+  | 'scrollTo' | 'scrollBy' | 'scrollIntoView' | 'getScrollState' | 'getSelection' | 'getTouchSelection' | 'clearSelection'
   | 'setTextAndSelection' | 'setTextSelection' | 'getTextInputState' | 'getCaretRect' | 'getOffsetAtPoint' | 'getRangeRects';
 
 /** What the fake host keeps of a text input: native's buffer, reduced to the value, the selection and the count. */
@@ -346,6 +346,14 @@ export class RecordingHost implements NativeHost {
   getSelection(): string {
     this.calls.push('getSelection');
     return JSON.stringify(this.selection ?? null);
+  }
+
+  /** The touch selection chrome `getTouchSelection` reports (native places it; the test says what it is). */
+  touchSelection: unknown = null;
+
+  getTouchSelection(): string {
+    this.calls.push('getTouchSelection');
+    return JSON.stringify(this.touchSelection);
   }
 
   clearSelection(): void {

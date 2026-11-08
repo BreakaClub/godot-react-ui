@@ -33,6 +33,8 @@ export const DEMO_ENTRY_POINTS = [
   'demo/src/live-compile-session.ts', 'demo/src/live-compile-open.ts', 'demo/src/verify-live-compile.ts',
   // The dropdown lists' touch verifier (docs/tracks/dropdown-touch.md).
   'demo/src/verify-dropdown-touch.ts',
+  // The touch text selection verifier (docs/tracks/touch-selection.md).
+  'demo/src/verify-touch-selection.ts',
   // The code panel's verifier (docs/tracks/code-editor.md). The editor itself is `demo/src/editor/`, hidden from Godot (`.gdignore`) and bundled into its importers.
   'demo/src/verify-code-editor.ts',
   // The keystroke cost diagnostic that drives the code panel (docs/tracks/keystroke-profile.md).
