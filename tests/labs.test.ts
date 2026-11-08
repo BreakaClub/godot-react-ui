@@ -73,7 +73,8 @@ test('the filter matches every word in any of the title, description, group and 
   assert.ok(effects.includes('drag'), 'so does a description that says "drop effects"');
   assert.deepEqual(filterLabs(LABS, 'effects blur').map((lab) => lab.id), ['filters', 'glass'], 'every word must match, in any one of the fields');
   assert.deepEqual(filterLabs(LABS, 'forms-extra').map((lab) => lab.id), ['forms-extra']);
-  assert.deepEqual(filterLabs(LABS, 'text selection').map((lab) => lab.id), ['selection']);
+  assert.deepEqual(filterLabs(LABS, 'text selection').map((lab) => lab.id), ['selection', 'touch-selection']);
+  assert.deepEqual(filterLabs(LABS, 'shift+click').map((lab) => lab.id), ['selection'], 'a word only one lab\'s description has');
   assert.deepEqual(filterLabs(LABS, 'zzzz'), []);
 });
 

@@ -262,6 +262,8 @@ export async function runTouchSelectionScenario(context) {
   await finger.down(swipeFrom);
   await finger.glide({ x: swipeFrom.x, y: swipeFrom.y - PAN_STEPS * PAN_STEP_PX }, PAN_STEPS);
   check('A swipe keeps the selection, and the menu steps aside while the page scrolls', (await selection())?.text === 'brown' && (await chrome()).menu === null);
+  // The finger rests before it lifts, so nothing coasts: a flick would take the selection out of view (docs/tracks/dropdown-touch.md).
+  await rest(300);
   await finger.up();
   await h.waitUntil('the menu is back once the page has stopped', async () => (await menuActions()).join() === 'copy,selectAll');
   check('The handles stay on the text as the page scrolls under them', near(endBefore - (await handleOf('end')).stem.y, await scrollTop(PAGE)), { endBefore, now: (await handleOf('end')).stem.y, scrolled: await scrollTop(PAGE) });

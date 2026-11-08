@@ -1,5 +1,6 @@
 import {
-  Color, Engine, FileAccess, Image, InputEventKey, InputEventMouseButton, Key, MouseButton, MouseButtonMask, Node, OS, Time, Vector2,
+  Color, Engine, FileAccess, Image, InputEventKey, InputEventMouseButton, InputEventScreenDrag, InputEventScreenTouch, Key, MouseButton, MouseButtonMask, Node, OS,
+  Time, Vector2,
 } from 'godot';
 import type { LayoutRect, NativeSnapshot, NativeSnapshotNode } from '../../src/native';
 import type { RendererProfile } from '../../src/profile';
@@ -61,6 +62,8 @@ const LAB_SOURCE = 'res://src/inputs-lab.tsx';
 /** `md:` (README: Styles): from here the Code button is offered. */
 const PHONE_BREAKPOINT_PX = 768;
 const FRAME_POLL_MS = 1;
+/** Where a handle's stem is against where the grid puts the column, in pixels. */
+const TOUCH_TOLERANCE_PX = 1.5;
 const DEADLINE_MS = 6_000;
 /** How far a caret may stray from the pixel of its column. */
 const COLUMN_TOLERANCE_PX = 1;
@@ -490,6 +493,138 @@ async function verifyReadOnly(api: CodeEditorInspection, source: string, command
   await settleFrames();
 }
 
+// ---- Touch: a long press selects, handles move the ends, a menu acts, a swipe scrolls --------------------------------------------------------------------
+
+/** How long a finger is held for the editor's long press (`TOUCH_SELECT_HOLD_MS`, 500 ms) to have elapsed, with slack for frames. */
+const TOUCH_HELD_MS = 900;
+const TOUCH_EARLY_MS = 250;
+const TOUCH_STEPS = 6;
+const TOUCH_STEP_PX = 20;
+
+function touchEvent(position: Vector2, pressed: boolean): void {
+  const event = new InputEventScreenTouch();
+  event.index = 0;
+  event.position = position;
+  event.pressed = pressed;
+  parseVerifierEvent(event);
+}
+
+function touchDragEvent(position: Vector2, relative: Vector2): void {
+  const event = new InputEventScreenDrag();
+  event.index = 0;
+  event.position = position;
+  event.relative = relative;
+  parseVerifierEvent(event);
+}
+
+async function touchTap(position: Vector2): Promise<void> {
+  touchEvent(position, true);
+  await frames(2);
+  touchEvent(position, false);
+  await settleFrames();
+}
+
+/** The finger at `from` moves to `to` in steps, a few frames apart; it is still down. */
+async function touchGlide(from: Vector2, to: Vector2, steps = TOUCH_STEPS): Promise<void> {
+  let last = from;
+  for (let step = 1; step <= steps; step += 1) {
+    const next = new Vector2(from.x + (to.x - from.x) * step / steps, from.y + (to.y - from.y) * step / steps);
+    touchDragEvent(next, new Vector2(next.x - last.x, next.y - last.y));
+    last = next;
+    await frames(2);
+  }
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function verifyTouchSelection(api: CodeEditorInspection, source: string, capture: CodeEditorCapture): Promise<void> {
+  await toTop(api);
+  const lines = source.split('\n');
+  const word = positionOf(source, 'useState');
+  const text = lines[word.line - 1] ?? '';
+  const grid = gridOf(api);
+  const stemX = (testID: string): number => node(api, testID).rect.x + node(api, testID).rect.width / 2;
+  const inside = boundaryAt(api, word.line, word.column + 3);
+  verifierClipboard.set('before');
+
+  // A hold that is not long enough selects nothing; a long one selects the word under the finger, and shows its handles and the menu.
+  touchEvent(inside, true);
+  await frames(2);
+  await sleep(TOUCH_EARLY_MS);
+  assert(!hasNode(api, 'code-handle-start'), 'Before the hold has elapsed nothing is selected');
+  await sleep(TOUCH_HELD_MS - TOUCH_EARLY_MS);
+  await frames(2);
+  assert(hasNode(api, 'code-handle-start') && hasNode(api, 'code-handle-end'), 'A long press selects the word under the finger and shows its handles');
+  assert(!hasNode(api, 'code-touch-menu'), 'The menu waits for the finger to lift');
+  touchEvent(inside, false);
+  await settleFrames();
+  assert(Math.abs(stemX('code-handle-start-stem') - boundaryAt(api, word.line, word.column).x) <= TOUCH_TOLERANCE_PX, `The start handle stands on the word's start: ${stemX('code-handle-start-stem')}`);
+  assert(Math.abs(stemX('code-handle-end-stem') - boundaryAt(api, word.line, word.column + 'useState'.length).x) <= TOUCH_TOLERANCE_PX, `and the end handle on its end: ${stemX('code-handle-end-stem')}`);
+  assert(node(api, 'code-handle-start-ball').rect.y < node(api, 'code-handle-start-stem').rect.y && node(api, 'code-handle-end-ball').rect.y > node(api, 'code-handle-end-stem').rect.y,
+    'The start handle hangs above its line and the end handle below it');
+  assert(hasNode(api, 'code-touch-menu-cut') && hasNode(api, 'code-touch-menu-copy') && hasNode(api, 'code-touch-menu-selectAll'), 'The menu offers Cut, Copy and Select All');
+  await capture('code-editor-touch-01-word', OVERFLOWING);
+  await touchTap(centerOf(node(api, 'code-touch-menu-copy').rect));
+  assert(verifierClipboard.get() === 'useState', `Copy in the menu puts the selected word on the clipboard: ${JSON.stringify(verifierClipboard.get())}`);
+  assert(hasNode(api, 'code-handle-end') && !hasNode(api, 'code-touch-menu'), 'and leaves the selection and its handles, the menu gone');
+
+  // The end handle moves the end of the selection by columns.
+  const ball = centerOf(node(api, 'code-handle-end-ball').rect);
+  const extra = 5;
+  touchEvent(ball, true);
+  await frames(2);
+  await touchGlide(ball, new Vector2(ball.x + extra * grid.advance, ball.y));
+  touchEvent(new Vector2(ball.x + extra * grid.advance, ball.y), false);
+  await settleFrames();
+  await touchTap(centerOf(node(api, 'code-touch-menu-copy').rect));
+  assert(verifierClipboard.get() === text.slice(word.column, word.column + 'useState'.length + extra), `Dragging the end handle extends the selection by five columns: ${JSON.stringify(verifierClipboard.get())}`);
+
+  // A tap elsewhere puts the caret there and takes the handles away.
+  await touchTap(boundaryAt(api, word.line + 1, 4));
+  assert(!hasNode(api, 'code-handle-start') && !hasNode(api, 'code-touch-menu'), 'A tap elsewhere hides the handles and the menu');
+
+  // White space is not a word; a swipe scrolls and selects nothing.
+  const space = text.indexOf(' ');
+  assert(space >= 0, 'The line has a space');
+  const onSpace = new Vector2(boundaryAt(api, word.line, space).x + grid.advance / 2, boundaryAt(api, word.line, space).y);
+  touchEvent(onSpace, true);
+  await frames(2);
+  await sleep(TOUCH_HELD_MS);
+  assert(!hasNode(api, 'code-handle-start'), 'A long press on white space selects nothing');
+  touchEvent(onSpace, false);
+  await settleFrames();
+  const swipeFrom = boundaryAt(api, word.line, word.column + 3);
+  touchEvent(swipeFrom, true);
+  await frames(2);
+  await touchGlide(swipeFrom, new Vector2(swipeFrom.x, swipeFrom.y - TOUCH_STEPS * TOUCH_STEP_PX));
+  await sleep(TOUCH_HELD_MS);
+  assert(!hasNode(api, 'code-handle-start'), 'A swipe that began on a word selects nothing, though the finger rests past the hold');
+  touchEvent(new Vector2(swipeFrom.x, swipeFrom.y - TOUCH_STEPS * TOUCH_STEP_PX), false);
+  await settleFrames();
+  assert(scrollTopOf(api) > 0, `and scrolls the code: ${scrollTopOf(api)}`);
+  await toTop(api);
+
+  // A finger that selected by holding goes on selecting as it moves, by words, and does not pan the editor.
+  const held = boundaryAt(api, word.line, word.column + 3);
+  touchEvent(held, true);
+  await frames(2);
+  await sleep(TOUCH_HELD_MS);
+  assert(hasNode(api, 'code-handle-start'), 'A long press selects again');
+  const down = new Vector2(held.x, held.y + 3 * grid.lineHeight);
+  await touchGlide(held, down);
+  touchEvent(down, false);
+  await settleFrames();
+  assert(scrollTopOf(api) === 0, `The finger that selected does not pan the editor: ${scrollTopOf(api)}`);
+  await touchTap(centerOf(node(api, 'code-touch-menu-copy').rect));
+  assert(verifierClipboard.get().startsWith('useState') && verifierClipboard.get().split('\n').length >= 3, `and extends the selection down the lines: ${JSON.stringify(verifierClipboard.get().slice(0, 40))}`);
+  await capture('code-editor-touch-02-extended', OVERFLOWING);
+  await touchTap(boundaryAt(api, word.line + 1, 4));
+  assert(!hasNode(api, 'code-handle-start'), 'A tap ends it');
+  await toTop(api);
+}
+
 export async function verifyCodeEditor(owner: Node, api: CodeEditorInspection, capture: CodeEditorCapture): Promise<void> {
   const facts: Record<string, unknown> = {};
   const mac = OS.hasFeature('macos');
@@ -631,6 +766,9 @@ export async function verifyCodeEditor(owner: Node, api: CodeEditorInspection, c
   await click(boundaryAt(api, shiftLine, 9), 1, { shift: true });
   await pressKey(Key.KeyC, command);
   assert(verifierClipboard.get() === (sourceLines[shiftLine - 1] ?? '').slice(2, 9), `Shift+click extends from the caret: ${JSON.stringify(verifierClipboard.get())}`);
+
+  await verifyTouchSelection(api, source, capture);
+  await click(boundaryAt(api, 6, 2));
 
   // Far along a long line the paint is still on the grid: a selection from one column to another has its edges, in the raster, where the grid says.
   const longLine = sourceLines.findIndex(text => text.length >= LONG_LINE_COLUMNS) + 1;

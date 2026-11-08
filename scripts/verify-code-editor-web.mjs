@@ -446,5 +446,59 @@ export async function runTouchCodeEditorScenario(context) {
   check('A pan scrolls the code', !drawn.has(1), [...drawn.keys()]);
   const afterPan = await h.statusPosition();
   check('and does not move the caret', afterPan?.line === 6 && afterPan.column === 3, afterPan);
+
+  // A long press selects the word under the finger and shows the handles and the menu the editor draws itself (docs/tracks/touch-selection.md); the
+  // soft keyboard comes back when the finger lifts, the menu's Copy writes the browser's clipboard, and a finger that goes on moving extends the selection.
+  await demo('scrollTo', 'code-scroll', 0);
+  await frames();
+  const finger = await page.createCDPSession();
+  const touch = async (type, point) => {
+    const at = await context.pagePoint(point.x, point.y);
+    await finger.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x: at.x, y: at.y, id: 1 }] });
+    await frames();
+  };
+  const rest = (ms) => page.evaluate((duration) => new Promise((resolve) => setTimeout(resolve, duration)), ms);
+  const lineIndex = lines.findIndex((line, index) => index >= 3 && /[A-Za-z]{5,}/u.test(line));
+  const match = /[A-Za-z]{5,}/u.exec(lines[lineIndex] ?? '');
+  check('The lab source has a word to select', lineIndex >= 0 && match !== null, lines.slice(0, 8));
+  const wordLine = lineIndex + 1;
+  const picked = match[0];
+  const inWord = await h.boundaryAt(wordLine, match.index + 2);
+  await touch('touchStart', inWord);
+  await rest(250);
+  check('Before the hold has elapsed nothing is selected', !(await nodeExists('code-handle-start')));
+  await rest(900);
+  check('A long press selects the word under the finger and shows its handles', (await nodeExists('code-handle-start')) && (await nodeExists('code-handle-end')));
+  await touch('touchEnd', inWord);
+  await waitUntil('the editor\'s menu is shown', () => nodeExists('code-touch-menu-copy'));
+  await waitUntil('the soft keyboard is back with the finger\'s lift', async () => page.evaluate(() => {
+    const active = document.activeElement;
+    return (active?.tagName === 'TEXTAREA' || active?.tagName === 'INPUT') && active.style.display === 'block';
+  }));
+  check('The soft keyboard stays up through the selection', true);
+  const startStem = (await context.find('code-handle-start-stem')).rect;
+  const wordStart = await h.boundaryAt(wordLine, match.index);
+  check('The start handle stands on the word\'s start', Math.abs(startStem.x + startStem.width / 2 - wordStart.x) <= 1.5, { startStem, wordStart });
+  await capture('code-editor-11-touch-selection', { geometry: false });
+  const copy = await h.centerOf('code-touch-menu-copy');
+  await touch('touchStart', copy);
+  await touch('touchEnd', copy);
+  check('Copy in the menu writes the selected word to the browser\'s clipboard', await page.evaluate(() => navigator.clipboard.readText()) === picked, picked);
+  const scrolledBefore = (await context.find('code-scroll')).scroll.scrollTop;
+  const heldAt = await h.boundaryAt(wordLine, match.index + 2);
+  await touch('touchStart', heldAt);
+  await rest(1100);
+  const lower = { x: heldAt.x, y: heldAt.y + 2 * grid.lineHeight };
+  for (let step = 1; step <= 4; step += 1) await touch('touchMove', { x: heldAt.x, y: heldAt.y + (lower.y - heldAt.y) * step / 4 });
+  await touch('touchEnd', lower);
+  check('A finger that selected by holding does not pan the editor', (await context.find('code-scroll')).scroll.scrollTop === scrolledBefore);
+  await waitUntil('the menu is back', () => nodeExists('code-touch-menu-copy'));
+  const copyAgain = await h.centerOf('code-touch-menu-copy');
+  await touch('touchStart', copyAgain);
+  await touch('touchEnd', copyAgain);
+  const extended = await page.evaluate(() => navigator.clipboard.readText());
+  check('and extends the selection down the lines', extended.startsWith(picked) && extended.includes('\n'), extended.slice(0, 40));
+  await tap(await h.boundaryAt(wordLine + 1, 4));
+  check('A tap elsewhere hides the handles and the menu', !(await nodeExists('code-handle-start')) && !(await nodeExists('code-touch-menu')));
 }
 

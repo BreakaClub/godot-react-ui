@@ -357,6 +357,9 @@ impl ReactUiRoot {
             // Inside a draggable element a touch held still becomes a drag; one that moves first is
             // declined and goes on to pan or stay pointer events (plan 3.12 rules 3 and 4). A touch that
             // only stopped a coasting flick starts nothing.
+            if !prevented {
+                self.touch_selection_note_press(id, position);
+            }
             let flicking = !self.scrolling.coasting.is_empty();
             let draggable = !prevented
                 && !flicking

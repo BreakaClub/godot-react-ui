@@ -240,6 +240,14 @@ impl ReactUiRoot {
         true
     }
 
+    /// A finger went down in the tree and its `pointerdown` was not prevented: while a touch selection exists, where it went down tells a tap
+    /// that ends it from a pan.
+    pub(crate) fn touch_selection_note_press(&mut self, id: u32, position: Vector2) {
+        if self.touch_selection.owner.is_some() {
+            self.touch_selection.tap_origin = Some((id, to_scroll(position)));
+        }
+    }
+
     /// A finger went down on `hit` and nothing took it: if that is selectable text, a text input, it may become a long press.
     pub(crate) fn touch_selection_arm_hold(
         &mut self,
@@ -248,9 +256,6 @@ impl ReactUiRoot {
         hit: Option<u32>,
     ) {
         self.touch_selection.hold = None;
-        if self.touch_selection.owner.is_some() {
-            self.touch_selection.tap_origin = Some((id, to_scroll(position)));
-        }
         let Some(hit) = hit.filter(|tag| self.touch_selectable(*tag)) else {
             return;
         };

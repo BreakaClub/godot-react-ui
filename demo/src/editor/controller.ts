@@ -385,6 +385,20 @@ export class EditorController {
     return this.pointer !== undefined;
   }
 
+  /**
+   * A touch selection's handle was dragged: the selection from the end that stays (`fixed`) to `offset`. A move onto `fixed` leaves what
+   * there is, as the root's handles do: they keep a character selected, and cross each other where the text goes the other way.
+   */
+  dragSelectionEnd(fixed: number, offset: number): void {
+    if (offset === fixed) return;
+    this.setSelection(EditorSelection.single(fixed, offset));
+  }
+
+  /** The menu's Select All: the whole document. */
+  selectAllText(): void {
+    this.setSelection(EditorSelection.single(0, this.model.doc.length));
+  }
+
   setSelection(selection: EditorSelection): void {
     if (selection.eq(this.model.state.selection)) return;
     this.model.dispatch({ selection, userEvent: 'select.pointer' });

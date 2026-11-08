@@ -14,6 +14,11 @@ import {
 import { THEME } from '../theme';
 import type { EditorWorkspace, FileEditor } from '../workspace';
 import { SINK_TEXT } from '../sink';
+import { cutSelection, pasteText } from '../commands';
+import {
+  LongPress, MENU_LABELS, dragTarget, grabOffset, menuActions, placeMenu, type Edge, type MenuAction, type Point, type Timers,
+} from '../touch-selection';
+import { SelectionHandle, SelectionMenu, type HandleEnd } from './touch-chrome';
 import { Autoscroll } from './autoscroll';
 import { ClickSequence } from './click-sequence';
 import { Carets, type CaretRect } from './carets';
@@ -51,6 +56,11 @@ interface ScrollPosition {
 }
 
 const NOT_SCROLLED: ScrollPosition = { top: 0, left: 0, width: 0, height: 0 };
+
+/** The clock a long press is timed on. */
+const BROWSER_TIMERS: Timers<ReturnType<typeof setTimeout>> = { set: (callback, ms) => setTimeout(callback, ms), clear: handle => { clearTimeout(handle); } };
+/** About how wide a character of the menu's labels is (14 px text), to place the menu before it is laid out. */
+const MENU_LABEL_ADVANCE_PX = 7.4;
 
 export interface EditorViewProps {
   readonly workspace: EditorWorkspace;
@@ -127,6 +137,21 @@ export function EditorView({ workspace, file }: EditorViewProps) {
   const pointerRef = useRef<{ x: number; y: number } | undefined>(undefined);
   const gridRef = useRef<Grid | undefined>(undefined);
   const clicks = useRef(new ClickSequence());
+  // Touch selection (plan D71): a long press selects the word under the finger, handles move its ends and a menu acts on it. The selection is
+  // the controller's, so the root cannot draw them.
+  const heldRef = useRef<(pointerId: number, origin: Point) => void>(() => undefined);
+  const longPress = useMemo(() => new LongPress<ReturnType<typeof setTimeout>>(BROWSER_TIMERS, (pointerId, origin) => { heldRef.current(pointerId, origin); }), []);
+  /** The element a touch went down on, which takes the finger when a long press selects. */
+  const touchHolder = useRef<UIHandle | undefined>(undefined);
+  /** The finger that selected a word by a long press and is still down: it extends the selection. */
+  const heldTouch = useRef<number | undefined>(undefined);
+  /** A finger dragging a handle: the end that stays and how far the handle was from the finger when it went down. */
+  const handleDrag = useRef<{ readonly pointerId: number; readonly fixed: number; readonly grab: Point } | undefined>(undefined);
+  /** The lift of a long press is no tap: the click that follows it must not put the caret over the selection. */
+  const heldLift = useRef(false);
+  const [touchOwned, setTouchOwned] = useState(false);
+  const [touchBusy, setTouchBusy] = useState(false);
+  const [menuDismissedFor, setMenuDismissedFor] = useState<string | undefined>(undefined);
   // The `Text` of each line in view: asked where its text is when the line is not on the grid.
   const lineHandles = useRef(new Map<number, UIHandle>());
   const [measuredCarets, setMeasuredCarets] = useState<readonly MeasuredCaret[]>(NO_MEASURED_CARETS);
@@ -263,10 +288,14 @@ export function EditorView({ workspace, file }: EditorViewProps) {
     scrollBy: delta => scrollerRef.current?.scrollBy(delta),
     scrolled: () => {
       const offset = offsetUnderPointer();
-      if (offset !== undefined) controller.pointerMove(offset);
+      if (offset === undefined) return;
+      const drag = handleDrag.current;
+      if (drag === undefined) controller.pointerMove(offset);
+      else controller.dragSelectionEnd(drag.fixed, offset);
     },
   }), [controller]);
   useEffect(() => () => autoscroll.stop(), [autoscroll]);
+  useEffect(() => () => longPress.cancel(), [longPress]);
 
   /**
    * The document offset of the caret boundary at root-local (`x`, `y`), from the content's rectangle now: by the grid on a line that is on
@@ -327,8 +356,32 @@ export function EditorView({ workspace, file }: EditorViewProps) {
     sinkRef.current?.focus();
   };
 
+  /**
+   * A finger held still on a word (`LongPress`): the word is selected, the finger is the selection's from now on (JS captures it, so it no
+   * longer pans the editor), and it extends the selection by words as it moves. Over white space, or nothing, nothing is selected.
+   */
+  heldRef.current = (pointerId: number, origin: Point): void => {
+    const target = wordUnder(origin.x, origin.y);
+    const holder = touchHolder.current;
+    if (target === undefined || holder === undefined) return;
+    holder.setPointerCapture(pointerId);
+    heldTouch.current = pointerId;
+    pointerRef.current = origin;
+    controller.pointerDown({ offset: target.offset, clicks: 2, shiftKey: false, altKey: false });
+    setTouchOwned(true);
+    setTouchBusy(true);
+  };
+
   const onPointerDown = (event: UIPointerEvent): void => {
-    if (event.pointerType === 'touch' || event.button !== PRIMARY_BUTTON) return;
+    if (event.pointerType === 'touch') {
+      // A touch is a tap or a pan until it has been held: the root says which, and a hold selects a word.
+      heldLift.current = false;
+      touchHolder.current = event.currentTarget;
+      longPress.start(event.pointerId, { x: event.x, y: event.y });
+      return;
+    }
+    if (event.button !== PRIMARY_BUTTON) return;
+    setTouchOwned(false);
     const offset = offsetAt(event.x, event.y);
     if (offset === undefined) return;
     hover.cancel();
@@ -341,6 +394,7 @@ export function EditorView({ workspace, file }: EditorViewProps) {
 
   const onPointerMove = (event: UIPointerEvent): void => {
     pointerRef.current = { x: event.x, y: event.y };
+    if (event.pointerType === 'touch') longPress.moved(event.pointerId, pointerRef.current);
     if (controller.selecting) {
       const offset = offsetAt(event.x, event.y);
       if (offset !== undefined) controller.pointerMove(offset);
@@ -351,7 +405,17 @@ export function EditorView({ workspace, file }: EditorViewProps) {
     hover.moved(wordUnder(event.x, event.y));
   };
 
-  const endPointer = (): void => {
+  const endPointer = (event: UIPointerEvent): void => {
+    if (event.pointerType === 'touch') {
+      longPress.end(event.pointerId);
+      if (heldTouch.current === event.pointerId) {
+        heldTouch.current = undefined;
+        heldLift.current = true;
+        setTouchBusy(false);
+        // The keyboard went away with the finger's first touch of the canvas, and comes back with its lift, as after a tap.
+        takeKeyboard();
+      }
+    }
     controller.pointerUp();
     autoscroll.stop();
   };
@@ -359,11 +423,87 @@ export function EditorView({ workspace, file }: EditorViewProps) {
   // A tap: touch has no press-and-drag (the finger pans), so the caret goes where the finger lifted, and the keyboard comes up.
   const onClick = (event: UIPointerEvent): void => {
     if (event.pointerType !== 'touch') return;
+    if (heldLift.current) {
+      heldLift.current = false;
+      return;
+    }
     const offset = offsetAt(event.x, event.y);
     if (offset === undefined) return;
     takeKeyboard();
     controller.pointerDown({ offset, clicks: Math.max(1, event.detail), shiftKey: false, altKey: false });
     controller.pointerUp();
+  };
+
+  /** Where the selection's end `offset` is, in the content's frame: a stem the height of its line. `undefined` for a line that is not laid out. */
+  function edgeOf(offset: number): Edge | undefined {
+    const current = gridRef.current;
+    if (current === undefined) return undefined;
+    const line = controller.model.doc.lineAt(offset);
+    const layout = controller.layoutOf(line.number);
+    const inLine = offset - line.from;
+    let x: number | undefined;
+    if (layout.onGrid) {
+      x = xOfColumn(layout.columnOf(inLine), current);
+    } else {
+      const rect = lineHandles.current.get(line.number)?.getCaretRect(inLine, 'before');
+      const content = contentRef.current?.getRect();
+      x = rect === undefined || content === undefined ? undefined : rect.x - content.x;
+    }
+    if (x === undefined) return undefined;
+    const top = yOfLine(line.number, current);
+    return { x, top, bottom: top + current.lineHeight };
+  }
+
+  /** A finger went down on a handle: the other end stays, and the handle keeps its distance from the finger. */
+  const onHandleGrab = (end: HandleEnd, event: UIPointerEvent): void => {
+    const content = contentRef.current?.getRect();
+    const { main: range } = controller.model.state.selection;
+    const edge = edgeOf(end === 'start' ? range.from : range.to);
+    if (content === undefined || edge === undefined) return;
+    const grab = grabOffset({ x: content.x + edge.x, top: content.y + edge.top, bottom: content.y + edge.bottom }, { x: event.x, y: event.y });
+    handleDrag.current = { pointerId: event.pointerId, fixed: end === 'start' ? range.to : range.from, grab };
+    pointerRef.current = dragTarget({ x: event.x, y: event.y }, grab);
+    setTouchBusy(true);
+  };
+
+  const onHandleDrag = (event: UIPointerEvent): void => {
+    const drag = handleDrag.current;
+    if (drag?.pointerId !== event.pointerId) return;
+    const target = dragTarget({ x: event.x, y: event.y }, drag.grab);
+    pointerRef.current = target;
+    const offset = offsetAt(target.x, target.y);
+    if (offset !== undefined) controller.dragSelectionEnd(drag.fixed, offset);
+    autoscroll.update();
+  };
+
+  const onHandleRelease = (event: UIPointerEvent): void => {
+    if (handleDrag.current?.pointerId !== event.pointerId) return;
+    handleDrag.current = undefined;
+    autoscroll.stop();
+    setTouchBusy(false);
+    takeKeyboard();
+  };
+
+  const onMenuAction = (action: MenuAction): void => {
+    switch (action) {
+      case 'copy':
+        controller.copy();
+        // The selection stays, so it shows what was copied; the menu has done its work.
+        setMenuDismissedFor(restartKey);
+        break;
+      case 'cut':
+        controller.run(cutSelection);
+        break;
+      case 'paste': {
+        const text = controller.commandContext().clipboard.readText?.() ?? '';
+        if (text !== '') controller.run(context => pasteText(context, text));
+        break;
+      }
+      case 'selectAll':
+        controller.selectAllText();
+        break;
+    }
+    takeKeyboard();
   };
 
   const onKeyDown = (event: UIKeyboardEvent): void => {
@@ -394,6 +534,25 @@ export function EditorView({ workspace, file }: EditorViewProps) {
   const inView = grid === undefined ? undefined : visibleLines(scroll.top, scroll.height, grid, controller.lineCount);
   const specs = inView === undefined ? [] : controller.lines(inView.first, inView.last);
   const restartKey = `${controller.model.version}:${selection.ranges.map(range => `${range.anchor}-${range.head}`).join(',')}`;
+  // A touch selection's chrome: the handles at the ends of the main selection, and the menu over them.
+  useEffect(() => { if (selectionEmpty && touchOwned) setTouchOwned(false); }, [selectionEmpty, touchOwned]);
+  const showChrome = touchOwned && !selectionEmpty && grid !== undefined;
+  const chromeRange = selection.main;
+  const startEdge = showChrome ? edgeOf(chromeRange.from) : undefined;
+  const endEdge = showChrome ? edgeOf(chromeRange.to) : undefined;
+  const clipboardText = controller.commandContext().clipboard.readText?.();
+  const offered = menuActions({ editable: !controller.model.state.readOnly, hasSelection: true, allSelected: chromeRange.from === 0 && chromeRange.to === doc.length })
+    .filter(action => action !== 'paste' || (clipboardText !== undefined && clipboardText !== ''));
+  const inScrollerView = (edge: Edge): boolean => (
+    edge.top >= scroll.top - 1 && edge.bottom <= scroll.top + scroll.height + 1 && edge.x >= scroll.left && edge.x <= scroll.left + scroll.width
+  );
+  const menu = showChrome && !touchBusy && menuDismissedFor !== restartKey
+    ? placeMenu(
+      offered.map(action => ({ action, width: MENU_LABELS[action].length * MENU_LABEL_ADVANCE_PX })),
+      [startEdge, endEdge].filter((edge): edge is Edge => edge !== undefined && inScrollerView(edge)),
+      { x: scroll.left, y: scroll.top, width: scroll.width, height: scroll.height },
+    )
+    : undefined;
 
   return (
     <View testID="code-view" className="relative min-h-0 min-w-0 flex-1" style={{ backgroundColor: THEME.background }}>
@@ -443,6 +602,9 @@ export function EditorView({ workspace, file }: EditorViewProps) {
               ))}
             </View>
             <Carets carets={carets} focused={focused} restart={restartKey} />
+            {startEdge === undefined ? null : <SelectionHandle end="start" edge={startEdge} onGrab={onHandleGrab} onDrag={onHandleDrag} onRelease={onHandleRelease} />}
+            {endEdge === undefined ? null : <SelectionHandle end="end" edge={endEdge} onGrab={onHandleGrab} onDrag={onHandleDrag} onRelease={onHandleRelease} />}
+            {menu === undefined ? null : <SelectionMenu placement={menu} onAction={onMenuAction} />}
             <TextInput
               ref={sinkRef}
               testID="editor-input-sink"

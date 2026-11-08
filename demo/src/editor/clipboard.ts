@@ -8,6 +8,11 @@
  */
 export interface ClipboardPort {
   writeText(text: string): void;
+  /**
+   * The clipboard's text, where it can be read at once: the menu of a touch selection offers Paste only then. A host whose clipboard is read
+   * asynchronously (the browser's, which the engine's own read answers one call late) has none: its paste is the keyboard's.
+   */
+  readText?(): string;
 }
 
 /** A clipboard that keeps what it was given: for tests, and for a host that has no system clipboard. */
@@ -18,6 +23,10 @@ export class MemoryClipboard implements ClipboardPort {
   writeText(text: string): void {
     this.text = text;
     this.writes += 1;
+  }
+
+  readText(): string {
+    return this.text;
   }
 }
 
