@@ -136,6 +136,11 @@ if (!args.has('--wasm-only')) {
   const contentBefore = engine.webContentInputs(mode);
   // The authoritative typecheck is part of build; export never trusts a watcher.
   run('pnpm', ['build']);
+  // The pack carries the project the code panel opens (demo/live-compile/project.json, `include_filter` in demo/export_presets.cfg). It is
+  // generated and git-ignored, so the content inputs above do not cover it: a copy left from before a lab was added was packed as it was, and
+  // that lab's code panel said "The live-compile project has no lab". It is made from the labs' sources, which the inputs do cover, so it is
+  // written again here, for every lab the demo registers, before every export.
+  run('node', [join(root, 'scripts', 'live-compile-project.mjs')]);
   const template = presetTemplate(readFileSync(join(root, 'demo', 'export_presets.cfg'), 'utf8'), web.presetName, mode);
   if (!template) throw new Error(`Missing ${mode} template in the "${web.presetName}" export preset`);
   const modules = ['godot.wasm', 'godot.side.wasm'].map(name => {

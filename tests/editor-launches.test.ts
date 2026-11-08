@@ -19,6 +19,15 @@ test('build:web scrubs the saved editor layout before its headless export', () =
   assert.ok(scrub < exportRun, 'the scrub comes after the export');
 });
 
+test('build:web writes the code panel\'s project again before its export, so the pack never carries a copy that lacks a lab', () => {
+  const text = readFileSync(resolve(scripts, 'build-web.mjs'), 'utf8');
+  const project = text.indexOf('live-compile-project.mjs');
+  const exportRun = text.indexOf('`--export-${mode}`');
+  assert.ok(project > 0, 'build-web.mjs does not write the live-compile project');
+  assert.ok(exportRun > 0);
+  assert.ok(project < exportRun, 'the project is written after the export');
+});
+
 test('every script that starts an editor, or imports through scripts/import-demo.mjs, scrubs first', () => {
   const launching = readdirSync(scripts)
     .filter((name) => name.endsWith('.mjs'))
