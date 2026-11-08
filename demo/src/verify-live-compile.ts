@@ -3,9 +3,13 @@ import type { NativeSnapshot, NativeSnapshotNode } from '../../src/native';
 import {
   BACKGROUND_COLOURS, HOOK_ORDER, INPUTS_LAB_PATH, MEMO_EDIT, MEMO_SETUP, RECOLOUR, SYNTAX_ERROR, THROW_IN_MODULE, THROW_IN_RENDER, TYPE_ERROR, anchorOffset, applyEdits,
 } from '../../scripts/live-compile-edits.mjs';
+import { RequestCancelled, RequestScope } from './live-compile-scope';
+import { readProject } from './live-compile-host';
+import type { ExtensionHost } from './live-compile-service';
 import type { LiveSession, UpdateReport } from './live-compile-session';
 import { assertionTally } from './verifier-input';
 import { grab, settleFrames } from './verify-filters';
+import { MAX_FRAME_GAP_MS, POOL_HOGS, verifyLiveCompileSequence, type SequenceInspection } from './verify-live-compile-sequence';
 import { click } from './verify-text-input';
 
 /**
@@ -18,16 +22,19 @@ import { click } from './verify-text-input';
  * - a changed hook order starts the state again instead of crashing;
  * - a syntax error, a module that throws and a render that throws each leave the last good page on screen, with the error reported;
  * - a type error is reported at the position `tsc` reports it at, and does not stop the new code running;
- * - how long an edit takes from the change to the pixels, how long a check takes, and what a frame costs while one runs.
+ * - how long an edit takes from the change to the pixels, how long a check takes, and what a frame costs while one runs;
+ * - nothing waits for the service thread (docs/tracks/live-compile-async.md): while the service is held busy the page keeps its frames, and
+ *   the edit that was waiting for it is swapped in when it is free; an edit that a newer one overtakes is taken back and never applied; a
+ *   request given up while the service runs it is let finish and its answer is dropped; the page has one service thread however many labs
+ *   it opens; and Ben's sequence (`verify-live-compile-sequence.ts`) with the code panel open.
  *
  * It needs the extension (`node scripts/build-live-compile.mjs`); the driver refuses a stale one before it opens a window.
  */
-export interface LiveCompileInspection {
-  snapshot(): NativeSnapshot;
-  find(testID: string): NativeSnapshotNode | undefined;
+export interface LiveCompileInspection extends SequenceInspection {
   showLab(name: 'inputs'): void;
   openLiveSession(labId: string, exportName: string): LiveSession;
-  restoreDemo(): void;
+  /** The page's service: its state, and the hooks that hold it busy (`ExtensionHost.stall`). */
+  liveCompile(): ExtensionHost;
 }
 
 export type LiveCompileCapture = (name: string, overflowing?: readonly string[]) => Promise<void>;
@@ -52,6 +59,17 @@ const FRAME_POLL_MS = 1;
 const LATENCY_EDITS = 30;
 const LATER_CHECKS = 10;
 const SUPERSEDING_BURST = 20;
+/** How long the service thread is held to stand for a long check or compile (`ExtensionHost.stall`). */
+const SERVICE_BUSY_MS = 1_500;
+/** The share of that time the edit that waits behind it must have waited, or the service was not what it waited for. */
+const BUSY_WAIT_SHARE = 0.8;
+/** For the stale answers: the service is held long enough for two edits to be made, one after the other, while it is busy. */
+const STALE_BUSY_MS = 600;
+/** Frames let go by before the state of a queue is read, so the service thread has taken the job that holds it. */
+const MIDWAY_FRAMES = 3;
+const SERVICE_STATE_DEADLINE_MS = 10_000;
+/** Jobs in the queue after two edits of one file were made while the service was busy: the project changes (two) and the newer edit's compile and check. */
+const QUEUED_AFTER_TWO_EDITS = 4;
 /** The probe sits this far inside the page's top right corner, where only its background is. */
 const PROBE_INSET_PX = 6;
 const MILLISECONDS_PER_MICROSECOND = 1000;
@@ -161,6 +179,28 @@ async function checkOf(session: LiveSession): Promise<{ readonly outcome: Awaite
   return { outcome, ms: nowMs() - started };
 }
 
+/** `text` with the page's background class changed (the class the latency loop alternates). */
+function withBackground(text: string, backgroundClass: string): string {
+  return text.replace(/bg-(?:slate-50|emerald-100|sky-100) p-6 gap-3/u, `${backgroundClass} p-6 gap-3`);
+}
+
+/** Waits for the service thread to have begun a request, so that what is queued behind it waits. */
+async function waitForServiceBusy(service: ExtensionHost): Promise<void> {
+  const deadline = nowMs() + SERVICE_STATE_DEADLINE_MS;
+  while (service.state().running === null) {
+    assert(nowMs() < deadline, `The service thread did not take the request that holds it within ${SERVICE_STATE_DEADLINE_MS} ms: ${JSON.stringify(service.state())}`);
+    await frames(1);
+  }
+}
+
+async function waitForServiceIdle(service: ExtensionHost, what: string): Promise<void> {
+  const deadline = nowMs() + SERVICE_STATE_DEADLINE_MS;
+  while (service.state().running !== null || service.state().queued > 0) {
+    assert(nowMs() < deadline, `The service was not idle within ${SERVICE_STATE_DEADLINE_MS} ms ${what}: ${JSON.stringify(service.state())}`);
+    await frames(1);
+  }
+}
+
 function diagnosticsOf(outcome: Awaited<ReturnType<LiveSession['check']>>): readonly { readonly code: number; readonly pos: number; readonly category: number }[] {
   assert(outcome.kind === 'checked', `The check ended as ${outcome.kind}${outcome.kind === 'failed' ? `: ${outcome.message}` : ''}`);
   return outcome.report.diagnostics;
@@ -188,6 +228,38 @@ async function worstStall(work: () => Promise<void>): Promise<number> {
   return worst;
 }
 
+/**
+ * The time the service thread spends on every lab of the project: compiling its source files, and its first check, which parses the lab's program
+ * (a later check of the same program is far cheaper). Each is from the service's own clock. A request waits for the one in front of it, so the
+ * largest of these is the longest any other request of the page can be kept waiting by the work of one lab.
+ */
+async function measureLabs(service: ExtensionHost): Promise<Record<string, unknown>> {
+  const project = readProject();
+  const perLab: { readonly id: string; readonly compileMs: number; readonly firstCheckMs: number }[] = [];
+  for (const [id, lab] of Object.entries(project.labs)) {
+    let compileMs = 0;
+    for (const path of lab.sources) {
+      const file = project.files.find(candidate => candidate.path === path);
+      assert(file, `The project has the source ${path} of the lab ${id}`);
+      const timed = await service.compileTimed(path, file.text, true, new RequestScope());
+      assert(timed.result.ok, `${path} compiles`);
+      compileMs += timed.serviceMs;
+    }
+    const outcome = await service.requestCheck(lab.config, project.libDir);
+    assert(outcome.kind === 'checked', `The lab ${id} is checked: ${outcome.kind}`);
+    perLab.push({ id, compileMs: round(compileMs, TENTH), firstCheckMs: round(outcome.serviceMs, TENTH) });
+  }
+  const checks = perLab.map(lab => lab.firstCheckMs);
+  const compiles = perLab.map(lab => lab.compileMs);
+  const slowest = perLab.reduce((worst, lab) => (lab.firstCheckMs > worst.firstCheckMs ? lab : worst));
+  return {
+    count: perLab.length,
+    firstCheck: { medianMs: percentile(checks, MEDIAN), worstMs: slowest.firstCheckMs, worstLab: slowest.id },
+    compile: { medianMs: percentile(compiles, MEDIAN), worstMs: Math.max(...compiles) },
+    perLab,
+  };
+}
+
 export async function verifyLiveCompile(owner: Node, api: LiveCompileInspection, capture: LiveCompileCapture): Promise<void> {
   const facts: Record<string, unknown> = {};
 
@@ -200,7 +272,7 @@ export async function verifyLiveCompile(owner: Node, api: LiveCompileInspection,
 
   const session = api.openLiveSession(LAB_ID, EXPORT_NAME);
   const opened = nowMs();
-  session.open();
+  await session.open();
   facts.openMs = round(nowMs() - opened, TENTH);
   await settleFrames();
   const compiled = fingerprint(api);
@@ -250,7 +322,7 @@ export async function verifyLiveCompile(owner: Node, api: LiveCompileInspection,
   assert(textOf(api, COUNTER_TEST_ID) === 'Next 3', `The counter counts: ${textOf(api, COUNTER_TEST_ID)}`);
   const recoloured = applyEdits(original, RECOLOUR);
   const recolourStarted = nowMs();
-  const recolour = session.update(INPUTS_LAB_PATH, recoloured);
+  const recolour = await session.update(INPUTS_LAB_PATH, recoloured);
   assert(recolour.outcome === 'swapped' && recolour.evaluated.length === 1 && recolour.evaluated[0] === INPUTS_LAB_PATH, `A new colour and a new text are swapped in by evaluating the one module: ${JSON.stringify({ outcome: recolour.outcome, evaluated: recolour.evaluated, error: recolour.error })}`);
   const recolourPixelsMs = await waitForPaint(owner, api, EMERALD_100, recolourStarted);
   facts.editToPixelsMs = round(recolourPixelsMs, TENTH);
@@ -263,7 +335,7 @@ export async function verifyLiveCompile(owner: Node, api: LiveCompileInspection,
 
   // ---- A changed hook order starts the state again, without a crash -------------------------------------------------------
   const reordered = applyEdits(recoloured, HOOK_ORDER);
-  const reorder = session.update(INPUTS_LAB_PATH, reordered);
+  const reorder = await session.update(INPUTS_LAB_PATH, reordered);
   assert(reorder.outcome === 'swapped', `A changed hook order is swapped in: ${reorder.outcome} ${reorder.error ?? ''}`);
   await settleFrames();
   assert(textOf(api, COUNTER_TEST_ID) === 'Next 0', `and the state starts again: ${textOf(api, COUNTER_TEST_ID)}`);
@@ -272,7 +344,7 @@ export async function verifyLiveCompile(owner: Node, api: LiveCompileInspection,
   await pressCounter(api);
   assert(textOf(api, COUNTER_TEST_ID) === 'Next 2', `and the reordered page works: ${textOf(api, COUNTER_TEST_ID)}`);
   // Back to the text before the reorder, for what follows: a counter at 2 that must survive each failed edit.
-  const restored = session.update(INPUTS_LAB_PATH, recoloured);
+  const restored = await session.update(INPUTS_LAB_PATH, recoloured);
   assert(restored.outcome === 'swapped', `The hooks go back in their order: ${restored.outcome}`);
   await settleFrames();
   assert(textOf(api, COUNTER_TEST_ID) === 'Next 0', `and the state starts again: ${textOf(api, COUNTER_TEST_ID)}`);
@@ -291,7 +363,7 @@ export async function verifyLiveCompile(owner: Node, api: LiveCompileInspection,
 
   // ---- A syntax error keeps the old page, and both tools say where it is ---------------------------------------------------
   const broken = applyEdits(recoloured, [SYNTAX_ERROR]);
-  const syntax = session.update(INPUTS_LAB_PATH, broken);
+  const syntax = await session.update(INPUTS_LAB_PATH, broken);
   const semicolon = anchorOffset(broken, SYNTAX_ERROR.anchor) + SYNTAX_ERROR.anchor.length - 1;
   assert(syntax.outcome === 'compile-failed', `A syntax error does not compile: ${syntax.outcome}`);
   assert(syntax.diagnostics[0]?.start === semicolon && syntax.diagnostics[0].severity === 'error', `and the compiler reports it at the semicolon (${semicolon}): ${JSON.stringify(syntax.diagnostics[0])}`);
@@ -301,14 +373,14 @@ export async function verifyLiveCompile(owner: Node, api: LiveCompileInspection,
   assert(syntaxCheck.some(diagnostic => diagnostic.pos === semicolon && diagnostic.category === 1), `and the checker reports a syntax error at the same offset: ${JSON.stringify(syntaxCheck.slice(0, 2))}`);
 
   // ---- A module that throws when it runs keeps the old page ----------------------------------------------------------------
-  const throwsInModule = session.update(INPUTS_LAB_PATH, applyEdits(recoloured, THROW_IN_MODULE));
+  const throwsInModule = await session.update(INPUTS_LAB_PATH, applyEdits(recoloured, THROW_IN_MODULE));
   assert(throwsInModule.outcome === 'evaluation-failed' && throwsInModule.error === 'live-compile-test-module', `A module that throws is not swapped in, and says why: ${throwsInModule.outcome} ${throwsInModule.error}`);
   assert(textOf(api, COUNTER_TEST_ID) === 'Next 2', `and the counter is still at 2: ${textOf(api, COUNTER_TEST_ID)}`);
   await unchanged('A module that throws');
 
   // ---- A render that throws puts the last good version back ----------------------------------------------------------------
   console.log('GODOT_REACT_EXPECT_ERROR live-compile-test-render');
-  const throwsInRender = session.update(INPUTS_LAB_PATH, applyEdits(recoloured, THROW_IN_RENDER));
+  const throwsInRender = await session.update(INPUTS_LAB_PATH, applyEdits(recoloured, THROW_IN_RENDER));
   assert(throwsInRender.outcome === 'render-failed' && throwsInRender.rolledBack && throwsInRender.error === 'live-compile-test-render', `A render that throws is rolled back, with its error: ${throwsInRender.outcome} ${throwsInRender.error}`);
   await settleFrames();
   assert(api.find('live-compile-error') === undefined, 'and no error page stays up');
@@ -319,26 +391,26 @@ export async function verifyLiveCompile(owner: Node, api: LiveCompileInspection,
   await pressCounter(api);
   assert(textOf(api, COUNTER_TEST_ID) === 'Next 1', `and it works: ${textOf(api, COUNTER_TEST_ID)}`);
   await capture('live-compile-03-rolled-back', OVERFLOWING);
-  const afterRollback = session.update(INPUTS_LAB_PATH, recoloured);
+  const afterRollback = await session.update(INPUTS_LAB_PATH, recoloured);
   assert(afterRollback.outcome === 'swapped', `and the next good edit swaps in: ${afterRollback.outcome} ${afterRollback.error ?? ''}`);
   assert(textOf(api, COUNTER_TEST_ID) === 'Next 1', `keeping its count: ${textOf(api, COUNTER_TEST_ID)}`);
 
   // ---- A type error does not stop the new code, and is reported where tsc reports it -------------------------------------------
   const typed = applyEdits(original, [TYPE_ERROR]);
-  const typeError = session.update(INPUTS_LAB_PATH, typed);
+  const typeError = await session.update(INPUTS_LAB_PATH, typed);
   assert(typeError.outcome === 'swapped', `A type error does not stop the new code running: ${typeError.outcome} ${typeError.error ?? ''}`);
   const typeAt = anchorOffset(typed, TYPE_ERROR.anchor);
   const typeDiagnostics = diagnosticsOf(await typeError.check);
   assert(typeDiagnostics.some(diagnostic => diagnostic.code === TYPE_ERROR.code && diagnostic.pos === typeAt), `and is reported as TS${TYPE_ERROR.code} at offset ${typeAt}, where tsc has it (scripts/live-compile-agreement.mjs): ${JSON.stringify(typeDiagnostics.slice(0, 3))}`);
   assert(backgroundOf(api) === SLATE_50, `and the page runs the new text, which has the original colour again: ${backgroundOf(api)}`);
-  const fixed = session.update(INPUTS_LAB_PATH, original);
+  const fixed = await session.update(INPUTS_LAB_PATH, original);
   assert(fixed.outcome === 'swapped', 'The error is fixed and swapped in');
   assert(diagnosticsOf(await fixed.check).length === 0, 'and the checker has nothing to say');
 
   // ---- Components the parent's re-render does not reach: an element kept in useMemo, and a memo with the props it had ------------------------------------
   // React skips both when the lab renders again, so the refresh has to reach them itself, or they keep the code they were made from.
   const withMemo = applyEdits(original, MEMO_SETUP);
-  const memoSetup = session.update(INPUTS_LAB_PATH, withMemo);
+  const memoSetup = await session.update(INPUTS_LAB_PATH, withMemo);
   assert(memoSetup.outcome === 'swapped', `The lab with a kept element and a memo component runs: ${memoSetup.outcome} ${memoSetup.error ?? ''}`);
   await settleFrames();
   assert(textOf(api, 'kept-probe') === 'kept v1' && textOf(api, 'memo-probe') === 'memo v1 0', `Both are on the page: ${textOf(api, 'kept-probe')} / ${textOf(api, 'memo-probe')}`);
@@ -346,13 +418,13 @@ export async function verifyLiveCompile(owner: Node, api: LiveCompileInspection,
   const memoRect = node(api, 'memo-probe').rect;
   for (let presses = 0; presses < 3; presses += 1) await click(new Vector2(memoRect.x + memoRect.width / 2, memoRect.y + memoRect.height / 2));
   assert(textOf(api, 'memo-probe') === 'memo v1 3' && textOf(api, 'inputs-next') === 'Next 1', `The memo component and the lab each have a count: ${textOf(api, 'memo-probe')} / ${textOf(api, 'inputs-next')}`);
-  const memoEdited = session.update(INPUTS_LAB_PATH, applyEdits(withMemo, MEMO_EDIT));
+  const memoEdited = await session.update(INPUTS_LAB_PATH, applyEdits(withMemo, MEMO_EDIT));
   assert(memoEdited.outcome === 'swapped', `Editing both is swapped in: ${memoEdited.outcome} ${memoEdited.error ?? ''}`);
   await settleFrames();
   assert(textOf(api, 'kept-probe') === 'kept v2', `The element the parent kept shows the edited component: ${textOf(api, 'kept-probe')}`);
   assert(textOf(api, 'memo-probe') === 'memo v2 3', `The memo component shows the edited code and kept its count: ${textOf(api, 'memo-probe')}`);
   assert(textOf(api, 'inputs-next') === 'Next 1', `and so did the lab: ${textOf(api, 'inputs-next')}`);
-  assert(session.update(INPUTS_LAB_PATH, original).outcome === 'swapped', 'The original text swaps back in');
+  assert((await session.update(INPUTS_LAB_PATH, original)).outcome === 'swapped', 'The original text swaps back in');
   await settleFrames();
   assert(!api.find('kept-probe') && !api.find('memo-probe'), 'and the two components are gone');
 
@@ -378,7 +450,7 @@ export async function verifyLiveCompile(owner: Node, api: LiveCompileInspection,
     text = text.replace(/bg-(?:slate-50|emerald-100|sky-100) p-6 gap-3/u, `${colour} p-6 gap-3`);
     const wanted = colour === 'bg-emerald-100' ? EMERALD_100 : SKY_100;
     const started = nowMs();
-    report = session.update(INPUTS_LAB_PATH, text);
+    report = await session.update(INPUTS_LAB_PATH, text);
     assert(report.outcome === 'swapped', `Edit ${index} is swapped in: ${report.outcome}`);
     compileMs.push(report.timings.compileMs);
     evaluateMs.push(report.timings.swapMs);
@@ -397,7 +469,93 @@ export async function verifyLiveCompile(owner: Node, api: LiveCompileInspection,
   });
   facts.worstFrameMs = { idle: round(idleStall, TENTH), duringChecks: round(checkStall, TENTH) };
 
+  // ---- The service is busy: the page keeps its frames, and the edit that waits behind the service is swapped in when it is free -----------
+  // The service thread is held for SERVICE_BUSY_MS, as a long check of a big lab would hold it, and an edit is made. Its compile queues behind the
+  // hold. A call that waited for the thread would hold the page's frames for the same time; the page goes on drawing instead.
+  const service = api.liveCompile();
+  assert(service.state().threadsAlive === 1 && service.state().threadRunning, `The page has one service thread, running: ${JSON.stringify(service.state())}`);
+  const busyEdit = withBackground(original, 'bg-emerald-100');
+  const held = service.stall(SERVICE_BUSY_MS);
+  await waitForServiceBusy(service);
+  const busyFramesBefore = Engine.getProcessFrames();
+  const busyStarted = nowMs();
+  const busyUpdate = session.update(INPUTS_LAB_PATH, busyEdit);
+  const midway: { state?: ReturnType<ExtensionHost['state']>; report?: UpdateReport } = {};
+  const busyWorstGap = await worstStall(async () => {
+    await frames(MIDWAY_FRAMES);
+    midway.state = service.state();
+    midway.report = await busyUpdate;
+  });
+  const busyWaitedMs = nowMs() - busyStarted;
+  const busyFrames = Engine.getProcessFrames() - busyFramesBefore;
+  await held;
+  assert(midway.state !== undefined && midway.state.running !== null && midway.state.queued >= 1 && service.outstandingCount === 0,
+    `The edit was waiting behind the service, which was busy: ${JSON.stringify(midway.state)}`);
+  assert(busyWaitedMs >= SERVICE_BUSY_MS * BUSY_WAIT_SHARE, `and it waited for the service (${round(busyWaitedMs, TENTH)} ms of the ${SERVICE_BUSY_MS} ms it was held)`);
+  assert(busyWorstGap <= MAX_FRAME_GAP_MS, `but the page kept its frames: the longest gap was ${round(busyWorstGap, TENTH)} ms, over the ${MAX_FRAME_GAP_MS} ms allowed`);
+  assert(busyFrames >= busyWaitedMs / MAX_FRAME_GAP_MS, `and drew ${busyFrames} frames meanwhile`);
+  assert(midway.report?.outcome === 'swapped' && backgroundOf(api) === EMERALD_100, `The edit was swapped in when the service was free: ${midway.report?.outcome}, ${backgroundOf(api)}`);
+  facts.serviceBusy = { heldMs: SERVICE_BUSY_MS, editWaitedMs: round(busyWaitedMs, TENTH), worstFrameGapMs: round(busyWorstGap, TENTH), frames: busyFrames };
+
+  // ---- A stale answer is dropped ---------------------------------------------------------------------------------------------------------
+  // Two edits of the file are made while the service is busy. The older is taken back when the newer is made: its compile, which had not
+  // begun, is taken out of the service's queue and never runs, and the older `update` answers `superseded`. The page never shows its text.
+  const staleHold = service.stall(STALE_BUSY_MS);
+  await waitForServiceBusy(service);
+  const older = session.update(INPUTS_LAB_PATH, withBackground(original, 'bg-sky-100'));
+  const newer = session.update(INPUTS_LAB_PATH, withBackground(original, 'bg-emerald-100'));
+  const queuedAfterTwoEdits = service.state().queued;
+  let bothAnswered = false;
+  void Promise.all([older, newer]).then(() => { bothAnswered = true; });
+  let olderShown = false;
+  while (!bothAnswered) {
+    await frames(1);
+    if (backgroundOf(api) === SKY_100) olderShown = true;
+  }
+  const [olderReport, newerReport] = await Promise.all([older, newer]);
+  await staleHold;
+  assert(queuedAfterTwoEdits === QUEUED_AFTER_TWO_EDITS, `The older edit's compile was taken out of the service's queue (the project changes, the newer compile and check were left): ${queuedAfterTwoEdits} jobs`);
+  assert(olderReport.outcome === 'superseded', `The older edit answers superseded: ${olderReport.outcome}`);
+  assert(newerReport.outcome === 'swapped', `and the newer one is swapped in: ${newerReport.outcome}`);
+  assert(!olderShown && backgroundOf(api) === EMERALD_100, `The page never showed the older text, and shows the newer: ${backgroundOf(api)}`);
+  await waitForServiceIdle(service, 'after the two edits');
+  assert(service.state().replies === 0 && service.outstandingCount === 0, `Nothing of the older edit is left in the service: ${JSON.stringify(service.state())}`);
+
+  // A request the service is running when it is given up is let finish, and the service drops its answer: nobody is told of it.
+  const abandoned = new RequestScope();
+  const abandonedStall = service.stall(STALE_BUSY_MS, abandoned);
+  await waitForServiceBusy(service);
+  abandoned.cancel();
+  const abandonedEnd = await abandonedStall.then(() => 'answered', (error: unknown) => (error instanceof RequestCancelled ? 'cancelled' : String(error)));
+  assert(abandonedEnd === 'cancelled' && service.outstandingCount === 0, `A request given up while it runs fails as cancelled: ${abandonedEnd}`);
+  await waitForServiceIdle(service, 'after the request that was given up');
+  await frames(MIDWAY_FRAMES);
+  assert(service.state().replies === 0, `and its answer was dropped by the service, not kept: ${JSON.stringify(service.state())}`);
+  assert((await session.update(INPUTS_LAB_PATH, original)).outcome === 'swapped', 'The session goes on after both');
+  facts.threadsAlive = service.state().threadsAlive;
+
+  // ---- What the service spends on each lab: whether any of them could hold the queue ------------------------------------------------------
+  facts.labs = await measureLabs(service);
+
   session.unmount();
+
+  // ---- A page whose workers are used up: the lab still opens, and the frames go on ---------------------------------------------------------
+  // The service starts again behind more threads than a browser's pool has workers for. On the Web its thread then needs a worker that the pool
+  // cannot give until the page's own thread returns to its event loop, and that is what a call that waited for the thread never let it do.
+  api.holdLiveCompileThreads(POOL_HOGS);
+  api.restartLiveCompile();
+  const crowded = api.openLiveSession(LAB_ID, EXPORT_NAME);
+  const crowdedStarted = nowMs();
+  const crowdedWorstGap = await worstStall(async () => { await crowded.open(); });
+  facts.crowdedOpen = { threads: api.liveCompile().state().threadsAlive, openMs: round(nowMs() - crowdedStarted, TENTH), worstFrameGapMs: round(crowdedWorstGap, TENTH) };
+  assert(crowdedWorstGap <= MAX_FRAME_GAP_MS, `The lab opens with the pool used up and the page keeps its frames: the longest gap was ${round(crowdedWorstGap, TENTH)} ms`);
+  assert(JSON.stringify(fingerprint(api)) === JSON.stringify(bundled), 'and it is the lab the bundle has');
+  crowded.unmount();
+  api.releaseLiveCompileThreads();
+
+  // ---- Ben's sequence, with the code panel open ---------------------------------------------------------------------------------------------
+  facts.sequence = await verifyLiveCompileSequence(api);
+
   api.restoreDemo();
   await settleFrames();
   console.log('GODOT_REACT_LIVE_COMPILE', JSON.stringify(facts));

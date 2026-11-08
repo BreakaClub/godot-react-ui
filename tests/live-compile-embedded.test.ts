@@ -1,16 +1,13 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
 import test from 'node:test';
 import * as React from 'react';
 import * as jsxRuntime from 'react/jsx-runtime';
 import * as library from '../src';
 import { View, createRoot } from '../src';
 import { LiveSession } from '../demo/src/live-compile-session';
-import type { LiveCompileHost } from '../demo/src/live-compile-host';
 import { installRefreshHook, performRefresh, refreshHooks } from '../demo/src/live-compile-refresh';
-import { parseCompileResult, type CheckOutcome, type Project } from '../demo/src/live-compile-protocol';
+import type { Project } from '../demo/src/live-compile-protocol';
+import { cliHost, NEEDS_CLI } from './live-compile-cli-host';
 import { NO_SUBSCRIPTION, RecordingHost } from './recording-host';
 
 // A live session rendered inside a tree the caller owns (`LiveSession.Lab`), against the real compiler (the `live-compile-cli`
@@ -18,11 +15,6 @@ import { NO_SUBSCRIPTION, RecordingHost } from './recording-host';
 // proxy that re-renders only from the root gets wrong: a component React skips because its props did not change, and an element a
 // parent kept. Needs `node scripts/build-live-compile.mjs --cli`.
 
-const root = resolve(__dirname, '..');
-const CLI = resolve(root, 'live-compile/target/release/live-compile-cli');
-const NEEDS_CLI = existsSync(CLI) ? false : 'live-compile-cli is not built: run `node scripts/build-live-compile.mjs --cli`';
-const FRAME_HEADER_BYTES = 4;
-const NEVER_CHECKED: CheckOutcome = { kind: 'superseded', by: 0 };
 const LAB_PATH = '/project/lab/memo-lab.tsx';
 const ROW_PATH = '/project/lab/row.tsx';
 const TILE_PATH = '/project/lab/tile.tsx';
@@ -76,22 +68,7 @@ export function TileBody({ label }: { label: string }) {
 }
 `;
 
-const host: LiveCompileHost = {
-  compile(path, source, refresh) {
-    const body = Buffer.from(JSON.stringify({ op: 'transpile', path, source, refresh }));
-    const header = Buffer.alloc(FRAME_HEADER_BYTES);
-    header.writeUInt32LE(body.length);
-    const reply = spawnSync(CLI, [], { input: Buffer.concat([header, body]), maxBuffer: 64 * 1024 * 1024 });
-    assert.equal(reply.status, 0, `the compiler exited ${reply.status}`);
-    return parseCompileResult(reply.stdout.subarray(FRAME_HEADER_BYTES, FRAME_HEADER_BYTES + reply.stdout.readUInt32LE(0)).toString('utf8'));
-  },
-  setFile() {},
-  setFiles() {},
-  requestCheck: () => Promise.resolve(NEVER_CHECKED),
-  hover: () => Promise.resolve(null),
-  inlayHints: () => Promise.resolve([]),
-  close() {},
-};
+const host = cliHost();
 
 const project: Project = {
   version: 1,
@@ -126,8 +103,8 @@ function press(testID: string): void {
   uiRoot.dispatchEvents();
 }
 
-test('the lab renders inside the caller\'s tree', { skip: NEEDS_CLI }, () => {
-  session.open();
+test('the lab renders inside the caller\'s tree', { skip: NEEDS_CLI }, async () => {
+  await session.open();
   uiRoot.render(React.createElement(View, { testID: 'stage' }, React.createElement(session.Lab)));
   assert.equal(textOf('heavy'), 'Heavy v1');
   assert.equal(textOf('row'), 'row v1 0');
@@ -139,42 +116,42 @@ test('the lab renders inside the caller\'s tree', { skip: NEEDS_CLI }, () => {
   assert.equal(textOf('parent-click'), 'parent 1');
 });
 
-test('an edit is on the page when update returns, and state is kept', { skip: NEEDS_CLI }, () => {
-  const report = session.update(LAB_PATH, LAB_SOURCE.replace('parent ${clicks}', 'parent! ${clicks}'));
+test('an edit is on the page when update returns, and state is kept', { skip: NEEDS_CLI }, async () => {
+  const report = await session.update(LAB_PATH, LAB_SOURCE.replace('parent ${clicks}', 'parent! ${clicks}'));
   assert.equal(report.outcome, 'swapped', report.error);
   assert.equal(textOf('parent-click'), 'parent! 1', 'committed before update returned: no frame, no microtask in between');
   assert.equal(textOf('row'), 'row v1 2', 'and the memo\'d row kept its count');
 });
 
-test('an element the parent kept (useMemo) runs the new code of its component', { skip: NEEDS_CLI }, () => {
-  const report = session.update(LAB_PATH, LAB_SOURCE.replace('Heavy v1', 'Heavy v2'));
+test('an element the parent kept (useMemo) runs the new code of its component', { skip: NEEDS_CLI }, async () => {
+  const report = await session.update(LAB_PATH, LAB_SOURCE.replace('Heavy v1', 'Heavy v2'));
   assert.equal(report.outcome, 'swapped', report.error);
   assert.equal(textOf('heavy'), 'Heavy v2', 'a subtree React would skip still shows the edited component');
   assert.equal(textOf('parent-click'), 'parent 1', 'the parent kept its state');
 });
 
-test('a memo\'d component that React would skip runs the new code, and keeps its state', { skip: NEEDS_CLI }, () => {
-  const report = session.update(ROW_PATH, ROW_SOURCE.replace(' v1 ', ' v2 '));
+test('a memo\'d component that React would skip runs the new code, and keeps its state', { skip: NEEDS_CLI }, async () => {
+  const report = await session.update(ROW_PATH, ROW_SOURCE.replace(' v1 ', ' v2 '));
   assert.equal(report.outcome, 'swapped', report.error);
   assert.equal(textOf('row'), 'row v2 2', 'the memo\'d row shows the edited text with its count');
   press('row');
   assert.equal(textOf('row'), 'row v2 3');
 });
 
-test('a memo whose body another module defines shows the body\'s new code, and keeps its state', { skip: NEEDS_CLI }, () => {
+test('a memo whose body another module defines shows the body\'s new code, and keeps its state', { skip: NEEDS_CLI }, async () => {
   press('tile');
   press('tile');
   press('tile');
   assert.equal(textOf('tile'), 'tile v1 3');
-  const report = session.update(TILE_BODY_PATH, TILE_BODY_SOURCE.replace(' v1 ', ' v2 '));
+  const report = await session.update(TILE_BODY_PATH, TILE_BODY_SOURCE.replace(' v1 ', ' v2 '));
   assert.equal(report.outcome, 'swapped', report.error);
   assert.deepEqual(report.evaluated, [TILE_BODY_PATH], 'only the edited module ran again: the memo is in an importer that was not');
   assert.equal(textOf('tile'), 'tile v2 3');
 });
 
-test('a changed hook order inside a memo\'d component starts its state again and does not crash', { skip: NEEDS_CLI }, () => {
+test('a changed hook order inside a memo\'d component starts its state again and does not crash', { skip: NEEDS_CLI }, async () => {
   const reordered = ROW_SOURCE.replace(' v1 ', ' v3 ').replace('const [count, setCount] = useState(0);', 'const [extra] = useState(0);\n  const [count, setCount] = useState(0);');
-  const report = session.update(ROW_PATH, reordered);
+  const report = await session.update(ROW_PATH, reordered);
   assert.equal(report.outcome, 'swapped', report.error);
   assert.equal(textOf('row'), 'row v3 0');
   press('row');

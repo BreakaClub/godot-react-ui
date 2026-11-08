@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import test from 'node:test';
@@ -16,9 +15,10 @@ import { HOVER_DELAY_MS } from '../demo/src/editor/view/hover';
 import { THEME } from '../demo/src/editor/theme';
 import type { LiveCompileHost } from '../demo/src/live-compile-host';
 import { installRefreshHook, performRefresh, refreshHooks } from '../demo/src/live-compile-refresh';
-import { parseCompileResult, parseProject, type CheckOutcome, type Hover, type InlayHint } from '../demo/src/live-compile-protocol';
+import { parseProject, type CheckOutcome, type Hover, type InlayHint } from '../demo/src/live-compile-protocol';
 import { LiveSession } from '../demo/src/live-compile-session';
 import { findLab, type InlineLab } from '../demo/src/labs';
+import { CLI, cliHost } from './live-compile-cli-host';
 import { installMonospaceGeometry } from './monospace-text-geometry';
 import { createTestRoot } from './recording-host';
 import { TextInputHost } from './text-input-host';
@@ -29,11 +29,9 @@ import { TextInputHost } from './text-input-host';
 // Needs `node scripts/build-live-compile.mjs --cli` and the project file `node scripts/live-compile-project.mjs` writes.
 
 const root = resolve(__dirname, '..');
-const CLI = resolve(root, 'live-compile/target/release/live-compile-cli');
 const PROJECT = resolve(root, 'demo/live-compile/project.json');
 const NEEDS: string | false = !existsSync(CLI) ? 'live-compile-cli is not built: run `node scripts/build-live-compile.mjs --cli`'
   : !existsSync(PROJECT) ? 'demo/live-compile/project.json is missing: run `node scripts/live-compile-project.mjs`' : false;
-const FRAME_HEADER_BYTES = 4;
 /** The advance of the demo's mono font at 12 px, as the text measures it (a 26.6 fixed point number). */
 const ADVANCE = 7.203125;
 const LINE_HEIGHT = 16;
@@ -64,7 +62,16 @@ interface Scenario {
   readonly control: Control;
 }
 
-function mount(): Scenario {
+interface MountOptions {
+  /** The answers of the compiler are held until this settles (a rejection is a compiler that fails). */
+  readonly hold?: Promise<void>;
+  /** Told when the lab did not open and the panel went read-only. */
+  readonly onUnavailable?: (readOnly: LabCode) => void;
+  /** Do not wait for the lab to open before returning: the panel is looked at while it compiles. */
+  readonly whileCompiling?: boolean;
+}
+
+async function mount(options: MountOptions = {}): Promise<Scenario> {
   const host = new TextInputHost();
   host.rectsByTestID.set('editor-grid-probe', { x: 0, y: 0, width: 400 * ADVANCE, height: LINE_HEIGHT });
   installMonospaceGeometry(host, {
@@ -93,25 +100,15 @@ function mount(): Scenario {
   };
   const clipboard = new MemoryClipboard();
   const compiler: LiveCompileHost = {
-    compile(path, source, refresh) {
-      const body = Buffer.from(JSON.stringify({ op: 'transpile', path, source, refresh }));
-      const header = Buffer.alloc(FRAME_HEADER_BYTES);
-      header.writeUInt32LE(body.length);
-      const reply = spawnSync(CLI, [], { input: Buffer.concat([header, body]), maxBuffer: 64 * 1024 * 1024 });
-      assert.equal(reply.status, 0, `the compiler exited ${reply.status}`);
-      return parseCompileResult(reply.stdout.subarray(FRAME_HEADER_BYTES, FRAME_HEADER_BYTES + reply.stdout.readUInt32LE(0)).toString('utf8'));
-    },
-    setFile() {},
-    setFiles() {},
+    ...cliHost({ hold: options.hold === undefined ? undefined : () => options.hold ?? Promise.resolve() }),
     requestCheck: () => Promise.resolve(control.nextCheck()),
     hover: () => Promise.resolve(control.hovers[0] ?? null),
     inlayHints: () => Promise.resolve(control.hints),
-    close() {},
   };
   installRefreshHook();
   const support: CodeSupport = {
     openSession: target => new LiveSession({
-      host: compiler, project, labId: target.id, exportName: target.component.name, root: uiRoot, embedded: true,
+      host: compiler, project, labId: target.id, exportName: target.component.name, root: uiRoot, embedded: true, placeholder: target.component,
       externals: { react: React, 'react/jsx-runtime': jsxRuntime, 'godot-react-ui': library },
       aliases: { '../../src': 'godot-react-ui' }, refresh: refreshHooks, performRefresh, now: () => Date.now(),
     }),
@@ -120,8 +117,10 @@ function mount(): Scenario {
     clipboard,
     now: () => Date.now(),
   };
-  const code = openLabCode(lab(), support);
+  const code = openLabCode(lab(), support, options.onUnavailable ?? ((readOnly) => assert.fail(`the lab did not open: ${readOnly.kind === 'read-only' ? readOnly.reason : ''}`)));
   assert.equal(code.kind, 'live', code.kind === 'read-only' ? code.reason : '');
+  // The compile is answered later; the panel is there at once, and the stage shows the bundled lab until the compiled one is ready.
+  if (code.kind === 'live' && options.whileCompiling !== true) await code.session.open();
   const stage = code.kind === 'live' ? React.createElement(code.session.Lab) : null;
   const renders = { count: 0 };
   const panel = React.createElement(CodeEditor, { lab: lab(), code });
@@ -214,7 +213,7 @@ const pause = (ms: number): Promise<void> => new Promise(done => setTimeout(done
 /** A test of the panel with the editor mounted and focused, torn down after: a focused editor has a blink timer. */
 function panelTest(name: string, body: (s: Scenario) => void | Promise<void>): void {
   test(name, { skip: NEEDS }, async () => {
-    const s = mount();
+    const s = await mount();
     focusSink(s);
     try {
       await body(s);
@@ -420,6 +419,8 @@ panelTest('a syntax error keeps the last good page, is said in the status bar, a
   controller.model.dispatch({ selection: { anchor: controller.model.doc.line(1).to } });
   s.host.type(s.uiRoot, ' = = ;');
   workspace(s).flush();
+  assert.equal(workspace(s).run.kind, 'compiling', 'the compile is asked for and the page is the last good version meanwhile');
+  await pause(20);
   assert.equal(workspace(s).run.kind, 'compile-failed', workspace(s).run.message);
   const immediate = controller.diagnostics.find(item => item.severity === 'error');
   assert.ok(immediate, 'the compiler\'s error is drawn at once, without waiting for the checker');
@@ -574,4 +575,47 @@ panelTest('a tap with a finger places the caret where it lifts and a finger goin
   s.uiRoot.dispatchEvents();
   assert.equal(textOf(s, 'code-status-position'), 'Ln 4, Col 7', 'the tap that follows puts the caret at the column');
   assert.equal(s.host.focused, tag(s, 'editor-input-sink'), 'and the input has the focus, which brings the soft keyboard up');
+});
+
+test('the panel is there at once while the lab compiles: editable, saying so, with the bundled lab on the stage; it goes live when the compile is answered', { skip: NEEDS }, async () => {
+  let release: () => void = () => {};
+  const held = new Promise<void>(done => { release = done; });
+  const s = await mount({ hold: held, whileCompiling: true });
+  focusSink(s);
+  try {
+    assert.match(textOf(s, 'code-status-run'), /^Compiling the lab/u);
+    assert.ok(has(s, 'inputs-lab'), 'the stage shows the bundled lab meanwhile');
+    assert.ok(has(s, 'code-caret'), 'and the panel is editable');
+    s.host.type(s.uiRoot, ' ');
+    assert.equal(workspace(s).active.controller.model.text[0], ' ', 'typing goes in while the compile is outstanding');
+    release();
+    if (s.code.kind === 'live') await s.code.session.open();
+    await pause(SETTLE_MS);
+    assert.match(textOf(s, 'code-status-run'), /^(Live\.|Swapped in )/u, 'the lab is live, and the text typed meanwhile has been sent to it');
+  } finally {
+    s.uiRoot.unmount();
+    releaseLabCode(s.code);
+  }
+});
+
+test('a lab that does not open turns the panel read-only with the reason, and the live code is replaced, not left', { skip: NEEDS }, async () => {
+  const replaced: LabCode[] = [];
+  const failing = Promise.reject(new Error('the compiler fell over'));
+  failing.catch(() => {});
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  const s = await mount({ hold: failing, onUnavailable: readOnly => { replaced.push(readOnly); }, whileCompiling: true });
+  try {
+    await pause(SETTLE_MS);
+    assert.equal(replaced.length, 1, 'the owner is given a read-only code to show in its place');
+    const [readOnly] = replaced;
+    assert.ok(readOnly !== undefined && readOnly.kind === 'read-only');
+    assert.match(readOnly.reason, /the compiler fell over/u);
+    assert.match(readOnly.workspace.run.message, /^Read-only\. Live compile is not available: .*the compiler fell over/u);
+    releaseLabCode(readOnly);
+  } finally {
+    console.warn = originalWarn;
+    s.uiRoot.unmount();
+    releaseLabCode(s.code);
+  }
 });
