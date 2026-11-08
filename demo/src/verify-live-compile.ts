@@ -9,7 +9,7 @@ import type { ExtensionHost } from './live-compile-service';
 import type { LiveSession, UpdateReport } from './live-compile-session';
 import { assertionTally } from './verifier-input';
 import { grab, settleFrames } from './verify-filters';
-import { MAX_FRAME_GAP_MS, POOL_HOGS, verifyLiveCompileSequence, type SequenceInspection } from './verify-live-compile-sequence';
+import { MAX_FRAME_GAP_MS, POOL_HOGS, verifyLabWalk, verifyLiveCompileSequence, verifyThreadsAreGivenBack, type SequenceInspection } from './verify-live-compile-sequence';
 import { click } from './verify-text-input';
 
 /**
@@ -33,8 +33,6 @@ import { click } from './verify-text-input';
 export interface LiveCompileInspection extends SequenceInspection {
   showLab(name: 'inputs'): void;
   openLiveSession(labId: string, exportName: string): LiveSession;
-  /** The page's service: its state, and the hooks that hold it busy (`ExtensionHost.stall`). */
-  liveCompile(): ExtensionHost;
 }
 
 export type LiveCompileCapture = (name: string, overflowing?: readonly string[]) => Promise<void>;
@@ -552,9 +550,13 @@ export async function verifyLiveCompile(owner: Node, api: LiveCompileInspection,
   assert(JSON.stringify(fingerprint(api)) === JSON.stringify(bundled), 'and it is the lab the bundle has');
   crowded.unmount();
   api.releaseLiveCompileThreads();
+  facts.threadsGivenBack = await verifyThreadsAreGivenBack(api);
 
   // ---- Ben's sequence, with the code panel open ---------------------------------------------------------------------------------------------
   facts.sequence = await verifyLiveCompileSequence(api);
+
+  // ---- Every lab with the code panel open: the page keeps one thread, and every lab compiles ---------------------------------------------------
+  facts.labWalk = await verifyLabWalk(api);
 
   api.restoreDemo();
   await settleFrames();

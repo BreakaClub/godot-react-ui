@@ -58,6 +58,8 @@ function gate(): Gate {
 interface Service {
   readonly requested: { readonly path: string; readonly text: string }[];
   readonly gates: Map<string, Gate>;
+  /** The gate that holds the answers of checks, if any. */
+  checks: Gate | undefined;
 }
 
 function PlaceholderLab() {
@@ -67,10 +69,11 @@ function PlaceholderLab() {
 installRefreshHook();
 
 function open(options: { embedded?: boolean } = {}) {
-  const service: Service = { requested: [], gates: new Map() };
+  const service: Service = { requested: [], gates: new Map(), checks: undefined };
   const host = cliHost({
     onRequest: (path, text) => { service.requested.push({ path, text }); },
     hold: path => service.gates.get(path)?.promise ?? Promise.resolve(),
+    holdChecks: () => service.checks?.promise ?? Promise.resolve(),
   });
   const fake = new RecordingHost();
   const root = createRoot(fake, { subscribeToEvents: NO_SUBSCRIPTION, onError: () => {} });
@@ -239,4 +242,16 @@ test('putting the last good page back after a render that threw asks the compile
   assert.deepEqual(service.requested.map(request => request.path), [LAB_PATH], 'only the edit was compiled: the last good version is evaluated from the code it ran from');
   assert.equal(textOf('title'), 'one', 'and it is on the page');
   session.unmount();
+});
+
+test('ending the session takes back its checks, hovers and hints: the service spends nothing on a lab nobody is looking at', { skip: NEEDS_CLI }, async () => {
+  const { service, session, stage } = open();
+  stage();
+  await session.open();
+  service.checks = gate();
+  const check = session.check();
+  const outcome = check.then(() => 'answered', (error: unknown) => (error instanceof RequestCancelled ? 'cancelled' : String(error)));
+  await settle();
+  session.unmount();
+  assert.equal(await outcome, 'cancelled');
 });

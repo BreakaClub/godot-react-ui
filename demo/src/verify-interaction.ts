@@ -54,6 +54,8 @@ export interface InteractionInspection extends DemoInspection {
   restartLiveCompile(): void;
   holdLiveCompileThreads(count: number): number;
   releaseLiveCompileThreads(): void;
+  /** The labs in the navigator's order. */
+  labs(): readonly { readonly id: string; readonly title: string; readonly kind: string }[];
   showPaintPage(page: string): void;
   /** The filters lab, rendered again with new props (plan Phase V1). */
   showFilters(props: FiltersLabProps): void;

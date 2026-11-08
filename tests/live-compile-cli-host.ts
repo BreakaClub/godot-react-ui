@@ -30,6 +30,8 @@ export interface CliHostOptions {
   readonly hold?: (path: string, source: string) => Promise<void>;
   /** Told of each compile request as it is made (before it is held). */
   readonly onRequest?: (path: string, source: string) => void;
+  /** Holds the answer of a check until the returned promise settles; a check that is held is taken back by its scope. */
+  readonly holdChecks?: () => Promise<void>;
 }
 
 export function cliHost(options: CliHostOptions = {}): LiveCompileHost {
@@ -49,7 +51,13 @@ export function cliHost(options: CliHostOptions = {}): LiveCompileHost {
     },
     setFile() {},
     setFiles() {},
-    requestCheck: () => Promise.resolve(NEVER_CHECKED),
+    async requestCheck(_config, _libDir, scope) {
+      if (options.holdChecks !== undefined) {
+        const held = options.holdChecks();
+        await Promise.race([held, new Promise<never>((_, reject) => { scope?.onCancel(() => reject(new RequestCancelled())); })]);
+      }
+      return NEVER_CHECKED;
+    },
     hover: () => Promise.resolve(null),
     inlayHints: () => Promise.resolve([]),
     close() {},

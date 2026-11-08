@@ -3,6 +3,11 @@
 Branch `live-compile`, based on main `d282fee` and rebased onto `5956068`. Notes and report for the coordinator; `docs/INTERACTION_PLAN.md`,
 `docs/INTERACTION_PROGRESS.md` and `README.md` are not edited here (the paragraph for the README is at the end).
 
+> **Changed since this track was written (docs/tracks/live-compile-async.md).** `compile` and the project open no longer wait for the service
+> thread: a call that waited froze the page on the Web for as long as the browser took to start the thread (30 s, on react.breaka.club). Every request
+> is now answered later through `poll` and can be taken back; `LiveSession.open()` and `update()` return promises; the page shares one service thread.
+> The decisions and API below say so where they differ; the measurements are from the version that waited.
+
 Ben's goal: the demo's labs get a revealable code editor, and "you should be able to modify the TSX and see the components update on the same
 page. With type checking and compilation handled by bun TSC." This track builds everything under that editor, driven from code, and no editor:
 Bun's TypeScript checker, Bun's compiler, and a swap into the running page that keeps state.
@@ -45,8 +50,9 @@ for byte (`provenance.json`).
 Three front ends call it: the extension (`ext/lib.rs`), `live-compile-cli` (frames on stdin and stdout) and a WebAssembly export. The extension is a
 main-thread extension, as `godot_react_ui` is (no gdext `experimental-threads`): the checker runs on a plain Rust thread that touches no Godot API and
 talks in strings. A check is a request that returns an id and is answered through `poll()`; a newer check supersedes one that has not begun
-(single flight, as UCGE's session). `compile` waits for its answer (milliseconds). Nothing runs while nothing is asked: the thread waits on a condition
-variable, and JS polls (a 1 ms timer) only while a check is outstanding.
+(single flight, as UCGE's session). `compile` and `ping` are requests of the same kind (they waited for their answer in the first version, and no longer
+do: docs/tracks/live-compile-async.md). Nothing runs while nothing is asked: the thread waits on a condition variable, and JS polls (a 1 ms timer) only
+while a request is outstanding.
 
 **L5. Type errors do not block running.** As in a browser dev server: `update` sends the text to the checker and compiles and swaps the same text
 regardless; the type diagnostics arrive separately (`UpdateReport.check`). A syntax error does block, because there is nothing to run.
@@ -79,9 +85,11 @@ registered the old functions again left the failed code in the family; the Node 
 shows the last good version, with its state started again, which is the limit of what React keeps (asserted by the section). Preflighting the render in
 a throwaway root was considered and not done: it would run the component's effects.
 
-**L10. The editor's calls never block on the checker.** `compile` waits (milliseconds, bounded at 30 s so a thread that never runs is an error and not a
-hung page); a check, a hover and a set of inlay hints are requests answered through `poll`. The reply carries the service thread's own time
-(`serviceMs`), because JavaScript sees an answer a frame later at the soonest: its timer fires once a frame.
+**L10. No call waits for the service thread.** A compile, a check, a hover, a set of inlay hints and a ping are requests answered through `poll`; a request can
+be taken back (`cancel`), and the only calls that are not requests move a value under a lock that is never held while a request runs. (The first version
+made `compile` wait, bounded at 30 s; on the Web the thread could not start while the page waited for it, and the page hung for the whole 30 s:
+docs/tracks/live-compile-async.md.) The reply carries the service thread's own time (`serviceMs`), because JavaScript sees an answer a frame later at the
+soonest: its timer fires once a frame.
 
 **L11. Hover and inlay hints are in, completions are not.** `core/services.rs` drives `bun_sema`'s `Services` (the API TypeScript's own checker gives a
 language service): `node` at a position, `type_at_location`, `type_to_string`, `symbol_at_location`, `resolved_signature`, `signature_info`. See Limits.
@@ -114,10 +122,10 @@ scripts/verify-live-compile-web.mjs the section in Chrome
 ### What the editor phase calls
 
 ```ts
-const session = openLiveSession({ root, labId: 'inputs', exportName: 'InputsLab' }); // demo/src/live-compile-open.ts; throws, saying how, if the extension is not built
-session.open();                                       // sends the project to the checker, compiles and runs the lab, mounts it
-const report = session.update(path, text);            // on each change: compile, run, refresh. Synchronous; never throws for a bad edit
-report.outcome;       // 'swapped' | 'compile-failed' | 'evaluation-failed' | 'render-failed' (the last good page is on screen in all three)
+const session = openLiveSession({ host, root, labId: 'inputs', exportName: 'InputsLab' }); // demo/src/live-compile-open.ts; host: the page's one service (openExtensionHost)
+await session.open();                                 // sends the project to the checker, compiles and runs the lab, mounts it; the compile is answered a frame or more later
+const report = await session.update(path, text);      // on each change: compile, run, refresh. Never throws for a bad edit; a newer edit of the file overtakes it
+report.outcome;       // 'swapped' | 'compile-failed' | 'evaluation-failed' | 'render-failed' (the last good page is on screen in all three) | 'superseded' (a newer edit of the file took its place)
 report.diagnostics;   // syntax errors, with UTF-16 start/end/line/character
 report.error;         // the message a module or a render threw
 report.timings;       // compileMs, swapMs, totalMs
@@ -224,7 +232,7 @@ The Web build's recipe is the UI extension's (`scripts/build-web.mjs`) with `--c
 - **Typings.** The class `LiveCompile` is declared by hand in `demo/src/live-compile-host.ts`, as the probe classes are, because the extension is optional and
   the tracked typings must not describe it; `scripts/generate-types.mjs` takes the manifest out of the project while the editor writes them.
 - **A panic** is a failed answer on the native thread (`catch_unwind`) and drops the parsed programs; in the Web module (`panic=abort`) a panic traps the
-  service thread, and the page is told the call did not answer (the bounded wait) rather than hanging.
+  service thread, and every request outstanding fails after the host's deadline (30 s, a timer: nothing waits for it) saying what the queue looked like.
 - **Build prerequisites on this workstation:** the Bun checkout at `/Users/ben/Development/bun` (revision `408c9374b266`, only read) for the vendor step, rustup's
   `nightly-2026-09-15` with `wasm32-unknown-emscripten`, `wasm32-unknown-unknown` and `rust-src`, and Node 24 for `scripts/live-compile-project.mjs` (Bun's lib
   bundle is zstd with dictionaries, which `node:zlib` reads from 24; the script starts nodenv's Node 24 itself).
@@ -234,7 +242,7 @@ The Web build's recipe is the UI extension's (`scripts/build-web.mjs`) with `--c
 
 ## README text
 
-The demo can compile and type-check a lab's TSX inside the running page, which is what a code editor needs under it. It is a separate, demo-only
+The demo can compile and type-check a lab's TSX inside the running page, which is what a code editor needs under it (nothing in it waits for the service thread: docs/tracks/live-compile-async.md). It is a separate, demo-only
 GDExtension, `live-compile/` (Bun's TypeScript checker and its JavaScript compiler, built with their own nightly toolchain; nothing in the package gains
 a dependency or bytes), and the demo's TypeScript around it (`demo/src/live-compile-*.ts`). `node scripts/build-live-compile.mjs` builds and installs it
 (one build for both engine profiles, bound to Godot API 4.7.2; `--cli` also builds a native test process; `node scripts/build-live-compile-web.mjs [--engine=stock]` builds its Web side module for a profile). In the

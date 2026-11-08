@@ -45,12 +45,15 @@ export interface LiveCompileHost {
   compile(path: string, source: string, refresh: boolean, scope: RequestScope): Promise<CompileResult>;
   setFile(path: string, text: string): void;
   setFiles(files: readonly ProjectFile[]): void;
-  /** Starts a check of the project whose configuration file is `config`. A check not begun when the next is requested is superseded. */
-  requestCheck(config: string, libDir: string): Promise<CheckOutcome>;
+  /**
+   * Starts a check of the project whose configuration file is `config`. A check not begun when the next is requested is superseded. With a
+   * `scope`, cancelling it takes the check back like a compile, and the promise fails with `RequestCancelled`.
+   */
+  requestCheck(config: string, libDir: string, scope?: RequestScope): Promise<CheckOutcome>;
   /** What is under `offset` (UTF-16) in the file at `path`, in the project the configuration `config` names: the name and its type. */
-  hover(config: string, libDir: string, path: string, offset: number): Promise<Hover | null>;
+  hover(config: string, libDir: string, path: string, offset: number, scope?: RequestScope): Promise<Hover | null>;
   /** The inferred types of declarations and the parameter names of arguments between two UTF-16 offsets of a file. */
-  inlayHints(config: string, libDir: string, path: string, from: number, to: number, parameterNames: ParameterNames): Promise<InlayHint[]>;
+  inlayHints(config: string, libDir: string, path: string, from: number, to: number, parameterNames: ParameterNames, scope?: RequestScope): Promise<InlayHint[]>;
   /** Ends the service. Every request still outstanding fails with `RequestCancelled`. */
   close(): void;
 }

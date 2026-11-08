@@ -156,10 +156,18 @@ before the guard has no stamp and is refused once.
 The code editor's compiler and checker (`live-compile/`, `docs/tracks/live-compile.md`) are a second Web side module, `live_compile.web.wasm` (8.7 MB, about 2.3 MB brotli), built by
 `node scripts/build-live-compile-web.mjs` per profile (`--engine=stock` builds `live_compile.web.stock.wasm` with the stock SDK, Emscripten 4.0.11, and no lazy function-table flags). It has its own toolchain, `live-compile/rust-toolchain.toml` (`nightly-2026-09-15`, because Bun's crates need
 `core::alloc::AllocatorClone`, which `nightly-2026-05-15` lacks), and its recipe is the UI extension's with `--cap-lints=warn` and without `-Z emscripten-wasm-eh=false` (that switch is gone
-on the newer nightly); it is built with `panic=abort`, so a panic traps the service thread and the page is told the call did not answer. The page lists it in `gdextensionLibs`, so it is
+on the newer nightly); it is built with `panic=abort`, so a panic traps the service thread and the requests outstanding fail after the host's deadline (30 s, a timer). The page lists it in `gdextensionLibs`, so it is
 fetched at startup with the other side modules whether or not the code panel ever opens; loading it on first use is designed in `docs/tracks/web-load.md` and not built. The export also
 carries `demo/live-compile/project.json` (the labs' TSX, the library's and React's declarations and the ES2022 lib files; 2.07 MB in the pack, 198 KB compressed). The Web build checks that
 the export holds the side module and the project, and `node scripts/verify-live-compile-web.mjs` runs the `live-compile` section in Chrome.
+
+**Nothing on the page's thread waits for the module's service thread** (docs/tracks/live-compile-async.md). The service is a pthread, and a browser starts a pthread's
+Worker only when the page's own thread returns to its event loop, if the pool of Workers is empty. The pool holds eight (`emscriptenPoolSize`, `platform/web/js/engine/config.js`),
+the engine and the audio take some, and the engine's `threads_pool_strict` option, which would turn a pool that is used up into an error, is off, so a thread asked
+for after the pool is used up quietly gets a new Worker that cannot run until the page yields. The first version of this module made `compile` wait for the thread's
+answer: on react.breaka.club, with the code panel open and a dozen labs behind it, the page hung for the 30 s the wait was bounded at, and the panel ended read-only.
+Every request is now queued and answered on a later frame (`poll`), a request can be taken back, the page shares one service thread (the demo owns the host and ends it
+when it leaves the tree), and the Web pass of the `code-editor` section and `verify-live-compile-web.mjs` hold the page to this with the pool used up.
 
 **This module is per profile, and an export holds exactly its own profile's or none** (docs/tracks/stock-web.md). Each profile has its own file (`live_compile.web.wasm` for `breaka`, `live_compile.web.stock.wasm`
 for `stock`), stamp and cargo target (`live-compile/target/web`, `live-compile/target/web-stock`). The stamp records the profile; `build:web` writes the extension's manifest with a Web library only for the

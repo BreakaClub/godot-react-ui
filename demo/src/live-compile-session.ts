@@ -184,7 +184,14 @@ export class LiveSession {
   private unmounted = false;
   /** The open that is under way or done: `update` waits for it. */
   private opening: Promise<void> | undefined;
+  /** The lab has opened: an edit no longer waits for it, so its compile is asked for in the turn it is made. */
+  private opened = false;
   private openScope: RequestScope | undefined;
+  /**
+   * The requests of the session that no edit owns (its checks, hovers and hints). They are taken back when the session ends, so the service does
+   * not spend its time on a lab nobody is looking at.
+   */
+  private readonly lifetime = new RequestScope();
   /** The compile requests of the newest edit of each file that has not been answered. */
   private readonly edits = new Map<string, RequestScope>();
   private readonly unsubscribeRefresh: () => void;
@@ -276,13 +283,14 @@ export class LiveSession {
       throw new Error(`${this.entryPath} does not export a component called ${this.options.exportName}`);
     }
     this.mount();
+    this.opened = true;
   }
 
   /** Checks the project as the checker has it now. */
   check(): Promise<CheckOutcome> {
     const lab = this.options.project.labs[this.options.labId];
     if (lab === undefined) return Promise.reject(new Error(`The live-compile project has no lab ${this.options.labId}`));
-    return this.options.host.requestCheck(lab.config, this.options.project.libDir);
+    return this.expected(this.options.host.requestCheck(lab.config, this.options.project.libDir, this.lifetime));
   }
 
   /** Gives the checker `text` as the new text of `path` and checks the project, without compiling or running it. */
@@ -294,13 +302,13 @@ export class LiveSession {
   /** What is under a UTF-16 offset of a source file: the name and its type. The checker has the text of the last `update`. */
   hover(path: string, offset: number): Promise<Hover | null> {
     const lab = this.lab();
-    return this.options.host.hover(lab.config, this.options.project.libDir, path, offset);
+    return this.expected(this.options.host.hover(lab.config, this.options.project.libDir, path, offset, this.lifetime));
   }
 
   /** The inferred types and parameter names to draw between two UTF-16 offsets of a source file. */
   inlayHints(path: string, from: number, to: number, parameterNames: ParameterNames = 'literals'): Promise<InlayHint[]> {
     const lab = this.lab();
-    return this.options.host.inlayHints(lab.config, this.options.project.libDir, path, from, to, parameterNames);
+    return this.expected(this.options.host.inlayHints(lab.config, this.options.project.libDir, path, from, to, parameterNames, this.lifetime));
   }
 
   private lab(): { readonly config: string } {
@@ -382,6 +390,7 @@ export class LiveSession {
   unmount(): void {
     this.unmounted = true;
     this.openScope?.cancel();
+    this.lifetime.cancel();
     for (const scope of this.edits.values()) scope.cancel();
     this.edits.clear();
     this.unsubscribeRefresh();
@@ -412,11 +421,22 @@ export class LiveSession {
 
   /** Waits for the lab to be open, then has the registry compile and evaluate `text` as `path`. `compileMs` is the time that took. */
   private async compileEdit(path: string, text: string, scope: RequestScope): Promise<{ readonly prepared: PrepareResult; readonly compileMs: number }> {
-    // The lab is not there to be edited until it has opened.
-    if (this.opening !== undefined) await this.opening;
+    // The lab is not there to be edited until it has opened. Once it has, nothing is awaited before the compile is asked for.
+    if (this.opening !== undefined && !this.opened) await this.opening;
     const started = this.options.now();
     const prepared = await this.registry.prepare(path, text, scope);
     return { prepared, compileMs: this.options.now() - started };
+  }
+
+  /**
+   * A request of the session's lifetime, for whoever asked: if the session ended it was taken back, which is not a failure, so it is not reported as
+   * an unhandled one when nobody was waiting for it any more. Anyone waiting still sees it fail with `RequestCancelled`.
+   */
+  private expected<T>(request: Promise<T>): Promise<T> {
+    request.catch((error: unknown) => {
+      if (!(error instanceof RequestCancelled)) throw error;
+    });
+    return request;
   }
 
   /** A new edit of `path` overtakes the one before it: that one's requests are taken back. */

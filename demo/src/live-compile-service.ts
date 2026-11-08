@@ -94,16 +94,16 @@ export class ExtensionHost implements LiveCompileHost {
     this.service.setFiles(files);
   }
 
-  requestCheck(config: string, libDir: string): Promise<CheckOutcome> {
-    return this.ask('check', () => this.service.requestCheck(config, libDir), undefined).then(reply => reply.outcome);
+  requestCheck(config: string, libDir: string, scope?: RequestScope): Promise<CheckOutcome> {
+    return this.ask('check', () => this.service.requestCheck(config, libDir), scope).then(reply => reply.outcome);
   }
 
-  hover(config: string, libDir: string, path: string, offset: number): Promise<Hover | null> {
-    return this.query({ op: 'hover', config, libDir, path, offset }).then(parseHover);
+  hover(config: string, libDir: string, path: string, offset: number, scope?: RequestScope): Promise<Hover | null> {
+    return this.query({ op: 'hover', config, libDir, path, offset }, scope).then(parseHover);
   }
 
-  inlayHints(config: string, libDir: string, path: string, from: number, to: number, parameterNames: ParameterNames): Promise<InlayHint[]> {
-    return this.query({ op: 'inlayHints', config, libDir, path, from, to, parameterNames }).then(parseInlayHints);
+  inlayHints(config: string, libDir: string, path: string, from: number, to: number, parameterNames: ParameterNames, scope?: RequestScope): Promise<InlayHint[]> {
+    return this.query({ op: 'inlayHints', config, libDir, path, from, to, parameterNames }, scope).then(parseInlayHints);
   }
 
   /** Asks the library its name and the Bun revision it is made from. */
@@ -138,8 +138,8 @@ export class ExtensionHost implements LiveCompileHost {
     this.service.stop();
   }
 
-  private query(request: Record<string, unknown>): Promise<Record<string, unknown>> {
-    return this.ask('query', () => this.service.requestQuery(JSON.stringify(request)), undefined).then(reply => reply.result);
+  private query(request: Record<string, unknown>, scope: RequestScope | undefined): Promise<Record<string, unknown>> {
+    return this.ask('query', () => this.service.requestQuery(JSON.stringify(request)), scope).then(reply => reply.result);
   }
 
   /**
