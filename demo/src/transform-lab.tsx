@@ -1,10 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
-  Button, Portal, ScrollView, Select, Text, TextInput, View,
-  type Style, type UIDragEvent, type UIHandle,
+  Button, Portal, ScrollView, Select, Text, TextInput, View, useRootSize,
+  type Style, type UIDragEvent, type UIHandle, type UIPointerEvent,
 } from 'godot-react-ui';
 import {
-  BEHAVIOUR, CARD, CHILD, SHAPE_CASES, STAGE, TRANSITION_CASES, shapeCase, type ShapeCase, type TransitionCase,
+  BEHAVIOUR, CARD, CHILD, HIT_RESULTS, STAGE, TRANSITION_CASES, caseOptions, shapeCase, type CaseOption, type HitTarget, type ShapeCase, type TransitionCase,
 } from './transform-data';
 
 /**
@@ -14,8 +14,13 @@ import {
  * that scales, a field in a turned card, selectable text, a drag from a turned source, scrolling inside a rotation, an
  * anchor, clipping, text that is scaled up).
  *
- * A case name is `shape:<name>`, `transition:<name>` or one of `hit`, `hover`, `input`, `selection`, `drag`, `scroll`,
- * `anchor`, `clip`, `sharp`, `utilities`.
+ * A case name is `shape:<name>`, `transition:<name>` or one of `combined`, `loop`, `starting`, `contain`, `edge`, `hit`,
+ * `hover`, `utilities`, `input`, `selection`, `drag`, `scroll`, `anchor`, `clip`, `sharp`.
+ *
+ * The stage is a fixed 520 x 320 canvas of absolutely placed parts, so on a window narrower than that (a phone) it is drawn under
+ * `scale(w / 520)` about its top left corner, inside a box of the scaled size; the text under it (the case list, the caption, the
+ * results) is laid out at the window's width as a page would, and wraps. At 520 and wider nothing is wrapped or scaled, so the
+ * verifier's positions (`BEHAVIOUR`, root-local) are the stage's own.
  */
 
 let currentCase = 'shape:identity';
@@ -38,8 +43,9 @@ export function sendTransition(target: 'from' | 'to'): void {
   notify();
 }
 
-// The Web verifier is a Node script driving Chrome: it switches cases through this, as the native verifier does through the exports.
-Reflect.set(globalThis, 'godotReactTransformLab', { setCase: setTransformCase, sendTransition });
+// The Web verifier and the capture script are Node scripts driving Chrome: they switch cases through this, as the native verifier does through the exports.
+// `cases` lists every case id in the order the lab's list shows them.
+Reflect.set(globalThis, 'godotReactTransformLab', { setCase: setTransformCase, sendTransition, cases: () => CASE_OPTIONS.map(option => option.id) });
 
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);
@@ -64,83 +70,77 @@ function cardStyle(transform: string, origin: string | undefined, squareCorners 
   };
 }
 
-export interface CaseOption {
-  readonly id: string;
-  readonly label: string;
-  readonly caption: string;
+export type { CaseOption };
+
+/** Every case in the order the list shows them, with the caption that explains it (`transform-data.ts`). */
+export const CASE_OPTIONS: readonly CaseOption[] = caseOptions();
+
+/**
+ * How much of the stage's width the lab has: the stage is drawn at this scale. It is measured from the lab's own box when the root's
+ * size changes, so a lab placed in a narrower area than the window (a sidebar, a code panel) fits that area.
+ */
+const StageFit = createContext(1);
+/** The scale is rounded down to this many steps so that a scaled stage never reaches past the box it is drawn in. */
+const FIT_STEPS = 10_000;
+
+interface StageProps {
+  children: React.ReactNode;
+  onClick?: (event: UIPointerEvent) => void;
+  onClickCapture?: (event: UIPointerEvent) => void;
 }
 
-const BEHAVIOUR_OPTIONS: readonly CaseOption[] = [
-  { id: 'combined', label: 'Combined transition (transform + paint + size)', caption: 'Simultaneous transform, opacity, backgroundColor and height transition.' },
-  { id: 'loop', label: 'Looping transform animation', caption: 'Continuous multi-step transform + colour loop driven by a timer.' },
-  { id: 'starting', label: '@starting-style (starting: mount transition)', caption: 'Tailwind starting: variant animates opacity, scale, rotate and translate on mount.' },
-  { id: 'contain', label: 'Containing block of a transformed element', caption: 'An absolute and a fixed child are placed in a translated static parent, as in CSS.' },
-  { id: 'edge', label: 'Squeezed edges (antialiasing on one axis)', caption: 'A rounded box, a plain one and a thin outline scaled 0.6 on y, and a plain square and two gradient boxes turned 30 degrees: every edge keeps a one-pixel antialiasing ramp.' },
-  { id: 'hit', label: 'Hit testing (rotated & scaled)', caption: 'Click the turned bar, the scaled parent and its rotated child.' },
-  { id: 'hover', label: 'Hover scale (1.25x)', caption: 'Hover the card: hit testing grows with the scaled box.' },
-  { id: 'utilities', label: 'Tailwind transform utilities', caption: '-translate-x-1/2 -translate-y-1/4 rotate-6 hover:scale-110 origin-top-left.' },
-  { id: 'input', label: 'Text input in a turned card', caption: 'Click and type inside a rotated, scaled TextInput.' },
-  { id: 'selection', label: 'Text selection in a turned frame', caption: 'Drag across the rotated text to select characters.' },
-  { id: 'drag', label: 'Drag & drop across rotations', caption: 'Drag the turned card onto the rotated drop target.' },
-  { id: 'scroll', label: 'Scrolling inside a rotation', caption: 'Scroll a tilted vertical list and a quarter-turned row.' },
-  { id: 'anchor', label: 'Popover anchor (getRect)', caption: 'A marker placed at the bounding-box corner of a rotated trigger.' },
-  { id: 'clip', label: 'Overflow clipping', caption: 'Overflow-hidden under scale (exact) and under rotation.' },
-  { id: 'sharp', label: 'Glyph sharpness at scale(1.5)', caption: 'Scaled text rasterised at its target scale vs plain 2xl text.' },
-];
-
-export const CASE_OPTIONS: readonly CaseOption[] = [
-  ...SHAPE_CASES.map(spec => ({
-    id: `shape:${spec.name}`,
-    label: `Shape: ${spec.name}`,
-    caption: `${spec.transform}${spec.origin ? ` (${spec.origin})` : ''} — ${spec.note}.`,
-  })),
-  ...TRANSITION_CASES.map(spec => ({
-    id: `transition:${spec.name}`,
-    label: `Transition: ${spec.name}`,
-    caption: `${spec.from} -> ${spec.to} (${spec.note}).`,
-  })),
-  ...BEHAVIOUR_OPTIONS,
-];
-
-function Stage({ children }: { children: React.ReactNode }) {
-  return (
-    <View testID="transform-stage" style={{ width: STAGE.width, height: STAGE.height, backgroundColor: STAGE.background }}>
+function Stage({ children, onClick, onClickCapture }: StageProps) {
+  const fit = useContext(StageFit);
+  const stage = (
+    <View
+      testID="transform-stage" onClick={onClick} onClickCapture={onClickCapture}
+      style={{
+        width: STAGE.width, height: STAGE.height, backgroundColor: STAGE.background,
+        ...(fit === 1 ? {} : { transform: `scale(${fit})`, transformOrigin: 'top left' }),
+      }}
+    >
       {children}
     </View>
   );
+  if (fit === 1) return stage;
+  // Layout ignores a transform, so the box the scaled stage is drawn in has the scaled size, and clips what layout still gives the stage's 520 px.
+  return <View className="overflow-hidden" style={{ width: STAGE.width * fit, height: STAGE.height * fit }}>{stage}</View>;
 }
 
+/** The case list, the Flip button of a transition and the caption of the case, under the stage, as wide as the lab. */
 function TransformControls({ name }: { name: string }) {
   const current = CASE_OPTIONS.find(option => option.id === name);
   const isTransition = name.startsWith('transition:');
   return (
     <>
-      <View className="h-px shrink-0 bg-slate-200" style={{ width: STAGE.width }} />
-      <View className="flex-row items-center gap-2 bg-white px-3 py-1.5" style={{ width: STAGE.width }}>
-        <Select.Root value={name} onValueChange={setTransformCase}>
-          <Select.Trigger testID="transform-case-select" aria-label="Transform case" className="w-52">
-            <Select.Value />
-            <Select.Icon />
-          </Select.Trigger>
-          <Select.Content testID="transform-case-list">
-            {CASE_OPTIONS.map(option => (
-              <Select.Item key={option.id} value={option.id} testID={`transform-case-${option.id}`}>
-                <Select.ItemText>{option.label}</Select.ItemText>
-                <Select.ItemIndicator />
-              </Select.Item>
-            ))}
-          </Select.Content>
-        </Select.Root>
-        {isTransition ? (
-          <Button
-            testID="transform-flip"
-            onClick={() => sendTransition(transitionTarget === 'from' ? 'to' : 'from')}
-            className="rounded-md bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 px-2.5 py-1"
-          >
-            <Text className="text-xs font-medium text-white">Flip</Text>
-          </Button>
-        ) : null}
-        <Text testID="transform-caption" className="flex-1 text-xs text-slate-500">
+      <View className="h-px shrink-0 bg-slate-200" />
+      <View className="gap-2 bg-white px-3 py-2">
+        <View className="flex-row items-center gap-2">
+          <Select.Root value={name} onValueChange={setTransformCase}>
+            <Select.Trigger testID="transform-case-select" aria-label="Transform case" className="min-w-0 flex-1">
+              <Select.Value />
+              <Select.Icon />
+            </Select.Trigger>
+            <Select.Content testID="transform-case-list">
+              {CASE_OPTIONS.map(option => (
+                <Select.Item key={option.id} value={option.id} testID={`transform-case-${option.id}`}>
+                  <Select.ItemText>{option.label}</Select.ItemText>
+                  <Select.ItemIndicator />
+                </Select.Item>
+              ))}
+            </Select.Content>
+          </Select.Root>
+          {isTransition ? (
+            <Button
+              testID="transform-flip"
+              onClick={() => sendTransition(transitionTarget === 'from' ? 'to' : 'from')}
+              className="rounded-md bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 px-2.5 py-1"
+            >
+              <Text className="text-xs font-medium text-white">Flip</Text>
+            </Button>
+          ) : null}
+        </View>
+        <Text testID="transform-caption" className="text-sm text-slate-600">
           {current?.caption ?? name}
         </Text>
       </View>
@@ -186,36 +186,99 @@ function TransitionCard({ spec }: { spec: TransitionCase }) {
   );
 }
 
-/** A click in a turned frame, and a child in a scaled parent. */
+/** How long the part a tap landed on stays outlined. */
+export const HIT_FLASH_MS = 900;
+const HIT_FLASH: Style = { outlineStyle: 'solid', outlineWidth: 3, outlineColor: '#f59e0b', outlineOffset: 2 };
+/** The thin outline that marks where a box sits before its transform, drawn over the stage and never hit. */
+const HIT_GUIDE: Style = { position: 'absolute', borderWidth: 1, borderColor: '#94a3b8', pointerEvents: 'none' };
+const HIT_GUIDE_LABEL = 'absolute text-[10px] text-slate-500 pointer-events-none';
+
+type HitCounts = Readonly<Record<HitTarget, number>>;
+type HitFlash = Readonly<Partial<Record<HitTarget, true>>>;
+const NO_HITS: HitCounts = { bar: 0, child: 0, parent: 0, collapsed: 0, empty: 0 };
+const NO_FLASH: HitFlash = {};
+
+/**
+ * A tap in a turned frame, and a child in a scaled parent. Each tap is counted for the parts it hit and those parts are outlined
+ * for `HIT_FLASH_MS`: the click's capture phase (first, outermost) clears the last tap's outline and starts the one timer that
+ * clears this one, then each handler on the way up (the target, then the elements it is in) adds its part.
+ */
 function HitPage() {
-  const [clicks, setClicks] = useState({ bar: 0, child: 0, parent: 0, stage: 0 });
-  const count = (key: keyof typeof clicks) => () => setClicks(current => ({ ...current, [key]: current[key] + 1 }));
-  const { bar } = BEHAVIOUR;
+  const [counts, setCounts] = useState<HitCounts>(NO_HITS);
+  const [flash, setFlash] = useState<HitFlash>(NO_FLASH);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const startTap = () => {
+    clearTimeout(timer.current);
+    setFlash(NO_FLASH);
+    timer.current = setTimeout(() => setFlash(NO_FLASH), HIT_FLASH_MS);
+  };
+  const hit = (target: HitTarget) => () => {
+    setCounts(current => ({ ...current, [target]: current[target] + 1 }));
+    setFlash(current => ({ ...current, [target]: true }));
+  };
+  const { bar, hitParent, hitChild, hitCollapsed } = BEHAVIOUR;
+  const outlined = (target: HitTarget): Style => (flash[target] === true ? HIT_FLASH : {});
   return (
-    <Stage>
-      <Button
-        testID="hit-bar" onClick={count('bar')}
-        style={{
-          position: 'absolute', left: bar.left, top: bar.top, width: bar.width, height: bar.height,
-          backgroundColor: '#4f46e5', borderRadius: 8, transform: bar.transform,
-        }}
+    <>
+      <Stage
+        onClickCapture={startTap}
+        // The stage is under every part, so a tap reaches it from them too: only one that landed on the bare stage is a miss.
+        onClick={event => { if (event.target.id === event.currentTarget.id) hit('empty')(); }}
       >
-        <Text className="pointer-events-none text-sm text-white">Turned bar</Text>
-      </Button>
-      <View
-        testID="hit-parent" onClick={count('parent')}
-        style={{ position: 'absolute', left: 20, top: 20, width: 90, height: 90, backgroundColor: '#fde68a', transform: 'scale(1.4)' }}
-      >
+        <Button
+          testID="hit-bar" onClick={hit('bar')} className="items-center justify-center"
+          style={{
+            position: 'absolute', left: bar.left, top: bar.top, width: bar.width, height: bar.height,
+            backgroundColor: '#4f46e5', borderRadius: 8, transform: bar.transform, ...outlined('bar'),
+          }}
+        >
+          <Text className="pointer-events-none text-sm text-white">Turned bar</Text>
+        </Button>
         <View
-          testID="hit-child" onClick={count('child')}
-          style={{ position: 'absolute', left: 30, top: 10, width: 50, height: 24, backgroundColor: '#be123c', transform: 'rotate(25deg)' }}
+          testID="hit-parent" onClick={hit('parent')}
+          style={{
+            position: 'absolute', left: hitParent.left, top: hitParent.top, width: hitParent.size, height: hitParent.size,
+            backgroundColor: '#fde68a', transform: hitParent.transform, ...outlined('parent'),
+          }}
+        >
+          <View
+            testID="hit-child" onClick={hit('child')}
+            style={{
+              position: 'absolute', left: hitChild.left, top: hitChild.top, width: hitChild.width, height: hitChild.height,
+              backgroundColor: '#be123c', transform: hitChild.transform, ...outlined('child'),
+            }}
+          />
+        </View>
+        <View
+          testID="hit-collapsed" onClick={hit('collapsed')}
+          style={{
+            position: 'absolute', left: hitCollapsed.left, top: hitCollapsed.top, width: hitCollapsed.size, height: hitCollapsed.size,
+            backgroundColor: '#0f172a', transform: hitCollapsed.transform,
+          }}
         />
+        {/* Where the turned and the scaled boxes sit before their transforms (the box scaled to zero is where it is drawn: nowhere). */}
+        <View style={{ ...HIT_GUIDE, left: bar.left, top: bar.top, width: bar.width, height: bar.height }} />
+        <Text className={HIT_GUIDE_LABEL} style={{ left: bar.left, top: bar.top + bar.height + 2 }}>unturned box</Text>
+        <View style={{ ...HIT_GUIDE, left: hitParent.left, top: hitParent.top, width: hitParent.size, height: hitParent.size }} />
+        <Text className={HIT_GUIDE_LABEL} style={{ left: hitParent.left, top: hitParent.top + hitParent.size - 14 }}>unscaled box</Text>
+        <View style={{ ...HIT_GUIDE, left: hitCollapsed.left, top: hitCollapsed.top, width: hitCollapsed.size, height: hitCollapsed.size }} />
+        <Text className={HIT_GUIDE_LABEL} style={{ left: hitCollapsed.left, top: hitCollapsed.top + hitCollapsed.size + 2 }}>scaled to zero</Text>
+      </Stage>
+      <View testID="hit-counts" className="flex-row flex-wrap items-center gap-x-2 gap-y-1 border-b border-slate-200 bg-white px-3 py-2">
+        <Text className="text-xs text-slate-500">Taps counted</Text>
+        {HIT_RESULTS.map(({ target, label, colour }) => (
+          <View
+            key={target}
+            className={`flex-row items-center gap-1.5 rounded-md border px-2 py-1 ${flash[target] === true ? 'border-amber-400 bg-amber-100' : 'border-slate-200 bg-slate-50'}`}
+          >
+            <View className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: colour }} />
+            <Text className="text-xs text-slate-600">{label}</Text>
+            <Text testID={`hit-count-${target}`} className="text-xs font-medium text-slate-900">{String(counts[target])}</Text>
+          </View>
+        ))}
       </View>
-      <View testID="hit-collapsed" onClick={count('stage')} style={{ position: 'absolute', left: 400, top: 40, width: 60, height: 60, backgroundColor: '#0f172a', transform: 'scale(0)' }} />
-      <Text testID="hit-counts" className="text-xs text-slate-600" style={{ position: 'absolute', left: 8, bottom: 8 }}>
-        {`bar ${clicks.bar} child ${clicks.child} parent ${clicks.parent}`}
-      </Text>
-    </Stage>
+    </>
   );
 }
 
@@ -308,7 +371,7 @@ function HoverPage() {
     <Stage>
       <View
         testID="hover-card"
-        className="hover:scale-125"
+        className="hover:scale-125 active:scale-125"
         style={{
           position: 'absolute', left: hover.left, top: hover.top, width: hover.width, height: hover.height,
           backgroundColor: '#e0e7ff', borderRadius: 12, borderWidth: 2, borderColor: '#6366f1',
@@ -327,7 +390,7 @@ function UtilitiesPage() {
     <Stage>
       <View
         testID="utility-card"
-        className="-translate-x-1/2 -translate-y-1/4 rotate-6 hover:scale-110 origin-top-left"
+        className="-translate-x-1/2 -translate-y-1/4 rotate-6 hover:scale-110 active:scale-110 origin-top-left"
         style={{
           position: 'absolute', left: 260, top: 140, width: 120, height: 60, backgroundColor: '#fecdd3',
           borderRadius: 8, transition: { properties: ['transform'], durationMs: 0 },
@@ -712,9 +775,20 @@ function ActiveCasePage({ name }: { name: string }) {
 
 export function TransformLab() {
   const name = useSyncExternalStore(subscribe, () => currentCase);
+  const { width: rootWidth } = useRootSize();
+  const box = useRef<UIHandle>(null);
+  const [width, setWidth] = useState<number>(STAGE.width);
+  // The lab is as wide as its area up to the stage's own width: measure it when the root's size changes (the layout is already done).
+  useLayoutEffect(() => {
+    const rect = box.current?.getRect();
+    if (rect !== undefined) setWidth(rect.width);
+  }, [rootWidth]);
+  const fit = Math.min(1, Math.floor(width / STAGE.width * FIT_STEPS) / FIT_STEPS);
   return (
-    <View style={{ width: STAGE.width }}>
-      <ActiveCasePage name={name} />
+    <View ref={box} testID="transform-lab" className="w-full" style={{ maxWidth: STAGE.width }}>
+      <StageFit.Provider value={fit}>
+        <ActiveCasePage name={name} />
+      </StageFit.Provider>
       <TransformControls name={name} />
     </View>
   );

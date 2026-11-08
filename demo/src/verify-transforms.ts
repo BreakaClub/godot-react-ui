@@ -3,9 +3,9 @@ import {
 } from 'godot';
 import type { UISelection } from '../../src';
 import type { NativeActivity, NativeMatrix, NativeSnapshot, NativeSnapshotNode } from '../../src/native';
-import { BEHAVIOUR, CARD, SHAPE_CASES, STAGE, TRANSITION_CASES, TRANSITION_DURATION_MS, type TransitionCase } from './transform-data';
+import { BEHAVIOUR, CARD, SHAPE_CASES, STAGE, TRANSITION_CASES, TRANSITION_DURATION_MS, shapeCase, type TransitionCase } from './transform-data';
 import { GOLDEN_ANCHOR_RECT, GOLDEN_BAR_RECT, GOLDEN_SHAPE_RECTS, GOLDEN_TRANSITION_MATRICES, type GoldenRect } from './transform-golden';
-import { sendTransition, setTransformCase } from './transform-lab';
+import { CASE_OPTIONS, sendTransition, setTransformCase } from './transform-lab';
 import { grab, settleFrames } from './verify-filters';
 import { assertionTally, parseVerifierEvent } from './verifier-input';
 import { pressAction, typeText } from './verify-text-input';
@@ -26,6 +26,8 @@ export interface TransformsInspection {
   scrollTo(testID: string, top: number): void;
   /** Give the root's Control Godot's key focus (a window never has the OS's, so a key reaches nothing until it has this). */
   grabSurfaceFocus(): void;
+  /** Resize the root's Control, as the owner does when the window changes size. */
+  resizeSurface(width: number, height: number): void;
 }
 
 /** `overflowing`: test ids of nodes that reach past the window by design. */
@@ -63,6 +65,9 @@ const INK_COLOR = new Color(0x0f / LEVELS, 0x17 / LEVELS, 0x2a / LEVELS, 1);
 const FOCUS_RING_COLOR = new Color(0.49, 0.66, 1.0, 1);
 const FOCUS_RING_TOLERANCE = 0.06;
 const FOCUS_RING_PROBE_INSET = 1;
+/** The outline a tap leaves on the part it hit (`HIT_FLASH` in transform-lab.tsx): 3 px wide, 2 px outside the border box, so 3.5 px out is the middle of it. */
+const HIT_FLASH_COLOR = new Color(0xf5 / LEVELS, 0x9e / LEVELS, 0x0b / LEVELS, 1);
+const HIT_OUTLINE_PROBE_PX = 3.5;
 
 function assert(condition: unknown, message: string): asserts condition {
   assertionTally.count += 1;
@@ -262,7 +267,7 @@ async function checkShapes(owner: Node, api: TransformsInspection, capture: Tran
 // ---- Behaviour ---------------------------------------------------------------------------------------------------------
 
 /** Clicks and hovers in a turned frame: where the bar is drawn it is hit, and the empty corners of the box round it are not. */
-async function checkHit(api: TransformsInspection, capture: TransformsCapture, suffix: string): Promise<void> {
+async function checkHit(owner: Node, api: TransformsInspection, capture: TransformsCapture, suffix: string): Promise<void> {
   await showCase(api, 'hit');
   const bar = node(api, 'hit-bar');
   sameRect(bar.rect, GOLDEN_BAR_RECT, 'The bar under rotate(30deg): getRect is the box round it');
@@ -287,7 +292,15 @@ async function checkHit(api: TransformsInspection, capture: TransformsCapture, s
     assert(await hover(api, at) !== bar.id, `The empty corner ${round(at.x)},${round(at.y)} of the box round the bar is not the bar`);
   }
   await click(worldOf(levels, new Vector2(spec.width / 2, spec.height / 2)));
-  assert(node(api, 'hit-counts').text.startsWith('bar 1'), `A click on the bar counts once: ${node(api, 'hit-counts').text}`);
+  assert(node(api, 'hit-count-bar').text === '1', `A click on the bar counts once: ${node(api, 'hit-count-bar').text}`);
+  // The part a tap landed on is outlined where it is drawn: the outline turns with the bar, three pixels wide and two outside its top edge.
+  const flashed = grab(owner);
+  const turned = matrixOf(api, 'hit-bar');
+  const up = new Vector2(-turned[2], -turned[3]).normalized();
+  const edge = worldOf(levels, new Vector2(spec.width / 2, 0));
+  const outline = new Vector2(edge.x + up.x * HIT_OUTLINE_PROBE_PX, edge.y + up.y * HIT_OUTLINE_PROBE_PX);
+  const outlineSeen = pixelAt(flashed, ratioOf(flashed, api), outline);
+  assert(colourApart(outlineSeen, HIT_FLASH_COLOR) <= COLOR_TOLERANCE, `A tap on the bar outlines it: ${round(outline.x)},${round(outline.y)} (outside its top edge) is ${outlineSeen.toHtml(false)}, not the amber outline`);
   // A parent scaled up holds a child turned inside it: the child is hit through both matrices, and the parent reaches past its layout box.
   const parent = node(api, 'hit-parent');
   const child = node(api, 'hit-child');
@@ -297,10 +310,12 @@ async function checkHit(api: TransformsInspection, capture: TransformsCapture, s
   ];
   assert(await hover(api, worldOf(nested, new Vector2(25, 12))) === child.id, 'The child is hit through its own matrix and its parent\'s');
   await click(worldOf(nested, new Vector2(25, 12)));
-  assert(/child 1 parent 1/u.test(node(api, 'hit-counts').text), `The click reaches the child and bubbles to the parent: ${node(api, 'hit-counts').text}`);
+  assert(node(api, 'hit-count-child').text === '1' && node(api, 'hit-count-parent').text === '1', `The click reaches the child and bubbles to the parent: child ${node(api, 'hit-count-child').text}, parent ${node(api, 'hit-count-parent').text}`);
   assert(await hover(api, new Vector2(6, 6)) === parent.id, 'The scaled parent is hit past its layout box (the box is 20..110, it covers 2..128)');
   const collapsed = node(api, 'hit-collapsed');
   assert(await hover(api, new Vector2(430, 70)) !== collapsed.id, 'An element scaled to nothing is hit nowhere');
+  await click(new Vector2(430, 70));
+  assert(node(api, 'hit-count-collapsed').text === '0' && node(api, 'hit-count-empty').text === '1', `A tap where the box scaled to nothing is lands on the bare stage: collapsed ${node(api, 'hit-count-collapsed').text}, empty ${node(api, 'hit-count-empty').text}`);
   await capture(`transforms-hit-${suffix}`, ['hit-bar', 'hit-parent', 'hit-child', 'hit-collapsed']);
 }
 
@@ -882,8 +897,13 @@ export async function verifyTransforms(owner: Node, api: TransformsInspection, c
   edgeProblems.length = 0;
   api.showLab('transforms');
   await settleFrames();
+  // A root narrower than the stage (`--viewport=412x915`) has the lab scaled to fit: the rest of the section reads the stage at its own size.
+  if (api.snapshot().width < STAGE.width) {
+    await checkPhone(api, capture, 'phone');
+    return;
+  }
   await checkShapes(owner, api, capture, 'dpr1');
-  await checkHit(api, capture, 'dpr1');
+  await checkHit(owner, api, capture, 'dpr1');
   await checkFocusRing(owner, api);
   await checkContainingBlock(api);
   await checkHover(api);
@@ -909,7 +929,7 @@ export async function verifyTransforms(owner: Node, api: TransformsInspection, c
     await frames(SETTLE_FRAMES);
     try {
       await checkShapes(owner, api, capture, 'dpr2');
-      await checkHit(api, capture, 'dpr2');
+      await checkHit(owner, api, capture, 'dpr2');
       await checkSharpness(owner, api, capture, 'dpr2');
       await checkEdges(owner, api, 'dpr2');
     } finally {
@@ -918,7 +938,96 @@ export async function verifyTransforms(owner: Node, api: TransformsInspection, c
       await frames(SETTLE_FRAMES);
     }
   }
+  await checkPhone(api, capture, 'phone');
   assert(edgeProblems.length === 0, edgeProblems.join('; '));
+}
+
+// ---- A phone ------------------------------------------------------------------------------------------------------------
+
+/** Ben's Android phone as Chrome emulates it (`scripts/verify-rotation-web.mjs`): 412 CSS pixels wide. The lab's stage is 520, so it must fit. */
+const PHONE_WIDTH_PX = 412;
+const PHONE_HEIGHT_PX = 915;
+/** A caption is `text-sm`, 20 px a line, and a phone's width holds about 55 of its characters: a caption this long wraps to two lines or more. */
+const CAPTION_LINE_PX = 20;
+const CAPTION_LONG_CHARS = 100;
+/** What the desktop captures above list as reaching past their parents by design, for the cases that have one. */
+const PHONE_OVERFLOWING: Readonly<Record<string, readonly string[]>> = {
+  hit: ['hit-bar', 'hit-parent', 'hit-child', 'hit-collapsed'],
+  input: ['input-card', 'input-field'],
+  selection: ['selection-card', 'selection-text'],
+  drag: ['drag-source', 'drag-target'],
+  scroll: ['scroll-tilted', 'scroll-quarter'],
+  clip: ['clip-scaled', 'clip-rotated', 'clip-scaled-child', 'clip-rotated-child'],
+  sharp: ['sharp-scaled', 'sharp-scaled-text'],
+};
+
+function overflowingOnPhone(option: string): readonly string[] {
+  if (option.startsWith('shape:')) return shapeCase(option.slice('shape:'.length)).child === undefined ? ['transform-card'] : ['transform-card', 'transform-child'];
+  if (option.startsWith('transition:')) return ['transform-card'];
+  return PHONE_OVERFLOWING[option] ?? [];
+}
+
+function insideWidth(rect: GoldenRect, width: number): boolean {
+  return rect.x >= -RECT_TOLERANCE_PX && rect.x + rect.width <= width + RECT_TOLERANCE_PX;
+}
+
+/**
+ * The lab on a phone: every case, in a root 412 wide. The stage is drawn under a scale that fits it to the width, the case list, the
+ * caption and the results are laid out at that width (the caption wraps), and nothing of the lab reaches past the right edge. Each case
+ * is captured for the comparison with Chrome's page (`scripts/transform-lab-reference.mjs`); the capture also holds the generic geometry
+ * check, which a 520 px stage in a 412 px root fails ("escapes right"). A tap on the hit page goes through the stage's scale and the bar's turn.
+ */
+async function checkPhone(api: TransformsInspection, capture: TransformsCapture, suffix: string): Promise<void> {
+  const full = api.snapshot();
+  const resized = full.width > PHONE_WIDTH_PX;
+  if (resized) api.resizeSurface(PHONE_WIDTH_PX, Math.min(full.height, PHONE_HEIGHT_PX));
+  await frames(SETTLE_FRAMES);
+  try {
+    const width = api.snapshot().width;
+    assert(width === PHONE_WIDTH_PX, `The root is a phone's ${PHONE_WIDTH_PX} px wide, not ${width}`);
+    const fit = PHONE_WIDTH_PX / STAGE.width;
+    for (const option of CASE_OPTIONS) {
+      await showCase(api, option.id);
+      const lab = node(api, 'transform-lab');
+      assert(insideWidth(lab.rect, width), `${option.id}: the lab is no wider than the phone: ${JSON.stringify(lab.rect)}`);
+      const stage = node(api, 'transform-stage');
+      const matrix = matrixOf(api, 'transform-stage');
+      assert(Math.abs(matrix[0] - fit) < MATRIX_TOLERANCE && Math.abs(matrix[3] - fit) < MATRIX_TOLERANCE, `${option.id}: the stage is drawn at ${round(fit, 3)} of its size to fit: ${JSON.stringify(matrix)}`);
+      assert(insideWidth(stage.rect, width) && stage.rect.width >= width - RECT_TOLERANCE_PX, `${option.id}: the scaled stage fills the phone's width and no more: ${JSON.stringify(stage.rect)}`);
+      assert(Math.abs(stage.rect.height - STAGE.height * fit) <= RECT_TOLERANCE_PX, `${option.id}: and is ${round(STAGE.height * fit)} px tall: ${JSON.stringify(stage.rect)}`);
+      const caption = node(api, 'transform-caption');
+      assert(insideWidth(caption.rect, width), `${option.id}: the caption wraps inside the phone's width: ${JSON.stringify(caption.rect)}`);
+      assert(option.caption.length <= CAPTION_LONG_CHARS || caption.rect.height >= CAPTION_LINE_PX * 2, `${option.id}: a long caption runs to more than one line: ${JSON.stringify(caption.rect)}`);
+      const list = node(api, 'transform-case-select');
+      assert(insideWidth(list.rect, width), `${option.id}: the case list fits the phone: ${JSON.stringify(list.rect)}`);
+      if (option.id.startsWith('transition:')) assert(insideWidth(node(api, 'transform-flip').rect, width), `${option.id}: the Flip button fits the phone`);
+      if (option.id === 'hit') await tapHitThroughTheFit(api);
+      await capture(`transforms-lab-${option.id.replace(':', '-')}-${suffix}`, overflowingOnPhone(option.id));
+    }
+  } finally {
+    if (resized) {
+      api.resizeSurface(full.width, full.height);
+      await frames(SETTLE_FRAMES);
+    }
+  }
+}
+
+/** On the phone the stage is scaled, and a tap goes through that scale and the bar's turn to the bar, and through the scale alone to the bare stage. */
+async function tapHitThroughTheFit(api: TransformsInspection): Promise<void> {
+  const spec = BEHAVIOUR.bar;
+  const levels = [
+    { location: new Vector2(spec.left, spec.top), matrix: matrixOf(api, 'hit-bar') },
+    { location: new Vector2(0, 0), matrix: matrixOf(api, 'transform-stage') },
+  ];
+  const bar = node(api, 'hit-bar');
+  const barAt = worldOf(levels, new Vector2(spec.width / 2, spec.height / 2));
+  assert(await hover(api, barAt) === bar.id, `The turned bar in the fitted stage is hit where it is drawn (${round(barAt.x)},${round(barAt.y)})`);
+  await click(barAt);
+  assert(node(api, 'hit-count-bar').text === '1', `A tap on the bar in the fitted stage counts once: ${node(api, 'hit-count-bar').text}`);
+  const fit = matrixOf(api, 'transform-stage')[0];
+  const bare = new Vector2(8 * fit, 8 * fit);
+  await click(bare);
+  assert(node(api, 'hit-count-empty').text === '1', `A tap on the bare stage in the fitted stage is a miss: ${node(api, 'hit-count-empty').text}`);
 }
 
 // ---- Negative controls ------------------------------------------------------------------------------------------------
@@ -970,7 +1079,7 @@ function needsRetina(api: TransformsInspection): string | undefined {
 const TRANSFORM_FAULT_CONTROLS: readonly TransformFaultControl[] = [
   {
     fault: 'transform-hit-flat', guards: 'a point is hit through the inverse of the matrix (the turned bar)',
-    run: (_, api) => checkHit(api, silent, 'fault'), fails: /The turned bar is hit at its own point/u,
+    run: (owner, api) => checkHit(owner, api, silent, 'fault'), fails: /The turned bar is hit at its own point/u,
   },
   {
     fault: 'transform-rect-unbounded', guards: 'getRect() is the bounding box of the transformed border box',
