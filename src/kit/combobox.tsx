@@ -143,7 +143,7 @@ const BUTTON_CLASS = 'items-center justify-center rounded px-1 py-0.5 text-slate
 const CLEAR_TEXT_CLASS = 'text-base';
 /** Like the select's list, and for the same reasons: placement caps its height to the room on its side, and the list scrolls. */
 const CONTENT_CLASS = 'absolute overflow-y-auto overscroll-contain rounded-lg border border-slate-200 bg-white p-1 gap-0.5';
-const ITEM_CLASS = 'shrink-0 flex-row items-center justify-between gap-3 rounded-md px-2 py-1.5 text-sm text-slate-800';
+const ITEM_CLASS = 'shrink-0 flex-row items-center justify-between gap-3 text-left rounded-md px-2 py-1.5 text-sm text-slate-800';
 /** The active option is the one the keys or the pointer chose; its class comes before `active:` so a press still shows. */
 const ACTIVE_ITEM_CLASS = 'bg-indigo-50';
 const ENABLED_ITEM_CLASS = 'cursor-pointer active:bg-indigo-100';

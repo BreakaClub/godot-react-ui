@@ -124,7 +124,7 @@ interface ItemContext {
 }
 const ItemContextValue = createContext<ItemContext | null>(null);
 
-const TRIGGER_CLASS = 'flex-row items-center justify-between gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 cursor-pointer hover:bg-slate-50 active:bg-slate-100 focus:border-indigo-500 disabled:cursor-not-allowed disabled:opacity-50';
+const TRIGGER_CLASS = 'flex-row items-center justify-between gap-2 text-left rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 cursor-pointer hover:bg-slate-50 active:bg-slate-100 focus:border-indigo-500 disabled:cursor-not-allowed disabled:opacity-50';
 const VALUE_CLASS = 'text-slate-900';
 const PLACEHOLDER_CLASS = 'text-slate-400';
 /**
@@ -134,7 +134,7 @@ const PLACEHOLDER_CLASS = 'text-slate-400';
 const CONTENT_CLASS = 'absolute overflow-y-auto overscroll-contain rounded-lg border border-slate-200 bg-white p-1 gap-0.5';
 const BACKDROP_CLASS = 'absolute inset-0';
 /** Items never shrink to fit the list: a list with too many of them scrolls instead. */
-const ITEM_CLASS = 'shrink-0 flex-row items-center justify-between gap-3 rounded-md px-2 py-1.5 text-sm text-slate-800';
+const ITEM_CLASS = 'shrink-0 flex-row items-center justify-between gap-3 text-left rounded-md px-2 py-1.5 text-sm text-slate-800';
 const ENABLED_ITEM_CLASS = 'cursor-pointer focus:bg-indigo-50 active:bg-indigo-100';
 /** A disabled item is dimmed by its own class: see `SelectItem` for why native is not told it is disabled. */
 const DISABLED_ITEM_CLASS = 'cursor-not-allowed opacity-50';

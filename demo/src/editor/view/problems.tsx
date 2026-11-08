@@ -21,7 +21,7 @@ export function ProblemsList({ rows, onJump }: ProblemsListProps) {
         <Button
           key={`${row.diagnostic.from}-${row.diagnostic.message}-${index}`}
           testID={`code-problem-${index}`}
-          className="flex-row items-start gap-2 px-3 py-0.5 hover:bg-slate-800"
+          className="flex-row items-start justify-start text-left gap-2 px-3 py-0.5 hover:bg-slate-800"
           onClick={() => onJump(row.diagnostic)}
         >
           <View className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: row.diagnostic.severity === 'error' ? '#f87171' : '#fbbf24' }} />

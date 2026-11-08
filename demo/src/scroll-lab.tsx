@@ -15,7 +15,7 @@ const TOUCH_ROWS = 30;
 const REVERSED_ROWS = 10;
 const CAPTURE_ROWS = 14;
 
-const row = 'h-9 shrink-0 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 hover:bg-indigo-50 active:bg-indigo-100 focus:border-indigo-500';
+const row = 'items-start text-left h-9 shrink-0 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 hover:bg-indigo-50 active:bg-indigo-100 focus:border-indigo-500';
 const plainRow = 'h-9 shrink-0 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700';
 const box = 'h-36 w-full rounded-xl border border-slate-200 bg-white';
 const labButton = 'rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-100 active:bg-slate-200 focus:border-indigo-500';

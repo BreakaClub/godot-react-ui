@@ -14,6 +14,8 @@ const RECT_TOLERANCE_PX = 0.75;
 const MATRIX_TOLERANCE = 0.01;
 const COLOR_TOLERANCE = 8;
 const PROBE_INSET_PX = 3;
+/** The label of a centred bar is as far from the bar's middle as the box round its turned text is off the box round the bar (rounding of two bounding boxes). */
+const LABEL_CENTRE_TOLERANCE_PX = 2;
 const OUTSIDE_PX = 6;
 const WHEEL_TICK_PIXELS = 100;
 const WHEEL_PAGE_DIVISOR = 8;
@@ -111,6 +113,11 @@ export async function runTransformsScenario(context) {
   await showCase('hit');
   const bar = await find('hit-bar');
   check('The bar under rotate(30deg): its rectangle is the box round it', rectApart(bar.rect, golden.bar) <= RECT_TOLERANCE_PX, { rect: bar.rect, golden: golden.bar });
+  // A bare `Button` centres its label, as a browser's `<button>` does (docs/tracks/button-centre.md): the lab's bar sets no alignment.
+  const label = (await snapshot()).nodes.find((entry) => entry.parent === bar.id && entry.kind === 'text');
+  const middleOf = (rect) => ({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 });
+  const labelApart = label === undefined ? Infinity : Math.hypot(middleOf(label.rect).x - middleOf(bar.rect).x, middleOf(label.rect).y - middleOf(bar.rect).y);
+  check('The turned bar is a bare Button and its label is in its middle', labelApart <= LABEL_CENTRE_TOLERANCE_PX, { labelApart, label: label?.rect, bar: bar.rect });
   const barMatrix = bar.transform;
   const inBar = [[PROBE_INSET_PX, PROBE_INSET_PX], [BAR.width - PROBE_INSET_PX, PROBE_INSET_PX], [PROBE_INSET_PX, BAR.height - PROBE_INSET_PX], [BAR.width - PROBE_INSET_PX, BAR.height - PROBE_INSET_PX], [BAR.width / 2, BAR.height / 2]];
   let hits = 0;

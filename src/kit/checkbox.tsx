@@ -26,7 +26,7 @@ export interface CheckboxProps extends PartProps, Omit<UIAriaProps, 'role' | 'ar
   indicatorStyle?: StyleProp;
 }
 
-const ROOT_CLASS = 'flex-row items-center gap-2 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50';
+const ROOT_CLASS = 'flex-row items-center justify-start gap-2 text-left cursor-pointer disabled:cursor-not-allowed disabled:opacity-50';
 const BOX_CLASS = 'w-5 h-5 rounded border-2 border-slate-400 bg-white items-center justify-center';
 const BOX_MARKED_CLASS = 'border-indigo-600';
 const MARK_CLASS = 'w-3 h-3 rounded-sm bg-indigo-600';

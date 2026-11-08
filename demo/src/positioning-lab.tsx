@@ -15,7 +15,7 @@ const CELL_CHILD = { left: 100, top: 40 } as const;
 const POPOVER_GAP = 4;
 
 const labButton = 'rounded-lg border border-slate-200 bg-white text-slate-700 px-3 py-2 text-sm hover:bg-slate-100 active:bg-slate-200 focus:border-indigo-500';
-const menuItem = 'rounded bg-amber-50 hover:bg-amber-100 active:bg-amber-200 text-slate-900 px-2 py-1 text-sm focus:border-indigo-500';
+const menuItem = 'items-start text-left rounded bg-amber-50 hover:bg-amber-100 active:bg-amber-200 text-slate-900 px-2 py-1 text-sm focus:border-indigo-500';
 
 /** The anchor's rectangle in root coordinates, as `getRect()` answers. */
 interface Anchor {

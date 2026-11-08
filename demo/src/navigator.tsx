@@ -128,7 +128,7 @@ function LabList({ labs, selectedId, onChoose, handles }: LabListProps) {
                   role="option"
                   aria-selected={selected}
                   tabIndex={lab.id === tabStop ? 0 : -1}
-                  className={`flex-row items-center justify-between gap-2 rounded-lg px-3 py-2 ${selected ? 'bg-indigo-50' : 'hover:bg-slate-100 active:bg-slate-200'}`}
+                  className={`flex-row items-center justify-between gap-2 text-left rounded-lg px-3 py-2 ${selected ? 'bg-indigo-50' : 'hover:bg-slate-100 active:bg-slate-200'}`}
                   onClick={() => onChoose(lab.id)}
                 >
                   <Text className={`min-w-0 shrink text-sm ${selected ? 'text-indigo-700' : 'text-slate-700'}`}>{lab.title}</Text>
