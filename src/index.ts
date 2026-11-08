@@ -1,4 +1,4 @@
-export { View, Text, Button, Portal, useRootEvent, useRootSize, useTextSelection } from './components';
+export { View, Text, Button, Portal, useKeyClaims, useRootEvent, useRootSize, useTextSelection } from './components';
 export type {
   HostProps, TextInputHandle, TextInputHostProps, TextProps, UIProps, UIHandle, UISelection, UISelectionPoint,
   UITextPosition,
@@ -25,6 +25,10 @@ export type {
 } from './events';
 export { DataTransfer } from './data-transfer';
 export type { DataStoreMode, DropEffect, EffectAllowed } from './data-transfer';
+export { KeyPassthrough, isPageEventTarget } from './key-passthrough';
+export type { KeyClaimSource, KeyPassthroughRegistration, PageEventTarget, PageKeyboardEvent } from './key-passthrough';
+export { anyChordMatches, chordMatches, isBrowserChord, parseKeyChord, parseKeyChords, platformOf } from './key-claims';
+export type { KeyChord, KeyPlatform, KeyPress, PageKeyPress } from './key-claims';
 export { createRoot } from './renderer';
 export type { RootOptions, RootSize, UIRoot } from './renderer';
 export type { UIRoot as ReactRoot } from './renderer';

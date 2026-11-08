@@ -7,6 +7,8 @@ import {
 import { buildCommit, type CommitNode } from './commit';
 import type { HostProps, TextInputHandle, UIHandle, UIProps, UISelection } from './components';
 import { DragSessions, type DragDispatch } from './drag';
+import { anyChordMatches, parseKeyChordsOf, type KeyChord, type KeyPlatform, type KeyPress } from './key-claims';
+import { pagePassthrough, type KeyPassthrough, type KeyPassthroughRegistration } from './key-passthrough';
 import type { NativeTextInputState } from './native';
 import {
   dispatchEvent, exclusiveAncestry, isNativeDragEvent, NOT_DISPATCHED, RootListeners,
@@ -131,6 +133,8 @@ interface RootState {
   selectionCache: { readonly value: UISelection | undefined } | undefined;
   readonly sizeListeners: Set<() => void>;
   readonly listeners: RootListeners;
+  /** The chords the app claimed for the whole root (`claimKeys`), one list for each call. */
+  readonly claimedChords: Set<readonly KeyChord[]>;
   /** The `DataTransfer` stores of the drags underway (plan 3.19). */
   readonly drags: DragSessions;
   /** Handle for the layer root, the target of events addressed to root listeners only. */
@@ -157,6 +161,14 @@ export interface RootOptions {
   /** Profiling is disabled by default; native hosts can supply a high-resolution clock. */
   profile?: boolean;
   now?: () => number;
+  /**
+   * On the Web, whether a key chord that nothing in this root claims (Cmd+R, Cmd+F, Cmd+T, F5, F12) goes to the browser instead of the
+   * engine, as on a page that does not prevent it. Default true; `setKeyPassthrough` changes it later. Ignored where there is no page
+   * (the native platforms). See `UIProps.keyClaims` and `UIRoot.claimKeys` for how an app claims a chord (docs/tracks/key-passthrough.md).
+   */
+  keyPassthrough?: boolean;
+  /** The page's key decision this root joins: the browser's `window` by default. Hosts with a page of their own, and tests, supply one. */
+  keyPassthroughPage?: KeyPassthrough;
 }
 
 export interface UIRoot {
@@ -177,6 +189,14 @@ export interface UIRoot {
   dispatchEvents(): void;
   /** Listen on the root itself, after elements' bubble phase. Returns the remover. */
   addEventListener<K extends NativeEventType>(type: K, listener: (event: UIEventMap[K]) => void): () => void;
+  /**
+   * Claim key chords for the app as a whole, whatever has focus: `root.claimKeys(['Mod+K'])` for a shortcut a root listener handles. A claimed
+   * chord reaches the engine and this root's `keydown` listeners; an unclaimed one goes to the browser (`UIProps.keyClaims` has the rule and
+   * the spelling). Throws for a chord that does not parse. Returns the remover.
+   */
+  claimKeys(chords: readonly string[]): () => void;
+  /** Whether chords nothing claims go to the browser (`RootOptions.keyPassthrough`). */
+  setKeyPassthrough(enabled: boolean): void;
   /**
    * The document's text selection (elements with `userSelect: text`), or `undefined` when nothing is selected. It
    * reads native, so the answer is the selection as of now; listen for `selectionchange` to know when it moved.
@@ -437,6 +457,17 @@ export function watchRootEvent<K extends NativeEventType>(
   container: Container, type: K, listener: (event: UIEventMap[K]) => void,
 ): () => void {
   return container.root.listeners.add(type, listener);
+}
+
+/**
+ * Claim `chords` for the whole root `container` belongs to, until the remover is called: a chord claimed reaches the engine and the root's
+ * listeners, and one nobody claims goes to the browser. Throws for a chord that does not parse.
+ */
+export function claimRootKeys(container: Container, chords: readonly string[]): () => void {
+  // A list of its own for each claim, so claiming a chord twice and releasing one claim leaves the other.
+  const claim = [...parseKeyChordsOf(chords)];
+  container.root.claimedChords.add(claim);
+  return () => { container.root.claimedChords.delete(claim); };
 }
 
 function finiteSize(value: number, axis: string): number {
@@ -785,6 +816,23 @@ function dispatch(root: RootState, native: NativeEvent): DispatchResult {
   return dispatchEvent(native, path, null, root);
 }
 
+/**
+ * Whether this root uses the key chord, so it must reach the engine: native's own answer (a focused text input's editing chords, copy and
+ * select all for a selection, a focused button's Enter and Space), what the app claimed for the root, and what the focused element and its
+ * ancestors declare with `keyClaims`. Asked on `keydown`, before the engine's frame, so it reads the state as it is then.
+ */
+function claimsKey(state: RootState, press: KeyPress, platform: KeyPlatform): boolean {
+  if (state.unmounted) return false;
+  if (state.host.claimsKeyChord(press.code, press.key, press.shiftKey, press.ctrlKey, press.altKey, press.metaKey)) return true;
+  for (const chords of state.claimedChords) if (anyChordMatches(chords, press, platform)) return true;
+  const path = state.host.focusedPath();
+  for (let index = 0; index < path.size(); index += 1) {
+    const declared = state.committed.get(path.get(index))?.props.keyClaims;
+    if (declared !== undefined && anyChordMatches(parseKeyChordsOf(declared), press, platform)) return true;
+  }
+  return false;
+}
+
 export function createRoot(host: NativeHost, options: RootOptions): UIRoot {
   // Fail on a host that does not answer a snapshot before any React work.
   readSnapshot(host);
@@ -798,7 +846,7 @@ export function createRoot(host: NativeHost, options: RootOptions): UIRoot {
     nextTag: 1, committed: new Map(), handles: new Map(),
     main: { kind: 'layer', get root() { return state; }, layer: MAIN_LAYER, rootTags: [], portals: [] },
     overlay: undefined, unmounted: false, failure: undefined,
-    dispatching: false, listeners: new RootListeners(), drags: new DragSessions(), unsubscribe: undefined,
+    dispatching: false, listeners: new RootListeners(), claimedChords: new Set(), drags: new DragSessions(), unsubscribe: undefined,
     documentOrder: undefined, size: undefined, sizeListeners: new Set(), selectionCache: undefined,
     handle: {
       id: LAYER_ROOT_TAG,
@@ -811,6 +859,9 @@ export function createRoot(host: NativeHost, options: RootOptions): UIRoot {
       ...notText('view'),
     },
   };
+  const keyPassthrough: KeyPassthroughRegistration = (options.keyPassthroughPage ?? pagePassthrough()).add(
+    { claims: (press, platform) => claimsKey(state, press, platform) }, options.keyPassthrough ?? true,
+  );
   const onUncaughtError = (error: Error) => {
     state.failure = error;
     options.onError?.(error);
@@ -889,6 +940,7 @@ export function createRoot(host: NativeHost, options: RootOptions): UIRoot {
       // Native must not call back into a root that is going away.
       state.unsubscribe?.();
       state.unsubscribe = undefined;
+      keyPassthrough.remove();
       reconciler.updateContainerSync(null, fiberRoot, null, null);
       reconciler.flushSyncWork();
       reconciler.flushPassiveEffects();
@@ -926,6 +978,12 @@ export function createRoot(host: NativeHost, options: RootOptions): UIRoot {
     },
     addEventListener(type, listener) {
       return state.listeners.add(type, listener);
+    },
+    claimKeys(chords) {
+      return claimRootKeys(state.main, chords);
+    },
+    setKeyPassthrough(enabled) {
+      keyPassthrough.enabled = enabled;
     },
     getSelection() {
       return currentSelection(state);

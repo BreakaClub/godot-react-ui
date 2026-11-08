@@ -135,6 +135,18 @@ impl ReactUiRoot {
         }
     }
 
+    /// Whether the focused text input `tag` has an action for `key`, which is what `text_input_key_down` acts on, asked without acting.
+    /// A key that only types text has no action; the keys asked about before they come are chords (`key_claims.rs`).
+    pub(crate) fn text_input_claims_key(&self, tag: u32, key: &Gd<InputEventKey>) -> bool {
+        let Some(config) = self.text_state(tag).map(|state| state.buffer.config()) else {
+            return false;
+        };
+        self.text_inputs
+            .actions
+            .action_of(key, config.multiline)
+            .is_some()
+    }
+
     fn swap_input_direction(&mut self, tag: u32) {
         if let Some(state) = self.text_state_mut(tag) {
             state.input_direction = match state.input_direction {

@@ -101,6 +101,15 @@ export interface NativeHost {
    * `dropEffect` is '' (not set), 'none', 'copy', 'move' or 'link'.
    */
   resolveEvent(seq: number, defaultPrevented: boolean, dropEffect: string): string;
+  /**
+   * Whether native itself would act on this key chord if it were pressed now, so it must not go to the browser (docs/tracks/key-passthrough.md):
+   * the editing, clipboard and caret chords of a focused text input, copy and select all for the document's text selection, Enter and Space on a
+   * focused button. The key is a DOM one (`code` and `key`, as a `keydown` has them). True too when a Godot control that is not a root holds
+   * the keyboard, because native knows nothing of what that control uses; false when no control holds it, or another root does.
+   */
+  claimsKeyChord(code: string, key: string, shiftKey: boolean, ctrlKey: boolean, altKey: boolean, metaKey: boolean): boolean;
+  /** The tags of the focused element and its ancestors, the element first; empty when nothing is focused. */
+  focusedPath(): PackedTags;
 }
 
 export interface NativeDiagnosticsHost extends NativeHost {

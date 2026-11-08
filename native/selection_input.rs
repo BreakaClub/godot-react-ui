@@ -767,28 +767,11 @@ impl ReactUiRoot {
         if echo {
             return false;
         }
-        let key = as_keyboard_event(key);
-        let keycode = key.get_keycode();
-        let (ctrl, alt, shift, meta) = (
-            key.is_ctrl_pressed(),
-            key.is_alt_pressed(),
-            key.is_shift_pressed(),
-            key.is_meta_pressed(),
-        );
-        if key.is_action_ex("ui_copy").exact_match(true).done()
-            || is_selection_chord(keycode, ctrl, alt, shift, meta, Key::C)
-        {
-            return self.copy_selection();
+        match selection_key_of(key) {
+            Some(SelectionKey::Copy) => self.copy_selection(),
+            Some(SelectionKey::SelectAll) => self.select_all_text(),
+            None => false,
         }
-        if key
-            .is_action_ex("ui_text_select_all")
-            .exact_match(true)
-            .done()
-            || is_selection_chord(keycode, ctrl, alt, shift, meta, Key::A)
-        {
-            return self.select_all_text();
-        }
-        false
     }
 
     /// Put the selected text on the clipboard, the selected nodes' text joined by `\n`. Returns whether
@@ -890,6 +873,43 @@ impl ReactUiRoot {
     pub(crate) fn selection_holds_key_focus(&self) -> bool {
         self.selecting.is_active()
     }
+}
+
+/// What the document's text selection does with a key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SelectionKey {
+    /// `ui_copy`, or `Ctrl` or `Meta` with C.
+    Copy,
+    /// `ui_text_select_all`, or `Ctrl` or `Meta` with A.
+    SelectAll,
+}
+
+/// Which key of the document's text selection `key` is, if any: the one place that says, for the key press that acts
+/// ([`ReactUiRoot::run_selection_key`]) and the question whether the key is the selection's before it comes
+/// (`key_claims.rs`). A key from another device is matched as the keyboard's (`as_keyboard_event`).
+pub(crate) fn selection_key_of(key: &Gd<InputEventKey>) -> Option<SelectionKey> {
+    let key = as_keyboard_event(key);
+    let keycode = key.get_keycode();
+    let (ctrl, alt, shift, meta) = (
+        key.is_ctrl_pressed(),
+        key.is_alt_pressed(),
+        key.is_shift_pressed(),
+        key.is_meta_pressed(),
+    );
+    if key.is_action_ex("ui_copy").exact_match(true).done()
+        || is_selection_chord(keycode, ctrl, alt, shift, meta, Key::C)
+    {
+        return Some(SelectionKey::Copy);
+    }
+    if key
+        .is_action_ex("ui_text_select_all")
+        .exact_match(true)
+        .done()
+        || is_selection_chord(keycode, ctrl, alt, shift, meta, Key::A)
+    {
+        return Some(SelectionKey::SelectAll);
+    }
+    None
 }
 
 /// Whether a key press with `keycode` and modifiers `(ctrl, alt, shift, meta)` is the `Ctrl` or
