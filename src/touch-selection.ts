@@ -28,6 +28,9 @@ export const MENU_BACKGROUND = '#0f172a';
 export const MENU_LABEL = '#ffffff';
 export const MENU_PRESSED = '#334155';
 export const MENU_DIVIDER = '#475569';
+/** A 1 px ring round the menu, so it shows on a dark surface. */
+export const MENU_BORDER = '#334155';
+export const MENU_BORDER_WIDTH_PX = 1;
 /** The handles' colour when nothing styles the selection: blue-500, the default selection colour at full opacity. */
 export const HANDLE_COLOR = '#3b82f6';
 export const HANDLE_RING_COLOR = '#fffffff2';

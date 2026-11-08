@@ -484,20 +484,21 @@ export async function runTouchCodeEditorScenario(context) {
   await touch('touchStart', copy);
   await touch('touchEnd', copy);
   check('Copy in the menu writes the selected word to the browser\'s clipboard', await page.evaluate(() => navigator.clipboard.readText()) === picked, picked);
+  // The finger moves up, which would scroll the code down (a finger moving down at the top of the code scrolls nothing).
   const scrolledBefore = (await context.find('code-scroll')).scroll.scrollTop;
   const heldAt = await h.boundaryAt(wordLine, match.index + 2);
   await touch('touchStart', heldAt);
   await rest(1100);
-  const lower = { x: heldAt.x, y: heldAt.y + 2 * grid.lineHeight };
-  for (let step = 1; step <= 4; step += 1) await touch('touchMove', { x: heldAt.x, y: heldAt.y + (lower.y - heldAt.y) * step / 4 });
-  await touch('touchEnd', lower);
+  const upper = { x: heldAt.x, y: heldAt.y - 2 * grid.lineHeight };
+  for (let step = 1; step <= 4; step += 1) await touch('touchMove', { x: heldAt.x, y: heldAt.y + (upper.y - heldAt.y) * step / 4 });
+  await touch('touchEnd', upper);
   check('A finger that selected by holding does not pan the editor', (await context.find('code-scroll')).scroll.scrollTop === scrolledBefore);
   await waitUntil('the menu is back', () => nodeExists('code-touch-menu-copy'));
   const copyAgain = await h.centerOf('code-touch-menu-copy');
   await touch('touchStart', copyAgain);
   await touch('touchEnd', copyAgain);
   const extended = await page.evaluate(() => navigator.clipboard.readText());
-  check('and extends the selection down the lines', extended.startsWith(picked) && extended.includes('\n'), extended.slice(0, 40));
+  check('and extends the selection up the lines', extended.endsWith(picked) && extended.includes('\n'), extended.slice(-40));
   await tap(await h.boundaryAt(wordLine + 1, 4));
   check('A tap elsewhere hides the handles and the menu', !(await nodeExists('code-handle-start')) && !(await nodeExists('code-touch-menu')));
 }

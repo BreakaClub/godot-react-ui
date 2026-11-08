@@ -606,19 +606,23 @@ async function verifyTouchSelection(api: CodeEditorInspection, source: string, c
   assert(scrollTopOf(api) > 0, `and scrolls the code: ${scrollTopOf(api)}`);
   await toTop(api);
 
-  // A finger that selected by holding goes on selecting as it moves, by words, and does not pan the editor.
-  const held = boundaryAt(api, word.line, word.column + 3);
+  // A finger that selected by holding goes on selecting as it moves, by words, and does not pan the editor. It moves up, which would scroll the
+  // code down (a finger moving down at the top of the code scrolls nothing): without JS's capture of the finger the root would pan.
+  const lower = positionOf(source, 'volume');
+  const lowerText = lines[lower.line - 1] ?? '';
+  assert(lower.line >= word.line + 4 && lower.line <= 12 && lowerText.includes('volume'), `The lab source has a word in a visible line a few lines down: ${lower.line}`);
+  const held = boundaryAt(api, lower.line, lower.column + 3);
   touchEvent(held, true);
   await frames(2);
   await sleep(TOUCH_HELD_MS);
   assert(hasNode(api, 'code-handle-start'), 'A long press selects again');
-  const down = new Vector2(held.x, held.y + 3 * grid.lineHeight);
-  await touchGlide(held, down);
-  touchEvent(down, false);
+  const up = new Vector2(held.x, held.y - 3 * grid.lineHeight);
+  await touchGlide(held, up);
+  touchEvent(up, false);
   await settleFrames();
   assert(scrollTopOf(api) === 0, `The finger that selected does not pan the editor: ${scrollTopOf(api)}`);
   await touchTap(centerOf(node(api, 'code-touch-menu-copy').rect));
-  assert(verifierClipboard.get().startsWith('useState') && verifierClipboard.get().split('\n').length >= 3, `and extends the selection down the lines: ${JSON.stringify(verifierClipboard.get().slice(0, 40))}`);
+  assert(verifierClipboard.get().endsWith('volume') && verifierClipboard.get().split('\n').length >= 3, `and extends the selection up the lines: ${JSON.stringify(verifierClipboard.get().slice(-40))}`);
   await capture('code-editor-touch-02-extended', OVERFLOWING);
   await touchTap(boundaryAt(api, word.line + 1, 4));
   assert(!hasNode(api, 'code-handle-start'), 'A tap ends it');

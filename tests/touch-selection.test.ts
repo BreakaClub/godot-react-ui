@@ -91,8 +91,9 @@ test('the editor\'s touch selection numbers are the root\'s', () => {
   assert.equal(shared.TOUCH_SLOP_PX, rustNumber(native('scroll.rs'), 'TOUCH_SLOP_PX'));
   const chrome = native('touch_selection_input.rs');
   assert.equal(shared.HANDLE_RING_WIDTH_PX, rustNumber(chrome, 'HANDLE_RING_WIDTH_PX'));
+  assert.equal(shared.MENU_BORDER_WIDTH_PX, rustNumber(chrome, 'MENU_BORDER_WIDTH_PX'));
   for (const [name, value] of [
-    ['MENU_BACKGROUND', shared.MENU_BACKGROUND], ['MENU_LABEL', shared.MENU_LABEL], ['MENU_PRESSED', shared.MENU_PRESSED], ['MENU_DIVIDER', shared.MENU_DIVIDER],
+    ['MENU_BACKGROUND', shared.MENU_BACKGROUND], ['MENU_LABEL', shared.MENU_LABEL], ['MENU_PRESSED', shared.MENU_PRESSED], ['MENU_DIVIDER', shared.MENU_DIVIDER], ['MENU_BORDER', shared.MENU_BORDER],
   ] as const) {
     assert.equal(value, rustString(chrome, name), name);
   }

@@ -44,6 +44,9 @@ const MENU_BACKGROUND: &str = "#0f172a";
 const MENU_LABEL: &str = "#ffffff";
 const MENU_PRESSED: &str = "#334155";
 const MENU_DIVIDER: &str = "#475569";
+/// A 1 px ring round the menu, slate-700, so it shows on a dark surface (the code editor's) as well as a light one.
+const MENU_BORDER: &str = "#334155";
+const MENU_BORDER_WIDTH_PX: i32 = 1;
 /// The soft shadow under the menu, in logical pixels.
 const MENU_SHADOW_COLOR: Color = Color::from_rgba(0.0, 0.0, 0.0, 0.3);
 const MENU_SHADOW_SIZE_PX: i32 = 6;
@@ -552,14 +555,6 @@ impl ReactUiRoot {
     /// Whatever the finger `id` left is forgotten (it lifted, by a path that does not tap).
     pub(crate) fn touch_selection_lifted(&mut self, id: u32) {
         self.touch_selection.forget_finger(id);
-    }
-
-    /// A mouse press makes a mouse's selection or none: the touch selection and its chrome are gone.
-    pub(crate) fn touch_selection_mouse_pressed(&mut self) {
-        if self.touch_selection.owner.take().is_some() {
-            self.touch_selection.gesture = None;
-            self.sync_touch_chrome();
-        }
     }
 
     // ---- The long press -------------------------------------------------------------------------------
@@ -1181,6 +1176,8 @@ impl ReactUiRoot {
         body.set_aa_size(feather);
         body.set_bg_color(parse_color(Some(MENU_BACKGROUND), Color::TRANSPARENT_BLACK));
         body.set_corner_radius_all(MENU_RADIUS_PX as i32);
+        body.set_border_width_all(MENU_BORDER_WIDTH_PX);
+        body.set_border_color(parse_color(Some(MENU_BORDER), Color::TRANSPARENT_BLACK));
         body.set_shadow_color(MENU_SHADOW_COLOR);
         body.set_shadow_size(MENU_SHADOW_SIZE_PX);
         body.set_shadow_offset(Vector2::new(0.0, MENU_SHADOW_OFFSET_Y_PX));

@@ -45,6 +45,8 @@ const PIXEL_TOLERANCE = 0.06;
 const HANDLE_RGB: readonly [number, number, number] = [0x3b / 255, 0x82 / 255, 0xf6 / 255];
 const MENU_RGB: readonly [number, number, number] = [0x0f / 255, 0x17 / 255, 0x2a / 255];
 const PAGE = 'touch-selection-page';
+/** The smallest square a handle is grabbed by (`HANDLE_TOUCH_TARGET_PX` in `native/touch_selection.rs`). */
+const HANDLE_TARGET_PX = 44;
 /** The lab's texts, whose offsets the checks name. */
 const P1 = 'The quick brown fox jumps over the lazy dog. Pack my box with five dozen liquor jugs.';
 const INPUT_VALUE = 'alpha beta gamma delta epsilon zeta eta theta';
@@ -179,9 +181,9 @@ function caretX(api: Api, testID: string, offset: number, side: 'before' | 'afte
   return caret.x;
 }
 
-function selectionOf(api: Api): UISelection {
+function selectionOf(api: Api, expected = 'Something is selected'): UISelection {
   const selection = api.selection();
-  assert(selection !== undefined, 'Something is selected');
+  assert(selection !== undefined, expected);
   return selection;
 }
 
@@ -296,7 +298,7 @@ async function verifyDocumentText(owner: Node, api: Api, capture: (name: string)
   assert(api.selection() === undefined, 'Before the hold has elapsed nothing is selected');
   await sleep(HELD_MS - EARLY_MS);
   await frames(TOUCH_PAUSE_FRAMES);
-  const word = selectionOf(api);
+  const word = selectionOf(api, 'A long press selects the word under the finger: nothing is selected');
   assert(word.text === 'brown' && word.anchor.node.testID === 'ts-p1' && word.anchor.offset === brown.start && word.focus.offset === brown.end,
     `A long press selects the word under the finger, offsets 10 to 15: ${JSON.stringify(word.text)} ${word.anchor.offset}..${word.focus.offset}`);
   assert(api.selectionChanges() >= 1, 'and tells the root with a selectionchange');
@@ -323,7 +325,7 @@ async function verifyDocumentText(owner: Node, api: Api, capture: (name: string)
     `The end handle stands on the word's end: ${stemMiddle(end).x} against ${endCaret.x}`);
   assert(start.ball.y < start.stem.y && end.ball.y > end.stem.y + end.stem.height,
     'The start handle hangs above its line and the end handle below it');
-  assert(start.target.width >= 44 && start.target.height >= 44, `A handle is grabbed by a 44 px square: ${start.target.width}`);
+  assert(start.target.width >= HANDLE_TARGET_PX && start.target.height >= HANDLE_TARGET_PX, `A handle is grabbed by a 44 px square: ${start.target.width}`);
   const menu = chromeOf(api).menu;
   assert(menu !== null && menu.area.y + menu.area.height <= start.stem.y, 'The menu sits above the selection');
 

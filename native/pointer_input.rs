@@ -206,8 +206,6 @@ impl ReactUiRoot {
             }
         }
         if primary {
-            // A mouse makes a selection of its own, or none: the handles and menu of a touch's are gone.
-            self.touch_selection_mouse_pressed();
             // Gesture arbitration after an un-prevented `pointerdown` (plan 3.12): a pointer JS captured
             // is its element's (rule 1), then a press on a scrollbar thumb drags the thumb (rule 2), then a
             // press inside a draggable element may become a drag once it moves (rule 3, which also keeps

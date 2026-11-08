@@ -1,7 +1,7 @@
 import { Text, View, type UIPointerEvent } from 'godot-react-ui';
 import {
   HANDLE_BALL_RADIUS_PX, HANDLE_COLOR, HANDLE_RING_COLOR, HANDLE_RING_WIDTH_PX, HANDLE_STEM_WIDTH_PX, HANDLE_TOUCH_TARGET_PX, MENU_BACKGROUND,
-  MENU_FONT_SIZE_PX, MENU_LABEL, MENU_RADIUS_PX,
+  MENU_BORDER, MENU_BORDER_WIDTH_PX, MENU_FONT_SIZE_PX, MENU_LABEL, MENU_RADIUS_PX,
 } from '../../../../src/touch-selection';
 import { MENU_LABELS, type Edge, type MenuAction, type MenuPlacement } from '../touch-selection';
 
@@ -75,7 +75,7 @@ export function SelectionMenu({ placement, onAction }: SelectionMenuProps) {
     <View
       testID="code-touch-menu"
       className="absolute flex-row overflow-hidden shadow-lg"
-      style={{ left: box.x, top: box.y, width: box.width, height: box.height, backgroundColor: MENU_BACKGROUND, borderRadius: MENU_RADIUS_PX }}
+      style={{ left: box.x, top: box.y, width: box.width, height: box.height, backgroundColor: MENU_BACKGROUND, borderRadius: MENU_RADIUS_PX, borderWidth: MENU_BORDER_WIDTH_PX, borderColor: MENU_BORDER }}
     >
       {items.map(({ action, box: item }, index) => (
         <View
