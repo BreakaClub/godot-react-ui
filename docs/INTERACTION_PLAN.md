@@ -682,6 +682,15 @@ not a reason to wait.
   wheel delta `d` into `0.03 * d` ticks, so Chrome's 100 px notch is 3 ticks at ratio 1 and 1.5 at 2 where a native notch is 1 (`notchTicks()`), and the portrait navigator keeps its labs in
   a menu whose items exist only while it is open. A section that provokes a console error on purpose announces it (`expectedConsoleErrors`) and must see it appear, so a case that stops
   provoking it fails.
+- **D71 (touch text selection)**: Ben's report, 8 November 2026, from his phone on react.breaka.club: "Text selection not working on mobile web." It never worked: 2.3 listed "touch text-selection handles,
+  long-press menus" as non-goals and the I6 notes (S2) say "a touch never starts one". **This reverses that non-goal** for what a mobile browser does: a long press selects the word under the finger
+  (500 ms and within `TOUCH_SLOP_PX`, `TOUCH_SELECT_HOLD_MS`; white space and punctuation select nothing), two drag handles move the ends (they autoscroll the container at its edges), a small edit
+  menu offers Copy and Select All, with Cut and Paste in an editable `TextInput`, a tap elsewhere clears, and a scroll keeps the selection and its handles on the text. It covers selectable `Text`,
+  `TextInput` (single and multi-line) and, through its own controller, the code editor. The handles and the menu are drawn by the library in a top-most item (`native/touch_selection*.rs`); no OS
+  menu exists inside the canvas, and spellcheck stays out. A touch press no longer clears a touch selection at the moment it goes down, a tap does (so a swipe still scrolls and keeps it). The long
+  press is cancelled by movement beyond the slop (a pan or a tap), never starts inside a `draggable` element (the touch drag owns the hold, 3.12 rule 3), and ends the touch's pointer events with
+  `pointercancel` as a drag does. The selection change events and `root.getSelection()` report a touch selection exactly as a mouse one. Decisions TS1 and up, the behaviour table against iOS Safari
+  and Android Chrome, the evidence and what is not verified (a real phone, real soft keyboards) are in `docs/tracks/touch-selection.md`, part of this log.
 
 The plan is written so an implementer can execute it phase by phase without re-deciding the
 architecture. Where it says **must**, it is a contract. Where it says *suggested*, use judgement and
@@ -944,7 +953,7 @@ Write these into the README limits when the plan is complete (done: README, "Cur
 - Godot drag-and-drop interop with other `Control`s (3.19 explains why).
 - Raw text outside `<Text>` (React Native's rule), `contenteditable`. (Rich/nested text runs were in this list; D68 reverses it.)
 - CSS stacking contexts: `zIndex` orders siblings, as in React Native (3.15).
-- Touch text-selection handles, long-press menus, native context menus, spellcheck.
+- Spellcheck, and the operating system's own context menus and text-selection UI (nothing of the OS is drawn inside the canvas). (Touch text-selection handles and an edit menu were in this list; D71 reverses it.)
 - Animated programmatic scrolling, overscroll bounce, `position: sticky`, rounded clip
   masks, native list virtualization. (Transforms were in this list; 2D transforms are built, D55. 3D transforms are assessed and not built, D57.)
 - Pen-specific pointer data (pen input is reported as `mouse`).
