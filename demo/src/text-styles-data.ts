@@ -166,7 +166,7 @@ const PAGES_AS_WRITTEN: readonly TextPage[] = [
       ...['normal', 'nowrap', 'pre', 'pre-line', 'pre-wrap'].map(name => ({
         id: `space-${name}`, note: `whitespace-${name}`, className: `whitespace-${name} text-sm`, text: 'A  line   with\n   runs of space\nand a break', cellClassName: 'flex flex-col w-[150px] overflow-hidden',
       })),
-      { id: 'break-normal', note: 'break-normal', className: 'break-normal text-sm', text: 'A very Pneumonoultramicroscopic word', cellClassName: 'flex flex-col w-[100px]' },
+      { id: 'break-normal', note: 'break-normal', className: 'break-normal text-sm', text: 'A very Pneumonoultramicroscopic word', cellClassName: 'flex flex-col w-[100px] overflow-hidden' },
       { id: 'break-words', note: 'break-words', className: 'break-words text-sm', text: 'A very Pneumonoultramicroscopic word', cellClassName: 'flex flex-col w-[100px]' },
       { id: 'break-all', note: 'break-all', className: 'break-all text-sm', text: 'A very Pneumonoultramicroscopic word', cellClassName: 'flex flex-col w-[100px]' },
       { id: 'justify', note: 'text-justify', className: 'text-justify text-sm', text: `${QUOTE}. ${QUOTE}.`, cellClassName: NARROW },

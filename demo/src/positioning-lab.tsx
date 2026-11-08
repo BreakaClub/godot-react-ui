@@ -1,6 +1,6 @@
 import { useRef, useState, type ReactNode } from 'react';
 import { Button, Portal, Text, View, type UIHandle } from 'godot-react-ui';
-import { LabIntro, LabLimit, Readout } from './lab-parts';
+import { LabIntro, LabLimit, Readout, useExpectedVisible } from './lab-parts';
 
 /** Where the stacking boxes sit inside their container, in its padding box. */
 const STACK_BOXES = {
@@ -48,6 +48,7 @@ interface CaseProps {
  * page's own fill is what the verifier reads around the clipping cells, so nothing here may paint behind them.
  */
 function Case({ title, caption, expected, limit, stageClassName, children }: CaseProps) {
+  const showExpected = useExpectedVisible();
   return (
     <View className="gap-2">
       <Text className="text-sm text-slate-900">{title}</Text>
@@ -55,7 +56,7 @@ function Case({ title, caption, expected, limit, stageClassName, children }: Cas
         <View className={`gap-2 ${stageClassName}`}>{children}</View>
         <View className={`min-w-[${NOTES_MIN_WIDTH}px] flex-1 gap-2`}>
           <Text className="text-xs text-slate-600">{caption}</Text>
-          <Text className="text-xs text-indigo-700">{`Expected: ${expected}`}</Text>
+          {showExpected ? <Text className="text-xs text-indigo-700">{`Expected: ${expected}`}</Text> : null}
           {limit === undefined ? null : <LabLimit>{limit}</LabLimit>}
         </View>
       </View>

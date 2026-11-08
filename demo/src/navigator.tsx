@@ -1,6 +1,7 @@
 import { Component, Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type MutableRefObject, type ReactNode } from 'react';
 import { Button, Portal, ScrollView, Select, Text, TextField, View, type UIHandle, type UIInputEvent, type UIKeyboardEvent } from 'godot-react-ui';
 import { LAB_GROUPS, LABS, filterLabs, labsInOrder, type Lab, type SceneLab, type WindowLab } from './labs';
+import { ExpectedVisibleProvider } from './lab-parts';
 import { CodeEditor } from './code-editor';
 import { labCodeKey, openLabCode, releaseLabCode, type CodeSupport, type LabCode } from './editor/lab-code';
 
@@ -343,9 +344,11 @@ interface HeaderProps {
   canEdit?: boolean;
   codeOpen?: boolean;
   onToggleCode?: () => void;
+  showExpected?: boolean;
+  onToggleExpected?: () => void;
 }
 
-function LabHeader({ lab, missing, position, onStep, canEdit, codeOpen, onToggleCode }: HeaderProps) {
+function LabHeader({ lab, missing, position, onStep, canEdit, codeOpen, onToggleCode, showExpected, onToggleExpected }: HeaderProps) {
   const title = lab?.title ?? 'Lab not found';
   const description = lab?.description ?? `"${missing ?? ''}" is not one of the labs.`;
   return (
@@ -360,6 +363,23 @@ function LabHeader({ lab, missing, position, onStep, canEdit, codeOpen, onToggle
           <Text testID="lab-position" className="mr-1 text-xs text-slate-400">{position}</Text>
           <Button testID="lab-previous" aria-label="Previous lab" className={HEADER_BUTTON} onClick={() => onStep(PREVIOUS)}>Previous</Button>
           <Button testID="lab-next" aria-label="Next lab" className={HEADER_BUTTON} onClick={() => onStep(NEXT)}>Next</Button>
+          {onToggleExpected !== undefined ? (
+            <Button
+              testID="toggle-expected"
+              aria-label="Toggle expected text"
+              aria-pressed={showExpected}
+              className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${
+                showExpected
+                  ? 'border-indigo-600 bg-indigo-50 text-indigo-700 font-medium'
+                  : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50 active:bg-slate-100'
+              }`}
+              onClick={onToggleExpected}
+            >
+              <Text className={showExpected ? 'text-indigo-700 font-semibold' : 'text-slate-700'}>
+                {showExpected ? 'Hide Expected' : 'Show Expected'}
+              </Text>
+            </Button>
+          ) : null}
           {canEdit ? (
             <Button
               testID="toggle-code"
@@ -392,6 +412,7 @@ export function Navigator({ labs = LABS, initialLab, onLabChange, onOpenScene, c
   const [query, setQuery] = useState('');
   const [windowOpen, setWindowOpen] = useState(false);
   const [codeOpen, setCodeOpen] = useState(false);
+  const [showExpected, setShowExpected] = useState(false);
   const handles = useRef(new Map<string, UIHandle>());
 
   const visible = useMemo(() => filterLabs(ordered, query), [ordered, query]);
@@ -439,7 +460,9 @@ export function Navigator({ labs = LABS, initialLab, onLabChange, onOpenScene, c
   if (windowOpen && selected !== undefined && selected.kind === 'window') {
     return (
       <View testID="navigator" tabIndex={-1} className="w-full h-full" onKeyDown={onKeyDown}>
-        <LabPage lab={selected} />
+        <ExpectedVisibleProvider value={showExpected}>
+          <LabPage lab={selected} />
+        </ExpectedVisibleProvider>
         <WindowBar lab={selected} onBack={() => setWindowOpen(false)} />
       </View>
     );
@@ -525,6 +548,8 @@ export function Navigator({ labs = LABS, initialLab, onLabChange, onOpenScene, c
           canEdit={codeSupport !== undefined && selected?.kind === 'inline' && selected.sources.length > 0}
           codeOpen={codeOpen}
           onToggleCode={() => setCodeOpen(open => !open)}
+          showExpected={showExpected}
+          onToggleExpected={() => setShowExpected(open => !open)}
         />
         {/* The stage keeps its place in the tree whether or not the code is beside it, so the lab on it keeps its state when the panel is shown or hidden. */}
         <View className={`relative min-h-0 flex-1 overflow-hidden ${codePanel ? 'flex-col xl:flex-row' : ''} ${game ? 'pointer-events-none' : ''}`}>
@@ -534,7 +559,9 @@ export function Navigator({ labs = LABS, initialLab, onLabChange, onOpenScene, c
             aria-label="Lab"
             className={`relative min-h-0 min-w-0 flex-1 overflow-hidden ${game ? 'pointer-events-none' : 'bg-slate-50'}`}
           >
-            {stage}
+            <ExpectedVisibleProvider value={showExpected}>
+              {stage}
+            </ExpectedVisibleProvider>
           </View>
           {codePanel ? (
             <>

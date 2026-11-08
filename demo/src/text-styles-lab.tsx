@@ -74,7 +74,7 @@ export const PAGE_NOTES: readonly PageNote[] = [
   {
     id: 'whitespace',
     caption: 'whitespace-normal, nowrap, pre, pre-line and pre-wrap on the same text, which has runs of spaces and line breaks. break-normal, break-words and break-all on one long word in a 100 px cell. text-justify and text-end.',
-    limit: 'text wider than its box is cut at the box. The long word under break-normal is clipped at its cell, where Chrome lets it overflow into the next cell.',
+    limit: 'the unbroken word under break-normal overflows a 100 px cell, so the cell clips it to keep the grid clear.',
   },
   {
     id: 'numerals',

@@ -1,6 +1,6 @@
 import { useRef, useState, type RefObject } from 'react';
 import { Button, Text, View, type UIFocusEvent, type UIHandle, type UIKeyboardEvent, type UIPointerEvent } from 'godot-react-ui';
-import { LabIntro, Readout } from './lab-parts';
+import { LabIntro, Readout, useExpectedVisible } from './lab-parts';
 
 /** The log shows this many of the latest events. */
 const LOG_LINES = 6;
@@ -36,11 +36,12 @@ function append(log: readonly string[], line: string): string[] {
  * around it, because the keyboard verifier's windows (1120 x 800 and 600 x 900) must still hold every control this lab presses.
  */
 function Note({ title, children, expected }: { title: string; children: string; expected?: string }) {
+  const showExpected = useExpectedVisible();
   return (
     <Text className="text-xs text-slate-600">
       <Text className="text-slate-900">{`${title}. `}</Text>
       {children}
-      {expected === undefined ? null : <Text className="text-indigo-700">{` Expected: ${expected}`}</Text>}
+      {expected !== undefined && showExpected ? <Text className="text-indigo-700">{` Expected: ${expected}`}</Text> : null}
     </Text>
   );
 }

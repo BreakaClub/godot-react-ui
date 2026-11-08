@@ -387,11 +387,11 @@ function blankLine(s: Scenario): number {
 
 panelTest('a press on a line on the grid asks the text nothing: the grid is exact there', (s) => {
   const queries = s.host.textQueries.length;
-  const at = pointAt(s, 4, 9);
+  const at = pointAt(s, 5, 9);
   click(s, at);
-  assert.equal(textOf(s, 'code-status-position'), 'Ln 4, Col 10');
+  assert.equal(textOf(s, 'code-status-position'), 'Ln 5, Col 10');
   assert.equal(s.host.textQueries.slice(queries).filter(query => query.method === 'getOffsetAtPoint').length, 0, 'no hit test of the text');
-  assert.equal(s.host.textQueries.slice(queries).filter(query => query.method === 'getCaretRect' && query.tag === tag(s, 'code-line-4')).length, 0, 'no caret query of the line');
+  assert.equal(s.host.textQueries.slice(queries).filter(query => query.method === 'getCaretRect' && query.tag === tag(s, 'code-line-5')).length, 0, 'no caret query of the line');
 });
 
 panelTest('a line with wide characters is placed by its text: the caret, the press and the word under the pointer are where the text says', async (s) => {
@@ -652,7 +652,7 @@ panelTest('only the lines near the viewport are elements, and scrolling moves th
 
 panelTest('a tap with a finger places the caret where it lifts and a finger going down does not select; the mouse press does', (s) => {
   const content = tag(s, 'code-content');
-  const at = pointAt(s, 4, 6);
+  const at = pointAt(s, 5, 6);
   const touch = { pointerType: 'touch' as const, pointerId: 7, x: at.x, y: at.y, viewportX: at.x, viewportY: at.y };
   s.host.pointersDown.add(7);
   s.host.events.push(s.host.pointerEvent(content, 'pointerdown', { ...touch, cancelable: true }));
@@ -662,7 +662,7 @@ panelTest('a tap with a finger places the caret where it lifts and a finger goin
   s.host.events.push(s.host.pointerEvent(content, 'click', { ...touch, detail: 1 }));
   s.host.pointersDown.delete(7);
   s.uiRoot.dispatchEvents();
-  assert.equal(textOf(s, 'code-status-position'), 'Ln 4, Col 7', 'the tap that follows puts the caret at the column');
+  assert.equal(textOf(s, 'code-status-position'), 'Ln 5, Col 7', 'the tap that follows puts the caret at the column');
   assert.equal(s.host.focused, tag(s, 'editor-input-sink'), 'and the input has the focus, which brings the soft keyboard up');
 });
 

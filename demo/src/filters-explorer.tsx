@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { ScrollView, Select, Slider, Text, View, useRootSize, type UIHandle } from 'godot-react-ui';
 import { FiltersLab, type FiltersLabProps } from './filters-lab';
-import { LabIntro, LabLimit } from './lab-parts';
+import { LabIntro, LabLimit, useExpectedVisible } from './lab-parts';
 
 /**
  * The filters lab as something to look at: the fixtures the `filters` verifier drives (`filters-lab.tsx`), with a fixture menu and
@@ -150,6 +150,7 @@ function fixtureById(id: string): Fixture {
 }
 
 export function FiltersExplorer() {
+  const showExpected = useExpectedVisible();
   const [fixtureId, setFixtureId] = useState(DEFAULT_FIXTURE);
   const [radius, setRadius] = useState(DEFAULT_RADIUS);
   const fixture = fixtureById(fixtureId);
@@ -210,7 +211,7 @@ export function FiltersExplorer() {
         </View>
         <View className="gap-2">
           <Text testID="filters-caption" className="text-sm text-slate-600">{fixture.caption}</Text>
-          <Text className="text-xs text-indigo-700">{`Expected: ${fixture.expected}`}</Text>
+          {showExpected ? <Text className="text-xs text-indigo-700">{`Expected: ${fixture.expected}`}</Text> : null}
           {fixture.limit === undefined ? null : <LabLimit>{fixture.limit}</LabLimit>}
           {pans ? <Text className="text-xs text-slate-500">This fixture is wider than the window: drag the stage sideways to see all of it.</Text> : null}
         </View>

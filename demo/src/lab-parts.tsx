@@ -1,5 +1,15 @@
-import type { ReactNode } from 'react';
+import { createContext, useContext, type ReactNode } from 'react';
 import { Text, View } from 'godot-react-ui';
+
+export const ExpectedVisibleContext = createContext<boolean>(false);
+
+export function ExpectedVisibleProvider({ value, children }: { value: boolean; children: ReactNode }) {
+  return <ExpectedVisibleContext.Provider value={value}>{children}</ExpectedVisibleContext.Provider>;
+}
+
+export function useExpectedVisible(): boolean {
+  return useContext(ExpectedVisibleContext);
+}
 
 /**
  * The parts the labs explain themselves with (docs/tracks/lab-clarity.md): an introduction that says what the lab shows and which part of the
@@ -42,12 +52,13 @@ interface LabCaseProps {
 
 /** A card for one case: its title, its caption, the live controls and results, then the outcome to expect. */
 export function LabCase({ title, caption, expected, testID, className, children }: LabCaseProps) {
+  const showExpected = useExpectedVisible();
   return (
     <View testID={testID} className={`min-w-0 gap-2 rounded-xl border border-slate-200 bg-white p-3 ${className ?? ''}`}>
       <Text className="text-sm text-slate-900">{title}</Text>
       <Text className="text-sm text-slate-600">{caption}</Text>
       {children}
-      {expected === undefined ? null : <Text className="text-xs text-indigo-700">{`Expected: ${expected}`}</Text>}
+      {expected !== undefined && showExpected ? <Text className="text-xs text-indigo-700">{`Expected: ${expected}`}</Text> : null}
     </View>
   );
 }
