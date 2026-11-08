@@ -31,6 +31,8 @@ export const DEMO_ENTRY_POINTS = [
   // The live code editor's compiler and checker, the swap that keeps state, and their verifier (docs/tracks/live-compile.md).
   'demo/src/live-compile-protocol.ts', 'demo/src/live-compile-modules.ts', 'demo/src/live-compile-refresh.ts', 'demo/src/live-compile-host.ts',
   'demo/src/live-compile-session.ts', 'demo/src/live-compile-open.ts', 'demo/src/verify-live-compile.ts',
+  // The requests to the service thread are answered later and can be taken back, and Ben's sequence with the code panel open (docs/tracks/live-compile-async.md).
+  'demo/src/live-compile-scope.ts', 'demo/src/live-compile-service.ts', 'demo/src/verify-live-compile-sequence.ts',
   // The dropdown lists' touch verifier (docs/tracks/dropdown-touch.md).
   'demo/src/verify-dropdown-touch.ts',
   // The touch text selection verifier (docs/tracks/touch-selection.md).

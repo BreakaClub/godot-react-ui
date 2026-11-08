@@ -30,6 +30,7 @@ import { verifyLayoutUtilities } from './verify-layout-utilities';
 import { verifyPaint } from './verify-paint';
 import { verifyTextInput } from './verify-text-input';
 import type { DemoInspection } from './verify';
+import type { ExtensionHost } from './live-compile-service';
 import type { LiveSession } from './live-compile-session';
 import {
   NATIVE_INTERACTION_SECTIONS, NATIVE_OPT_IN_SECTIONS, describeSections, requestedSections, type SectionCoverage,
@@ -48,6 +49,13 @@ export interface InteractionInspection extends DemoInspection {
   showLayoutUtilities(page: LayoutUtilitiesPage): void;
   /** A lab compiled from its source, mounted and kept up to date as the source changes (the `live-compile` section). */
   openLiveSession(labId: string, exportName: string): LiveSession;
+  /** The page's live-compile service and the hooks that try it (`verify-live-compile.ts`, docs/tracks/live-compile-async.md). */
+  liveCompile(): ExtensionHost;
+  restartLiveCompile(): void;
+  holdLiveCompileThreads(count: number): number;
+  releaseLiveCompileThreads(): void;
+  /** The labs in the navigator's order. */
+  labs(): readonly { readonly id: string; readonly title: string; readonly kind: string }[];
   showPaintPage(page: string): void;
   /** The filters lab, rendered again with new props (plan Phase V1). */
   showFilters(props: FiltersLabProps): void;

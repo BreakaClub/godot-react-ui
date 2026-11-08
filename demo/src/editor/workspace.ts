@@ -1,5 +1,6 @@
 import type { CheckOutcome, CompileDiagnostic, Hover, InlayHint, ParameterNames } from '../live-compile-protocol';
-import type { UpdateReport, UpdateTimings } from '../live-compile-session';
+import { RequestCancelled } from '../live-compile-scope';
+import type { UpdateOutcome, UpdateReport, UpdateTimings } from '../live-compile-session';
 import type { ClipboardPort } from './clipboard';
 import type { ViewMetrics } from './command-target';
 import { EditorController } from './controller';
@@ -20,7 +21,8 @@ export interface LiveBackend {
   /** The lab's source files, the one with the component first. */
   readonly sources: readonly string[];
   sourceOf(path: string): string;
-  update(path: string, text: string): UpdateReport;
+  /** Sends the text to the page: compile, run, swap. Answers a frame or more later, `superseded` if a newer text of the file overtook it. */
+  update(path: string, text: string): Promise<UpdateReport>;
   /** Gives the checker this text of a file and checks it, without running it. */
   checkText(path: string, text: string): Promise<CheckOutcome>;
   hover(path: string, offset: number): Promise<Hover | null>;
@@ -54,7 +56,7 @@ export const UPDATE_MAX_WAIT_MS = 600;
  */
 export const UNMEASURED_METRICS: ViewMetrics = { advance: 1, lineHeight: 1, viewportHeight: 1 };
 
-export type RunKind = 'ready' | 'unavailable' | 'pending' | 'swapped' | 'compile-failed' | 'class-error' | 'evaluation-failed' | 'render-failed' | 'broken';
+export type RunKind = 'ready' | 'unavailable' | 'pending' | 'compiling' | 'swapped' | 'compile-failed' | 'class-error' | 'evaluation-failed' | 'render-failed' | 'broken';
 
 /** What became of the last text sent to the page. */
 export interface RunStatus {
@@ -78,6 +80,8 @@ export interface CheckStatus {
 }
 
 const NOT_RUN: RunStatus = { kind: 'ready', message: 'Live. The page is the lab as it is in the source.', path: undefined, timings: undefined, offset: undefined };
+/** The status of a workspace whose lab is being compiled: the text can be edited, and the page is the bundled lab until it is ready. */
+export const COMPILING_RUN: RunStatus = { kind: 'compiling', message: 'Compiling the lab… The page is the bundled lab until it is ready.', path: undefined, timings: undefined, offset: undefined };
 const NOT_CHECKED: CheckStatus = { kind: 'idle', errors: 0, warnings: 0, serviceMs: undefined, message: undefined };
 
 /** One file of the lab. */
@@ -183,6 +187,11 @@ export class EditorWorkspace {
     this.emit();
   }
 
+  /** The lab has been compiled and run: the status says it is live, unless an edit has changed the status since. */
+  opened(): void {
+    if (this.runStatus === COMPILING_RUN) this.setRun(NOT_RUN);
+  }
+
   /** Sends any text that is waiting, now. */
   flush(file: FileEditor = this.activeFile): void {
     if (file.timer !== undefined) clearTimeout(file.timer);
@@ -257,20 +266,36 @@ export class EditorWorkspace {
         from: problem.from, to: problem.to, severity: 'error', message: `No utility called "${problem.name}" in this library`, code: undefined, source: 'classes',
       })), 'local');
     } else {
-      let report: UpdateReport;
+      // The page keeps showing the last good version while the service compiles; the answer comes a frame or more later.
+      this.setRun({ kind: 'compiling', message: 'Compiling…', path: file.path, timings: undefined, offset: undefined });
+      let updating: Promise<UpdateReport>;
       try {
-        report = this.backend.update(file.path, text);
+        updating = this.backend.update(file.path, text);
       } catch (thrown) {
-        const message = thrown instanceof Error ? thrown.message : String(thrown);
-        console.error(`The live session failed on an edit of ${file.path}: ${message}`);
-        this.setRun({ kind: 'broken', message: `The live session failed: ${message}`, path: file.path, timings: undefined, offset: undefined });
+        this.updateFailed(file, thrown);
         return;
       }
-      this.setRun(this.describe(file, report));
-      file.controller.setDiagnostics(version, report.outcome === 'compile-failed' ? report.diagnostics.map(diagnostic => compilerDiagnostic(diagnostic)) : [], 'local');
-      check = report.check;
+      updating.then(report => this.updated(file, version, text, report), (thrown: unknown) => this.updateFailed(file, thrown));
+      return;
     }
     this.awaitCheck(file, version, text, check);
+  }
+
+  /** The page has been given the text of `version`; what came of it is shown, and the check that went with it is awaited. */
+  private updated(file: FileEditor, version: number, text: string, report: UpdateReport): void {
+    // A newer text of the file overtook this one: the newer update shows its own result and its own check.
+    const { outcome } = report;
+    if (this.disposed || outcome === 'superseded') return;
+    this.setRun(this.describe(file, report, outcome));
+    file.controller.setDiagnostics(version, report.outcome === 'compile-failed' ? report.diagnostics.map(diagnostic => compilerDiagnostic(diagnostic)) : [], 'local');
+    this.awaitCheck(file, version, text, report.check);
+  }
+
+  private updateFailed(file: FileEditor, thrown: unknown): void {
+    if (this.disposed || thrown instanceof RequestCancelled) return;
+    const message = thrown instanceof Error ? thrown.message : String(thrown);
+    console.error(`The live session failed on an edit of ${file.path}: ${message}`);
+    this.setRun({ kind: 'broken', message: `The live session failed: ${message}`, path: file.path, timings: undefined, offset: undefined });
   }
 
   /** Checks the active file as it is, so that its problems and hints are there before the first edit. */
@@ -283,13 +308,14 @@ export class EditorWorkspace {
   private awaitCheck(file: FileEditor, version: number, text: string, check: Promise<CheckOutcome>): void {
     this.setCheck({ ...this.checkStatus, kind: 'checking' });
     check.then(outcome => this.checked(file, version, text, outcome), (error: unknown) => {
+      if (this.disposed || error instanceof RequestCancelled) return;
       this.setCheck({ kind: 'failed', errors: 0, warnings: 0, serviceMs: undefined, message: error instanceof Error ? error.message : String(error) });
     });
   }
 
-  private describe(file: FileEditor, report: UpdateReport): RunStatus {
+  private describe(file: FileEditor, report: UpdateReport, outcome: Exclude<UpdateOutcome, 'superseded'>): RunStatus {
     const { timings } = report;
-    switch (report.outcome) {
+    switch (outcome) {
       case 'swapped':
         return {
           kind: 'swapped', path: file.path, timings, offset: undefined,

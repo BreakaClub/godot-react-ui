@@ -668,6 +668,9 @@ export async function verifyCodeEditor(owner: Node, api: CodeEditorInspection, c
   }
   await waitUntil('the caret', () => hasNode(api, 'code-caret'));
   const mountMs = nowMs() - openedAt;
+  // The panel is there, editable, while the lab is compiled; the page is the bundled lab until the compiled one is ready (docs/tracks/live-compile-async.md).
+  assert(textOf(api, 'code-status-run').startsWith('Compiling') || textOf(api, 'code-status-run').startsWith('Live.'), `The status bar says the lab is compiling, or already live: ${textOf(api, 'code-status-run')}`);
+  await waitUntil('the lab to be compiled and live', () => textOf(api, 'code-status-run').startsWith('Live.'), UPDATE_DEADLINE_MS, () => `The status bar says: ${textOf(api, 'code-status-run')}`);
   facts.mountMs = round(mountMs, TENTH);
   assert(mountMs <= MOUNT_BUDGET_MS, `The panel mounts within ${MOUNT_BUDGET_MS} ms: ${round(mountMs, TENTH)}`);
   await settleFrames();

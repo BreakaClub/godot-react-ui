@@ -2,7 +2,7 @@ import { Component, Fragment, useEffect, useLayoutEffect, useMemo, useRef, useSt
 import { Button, Portal, ScrollView, Select, Text, TextField, View, type UIHandle, type UIInputEvent, type UIKeyboardEvent } from 'godot-react-ui';
 import { LAB_GROUPS, LABS, filterLabs, labsInOrder, type Lab, type SceneLab, type WindowLab } from './labs';
 import { CodeEditor } from './code-editor';
-import { openLabCode, releaseLabCode, type CodeSupport, type LabCode } from './editor/lab-code';
+import { labCodeKey, openLabCode, releaseLabCode, type CodeSupport, type LabCode } from './editor/lab-code';
 
 /**
  * The demo's shop window: every lab behind one navigation shell, built from the library's own kit and utility classes.
@@ -242,14 +242,23 @@ function LabPage({ lab, page }: { lab: Lab; page?: ComponentType }) {
  */
 function useLabCode(lab: Lab | undefined, support: CodeSupport | undefined, wanted: boolean): LabCode | undefined {
   const [held, setHeld] = useState<{ readonly labId: string; readonly code: LabCode } | undefined>(undefined);
+  const current = useRef(held);
   const editable = lab !== undefined && lab.kind === 'inline' ? lab : undefined;
+  useLayoutEffect(() => { current.current = held; }, [held]);
   useLayoutEffect(() => {
     if (editable === undefined || support === undefined) {
       if (held !== undefined) setHeld(undefined);
       return;
     }
-    if (wanted && held?.labId !== editable.id) setHeld({ labId: editable.id, code: openLabCode(editable, support) });
-    else if (held !== undefined && held.labId !== editable.id) setHeld(undefined);
+    if (wanted && held?.labId !== editable.id) {
+      // The panel is there at once, editable, while the lab is compiled. If that fails the same files are shown read-only with the reason
+      // (a lab that has been left since has no panel to give it to).
+      const code = openLabCode(editable, support, readOnly => {
+        if (current.current?.code === code) setHeld({ labId: editable.id, code: readOnly });
+        else releaseLabCode(readOnly);
+      });
+      setHeld({ labId: editable.id, code });
+    } else if (held !== undefined && held.labId !== editable.id) setHeld(undefined);
   }, [editable?.id, support, wanted, held]);
   useLayoutEffect(() => () => { if (held !== undefined) releaseLabCode(held.code); }, [held]);
   return held !== undefined && held.labId === editable?.id ? held.code : undefined;
@@ -531,7 +540,7 @@ export function Navigator({ labs = LABS, initialLab, onLabChange, onOpenScene, c
             <>
               <View className="w-full h-px xl:w-px xl:h-full bg-slate-200 shrink-0 pointer-events-auto" />
               <View className="h-[45%] xl:h-full xl:w-[45%] min-w-0 min-h-0 shrink-0 pointer-events-auto">
-                <CodeEditor lab={codePanel.lab} code={codePanel.code} />
+                <CodeEditor key={labCodeKey(codePanel.code)} lab={codePanel.lab} code={codePanel.code} />
               </View>
             </>
           ) : null}

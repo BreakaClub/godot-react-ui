@@ -1,7 +1,9 @@
 import { ClassDB, FileAccess, LiveCompile, PackedStringArray, RefCounted } from 'godot';
 import {
-  parseCompileResult, parseHover, parseInlayHints, parseProject, parseReply, type CheckOutcome, type CompileResult, type Hover, type InlayHint, type ParameterNames, type Project, type ProjectFile,
+  parseProject, type CheckOutcome, type CompileResult, type Hover, type InlayHint, type ParameterNames, type Project, type ProjectFile,
 } from './live-compile-protocol';
+import type { RequestScope } from './live-compile-scope';
+import { ExtensionHost, type ServiceLink } from './live-compile-service';
 
 // `LiveCompile` is the class of the live-compile extension (`live-compile/ext/lib.rs`, `demo/addons/live-compile/`). The extension is
 // built on request (`node scripts/build-live-compile.mjs`), so the generated typings do not describe it and a build without it has
@@ -9,15 +11,19 @@ import {
 // missing. The names are camel-cased by GodotJS (`runtime/core/camel_case_bindings_enabled`).
 declare module 'godot' {
   class LiveCompile extends RefCounted {
-    ping(): string;
+    start(): void;
+    stop(): void;
     setFile(path: string, text: string): void;
     setFiles(paths: PackedStringArray, texts: PackedStringArray): void;
     removeFile(path: string): void;
-    compile(path: string, source: string, refresh: boolean): string;
+    requestPing(): number;
+    requestCompile(path: string, source: string, refresh: boolean): number;
     requestCheck(config: string, libDir: string): number;
     requestQuery(requestJson: string): number;
+    requestStall(milliseconds: number): number;
+    cancel(id: number): boolean;
     poll(): string;
-    start(): void;
+    state(): string;
   }
 }
 
@@ -25,39 +31,43 @@ declare module 'godot' {
 export const PROJECT_RESOURCE = 'res://live-compile/project.json';
 
 /**
- * The compiler and the checker of one project, behind the same typed calls wherever they run. Calls that change the project
- * (`setFile`) return at once; `compile` waits for its answer, which takes milliseconds; `requestCheck` answers later, on the
- * service's own thread, and never holds a frame.
+ * The compiler and the checker of one project, behind the same typed calls wherever they run. **No call waits for the service
+ * thread.** Calls that change the project (`setFile`, `setFiles`) return at once; `compile`, `requestCheck`, `hover` and `inlayHints`
+ * return a promise that is settled on a frame after the service thread has answered, and the frame goes on meanwhile. A browser
+ * starts the service thread only when the page's own thread returns to its event loop, so a call that waited for it could stall the page
+ * (docs/tracks/live-compile-async.md).
  */
 export interface LiveCompileHost {
-  compile(path: string, source: string, refresh: boolean): CompileResult;
+  /**
+   * The compiled form of the file. If `scope` is cancelled before the answer arrives the request is taken back and the promise fails
+   * with `RequestCancelled`: an answer that was given up is never delivered.
+   */
+  compile(path: string, source: string, refresh: boolean, scope: RequestScope): Promise<CompileResult>;
   setFile(path: string, text: string): void;
   setFiles(files: readonly ProjectFile[]): void;
-  /** Starts a check of the project whose configuration file is `config`. A check not begun when the next is requested is superseded. */
-  requestCheck(config: string, libDir: string): Promise<CheckOutcome>;
+  /**
+   * Starts a check of the project whose configuration file is `config`. A check not begun when the next is requested is superseded. With a
+   * `scope`, cancelling it takes the check back like a compile, and the promise fails with `RequestCancelled`.
+   */
+  requestCheck(config: string, libDir: string, scope?: RequestScope): Promise<CheckOutcome>;
   /** What is under `offset` (UTF-16) in the file at `path`, in the project the configuration `config` names: the name and its type. */
-  hover(config: string, libDir: string, path: string, offset: number): Promise<Hover | null>;
+  hover(config: string, libDir: string, path: string, offset: number, scope?: RequestScope): Promise<Hover | null>;
   /** The inferred types of declarations and the parameter names of arguments between two UTF-16 offsets of a file. */
-  inlayHints(config: string, libDir: string, path: string, from: number, to: number, parameterNames: ParameterNames): Promise<InlayHint[]>;
+  inlayHints(config: string, libDir: string, path: string, from: number, to: number, parameterNames: ParameterNames, scope?: RequestScope): Promise<InlayHint[]>;
+  /** Ends the service. Every request still outstanding fails with `RequestCancelled`. */
   close(): void;
 }
 
-/** How soon `poll` asks again while a check is outstanding. Nothing polls while none is. */
-const POLL_INTERVAL_MS = 1;
+/** The extension's `LiveCompile` object behind the typed link the host speaks (`live-compile-service.ts`). */
+class GodotLink implements ServiceLink {
+  private readonly service = new LiveCompile();
 
-export class ExtensionHost implements LiveCompileHost {
-  private readonly service: LiveCompile;
-  private readonly waiting = new Map<number, (outcome: CheckOutcome) => void>();
-  private readonly queries = new Map<number, (result: Record<string, unknown>) => void>();
-  private polling = false;
-  private closed = false;
-
-  constructor(service: LiveCompile) {
-    this.service = service;
+  start(): void {
+    this.service.start();
   }
 
-  compile(path: string, source: string, refresh: boolean): CompileResult {
-    return parseCompileResult(this.service.compile(path, source, refresh));
+  stop(): void {
+    this.service.stop();
   }
 
   setFile(path: string, text: string): void {
@@ -68,61 +78,40 @@ export class ExtensionHost implements LiveCompileHost {
     this.service.setFiles(new PackedStringArray(files.map(file => file.path)), new PackedStringArray(files.map(file => file.text)));
   }
 
-  requestCheck(config: string, libDir: string): Promise<CheckOutcome> {
-    if (this.closed) return Promise.reject(new Error('The live-compile host is closed'));
-    const id = this.service.requestCheck(config, libDir);
-    return new Promise(resolve => {
-      this.waiting.set(id, resolve);
-      this.schedulePoll();
-    });
+  removeFile(path: string): void {
+    this.service.removeFile(path);
   }
 
-  hover(config: string, libDir: string, path: string, offset: number): Promise<Hover | null> {
-    return this.query({ op: 'hover', config, libDir, path, offset }).then(parseHover);
+  requestPing(): number {
+    return this.service.requestPing();
   }
 
-  inlayHints(config: string, libDir: string, path: string, from: number, to: number, parameterNames: ParameterNames): Promise<InlayHint[]> {
-    return this.query({ op: 'inlayHints', config, libDir, path, from, to, parameterNames }).then(parseInlayHints);
+  requestCompile(path: string, source: string, refresh: boolean): number {
+    return this.service.requestCompile(path, source, refresh);
   }
 
-  close(): void {
-    this.closed = true;
-    this.waiting.clear();
-    this.queries.clear();
+  requestCheck(config: string, libDir: string): number {
+    return this.service.requestCheck(config, libDir);
   }
 
-  private query(request: Record<string, unknown>): Promise<Record<string, unknown>> {
-    if (this.closed) return Promise.reject(new Error('The live-compile host is closed'));
-    const id = this.service.requestQuery(JSON.stringify(request));
-    return new Promise(resolve => {
-      this.queries.set(id, resolve);
-      this.schedulePoll();
-    });
+  requestQuery(requestJson: string): number {
+    return this.service.requestQuery(requestJson);
   }
 
-  private schedulePoll(): void {
-    if (this.polling) return;
-    this.polling = true;
-    setTimeout(() => this.poll(), POLL_INTERVAL_MS);
+  requestStall(milliseconds: number): number {
+    return this.service.requestStall(milliseconds);
   }
 
-  private poll(): void {
-    this.polling = false;
-    for (let json = this.service.poll(); json !== ''; json = this.service.poll()) {
-      const reply = parseReply(json);
-      if (reply.kind === 'query') {
-        const resolveQuery = this.queries.get(reply.id);
-        if (resolveQuery === undefined) throw new Error(`The service answered query ${reply.id}, which nobody is waiting for`);
-        this.queries.delete(reply.id);
-        resolveQuery(reply.result);
-        continue;
-      }
-      const resolve = this.waiting.get(reply.id);
-      if (resolve === undefined) throw new Error(`The service answered check ${reply.id}, which nobody is waiting for`);
-      this.waiting.delete(reply.id);
-      resolve(reply.outcome);
-    }
-    if (this.waiting.size > 0 || this.queries.size > 0) this.schedulePoll();
+  cancel(id: number): boolean {
+    return this.service.cancel(id);
+  }
+
+  poll(): string {
+    return this.service.poll();
+  }
+
+  state(): string {
+    return this.service.state();
   }
 }
 
@@ -134,10 +123,10 @@ export function openExtensionHost(): ExtensionHost {
   if (!ClassDB.classExists('LiveCompile') || typeof LiveCompile !== 'function') {
     throw new Error('The live-compile extension is not loaded: natively, run "node scripts/build-live-compile.mjs" and import the project once (pnpm demo does); on the Web, run "node scripts/build-live-compile-web.mjs" for the profile (--engine=stock for stock) and "pnpm build:web --export-only"');
   }
-  const service = new LiveCompile();
-  // The thread starts now, not at the first request that waits for it (a browser starts it from a pool of workers).
-  service.start();
-  return new ExtensionHost(service);
+  const link = new GodotLink();
+  // The thread starts now, not at the first request, so a browser has begun its worker by the time the first request is asked for. Nothing waits for it.
+  link.start();
+  return new ExtensionHost(link);
 }
 
 /** The project the build wrote, read from the Godot project (a file in the pack on the Web). */

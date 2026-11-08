@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { MemoryClipboard } from '../demo/src/editor/clipboard';
-import { EditorWorkspace, INLAY_MAX_CHARACTERS, visibleRange, type LiveBackend } from '../demo/src/editor/workspace';
+import { COMPILING_RUN, EditorWorkspace, INLAY_MAX_CHARACTERS, visibleRange, type LiveBackend } from '../demo/src/editor/workspace';
 import type { CheckDiagnostic, CheckOutcome, CompileDiagnostic, Hover, InlayHint } from '../demo/src/live-compile-protocol';
 import type { UpdateOutcome, UpdateReport } from '../demo/src/live-compile-session';
 import { TEST_METRICS } from './editor-helpers';
@@ -38,14 +38,22 @@ class FakeBackend implements LiveBackend {
     return text;
   }
 
-  update(path: string, text: string): UpdateReport {
+  /** The update of the next text, answered at once; with `holdUpdates` it is answered when the test says (`answers`). */
+  holdUpdates = false;
+  readonly answers: Deferred<void>[] = [];
+
+  update(path: string, text: string): Promise<UpdateReport> {
     this.updates.push({ path, text });
     const check = deferred<CheckOutcome>();
     this.checks.push(check);
-    return {
+    const report: UpdateReport = {
       path, outcome: this.next.outcome, diagnostics: this.next.diagnostics ?? [], error: this.next.error, evaluated: [path], rolledBack: false,
       timings: { compileMs: 1.5, swapMs: 2.5, totalMs: 4 }, check: check.promise,
     };
+    if (!this.holdUpdates) return Promise.resolve(report);
+    const answer = deferred<void>();
+    this.answers.push(answer);
+    return answer.promise.then(() => report);
   }
 
   readonly checkedTexts: { readonly path: string; readonly text: string }[] = [];
@@ -130,6 +138,7 @@ test('a syntax error is shown at once, in the status bar and as an underline, an
   backend.next = { outcome: 'compile-failed', diagnostics: [{ start: 10, end: 11, line: 0, character: 10, severity: 'error', message: 'Expected ";"' }] };
   workspace.active.controller.model.dispatch({ changes: { from: 12, insert: ' = ' } });
   workspace.flush();
+  await pause(0);
   assert.equal(workspace.run.kind, 'compile-failed');
   assert.match(workspace.run.message, /Not applied, the last good page is showing\. Syntax error at 1:11: Expected ";"/u);
   assert.equal(workspace.run.offset, 10);
@@ -154,6 +163,7 @@ test('a class the library has no utility for is not sent to the page, is underli
   // The class is finished: the text goes to the page, and the mark goes.
   controller.model.dispatch({ changes: { from: controller.model.text.indexOf('bg-e'), to: controller.model.text.indexOf('bg-e') + 'bg-e'.length, insert: 'bg-emerald-100' } });
   file.flush();
+  await pause(0);
   assert.equal(backend.updates.length, 1);
   assert.equal(file.run.kind, 'swapped');
   assert.equal(controller.diagnostics.length, 0);
@@ -166,10 +176,12 @@ test('a module that throws and a render that throws are told apart', async () =>
   backend.next = { outcome: 'evaluation-failed', error: 'boom' };
   workspace.active.controller.model.dispatch({ changes: { from: 0, insert: ' ' } });
   workspace.flush();
+  await pause(0);
   assert.match(workspace.run.message, /Not applied.*The module threw: boom/u);
   backend.next = { outcome: 'render-failed', error: 'bang' };
   workspace.active.controller.model.dispatch({ changes: { from: 0, insert: ' ' } });
   workspace.flush();
+  await pause(0);
   assert.match(workspace.run.message, /Rolled back.*threw while it rendered: bang/u);
   assert.equal(workspace.run.kind, 'render-failed');
   workspace.dispose();
@@ -324,4 +336,69 @@ test('hints are placed for the text the page and the checker have, even when mor
   assert.equal(hint?.at, afterA + '// typed since\n'.length);
   assert.equal(controller.model.text.slice((hint?.at ?? 1) - 1, hint?.at), 'a', 'after the name it describes');
   workspace.dispose();
+});
+
+test('while the page is compiling the status says so and the text can still be edited; the answer then says what became of it', async () => {
+  const { backend, workspace } = open();
+  backend.holdUpdates = true;
+  const { model } = workspace.active.controller;
+  model.dispatch({ changes: { from: 0, insert: 'x' } });
+  workspace.flush();
+  assert.equal(workspace.run.kind, 'compiling');
+  assert.equal(workspace.run.message, 'Compiling…');
+  model.dispatch({ changes: { from: 0, insert: 'y' } });
+  assert.equal(model.text.slice(0, 2), 'yx', 'typing goes on while the compile is outstanding');
+  backend.answers[0]?.resolve();
+  await pause(0);
+  assert.equal(workspace.run.kind, 'swapped');
+  workspace.dispose();
+});
+
+test('an update that a newer text overtook says nothing: the newer one shows its own result and its own check', async () => {
+  const { backend, workspace } = open();
+  backend.holdUpdates = true;
+  const { model } = workspace.active.controller;
+  backend.next = { outcome: 'superseded' };
+  model.dispatch({ changes: { from: 0, insert: 'x' } });
+  workspace.flush();
+  backend.next = { outcome: 'compile-failed', diagnostics: [{ start: 0, end: 1, line: 0, character: 0, severity: 'error', message: 'Unexpected' }] };
+  model.dispatch({ changes: { from: 0, insert: 'y' } });
+  workspace.flush();
+  backend.answers[0]?.resolve();
+  await pause(0);
+  assert.equal(workspace.run.kind, 'compiling', 'the overtaken update leaves the status to the newer one');
+  assert.equal(workspace.active.controller.diagnostics.length, 0, 'and draws nothing');
+  assert.equal(workspace.check.kind, 'idle', 'and its check is not awaited');
+  backend.answers[1]?.resolve();
+  await pause(0);
+  assert.equal(workspace.run.kind, 'compile-failed');
+  assert.equal(workspace.check.kind, 'checking', 'the newer update awaits its own check');
+  workspace.dispose();
+});
+
+test('an update that was answered after the workspace was disposed draws nothing', async () => {
+  const { backend, workspace } = open();
+  backend.holdUpdates = true;
+  workspace.active.controller.model.dispatch({ changes: { from: 0, insert: 'x' } });
+  workspace.flush();
+  workspace.dispose();
+  backend.answers[0]?.resolve();
+  await pause(0);
+  assert.equal(workspace.run.kind, 'compiling', 'the status is as it was when the workspace went');
+});
+
+test('the lab opening turns the compiling status into live, and only that status', async () => {
+  const make = () => new EditorWorkspace({ backend: new FakeBackend(), platform: 'mac', clipboard: new MemoryClipboard(), metrics: TEST_METRICS, now: () => 0, initialRun: COMPILING_RUN });
+  const fresh = make();
+  assert.equal(fresh.run.kind, 'compiling');
+  fresh.opened();
+  assert.equal(fresh.run.kind, 'ready');
+  assert.match(fresh.run.message, /^Live\./u);
+  fresh.dispose();
+  const typed = make();
+  typed.active.controller.model.dispatch({ changes: { from: 0, insert: 'x' } });
+  assert.equal(typed.run.kind, 'pending');
+  typed.opened();
+  assert.equal(typed.run.kind, 'pending', 'an edit has changed the status since: the lab opening does not take it back');
+  typed.dispose();
 });

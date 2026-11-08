@@ -163,6 +163,8 @@ export async function runCodeEditorScenario(context) {
     return;
   }
   await waitUntil('the caret', () => nodeExists('code-caret'));
+  // The panel is there, editable, while the lab is compiled; the page is the bundled lab until the compiled one is ready (docs/tracks/live-compile-async.md).
+  await waitUntil('the lab to be compiled and live', async () => (await text('code-status-run')).startsWith('Live.'), LIVE_DEADLINE_MS);
   check('The lab on the stage is the live session\'s and reads as the bundled lab did', (await text('inputs-lab')) === pageBefore);
   check('The status bar says the page is live, not just Ready', (await text('code-status-run')).startsWith('Live.'), await text('code-status-run'));
   check('The first line is the source\'s', (await h.lineText(1)) === lines[0], await h.lineText(1));
@@ -380,6 +382,65 @@ export async function runCodeEditorScenario(context) {
   check('An editor that has lost the focus draws no caret', !(await nodeExists('code-caret')));
   await waitUntil('the process to go idle', async () => !(await demo('surfaceProcessing')), UPDATE_DEADLINE_MS);
   check('With the panel open and unfocused the root asks for no frames', !(await demo('surfaceProcessing')));
+
+  await runLiveCompileSequence(context, h);
+}
+
+/** Ben's sequence needs the live-compile service to start a thread the pool of workers cannot give at once: more threads than the pool holds. */
+const POOL_HOGS = 12;
+/** The longest the page may go without a frame while it waits for the compile (the page is idle: every gap is the wait). */
+const WAIT_FRAME_GAP_LIMIT_MS = 100;
+const LIVE_DEADLINE_MS = 60_000;
+const PANEL_DEADLINE_MS = 2_000;
+
+/**
+ * Ben's sequence in Chrome, with Chrome's own mouse: the code panel open on the HUD lab, on to the scene lab that has no code, then to the Accessibility
+ * lab. On react.breaka.club the compile of that last lab waited for a service thread that the browser could not start while the page waited, and the
+ * page hung for 30 s and ended read-only. Here the page's service is started again behind more threads than the pool of workers holds, which is the
+ * state that led to it, and the page's frames are counted from the page itself (requestAnimationFrame) while it waits for each compile.
+ */
+async function runLiveCompileSequence(context, h) {
+  const { demo, page, frames, check, nodeExists, text, waitUntil } = h;
+  if ((await context.snapshot()).width < PHONE_BREAKPOINT_PX) return;
+  await page.evaluate(() => {
+    globalThis.__sequenceFrames = [];
+    const tick = (now) => { globalThis.__sequenceFrames.push(now); requestAnimationFrame(tick); };
+    requestAnimationFrame(tick);
+  });
+  const framesSince = (mark) => page.evaluate((since) => {
+    const stamps = globalThis.__sequenceFrames.filter((stamp) => stamp >= since);
+    let worst = 0;
+    for (let index = 1; index < stamps.length; index += 1) worst = Math.max(worst, stamps[index] - stamps[index - 1]);
+    return { frames: stamps.length, worstGapMs: Math.round(worst) };
+  }, mark);
+  const now = () => page.evaluate(() => performance.now());
+  await demo('showNavigator', { initialLab: 'hud' });
+  await waitUntil('the navigator on the HUD lab', async () => (await nodeExists('lab-title')) && (await text('lab-title')) === 'HUD over the game');
+  await demo('holdLiveCompileThreads', POOL_HOGS);
+  await demo('restartLiveCompile');
+  await context.click('toggle-code');
+  await waitUntil('the code panel, editable, while the lab compiles', () => nodeExists('code-editor'), PANEL_DEADLINE_MS);
+  check('Ben\'s sequence: the panel opens at once and is not read-only', !(await nodeExists('code-read-only')));
+  const firstMark = await now();
+  await waitUntil('the HUD lab to be live', async () => (await text('code-status-run')).startsWith('Live.'), LIVE_DEADLINE_MS);
+  const first = await framesSince(firstMark);
+  check(`and the page keeps its frames while the HUD lab compiles (no gap over ${WAIT_FRAME_GAP_LIMIT_MS} ms)`, first.worstGapMs <= WAIT_FRAME_GAP_LIMIT_MS && first.frames >= 1, first);
+
+  await context.click('lab-next');
+  await waitUntil('the scene lab', () => nodeExists('lab-launch'), LIVE_DEADLINE_MS);
+  check('The scene lab has no code panel', !(await nodeExists('code-editor')));
+
+  await context.click('lab-next');
+  await waitUntil('the Accessibility lab\'s code panel', () => nodeExists('code-editor'), PANEL_DEADLINE_MS);
+  check('The next lab is Accessibility', (await text('lab-title')) === 'Accessibility', await text('lab-title'));
+  const lastMark = await now();
+  await waitUntil('the Accessibility lab to be live or read-only', async () => (await text('code-status-run')).startsWith('Live.') || (await nodeExists('code-read-only')), LIVE_DEADLINE_MS);
+  const last = await framesSince(lastMark);
+  check('The Accessibility lab\'s code opens and compiles, and does not end read-only', !(await nodeExists('code-read-only')) && (await text('code-status-run')).startsWith('Live.'), await nodeExists('code-read-only') ? await text('code-read-only') : await text('code-status-run'));
+  check(`and the page kept its frames while it did (no gap over ${WAIT_FRAME_GAP_LIMIT_MS} ms)`, last.worstGapMs <= WAIT_FRAME_GAP_LIMIT_MS && last.frames >= 1, last);
+  await demo('releaseLiveCompileThreads');
+  await demo('restoreDemo');
+  await frames();
 }
 
 /** The panel on a page with touch: a tap places the caret and brings the soft keyboard up, whose keys edit the code, and a pan scrolls it. */
