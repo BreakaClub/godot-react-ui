@@ -1,6 +1,6 @@
 export const MAX_DISTURBED_RERUNS: number;
 export const DISTURBANCE_RELEVANCE_MS: number;
-export const KILL_GRACE_MS: number;
+export { KILL_GRACE_MS } from './supervised-process.mjs';
 
 export interface NativeVerifierRun {
   godot: string;
@@ -25,7 +25,13 @@ export interface NativeVerifierRun {
   killGraceMs?: number;
   /** Default true: the window cannot take focus (scripts/quiet-window.mjs). Only a stand-in for Godot turns it off. */
   quiet?: boolean;
+  /** Start every line the window prints with `[name] `: for windows that run at the same time. */
+  prefixOutput?: boolean;
 }
+
+/** What differs between the windows of one workflow; the rest is {@link NativeVerifierCommon}. */
+export type NativeVerifierWindow = Pick<NativeVerifierRun, 'name' | 'resolution' | 'output'> & Partial<NativeVerifierRun>;
+export type NativeVerifierCommon = Omit<NativeVerifierRun, 'name' | 'resolution' | 'output'>;
 
 export interface Disturbance {
   kind: string;
@@ -74,6 +80,12 @@ export function describePass(log: string, successMarker: string): { partial: boo
 export function summarizeRun(result: Omit<NativeVerifierResult, 'summary'>): string;
 export function summarizeRuns(results: NativeVerifierResult[]): string;
 export function runNativeVerifier(run: NativeVerifierRun): Promise<NativeVerifierResult>;
+export { lineWriter } from './supervised-process.mjs';
+/**
+ * Run the windows of one workflow at the same time (or one after another with `serial`), each as `runNativeVerifier` runs one. Resolves with the results in
+ * order once every window has ended; if any failed, rejects with that window's error, or with one `AggregateError` listing all of them.
+ */
+export function runNativeVerifiers(common: NativeVerifierCommon, windows: NativeVerifierWindow[], options?: { serial?: boolean }): Promise<NativeVerifierResult[]>;
 
 /** A verifier prints this and a text just before it makes the product report an error on purpose. */
 export const EXPECT_ERROR_MARKER: string;

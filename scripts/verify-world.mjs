@@ -3,11 +3,11 @@ import { resolve } from 'node:path';
 import { rejectUnknownArguments } from './arguments.mjs';
 import { importDemo } from './import-demo.mjs';
 import { selectEngine } from './engine.mjs';
-import { runNativeVerifier, summarizeRuns } from './native-run.mjs';
+import { runNativeVerifiers, summarizeRuns } from './native-run.mjs';
 
 // Phase I11: the world-space panel (docs/WORLD_SPACE.md). Godot runs a scene other than the project's main
 // scene when its path follows the project options; arguments for the scripts follow `--`.
-rejectUnknownArguments(process.argv.slice(2), { flags: ['--no-retry'] });
+rejectUnknownArguments(process.argv.slice(2), { flags: ['--no-retry', '--serial'] });
 const root = resolve(import.meta.dirname, '..');
 const engine = selectEngine();
 const godot = engine.godot;
@@ -24,14 +24,12 @@ if (build.status !== 0) process.exit(build.status ?? 1);
 importDemo(godot);
 // `--no-retry` runs each window once, whatever disturbed it (see scripts/verify.mjs).
 const retry = !process.argv.includes('--no-retry');
-const results = [];
-for (const [name, resolution] of [['landscape','1120x800'],['portrait','600x900']]) {
-  results.push(await runNativeVerifier({
-    godot, project: resolve(root, 'demo'), output: resolve(artifactRoot, name), name, resolution,
-    leading: [scene], scriptArgs: ['--verify-world'], successMarker, deadlineMs, retry,
-    beforeLaunch: () => engine.requireInstalledBuilds(),
-    // `previously notified` is the engine's warning for an unpaired notifyMouseEntered/notifyMouseExited.
-    errorPattern: /ERROR:|Uncaught|\[panic |previously notified/u,
-  }));
-}
+// The two windows run at the same time; `--serial` runs them one after the other (see scripts/verify.mjs).
+const serial = process.argv.includes('--serial');
+const results = await runNativeVerifiers({
+  godot, project: resolve(root, 'demo'), leading: [scene], scriptArgs: ['--verify-world'], successMarker, deadlineMs, retry,
+  beforeLaunch: () => engine.requireInstalledBuilds(),
+  // `previously notified` is the engine's warning for an unpaired notifyMouseEntered/notifyMouseExited.
+  errorPattern: /ERROR:|Uncaught|\[panic |previously notified/u,
+}, [['landscape', '1120x800'], ['portrait', '600x900']].map(([name, resolution]) => ({ name, resolution, output: resolve(artifactRoot, name) })), { serial });
 console.log(`verify-world summary:\n${summarizeRuns(results)}`);

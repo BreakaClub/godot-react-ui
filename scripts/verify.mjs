@@ -5,7 +5,7 @@ import { argsWithoutEngine, selectEngine } from './engine.mjs';
 import {
   NATIVE_INTERACTION_SECTIONS, NATIVE_OPT_IN_SECTIONS, checkSectionNames, interactionDeadlineMs, requestedSections, sectionsToRun,
 } from './verifier-sections.mjs';
-import { runNativeVerifier, summarizeRuns } from './native-run.mjs';
+import { runNativeVerifiers, summarizeRuns } from './native-run.mjs';
 import { existsSync } from 'node:fs';
 import { INSTALLED_LIBRARY, requireLiveCompile } from './live-compile-build.mjs';
 
@@ -18,7 +18,7 @@ const godot = engine.godot;
 // the measurements); the other workflows finish well inside two minutes. `sectionMs` in the interaction pass line has the numbers.
 const DEFAULT_DEADLINE_MS = 120_000;
 for (const argument of argsWithoutEngine(process.argv.slice(2))) {
-  if (!['--motion', '--interaction', '--no-retry', '--faults'].includes(argument)
+  if (!['--motion', '--interaction', '--no-retry', '--faults', '--serial'].includes(argument)
     && !['--only=', '--renderer=', '--viewport=', '--lab='].some(prefix => argument.startsWith(prefix))) throw new Error(`Unknown argument: ${argument}`);
 }
 const motion = process.argv.includes('--motion');
@@ -43,6 +43,9 @@ const userFlag = motion ? '--verify-motion' : interaction ? '--verify-interactio
 const only = process.argv.filter(argument => argument.startsWith('--only='));
 // `--no-retry` runs each window once, whatever disturbed it: for negative controls, where a re-run would hide the very failure being looked for.
 const retry = !process.argv.includes('--no-retry');
+// The landscape and portrait windows are two Godot processes with nothing in common, and run at the same time. `--serial` runs one after the other, the way
+// every run did before (docs/tracks/suite-speed.md): to tell whether running together changes a result, or on a host that cannot carry two windows.
+const serial = process.argv.includes('--serial');
 if (only.length > 0 && !interaction) throw new Error('--only=<section> applies to the interaction workflow (--interaction).');
 if (lab !== undefined && (!interaction || !only.includes('--only=navigator'))) throw new Error('--lab=<id> applies to --interaction --only=navigator: that section checks the start on a lab.');
 if (lab === '') throw new Error('--lab= needs the id of a lab');
@@ -76,16 +79,13 @@ const build = spawnSync('pnpm', ['build'], {cwd:root, stdio:'inherit'});
 if (build.error) throw build.error;
 if (build.status !== 0) process.exit(build.status ?? 1);
 importDemo(godot);
-const results = [];
 const windows = viewport === undefined ? [['landscape', '1120x800'], ['portrait', '600x900']] : [[`viewport-${viewport}`, '1120x800']];
-for (const [name, resolution] of windows) {
-  results.push(await runNativeVerifier({
-    godot, project: resolve(root, 'demo'), output: resolve(artifactRoot, name), name, resolution,
-    leading: renderer === undefined ? [] : ['--rendering-method', renderer],
-    scriptArgs: [userFlag, ...only, ...(lab === undefined ? [] : [`--lab=${lab}`]), ...(viewport === undefined ? [] : [`--logical-viewport=${viewport}`])], successMarker, deadlineMs, retry,
-    // The builds are checked again before every window, not only before the first: another session may rebuild or switch them in between.
-    beforeLaunch: () => engine.requireInstalledBuilds({ faults }),
-    errorPattern: /ERROR:|Uncaught|\[panic /u,
-  }));
-}
+const results = await runNativeVerifiers({
+  godot, project: resolve(root, 'demo'),
+  leading: renderer === undefined ? [] : ['--rendering-method', renderer],
+  scriptArgs: [userFlag, ...only, ...(lab === undefined ? [] : [`--lab=${lab}`]), ...(viewport === undefined ? [] : [`--logical-viewport=${viewport}`])], successMarker, deadlineMs, retry,
+  // The builds are checked again before every window, not only before the first: another session may rebuild or switch them in between.
+  beforeLaunch: () => engine.requireInstalledBuilds({ faults }),
+  errorPattern: /ERROR:|Uncaught|\[panic /u,
+}, windows.map(([name, resolution]) => ({ name, resolution, output: resolve(artifactRoot, name) })), { serial });
 console.log(`${userFlag.slice(2)} summary:\n${summarizeRuns(results)}`);

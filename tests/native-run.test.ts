@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { pathToFileURL } from 'node:url';
 import {
-  DISTURBANCE_RELEVANCE_MS, EXPECT_ERROR_MARKER, MAX_DISTURBED_RERUNS, parseRunReport, relevantDisturbances, runNativeVerifier,
+  DISTURBANCE_RELEVANCE_MS, EXPECT_ERROR_MARKER, MAX_DISTURBED_RERUNS, lineWriter, parseRunReport, relevantDisturbances, runNativeVerifier, runNativeVerifiers,
   type NativeVerifierResult, withoutExpectedErrors,
 } from '../scripts/native-run.mjs';
 
@@ -280,4 +280,140 @@ test('an error the verifier announced is expected once; an unannounced one, or a
   const other = await run([`${EXPECT_ERROR_MARKER}node 7 has a filter\nERROR: something else\n${PASSED}`]);
   assert.match(other.error?.message ?? '', /announced an error that never appeared/u, 'the announcement is for a text, not any error');
   assert.deepEqual(withoutExpectedErrors(`${announced}\nok`).unmet, []);
+});
+
+// ---- Windows that run at the same time ----------------------------------------------------------------------------------------
+
+/**
+ * A stand-in for Godot that tells the windows of one workflow apart by their `--resolution`. Each launch records `start <resolution>` and,
+ * with `barrier`, does not go on until that many windows have started: a barrier no serial run can pass, so passing it proves the windows
+ * overlapped. Then it prints the log scripted for its resolution and records `end <resolution>`.
+ */
+function windowsGodot(directory: string, logs: Readonly<Record<string, string>>, barrier: number): string {
+  const path = join(directory, 'fake-windows-godot.mjs');
+  writeFileSync(path, `#!/usr/bin/env node
+import { appendFileSync, existsSync, readFileSync } from 'node:fs';
+const directory = ${JSON.stringify(directory)};
+const logs = ${JSON.stringify(logs)};
+const barrier = ${barrier};
+const resolution = process.argv[process.argv.indexOf('--resolution') + 1];
+const events = directory + '/events';
+appendFileSync(events, 'start ' + resolution + '\\n');
+const started = () => (existsSync(events) ? readFileSync(events, 'utf8').split('\\n').filter(line => line.startsWith('start ')).length : 0);
+const waitedFrom = Date.now();
+while (started() < barrier && Date.now() - waitedFrom < 15000) await new Promise(resolve => setTimeout(resolve, 10));
+console.log(started() < barrier ? 'GODOT_REACT_VERIFY_FAILED the other window never started' : logs[resolution]);
+appendFileSync(events, 'end ' + resolution + '\\n');
+`);
+  chmodSync(path, 0o755);
+  return path;
+}
+
+const WINDOW_NAMES = [['landscape', '1x1'], ['portrait', '2x2']] as const;
+
+async function runWindows(
+  logs: Readonly<Record<string, string>>,
+  { barrier, serial = false }: { barrier: number; serial?: boolean },
+): Promise<{ results: NativeVerifierResult[] | undefined; error: Error | undefined; events: string[]; directory: string }> {
+  const directory = mkdtempSync(join(tmpdir(), 'native-run-windows-'));
+  let results: NativeVerifierResult[] | undefined;
+  let error: Error | undefined;
+  try {
+    results = await runNativeVerifiers({
+      godot: windowsGodot(directory, logs, barrier), project: directory, scriptArgs: ['--verify'], successMarker: PASSED,
+      errorPattern: /ERROR:|Uncaught|\[panic /u, deadlineMs: 30_000, quiet: false,
+    }, WINDOW_NAMES.map(([name, resolution]) => ({ name, resolution, output: join(directory, name) })), { serial });
+  } catch (caught) {
+    assert.ok(caught instanceof Error);
+    error = caught;
+  }
+  const events = existsSync(join(directory, 'events')) ? readFileSync(join(directory, 'events'), 'utf8').split('\n').filter(line => line !== '') : [];
+  return { results, error, events, directory };
+}
+
+test('the windows of a workflow run at the same time: neither ends before both have started', async () => {
+  const outcome = await runWindows({ '1x1': PASSED, '2x2': PASSED }, { barrier: 2 });
+  assert.equal(outcome.error, undefined);
+  assert.deepEqual(outcome.results?.map(result => result.summary), ['landscape: PASSED', 'portrait: PASSED'], 'in the order the windows were given');
+  assert.deepEqual(outcome.events.slice(0, 2).sort(), ['start 1x1', 'start 2x2'], 'both started before any ended');
+  assert.equal(outcome.events.length, 4);
+});
+
+test('serial runs the windows one after another, as every workflow did before', async () => {
+  const outcome = await runWindows({ '1x1': PASSED, '2x2': PASSED }, { barrier: 0, serial: true });
+  assert.equal(outcome.error, undefined);
+  assert.deepEqual(outcome.events, ['start 1x1', 'end 1x1', 'start 2x2', 'end 2x2']);
+});
+
+test('serial stops at the first window that fails, and does not launch the next', async () => {
+  const outcome = await runWindows({ '1x1': FAILED, '2x2': PASSED }, { barrier: 0, serial: true });
+  assert.match(outcome.error?.message ?? '', /^landscape runtime verification failed/);
+  assert.deepEqual(outcome.events, ['start 1x1', 'end 1x1']);
+});
+
+test('a window that fails fails the run with its own message, and the other window still runs to its end and keeps its evidence', async () => {
+  const outcome = await runWindows({ '1x1': PASSED, '2x2': `${FAILED}\n${ended(FAILURE_AT_MS)}` }, { barrier: 2 });
+  assert.equal(outcome.results, undefined);
+  assert.match(outcome.error?.message ?? '', /^portrait runtime verification failed .*Entering a child hovers its parent/, 'the message is the one a single window gives');
+  assert.doesNotMatch(outcome.error?.message ?? '', /windows failed/);
+  assert.equal(outcome.events.filter(line => line.startsWith('end ')).length, 2, 'the window that passed ran to its end');
+  assert.match(readFileSync(join(outcome.directory, 'landscape', 'run.log'), 'utf8'), new RegExp(PASSED), 'and kept its log');
+  assert.match(readFileSync(join(outcome.directory, 'portrait', 'run.log'), 'utf8'), /Entering a child hovers its parent/);
+});
+
+test('when every window fails, one error names each of them', async () => {
+  const outcome = await runWindows({ '1x1': `${FAILED}\n${ended(FAILURE_AT_MS)}`, '2x2': `${FAILED}\n${ended(FAILURE_AT_MS)}` }, { barrier: 2 });
+  assert.ok(outcome.error instanceof AggregateError);
+  assert.match(outcome.error.message, /^2 of 2 windows failed:\n {2}landscape: landscape runtime verification failed.*\n {2}portrait: portrait runtime verification failed/s);
+  assert.equal(outcome.error.errors.length, 2);
+});
+
+test('a window disturbed on its own is run again on its own, and the other window is not run again', async () => {
+  const outcome = await runWindows({
+    '1x1': PASSED,
+    '2x2': failedRun(FAILURE_AT_MS, REACHING_MOUSE(FAILURE_AT_MS - 100)),
+  }, { barrier: 2 });
+  // The stand-in repeats the portrait window's script on its re-runs, so it fails every attempt; what matters is who was launched how often.
+  assert.match(outcome.error?.message ?? '', /portrait failed in each of its 3 attempts/);
+  assert.equal(outcome.events.filter(line => line === 'start 1x1').length, 1, 'the landscape window ran once');
+  assert.equal(outcome.events.filter(line => line === 'start 2x2').length, 1 + MAX_DISTURBED_RERUNS, 'the portrait window ran its attempts');
+});
+
+test('lineWriter labels whole lines however the text is cut, and flush writes a last line that has no newline', () => {
+  const written: string[] = [];
+  const writer = lineWriter('[portrait] ', text => { written.push(text); });
+  writer.push('first line\nsecond ');
+  assert.deepEqual(written, ['[portrait] first line\n'], 'a partial line waits for the rest of it');
+  writer.push('half\n\nthird');
+  assert.deepEqual(written, ['[portrait] first line\n', '[portrait] second half\n', '[portrait] \n']);
+  writer.flush();
+  assert.equal(written.at(-1), '[portrait] third\n');
+  writer.flush();
+  assert.equal(written.length, 4, 'nothing is written twice');
+});
+
+test('windows that run together label what they print; a single window prints as it always did', async () => {
+  const lines: string[] = [];
+  const original = process.stdout.write.bind(process.stdout);
+  const capture = (chunk: string | Uint8Array, ...rest: unknown[]): boolean => {
+    const text = typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString();
+    if (text.includes('GODOT_REACT_VERIFY_PASSED') || text.includes('QUIET')) {
+      lines.push(text);
+      return true;
+    }
+    return Reflect.apply(original, process.stdout, [chunk, ...rest]);
+  };
+  process.stdout.write = capture as typeof process.stdout.write;
+  try {
+    const together = await runWindows({ '1x1': PASSED, '2x2': PASSED }, { barrier: 2 });
+    assert.equal(together.error, undefined);
+    assert.deepEqual(lines.filter(line => line.startsWith('[landscape] ')), [`[landscape] ${PASSED}\n`]);
+    assert.deepEqual(lines.filter(line => line.startsWith('[portrait] ')), [`[portrait] ${PASSED}\n`]);
+    lines.length = 0;
+    const alone = await runWindows({ '1x1': PASSED, '2x2': PASSED }, { barrier: 0, serial: true });
+    assert.equal(alone.error, undefined);
+    assert.deepEqual(lines, [`${PASSED}\n`, `${PASSED}\n`], 'unlabelled, as before');
+  } finally {
+    process.stdout.write = original;
+  }
 });
