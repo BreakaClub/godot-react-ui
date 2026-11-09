@@ -63,6 +63,21 @@ test('TypeScript is stripped: types, enums\' declarations, satisfies and unused 
   assert.doesNotMatch(code, /interface|satisfies|: P/u);
 });
 
+test('a module that reads the global Object compiles, and its exports are defined on that same Object', { skip: NEEDS_CLI }, () => {
+  // The parser puts a name nothing declares in the module scope, unbound: it is the global, not a binding the pass's `Object` would collide with.
+  const { code } = compiled(`export const keys = Object.keys({ a: 1, b: 2 });\n`);
+  assert.match(code, /\bObject\.defineProperty\(exports/u);
+  assert.doesNotMatch(code, /\bObject\d/u, 'the pass reads the global by its own name, not a renamed one');
+  const exports: Record<string, unknown> = {};
+  new Function('require', 'exports', 'module', '$RefreshReg$', '$RefreshSig$', code)(() => ({}), exports, { exports }, () => {}, () => () => {});
+  assert.deepEqual(exports.keys, ['a', 'b']);
+});
+
+test('a module-level binding named Object is still a diagnostic: the pass would read it in place of the global', { skip: NEEDS_CLI }, () => {
+  const declared = compile(`const Object = { keys: () => [] };\nexport const keys = Object.keys({ a: 1 });\n`);
+  assert.ok(!declared.ok && /`Object` collides/u.test(declared.diagnostics[0]?.message ?? ''), JSON.stringify(declared));
+});
+
 test('what a function body cannot say is a diagnostic: import.meta and top-level await', { skip: NEEDS_CLI }, () => {
   const meta = compile(`export const u = import.meta.url;`);
   assert.ok(!meta.ok && /import\.meta/u.test(meta.diagnostics[0]?.message ?? ''));
