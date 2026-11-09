@@ -16,8 +16,9 @@ export const DEMO_ENTRY_POINTS = [
   // The world-space scene (docs/WORLD_SPACE.md) has its own owner, and the scene launcher starts it on the Web.
   'demo/src/world-main.ts', 'demo/src/world-geometry.ts', 'demo/src/verify-world.ts', 'demo/src/scene-launcher.ts',
   'demo/src/verifier-input.ts', 'demo/src/verify-text-input.ts', 'demo/src/verify-combobox.ts',
-  // The lab navigator (`demo/src/navigator.tsx`, bundled into main): what a run opens with, and the way back from a lab that is a scene.
-  'demo/src/launch.ts', 'demo/src/scene-return.ts', 'demo/src/verify-navigator.ts',
+  // The lab navigator (`demo/src/navigator.tsx`, bundled into main): what a run opens with, the way back from a lab that is a scene, and
+  // the globals its router needs where native GodotJS has none (installed once, by whichever bundle loads first).
+  'demo/src/launch.ts', 'demo/src/scene-return.ts', 'demo/src/verify-navigator.ts', 'demo/src/native-web-globals.ts',
   // The transforms lab's verifier, its shared data and the numbers Chrome reports for it (docs/tracks/transforms.md).
   'demo/src/verify-transforms.ts', 'demo/src/transform-data.ts', 'demo/src/transform-golden.ts',
   // The text layout probe scene (docs/tracks/text-layout.md) has its own owner and verifier.

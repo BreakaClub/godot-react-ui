@@ -7,6 +7,7 @@ import { Text } from '../src';
 import { LABS, labsInOrder, type InlineLab, type Lab, type SceneLab } from '../demo/src/labs';
 import { Navigator, type NavigatorProps } from '../demo/src/navigator';
 import { settleReact } from './react-scheduler';
+import { installNativeWebGlobals } from '../demo/src/native-web-globals';
 import { CASE_OPTIONS, setTransformCase } from '../demo/src/transform-lab';
 import { createTestRoot } from './recording-host';
 import type { CodeSupport } from '../demo/src/editor/lab-code';
@@ -515,5 +516,48 @@ test('When code editor is open, Ctrl+F opens code editor search instead of page 
     assert.equal(m.has('code-search'), false);
   } finally {
     console.warn = originalWarn;
+  }
+});
+
+// Native GodotJS gives scripts the ECMAScript builtins, `console`, the timers and its own bindings (bridge/jsb_essentials.cpp), and none
+// of the Web platform's globals, which Node has. The router's code reaches for some of them (an AbortController per route match,
+// URLSearchParams to read a search, URL for a path outside ASCII: demo/src/native-web-globals.ts), so this runs the navigator with Node's
+// taken away, as a native build runs it.
+const WEB_GLOBALS_NODE_HAS = [
+  'AbortController', 'AbortSignal', 'Blob', 'BroadcastChannel', 'CustomEvent', 'DOMException', 'Event', 'EventTarget', 'FormData', 'Headers',
+  'MessageChannel', 'MessageEvent', 'MessagePort', 'Request', 'Response', 'TextDecoder', 'TextEncoder', 'URL', 'URLSearchParams', 'WebSocket',
+  'atob', 'btoa', 'crypto', 'fetch', 'navigator', 'queueMicrotask', 'structuredClone',
+] as const;
+
+test('the navigator runs with only the globals native GodotJS has', async () => {
+  const saved = WEB_GLOBALS_NODE_HAS.map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const);
+  const consoleError = console.error;
+  // The router reports a failed load by giving console.error the Error (react-router's Transitioner), so one there is a failure here.
+  // (Node prints its own process warnings through console.error too, as text: the first navigator in a process draws one about a
+  // circular require inside the router's CommonJS build.)
+  const errors: Error[] = [];
+  try {
+    for (const [name] of saved) Reflect.deleteProperty(globalThis, name);
+    for (const [name] of saved) assert.equal(Reflect.has(globalThis, name), false, `${name} is still defined`);
+    installNativeWebGlobals();
+    console.error = (...args: unknown[]) => { errors.push(...args.filter(arg => arg instanceof Error)); };
+
+    const m = mount({ initialLab: SECOND.id });
+    assert.equal(m.title(), SECOND.title);
+    m.click('lab-next');
+    await settleReact();
+    assert.equal(m.props(`lab-item-${ORDERED[2]?.id ?? ''}`).ariaSelected, true, 'Next moved the router to the third lab');
+
+    // A lab id outside ASCII is not a lab, and the router reads it without the URL parser native GodotJS lacks.
+    const missing = mount({ initialLab: 'café' });
+    await settleReact();
+    assert.match(missing.textOf('lab-missing-message'), /There is no lab called "café"/u);
+    assert.deepEqual(errors, []);
+  } finally {
+    console.error = consoleError;
+    for (const [name, descriptor] of saved) {
+      if (descriptor === undefined) Reflect.deleteProperty(globalThis, name);
+      else Object.defineProperty(globalThis, name, descriptor);
+    }
   }
 });

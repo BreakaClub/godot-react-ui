@@ -22,6 +22,9 @@ const builder = await context({
   entryPoints: [...DEMO_ENTRY_POINTS], outdir: 'demo/.godot/GodotJS/src',
   external: ['godot', 'godot.lib.api', 'godot.annotations', 'godot-jsb'],
   conditions: ['browser'],
+  // A package without an `exports` map is found by its `module` or `main`: the neutral platform reads no main fields of its own, and
+  // abort-controller's event-target-shim has only `main`. Every bundle was made from the same files with these as without them.
+  mainFields: ['module', 'main'],
   define: {
     'process.env.NODE_ENV': '"development"',
     'self': 'globalThis',

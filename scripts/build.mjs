@@ -11,6 +11,9 @@ const shared = {
   absWorkingDir: root, bundle: true, platform: 'neutral', target: 'es2022',
   sourcemap: true, format: 'cjs', external: ['godot', 'godot.lib.api', 'godot.annotations', 'godot-jsb'],
   conditions: ['browser'],
+  // A package without an `exports` map is found by its `module` or `main`: the neutral platform reads no main fields of its own, and
+  // abort-controller's event-target-shim has only `main`. Every bundle was made from the same files with these as without them.
+  mainFields: ['module', 'main'],
   define: {
     'process.env.NODE_ENV': '"production"',
     'self': 'globalThis',

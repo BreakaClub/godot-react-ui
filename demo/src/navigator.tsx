@@ -1,3 +1,5 @@
+// First: the globals the router reaches for, where native GodotJS has none (native-web-globals.ts).
+import './native-web-globals';
 import React, { Component, createContext, Fragment, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type MutableRefObject, type ReactNode } from 'react';
 import {
   createMemoryHistory,
@@ -19,19 +21,21 @@ import { CodeEditor } from './code-editor';
 import { labCodeKey, openLabCode, releaseLabCode, type CodeSupport, type LabCode } from './editor/lab-code';
 import { PageSearch } from './page-search';
 
-declare global {
-  // eslint-disable-next-line no-var
-  var scrollTo: ((x?: number, y?: number) => void) | undefined;
-  // eslint-disable-next-line no-var
-  var self: typeof globalThis | undefined;
-}
-
-if (typeof globalThis.scrollTo === 'undefined') {
-  globalThis.scrollTo = () => {};
-}
-if (typeof globalThis.self === 'undefined') {
-  globalThis.self = globalThis;
-}
+/**
+ * The navigator's routes (`/` and `/labs/$labId`) take no search, so its router reads none. The router's own parser builds a
+ * URLSearchParams, which native GodotJS does not have (native-web-globals.ts). A search reaching it would be a bug, and says so.
+ */
+const NO_SEARCH = {
+  parseSearch: (search: string): Record<string, never> => {
+    if (search !== '' && search !== '?') throw new Error(`The navigator's routes take no search, but its router was given "${search}"`);
+    return {};
+  },
+  stringifySearch: (search: Record<string, unknown>): string => {
+    const names = Object.keys(search);
+    if (names.length > 0) throw new Error(`The navigator's routes take no search, but its router was asked to write ${names.join(', ')}`);
+    return '';
+  },
+};
 
 /**
  * The demo's shop window: every lab behind one navigation shell, built from the library's own kit and utility classes.
@@ -735,8 +739,9 @@ export function Navigator({ labs = LABS, initialLab, onLabChange, onOpenScene, c
     });
     const routeTree = rootRoute.addChildren([indexRoute, labRoute]);
 
+    // Encoded as the router encodes the ids it builds: a path outside ASCII would send it to the URL parser native GodotJS does not have.
     const initialEntry = initialLab !== undefined
-      ? `/labs/${initialLab}`
+      ? `/labs/${encodeURIComponent(initialLab)}`
       : (ordered[FIRST_LAB] !== undefined ? `/labs/${ordered[FIRST_LAB].id}` : '/');
 
     const history = historyProp ?? createMemoryHistory({ initialEntries: [initialEntry] });
@@ -746,6 +751,7 @@ export function Navigator({ labs = LABS, initialLab, onLabChange, onOpenScene, c
       history,
       isServer: false,
       origin: 'http://localhost',
+      ...NO_SEARCH,
     });
 
     const matches = r.matchRoutes(r.latestLocation);
