@@ -270,6 +270,8 @@ impl ReactUiRoot {
         if wants == node.render.has_scroller() {
             return;
         }
+        // The node's text moves into the content item a scroller needs (`RenderNode::ensure_content_item`): it is painted again.
+        self.paint_dirty.insert(tag);
         let (item, children) = if wants {
             node.render.make_scroller();
             (node.render.child_item(), node.paint_children.clone())

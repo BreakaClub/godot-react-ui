@@ -360,13 +360,24 @@ impl RenderNode {
     }
 
     /// Return the content item, creating it under `box_item` if it does not exist yet.
+    ///
+    /// Text recorded while there was no content item is in the box item, which then draws nothing else (`content_draw_item`). The
+    /// content item is made for a clip, a scroller or a visible box, and the text must be in it to be clipped and scrolled with the
+    /// children: so the text is cleared from the box item and `content_key` forgotten, and `paint_node`'s `record_content`, which
+    /// follows the clip and the box in the same pass, records it again into the new item.
     pub(crate) fn ensure_content_item(&mut self) -> Rid {
-        *self.content_item.get_or_insert_with(|| {
-            let mut rs = server();
-            let item = rs.canvas_item_create();
-            rs.canvas_item_set_parent(item, self.box_item);
-            item
-        })
+        if let Some(item) = self.content_item {
+            return item;
+        }
+        let mut rs = server();
+        if self.content_key.take().is_some() {
+            rs.canvas_item_clear(self.box_item);
+            self.content_leases.clear();
+        }
+        let item = rs.canvas_item_create();
+        rs.canvas_item_set_parent(item, self.box_item);
+        self.content_item = Some(item);
+        item
     }
 
     /// The canvas item text content draws into: `content_item` if present, else creates `content_item`
@@ -499,10 +510,11 @@ impl RenderNode {
         {
             rs.free_rid(item);
         }
-        if self.clip.is_none() && self.content_key.is_none() {
-            if let Some(item) = self.content_item.take() {
-                rs.free_rid(item);
-            }
+        if self.clip.is_none()
+            && self.content_key.is_none()
+            && let Some(item) = self.content_item.take()
+        {
+            rs.free_rid(item);
         }
         self.scroll_offset = Vector2::ZERO;
         self.overlay_key = None;
@@ -861,10 +873,10 @@ impl RenderNode {
         let was_visible = self.box_key.as_ref().is_some_and(BoxKey::is_visible);
         let mut rs = server();
         if is_visible {
+            // Text drawn into the box item moves to a content item of its own, under the box (`ensure_content_item`).
             if self.content_item.is_none() && self.content_key.is_some() {
                 drop(rs);
                 self.ensure_content_item();
-                self.content_key = None;
                 rs = server();
             }
             rs.canvas_item_clear(self.box_item);
@@ -981,10 +993,9 @@ impl RenderNode {
         } else if self.scroll_item.is_none()
             && self.content_key.is_none()
             && !self.box_key.as_ref().is_some_and(BoxKey::is_visible)
+            && let Some(item) = self.content_item.take()
         {
-            if let Some(item) = self.content_item.take() {
-                server().free_rid(item);
-            }
+            server().free_rid(item);
         }
         self.assert_clip();
         true
@@ -1083,9 +1094,14 @@ impl Drop for RenderNode {
             rs.free_rid(items.text);
             rs.free_rid(items.caret);
         }
-        for item in [self.scroll_item, self.overlay_item, self.outline_item, self.content_item]
-            .into_iter()
-            .flatten()
+        for item in [
+            self.scroll_item,
+            self.overlay_item,
+            self.outline_item,
+            self.content_item,
+        ]
+        .into_iter()
+        .flatten()
         {
             rs.free_rid(item);
         }
