@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  Button, Portal, Text, TextInput, useRangeRects, useRootSnapshot, useScrollIntoView, View,
-  type LayoutRect, type NativeSnapshot, type NativeSnapshotNode, type TextInputHandle,
+  Button, Text, TextInput, useRootSnapshot, useScrollIntoView, View,
+  type LayoutRect, type TextInputHandle,
   type UIInputEvent, type UIKeyboardEvent,
 } from 'godot-react-ui';
+import { SearchChevronDown, SearchChevronUp, SearchClose } from './search-icons';
 
 export interface PageMatch {
   readonly nodeId: number;
@@ -146,7 +147,6 @@ export function PageSearch({ selectedLabId, searchEpoch, onClose }: PageSearchPr
 
   const readSnapshot = useRootSnapshot();
   const scrollIntoView = useScrollIntoView();
-  const rangeRects = useRangeRects();
 
   const prevEpoch = useRef(searchEpoch);
   useEffect(() => {
@@ -207,75 +207,53 @@ export function PageSearch({ selectedLabId, searchEpoch, onClose }: PageSearchPr
     }
   };
 
-  const activeMatch = matches[activeMatchIndex];
-  const activeRects = activeMatch !== undefined ? rangeRects(activeMatch.nodeId, activeMatch.start, activeMatch.end) : undefined;
-  const highlightRect: LayoutRect | undefined = (activeRects && activeRects.length > 0)
-    ? activeRects[0]
-    : activeMatch?.rect;
-
   const countText = query === '' ? '' : matches.length === 0 ? '0 of 0' : `${activeMatchIndex + 1} of ${matches.length}`;
 
   return (
-    <>
-      <View
-        testID="page-search"
-        className="absolute top-3 right-6 z-40 flex-row items-center gap-2 rounded-xl border border-slate-300 bg-white/95 px-3 py-2 shadow-lg backdrop-blur pointer-events-auto"
+    <View
+      testID="page-search"
+      className="absolute top-3 right-6 z-40 flex-row items-center gap-2 rounded-xl border border-slate-300 bg-white/95 px-3 py-2 shadow-lg backdrop-blur pointer-events-auto"
+    >
+      <TextInput
+        ref={inputRef}
+        testID="page-search-input"
+        aria-label="Find in page"
+        placeholder="Find in page"
+        value={query}
+        autoFocus
+        className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-800 placeholder-slate-400 focus:border-indigo-500 w-48"
+        onChange={(event: UIInputEvent) => setQuery(event.value)}
+        onKeyDown={onKeyDown}
+      />
+      <Text testID="page-search-count" className="text-xs text-slate-500 min-w-[50px] text-center font-medium">
+        {countText}
+      </Text>
+      <Button
+        testID="page-search-previous"
+        aria-label="Previous match"
+        disabled={matches.length === 0}
+        className="rounded p-1.5 text-slate-600 hover:bg-slate-100 disabled:opacity-30"
+        onClick={prevMatch}
       >
-        <TextInput
-          ref={inputRef}
-          testID="page-search-input"
-          aria-label="Find in page"
-          placeholder="Find in page"
-          value={query}
-          autoFocus
-          className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-800 placeholder-slate-400 focus:border-indigo-500 w-48"
-          onChange={(event: UIInputEvent) => setQuery(event.value)}
-          onKeyDown={onKeyDown}
-        />
-        <Text testID="page-search-count" className="text-xs text-slate-500 min-w-[50px] text-center font-medium">
-          {countText}
-        </Text>
-        <Button
-          testID="page-search-previous"
-          aria-label="Previous match"
-          disabled={matches.length === 0}
-          className="rounded px-2 py-1 text-slate-600 hover:bg-slate-100 disabled:opacity-30"
-          onClick={prevMatch}
-        >
-          <Text className="text-sm">↑</Text>
-        </Button>
-        <Button
-          testID="page-search-next"
-          aria-label="Next match"
-          disabled={matches.length === 0}
-          className="rounded px-2 py-1 text-slate-600 hover:bg-slate-100 disabled:opacity-30"
-          onClick={nextMatch}
-        >
-          <Text className="text-sm">↓</Text>
-        </Button>
-        <Button
-          testID="page-search-close"
-          aria-label="Close search"
-          className="rounded px-2 py-1 text-slate-600 hover:bg-slate-100"
-          onClick={onClose}
-        >
-          <Text className="text-sm">✕</Text>
-        </Button>
-      </View>
-      {highlightRect && highlightRect.width > 0 && highlightRect.height > 0 ? (
-        <Portal>
-          <View
-            testID="page-search-active-highlight"
-            className="fixed pointer-events-none rounded border border-amber-500 bg-amber-400/40 z-30"
-            style={{
-              left: highlightRect.x - 2,
-              top: highlightRect.y - 1,
-              width: highlightRect.width + 4,
-              height: highlightRect.height + 2,
-            }}
-          />
-        </Portal>
-      ) : null}
-    </>
+        <SearchChevronUp className="border-slate-600" />
+      </Button>
+      <Button
+        testID="page-search-next"
+        aria-label="Next match"
+        disabled={matches.length === 0}
+        className="rounded p-1.5 text-slate-600 hover:bg-slate-100 disabled:opacity-30"
+        onClick={nextMatch}
+      >
+        <SearchChevronDown className="border-slate-600" />
+      </Button>
+      <Button
+        testID="page-search-close"
+        aria-label="Close search"
+        className="rounded p-1.5 text-slate-600 hover:bg-slate-100"
+        onClick={onClose}
+      >
+        <SearchClose className="bg-slate-500" />
+      </Button>
+    </View>
   );
 }

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Text, TextInput, View, type TextInputHandle, type UIInputEvent, type UIKeyboardEvent } from 'godot-react-ui';
+import { SearchChevronDown, SearchChevronUp, SearchClose } from '../../search-icons';
 
 export interface CodeMatch {
   readonly from: number;
@@ -152,27 +153,27 @@ export function CodeSearch({ docText, initialQuery, searchEpoch, onFindMatch, on
         testID="code-search-previous"
         aria-label="Previous match"
         disabled={matches.length === 0}
-        className="rounded px-2 py-0.5 border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 disabled:opacity-30"
+        className="rounded px-2 py-1 border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 disabled:opacity-30"
         onClick={findPrev}
       >
-        <Text className="text-xs text-slate-300">↑</Text>
+        <SearchChevronUp className="border-slate-300" />
       </Button>
       <Button
         testID="code-search-next"
         aria-label="Next match"
         disabled={matches.length === 0}
-        className="rounded px-2 py-0.5 border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 disabled:opacity-30"
+        className="rounded px-2 py-1 border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 disabled:opacity-30"
         onClick={findNext}
       >
-        <Text className="text-xs text-slate-300">↓</Text>
+        <SearchChevronDown className="border-slate-300" />
       </Button>
       <Button
         testID="code-search-close"
         aria-label="Close search"
-        className="rounded px-2 py-0.5 border border-transparent hover:bg-slate-800"
+        className="rounded px-2 py-1 border border-transparent hover:bg-slate-800"
         onClick={onClose}
       >
-        <Text className="text-xs text-slate-400">✕</Text>
+        <SearchClose className="bg-slate-400" />
       </Button>
     </View>
   );

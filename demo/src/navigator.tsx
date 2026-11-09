@@ -538,6 +538,7 @@ function NavigatorShell() {
     if ((event.key === 'f' || event.key === 'F') && (event.ctrlKey || event.metaKey) && !event.altKey) {
       event.preventDefault();
       if (ctx.codeOpen) {
+        ctx.setPageSearchOpen(false);
         ctx.triggerCodeSearch();
       } else {
         ctx.triggerPageSearch();
@@ -628,7 +629,11 @@ function NavigatorShell() {
           onStep={ctx.step}
           canEdit={ctx.codeSupport !== undefined && selected?.kind === 'inline' && selected.sources.length > 0}
           codeOpen={ctx.codeOpen}
-          onToggleCode={() => ctx.setCodeOpen(open => !open)}
+          onToggleCode={() => ctx.setCodeOpen(open => {
+            const next = !open;
+            if (next) ctx.setPageSearchOpen(false);
+            return next;
+          })}
           showExpected={ctx.showExpected}
           onToggleExpected={() => ctx.setShowExpected(open => !open)}
         />
@@ -643,7 +648,7 @@ function NavigatorShell() {
             <ExpectedVisibleProvider value={ctx.showExpected}>
               <Outlet />
             </ExpectedVisibleProvider>
-            {ctx.pageSearchOpen ? (
+            {ctx.pageSearchOpen && !codePanel ? (
               <PageSearch
                 selectedLabId={ctx.selectedId}
                 searchEpoch={ctx.pageSearchEpoch}
@@ -686,11 +691,13 @@ export function Navigator({ labs = LABS, initialLab, onLabChange, onOpenScene, c
   const handles = useRef(new Map<string, UIHandle>());
 
   const triggerPageSearch = useCallback(() => {
+    if (codeOpen) return;
     setPageSearchOpen(true);
     setPageSearchEpoch(e => e + 1);
-  }, []);
+  }, [codeOpen]);
 
   const triggerCodeSearch = useCallback(() => {
+    setPageSearchOpen(false);
     setCodeSearchEpoch(e => e + 1);
   }, []);
 
@@ -699,6 +706,7 @@ export function Navigator({ labs = LABS, initialLab, onLabChange, onOpenScene, c
     if ((event.key === 'f' || event.key === 'F') && (event.ctrlKey || event.metaKey) && !event.altKey) {
       event.preventDefault();
       if (codeOpen) {
+        setPageSearchOpen(false);
         triggerCodeSearch();
       } else {
         triggerPageSearch();
