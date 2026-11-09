@@ -26,7 +26,7 @@ export const GLASS_DECOR_IDS = [
 
 function Aurora({ width, height }: { width: number; height: number }) {
   return (
-    <View className="absolute inset-0 overflow-hidden" style={{ backgroundColor: BASE_COLOUR }}>
+    <View testID="glass-aurora" className="absolute inset-0 overflow-hidden" style={{ backgroundColor: BASE_COLOUR }}>
       {BLOBS.map((blob, index) => {
         const { left, top, size } = blobRect(blob, width, height);
         return (

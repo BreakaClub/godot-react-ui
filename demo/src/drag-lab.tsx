@@ -22,9 +22,11 @@ type Board = Record<ColumnName, readonly string[]>;
 const INITIAL_BOARD: Board = { todo: ['a', 'b', 'c'], doing: ['d', 'e'] };
 
 /** The board is two 144 px columns and the gap between them; the other sections are as wide as their widest chip, the form. */
-const BOARD_WIDTH = 'w-[296px]';
-const SECTION_WIDTH = 'w-44';
+// The sections grow to share their row: at their least width a caption wraps to four or five lines, and the lab must fit a 600 x 900 window.
+const BOARD_WIDTH = 'min-w-[296px] flex-1';
+const SECTION_WIDTH = 'min-w-44 flex-1';
 
+/** A chip holds its name and a detail line in 36 px, so a detail must fit the 120 px inside it on one line: two lines run out of the chip. */
 const chip = 'h-9 w-36 shrink-0 justify-center rounded-lg border border-slate-200 bg-white px-3';
 const card = 'h-9 w-full shrink-0 justify-center rounded-lg border border-slate-200 px-3 text-sm text-slate-700';
 const cardRest = 'bg-white';
@@ -179,13 +181,12 @@ export function DragLab() {
   const overEffect = (key: string): string => (over === key ? effectWords(offer) : '');
 
   return (
-    <View testID="drag-lab" className="w-full min-h-full bg-slate-50 p-4 gap-3" onPointerUp={(_: UIPointerEvent) => setUps(current => current + 1)}>
+    <View testID="drag-lab" className="w-full min-h-full bg-slate-50 p-4 gap-2" onPointerUp={(_: UIPointerEvent) => setUps(current => current + 1)}>
       <LabIntro
         testID="drag-title"
         title="Drag sources and drop targets"
         paragraphs={[
-          'Drag cards between the columns, onto the trash, or the palette\'s copy onto a column. A mouse drags after a short move, a finger after a half-second hold.',
-          'Targets take a drop by cancelling dragover and name the effect they allow, copy or move, as in HTML. Escape cancels a drag; a swipe pans instead.',
+          'Drag cards between columns, onto the trash, or the palette\'s copy onto a column; Escape cancels. A mouse drags after a short move, a finger after a half-second hold (a quick swipe pans). Targets cancel dragover to take a drop, as in HTML.',
         ]}
       />
       <View testID="drag-sections" className="flex-row flex-wrap gap-3">
@@ -247,7 +248,7 @@ export function DragLab() {
         </Section>
         <Section
           title="Gestures" className={SECTION_WIDTH}
-          caption="The first three start no drag. In the form, a press in the field edits it; anywhere else it drags the form."
+          caption="The first three start no drag. A press in the form's field edits it; anywhere else drags it."
         >
           <View
             testID="locked" className={chip}
@@ -314,7 +315,7 @@ export function DragLab() {
               onPointerDown={(_: UIPointerEvent) => setArmed(true)}
               onPointerMove={(_: UIPointerEvent) => { if (armed) setVanished(true); }}
             >
-              <ChipLabel name="vanishes" detail="when pressed and moved" />
+              <ChipLabel name="vanishes" detail="on press and move" />
             </View>
           )}
           <Button
@@ -329,7 +330,7 @@ export function DragLab() {
       <View className="gap-1">
         <Text className="text-xs text-slate-900">What the drags did</Text>
         <Text className="text-xs text-slate-500">
-          The board, how the last drag ended, and the log of the lab's drag events. Pointerups and clicks are the lab's own: a drag cancels the pointer, so it sends neither.
+          The board, the last drag's end and the drag events. A drag cancels the pointer, so it sends no pointerup or click.
         </Text>
         <Text testID="board-status" className="text-xs text-slate-600">{`todo: ${board.todo.join(',')} | doing: ${board.doing.join(',')}`}</Text>
         <Text testID="end-status" className="text-xs text-slate-600">{`last drag ended: ${ended}`}</Text>

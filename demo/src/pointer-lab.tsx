@@ -135,7 +135,7 @@ function Pad() {
     <LabCase
       className={LAB_CARD_CLASS}
       title="Pointer pad"
-      caption="Click, right-click, middle-click or tap the pad. The marker shows where the press landed and the pad is outlined for a moment. Each event is then logged as its type, the pointer type and id, b (button, -1 when no button changed), bs (buttons held) and d (click count). The tally counts pointerdowns by pointer type, the pointer ids seen, each click's count, dbl (dblclick), aux (auxclick), ctx (contextmenu) and cancel (pointercancel)."
+      caption="Click, right-click, middle-click or tap the pad: a marker shows where. Each event is logged with its pointer type and id, b (button), bs (buttons held) and d (click count)."
       expected="A right click logs pointerdown, contextmenu, pointerup and auxclick, and no click. Three quick clicks count 1, 2 and 3 and send one dblclick. A tap logs pointerenter, pointerdown, pointerup, pointerleave and click, and the hover tint never shows for a finger, because a touch never hovers."
     >
       <View
@@ -229,10 +229,11 @@ function CaptureCases() {
       <LabCase
         className={LAB_CARD_CLASS}
         title="A pointer that is up cannot be captured"
-        caption="setPointerCapture only works for a pointer that is down. A click arrives after the release, so when this button's click handler asks the knob's track to capture the pointer it is too late: the call throws and its message is shown."
+        caption="setPointerCapture only works while the pointer is down. This button's click comes after the release, so its call to capture the pointer for the knob throws, and the message is shown."
         expected="A message that starts setPointerCapture failed: pointer 1 is not active (a touch has another id)."
       >
-        <View className="flex-row">
+        {/* The button and its result share a row where there is room: the lab must fit a 600 x 900 window with the pad's log full. */}
+        <View className="flex-row flex-wrap items-start gap-x-3 gap-y-2">
           <Button
             testID="capture-bad"
             className={labButton}
@@ -248,8 +249,10 @@ function CaptureCases() {
           >
             Capture an idle pointer
           </Button>
+          <View className="min-w-0 flex-1">
+            <StackedReadout label="Result" testID="capture-status" value={captureStatus} />
+          </View>
         </View>
-        <StackedReadout label="Result" testID="capture-status" value={captureStatus} />
       </LabCase>
     </>
   );
@@ -258,12 +261,11 @@ function CaptureCases() {
 /** Phase I2: every pointer event a pointer produces, and pointer capture. */
 export function PointerLab() {
   return (
-    <View testID="pointer-lab" className="w-full min-h-full bg-slate-50 p-6 gap-4">
+    <View testID="pointer-lab" className="w-full min-h-full bg-slate-50 p-6 gap-3">
       <LabIntro
         title="Pointer events and capture"
         paragraphs={[
-          'A mouse and a finger both reach a component as pointer events with the DOM\'s names and fields: pointerdown, pointerup, click, dblclick, auxclick, contextmenu and pointercancel, each with its pointer type, pointer id, button and click count.',
-          'Pointer capture keeps a drag going outside the element that started it, as setPointerCapture does in a browser. A touch here is a touch pointer only: it is never also a mouse press, and it never hovers.',
+          'A mouse and a finger reach a component as pointer events with the DOM\'s names and fields (pointerdown, pointerup, click, dblclick, auxclick, contextmenu, pointercancel). A touch is a touch pointer only: never also a mouse press, and it never hovers.',
         ]}
       />
       <LabGrid>

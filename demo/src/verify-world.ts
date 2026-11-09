@@ -133,7 +133,7 @@ function panelCenter(api: WorldInspection, id: string): Vector2 {
 
 /**
  * A point inside an element's border box, clear of its label, in the panel's pixels: its top-left corner
- * moved in by this much (a label is centred in `Reset`, so the centre of that button is on glyphs).
+ * moved in by this much (a `Button` centres its label, as a browser's does, so the centre of a button is on glyphs).
  */
 const BOX_INSET_PX = 8;
 /** A point this far inside the name field's left edge is on its border and padding, before the first glyph. */
@@ -147,6 +147,13 @@ function panelInset(api: WorldInspection, id: string): Vector2 {
 function screenCenter(api: WorldInspection, id: string): Vector2 {
   const center = panelCenter(api, id);
   const screen = api.screenPointOf(center.x, center.y);
+  return new Vector2(screen.x, screen.y);
+}
+
+/** Where an element's inset corner (`panelInset`) is drawn in the main viewport: a point on its fill, clear of its label. */
+function screenInset(api: WorldInspection, id: string): Vector2 {
+  const inset = panelInset(api, id);
+  const screen = api.screenPointOf(inset.x, inset.y);
   return new Vector2(screen.x, screen.y);
 }
 
@@ -502,6 +509,8 @@ export async function runWorldVerification(owner: Node, api: WorldInspection): P
   const counts = (): WorldCounts => api.counts();
   const increment = () => get(api, 'world-increment').id;
   const incrementAt = () => screenCenter(api, 'world-increment');
+  // Add's colour is read on its fill: its centre is on its label.
+  const incrementFillAt = () => screenInset(api, 'world-increment');
   const resetAt = () => screenCenter(api, 'world-reset');
 
   // The orbit and its label are verified last; until then the orbiter waits off to one side of the window.
@@ -538,12 +547,10 @@ export async function runWorldVerification(owner: Node, api: WorldInspection): P
   const marginScreen = api.screenPointOf(MARGIN_PIXEL.x, MARGIN_PIXEL.y);
   assert(near(viewportPixel(owner, new Vector2(marginScreen.x, marginScreen.y)), BACKDROP),
     `The panel's transparent margin shows the backdrop behind the quad, not the panel: ${hex(viewportPixel(owner, new Vector2(marginScreen.x, marginScreen.y)))}`);
-  assert(near(viewportPixel(owner, incrementAt()), style(PRIMARY_REST)),
-    `The projected centre of Add is drawn in its rest colour: ${hex(viewportPixel(owner, incrementAt()))}`);
-  const resetInset = panelInset(api, 'world-reset');
-  const resetInsetScreen = api.screenPointOf(resetInset.x, resetInset.y);
-  assert(near(viewportPixel(owner, new Vector2(resetInsetScreen.x, resetInsetScreen.y)), CARD_WHITE),
-    `Inside the Reset button the quad is drawn white: ${hex(viewportPixel(owner, new Vector2(resetInsetScreen.x, resetInsetScreen.y)))}`);
+  assert(near(viewportPixel(owner, incrementFillAt()), style(PRIMARY_REST)),
+    `The projected fill of Add is drawn in its rest colour: ${hex(viewportPixel(owner, incrementFillAt()))}`);
+  assert(near(viewportPixel(owner, screenInset(api, 'world-reset')), CARD_WHITE),
+    `Inside the Reset button the quad is drawn white: ${hex(viewportPixel(owner, screenInset(api, 'world-reset')))}`);
   assert(background(api, 'world-increment') === PRIMARY_REST, `Add rests in indigo-600: ${String(background(api, 'world-increment'))}`);
 
   // ---- Hover: a motion onto the projected button hovers it, and the 3D raster shows it -----------------
@@ -552,8 +559,8 @@ export async function runWorldVerification(owner: Node, api: WorldInspection): P
   assert(isWithin(api, api.snapshot().hovered, 'world-increment'), `Moving onto the projected Add button hovers it: ${api.snapshot().hovered}`);
   assert(background(api, 'world-increment') === PRIMARY_HOVER, `Add takes its hover style: ${String(background(api, 'world-increment'))}`);
   assert(counts().pointerInside, 'The owner told the panel viewport the pointer entered');
-  assert(near(viewportPixel(owner, incrementAt()), style(PRIMARY_HOVER)),
-    `The quad shows the hover colour: ${hex(viewportPixel(owner, incrementAt()))}`);
+  assert(near(viewportPixel(owner, incrementFillAt()), style(PRIMARY_HOVER)),
+    `The quad shows the hover colour: ${hex(viewportPixel(owner, incrementFillAt()))}`);
   await capture('02-hover');
 
   // ---- Leaving the quad clears hover (and so does the window losing the pointer) ----------------------
@@ -584,7 +591,7 @@ export async function runWorldVerification(owner: Node, api: WorldInspection): P
   await settle();
   assert(isWithin(api, api.snapshot().pressed, 'world-increment'), `Pressing Add presses it: ${api.snapshot().pressed}`);
   assert(background(api, 'world-increment') === PRIMARY_ACTIVE, `Add takes its active style: ${String(background(api, 'world-increment'))}`);
-  assert(near(viewportPixel(owner, incrementAt()), style(PRIMARY_ACTIVE)), 'The quad shows the active colour');
+  assert(near(viewportPixel(owner, incrementFillAt()), style(PRIMARY_ACTIVE)), 'The quad shows the active colour');
   await capture('03-pressed');
   mouseButton(incrementAt(), false);
   await settle();

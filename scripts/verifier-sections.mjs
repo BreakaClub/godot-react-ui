@@ -100,8 +100,12 @@ export function interactionDeadlineMs(sectionCount) {
 export const WEB_INTERACTION_JOB_START_ALLOWANCE_MS = 180_000;
 /** Allowance for each section the job executes: about twice the mean of the slowest job, so a viewport job has about 2.5 times its measured time. */
 export const WEB_INTERACTION_JOB_SECTION_ALLOWANCE_MS = 45_000;
-/** The guard of a job with few sections: the pages job (three sections, `font-slices` at 110 s) must not be cut short under a loaded host. */
-export const WEB_INTERACTION_JOB_MINIMUM_DEADLINE_MS = 300_000;
+/**
+ * The guard of a job with few sections: the pages job must not be cut short under a loaded host. Its sections are heavy (`font-slices` loads the CJK
+ * slices; `labs-fit` shows every lab on a phone): on the stock engine's Web export, with the six jobs running at the same time, `font-slices` alone
+ * took 356 s (98 s on its own), and the job ran out of the 360 s it had then.
+ */
+export const WEB_INTERACTION_JOB_MINIMUM_DEADLINE_MS = 900_000;
 
 /** The deadline of one Web interaction job that executes `sectionCount` sections. */
 export function webInteractionJobDeadlineMs(sectionCount) {

@@ -12,8 +12,9 @@ import { click } from './verify-text-input';
  *
  * It runs on a service whose thread needs a worker the page's pool has not got (`holdLiveCompileThreads` starts more threads than a browser's
  * pool holds, then the page's own service is started again behind them), and holds the page to this: the frame never goes more than
- * `MAX_FRAME_GAP_MS` without being served, the panel is there as soon as the button is pressed and editable, the lab then becomes live, and the
- * panel never ends read-only. Natively a thread is cheap and the sequence is the same sequence; on the Web it is the failing one.
+ * `SEQUENCE_GAP_BOUND_MS` without being served (a wait ends with the compiled lab's mount, the page's own work; that the page never waits for the
+ * service is held to `MAX_FRAME_GAP_MS` by the live-compile section's busy-service check), the panel is there as soon as the button is pressed and
+ * editable, the lab then becomes live, and the panel never ends read-only. Natively a thread is cheap and the sequence is the same sequence; on the Web it is the failing one.
  */
 export interface SequenceInspection {
   snapshot(): NativeSnapshot;
@@ -49,6 +50,8 @@ const PHONE_BREAKPOINT_PX = 768;
 /** Ben went through at least this many labs with the code panel open before the page hung. */
 const MIN_LAB_CHANGES = 20;
 const THREAD_DEADLINE_MS = 10_000;
+/** The service threads of the page when nothing else holds one: its own service's. */
+const PAGE_SERVICE_THREADS = 1;
 
 /**
  * The number of Workers the page has made, on the Web, when the verifier that drives the page counts them (`godotReactWorkerCount`, installed
@@ -115,8 +118,14 @@ async function frameGaps(work: () => Promise<void>): Promise<{ readonly worstMs:
   return { worstMs: worst, frames: Engine.getProcessFrames() - firstFrame };
 }
 
+/**
+ * A wait for a lab to be live ends with the page's own work: the compiled lab is run and mounted in place of the bundled one, a whole lab's render.
+ * It is held to the bound the sequence holds the page's work to (`SEQUENCE_GAP_BOUND_MS`), which a page that waits for the service (30 s on the Web)
+ * still fails. That the page never waits for the service thread is held to `MAX_FRAME_GAP_MS` by the live-compile section's busy-service check,
+ * which holds the thread and edits meanwhile.
+ */
 function assertNoStall(wait: { readonly worstMs: number; readonly frames: number }, what: string): void {
-  assert(wait.worstMs <= MAX_FRAME_GAP_MS, `The page never went ${MAX_FRAME_GAP_MS} ms without a frame ${what} (it hung for 30 s here on the Web): the longest gap was ${Math.round(wait.worstMs)} ms`);
+  assert(wait.worstMs <= SEQUENCE_GAP_BOUND_MS, `The page never went ${SEQUENCE_GAP_BOUND_MS} ms without a frame ${what} (it hung for 30 s here on the Web): the longest gap was ${Math.round(wait.worstMs)} ms`);
   assert(wait.frames >= 1, `and frames kept coming ${what}`);
 }
 
@@ -133,8 +142,8 @@ export async function verifyLiveCompileSequence(api: SequenceInspection): Promis
   const facts: Record<string, number> = {};
   let liveMs = 0;
   let lastLiveMs = 0;
-  // The waits for the compile are idle for the page, so every gap in them is the page waiting on the service: none may pass MAX_FRAME_GAP_MS. The page's own
-  // work (mounting a lab, mounting the panel) has frames of its own that are slower than that on a loaded machine, and is bounded more loosely.
+  // Each wait for a lab to go live ends with its mount, the page's own work, which has frames slower than MAX_FRAME_GAP_MS on a loaded machine: the
+  // waits and the sequence as a whole are bounded as the page's work is (`assertNoStall`).
   const wholeSequence = await frameGaps(async () => {
     await click(centerOf(node(api, 'toggle-code').rect));
     facts.panelMs = await waitUntil('the code panel, editable, while the lab compiles', () => api.find('code-editor') !== undefined, PANEL_DEADLINE_MS);
@@ -186,7 +195,8 @@ function node(api: SequenceInspection, testID: string): NativeSnapshotNode {
  * - at least `MIN_LAB_CHANGES` lab changes, the code panel open throughout;
  * - every lab with code is live (compiled and run) and none ends read-only;
  * - the page has one service thread the whole way, and, on the Web, makes no Worker (the Worker count at the end is the count at the start);
- * - the page never goes `MAX_FRAME_GAP_MS` without a frame while a lab waits for its compile.
+ * - the page never goes `SEQUENCE_GAP_BOUND_MS` without a frame while a lab compiles and mounts (its mount is the page's own work; the service's
+ *   own wait is held to `MAX_FRAME_GAP_MS` by the live-compile section's busy-service check).
  */
 export async function verifyLabWalk(api: SequenceInspection): Promise<Record<string, unknown>> {
   if (api.snapshot().width < PHONE_BREAKPOINT_PX) return { skipped: 'the window is narrower than the Code button\'s breakpoint' };
@@ -221,7 +231,8 @@ export async function verifyLabWalk(api: SequenceInspection): Promise<Record<str
         });
         assert(api.find('code-read-only') === undefined, `The code of ${lab.title} compiles, it does not end read-only: ${api.find('code-read-only') === undefined ? '' : textOf(api, 'code-read-only')}`);
         assert(textOf(api, 'code-status-run').startsWith('Live.'), `${lab.title} is live: ${textOf(api, 'code-status-run')}`);
-        assertNoStall(wait, `while ${lab.title} compiled`);
+        // The wait ends with the compiled lab's mount (the Scrolling lab's took 126 ms here): `assertNoStall` says what it is held to.
+        assertNoStall(wait, `while ${lab.title} compiled and mounted`);
         worstWaitGapMs = Math.max(worstWaitGapMs, wait.worstMs);
         waitFrames += wait.frames;
         withCode += 1;
@@ -252,7 +263,10 @@ export async function verifyLabWalk(api: SequenceInspection): Promise<Record<str
  */
 export async function verifyThreadsAreGivenBack(api: SequenceInspection): Promise<Record<string, unknown>> {
   const service = api.liveCompile();
-  const baseline = service.state().threadsAlive;
+  // Threads released just before (the crowded page's) are still ending: the count is taken once only the page's own service thread is left,
+  // or a thread that ends later makes the held count one short of what is waited for.
+  await waitUntil('the threads released before to end', () => service.state().threadsAlive === PAGE_SERVICE_THREADS, THREAD_DEADLINE_MS);
+  const baseline = PAGE_SERVICE_THREADS;
   const round = async (): Promise<number> => {
     api.holdLiveCompileThreads(POOL_HOGS);
     await waitUntil('the held threads to run', () => service.state().threadsAlive === baseline + POOL_HOGS, THREAD_DEADLINE_MS);

@@ -68,7 +68,12 @@ const MIDWAY_FRAMES = 3;
 const SERVICE_STATE_DEADLINE_MS = 10_000;
 /** Jobs in the queue after two edits of one file were made while the service was busy: the project changes (two) and the newer edit's compile and check. */
 const QUEUED_AFTER_TWO_EDITS = 4;
-/** The probe sits this far inside the page's top right corner, where only its background is. */
+/** How much of a failed compile's diagnostics a message shows. */
+const DIAGNOSTICS_SHOWN = 600;
+/**
+ * The probe sits this far inside the page's top left corner, in its padding, where only its background is. Not the right: the page is taller
+ * than the window with its notes, so it scrolls, and its scrollbar's thumb is drawn at the top of the right edge.
+ */
 const PROBE_INSET_PX = 6;
 const MILLISECONDS_PER_MICROSECOND = 1000;
 const MEDIAN = 0.5;
@@ -145,7 +150,7 @@ function backgroundPaint(owner: Node, api: LiveCompileInspection): [number, numb
   const image: Image = grab(owner);
   const page = node(api, ROOT_TEST_ID).rect;
   const ratio = image.getWidth() / api.snapshot().width;
-  return levels(image.getPixel(Math.round((page.x + page.width - PROBE_INSET_PX) * ratio), Math.round((page.y + PROBE_INSET_PX) * ratio)));
+  return levels(image.getPixel(Math.round((page.x + PROBE_INSET_PX) * ratio), Math.round((page.y + PROBE_INSET_PX) * ratio)));
 }
 
 function paintIs(painted: readonly number[], hex: string): boolean {
@@ -178,8 +183,11 @@ async function checkOf(session: LiveSession): Promise<{ readonly outcome: Awaite
 }
 
 /** `text` with the page's background class changed (the class the latency loop alternates). */
+/** The lab's text with its root's background class changed to `backgroundClass`. A text without that root is an error: a stale pattern must fail, not do nothing. */
 function withBackground(text: string, backgroundClass: string): string {
-  return text.replace(/bg-(?:slate-50|emerald-100|sky-100) p-6 gap-3/u, `${backgroundClass} p-6 gap-3`);
+  const changed = text.replace(/testID="inputs-lab" className="relative w-full h-full bg-(?:slate-50|emerald-100|sky-100)"/u, `testID="inputs-lab" className="relative w-full h-full ${backgroundClass}"`);
+  assert(changed !== text || text.includes(`className="relative w-full h-full ${backgroundClass}"`), `The lab's root has a background class to change to ${backgroundClass}`);
+  return changed;
 }
 
 /** Waits for the service thread to have begun a request, so that what is queued behind it waits. */
@@ -195,6 +203,20 @@ async function waitForServiceIdle(service: ExtensionHost, what: string): Promise
   const deadline = nowMs() + SERVICE_STATE_DEADLINE_MS;
   while (service.state().running !== null || service.state().queued > 0) {
     assert(nowMs() < deadline, `The service was not idle within ${SERVICE_STATE_DEADLINE_MS} ms ${what}: ${JSON.stringify(service.state())}`);
+    await frames(1);
+  }
+}
+
+/**
+ * Waits for every answer the service has given to be taken by the page: an answer that lands after the service goes idle sits in its replies until
+ * the page's next poll (a timer, while a request is outstanding). An answer that stays is one nobody is waiting for, which is a defect: the message
+ * says how many requests the page still had outstanding.
+ */
+async function waitForRepliesTaken(service: ExtensionHost, what: string): Promise<void> {
+  const deadline = nowMs() + SERVICE_STATE_DEADLINE_MS;
+  while (service.state().replies > 0 || service.outstandingCount > 0) {
+    assert(nowMs() < deadline,
+      `The page did not take every answer within ${SERVICE_STATE_DEADLINE_MS} ms ${what}: ${JSON.stringify(service.state())}, ${service.outstandingCount} requests outstanding`);
     await frames(1);
   }
 }
@@ -240,7 +262,7 @@ async function measureLabs(service: ExtensionHost): Promise<Record<string, unkno
       const file = project.files.find(candidate => candidate.path === path);
       assert(file, `The project has the source ${path} of the lab ${id}`);
       const timed = await service.compileTimed(path, file.text, true, new RequestScope());
-      assert(timed.result.ok, `${path} compiles`);
+      assert(timed.result.ok, `${path} compiles: ${timed.result.ok ? '' : JSON.stringify(timed.result.diagnostics).slice(0, DIAGNOSTICS_SHOWN)}`);
       compileMs += timed.serviceMs;
     }
     const outcome = await service.requestCheck(lab.config, project.libDir);
@@ -326,7 +348,7 @@ export async function verifyLiveCompile(owner: Node, api: LiveCompileInspection,
   facts.editToPixelsMs = round(recolourPixelsMs, TENTH);
   facts.editTimings = recolour.timings;
   assert(backgroundOf(api) === EMERALD_100, `The page's background property is the new class's colour: ${backgroundOf(api)}`);
-  assert(allTexts(api).includes('Inputs, live') && !allTexts(api).includes('Inputs'), `The title reads the new text: ${allTexts(api).slice(0, 3).join(' / ')}`);
+  assert(allTexts(api).includes('The input kit, live') && !allTexts(api).includes('The input kit'), `The title reads the new text: ${allTexts(api).slice(0, 3).join(' / ')}`);
   assert(textOf(api, COUNTER_TEST_ID) === 'Next 3', `and the counter kept its count through the edit: ${textOf(api, COUNTER_TEST_ID)}`);
   await capture('live-compile-02-edited', OVERFLOWING);
   assert(diagnosticsOf((await checkOf(session)).outcome).length === 0, 'The edited page type-checks clean');
@@ -445,7 +467,7 @@ export async function verifyLiveCompile(owner: Node, api: LiveCompileInspection,
   for (let index = 0; index < LATENCY_EDITS; index += 1) {
     const colour = BACKGROUND_COLOURS[index % BACKGROUND_COLOURS.length];
     assert(colour !== undefined, 'There are colours to alternate between');
-    text = text.replace(/bg-(?:slate-50|emerald-100|sky-100) p-6 gap-3/u, `${colour} p-6 gap-3`);
+    text = withBackground(text, colour);
     const wanted = colour === 'bg-emerald-100' ? EMERALD_100 : SKY_100;
     const started = nowMs();
     report = await session.update(INPUTS_LAB_PATH, text);
@@ -487,8 +509,10 @@ export async function verifyLiveCompile(owner: Node, api: LiveCompileInspection,
   const busyWaitedMs = nowMs() - busyStarted;
   const busyFrames = Engine.getProcessFrames() - busyFramesBefore;
   await held;
-  assert(midway.state !== undefined && midway.state.running !== null && midway.state.queued >= 1 && service.outstandingCount === 0,
+  assert(midway.state !== undefined && midway.state.running !== null && midway.state.queued >= 1,
     `The edit was waiting behind the service, which was busy: ${JSON.stringify(midway.state)}`);
+  // The edit's check is asked for after its compile and answers after it: the update has returned, and the page takes that answer when it comes.
+  await waitForRepliesTaken(service, 'after the edit made while the service was busy');
   assert(busyWaitedMs >= SERVICE_BUSY_MS * BUSY_WAIT_SHARE, `and it waited for the service (${round(busyWaitedMs, TENTH)} ms of the ${SERVICE_BUSY_MS} ms it was held)`);
   assert(busyWorstGap <= MAX_FRAME_GAP_MS, `but the page kept its frames: the longest gap was ${round(busyWorstGap, TENTH)} ms, over the ${MAX_FRAME_GAP_MS} ms allowed`);
   assert(busyFrames >= busyWaitedMs / MAX_FRAME_GAP_MS, `and drew ${busyFrames} frames meanwhile`);
@@ -517,6 +541,8 @@ export async function verifyLiveCompile(owner: Node, api: LiveCompileInspection,
   assert(newerReport.outcome === 'swapped', `and the newer one is swapped in: ${newerReport.outcome}`);
   assert(!olderShown && backgroundOf(api) === EMERALD_100, `The page never showed the older text, and shows the newer: ${backgroundOf(api)}`);
   await waitForServiceIdle(service, 'after the two edits');
+  // The newer edit's check may answer after its compile: the page takes that answer on its next poll. Nothing else may be left.
+  await waitForRepliesTaken(service, 'after the two edits');
   assert(service.state().replies === 0 && service.outstandingCount === 0, `Nothing of the older edit is left in the service: ${JSON.stringify(service.state())}`);
 
   // A request the service is running when it is given up is let finish, and the service drops its answer: nobody is told of it.
