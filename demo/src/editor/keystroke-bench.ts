@@ -59,7 +59,7 @@ export interface TypingSite {
 
 /** Inside the string of a JSX attribute, after `bg-slate-50`, and inside a function body, before the `;` of a statement (demo/src/inputs-lab.tsx). */
 export const TYPING_SITES: readonly TypingSite[] = [
-  { name: 'attribute', needle: 'className="w-full h-full bg-slate-50 p-6 gap-3"', offset: 'className="w-full h-full bg-slate-50'.length },
+  { name: 'attribute', needle: 'className="relative w-full h-full bg-slate-50"', offset: 'className="relative w-full h-full bg-slate-50'.length },
   { name: 'function', needle: 'const sizes = reversed ? [...SIZES].reverse() : SIZES;', offset: 'const sizes = reversed ? [...SIZES].reverse() : SIZES'.length },
 ];
 

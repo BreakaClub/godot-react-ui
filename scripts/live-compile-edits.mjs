@@ -8,8 +8,8 @@ export const INPUTS_LAB_PATH = '/project/lab/inputs-lab.tsx';
 
 /** @type {import('./live-compile-edits.d.mts').Edit[]} */
 export const RECOLOUR = [
-  { search: 'className="w-full h-full bg-slate-50 p-6 gap-3"', replace: 'className="w-full h-full bg-emerald-100 p-6 gap-3"' },
-  { search: '<Text className="text-2xl text-slate-900">Inputs</Text>', replace: '<Text className="text-2xl text-slate-900">Inputs, live</Text>' },
+  { search: 'testID="inputs-lab" className="relative w-full h-full bg-slate-50"', replace: 'testID="inputs-lab" className="relative w-full h-full bg-emerald-100"' },
+  { search: 'title="The input kit"', replace: 'title="The input kit, live"' },
 ];
 
 /** Two classes the colour alternates between, for the latency loop. */
@@ -67,8 +67,9 @@ export function InputsLab() {`,
   },
   { search: '  const [reversed, setReversed] = useState(false);', replace: '  const [reversed, setReversed] = useState(false);\n  const kept = useMemo(() => <KeptProbe />, []);' },
   {
-    search: '        <Text className="text-2xl text-slate-900">Inputs</Text>',
-    replace: '        <Text className="text-2xl text-slate-900">Inputs</Text>\n        {kept}\n        <MemoProbe label="memo" />',
+    // The probes go under the lab's introduction, before its controls.
+    search: '          <View className="flex-row flex-wrap items-start gap-x-6 gap-y-3">',
+    replace: '          {kept}\n          <MemoProbe label="memo" />\n          <View className="flex-row flex-wrap items-start gap-x-6 gap-y-3">',
   },
 ];
 

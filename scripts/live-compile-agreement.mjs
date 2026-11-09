@@ -103,7 +103,7 @@ function compare(label, tsc, bun) {
 /** Edits that break a lab: [lab id, file, search, replacement]. */
 const MUTATIONS = [
   ['inputs', 'inputs-lab.tsx', "const label = 'text-sm text-slate-700';", "const label: number = 'text-sm text-slate-700';"],
-  ['inputs', 'inputs-lab.tsx', '<Text className="text-2xl text-slate-900">Inputs</Text>', '<Text className="text-2xl text-slate-900" bogus={1}>Inputs</Text>'],
+  ['inputs', 'inputs-lab.tsx', 'title="The input kit"', 'title="The input kit" bogus={1}'],
   ['inputs', 'inputs-lab.tsx', 'const [reversed, setReversed] = useState(false);', 'const [reversed, setReversed] = useState(false);\n  const unused: string = reversed;'],
   ['inputs', 'inputs-lab.tsx', 'onValueChange={onChange}', 'onValueChange={onChangee}'],
   ['inputs', 'inputs-lab.tsx', "import { useState } from 'react';", "import { useState, useStat } from 'react';"],

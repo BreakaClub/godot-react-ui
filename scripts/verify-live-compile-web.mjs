@@ -32,10 +32,16 @@ const SIGNATURE_BYTES = 4096;
 /** What the section announces before it makes React report an error on purpose. */
 const EXPECTED_ERROR = 'live-compile-test-render';
 const EMSCRIPTEN_STARTUP_DIAGNOSTIC = 'Blocking on the main thread is very dangerous, see https://emscripten.org/docs/porting/pthreads.html#blocking-on-the-main-browser-thread';
+/**
+ * What Emscripten's libpthread prints when a thread is asked for and its pool of Workers is used up (once a thread). The section holds more threads
+ * than the pool has on purpose (the state that hung react.breaka.club), so it is expected while the section runs, and a failure before.
+ */
+const EMSCRIPTEN_POOL_EXHAUSTED = 'Tried to spawn a new thread, but the thread pool is exhausted.';
 
 const report = { executablePath, startedAt: new Date().toISOString(), assertions: [], captures: [], console: [], pageErrors: [], failedRequests: [], expectedDiagnostics: [], passed: false };
 const fatalErrors = [];
 let expectedErrorSeen = false;
+let sectionRunning = false;
 
 function check(name, condition, detail) {
   report.assertions.push({ name, passed: Boolean(condition), detail });
@@ -84,6 +90,10 @@ try {
       report.expectedDiagnostics.push(entry);
       return;
     }
+    if (entry.text.startsWith(EMSCRIPTEN_POOL_EXHAUSTED) && sectionRunning) {
+      report.expectedDiagnostics.push(entry);
+      return;
+    }
     const isError = message.type() === 'error' || /(?:^|\n)(?:ERROR:|SCRIPT ERROR:)|GODOT_REACT_(?:VERIFY|START)_FAILED|\[panic /.test(entry.text);
     if (!isError || message.location().url?.endsWith('/favicon.ico')) return;
     if (entry.text.includes(EXPECTED_ERROR) && !expectedErrorSeen) {
@@ -101,6 +111,19 @@ try {
     if (failure.url.endsWith('/favicon.ico') || (failure.url.endsWith('/index.pck') && failure.error === 'net::ERR_ABORTED' && !ready)) return;
     fatalErrors.push(JSON.stringify(failure));
   });
+  // The section counts the Workers the page makes (`workerCount`, demo/src/verify-live-compile-sequence.ts): a page cannot see its Workers any
+  // other way, so the count is installed before its scripts run. Every Worker the engine's pthread pool or a thread asks for is counted.
+  await page.evaluateOnNewDocument(() => {
+    const PageWorker = globalThis.Worker;
+    let made = 0;
+    globalThis.Worker = class CountedWorker extends PageWorker {
+      constructor(...args) {
+        super(...args);
+        made += 1;
+      }
+    };
+    globalThis.godotReactWorkerCount = () => made;
+  });
   const response = await page.goto(new URL('/', server.url).href, { waitUntil: 'domcontentloaded' });
   check('The document loaded', response?.ok(), { status: response?.status() });
   check('The browser is cross-origin isolated for WebAssembly threads', await page.evaluate(() => globalThis.crossOriginIsolated === true));
@@ -117,13 +140,25 @@ try {
   }));
   check('The Web realm has WebAssembly and allows new Function and eval', report.realm.webAssembly === 'object' && report.realm.newFunction === 2 && report.realm.indirectEval === 3, report.realm);
   const timed = Date.now();
-  await page.evaluate(() => globalThis.godotReactLiveCompile());
+  sectionRunning = true;
+  try {
+    await page.evaluate(() => globalThis.godotReactLiveCompile());
+  } finally {
+    sectionRunning = false;
+  }
   report.sectionMs = Date.now() - timed;
   check('The section announced its expected render error and React reported it', expectedErrorSeen);
   assert.equal(fatalErrors.length, 0, `Browser errors:\n${fatalErrors.join('\n')}`);
   const facts = report.console.map((entry) => entry.text).find((text) => text.includes('GODOT_REACT_LIVE_COMPILE '));
   check('The section reported its measurements', facts !== undefined);
   report.facts = JSON.parse(facts.slice(facts.indexOf('{')));
+  // The Worker comparisons in the section are only worth something if the page counted: the engine makes its pool of Workers at startup, so a
+  // count that works is more than none by the time the lab walk begins.
+  const walkWorkers = report.facts.labWalk?.workers;
+  check('The page counted its Workers for the lab walk (the engine\'s pool among them)',
+    typeof walkWorkers?.atStart === 'number' && walkWorkers.atStart > 0 && typeof walkWorkers.atEnd === 'number', walkWorkers);
+  const givenBack = report.facts.threadsGivenBack;
+  check('and for the threads given back', typeof givenBack?.workersAfterFirst === 'number' && givenBack.workersAfterFirst > 0, givenBack);
   report.exportSizes = exportSizes;
   report.passed = true;
 } catch (error) {
