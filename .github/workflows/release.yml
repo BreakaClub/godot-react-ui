@@ -134,13 +134,16 @@ jobs:
           version: 4.0.11
 
       - name: Setup Rust Web Toolchain
-        uses: dtolnay/rust-toolchain@nightly
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: nightly-2026-05-15
           targets: wasm32-unknown-emscripten
+          components: rust-src
 
       - name: Build Web Side Module
         run: |
-          cargo build --locked --release --target wasm32-unknown-emscripten --features web
+          export CARGO_ENCODED_RUSTFLAGS="-C"$'\x1f'"link-args=-pthread"$'\x1f'"-C"$'\x1f'"target-feature=+atomics"$'\x1f'"-C"$'\x1f'"link-args=-sSIDE_MODULE=2"$'\x1f'"-C"$'\x1f'"llvm-args=-enable-emscripten-cxx-exceptions=0"$'\x1f'"-Z"$'\x1f'"default-visibility=hidden"$'\x1f'"-Z"$'\x1f'"link-native-libraries=no"$'\x1f'"-Z"$'\x1f'"emscripten-wasm-eh=false"
+          cargo +nightly-2026-05-15 build --locked --release --lib --config 'profile.release.opt-level="s"' --features web -Zbuild-std --target wasm32-unknown-emscripten
           mkdir -p bin
           cp target/wasm32-unknown-emscripten/release/godot_react_ui.wasm bin/godot_react_ui.web.wasm
 
