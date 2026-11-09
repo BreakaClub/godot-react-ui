@@ -195,19 +195,6 @@ function main(): void {
     return;
   }
 
-  if (!tagExists(nextTag)) {
-    run('git', ['config', 'user.name', 'github-actions[bot]']);
-    run('git', ['config', 'user.email', 'github-actions[bot]@users.noreply.github.com']);
-    run('git', ['tag', nextTag, targetSha]);
-    if (!isDryRun) {
-      try {
-        run('git', ['push', 'origin', nextTag]);
-      } catch (error) {
-        console.warn(`Warning: failed to push tag ${nextTag} to origin:`, error);
-      }
-    }
-  }
-
   const releaseCommandArgs = [
     'exec',
     'auto',
@@ -226,7 +213,17 @@ function main(): void {
     releaseCommandArgs.push('--dry-run');
   }
 
-  execFileSync('pnpm', releaseCommandArgs, { cwd: root, stdio: 'inherit' });
+  // `auto release` releases a tag that is already in the local repository ("Could not find any tags in the local repository"), so the
+  // tag is made here (nextTag is new: an existing one returned above). It is a lightweight tag, which records no tagger and so needs no git
+  // identity. A release pushes it first, and a push that fails stops the release; a dry run deletes it afterwards, leaving the repository
+  // as it was.
+  run('git', ['tag', nextTag, targetSha]);
+  try {
+    if (!isDryRun) run('git', ['push', 'origin', nextTag]);
+    execFileSync('pnpm', releaseCommandArgs, { cwd: root, stdio: 'inherit' });
+  } finally {
+    if (isDryRun) run('git', ['tag', '--delete', nextTag]);
+  }
   writeGithubOutputs(githubOutputPath, {
     release_created: 'true',
     release_tag: nextTag,
