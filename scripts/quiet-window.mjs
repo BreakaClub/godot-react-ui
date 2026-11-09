@@ -34,18 +34,15 @@ export function quietWindowLibrary() {
 /**
  * What to spawn so `godot` cannot take focus. On macOS the library goes in through `DYLD_INSERT_LIBRARIES`, which the system strips
  * on the way into `/bin/sh`, so a launcher script cannot pass it on: a profile whose binary is such a script names the binary and
- * what the script would have set (`directLaunchOf`). Other platforms have no such step here.
+ * what the script would have set (`directLaunchOf`), and the directories it would have made, which are made here (`makeDirectory`: a test
+ * passes its own, so that it makes none on the machine it runs on). Other platforms have no such step here.
  */
-export function quietLaunch(godot, env, { platform = process.platform, library = quietWindowLibrary } = {}) {
+export function quietLaunch(godot, env, {
+  platform = process.platform, library = quietWindowLibrary, makeDirectory = (directory) => mkdirSync(directory, { recursive: true }),
+} = {}) {
   if (platform !== 'darwin') return { command: godot, env };
   const direct = directLaunchOf(godot);
-  for (const directory of direct?.directories ?? []) {
-    try {
-      mkdirSync(directory, { recursive: true });
-    } catch {
-      // Best-effort directory creation for host runner environments.
-    }
-  }
+  for (const directory of direct?.directories ?? []) makeDirectory(directory);
   return { command: direct?.command ?? godot, env: { ...env, ...direct?.env, DYLD_INSERT_LIBRARIES: library() } };
 }
 

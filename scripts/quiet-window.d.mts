@@ -6,7 +6,7 @@ export function quietWindowLibrary(): string;
 export function quietLaunch(
   godot: string,
   env: Record<string, string | undefined>,
-  options?: { platform?: string; library?: () => string },
+  options?: { platform?: string; library?: () => string; makeDirectory?: (directory: string) => void },
 ): { command: string; env: Record<string, string | undefined> };
 /** Why this run's log says it was not quiet, or `undefined`. */
 export function quietWindowProblem(log: string, platform?: string): string | undefined;
