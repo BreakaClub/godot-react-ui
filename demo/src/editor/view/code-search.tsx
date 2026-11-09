@@ -49,51 +49,47 @@ export function CodeSearch({ docText, initialQuery, searchEpoch, onFindMatch, on
   const [matchIndex, setMatchIndex] = useState(0);
   const inputRef = useRef<TextInputHandle | null>(null);
 
-  const prevEpoch = useRef(searchEpoch);
-  useEffect(() => {
-    if (searchEpoch !== prevEpoch.current) {
-      prevEpoch.current = searchEpoch;
-      if (initialQuery !== undefined && initialQuery !== '') {
-        setQuery(initialQuery);
-      }
-      inputRef.current?.focus();
-    }
-  }, [searchEpoch, initialQuery]);
-
+  // The matches follow the document, and the count with them. The editor's selection moves to a match only when the search moves: a new
+  // query or option, Next or Previous, the bar opening on a query, or Find again on another selection. An edit (the user typing in the
+  // editor) is not a search: it leaves the selection where the user put it.
   const matches = useMemo(
     () => findCodeMatches(docText, query, { caseSensitive, wholeWord }),
     [docText, query, caseSensitive, wholeWord],
   );
+  const current = matches.length === 0 ? 0 : Math.min(matchIndex, matches.length - 1);
 
-  const prevMatches = useRef(matches);
+  const select = (found: readonly CodeMatch[], index: number) => {
+    setMatchIndex(index);
+    const match = found[index];
+    if (match !== undefined) onFindMatch(match.from, match.to);
+  };
+  /** Search again with a changed query or option: the match it was on, or the last one if there are fewer now. */
+  const research = (nextQuery: string, options: { caseSensitive: boolean; wholeWord: boolean }) => {
+    const found = findCodeMatches(docText, nextQuery, options);
+    select(found, found.length === 0 ? 0 : Math.min(current, found.length - 1));
+  };
+
+  // Runs when the bar opens and on every Find after: the render that brings a new epoch brings the selection's text with it. The ref is
+  // `undefined` until the bar has opened (a bar opened on a query selects its match), and keeps a repeated run of one epoch from searching twice.
+  const shownEpoch = useRef<number | undefined>(undefined);
   useEffect(() => {
-    if (matches.length === 0) {
-      setMatchIndex(0);
-      return;
-    }
-    const idx = Math.min(matchIndex, matches.length - 1);
-    setMatchIndex(idx);
-    const m = matches[idx];
-    if (m !== undefined && (prevMatches.current !== matches || query !== '')) {
-      onFindMatch(m.from, m.to);
-    }
-    prevMatches.current = matches;
-  }, [matches, matchIndex, onFindMatch, query]);
+    if (searchEpoch === shownEpoch.current) return;
+    const opening = shownEpoch.current === undefined;
+    shownEpoch.current = searchEpoch;
+    if (!opening) inputRef.current?.focus();
+    if (initialQuery === undefined || initialQuery === '' || (!opening && initialQuery === query)) return;
+    setQuery(initialQuery);
+    research(initialQuery, { caseSensitive, wholeWord });
+  }, [searchEpoch]);
 
   const findNext = () => {
     if (matches.length === 0) return;
-    const next = (matchIndex + 1) % matches.length;
-    setMatchIndex(next);
-    const m = matches[next];
-    if (m) onFindMatch(m.from, m.to);
+    select(matches, (current + 1) % matches.length);
   };
 
   const findPrev = () => {
     if (matches.length === 0) return;
-    const prev = (matchIndex - 1 + matches.length) % matches.length;
-    setMatchIndex(prev);
-    const m = matches[prev];
-    if (m) onFindMatch(m.from, m.to);
+    select(matches, (current - 1 + matches.length) % matches.length);
   };
 
   const onKeyDown = (event: UIKeyboardEvent) => {
@@ -110,7 +106,7 @@ export function CodeSearch({ docText, initialQuery, searchEpoch, onFindMatch, on
     }
   };
 
-  const countText = query === '' ? '' : matches.length === 0 ? '0 of 0' : `${matchIndex + 1} of ${matches.length}`;
+  const countText = query === '' ? '' : matches.length === 0 ? '0 of 0' : `${current + 1} of ${matches.length}`;
 
   return (
     <View
@@ -125,7 +121,10 @@ export function CodeSearch({ docText, initialQuery, searchEpoch, onFindMatch, on
         value={query}
         autoFocus
         className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-100 font-mono w-40 focus:border-indigo-500"
-        onChange={(event: UIInputEvent) => setQuery(event.value)}
+        onChange={(event: UIInputEvent) => {
+          setQuery(event.value);
+          research(event.value, { caseSensitive, wholeWord });
+        }}
         onKeyDown={onKeyDown}
       />
       <Text testID="code-search-count" className="font-mono text-xs text-slate-400 min-w-[48px] text-center">
@@ -136,7 +135,10 @@ export function CodeSearch({ docText, initialQuery, searchEpoch, onFindMatch, on
         aria-label="Match case"
         aria-pressed={caseSensitive}
         className={`rounded px-1.5 py-0.5 border ${caseSensitive ? 'border-indigo-500 bg-indigo-950' : 'border-slate-700 bg-slate-800 hover:bg-slate-700'}`}
-        onClick={() => setCaseSensitive(c => !c)}
+        onClick={() => {
+          setCaseSensitive(!caseSensitive);
+          research(query, { caseSensitive: !caseSensitive, wholeWord });
+        }}
       >
         <Text className={`font-mono text-xs ${caseSensitive ? 'text-indigo-300 font-bold' : 'text-slate-400'}`}>Aa</Text>
       </Button>
@@ -145,9 +147,12 @@ export function CodeSearch({ docText, initialQuery, searchEpoch, onFindMatch, on
         aria-label="Match whole word"
         aria-pressed={wholeWord}
         className={`rounded px-1.5 py-0.5 border ${wholeWord ? 'border-indigo-500 bg-indigo-950' : 'border-slate-700 bg-slate-800 hover:bg-slate-700'}`}
-        onClick={() => setWholeWord(w => !w)}
+        onClick={() => {
+          setWholeWord(!wholeWord);
+          research(query, { caseSensitive, wholeWord: !wholeWord });
+        }}
       >
-        <Text className={`font-mono text-xs ${wholeWord ? 'text-indigo-300 font-bold' : 'text-slate-400'}`}>\\b</Text>
+        <Text className={`font-mono text-xs ${wholeWord ? 'text-indigo-300 font-bold' : 'text-slate-400'}`}>{'\\b'}</Text>
       </Button>
       <Button
         testID="code-search-previous"

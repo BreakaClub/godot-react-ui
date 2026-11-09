@@ -1,7 +1,7 @@
 import './setup';
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createElement as h } from 'react';
+import { createElement as h, useState } from 'react';
 import { EditorSelection } from '@codemirror/state';
 import { findCodeMatches, CodeSearch } from '../demo/src/editor/view/code-search';
 import { findMatchesInSnapshot, PageSearch } from '../demo/src/page-search';
@@ -9,6 +9,7 @@ import { Navigator } from '../demo/src/navigator';
 import { createTestRoot } from './recording-host';
 import { TextInputHost } from './text-input-host';
 import { installMonospaceGeometry } from './monospace-text-geometry';
+import { settleReact } from './react-scheduler';
 import type { CodeSupport } from '../demo/src/editor/lab-code';
 
 test('findCodeMatches: case sensitive and whole word options', () => {
@@ -237,4 +238,48 @@ test('Code search: cycles matches, respects whole-word and case-sensitive option
   } finally {
     console.warn = originalWarn;
   }
+});
+
+test('Code search moves the editor\'s selection when the search moves, and leaves it when the document changes', async () => {
+  const host = new TextInputHost();
+  const { root } = createTestRoot(host);
+  const selected: Array<readonly [number, number]> = [];
+  let edit: (doc: string) => void = () => { assert.fail('the editor is not mounted'); };
+  // As CodeEditor renders it: the document's text, and a new onFindMatch every render.
+  function Editor() {
+    const [doc, setDoc] = useState('alpha beta alpha');
+    edit = setDoc;
+    return h(CodeSearch, { docText: doc, searchEpoch: 1, onFindMatch: (from: number, to: number) => { selected.push([from, to]); }, onClose: () => {} });
+  }
+  root.render(h(Editor));
+  const tag = (testID: string): number => {
+    const found = root.findByTestID(testID);
+    assert.ok(found, `no element with testID "${testID}"`);
+    return found.id;
+  };
+  const count = (): string => {
+    const collect = (id: number): string => {
+      const node = host.nodes.get(id);
+      return (typeof node?.props.text === 'string' ? node.props.text : '') + (node?.children ?? []).map(collect).join('');
+    };
+    return collect(tag('code-search-count'));
+  };
+  assert.equal(host.focusNode(tag('code-search-input'), 1), '');
+  host.type(root, 'alpha');
+  await settleReact();
+  assert.deepEqual(selected.at(-1), [0, 5], 'the query selects its first match');
+  assert.equal(count(), '1 of 2');
+
+  // Typing in the editor, after the last match: the count follows the document, the selection stays where the typing is.
+  selected.length = 0;
+  edit('alpha beta alpha! alpha');
+  await settleReact();
+  assert.deepEqual(selected, [], 'an edit does not move the selection to a match');
+  assert.equal(count(), '1 of 3');
+
+  host.event(tag('code-search-next'), 'click');
+  root.dispatchEvents();
+  await settleReact();
+  assert.deepEqual(selected, [[11, 16]], 'Next selects the next match');
+  assert.equal(count(), '2 of 3');
 });
