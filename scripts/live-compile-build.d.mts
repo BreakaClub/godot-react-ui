@@ -22,6 +22,9 @@ export interface LiveCompileLayout {
 
 export const INSTALL_DIRECTORY: string;
 export const LIBRARY_NAME: string;
+/** The manifest's platform feature and architecture for the library built on this host. */
+export const LIBRARY_FEATURES: 'macos' | 'linux' | 'windows';
+export const LIBRARY_ARCHITECTURE: 'arm64' | 'x86_64';
 export const INSTALLED_LIBRARY: string;
 export const INSTALLED_STAMP: string;
 export const GDEXTENSION_FILE: string;

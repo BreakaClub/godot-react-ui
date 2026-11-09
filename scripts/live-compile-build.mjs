@@ -16,6 +16,15 @@ const TARGET_PATH = 'live-compile/target';
 const STAMP_NAME = 'live_compile.build.json';
 export const INSTALL_DIRECTORY = resolve(root, INSTALL_PATH);
 export const LIBRARY_NAME = process.platform === 'darwin' ? 'liblive_compile.dylib' : process.platform === 'linux' ? 'liblive_compile.so' : 'live_compile.dll';
+/**
+ * The manifest's feature tags for the library built on this host: the platform and architecture Godot loads it for. A build is for the
+ * machine it is made on, so the manifest lists that one platform, under its own name (`LIBRARY_NAME`).
+ */
+export const LIBRARY_FEATURES = process.platform === 'darwin' ? 'macos' : process.platform === 'linux' ? 'linux' : 'windows';
+// cargo builds for the host (`target/release`, no `--target`), so the architecture is Node's: Godot's feature tag for each of Node's names.
+const GODOT_ARCHITECTURES = { arm64: 'arm64', x64: 'x86_64' };
+export const LIBRARY_ARCHITECTURE = GODOT_ARCHITECTURES[process.arch];
+if (LIBRARY_ARCHITECTURE === undefined) throw new Error(`live-compile has no Godot architecture tag for a ${process.arch} host`);
 export const INSTALLED_LIBRARY = resolve(INSTALL_DIRECTORY, 'bin', LIBRARY_NAME);
 export const INSTALLED_STAMP = resolve(INSTALL_DIRECTORY, STAMP_NAME);
 export const GDEXTENSION_FILE = resolve(INSTALL_DIRECTORY, 'live_compile.gdextension');
@@ -207,8 +216,8 @@ compatibility_minimum = "4.7"
 reloadable = false
 
 [libraries]
-macos.debug.arm64 = "res://addons/live-compile/bin/${LIBRARY_NAME}"
-macos.release.arm64 = "res://addons/live-compile/bin/${LIBRARY_NAME}"
+${LIBRARY_FEATURES}.debug.${LIBRARY_ARCHITECTURE} = "res://addons/live-compile/bin/${LIBRARY_NAME}"
+${LIBRARY_FEATURES}.release.${LIBRARY_ARCHITECTURE} = "res://addons/live-compile/bin/${LIBRARY_NAME}"
 ${web}`;
   if (existsSync(manifest) && readFileSync(manifest, 'utf8') === content) return;
   const staged = `${manifest}.${process.pid}.tmp`;

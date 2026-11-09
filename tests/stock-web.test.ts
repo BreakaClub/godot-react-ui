@@ -60,7 +60,11 @@ test('no module installed for the profile: the export lists none, the manifest h
   assert.deepEqual(liveCompile.liveCompileWebPlan(skeleton.engine('stock')), { include: false }, 'Breaka\'s module sits in the shared install and is not the stock export\'s');
   liveCompile.writeGdextension({ webLibrary: undefined });
   assert.doesNotMatch(manifest(skeleton), /web\./u);
-  assert.match(manifest(skeleton), /macos\.release\.arm64 = "res:\/\/addons\/live-compile\/bin\/liblive_compile\.(dylib|so|dll)"/u, 'the native entries are unchanged');
+  // The native entries are the host's: its platform and architecture, and its library's name (a Linux build is not listed for macOS).
+  const { LIBRARY_FEATURES, LIBRARY_ARCHITECTURE, LIBRARY_NAME } = skeleton.liveCompile;
+  for (const kind of ['debug', 'release']) {
+    assert.ok(manifest(skeleton).includes(`${LIBRARY_FEATURES}.${kind}.${LIBRARY_ARCHITECTURE} = "res://addons/live-compile/bin/${LIBRARY_NAME}"`), `the native ${kind} entry is unchanged`);
+  }
 });
 
 test('a module stamped for the profile is listed by name, and only that one', async () => {
