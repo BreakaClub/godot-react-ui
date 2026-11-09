@@ -308,18 +308,20 @@ async function runWorkflow(viewport) {
       && Math.abs(back.x - centre.x) <= ROUND_TRIP_TOLERANCE_PX && Math.abs(back.y - centre.y) <= ROUND_TRIP_TOLERANCE_PX, { centre, screen, back });
   }
 
-  // Raster: the browser shows the panel's colours at the projected points, and the backdrop in the margin.
+  // Raster: the browser shows the panel's colours at the projected points, and the backdrop in the margin. A Button centres its label, as a
+  // browser's does (native/user_agent.rs), so the centre of Add is on its white glyphs: its fill is read at its inset corner, as Reset's is.
   const add = await elementPoint('world-increment');
+  const addFill = await elementPoint('world-increment', true);
   const marginScreen = await world('screenPointOf', 12, 12);
   const margin = await pagePoint(marginScreen);
   await expectPixel('The panel\'s transparent margin shows the backdrop', margin, BACKDROP_HEX);
-  await expectPixel('The projected centre of Add is drawn in its rest colour', add, PRIMARY_REST);
+  await expectPixel('The projected fill of Add is drawn in its rest colour', addFill, PRIMARY_REST);
 
   // Hover, leave, hover again.
   await moveTo(add);
   check('Moving onto the projected Add button hovers it', await isWithin((await snapshot()).hovered, 'world-increment'));
   check('Add takes its hover style', (await find('world-increment')).style.backgroundColor === PRIMARY_HOVER);
-  await expectPixel('The browser shows the hover colour on the quad', add, PRIMARY_HOVER);
+  await expectPixel('The browser shows the hover colour on the quad', addFill, PRIMARY_HOVER);
   await capture('02-hover');
   await moveTo(OFF_QUAD);
   check('Moving off the quad clears hover', (await snapshot()).hovered === null);

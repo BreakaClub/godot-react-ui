@@ -26,8 +26,12 @@ const letterKey = (letter) => letter.charCodeAt(0);
 const INPUT_START = 'Select this and try Cmd+A, Cmd+C, Cmd+Z';
 /** The width under which the navigator has no Code button. */
 const PHONE_BREAKPOINT_PX = 768;
-/** The editor's lines the scenario clicks, and the line a select-line moves the caret to. */
-const EDITOR_CLICK_LINE = 4;
+/**
+ * The line the scenario clicks is the first of the lab's source with a few words on it: a click goes to the middle of the line's element, and a blank
+ * line's element is as wide as the code, so its middle can be past the window. Which line that is depends on the source.
+ */
+const CLICK_LINE_MIN_CHARACTERS = 10;
+const CLICK_LINE_MAX_CHARACTERS = 60;
 
 /** Install the recorder in the page, or clear the one that is there: every key event, whether the page's listeners got it or `stopImmediatePropagation()` kept it. */
 async function installRecorder(page) {
@@ -274,13 +278,16 @@ export async function runKeyPassthroughEditorScenario(context) {
   await waitUntil('the caret', () => nodeExists('code-caret'));
   await installRecorder(page);
 
-  await click(`code-line-${EDITOR_CLICK_LINE}`);
+  const sourceLines = String(await demo('labSource', 'inputs')).split('\n');
+  const clickLine = sourceLines.findIndex((line) => line.length >= CLICK_LINE_MIN_CHARACTERS && line.length <= CLICK_LINE_MAX_CHARACTERS) + 1;
+  check('The lab\'s source has a short line to click', clickLine > 0, clickLine);
+  await click(`code-line-${clickLine}`);
   await waitUntil('the editor\'s input has the focus', async () => (await snapshot()).focused === (await find('editor-input-sink')).id);
   const position = async () => text('code-status-position');
   const start = await position();
   await stayedWithTheEngine(`${cmd}+A in the editor`, [command], 'KeyA', 'KeyA');
   await stayedWithTheEngine(`${cmd}+L in the editor (select line)`, [command], 'KeyL', 'KeyL');
-  await click(`code-line-${EDITOR_CLICK_LINE}`);
+  await click(`code-line-${clickLine}`);
   const clicked = await position();
   await stayedWithTheEngine(`${cmd}+L in the editor (select line), from a caret`, [command], 'KeyL', 'KeyL');
   check(`${cmd}+L selected the line instead of going to the browser's address bar`, (await position()) !== clicked, { start, clicked, after: await position() });

@@ -55,7 +55,7 @@ export type CodeEditorCapture = (name: string, overflowing?: readonly string[]) 
 const OVERFLOWING = ['inputs-slider-thumb', 'editor-grid-probe'];
 /** Typed at the end of a statement: not a statement. (A stray `}` in JSX text is not a syntax error to Bun's parser: it compiles and throws when the page renders.) */
 const SYNTAX_JUNK = ' = = ;';
-/** A comment typed into the blank third line of the source: an edit that changes no behaviour. */
+/** A comment typed into the source's first blank line (`blankLine`): an edit that changes no behaviour. */
 const NOTE = '// note';
 const LAB_ID = 'inputs';
 const LAB_SOURCE = 'res://src/inputs-lab.tsx';
@@ -125,6 +125,10 @@ const PAST_THE_END_COLUMN = 60;
 /** Pointer and scroll (docs/tracks/editor-pointer.md): the characters a drag covers, and the line a press or a drag is made on has at least this many. */
 const POINTER_DRAG_COLUMNS = 6;
 const POINTER_LINE_MIN_CHARACTERS = 30;
+/** The keyboard checks start on the first line from this one that begins with a word (past the imports). */
+const WORD_LINE_FROM = 5;
+/** How many characters Shift+Right selects at the start of the next line, and Copy must give. */
+const SELECTED_PREFIX = 3;
 /** The column a press lands on. */
 const POINTER_COLUMN = 10;
 /** The least number of whole lines the code must show for these checks to mean anything: the edge lines and the middle ones are different lines. */
@@ -685,19 +689,32 @@ async function verifyPointerAndScroll(api: CodeEditorInspection, sourceLines: re
   const wholeLines = Math.floor(clientHeight / lineHeight);
   assert(wholeLines >= POINTER_MIN_VISIBLE_LINES, `The code shows at least ${POINTER_MIN_VISIBLE_LINES} whole lines: ${wholeLines}`);
   /** The first line at or after `from` that has text enough to press and drag on. */
-  const lineWithText = (from: number): number => {
-    const index = sourceLines.findIndex((text, at) => at + 1 >= from && text.length >= POINTER_LINE_MIN_CHARACTERS);
-    assert(index >= 0, `The source has a line of ${POINTER_LINE_MIN_CHARACTERS} characters at or after line ${from}`);
-    return index + 1;
-  };
   /** The first line that is whole in view, and the last. */
   const firstWhole = (): number => Math.ceil((view().scroll?.scrollTop ?? 0) / lineHeight) + 1;
   const lastWhole = (): number => Math.floor(((view().scroll?.scrollTop ?? 0) + clientHeight) / lineHeight);
+  const middleOfView = (): number => firstWhole() + Math.floor(wholeLines / 2);
+  /**
+   * The lines whole in view that have text enough to press and drag on, in order. They are taken from the view, not from the source after a line:
+   * which lines have text depends on the lab's source, and the first one after the middle may be below the view (a run of short lines, a comment).
+   */
+  const linesWithTextInView = (): number[] => {
+    const lines: number[] = [];
+    for (let line = firstWhole(); line <= lastWhole(); line += 1) {
+      if ((sourceLines[line - 1] ?? '').length >= POINTER_LINE_MIN_CHARACTERS) lines.push(line);
+    }
+    assert(lines.length >= 2, `At least two lines in view (${firstWhole()} to ${lastWhole()}) have ${POINTER_LINE_MIN_CHARACTERS} characters: ${lines.join(', ')}`);
+    return lines;
+  };
+  const nearerTheMiddle = (a: number, b: number): number => (Math.abs(b - middleOfView()) < Math.abs(a - middleOfView()) ? b : a);
   /** The line with text nearest the middle of the view, after it has scrolled. */
-  const lineInTheMiddle = (): number => {
-    const line = lineWithText(firstWhole() + Math.floor(wholeLines / 2));
-    assert(line >= firstWhole() && line <= lastWhole(), `A line with text (${line}) is in the middle of the view (${firstWhole()} to ${lastWhole()})`);
-    return line;
+  const lineInTheMiddle = (): number => linesWithTextInView().reduce(nearerTheMiddle);
+  /** A line with text near the middle of the view and the next line with text after it, both in view: where a click and the next click go. */
+  const pairInTheMiddle = (): readonly [number, number] => {
+    const lines = linesWithTextInView();
+    const first = lines.slice(0, -1).reduce(nearerTheMiddle);
+    const next = lines[lines.indexOf(first) + 1];
+    assert(next !== undefined, `A line with text follows line ${first} in view`);
+    return [first, next];
   };
   const track = view().scroll?.tracks?.x;
   /** The foot of the code is under a scrollbar when the content is wider than the view: a press there is the scrollbar's. */
@@ -722,10 +739,8 @@ async function verifyPointerAndScroll(api: CodeEditorInspection, sourceLines: re
   };
 
   // A click mid-file, and the next, scroll nothing. The caret has to be somewhere else first: the first line.
-  const middle = lineInTheMiddle();
+  const [middle, next] = pairInTheMiddle();
   await pressedAt(middle, POINTER_COLUMN, `A click on line ${middle}`);
-  const next = lineWithText(middle + 1);
-  assert(next <= lastWhole(), `The next line with text (${next}) is in view`);
   await pressedAt(next, POINTER_COLUMN, `The next click, on line ${next}`);
 
   // The lines at the edges: a line that is whole in view is not scrolled, the second from the bottom included (it used to be: a reveal kept two lines clear).
@@ -810,6 +825,9 @@ export async function verifyCodeEditor(owner: Node, api: CodeEditorInspection, c
   const source = FileAccess.getFileAsString(LAB_SOURCE);
   assert(source.length > 0, `The source ${LAB_SOURCE} is in the build`);
   const sourceLines = source.split('\n');
+  /** The first blank line of the source, which the paste and typing checks write a comment into: an edit that changes no behaviour. */
+  const blankLine = sourceLines.indexOf('') + 1;
+  assert(blankLine > 0, 'The source has a blank line');
 
   // ---- The Code button, and where it is not offered -------------------------------------------------------------------------------
   api.showNavigator({ initialLab: LAB_ID });
@@ -988,21 +1006,27 @@ export async function verifyCodeEditor(owner: Node, api: CodeEditorInspection, c
   await verifyPointerAndScroll(api, sourceLines, command);
 
   // ---- The keyboard moves the caret ----------------------------------------------------------------------------------------------------------------------
-  await click(boundaryAt(api, 5, 0));
+  // On a line that starts with a word, a word jump from its start goes to the word's end. Which line that is depends on the lab's source: the first
+  // such line from the fifth on (a line that starts with punctuation, a comment, is a group of its own for a word jump).
+  const jumpIndex = sourceLines.findIndex((line, index) => index >= WORD_LINE_FROM - 1 && /^\w+/u.test(line) && (sourceLines[index + 1] ?? '').length >= SELECTED_PREFIX);
+  assert(jumpIndex >= 0, `The source has a line that starts with a word from line ${WORD_LINE_FROM} on, and a line after it`);
+  const jumpLine = jumpIndex + 1;
+  const nextText = sourceLines[jumpIndex + 1] ?? '';
+  await click(boundaryAt(api, jumpLine, 0));
   const beforeJump = textOf(api, 'code-status-position');
   await pressKey(Key.KeyRight, wordJump);
   const jumped = statusPosition(api);
-  const word = /^\W*\w+/u.exec(sourceLines[4] ?? '');
-  assert(jumped.line === 5 && word !== null && jumped.column === word[0].length, `A word jump moves over a word: from ${beforeJump} to column ${jumped.column} of ${JSON.stringify(sourceLines[4])}, expected ${word?.[0].length}`);
+  const word = /^\w+/u.exec(sourceLines[jumpIndex] ?? '');
+  assert(jumped.line === jumpLine && word !== null && jumped.column === word[0].length, `A word jump moves over a word: from ${beforeJump} to column ${jumped.column} of ${JSON.stringify(sourceLines[jumpIndex])}, expected ${word?.[0].length}`);
   await pressKey(Key.KeyDown);
-  assert(statusPosition(api).line === 6, 'Down moves a line');
+  assert(statusPosition(api).line === jumpLine + 1, 'Down moves a line');
   await pressKey(Key.KeyEnd);
-  assert(statusPosition(api).column === (sourceLines[5] ?? '').length, 'End goes to the end of the line');
+  assert(statusPosition(api).column === nextText.length, 'End goes to the end of the line');
   await pressKey(Key.KeyHome, {}, 2);
   assert(statusPosition(api).column === 0, 'Home twice goes to the start of the line');
-  await pressKey(Key.KeyRight, { shift: true }, 3);
+  await pressKey(Key.KeyRight, { shift: true }, SELECTED_PREFIX);
   await pressKey(Key.KeyC, command);
-  assert(verifierClipboard.get() === (sourceLines[5] ?? '').slice(0, 3), `Shift with a movement selects: ${JSON.stringify(verifierClipboard.get())}`);
+  assert(verifierClipboard.get() === nextText.slice(0, SELECTED_PREFIX), `Shift with a movement selects: ${JSON.stringify(verifierClipboard.get())}`);
 
   // ---- Scrolling: the wheel moves the window of lines, and Page Down follows the caret ---------------------------------------------------------------
   const nodesBeforeScroll = api.snapshot().nodes.length;
@@ -1040,7 +1064,7 @@ export async function verifyCodeEditor(owner: Node, api: CodeEditorInspection, c
   await pressKey(Key.KeyRight, {}, classAt.column + 'bg-'.length + 'slate-50'.length);
   assert(statusPosition(api).line === classAt.line && statusPosition(api).column === classAt.column + 'bg-slate-50'.length, `The caret is after "slate-50": ${textOf(api, 'code-status-position')}`);
   await pressKey(Key.KeyBackspace, {}, 'slate-50'.length);
-  assert((lineText(api, classAt.line) ?? '').includes('className="w-full h-full bg- p-6 gap-3"'), `Backspace removed the shade: ${lineText(api, classAt.line)}`);
+  assert((lineText(api, classAt.line) ?? '').includes('testID="inputs-lab" className="relative w-full h-full bg-"'), `Backspace removed the shade: ${lineText(api, classAt.line)}`);
   // Keystroke to ink, and the commit a keystroke costs.
   api.takeProfile();
   const typed = 'emerald-100';
@@ -1202,12 +1226,12 @@ export async function verifyCodeEditor(owner: Node, api: CodeEditorInspection, c
 
   // ---- A line with wide characters is placed by its text, not by the grid ----------------------------------------------------------------------------------------
   await toTop(api);
-  await click(boundaryAt(api, 3, 0));
+  await click(boundaryAt(api, blankLine, 0));
   verifierClipboard.set(WIDE_COMMENT);
   await pressKey(Key.KeyV, command);
-  assert(lineText(api, 3) === WIDE_COMMENT, `Paste put the comment in the blank third line: ${lineText(api, 3)}`);
-  assert(statusPosition(api).line === 3 && statusPosition(api).column === WIDE_COMMENT.length, `The caret is after the pasted text: ${textOf(api, 'code-status-position')}`);
-  const wideLine = 'code-line-3';
+  assert(lineText(api, blankLine) === WIDE_COMMENT, `Paste put the comment in the blank line ${blankLine}: ${lineText(api, blankLine)}`);
+  assert(statusPosition(api).line === blankLine && statusPosition(api).column === WIDE_COMMENT.length, `The caret is after the pasted text: ${textOf(api, 'code-status-position')}`);
+  const wideLine = `code-line-${blankLine}`;
   const wideCaret = (offset: number): LayoutRect => {
     const rect = api.textCaret(wideLine, offset, 'after');
     assert(rect !== null, `The wide line has a caret at ${offset}`);
@@ -1227,7 +1251,7 @@ export async function verifyCodeEditor(owner: Node, api: CodeEditorInspection, c
   const between = (from: number, to: number, share: number): Vector2 => new Vector2(wideCaret(from).x + share * (wideCaret(to).x - wideCaret(from).x), wideY);
   for (const [share, landed] of [[BELOW_HALF, WIDE_FIRST_START], [ABOVE_HALF, WIDE_FIRST_END]] as const) {
     await click(between(WIDE_FIRST_START, WIDE_FIRST_END, share));
-    assert(statusPosition(api).line === 3 && statusPosition(api).column === landed, `A press ${share * HUNDRED} percent across an emoji lands on offset ${landed}: ${textOf(api, 'code-status-position')}`);
+    assert(statusPosition(api).line === blankLine && statusPosition(api).column === landed, `A press ${share * HUNDRED} percent across an emoji lands on offset ${landed}: ${textOf(api, 'code-status-position')}`);
     assert(Math.abs(caretRect(api).x - wideCaret(landed).x) <= COLUMN_TOLERANCE_PX, `and the caret is drawn there: ${caretRect(api).x} against ${wideCaret(landed).x}`);
   }
   // Right moves over a whole emoji, and the caret is never between its two code units.
@@ -1270,18 +1294,18 @@ export async function verifyCodeEditor(owner: Node, api: CodeEditorInspection, c
 
   // ---- The panel hidden and shown again keeps what was typed; the lab on the stage keeps its state -------------------------------------------------------------
   await toTop(api);
-  assert(sourceLines[2] === '', 'Line 3 of the source is blank');
-  await click(boundaryAt(api, 3, 0));
+  assert(sourceLines[blankLine - 1] === '', `Line ${blankLine} of the source is blank`);
+  await click(boundaryAt(api, blankLine, 0));
   await typeText(NOTE);
-  assert(lineText(api, 3) === NOTE, `The comment is in the third line: ${lineText(api, 3)}`);
+  assert(lineText(api, blankLine) === NOTE, `The comment is in line ${blankLine}: ${lineText(api, blankLine)}`);
   const counterBefore = textOf(api, 'inputs-next');
   await waitUntil('the comment to reach the page', () => textOf(api, 'code-status-run').startsWith('Swapped in'), UPDATE_DEADLINE_MS);
   await click(centerOf(node(api, 'toggle-code').rect));
   assert(!hasNode(api, 'code-editor'), 'Hide Code closes the panel');
   assert(textOf(api, 'inputs-next') === counterBefore, `and the lab on the stage keeps its state: ${textOf(api, 'inputs-next')} against ${counterBefore}`);
   await click(centerOf(node(api, 'toggle-code').rect));
-  await waitUntil('the panel again', () => hasNode(api, 'code-line-3'));
-  assert(lineText(api, 3) === NOTE, 'Show Code brings the edited text back');
+  await waitUntil('the panel again', () => hasNode(api, `code-line-${blankLine}`));
+  assert(lineText(api, blankLine) === NOTE, 'Show Code brings the edited text back');
   assert(textOf(api, 'inputs-next') === counterBefore, 'and the lab still has its state');
 
   // ---- Idle: the panel open and not focused asks for no frames ------------------------------------------------------------------------------------------------

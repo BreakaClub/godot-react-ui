@@ -160,6 +160,12 @@ const ACTIVATE_REST_COLOR = '#4f46e5';
 const CARD_FOCUS_VISIBLE_COLOR = '#fef3c7';
 const CARD_REST_COLOR = '#ffffff';
 const EMSCRIPTEN_STARTUP_DIAGNOSTIC = 'Blocking on the main thread is very dangerous, see https://emscripten.org/docs/porting/pthreads.html#blocking-on-the-main-browser-thread';
+/**
+ * What Emscripten's libpthread prints when a thread is asked for and its pool of Workers is used up (once a thread). The code editor's live-compile
+ * pass holds more threads than the pool has, which is the state that hung react.breaka.club (scripts/verify-code-editor-web.mjs,
+ * `runLiveCompileSequence`), so this is expected while it holds them (`holdingThreadPool`), and a failure at any other time.
+ */
+const EMSCRIPTEN_POOL_EXHAUSTED = 'Tried to spawn a new thread, but the thread pool is exhausted.';
 const viewports = [
   { name: 'landscape', width: 1120, height: 800, deviceScaleFactor: 1 },
   { name: 'portrait', width: 600, height: 900, deviceScaleFactor: 1 },
@@ -179,6 +185,8 @@ let activeViewport = 'startup';
 let fatalErrors = [];
 // Console errors a scenario provokes on purpose and expects once each (a refused clipboard read); anything else is fatal.
 const expectedConsoleErrors = [];
+/** Whether a scenario holds more threads than the pool of Workers has, on purpose (`EMSCRIPTEN_POOL_EXHAUSTED`). */
+let threadPoolHeld = false;
 
 function check(name, condition, detail) {
   report.assertions.push({ viewport: activeViewport, name, passed: Boolean(condition), detail });
@@ -502,6 +510,11 @@ async function observePage(observedPage) {
       } else {
         fatalErrors.push(entry.text);
       }
+      return;
+    }
+    if (entry.text.startsWith(EMSCRIPTEN_POOL_EXHAUSTED)) {
+      if (threadPoolHeld) report.expectedDiagnostics.push({ ...entry, reason: 'The live-compile pass holds more threads than the pool of Workers has, on purpose' });
+      else fatalErrors.push(entry.text);
       return;
     }
     const expected = expectedConsoleErrors.findIndex((pattern) => pattern.test(entry.text));
@@ -2560,8 +2573,10 @@ const MIN_HIGHLIGHT_SHARE = 0.5;
 const SELECTION_SCAN_STEP_PX = 2;
 const SHORT_TEXT_PADDING_PX = 4;
 const FIRST_LINE_PROBE_Y = 6;
+/** The rows of the selection lab's list (`LIST_ROWS` in demo/src/selection-lab.tsx). */
+const SELECTION_LAB_ROWS = 10;
 const SELECTABLE_LAB_TEXTS = ['sel-p1', 'sel-p2', 'sel-live', 'sel-tail', 'sel-captured', 'sel-prevented', 'sel-short', 'sel-rose', 'sel-counter',
-  ...Array.from({ length: 14 }, (_, index) => `sel-row-${index}`)];
+  ...Array.from({ length: SELECTION_LAB_ROWS }, (_, index) => `sel-row-${index}`)];
 // The Command key on macOS (Godot's `ui_copy` is Cmd+C there, and Ctrl+C elsewhere, including on the Web build).
 const COMMAND_KEY = process.platform === 'darwin' ? 'Meta' : 'Control';
 
@@ -3000,6 +3015,7 @@ async function runWorkflow(viewport) {
   if (wanted('code-editor')) {
     await section('code-editor', () => runCodeEditorScenario({
       demo, page, frames, snapshot, find, check, capture, click, moveTo, text, waitUntil, nodeExists, pagePoint, centerOf,
+      holdingThreadPool: (held) => { threadPoolHeld = held; },
     }));
   }
 

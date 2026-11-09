@@ -168,17 +168,29 @@ async function pointerAndScroll(context, h, lines, toTop) {
   const clientHeight = (await scroller()).scroll.clientHeight;
   const wholeLines = Math.floor(clientHeight / lineHeight);
   check(`The code shows at least ${POINTER_MIN_VISIBLE_LINES} whole lines`, wholeLines >= POINTER_MIN_VISIBLE_LINES, wholeLines);
-  const lineWithText = (from) => {
-    const index = lines.findIndex((text, at) => at + 1 >= from && text.length >= POINTER_LINE_MIN_CHARACTERS);
-    if (index < 0) throw new Error(`The source has no line of ${POINTER_LINE_MIN_CHARACTERS} characters at or after line ${from}`);
-    return index + 1;
-  };
   const firstWhole = async () => Math.ceil((await scrollTop()) / lineHeight) + 1;
   const lastWhole = async () => Math.floor(((await scrollTop()) + clientHeight) / lineHeight);
+  // The lines whole in view with text enough to press and drag on, in order, and the middle of the view. They are taken from the view, not from
+  // the source after a line: which lines have text depends on the lab's source, and the first one after the middle may be below the view.
+  const textInView = async () => {
+    const first = await firstWhole();
+    const last = await lastWhole();
+    const found = [];
+    for (let line = first; line <= last; line += 1) if ((lines[line - 1] ?? '').length >= POINTER_LINE_MIN_CHARACTERS) found.push(line);
+    if (found.length < 2) throw new Error(`Fewer than two lines in view (${first} to ${last}) have ${POINTER_LINE_MIN_CHARACTERS} characters: ${found.join(', ')}`);
+    return { found, middle: first + Math.floor(wholeLines / 2) };
+  };
+  const nearer = (middle) => (a, b) => (Math.abs(b - middle) < Math.abs(a - middle) ? b : a);
+  /** The line with text nearest the middle of the view. */
   const lineInTheMiddle = async () => {
-    const line = lineWithText((await firstWhole()) + Math.floor(wholeLines / 2));
-    if (line < (await firstWhole()) || line > (await lastWhole())) throw new Error(`The line with text nearest the middle (${line}) is not in view`);
-    return line;
+    const { found, middle } = await textInView();
+    return found.reduce(nearer(middle));
+  };
+  /** A line with text near the middle of the view and the next line with text after it, both in view. */
+  const pairInTheMiddle = async () => {
+    const { found, middle } = await textInView();
+    const first = found.slice(0, -1).reduce(nearer(middle));
+    return [first, found[found.indexOf(first) + 1]];
   };
   const track = (await scroller()).scroll.tracks?.x ?? null;
   const pressableBottom = async () => (track === null ? (await scroller()).rect.y + clientHeight : track.y);
@@ -237,9 +249,8 @@ async function pointerAndScroll(context, h, lines, toTop) {
 
   await toTop();
   // A click mid-file, and the next, scroll nothing.
-  const middle = await lineInTheMiddle();
+  const [middle, next] = await pairInTheMiddle();
   await pressedAt(middle, POINTER_COLUMN, `A click on line ${middle}`);
-  const next = lineWithText(middle + 1);
   await pressedAt(next, POINTER_COLUMN, `The next click, on line ${next}`);
   // The lines at the edges are not scrolled when they are whole in view, the second from the bottom included (it used to be: a reveal kept two lines clear).
   const bottom = await bottomMost();
@@ -330,6 +341,9 @@ export async function runCodeEditorScenario(context) {
     return;
   }
   const lines = source.split('\n');
+  // The first blank line of the source, which the paste check writes a comment into: an edit that changes no behaviour.
+  const blankLine = lines.indexOf('') + 1;
+  check('The source has a blank line', blankLine > 0, blankLine);
   /** Scrolls the code to the top through the programmatic path, so that positions given as lines count from the first. */
   const toTop = async () => {
     await demo('scrollTo', 'code-scroll', 0);
@@ -522,21 +536,21 @@ export async function runCodeEditorScenario(context) {
 
   // A line with wide characters is placed by its text, not by the grid: where its caret is, what a press lands on, what a selection covers.
   await toTop();
-  await h.click(await h.boundaryAt(3, 0));
+  await h.click(await h.boundaryAt(blankLine, 0));
   await page.evaluate((comment) => navigator.clipboard.writeText(comment), WIDE_COMMENT);
   await h.press('KeyV', ['Meta']);
-  await waitUntil('the comment is in the third line', async () => (await h.lineText(3)) === WIDE_COMMENT);
-  const wideCaret = async (offset) => demo('textCaret', 'code-line-3', offset, 'after');
+  await waitUntil(`the comment is in line ${blankLine}`, async () => (await h.lineText(blankLine)) === WIDE_COMMENT);
+  const wideCaret = async (offset) => demo('textCaret', `code-line-${blankLine}`, offset, 'after');
   const wideColumns = ((await wideCaret(WIDE_COMMENT.length)).x - (await wideCaret(0)).x) / grid.advance;
   check('The line is one Text and its caret at the end is where the text puts it (the width in columns is recorded: a Web build has no font for these characters)', near((await find('code-caret')).rect.x, (await wideCaret(WIDE_COMMENT.length)).x, COLUMN_TOLERANCE_PX), { wideColumns, codeUnits: WIDE_COMMENT.length });
   // A press at the place of the one before it, soon after, is a double click: each of these is begun after a pause.
   const apart = () => new Promise((resolve) => setTimeout(resolve, CLICK_SEQUENCE_PAUSE_MS));
-  const wideY = (await find('code-line-3')).rect.y + grid.lineHeight / 2;
+  const wideY = (await find(`code-line-${blankLine}`)).rect.y + grid.lineHeight / 2;
   const between = async (from, to, share) => ({ x: (await wideCaret(from)).x + share * ((await wideCaret(to)).x - (await wideCaret(from)).x), y: wideY });
   for (const [share, landed] of [[BELOW_HALF, WIDE_FIRST_START], [ABOVE_HALF, WIDE_FIRST_END]]) {
     await apart(); await h.click(await between(WIDE_FIRST_START, WIDE_FIRST_END, share));
     const position = await h.statusPosition();
-    check(`A press ${share * 100} percent across an emoji lands on offset ${landed}`, position?.line === 3 && position.column === landed, position);
+    check(`A press ${share * 100} percent across an emoji lands on offset ${landed}`, position?.line === blankLine && position.column === landed, position);
     check('and the caret is drawn where the text puts it', near((await find('code-caret')).rect.x, (await wideCaret(landed)).x, COLUMN_TOLERANCE_PX), (await find('code-caret')).rect);
   }
   await apart(); await h.click(await between(WIDE_FIRST_START, WIDE_FIRST_END, BELOW_HALF));
@@ -547,7 +561,7 @@ export async function runCodeEditorScenario(context) {
   await h.press('KeyC', ['Meta']);
   await frames();
   check('The three emoji are on the clipboard', (await h.clipboard()) === WIDE_COMMENT.slice(WIDE_FIRST_START, WIDE_RUN_END), { clipboard: await h.clipboard(), status: await h.statusPosition() });
-  const wideSpans = (await h.spansOf('code-line-3')).filter((span) => span.inlay === undefined && String(span.style.backgroundColor ?? '').length > 0);
+  const wideSpans = (await h.spansOf(`code-line-${blankLine}`)).filter((span) => span.inlay === undefined && String(span.style.backgroundColor ?? '').length > 0);
   check('and the selection is the background of the span over exactly them', wideSpans.length === 1 && wideSpans[0].start === WIDE_FIRST_START && wideSpans[0].end === WIDE_RUN_END, wideSpans);
   await capture('code-editor-09-wide', { geometry: false });
 
@@ -572,8 +586,13 @@ export async function runCodeEditorScenario(context) {
 
 /** Ben's sequence needs the live-compile service to start a thread the pool of workers cannot give at once: more threads than the pool holds. */
 const POOL_HOGS = 12;
-/** The longest the page may go without a frame while it waits for the compile (the page is idle: every gap is the wait). */
-const WAIT_FRAME_GAP_LIMIT_MS = 100;
+/**
+ * The longest the page may go without a frame while a lab compiles and goes live. The wait ends with the page's own work, the compiled lab run and
+ * mounted in place of the bundled one, so it is held to the bound demo/src/verify-live-compile-sequence.ts holds the page's work to: a page that
+ * waits for the service (30 s here) fails it. That the page never waits for the service thread is held to 100 ms by the live-compile section's
+ * busy-service check.
+ */
+const WAIT_FRAME_GAP_LIMIT_MS = 1_000;
 const LIVE_DEADLINE_MS = 60_000;
 const PANEL_DEADLINE_MS = 2_000;
 
@@ -600,29 +619,35 @@ async function runLiveCompileSequence(context, h) {
   const now = () => page.evaluate(() => performance.now());
   await demo('showNavigator', { initialLab: 'hud' });
   await waitUntil('the navigator on the HUD lab', async () => (await nodeExists('lab-title')) && (await text('lab-title')) === 'HUD over the game');
+  // Emscripten says the pool is used up, once for each thread past it: expected while they are held (`holdingThreadPool`).
+  context.holdingThreadPool(true);
   await demo('holdLiveCompileThreads', POOL_HOGS);
-  await demo('restartLiveCompile');
-  await context.click('toggle-code');
-  await waitUntil('the code panel, editable, while the lab compiles', () => nodeExists('code-editor'), PANEL_DEADLINE_MS);
-  check('Ben\'s sequence: the panel opens at once and is not read-only', !(await nodeExists('code-read-only')));
-  const firstMark = await now();
-  await waitUntil('the HUD lab to be live', async () => (await text('code-status-run')).startsWith('Live.'), LIVE_DEADLINE_MS);
-  const first = await framesSince(firstMark);
-  check(`and the page keeps its frames while the HUD lab compiles (no gap over ${WAIT_FRAME_GAP_LIMIT_MS} ms)`, first.worstGapMs <= WAIT_FRAME_GAP_LIMIT_MS && first.frames >= 1, first);
+  try {
+    await demo('restartLiveCompile');
+    await context.click('toggle-code');
+    await waitUntil('the code panel, editable, while the lab compiles', () => nodeExists('code-editor'), PANEL_DEADLINE_MS);
+    check('Ben\'s sequence: the panel opens at once and is not read-only', !(await nodeExists('code-read-only')));
+    const firstMark = await now();
+    await waitUntil('the HUD lab to be live', async () => (await text('code-status-run')).startsWith('Live.'), LIVE_DEADLINE_MS);
+    const first = await framesSince(firstMark);
+    check(`and the page keeps its frames while the HUD lab compiles (no gap over ${WAIT_FRAME_GAP_LIMIT_MS} ms)`, first.worstGapMs <= WAIT_FRAME_GAP_LIMIT_MS && first.frames >= 1, first);
 
-  await context.click('lab-next');
-  await waitUntil('the scene lab', () => nodeExists('lab-launch'), LIVE_DEADLINE_MS);
-  check('The scene lab has no code panel', !(await nodeExists('code-editor')));
+    await context.click('lab-next');
+    await waitUntil('the scene lab', () => nodeExists('lab-launch'), LIVE_DEADLINE_MS);
+    check('The scene lab has no code panel', !(await nodeExists('code-editor')));
 
-  await context.click('lab-next');
-  await waitUntil('the Accessibility lab\'s code panel', () => nodeExists('code-editor'), PANEL_DEADLINE_MS);
-  check('The next lab is Accessibility', (await text('lab-title')) === 'Accessibility', await text('lab-title'));
-  const lastMark = await now();
-  await waitUntil('the Accessibility lab to be live or read-only', async () => (await text('code-status-run')).startsWith('Live.') || (await nodeExists('code-read-only')), LIVE_DEADLINE_MS);
-  const last = await framesSince(lastMark);
-  check('The Accessibility lab\'s code opens and compiles, and does not end read-only', !(await nodeExists('code-read-only')) && (await text('code-status-run')).startsWith('Live.'), await nodeExists('code-read-only') ? await text('code-read-only') : await text('code-status-run'));
-  check(`and the page kept its frames while it did (no gap over ${WAIT_FRAME_GAP_LIMIT_MS} ms)`, last.worstGapMs <= WAIT_FRAME_GAP_LIMIT_MS && last.frames >= 1, last);
-  await demo('releaseLiveCompileThreads');
+    await context.click('lab-next');
+    await waitUntil('the Accessibility lab\'s code panel', () => nodeExists('code-editor'), PANEL_DEADLINE_MS);
+    check('The next lab is Accessibility', (await text('lab-title')) === 'Accessibility', await text('lab-title'));
+    const lastMark = await now();
+    await waitUntil('the Accessibility lab to be live or read-only', async () => (await text('code-status-run')).startsWith('Live.') || (await nodeExists('code-read-only')), LIVE_DEADLINE_MS);
+    const last = await framesSince(lastMark);
+    check('The Accessibility lab\'s code opens and compiles, and does not end read-only', !(await nodeExists('code-read-only')) && (await text('code-status-run')).startsWith('Live.'), await nodeExists('code-read-only') ? await text('code-read-only') : await text('code-status-run'));
+    check(`and the page kept its frames while it did (no gap over ${WAIT_FRAME_GAP_LIMIT_MS} ms)`, last.worstGapMs <= WAIT_FRAME_GAP_LIMIT_MS && last.frames >= 1, last);
+  } finally {
+    await demo('releaseLiveCompileThreads');
+    context.holdingThreadPool(false);
+  }
   await demo('restoreDemo');
   await frames();
 }
@@ -697,7 +722,16 @@ export async function runTouchCodeEditorScenario(context) {
   check('A pan scrolls the code', !drawn.has(1), [...drawn.keys()]);
   const afterPan = await h.statusPosition();
   check('and does not move the caret', afterPan?.line === 6 && afterPan.column === 3, afterPan);
-  // A tap after the pan is a tap like any other: the caret was left off the view, and the tap does not pull the code back to it.
+  // A tap after the pan is a tap like any other: the caret was left off the view, and the tap does not pull the code back to it. The pan's
+  // momentum goes on after the finger lifts, so the line is chosen once the code has stopped moving: chosen before, it moved out of view.
+  let restingTop = -1;
+  await waitUntil('the pan\'s momentum to end', async () => {
+    const top = (await context.find('code-scroll')).scroll.scrollTop;
+    const resting = top === restingTop;
+    restingTop = top;
+    await frames();
+    return resting;
+  });
   const panned = (await context.find('code-scroll')).scroll;
   const tapLine = lines.findIndex((text, at) => at + 1 >= Math.ceil(panned.scrollTop / grid.lineHeight) + 3 && text.length >= 20) + 1;
   const tapAt = await h.boundaryAt(tapLine, 7);

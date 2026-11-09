@@ -412,7 +412,8 @@ function geometry(snapshot: NativeSnapshot, overflowing: ReadonlySet<number> = n
       const a = first.rect;
       assert(overflowing.has(first.id) || (a.x >= r.x - GEOMETRY_TOLERANCE && a.y >= r.y - GEOMETRY_TOLERANCE &&
         a.x + a.width <= r.x + r.width + GEOMETRY_TOLERANCE &&
-        a.y + a.height <= r.y + r.height + GEOMETRY_TOLERANCE), `Child ${first.id} escapes parent ${node.id}`);
+        a.y + a.height <= r.y + r.height + GEOMETRY_TOLERANCE),
+      `Child ${first.id} (${String(first.props.testID ?? first.kind)}) escapes parent ${node.id} (${String(node.props.testID ?? node.kind)}): ${JSON.stringify(a)} in ${JSON.stringify(r)}`);
       for (let j = i + 1; j < children.length; j++) {
         const second = children[j];
         if (!second || second.rect.width === 0 || second.rect.height === 0 || isOutOfFlow(second)) continue;
@@ -1600,6 +1601,8 @@ const SLIDER_JUMP_FRACTION = 0.25;
 /** The select's gap to its trigger (`DEFAULT_SIDE_OFFSET`) and the margin it keeps to the root's edges. */
 const SELECT_GAP_PX = 4;
 const SELECT_MARGIN_PX = 8;
+/** Where the long select's trigger is scrolled to before its list opens: this fraction of the window down, so most of the room is under it. */
+const LONG_TRIGGER_TOP_FRACTION = 0.25;
 /** A probe this far inside the list's left edge is on its border and padding, where no item is. */
 const SELECT_PADDING_PROBE_PX = 2;
 /** The long list's length (`LONG_LIST_LENGTH` in inputs-lab.tsx). */
@@ -1937,8 +1940,18 @@ async function verifyInputs(owner: Node, api: InteractionInspection, capture: (n
     `Pressing an item chooses it, closes the list and refocuses the trigger: ${text(api, 'inputs-json')}`);
 
   // ---- A list too long for the room: capped to it, and scrolled by the keys, the wheel and its thumb ----------------
-  const longTrigger = rectOf('inputs-long');
+  // The case is a trigger with more room under it than over it, whose list is taller than either. The lab's notes put its selects low in the
+  // window, and the page scrolls, so the page is scrolled until the trigger is in the window's top quarter, as a person would scroll to it. (A list
+  // with less room under its trigger opens over it: the pinned select's case, below.)
   const rootHeight = api.snapshot().height;
+  const page = nodeOf('inputs-page');
+  const pageScroll = page.scroll;
+  assert(pageScroll, 'The Controls page is a scroll container');
+  api.scrollTo('inputs-page', Math.min(pageScroll.maxScrollTop, pageScroll.scrollTop + rectOf('inputs-long').y - page.rect.y - rootHeight * LONG_TRIGGER_TOP_FRACTION));
+  await settle();
+  const longTrigger = rectOf('inputs-long');
+  assert(rootHeight - (longTrigger.y + longTrigger.height) > longTrigger.y,
+    `The long select has more room under it than over it, which is the case this checks: ${JSON.stringify(longTrigger)} in a window ${rootHeight} tall`);
   await click(api, 'inputs-long');
   const longList = (): NativeSnapshotNode => nodeOf('inputs-long-list');
   const longState = (): NativeScrollState => {
@@ -2697,8 +2710,9 @@ const MIN_CLIPPED_PX = 3;
 const MIN_VISIBLE_ROW_PX = 3;
 /** More wheel ticks than it takes to scroll a row of the lab's list past its top edge: a loop that reaches it is a bug. */
 const MAX_SELECTION_SCROLL_TICKS = 12;
-/** The rows of the lab's list. */
-const SELECTION_LAB_ROWS = 14;
+/** The rows of the lab's list (`LIST_ROWS` in demo/src/selection-lab.tsx), and the last of them: the end of the selectable text. */
+const SELECTION_LAB_ROWS = 10;
+const LAST_SELECTION_ROW = `sel-row-${SELECTION_LAB_ROWS - 1}`;
 
 /** The lab's selectable texts in document order: what select all copies. */
 const SELECTABLE_LAB_TEXTS = [
@@ -2881,7 +2895,7 @@ async function verifySelection(owner: Node, api: InteractionInspection, capture:
 
   // A drag that ends past everything selects to the end of the last selectable text.
   await dragSelect(p1Start, new Vector2(p1Start.x, api.snapshot().height - 1));
-  assert(same(selected(), 'sel-p1', 0, 'sel-row-13', textOf('sel-row-13').length),
+  assert(same(selected(), 'sel-p1', 0, LAST_SELECTION_ROW, textOf(LAST_SELECTION_ROW).length),
     `A pointer below all the text reaches the end of the last selectable text: ${JSON.stringify(selected())}`);
 
   // ---- Shift+click extends ---------------------------------------------------------------------------------------------
@@ -3621,7 +3635,7 @@ export async function runInteractionVerification(owner: Node, api: InteractionIn
   async function capture(name: string, overflowing: readonly string[] = []): Promise<void> {
     await settle();
     const snapshot = api.snapshot();
-    geometry(snapshot, new Set(overflowing.map(testID => get(api, testID).id)));
+    // The picture and the tree are saved before the geometry is judged, so a capture that fails leaves the evidence of what failed.
     RenderingServer.forceDraw();
     const image = owner.getViewport()?.getTexture()?.getImage();
     assert(image, 'Native verification requires a rendered viewport');
@@ -3632,6 +3646,7 @@ export async function runInteractionVerification(owner: Node, api: InteractionIn
     assert(file, 'Cannot write geometry evidence');
     file.storeString(JSON.stringify(snapshot));
     file.close();
+    geometry(snapshot, new Set(overflowing.map(testID => get(api, testID).id)));
   }
   const coverage = selectedSections();
   const sections = new Set(coverage.run);
