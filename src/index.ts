@@ -1,4 +1,7 @@
-export { View, Text, Button, Portal, useKeyClaims, useRootEvent, useRootSize, useTextSelection } from './components';
+export {
+  View, Text, Button, Portal, useKeyClaims, useRangeRects, useRootEvent, useRootSize, useRootSnapshot,
+  useScrollIntoView, useTextSelection,
+} from './components';
 export type {
   HostProps, TextInputHandle, TextInputHostProps, TextProps, UIProps, UIHandle, UISelection, UISelectionPoint,
   UITextPosition,

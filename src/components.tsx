@@ -5,9 +5,10 @@ import type {
   UIAccessibilityActionEvent, UIBeforeInputEvent, UICompositionEvent, UIDragEndEvent, UIDragEvent, UIEventMap, UIFocusEvent,
   UIInputEvent, UIKeyboardEvent, UIPointerEvent, UIScrollEvent, UITextSelectionChangeEvent, UIWheelEvent,
 } from './events';
-import type { LayoutRect, NativeEventType, NativeScrollState, TextSide } from './native';
+import type { LayoutRect, NativeEventType, NativeScrollState, NativeSnapshot, TextSide } from './native';
 import {
-  claimRootKeys, createOverlayPortal, createPortalContainer, OverlayContext, readRootSize, readTextSelection, watchRootEvent, watchRootSize,
+  claimRootKeys, createOverlayPortal, createPortalContainer, OverlayContext, readNodeRangeRects, readRootSize,
+  readRootSnapshot, readTextSelection, scrollTagIntoView, watchRootEvent, watchRootSize,
   watchTextSelection,
   type RootSize,
 } from './renderer';
@@ -410,4 +411,31 @@ export function useRootEvent<K extends NativeEventType>(type: K, listener: (even
   const latest = useRef(listener);
   useLayoutEffect(() => { latest.current = listener; });
   useLayoutEffect(() => watchRootEvent(overlay, type, (event) => { latest.current(event); }), [overlay, type]);
+}
+
+/**
+ * Read the current snapshot of native nodes in this root.
+ */
+export function useRootSnapshot(): () => NativeSnapshot {
+  const overlay = useContext(OverlayContext);
+  if (overlay === null) throw new Error('useRootSnapshot() must be used inside a root created by createRoot');
+  return useCallback(() => readRootSnapshot(overlay), [overlay]);
+}
+
+/**
+ * Scroll the native element with `tag` into view.
+ */
+export function useScrollIntoView(): (tag: number) => void {
+  const overlay = useContext(OverlayContext);
+  if (overlay === null) throw new Error('useScrollIntoView() must be used inside a root created by createRoot');
+  return useCallback((tag: number) => scrollTagIntoView(overlay, tag), [overlay]);
+}
+
+/**
+ * The rectangles `start..end` covers for the Text element with `tag`, root-local, or `undefined`.
+ */
+export function useRangeRects(): (tag: number, start: number, end: number) => LayoutRect[] | undefined {
+  const overlay = useContext(OverlayContext);
+  if (overlay === null) throw new Error('useRangeRects() must be used inside a root created by createRoot');
+  return useCallback((tag: number, start: number, end: number) => readNodeRangeRects(overlay, tag, start, end), [overlay]);
 }

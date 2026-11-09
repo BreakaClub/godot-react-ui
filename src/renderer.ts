@@ -18,7 +18,7 @@ import {
   checkCapture, checkFocus, checkScroll, commitPayload, findTag, readCaretRect, readDeletions, readEvents, readNodeRect,
   readOffsetAtPoint, readRangeRects, readScrollState,
   readSelection, readSnapshot, readTextInputState, readTouchSelection, resolveEvent, setTextAndSelection, setTextSelection,
-  type NativeDragEndEvent, type NativeDragEvent, type NativeEvent, type NativeEventType, type NativeHost,
+  type LayoutRect, type NativeDragEndEvent, type NativeDragEvent, type NativeEvent, type NativeEventType, type NativeHost,
   type NativePointerEvent, type NativeSnapshot, type NativeSnapshotNode, type NativeTouchSelection,
 } from './native';
 import { nativeProps, scalarText, type NativeKind, type NativeProps, type PreviousProps } from './props';
@@ -468,6 +468,21 @@ export function claimRootKeys(container: Container, chords: readonly string[]): 
   const claim = [...parseKeyChordsOf(chords)];
   container.root.claimedChords.add(claim);
   return () => { container.root.claimedChords.delete(claim); };
+}
+
+/** Read the current native snapshot for the root `container` belongs to. */
+export function readRootSnapshot(container: Container): NativeSnapshot {
+  return readSnapshot(container.root.host);
+}
+
+/** Scroll the native element with `tag` into view. */
+export function scrollTagIntoView(container: Container, tag: number): void {
+  checkScroll(container.root.host.scrollIntoView(tag), 'scrollIntoView');
+}
+
+/** The rectangles `start..end` covers for the Text element with `tag`, root-local, or `undefined`. */
+export function readNodeRangeRects(container: Container, tag: number, start: number, end: number): LayoutRect[] | undefined {
+  return readRangeRects(container.root.host, tag, start, end);
 }
 
 function finiteSize(value: number, axis: string): number {

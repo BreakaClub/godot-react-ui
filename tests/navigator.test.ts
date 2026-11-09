@@ -49,13 +49,17 @@ function mount(props: NavigatorProps = {}) {
     host.event(tag(testID), 'click');
     root.dispatchEvents();
   };
+  const keydown = (testID: string, overrides: Parameters<typeof host.keyEvent>[2]): void => {
+    host.events.push(host.keyEvent(tag(testID), 'keydown', overrides));
+    root.dispatchEvents();
+  };
   const focus = (testID: string): void => { assert.equal(host.focusNode(tag(testID), 1), ''); };
   const focusedTestID = (): string | undefined => {
     const id = host.focused === null ? undefined : host.nodes.get(host.focused)?.props.testID;
     return typeof id === 'string' ? id : undefined;
   };
   const title = (): string => textOf('lab-title');
-  return { host, root, tag, has, props: props_, textOf, click, focus, focusedTestID, title };
+  return { host, root, tag, has, props: props_, textOf, click, keydown, focus, focusedTestID, title };
 }
 
 const ORDERED = labsInOrder(LABS);
@@ -423,4 +427,92 @@ test('onNavigate allows external callers to navigate the lab stage', async () =>
   nav(SECOND.id);
   await new Promise(resolve => setTimeout(resolve, 10));
   assert.equal(m.title(), SECOND.title);
+});
+
+test('Ctrl+F intercepts and opens page search on visible lab when code editor is closed', () => {
+  const m = mount();
+  assert.equal(m.has('page-search'), false, 'page search starts closed');
+  assert.equal(m.has('code-search'), false, 'code search starts closed');
+
+  // Press Ctrl+F on the stage
+  m.keydown('counter-lab', { key: 'f', ctrlKey: true });
+
+  assert.equal(m.has('page-search'), true, 'page search opens on Ctrl+F');
+  assert.equal(m.has('page-search-input'), true);
+  assert.equal(m.has('code-search'), false, 'code search is not open');
+
+  // Type a search query for visible text in counter lab
+  m.focus('page-search-input');
+  m.host.type(m.root, 'React');
+
+  assert.match(m.textOf('page-search-count'), /1 of \d+/u);
+
+  // Navigate matches
+  m.click('page-search-next');
+  assert.match(m.textOf('page-search-count'), /2 of \d+/u);
+  m.click('page-search-previous');
+  assert.match(m.textOf('page-search-count'), /1 of \d+/u);
+
+  // Close search via close button
+  m.click('page-search-close');
+  assert.equal(m.has('page-search'), false, 'page search closed');
+});
+
+test('Escape closes page search', () => {
+  const m = mount();
+  m.keydown('counter-lab', { key: 'f', metaKey: true });
+  assert.equal(m.has('page-search'), true);
+
+  m.keydown('page-search-input', { key: 'Escape' });
+  assert.equal(m.has('page-search'), false, 'Escape closes page search');
+});
+
+test('When code editor is open, Ctrl+F opens code editor search instead of page search', () => {
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  try {
+    const m = mount({ code: withoutCompiler });
+    assert.equal(m.has('code-editor'), false);
+
+    // Open code editor
+    m.click('toggle-code');
+    assert.equal(m.has('code-editor'), true);
+    assert.equal(m.has('code-search'), false, 'code search starts closed');
+    assert.equal(m.has('page-search'), false, 'page search starts closed');
+
+    // Press Ctrl+F
+    m.keydown('code-editor', { key: 'f', ctrlKey: true });
+
+    assert.equal(m.has('code-search'), true, 'code search opened');
+    assert.equal(m.has('code-search-input'), true);
+    assert.equal(m.has('page-search'), false, 'page search remained closed');
+
+    // Search for code text
+    m.focus('code-search-input');
+    m.host.type(m.root, 'answer');
+    assert.equal(m.textOf('code-search-count'), '1 of 1');
+
+    // Toggle match case
+    m.click('code-search-match-case');
+    assert.equal(m.textOf('code-search-count'), '1 of 1');
+
+    // Toggle whole word
+    m.click('code-search-whole-word');
+    assert.equal(m.textOf('code-search-count'), '1 of 1');
+
+    // Close code search via close button
+    m.click('code-search-close');
+    assert.equal(m.has('code-search'), false, 'code search closed');
+
+    // Close code editor
+    m.click('toggle-code');
+    assert.equal(m.has('code-editor'), false, 'code editor closed');
+
+    // Press Ctrl+F again: now it opens page search
+    m.keydown('counter-lab', { key: 'f', ctrlKey: true });
+    assert.equal(m.has('page-search'), true, 'page search opens now that code editor is closed');
+    assert.equal(m.has('code-search'), false);
+  } finally {
+    console.warn = originalWarn;
+  }
 });

@@ -1,4 +1,4 @@
-import React, { Component, createContext, Fragment, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type MutableRefObject, type ReactNode } from 'react';
+import React, { Component, createContext, Fragment, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type MutableRefObject, type ReactNode } from 'react';
 import {
   createMemoryHistory,
   createRootRoute,
@@ -9,11 +9,15 @@ import {
   useParams,
   type RouterHistory,
 } from '@tanstack/react-router';
-import { Button, Portal, ScrollView, Select, Text, TextField, View, type UIHandle, type UIInputEvent, type UIKeyboardEvent } from 'godot-react-ui';
+import {
+  Button, Portal, ScrollView, Select, Text, TextField, useKeyClaims, useRootEvent, View,
+  type UIHandle, type UIInputEvent, type UIKeyboardEvent,
+} from 'godot-react-ui';
 import { LAB_GROUPS, LABS, filterLabs, labsInOrder, type Lab, type SceneLab, type WindowLab } from './labs';
 import { ExpectedVisibleProvider } from './lab-parts';
 import { CodeEditor } from './code-editor';
 import { labCodeKey, openLabCode, releaseLabCode, type CodeSupport, type LabCode } from './editor/lab-code';
+import { PageSearch } from './page-search';
 
 declare global {
   // eslint-disable-next-line no-var
@@ -453,6 +457,12 @@ interface NavigatorContextValue {
   codeSupport?: CodeSupport;
   livePage?: ComponentType;
   codePanel?: { lab: Lab; code: LabCode };
+  pageSearchOpen: boolean;
+  setPageSearchOpen: (open: boolean) => void;
+  pageSearchEpoch: number;
+  triggerPageSearch: () => void;
+  codeSearchEpoch: number;
+  triggerCodeSearch: () => void;
 }
 
 const NavigatorContext = createContext<NavigatorContextValue | null>(null);
@@ -524,6 +534,15 @@ function NavigatorShell() {
       ctx.setWindowOpen(false);
       return;
     }
+    if ((event.key === 'f' || event.key === 'F') && (event.ctrlKey || event.metaKey) && !event.altKey) {
+      event.preventDefault();
+      if (ctx.codeOpen) {
+        ctx.triggerCodeSearch();
+      } else {
+        ctx.triggerPageSearch();
+      }
+      return;
+    }
     if (ctx.windowOpen || !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
     if (event.key === 'ArrowDown') { event.preventDefault(); ctx.step(NEXT); }
     else if (event.key === 'ArrowUp') { event.preventDefault(); ctx.step(PREVIOUS); }
@@ -536,6 +555,13 @@ function NavigatorShell() {
         <ExpectedVisibleProvider value={ctx.showExpected}>
           <LabPage lab={selected} />
         </ExpectedVisibleProvider>
+        {ctx.pageSearchOpen ? (
+          <PageSearch
+            selectedLabId={ctx.selectedId}
+            searchEpoch={ctx.pageSearchEpoch}
+            onClose={() => ctx.setPageSearchOpen(false)}
+          />
+        ) : null}
         <WindowBar lab={selected} onBack={() => ctx.setWindowOpen(false)} />
       </View>
     );
@@ -616,12 +642,24 @@ function NavigatorShell() {
             <ExpectedVisibleProvider value={ctx.showExpected}>
               <Outlet />
             </ExpectedVisibleProvider>
+            {ctx.pageSearchOpen ? (
+              <PageSearch
+                selectedLabId={ctx.selectedId}
+                searchEpoch={ctx.pageSearchEpoch}
+                onClose={() => ctx.setPageSearchOpen(false)}
+              />
+            ) : null}
           </View>
           {codePanel ? (
             <>
               <View className="w-full h-px xl:w-px xl:h-full bg-slate-200 shrink-0 pointer-events-auto" />
               <View className="h-[45%] xl:h-full xl:w-[45%] min-w-0 min-h-0 shrink-0 pointer-events-auto">
-                <CodeEditor key={labCodeKey(codePanel.code)} lab={codePanel.lab} code={codePanel.code} />
+                <CodeEditor
+                  key={labCodeKey(codePanel.code)}
+                  lab={codePanel.lab}
+                  code={codePanel.code}
+                  searchEpoch={ctx.codeSearchEpoch}
+                />
               </View>
             </>
           ) : null}
@@ -632,6 +670,7 @@ function NavigatorShell() {
 }
 
 export function Navigator({ labs = LABS, initialLab, onLabChange, onOpenScene, code: codeSupport, history: historyProp, onNavigate }: NavigatorProps) {
+  useKeyClaims(['Mod+F', 'Ctrl+F']);
   const ordered = useMemo(() => labsInOrder(labs), [labs]);
   const requested = initialLab === undefined ? undefined : ordered.find(lab => lab.id === initialLab);
   const [selectedId, setSelectedId] = useState<string | undefined>(initialLab === undefined ? ordered[FIRST_LAB]?.id : requested?.id);
@@ -640,7 +679,31 @@ export function Navigator({ labs = LABS, initialLab, onLabChange, onOpenScene, c
   const [windowOpen, setWindowOpen] = useState(false);
   const [codeOpen, setCodeOpen] = useState(false);
   const [showExpected, setShowExpected] = useState(false);
+  const [pageSearchOpen, setPageSearchOpen] = useState(false);
+  const [pageSearchEpoch, setPageSearchEpoch] = useState(0);
+  const [codeSearchEpoch, setCodeSearchEpoch] = useState(0);
   const handles = useRef(new Map<string, UIHandle>());
+
+  const triggerPageSearch = useCallback(() => {
+    setPageSearchOpen(true);
+    setPageSearchEpoch(e => e + 1);
+  }, []);
+
+  const triggerCodeSearch = useCallback(() => {
+    setCodeSearchEpoch(e => e + 1);
+  }, []);
+
+  useRootEvent('keydown', (event) => {
+    if (event.defaultPrevented) return;
+    if ((event.key === 'f' || event.key === 'F') && (event.ctrlKey || event.metaKey) && !event.altKey) {
+      event.preventDefault();
+      if (codeOpen) {
+        triggerCodeSearch();
+      } else {
+        triggerPageSearch();
+      }
+    }
+  });
 
   const selected = ordered.find(lab => lab.id === selectedId);
   const labCode = useLabCode(selected, codeSupport, codeOpen);
@@ -747,6 +810,12 @@ export function Navigator({ labs = LABS, initialLab, onLabChange, onOpenScene, c
     codeSupport,
     livePage,
     codePanel,
+    pageSearchOpen,
+    setPageSearchOpen,
+    pageSearchEpoch,
+    triggerPageSearch,
+    codeSearchEpoch,
+    triggerCodeSearch,
   };
 
   return (

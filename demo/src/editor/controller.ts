@@ -140,7 +140,7 @@ export class EditorController {
 
   /** The chords of the key table, spelled as `keyClaims` takes them: what the browser must not get while the editor has the keyboard. */
   get keyClaims(): readonly string[] {
-    this.keyChords ??= editorKeyClaims(this.keymap);
+    this.keyChords ??= [...editorKeyClaims(this.keymap), 'Mod+F', 'Ctrl+F'];
     return this.keyChords;
   }
 
