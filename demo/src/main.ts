@@ -170,15 +170,14 @@ export default class Main extends Node {
     this.mount();
     if (this.start.kind === 'navigator' && this.currentLab !== undefined && Engine.hasSingleton('JavaScriptBridge')) {
       const initialLabId = this.currentLab;
+      // A failure here is the browser's own (Godot's eval reports a thrown error in the page's console), so it is not caught.
       JavaScriptBridge.eval(`
-        try {
-          const url = new URL(window.location.href);
-          if (!url.searchParams.has('lab') && !window.location.hash) {
-            url.searchParams.set('demo', 'navigator');
-            url.searchParams.set('lab', ${JSON.stringify(initialLabId)});
-            window.history.replaceState({ lab: ${JSON.stringify(initialLabId)} }, '', url.pathname + url.search + url.hash);
-          }
-        } catch (e) {}
+        const url = new URL(window.location.href);
+        if (!url.searchParams.has('lab') && !window.location.hash) {
+          url.searchParams.set('demo', 'navigator');
+          url.searchParams.set('lab', ${JSON.stringify(initialLabId)});
+          window.history.replaceState({ lab: ${JSON.stringify(initialLabId)} }, '', url.pathname + url.search + url.hash);
+        }
       `, true);
     }
     const api = {
@@ -723,14 +722,12 @@ export default class Main extends Node {
         this.currentLab = id;
         if (!this.handlingPopState && Engine.hasSingleton('JavaScriptBridge')) {
           JavaScriptBridge.eval(`
-            try {
-              const url = new URL(window.location.href);
-              if (url.searchParams.get('lab') !== ${JSON.stringify(id)}) {
-                url.searchParams.set('demo', 'navigator');
-                url.searchParams.set('lab', ${JSON.stringify(id)});
-                window.history.pushState({ lab: ${JSON.stringify(id)} }, '', url.pathname + url.search + url.hash);
-              }
-            } catch (e) {}
+            const url = new URL(window.location.href);
+            if (url.searchParams.get('lab') !== ${JSON.stringify(id)}) {
+              url.searchParams.set('demo', 'navigator');
+              url.searchParams.set('lab', ${JSON.stringify(id)});
+              window.history.pushState({ lab: ${JSON.stringify(id)} }, '', url.pathname + url.search + url.hash);
+            }
           `, true);
         }
       },
