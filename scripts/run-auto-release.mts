@@ -195,6 +195,19 @@ function main(): void {
     return;
   }
 
+  if (!tagExists(nextTag)) {
+    run('git', ['config', 'user.name', 'github-actions[bot]']);
+    run('git', ['config', 'user.email', 'github-actions[bot]@users.noreply.github.com']);
+    run('git', ['tag', nextTag, targetSha]);
+    if (!isDryRun) {
+      try {
+        run('git', ['push', 'origin', nextTag]);
+      } catch (error) {
+        console.warn(`Warning: failed to push tag ${nextTag} to origin:`, error);
+      }
+    }
+  }
+
   const releaseCommandArgs = [
     'exec',
     'auto',
