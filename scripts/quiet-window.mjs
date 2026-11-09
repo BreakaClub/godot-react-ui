@@ -39,7 +39,13 @@ export function quietWindowLibrary() {
 export function quietLaunch(godot, env, { platform = process.platform, library = quietWindowLibrary } = {}) {
   if (platform !== 'darwin') return { command: godot, env };
   const direct = directLaunchOf(godot);
-  for (const directory of direct?.directories ?? []) mkdirSync(directory, { recursive: true });
+  for (const directory of direct?.directories ?? []) {
+    try {
+      mkdirSync(directory, { recursive: true });
+    } catch {
+      // Best-effort directory creation for host runner environments.
+    }
+  }
   return { command: direct?.command ?? godot, env: { ...env, ...direct?.env, DYLD_INSERT_LIBRARIES: library() } };
 }
 
