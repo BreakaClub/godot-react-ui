@@ -85,5 +85,5 @@ the gate once, the native and Web lanes side by side.
 | `filters,glass,paint,transforms,rich-text,text-styles` on Mobile and Forward+ | passed, both windows | |
 | `filters-faults`, `transforms-faults` (negative controls) | passed: each fault caught | |
 | `verify:web`, `verify:motion:web`, `verify-world-web` | passed | |
-| `verify:interaction:web`, every section | passed: six jobs, 5,794 assertions, 600 captures, 530 s | STOCK_WEB_RESULT |
+| `verify:interaction:web`, every section | passed: six jobs, 5,794 assertions, 600 captures, 530 s | failed in two jobs under the load of the six jobs, each passing on its own (`hidpi`, and `font-slices` in 98 s); both fixed in `28f1cf1` (the caret's picture, the pages job's deadline). The full run that would confirm them was stopped at Ben's request, to free the machine: not re-run |
 | `verify-live-compile-web` | passed: 10 assertions; Workers 19 at the start and the end of the lab walk, 19 after each round of held threads | passed |
