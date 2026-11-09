@@ -27,11 +27,11 @@ const INPUT_START = 'Select this and try Cmd+A, Cmd+C, Cmd+Z';
 /** The width under which the navigator has no Code button. */
 const PHONE_BREAKPOINT_PX = 768;
 /**
- * The line the scenario clicks is the first of the lab's source with a few words on it: a click goes to the middle of the line's element, and a blank
- * line's element is as wide as the code, so its middle can be past the window. Which line that is depends on the source.
+ * The scenario presses the first line of the lab's source that has a few words on it, this far into the line: a line's element is as wide as the
+ * code's widest line, which can be wider than the window, so the middle of the element is no place to press.
  */
 const CLICK_LINE_MIN_CHARACTERS = 10;
-const CLICK_LINE_MAX_CHARACTERS = 60;
+const LINE_PRESS_INSET_PX = 40;
 
 /** Install the recorder in the page, or clear the one that is there: every key event, whether the page's listeners got it or `stopImmediatePropagation()` kept it. */
 async function installRecorder(page) {
@@ -263,7 +263,7 @@ export async function runKeyPassthroughScenario(context) {
  * that declares the chords of the editor's key table (`demo/src/editor/key-claims.ts`).
  */
 export async function runKeyPassthroughEditorScenario(context) {
-  const { demo, page, frames, snapshot, find, check, waitUntil, text, click, nodeExists } = context;
+  const { demo, page, frames, snapshot, find, check, waitUntil, text, click, nodeExists, pagePoint } = context;
   const mac = await page.evaluate(() => /Mac|iPhone|iPad|iPod/u.test(navigator.platform));
   const command = mac ? 'Meta' : 'Control';
   const h = keyHelpers(context, { modifierName: mac ? 'Cmd' : 'Ctrl' });
@@ -279,15 +279,21 @@ export async function runKeyPassthroughEditorScenario(context) {
   await installRecorder(page);
 
   const sourceLines = String(await demo('labSource', 'inputs')).split('\n');
-  const clickLine = sourceLines.findIndex((line) => line.length >= CLICK_LINE_MIN_CHARACTERS && line.length <= CLICK_LINE_MAX_CHARACTERS) + 1;
-  check('The lab\'s source has a short line to click', clickLine > 0, clickLine);
-  await click(`code-line-${clickLine}`);
+  const clickLine = sourceLines.findIndex((line) => line.length >= CLICK_LINE_MIN_CHARACTERS) + 1;
+  check('The lab\'s source has a line with words on it', clickLine > 0, clickLine);
+  const pressLine = async () => {
+    const line = (await find(`code-line-${clickLine}`)).rect;
+    const at = await pagePoint(line.x + LINE_PRESS_INSET_PX, line.y + line.height / 2);
+    await page.mouse.click(at.x, at.y);
+    await frames();
+  };
+  await pressLine();
   await waitUntil('the editor\'s input has the focus', async () => (await snapshot()).focused === (await find('editor-input-sink')).id);
   const position = async () => text('code-status-position');
   const start = await position();
   await stayedWithTheEngine(`${cmd}+A in the editor`, [command], 'KeyA', 'KeyA');
   await stayedWithTheEngine(`${cmd}+L in the editor (select line)`, [command], 'KeyL', 'KeyL');
-  await click(`code-line-${clickLine}`);
+  await pressLine();
   const clicked = await position();
   await stayedWithTheEngine(`${cmd}+L in the editor (select line), from a caret`, [command], 'KeyL', 'KeyL');
   check(`${cmd}+L selected the line instead of going to the browser's address bar`, (await position()) !== clicked, { start, clicked, after: await position() });

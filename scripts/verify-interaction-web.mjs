@@ -3021,7 +3021,7 @@ async function runWorkflow(viewport) {
 
   // Which keys the browser gets does not depend on the viewport: once, in the first.
   if (wanted('key-passthrough') && viewport.name === viewports[0].name) {
-    const keyContext = { demo, page, frames, snapshot, find, check, click, text, waitUntil, nodeExists };
+    const keyContext = { demo, page, frames, snapshot, find, check, click, text, waitUntil, nodeExists, pagePoint };
     await section('key-passthrough', async () => {
       await runKeyPassthroughScenario(keyContext);
       await runKeyPassthroughEditorScenario(keyContext);
