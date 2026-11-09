@@ -57,6 +57,8 @@ Options:
 `);
 }
 
+// A failure sets `process.exitCode` and returns, so Node exits once stderr is written: `process.exit` straight after `console.error` crashes
+// Node 24.7.0 itself (SIGSEGV in 7 of 100 runs spawned from `tsx --test`, which tests/cli.test.ts does; none in 100 with `exitCode`).
 function run() {
   const args = process.argv.slice(2);
   const isPostinstall = args.includes('--postinstall');
@@ -82,7 +84,7 @@ function run() {
   if (!existsSync(SOURCE_ADDON_DIR)) {
     if (!isPostinstall) {
       console.error(`[godot-react-ui] Error: Prebuilt addon directory not found at ${SOURCE_ADDON_DIR}`);
-      process.exit(1);
+      process.exitCode = 1;
     }
     return;
   }
@@ -97,7 +99,8 @@ function run() {
     } else {
       console.error(`[godot-react-ui] Error: Could not locate 'project.godot' ascending from: ${searchStart}`);
       console.error(`Please run the command from inside your Godot project directory or specify --project-dir <path>.`);
-      process.exit(1);
+      process.exitCode = 1;
+      return;
     }
   }
 
