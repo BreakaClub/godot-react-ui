@@ -70,8 +70,8 @@ function mount(element: ReactNode): Mounted {
 }
 
 /** Let React's scheduler run what a continuous event (a pointer move) left pending. */
-async function settle(): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 10));
+async function settle(ms = 50): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function click(m: Mounted, testID: string): void {

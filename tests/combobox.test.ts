@@ -71,7 +71,7 @@ function mount(element: ReactNode): Mounted {
 }
 
 /** Continuous events (a pointer move) are rendered later, by React's scheduler. */
-const settle = () => new Promise<void>((resolve) => { setTimeout(resolve, 10); });
+const settle = (ms = 50) => new Promise<void>((resolve) => { setTimeout(resolve, ms); });
 
 interface FruitSpec {
   readonly value: string;
