@@ -71,7 +71,7 @@ test('a library bound to another API is refused under both profiles, up front, n
   const skeleton = await installedBoth();
   skeleton.restampNative(stamp => { stamp.binding = OTHER_API; });
   const refusal = refusals(skeleton) ?? '';
-  assert.match(refusal, /^The installed libgodot_react_ui\.dylib is bound to Godot API 4\.8\.0 \(dump abababababab\), not bound to Godot API 4\.7\.2 \(dump [0-9a-f]{12}\)\. Run `pnpm build:native` first\.$/u);
+  assert.match(refusal, /^The installed (?:lib)?godot_react_ui\.(?:dylib|so|dll) is bound to Godot API 4\.8\.0 \(dump abababababab\), not bound to Godot API 4\.7\.2 \(dump [0-9a-f]{12}\)\. Run `pnpm build:native` first\.$/u);
   assert.doesNotMatch(refusal, /--engine|switch:engine/u, 'the fix is not per engine');
   skeleton.restampNative(stamp => { stamp.binding = skeleton.native.nativeBinding(); });
   assert.equal(refusals(skeleton), undefined, 'restamped for the right API it is accepted again');
@@ -98,15 +98,15 @@ test('stale sources: a changed native file refuses the library and names the fil
   const skeleton = await installedBoth();
   skeleton.write('native/lib.rs', 'a change to the library\n');
   const refusal = refusals(skeleton) ?? '';
-  assert.match(refusal, /libgodot_react_ui\.dylib is stale: it was built from different sources[^]*changed: native\/lib\.rs[^\n]*Run `pnpm build:native` first\./u);
-  assert.doesNotMatch(refusal, /liblive_compile/u, 'the extension does not read native/, so it is still current');
+  assert.match(refusal, /(?:lib)?godot_react_ui\.(?:dylib|so|dll) is stale: it was built from different sources[^]*changed: native\/lib\.rs[^\n]*Run `pnpm build:native` first\./u);
+  assert.doesNotMatch(refusal, /live_compile/u, 'the extension does not read native/, so it is still current');
   skeleton.buildNative('native library, rebuilt', { install: true });
   assert.equal(refusals(skeleton), undefined);
 });
 
 test('the library is not installed, or its stamp is gone: refused with the build command', async () => {
   const skeleton = await makeSkeleton();
-  assert.match(refusals(skeleton) ?? '', /^No build of libgodot_react_ui\.dylib bound to Godot API 4\.7\.2 \(dump [0-9a-f]{12}\) is available: the installed libgodot_react_ui\.dylib or its build stamp is missing\. Run `pnpm build:native` first\.$/u);
+  assert.match(refusals(skeleton) ?? '', /^No build of (?:lib)?godot_react_ui\.(?:dylib|so|dll) bound to Godot API 4\.7\.2 \(dump [0-9a-f]{12}\) is available: the installed (?:lib)?godot_react_ui\.(?:dylib|so|dll) or its build stamp is missing\. Run `pnpm build:native` first\.$/u);
 });
 
 test('the library replaced after it was stamped is refused', async () => {
@@ -134,7 +134,7 @@ test('extension absent: a run that does not use it goes ahead, and the section t
   const skeleton = await makeSkeleton();
   skeleton.buildNative('native library', { install: true });
   assert.equal(refusals(skeleton), undefined, 'nothing is installed, so nothing is loaded and nothing is wrong');
-  assert.match(skeleton.liveCompile.liveCompileRefusal({ required: true }) ?? '', new RegExp(`^No build of liblive_compile\\.dylib bound to Godot API 4\\.7\\.2[^]*Run \`${LIVE_COMPILE_BUILD}\` first\\.$`, 'u'));
+  assert.match(skeleton.liveCompile.liveCompileRefusal({ required: true }) ?? '', new RegExp(`^No build of (?:lib)?live_compile\\.(?:dylib|so|dll) bound to Godot API 4\\.7\\.2[^]*Run \`${LIVE_COMPILE_BUILD}\` first\\.$`, 'u'));
   assert.throws(() => skeleton.liveCompile.requireLiveCompile(), new RegExp(`Run \`${LIVE_COMPILE_BUILD}\` first`, 'u'));
   assert.equal(skeleton.liveCompile.liveCompileRefusal(), undefined);
 });
@@ -142,12 +142,12 @@ test('extension absent: a run that does not use it goes ahead, and the section t
 test('extension present: bound to another API, stale, replaced or half installed are all refused under both profiles', async () => {
   const skeleton = await installedBoth();
   skeleton.restampLiveCompile(stamp => { stamp.binding = OTHER_API; });
-  assert.match(refusals(skeleton) ?? '', new RegExp(`^The installed liblive_compile\\.dylib is bound to Godot API 4\\.8\\.0 \\(dump abababababab\\), not bound to Godot API 4\\.7\\.2[^]*Run \`${LIVE_COMPILE_BUILD}\` first\\.$`, 'u'));
-  assert.doesNotMatch(refusals(skeleton) ?? '', /libgodot_react_ui/u, 'the library is fine');
+  assert.match(refusals(skeleton) ?? '', new RegExp(`^The installed (?:lib)?live_compile\\.(?:dylib|so|dll) is bound to Godot API 4\\.8\\.0 \\(dump abababababab\\), not bound to Godot API 4\\.7\\.2[^]*Run \`${LIVE_COMPILE_BUILD}\` first\\.$`, 'u'));
+  assert.doesNotMatch(refusals(skeleton) ?? '', /godot_react_ui/u, 'the library is fine');
 
   const stale = await installedBoth();
   stale.write('live-compile/core/lib.rs', 'a change to the checker\n');
-  assert.match(refusals(stale) ?? '', /liblive_compile\.dylib is stale[^]*changed: live-compile\/core\/lib\.rs[^\n]*Run `node scripts\/build-live-compile\.mjs` first\./u);
+  assert.match(refusals(stale) ?? '', /(?:lib)?live_compile\.(?:dylib|so|dll) is stale[^]*changed: live-compile\/core\/lib\.rs[^\n]*Run `node scripts\/build-live-compile\.mjs` first\./u);
 
   const legacy = await installedBoth();
   legacy.restampLiveCompile(stamp => { delete stamp.binding; stamp.engine = 'stock'; });
@@ -157,7 +157,7 @@ test('extension present: bound to another API, stale, replaced or half installed
   half.buildNative('native library', { install: true });
   mkdirSync(half.liveCompile.INSTALL_DIRECTORY, { recursive: true });
   half.liveCompile.writeGdextension();
-  assert.match(refusals(half) ?? '', /^No build of liblive_compile\.dylib bound to Godot API 4\.7\.2[^]*its build stamp is missing/u, 'a manifest without its library is an installation Godot would fail to load');
+  assert.match(refusals(half) ?? '', /^No build of (?:lib)?live_compile\.(?:dylib|so|dll) bound to Godot API 4\.7\.2[^]*its build stamp is missing/u, 'a manifest without its library is an installation Godot would fail to load');
 });
 
 test('both refusals come at once, each with its own fix, before the engine line is printed', async () => {
@@ -169,8 +169,8 @@ test('both refusals come at once, each with its own fix, before the engine line 
     assert.throws(() => skeleton.engine('stock').prepareNative(), (error: unknown) => {
       const lines = (error instanceof Error ? error.message : '').split('\n');
       assert.equal(lines.length, 2);
-      assert.match(lines[0] ?? '', /libgodot_react_ui\.dylib is bound to Godot API 4\.8\.0[^\n]*Run `pnpm build:native` first\.$/u);
-      assert.match(lines[1] ?? '', /liblive_compile\.dylib is stale[^\n]*Run `node scripts\/build-live-compile\.mjs` first\.$/u);
+      assert.match(lines[0] ?? '', /(?:lib)?godot_react_ui\.(?:dylib|so|dll) is bound to Godot API 4\.8\.0[^\n]*Run `pnpm build:native` first\.$/u);
+      assert.match(lines[1] ?? '', /(?:lib)?live_compile\.(?:dylib|so|dll) is stale[^\n]*Run `node scripts\/build-live-compile\.mjs` first\.$/u);
       return true;
     });
     assert.equal(log.mock.calls.length, 0);
@@ -182,7 +182,7 @@ test('both refusals come at once, each with its own fix, before the engine line 
 test('a run that takes the extension out of the project is not refused for it', async () => {
   const skeleton = await installedBoth();
   skeleton.restampLiveCompile(stamp => { stamp.binding = OTHER_API; });
-  assert.match(refusals(skeleton) ?? '', /liblive_compile\.dylib is bound to Godot API 4\.8\.0/u);
+  assert.match(refusals(skeleton) ?? '', /(?:lib)?live_compile\.(?:dylib|so|dll) is bound to Godot API 4\.8\.0/u);
   assert.equal(refusals(skeleton, { liveCompile: false }), undefined, '`gen:types` hides the manifest while Godot runs');
 });
 
