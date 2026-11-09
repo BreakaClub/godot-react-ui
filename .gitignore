@@ -1,6 +1,9 @@
 node_modules/
 target/
 dist/
+addon/
+release/
+*.tgz
 demo/.godot/
 demo/addons/godot-react-ui/bin/
 artifacts/
