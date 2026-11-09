@@ -359,7 +359,8 @@ function LabHeader({ lab, missing, position, onStep, canEdit, codeOpen, onToggle
           <Text testID="lab-title" className="text-xl text-slate-900">{title}</Text>
           <Text testID="lab-description" className="text-sm text-slate-500">{description}</Text>
         </View>
-        <View className="shrink-0 flex-row items-center gap-2">
+        {/* It wraps rather than run past a narrow root: with the Show Expected button it is wider than a phone's header at a pixel ratio of two. */}
+        <View className="max-w-full flex-row flex-wrap items-center gap-2">
           <Text testID="lab-position" className="mr-1 text-xs text-slate-400">{position}</Text>
           <Button testID="lab-previous" aria-label="Previous lab" className={HEADER_BUTTON} onClick={() => onStep(PREVIOUS)}>Previous</Button>
           <Button testID="lab-next" aria-label="Next lab" className={HEADER_BUTTON} onClick={() => onStep(NEXT)}>Next</Button>

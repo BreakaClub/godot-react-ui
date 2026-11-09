@@ -23,7 +23,11 @@ const EMSCRIPTEN_STARTUP_DIAGNOSTIC = 'Blocking on the main thread is very dange
  * unless a case demonstrates something that needs the overflow itself, and then each entry says what.
  * @type {Readonly<Record<string, string>>}
  */
-export const FIT_EXCEPTIONS = {};
+export const FIT_EXCEPTIONS = {
+  'glass-aurora': 'the coloured blobs behind the glass run past the window\'s edges by design, and the aurora clips them (overflow-hidden): nothing shows past the phone\'s edge',
+  'glass-stack-decor-3': 'the last circle behind the stacked panels sits past a phone\'s width; the lab\'s root clips it at the window\'s edge (overflow-hidden)',
+  'glass-dual-decor-3': 'the last circle behind the frosted card sits past a phone\'s width; the lab\'s root clips it at the window\'s edge (overflow-hidden)',
+};
 
 const sleep = (ms) => new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
 

@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { Button, Combobox, Text, View } from 'godot-react-ui';
-import { LabCase, LabGrid, LabIntro } from './lab-parts';
+import { LabIntro, useExpectedVisible } from './lab-parts';
 
 /** Everything the page's comboboxes hold, in one object: the readout is this object as JSON. */
 interface ComboboxState {
@@ -47,8 +47,6 @@ const JSON_INDENT = 2;
 const CONTROL_WIDTH = 'w-full max-w-80';
 /** The single combobox shares its row with the Next button: it takes what the button leaves, up to the same 320 px. */
 const ROW_CONTROL_WIDTH = 'min-w-0 max-w-80 flex-1';
-/** A card is wide enough for a 320 px control, so cards share a row only on a window that has room for two. */
-const CASE_CLASS = 'min-w-[360px] flex-1';
 
 const labButton = 'rounded-lg border border-slate-200 bg-white text-slate-700 px-3 py-2 text-sm hover:bg-slate-100 active:bg-slate-200 focus:border-indigo-500';
 
@@ -116,6 +114,22 @@ function TagsCombobox(props: {
  * one, and one fixed to the bottom of the window with a long list, so that it opens upwards and has to scroll. The page itself
  * scrolls, so a wheel over it moves the page the lists hang from. The state of all of them is the JSON readout the verifier parses.
  */
+/**
+ * What a control does and what to try, under the control: the name, the caption, and what to expect when Show Expected is on. Captions go under
+ * their controls, not over them, so that the controls stay near the top of the page: the combobox verifier works the page in windows as short as
+ * 400 logical pixels (1120 x 800 at a pixel ratio of two) without scrolling it, and the box pinned at the bottom must not cover the chips control.
+ */
+function Caption({ title, children, expected }: { title: string; children: string; expected?: string }) {
+  const showExpected = useExpectedVisible();
+  return (
+    <Text className="text-xs text-slate-600">
+      <Text className="text-slate-900">{`${title}. `}</Text>
+      {children}
+      {expected !== undefined && showExpected ? <Text className="text-indigo-700">{` Expected: ${expected}`}</Text> : null}
+    </Text>
+  );
+}
+
 export function ComboboxLab(): ReactNode {
   const [state, setState] = useState<ComboboxState>(INITIAL_STATE);
   const [nextClicks, setNextClicks] = useState(0);
@@ -130,62 +144,52 @@ export function ComboboxLab(): ReactNode {
             testID="cb-title"
             title="Editable comboboxes"
             paragraphs={[
-              'A text input that opens a list of options and filters it as you type: the kit\'s Combobox, single and multiple, after the WAI-ARIA editable combobox.',
-              'Its list is drawn in the overlay layer, placed against the window\'s edges, and focus stays in the input while it is open.',
+              'The kit\'s Combobox, single and multiple (the WAI-ARIA editable combobox): a text input whose list filters as you type, drawn in the overlay layer while the focus stays in the input.',
             ]}
           />
 
-          <LabGrid>
-            <LabCase
-              className={CASE_CLASS}
-              title="Single combobox"
-              caption="Click the box or type: the list filters to the options that contain your text. Arrows move, Enter chooses, Escape closes."
-              expected="Next, pressed with the list open, closes it and counts too."
-            >
-              <View className="flex-row items-start gap-3">
-                <SingleCombobox
-                  id="fruit" label="Pick a fruit" value={state.fruit} choices={FRUITS} onChange={fruit => patch({ fruit })} className={ROW_CONTROL_WIDTH}
-                />
-                <Button testID="cb-next" className={labButton} onClick={() => setNextClicks(count => count + 1)}>{`Next ${nextClicks}`}</Button>
-              </View>
-            </LabCase>
+          <View className="gap-1.5">
+            <View className="flex-row items-start gap-3">
+              <SingleCombobox
+                id="fruit" label="Pick a fruit" value={state.fruit} choices={FRUITS} onChange={fruit => patch({ fruit })} className={ROW_CONTROL_WIDTH}
+              />
+              <Button testID="cb-next" className={labButton} onClick={() => setNextClicks(count => count + 1)}>{`Next ${nextClicks}`}</Button>
+            </View>
+            <Caption title="Single combobox" expected="Next, pressed with the list open, closes it and counts too.">
+              Type to filter the list; arrows move, Enter chooses, Escape closes.
+            </Caption>
+          </View>
 
-            <LabCase
-              className={CASE_CLASS}
-              title="Chips (multiple)"
-              caption="Choosing an option adds a chip and keeps the list open. Enter or a comma adds your own text. Backspace twice removes the last chip."
-              expected="as chips are added the box wraps onto more lines and its list follows it."
-            >
-              <TagsCombobox id="tags" label="Add a fruit" value={state.tags} onChange={tags => patch({ tags })} className={CONTROL_WIDTH} />
-            </LabCase>
+          <View className="gap-1.5">
+            <TagsCombobox id="tags" label="Add a fruit" value={state.tags} onChange={tags => patch({ tags })} className={CONTROL_WIDTH} />
+            <Caption title="Chips (multiple)" expected="as chips are added the box wraps onto more lines and its list follows it.">
+              Choosing an option adds a chip and keeps the list open. Enter or a comma adds your own text. Backspace twice removes the last chip.
+            </Caption>
+          </View>
 
-            <LabCase
-              className={CASE_CLASS}
-              title="Disabled"
-              caption="Locked is disabled: it keeps its chips but takes no focus, opens no list and has no remove buttons."
-            >
-              <TagsCombobox id="locked" label="Locked" disabled defaultValue={['fig', 'grape']} className={CONTROL_WIDTH} />
-            </LabCase>
+          <View className="gap-1.5">
+            <TagsCombobox id="locked" label="Locked" disabled defaultValue={['fig', 'grape']} className={CONTROL_WIDTH} />
+            <Caption title="Disabled">
+              Locked keeps its chips but takes no focus, opens no list and has no remove buttons.
+            </Caption>
+          </View>
 
-            <LabCase className={CASE_CLASS} title="Values" caption="What the comboboxes hold, as one JSON object.">
-              <View className="rounded-lg bg-slate-900 p-3">
-                <Text testID="cb-json" className="text-xs text-emerald-300">{JSON.stringify(state, null, JSON_INDENT)}</Text>
-              </View>
-            </LabCase>
-          </LabGrid>
+          <View className="gap-1.5">
+            <Caption title="Values">What the comboboxes hold, as one JSON object.</Caption>
+            <View className="rounded-lg bg-slate-900 p-3">
+              <Text testID="cb-json" className="text-xs text-emerald-300">{JSON.stringify(state, null, JSON_INDENT)}</Text>
+            </View>
+          </View>
 
           <View testID="cb-page-tail" style={{ height: PAGE_TAIL_PX }} />
         </View>
       </View>
-      <LabCase
-        className="absolute bottom-6 left-6 right-6 max-w-96"
-        title="At the bottom of the window"
-        caption="Sixty options at the window's bottom edge: the list opens above the box and scrolls."
-      >
+      <View className="absolute bottom-6 left-6 right-6 max-w-80 gap-1">
+        <Caption title="At the bottom of the window">Sixty options: the list opens above the box and scrolls.</Caption>
         <SingleCombobox
           id="bottom" label="Pick an option" value={state.bottom} choices={LONG_LIST} onChange={bottom => patch({ bottom })} className={CONTROL_WIDTH}
         />
-      </LabCase>
+      </View>
     </View>
   );
 }

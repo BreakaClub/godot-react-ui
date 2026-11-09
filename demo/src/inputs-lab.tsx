@@ -102,8 +102,9 @@ function ChoiceSelect(props: {
 /**
  * Phase I8: the input kit (Checkbox, Switch, RadioGroup, Slider, Select, TextField) bound to one state object, whose JSON is the
  * readout the verifier parses. Locked copies show the `disabled` look; Reverse reorders the radio items, which the
- * group must follow; the first select sits mid-page and the second pinned at the bottom of the window, where its list has to flip. The third has
- * forty items, more than fit under it: its list is capped to the room and scrolls.
+ * group must follow; the selects head the second column (beside the first in a wide window, under it in a narrow one) and one more is pinned at
+ * the bottom of the window, where its list has to flip. The one with forty items has more than fit under it: its list is capped to the room and
+ * scrolls. The order of the groups is the tab order the verifier holds the page to.
  *
  * The page is a scroll container of its own with the last select pinned over its bottom edge, so that a window too short for the
  * page (a phone) scrolls it and the select stays where there is no room below it.
@@ -185,7 +186,9 @@ export function InputsLab() {
                   <Text className="text-sm text-slate-700">{state.volume}</Text>
                 </View>
               </View>
+            </View>
 
+            <View className="min-w-[260px] flex-1 gap-3">
               <View className="gap-1.5">
                 <Note title="Selects">
                   Pick a fruit has a disabled item. Pick an option has forty, so its list is capped to the room under it and scrolls with the wheel, the keys or its scrollbar. Press Next with a list open: the press only closes the list.
@@ -207,12 +210,12 @@ export function InputsLab() {
                   value={state.nickname} onChange={(event: UIInputEvent) => patch({ nickname: event.value })}
                 />
               </View>
-            </View>
 
-            <View className="min-w-[260px] flex-1 gap-1.5">
-              <Note title="State, as JSON">Every control on this page edits this one object.</Note>
-              <View className="rounded-lg bg-slate-900 p-3">
-                <Text testID="inputs-json" className="text-xs text-emerald-300">{JSON.stringify(state, null, JSON_INDENT)}</Text>
+              <View className="gap-1.5">
+                <Note title="State, as JSON">Every control on this page edits this one object.</Note>
+                <View className="rounded-lg bg-slate-900 p-3">
+                  <Text testID="inputs-json" className="text-xs text-emerald-300">{JSON.stringify(state, null, JSON_INDENT)}</Text>
+                </View>
               </View>
             </View>
           </View>

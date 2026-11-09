@@ -7,24 +7,28 @@ import { CaseRow, ReadoutHeading } from './text-lab-parts';
 const INITIAL_COUNTER = '1000';
 const SHRUNK_COUNTER = '999';
 
-/** How many rows the scrolling list has: more than fit, so some are selectable but out of view. */
-const LIST_ROWS = 14;
+/**
+ * How many rows the scrolling list has: more than fit, so some are selectable but out of view. Not more: the native verifier drags past everything
+ * to the window's last row and expects the end of the last row, so the last row's place in the layout (out of view, under the list's edge) must
+ * still be above the bottom of its 1120 x 800 window.
+ */
+const LIST_ROWS = 10;
 
 /** The width of the white card and of what sits under it: a window narrower than this gives them the window's width. */
 const COLUMN = 'w-full max-w-[520px]';
 
 const INTRO = [
-  'Text is selectable only where it opts in with select-text (CSS user-select). A selection can cross paragraphs and skip a select-none part, as in a browser.',
-  'Use a mouse or trackpad for the clicks and drags. On a touch screen press and hold a word to select it (see the Touch text selection lab).',
+  'Text is selectable only where it opts in with select-text (CSS user-select), and a selection can cross paragraphs and skip a select-none part, as in a browser. '
+  + 'Use a mouse or trackpad here; on a touch screen, press and hold a word (the Touch text selection lab).',
 ];
-const ARTICLE_CAPTION = 'Click to place a caret, double-click a word, triple-click a paragraph, drag across paragraphs, Shift+click to extend, Cmd/Ctrl+C to copy, Cmd/Ctrl+A to select all. '
-  + 'The grey sentence is select-none: a selection skips it and it is not copied.';
+// The grey sentence says itself that it is select-none.
+const ARTICLE_CAPTION = 'Click to place a caret, double-click a word, triple-click a paragraph, drag across paragraphs, Shift+click to extend, Cmd/Ctrl+C to copy, Cmd/Ctrl+A to select all.';
 const POINTER_CAPTION = 'Drag inside each box. The left one captures the pointer on pointerdown and the right one calls preventDefault on it: neither starts a selection. '
   + 'Capture also clears a selection made elsewhere; preventDefault leaves it alone.';
 const HIGHLIGHT_CAPTION = 'Triple-click a short text to select it. The highlight is translucent blue by default; the second text sets its own with selection-[#f43f5e80].';
 const LIST_CAPTION = 'Triple-click a row, then scroll the list: the highlight moves with the row and is clipped at the list\'s edge. Select all also takes the rows scrolled out of view.';
-const VERIFIER_NOTE = 'The live line, the tail paragraph and the 1000 counter are changed, removed or shortened by the verifier from outside a click, '
-  + 'to check that a selection over text that changes or goes is cleared. There are no controls for them here.';
+const VERIFIER_NOTE = 'The verifier changes the live line, removes the tail paragraph and shortens the 1000 counter from outside a click, '
+  + 'to check that a selection over text that changes or goes is cleared.';
 
 /**
  * What the verifier may ask of the lab from outside an event: change a text that is, or is not, in the selection,
@@ -59,7 +63,8 @@ function SelectionReadout() {
   const where = (point: { node: { testID: string | undefined }; offset: number }) => `${point.node.testID ?? '?'}:${point.offset}`;
   return (
     <View className="gap-1">
-      <Text testID="sel-readout" className="text-sm text-slate-900">
+      {/* After Select All it holds the whole lab's text: it shows three lines of it (the element keeps all of it), so the lab still fits a 600 x 900 window. */}
+      <Text testID="sel-readout" className="line-clamp-3 text-xs text-slate-900">
         {selection === undefined ? 'selected: nothing' : `selected: ${JSON.stringify(selection.text)}`}
       </Text>
       <Text testID="sel-ends" className="text-xs text-slate-500">
@@ -91,7 +96,7 @@ export function SelectionLab() {
     return () => { controls = undefined; };
   }, []);
   return (
-    <View testID="selection-lab" className="w-full min-h-full bg-slate-50 p-4 gap-3">
+    <View testID="selection-lab" className="w-full min-h-full bg-slate-50 p-4 gap-2">
       <LabIntro title="Selecting text" paragraphs={INTRO} />
       <CaseRow caption={ARTICLE_CAPTION} controlClassName={COLUMN}>
         <View testID="selection-article" className={`select-text ${COLUMN} gap-2 rounded-xl border border-slate-200 bg-white p-3`}>
