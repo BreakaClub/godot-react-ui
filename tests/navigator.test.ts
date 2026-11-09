@@ -6,6 +6,7 @@ import { createMemoryHistory } from '@tanstack/react-router';
 import { Text } from '../src';
 import { LABS, labsInOrder, type InlineLab, type Lab, type SceneLab } from '../demo/src/labs';
 import { Navigator, type NavigatorProps } from '../demo/src/navigator';
+import { settleReact } from './react-scheduler';
 import { CASE_OPTIONS, setTransformCase } from '../demo/src/transform-lab';
 import { createTestRoot } from './recording-host';
 import type { CodeSupport } from '../demo/src/editor/lab-code';
@@ -412,7 +413,7 @@ test('tanstack router history navigation updates the selected lab and stage', as
   assert.ok(m.has('counter-lab'));
 
   history.push('/labs/transforms');
-  await new Promise(resolve => setTimeout(resolve, 10));
+  await settleReact();
 
   assert.equal(m.title(), 'Transforms');
   assert.ok(m.has('transform-stage'));
@@ -425,7 +426,7 @@ test('onNavigate allows external callers to navigate the lab stage', async () =>
   assert.equal(m.title(), FIRST.title);
   assert.ok(nav !== undefined);
   nav(SECOND.id);
-  await new Promise(resolve => setTimeout(resolve, 10));
+  await settleReact();
   assert.equal(m.title(), SECOND.title);
 });
 
