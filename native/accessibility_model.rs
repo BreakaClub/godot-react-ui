@@ -165,7 +165,8 @@ pub(crate) fn resolve_role(kind: Kind, props: &PropsSpec) -> Option<Resolved> {
             Kind::Text if props.exposure().has_text => {
                 Some(Resolved::new(AxRole::StaticText, Content::Fold))
             }
-            Kind::Text | Kind::View | Kind::TextInput => None,
+            // An image is exposed when it is given a role: the JS `alt` prop gives it `img` and its label.
+            Kind::Text | Kind::View | Kind::TextInput | Kind::Image => None,
         };
     };
     Some(match role {

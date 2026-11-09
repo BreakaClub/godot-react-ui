@@ -20,6 +20,6 @@ pub(crate) fn apply(kind: Kind, spec: &mut StyleSpec) {
             spec.justify_content = Some(JustifySpec::Center);
             spec.text_align = Some(TextAlignSpec::Center);
         }
-        Kind::View | Kind::Text | Kind::TextInput => {}
+        Kind::View | Kind::Text | Kind::TextInput | Kind::Image => {}
     }
 }

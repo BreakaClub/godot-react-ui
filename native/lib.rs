@@ -21,6 +21,7 @@ mod font_fallback;
 // The faces a root draws text with: the registry `registerFontFace` fills and CSS font matching over it.
 mod fonts;
 mod geometry;
+mod image;
 mod gradient;
 mod grid_style;
 mod key_claims;
@@ -91,7 +92,7 @@ use godot::classes::notify::ControlNotification;
 use godot::classes::{
     Control, Font, IControl, InputEvent, InputEventKey, InputEventMouseButton,
     InputEventMouseMotion, InputEventPanGesture, InputEventScreenDrag, InputEventScreenTouch,
-    InputEventWithModifiers, StyleBoxFlat, ThemeDb, Time,
+    InputEventWithModifiers, Material, StyleBoxFlat, Texture2D, ThemeDb, Time,
 };
 use godot::global::{Key, MouseButtonMask};
 use godot::obj::EngineEnum;
@@ -238,6 +239,8 @@ pub struct ReactUiRoot {
     font: Option<Gd<Font>>,
     /// The faces registered for this root (`register_font_face`) and the fonts made from them.
     fonts: FontBook,
+    /// The textures and materials registered for this root's images (`register_texture`, `register_material`).
+    images: image::ImageBook,
     /// What the root does about characters no font has (`font_fallback.rs`).
     fallbacks: font_fallback::Fallbacks,
     viewport_size: Vector2,
@@ -330,6 +333,7 @@ impl IControl for ReactUiRoot {
             dispatch_depth: 0,
             font: None,
             fonts: FontBook::default(),
+            images: image::ImageBook::default(),
             fallbacks: font_fallback::Fallbacks::default(),
             viewport_size: Vector2::ZERO,
             styled_viewport: Viewport {
@@ -660,6 +664,56 @@ impl ReactUiRoot {
         self.refresh_font_users();
         self.settle_missing_glyphs();
         GString::new()
+    }
+
+    /// Register `texture` under `id` for the images whose `source` names it, replacing any texture the id had. Images that use the
+    /// id are laid out and drawn again. Per root, as font faces are. An empty string means success; anything else says why
+    /// nothing changed.
+    #[func]
+    fn register_texture(&mut self, id: GString, texture: Gd<Texture2D>) -> GString {
+        let id = id.to_string();
+        if let Err(error) = self.images.register_texture(&id, texture) {
+            return GString::from(&error);
+        }
+        self.refresh_image_users(|props| props.source.as_deref() == Some(id.as_str()));
+        GString::new()
+    }
+
+    /// Forget the texture registered under `id`; the images that name it draw nothing and take no size of their own. Returns
+    /// whether the id was registered.
+    #[func]
+    fn unregister_texture(&mut self, id: GString) -> bool {
+        let id = id.to_string();
+        let known = self.images.unregister_texture(&id);
+        if known {
+            self.refresh_image_users(|props| props.source.as_deref() == Some(id.as_str()));
+        }
+        known
+    }
+
+    /// Register `material` under `id` for the images whose `material` names it: their pictures are drawn with it (a
+    /// `ShaderMaterial`'s shader sees the picture as `TEXTURE`). An empty string means success; anything else says why nothing
+    /// changed.
+    #[func]
+    fn register_material(&mut self, id: GString, material: Gd<Material>) -> GString {
+        let id = id.to_string();
+        if let Err(error) = self.images.register_material(&id, material) {
+            return GString::from(&error);
+        }
+        self.refresh_image_users(|props| props.material.as_deref() == Some(id.as_str()));
+        GString::new()
+    }
+
+    /// Forget the material registered under `id`; the images that name it are drawn without one. Returns whether the id was
+    /// registered.
+    #[func]
+    fn unregister_material(&mut self, id: GString) -> bool {
+        let id = id.to_string();
+        let known = self.images.unregister_material(&id);
+        if known {
+            self.refresh_image_users(|props| props.material.as_deref() == Some(id.as_str()));
+        }
+        known
     }
 
     /// Ask to be told of the characters text is shaped with that no font has, which `missing_glyphs_ready` and `take_missing_codepoints` do. A script that can
