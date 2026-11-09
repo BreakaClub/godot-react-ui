@@ -128,21 +128,37 @@ jobs:
         with:
           ref: ${{ needs.detect-changes.outputs.target_sha }}
 
-      - name: Setup Emscripten (stock 4.0.11 convention)
+      # The package's side module is the stock profile's: upstream GodotJS on stock Godot 4.7, whose Web templates are built with Emscripten
+      # 4.0.11 and have no lazy function table (Breaka's engine needs a module of its own, built with its own SDK, and is not this package's).
+      - name: Setup Emscripten 4.0.11 (the stock profile's SDK)
         uses: mymindstorm/setup-emsdk@v14
         with:
           version: 4.0.11
 
-      - name: Setup Rust Web Toolchain
-        uses: dtolnay/rust-toolchain@nightly
+      # The nightly scripts/engine.mjs pins for the Web build (`web.nightly`): -Zbuild-std rebuilds the standard library with atomics, which
+      # needs rust-src, and a later nightly lacks the JS exception-handling switch gdext 0.5.5's Web ABI needs.
+      - name: Setup Rust (nightly-2026-05-15, as scripts/engine.mjs pins it)
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: nightly-2026-05-15
+          components: rust-src
           targets: wasm32-unknown-emscripten
 
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      # The repository's own recipe (scripts/build-web.mjs): the side-module, threads and visibility flags, -Zbuild-std, the stock
+      # profile's API dumps and its build stamp. Not a cargo command written out here, so the two cannot drift.
       - name: Build Web Side Module
+        shell: bash
         run: |
-          cargo build --locked --release --target wasm32-unknown-emscripten --features web
+          test -n "${EMSDK:-}" || { echo "setup-emsdk did not set EMSDK: the build needs the SDK's root"; exit 1; }
+          EMSDK_ROOT="$EMSDK" CARGO="$(command -v cargo)" node scripts/build-web.mjs --engine=stock --wasm-only
           mkdir -p bin
-          cp target/wasm32-unknown-emscripten/release/godot_react_ui.wasm bin/godot_react_ui.web.wasm
+          cp demo/addons/godot-react-ui/bin/godot_react_ui.web.wasm bin/godot_react_ui.web.wasm
 
       - name: Upload Web Artifact
         uses: actions/upload-artifact@v4
