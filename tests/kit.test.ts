@@ -14,6 +14,7 @@ import { useControllableState } from '../src/kit/use-controllable-state';
 import { NATIVE_PROP_KEYS, nativeProps } from '../src/props';
 import { KitHost } from './kit-host';
 import { createTestRoot, isRecord } from './recording-host';
+import { settleReact } from './react-scheduler';
 
 // ---------------------------------------------------------------------------------------------------
 // Helpers
@@ -69,10 +70,8 @@ function mount(element: ReactNode): Mounted {
   };
 }
 
-/** Let React's scheduler run what a continuous event (a pointer move) left pending. */
-async function settle(ms = 50): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, ms));
-}
+/** Let React's scheduler run what a continuous event (a pointer move) left pending (tests/react-scheduler.ts). */
+const settle = settleReact;
 
 function click(m: Mounted, testID: string): void {
   m.host.event(m.tag(testID), 'click');

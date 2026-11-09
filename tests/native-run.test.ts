@@ -16,6 +16,11 @@ import {
 const PASSED = 'GODOT_REACT_VERIFY_PASSED';
 const FAILED = 'GODOT_REACT_VERIFY_FAILED Error: Entering a child hovers its parent';
 const FAILURE_AT_MS = 41_000;
+/**
+ * The deadline of the stand-in that hangs. It must outlast the stand-in's own start (a Node process) on a loaded machine: with every test file
+ * running at once, a 2 s deadline killed it before it had counted its launch.
+ */
+const HUNG_DEADLINE_MS = 8_000;
 
 /** A disturbance record as the demo logs it (demo/src/verifier-input.ts). */
 function disturbed(kind: string, sinceReadyMs: number, reachesRoot: boolean, inFlight: string[] = []): string {
@@ -192,9 +197,9 @@ test('a run that ended without reporting is a real failure, and a killed one say
   const crashed = await run([`${REACHING_MOUSE(100)}\n${FAILED}`, PASSED]);
   assert.equal(crashed.launches, 1);
   assert.match(crashed.error?.message ?? '', /ended without reporting/);
-  const hung = await run([{ log: REACHING_MOUSE(100), hang: true }, PASSED], { deadlineMs: 2000, killGraceMs: 300 });
+  const hung = await run([{ log: REACHING_MOUSE(100), hang: true }, PASSED], { deadlineMs: HUNG_DEADLINE_MS, killGraceMs: 300 });
   assert.equal(hung.launches, 1);
-  assert.match(hung.error?.message ?? '', /killed at its 2000 ms deadline/);
+  assert.match(hung.error?.message ?? '', new RegExp(`killed at its ${HUNG_DEADLINE_MS} ms deadline`, 'u'));
 });
 
 test('a window that takes no input says so, instead of claiming that interference was ruled out', async () => {

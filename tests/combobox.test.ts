@@ -6,6 +6,7 @@ import { containsFilter, stepEnabledLooping } from '../src/kit/listbox';
 import type { KeyInit } from './kit-host';
 import { ComboboxHost } from './combobox-host';
 import { createTestRoot, isRecord } from './recording-host';
+import { settleReact } from './react-scheduler';
 
 // ---------------------------------------------------------------------------------------------------
 // Helpers
@@ -70,8 +71,8 @@ function mount(element: ReactNode): Mounted {
   };
 }
 
-/** Continuous events (a pointer move) are rendered later, by React's scheduler. */
-const settle = (ms = 50) => new Promise<void>((resolve) => { setTimeout(resolve, ms); });
+/** Continuous events (a pointer move) are rendered later, by React's scheduler: wait for it to have run them (tests/react-scheduler.ts). */
+const settle = settleReact;
 
 interface FruitSpec {
   readonly value: string;
