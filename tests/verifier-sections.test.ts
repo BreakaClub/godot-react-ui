@@ -108,6 +108,8 @@ test('the native interaction deadline grows with the sections a window runs, and
 const MEASURED_VIEWPORT_JOB_MS = 398_000;
 const MEASURED_PAGES_JOB_MS = 162_000;
 const MEASURED_TOUCH_JOB_MS = 90_000;
+/** The stock engine's Web export with the six jobs running at the same time: the pages job's `font-slices` section alone. */
+const MEASURED_STOCK_FONT_SLICES_MS = 356_000;
 
 test('the Web job deadline grows with the sections a job executes, and never falls below its floor', () => {
   assert.equal(webInteractionJobDeadlineMs(1), WEB_INTERACTION_JOB_MINIMUM_DEADLINE_MS, 'one section keeps the floor');
@@ -125,5 +127,6 @@ test('every Web job has at least half again its measured time, and the floor cov
     assert.ok(deadline(viewport) > MEASURED_VIEWPORT_JOB_MS * 1.5, `${viewport}: ${deadline(viewport)} ms against ${MEASURED_VIEWPORT_JOB_MS} ms measured`);
   }
   assert.ok(deadline('pages') > MEASURED_PAGES_JOB_MS * 1.5, `pages: ${deadline('pages')} ms against ${MEASURED_PAGES_JOB_MS} ms measured`);
+  assert.ok(deadline('pages') > MEASURED_STOCK_FONT_SLICES_MS * 2, `pages: ${deadline('pages')} ms against ${MEASURED_STOCK_FONT_SLICES_MS} ms for one of its sections on the stock engine`);
   assert.ok(deadline('touch') > MEASURED_TOUCH_JOB_MS * 1.5, `touch: ${deadline('touch')} ms against ${MEASURED_TOUCH_JOB_MS} ms measured`);
 });

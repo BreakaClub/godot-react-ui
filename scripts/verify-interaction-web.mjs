@@ -2845,8 +2845,19 @@ async function runHidpiFieldScenario(dpr) {
   await click('hidpi-field');
   await page.keyboard.press('End');
   await waitUntil('the caret of the field is on', async () => (await inputState('hidpi-field')).caretVisible, HIDPI_FOCUS_WAIT_MS);
+  // The caret blinks, on for 0.65 s and off for as long (native/text_input_godot.rs), and a key press starts it on again. The picture is the one
+  // grabbed while the field says the caret is on both before and after the grab; End at the end moves nothing and restarts the blink. On a loaded
+  // machine a capture outlasted the blink and the picture had no caret.
+  let raster;
+  await waitUntil('a picture of the field with its caret on', async () => {
+    await page.keyboard.press('End');
+    if (!(await inputState('hidpi-field')).caretVisible) return false;
+    const grabbed = await hidpiRaster();
+    if (!(await inputState('hidpi-field')).caretVisible) return false;
+    raster = grabbed;
+    return true;
+  }, HIDPI_FOCUS_WAIT_MS);
   await capture(`hidpi-field-scrolled-${activeViewport}`);
-  let raster = await hidpiRaster();
   let state = await inputState('hidpi-field');
   const caret = (await find('hidpi-field')).textInput.caret;
   check('The caret at the end scrolls the field', state.scrollLeft > 0, { scrollLeft: state.scrollLeft });
