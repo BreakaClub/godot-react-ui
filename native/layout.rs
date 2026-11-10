@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use godot::prelude::*;
 use taffy::prelude::{AvailableSpace, NodeId, Size, TaffyTree};
-use taffy::tree::OofPositioningArea;
+use taffy::tree::{OofPositioningArea, ScrollableOverflow};
 
 use crate::commit::LAYER_COUNT;
 use crate::diff::Parent;
@@ -20,6 +20,10 @@ pub(crate) trait LeafContext {
     /// Whether replacing `previous` with this context leaves every layout as it is: this one has given the layout, for every question
     /// `previous` was asked, the answer `previous` gave.
     fn gives_layout_what(&mut self, previous: &Self) -> bool;
+
+    /// Whether the leaf is a replaced element (an image, a text input): its content is drawn inside the box it is laid out at, never
+    /// beyond it, so its intrinsic size is a size for the box and not content that can overflow it. Text is not replaced.
+    fn is_replaced(&self) -> bool;
 }
 
 impl LeafContext for TextContext {
@@ -40,6 +44,13 @@ impl LeafContext for TextContext {
             (TextContext::Intrinsic(next), TextContext::Intrinsic(previous)) => next == previous,
             (TextContext::Paragraph(_), TextContext::Intrinsic(_))
             | (TextContext::Intrinsic(_), TextContext::Paragraph(_)) => false,
+        }
+    }
+
+    fn is_replaced(&self) -> bool {
+        match self {
+            TextContext::Paragraph(_) => false,
+            TextContext::Intrinsic(_) => true,
         }
     }
 }
@@ -79,6 +90,7 @@ pub(crate) fn compute_tree<C: LeafContext>(tree: &mut TaffyTree<C>, root: NodeId
             height: AvailableSpace::Definite(size.y),
         },
         |inputs, _, context, style| {
+            let replaced = context.as_deref().is_some_and(LeafContext::is_replaced);
             let mut output = taffy::compute_leaf_layout(
                 inputs,
                 style,
@@ -112,6 +124,14 @@ pub(crate) fn compute_tree<C: LeafContext>(tree: &mut TaffyTree<C>, root: NodeId
                 size: Size::ZERO,
                 offset: taffy::geometry::Point::ZERO,
             });
+            // Taffy builds a leaf's scrollable overflow from what it measured with no known size (taffy `src/compute/leaf.rs`,
+            // `RunMode::PerformLayout`), which for a replaced element is its intrinsic size whatever box it was given: a 528 x 528
+            // picture shown at 222 x 222 made its scroll container scroll by 228. A replaced element draws nothing beyond its box, so
+            // its box is all it adds to its container's scrollable overflow, as in CSS; Taffy answers a leaf it never measures the same
+            // way. Text keeps its measured overflow: a word wider than its box draws past it.
+            if replaced {
+                output.scrollable_overflow_rect = ScrollableOverflow::ZERO;
+            }
             output
         },
     )
@@ -286,6 +306,10 @@ mod tests {
         fn gives_layout_what(&mut self, previous: &Self) -> bool {
             self.text.measures_like(&previous.text)
         }
+
+        fn is_replaced(&self) -> bool {
+            false
+        }
     }
 
     /// The counts of one text: how often the layout asked, and how often the text was really measured.
@@ -315,6 +339,62 @@ mod tests {
             },
             counts,
         )
+    }
+
+    /// A replaced element (an image, a text input) draws nothing outside its box, so a scroll container counts the box it is laid out
+    /// at, never the intrinsic size its leaf measures: a 528 x 528 picture shown at 222 x 222 does not make a 300-pixel scroller scroll,
+    /// and one taller than the scroller scrolls it by its box. Text is not replaced: a word wider than its box still overflows it.
+    #[test]
+    fn a_replaced_leaf_adds_its_box_and_not_its_intrinsic_size_to_a_scroll_range() {
+        let scroll_range = |leaf_style: &str| {
+            let mut tree: TaffyTree<TextContext> = TaffyTree::new();
+            let picture = tree
+                .new_leaf_with_context(
+                    style(leaf_style),
+                    TextContext::Intrinsic(Vector2::new(528.0, 528.0)),
+                )
+                .unwrap();
+            let scroller = tree
+                .new_with_children(style(r#"{"width":300,"height":300,"flexDirection":"column","overflowX":"auto","overflowY":"auto"}"#), &[picture])
+                .unwrap();
+            compute_tree(&mut tree, scroller, Vector2::new(300.0, 300.0));
+            let laid_out = tree.layout(picture).unwrap().size;
+            let layout = tree.layout(scroller).unwrap();
+            (
+                (laid_out.width, laid_out.height),
+                (layout.scroll_width(), layout.scroll_height()),
+            )
+        };
+        assert_eq!(
+            scroll_range(r#"{"width":222,"height":222,"flexShrink":0}"#),
+            ((222.0, 222.0), (0.0, 0.0))
+        );
+        assert_eq!(
+            scroll_range(r#"{"width":222,"height":400,"flexShrink":0}"#),
+            ((222.0, 400.0), (0.0, 100.0))
+        );
+        // With no size of its own (and not stretched across the column) the picture is laid out at its intrinsic size, and that box
+        // is what scrolls.
+        assert_eq!(
+            scroll_range(r#"{"flexShrink":0,"alignSelf":"flex-start"}"#),
+            ((528.0, 528.0), (228.0, 228.0))
+        );
+
+        // A text leaf 100 wide whose words are 200 wide: its content overflows its box, and the scroller scrolls by the overflow.
+        let mut tree: TaffyTree<Leaf> = TaffyTree::new();
+        let (text, _) = leaf(400.0);
+        let label = tree
+            .new_leaf_with_context(style(r#"{"width":100,"height":20,"flexShrink":0}"#), text)
+            .unwrap();
+        let scroller = tree
+            .new_with_children(
+                style(r#"{"width":150,"height":300,"flexDirection":"column","overflowX":"auto"}"#),
+                &[label],
+            )
+            .unwrap();
+        compute_tree(&mut tree, scroller, Vector2::new(150.0, 300.0));
+        assert_eq!(tree.layout(label).unwrap().size.width, 100.0);
+        assert_eq!(tree.layout(scroller).unwrap().scroll_width(), 50.0);
     }
 
     /// A layer root that held only out-of-flow boxes (a closed popover and its backdrop), and a card whose
