@@ -131,6 +131,22 @@ The owner also keeps the surface's size up to date (native restyles the breakpoi
 
 To build from source, run the demo and run the verifiers, see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
+## AI disclosure
+
+**Is this project vibe coded slop?**
+
+It's a big ol' custard tart baked in a magnitude 7 earthquake... and it's delicious.
+
+Seriously though, yes. This project makes extensive use of LLM-generated code. If that's a problem for you or your employer, do not use this project.
+
+**Does that raise concerns regarding the quality of this project?**
+
+Perhaps. Realistically, this project is far from novel. The heavy lifting is handled by our Rust dependencies.
+
+Whilst it's true we do have a decent amount of code, I wouldn't call it particularly complicated code. We're quite literally just trying to iteratively align our implementation with established web standards and Tailwind-like visuals. This is precisely the kind of task LLMs excel at.
+
+Now, of course, LLMs can be sneaky little buggers. Hiding their little nasties, only surfacing them when you back them into a corner and grill them on the implementation details. Consequently, this has also taken much good old-fashioned human intervention to get the project to where it is. That's not to say further nasties don't exist. If you find any, let us know.
+
 ## License
 
 [MIT](LICENSE). The demo's fonts (`demo/fonts/`) are under the SIL Open Font License 1.1.
