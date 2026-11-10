@@ -20,7 +20,11 @@ pub(crate) struct ImageBook {
 }
 
 impl ImageBook {
-    pub(crate) fn register_texture(&mut self, id: &str, texture: Gd<Texture2D>) -> Result<(), String> {
+    pub(crate) fn register_texture(
+        &mut self,
+        id: &str,
+        texture: Gd<Texture2D>,
+    ) -> Result<(), String> {
         if id.is_empty() {
             return Err("a texture id must not be empty".into());
         }
@@ -33,7 +37,11 @@ impl ImageBook {
         self.textures.remove(id).is_some()
     }
 
-    pub(crate) fn register_material(&mut self, id: &str, material: Gd<Material>) -> Result<(), String> {
+    pub(crate) fn register_material(
+        &mut self,
+        id: &str,
+        material: Gd<Material>,
+    ) -> Result<(), String> {
         if id.is_empty() {
             return Err("a material id must not be empty".into());
         }
@@ -96,7 +104,11 @@ pub(crate) struct Placed {
 /// clipping the item, so nothing needs a clip of its own. `Tile` is drawn by the engine's tiling and is `fill` here. `None` when
 /// nothing would be drawn.
 pub(crate) fn place(fit: ImageFitSpec, content: Rect2, region: Rect2) -> Option<Placed> {
-    if content.size.x <= 0.0 || content.size.y <= 0.0 || region.size.x <= 0.0 || region.size.y <= 0.0 {
+    if content.size.x <= 0.0
+        || content.size.y <= 0.0
+        || region.size.x <= 0.0
+        || region.size.y <= 0.0
+    {
         return None;
     }
     let contain = (content.size.x / region.size.x).min(content.size.y / region.size.y);
@@ -131,10 +143,14 @@ pub(crate) fn place(fit: ImageFitSpec, content: Rect2, region: Rect2) -> Option<
 fn mirrored(source: Rect2, region: Rect2, flip_x: bool, flip_y: bool) -> Rect2 {
     let mut position = source.position;
     if flip_x {
-        position.x = region.position.x + region.size.x - (source.position.x - region.position.x) - source.size.x;
+        position.x = region.position.x + region.size.x
+            - (source.position.x - region.position.x)
+            - source.size.x;
     }
     if flip_y {
-        position.y = region.position.y + region.size.y - (source.position.y - region.position.y) - source.size.y;
+        position.y = region.position.y + region.size.y
+            - (source.position.y - region.position.y)
+            - source.size.y;
     }
     Rect2::new(position, source.size)
 }
@@ -235,14 +251,24 @@ mod tests {
 
     #[test]
     fn fill_stretches_the_whole_region_over_the_box() {
-        let placed = place(ImageFitSpec::Fill, rect(2.0, 3.0, 100.0, 50.0), rect(0.0, 0.0, 10.0, 10.0)).unwrap();
+        let placed = place(
+            ImageFitSpec::Fill,
+            rect(2.0, 3.0, 100.0, 50.0),
+            rect(0.0, 0.0, 10.0, 10.0),
+        )
+        .unwrap();
         assert_eq!(placed.dest, rect(2.0, 3.0, 100.0, 50.0));
         assert_eq!(placed.source, rect(0.0, 0.0, 10.0, 10.0));
     }
 
     #[test]
     fn contain_fits_inside_and_centres_on_the_long_axis() {
-        let placed = place(ImageFitSpec::Contain, rect(0.0, 0.0, 200.0, 100.0), rect(0.0, 0.0, 50.0, 50.0)).unwrap();
+        let placed = place(
+            ImageFitSpec::Contain,
+            rect(0.0, 0.0, 200.0, 100.0),
+            rect(0.0, 0.0, 50.0, 50.0),
+        )
+        .unwrap();
         assert_eq!(placed.dest, rect(50.0, 0.0, 100.0, 100.0));
         assert_eq!(placed.source, rect(0.0, 0.0, 50.0, 50.0));
     }
@@ -250,45 +276,93 @@ mod tests {
     #[test]
     fn cover_fills_the_box_and_cuts_the_overflow_from_the_source() {
         // A square picture in a 2:1 box: scaled by 4 to 200 wide, 200 tall, centred, so the middle 25 rows of 50 show.
-        let placed = place(ImageFitSpec::Cover, rect(0.0, 0.0, 200.0, 100.0), rect(10.0, 0.0, 50.0, 50.0)).unwrap();
+        let placed = place(
+            ImageFitSpec::Cover,
+            rect(0.0, 0.0, 200.0, 100.0),
+            rect(10.0, 0.0, 50.0, 50.0),
+        )
+        .unwrap();
         assert_eq!(placed.dest, rect(0.0, 0.0, 200.0, 100.0));
         assert_eq!(placed.source, rect(10.0, 12.5, 50.0, 25.0));
     }
 
     #[test]
     fn none_keeps_its_size_and_scale_down_never_enlarges() {
-        let none = place(ImageFitSpec::None, rect(0.0, 0.0, 100.0, 100.0), rect(0.0, 0.0, 20.0, 40.0)).unwrap();
+        let none = place(
+            ImageFitSpec::None,
+            rect(0.0, 0.0, 100.0, 100.0),
+            rect(0.0, 0.0, 20.0, 40.0),
+        )
+        .unwrap();
         assert_eq!(none.dest, rect(40.0, 30.0, 20.0, 40.0));
-        let down = place(ImageFitSpec::ScaleDown, rect(0.0, 0.0, 100.0, 100.0), rect(0.0, 0.0, 20.0, 40.0)).unwrap();
+        let down = place(
+            ImageFitSpec::ScaleDown,
+            rect(0.0, 0.0, 100.0, 100.0),
+            rect(0.0, 0.0, 20.0, 40.0),
+        )
+        .unwrap();
         assert_eq!(down, none);
-        let shrunk = place(ImageFitSpec::ScaleDown, rect(0.0, 0.0, 10.0, 10.0), rect(0.0, 0.0, 20.0, 40.0)).unwrap();
+        let shrunk = place(
+            ImageFitSpec::ScaleDown,
+            rect(0.0, 0.0, 10.0, 10.0),
+            rect(0.0, 0.0, 20.0, 40.0),
+        )
+        .unwrap();
         assert_eq!(shrunk.dest, rect(2.5, 0.0, 5.0, 10.0));
     }
 
     #[test]
     fn none_larger_than_the_box_shows_its_middle() {
-        let placed = place(ImageFitSpec::None, rect(0.0, 0.0, 10.0, 10.0), rect(0.0, 0.0, 30.0, 10.0)).unwrap();
+        let placed = place(
+            ImageFitSpec::None,
+            rect(0.0, 0.0, 10.0, 10.0),
+            rect(0.0, 0.0, 30.0, 10.0),
+        )
+        .unwrap();
         assert_eq!(placed.dest, rect(0.0, 0.0, 10.0, 10.0));
         assert_eq!(placed.source, rect(10.0, 0.0, 10.0, 10.0));
     }
 
     #[test]
     fn an_empty_box_or_region_draws_nothing() {
-        assert_eq!(place(ImageFitSpec::Fill, rect(0.0, 0.0, 0.0, 10.0), rect(0.0, 0.0, 1.0, 1.0)), None);
-        assert_eq!(place(ImageFitSpec::Contain, rect(0.0, 0.0, 10.0, 10.0), rect(0.0, 0.0, 0.0, 1.0)), None);
+        assert_eq!(
+            place(
+                ImageFitSpec::Fill,
+                rect(0.0, 0.0, 0.0, 10.0),
+                rect(0.0, 0.0, 1.0, 1.0)
+            ),
+            None
+        );
+        assert_eq!(
+            place(
+                ImageFitSpec::Contain,
+                rect(0.0, 0.0, 10.0, 10.0),
+                rect(0.0, 0.0, 0.0, 1.0)
+            ),
+            None
+        );
     }
 
     #[test]
     fn a_flip_shows_the_mirrored_part_of_the_region() {
         // The right-hand 10 of a 30-wide region is the left-hand 10 once flipped.
         let region = rect(5.0, 0.0, 30.0, 10.0);
-        assert_eq!(mirrored(rect(25.0, 0.0, 10.0, 10.0), region, true, false), rect(5.0, 0.0, 10.0, 10.0));
-        assert_eq!(mirrored(rect(25.0, 2.0, 10.0, 3.0), region, false, true), rect(25.0, 5.0, 10.0, 3.0));
+        assert_eq!(
+            mirrored(rect(25.0, 0.0, 10.0, 10.0), region, true, false),
+            rect(5.0, 0.0, 10.0, 10.0)
+        );
+        assert_eq!(
+            mirrored(rect(25.0, 2.0, 10.0, 3.0), region, false, true),
+            rect(25.0, 5.0, 10.0, 3.0)
+        );
     }
 
     #[test]
     fn the_intrinsic_aspect_is_the_regions() {
-        assert_eq!(intrinsic_aspect(Some(rect(0.0, 0.0, 30.0, 10.0))), Some(3.0));
+        assert_eq!(
+            intrinsic_aspect(Some(rect(0.0, 0.0, 30.0, 10.0))),
+            Some(3.0)
+        );
         assert_eq!(intrinsic_aspect(Some(rect(0.0, 0.0, 30.0, 0.0))), None);
         assert_eq!(intrinsic_aspect(None), None);
     }

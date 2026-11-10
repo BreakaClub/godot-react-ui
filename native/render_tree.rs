@@ -1371,7 +1371,10 @@ impl ReactUiRoot {
         if size.x <= 0.0 || size.y <= 0.0 || node.computed.is_invisible() {
             node.render.record_outline(None);
             let image_cleared = node.render.record_image(None);
-            return (node.render.clear_box(), node.render.clear_content() || image_cleared);
+            return (
+                node.render.clear_box(),
+                node.render.clear_content() || image_cleared,
+            );
         }
         let style = &node.computed;
         let background = match &motion {

@@ -21,9 +21,9 @@ mod font_fallback;
 // The faces a root draws text with: the registry `registerFontFace` fills and CSS font matching over it.
 mod fonts;
 mod geometry;
-mod image;
 mod gradient;
 mod grid_style;
+mod image;
 mod key_claims;
 mod keyboard_input;
 mod keymap;

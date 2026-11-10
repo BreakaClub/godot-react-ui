@@ -2002,7 +2002,9 @@ impl PropsSpec {
         }
         for (name, id) in [("source", &self.source), ("material", &self.material)] {
             if id.as_deref() == Some("") {
-                return Err(format!("{name} must be a registered id, not an empty string"));
+                return Err(format!(
+                    "{name} must be a registered id, not an empty string"
+                ));
             }
         }
         if let Some(slice) = self.slice {
@@ -2013,11 +2015,16 @@ impl PropsSpec {
                 ("left", slice.left),
             ] {
                 if !value.is_finite() || value < 0.0 {
-                    return Err(format!("slice.{side} must be a nonnegative number, not {value}"));
+                    return Err(format!(
+                        "slice.{side} must be a nonnegative number, not {value}"
+                    ));
                 }
             }
             if !matches!(self.fit, None | Some(ImageFitSpec::Fill)) {
-                return Err("slice draws the picture over the whole box; it is only valid with fit: fill".into());
+                return Err(
+                    "slice draws the picture over the whole box; it is only valid with fit: fill"
+                        .into(),
+                );
             }
         }
         let flipped = self.flip_x == Some(true) || self.flip_y == Some(true);
@@ -2036,22 +2043,29 @@ impl PropsSpec {
         if let Some(rect) = self.source_rect {
             for (field, value) in [("x", rect.x), ("y", rect.y)] {
                 if !value.is_finite() || value < 0.0 {
-                    return Err(format!("sourceRect.{field} must be a nonnegative number, not {value}"));
+                    return Err(format!(
+                        "sourceRect.{field} must be a nonnegative number, not {value}"
+                    ));
                 }
             }
             for (field, value) in [("width", rect.width), ("height", rect.height)] {
                 if !value.is_finite() || value <= 0.0 {
-                    return Err(format!("sourceRect.{field} must be a positive number, not {value}"));
+                    return Err(format!(
+                        "sourceRect.{field} must be a positive number, not {value}"
+                    ));
                 }
             }
         }
         if let Some(color) = &self.tint_color {
             // The same rule the style colours follow (`StyleSpec::validate`).
             let valid = color.strip_prefix('#').is_some_and(|hex| {
-                matches!(hex.len(), 3 | 4 | 6 | 8) && hex.bytes().all(|byte| byte.is_ascii_hexdigit())
+                matches!(hex.len(), 3 | 4 | 6 | 8)
+                    && hex.bytes().all(|byte| byte.is_ascii_hexdigit())
             });
             if !valid {
-                return Err(format!("tintColor must be #RGB, #RGBA, #RRGGBB, or #RRGGBBAA, not {color}"));
+                return Err(format!(
+                    "tintColor must be #RGB, #RGBA, #RRGGBB, or #RRGGBBAA, not {color}"
+                ));
             }
         }
         Ok(())
@@ -3275,11 +3289,26 @@ mod tests {
         for (field, expected) in [
             (r#"{"source":""}"#, "registered id"),
             (r#"{"fit":"stretch"}"#, "unknown variant"),
-            (r#"{"slice":{"top":-1,"right":0,"bottom":0,"left":0}}"#, "slice.top"),
-            (r#"{"fit":"contain","slice":{"top":1,"right":1,"bottom":1,"left":1}}"#, "fit: fill"),
-            (r#"{"flipX":true,"slice":{"top":1,"right":1,"bottom":1,"left":1}}"#, "not valid with slice"),
-            (r#"{"sourceRect":{"x":0,"y":0,"width":0,"height":1}}"#, "sourceRect.width"),
-            (r#"{"fit":"tile","sourceRect":{"x":0,"y":0,"width":1,"height":1}}"#, "fit: tile"),
+            (
+                r#"{"slice":{"top":-1,"right":0,"bottom":0,"left":0}}"#,
+                "slice.top",
+            ),
+            (
+                r#"{"fit":"contain","slice":{"top":1,"right":1,"bottom":1,"left":1}}"#,
+                "fit: fill",
+            ),
+            (
+                r#"{"flipX":true,"slice":{"top":1,"right":1,"bottom":1,"left":1}}"#,
+                "not valid with slice",
+            ),
+            (
+                r#"{"sourceRect":{"x":0,"y":0,"width":0,"height":1}}"#,
+                "sourceRect.width",
+            ),
+            (
+                r#"{"fit":"tile","sourceRect":{"x":0,"y":0,"width":1,"height":1}}"#,
+                "fit: tile",
+            ),
             (r#"{"fit":"tile","flipY":true}"#, "fit: tile"),
             (r#"{"tintColor":"red"}"#, "tintColor"),
         ] {
@@ -3289,7 +3318,9 @@ mod tests {
         // Images have no children; resets work like any other prop.
         assert!(!Kind::Image.allows_children());
         assert_eq!(
-            merge_diff(&merged, Kind::Image, r#"{"source":null}"#).unwrap().source,
+            merge_diff(&merged, Kind::Image, r#"{"source":null}"#)
+                .unwrap()
+                .source,
             None
         );
     }

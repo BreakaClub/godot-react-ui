@@ -193,7 +193,11 @@ impl ReactUiRoot {
     fn publish(&mut self, changes: &[StyleChange], structure_changed: bool) {
         let pending_text = std::mem::take(&mut self.pending_text);
         let pending_images = std::mem::take(&mut self.pending_images);
-        if changes.is_empty() && pending_text.is_empty() && pending_images.is_empty() && !structure_changed {
+        if changes.is_empty()
+            && pending_text.is_empty()
+            && pending_images.is_empty()
+            && !structure_changed
+        {
             return;
         }
         self.stats.nodes_restyled += changes.len() as u64;

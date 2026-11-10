@@ -103,7 +103,10 @@ impl NodeGeometry {
             - self.border.bottom
             - self.padding.bottom)
             .max(0.0);
-        Rect2::new(self.content_origin(), Vector2::new(self.content_width(), height))
+        Rect2::new(
+            self.content_origin(),
+            Vector2::new(self.content_width(), height),
+        )
     }
 }
 
