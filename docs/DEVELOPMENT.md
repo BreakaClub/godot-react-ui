@@ -131,4 +131,4 @@ gh workflow run release.yml --ref main
 
 To release, set `version` in `package.json`, commit, and push the tag `v<version>` for that commit. The release refuses a tag that does not name `package.json`'s version, and the staging (`node scripts/stage-addon.mjs --require-all-platforms`) refuses to pack unless every library the extension's manifest names was built.
 
-Every CI run builds the same binaries (`.github/workflows/build.yml`) and uploads them, kept 14 days: `native-macos`, `native-linux`, `native-windows`, `native-web`, and the npm tarball with the addon zip (`godot-react-ui-package`). No job runs a library: the demo and the verifiers need a Godot with GodotJS, which the runners do not have. Releases up to 0.9.3 were tagged `godot-react-ui@<version>` and are GitHub releases only; 0.9.4 is the first on npm.
+Every CI run builds the same binaries (`.github/workflows/build.yml`) and uploads them, kept 14 days: `native-macos`, `native-linux`, `native-windows`, `native-web`, and the npm tarball with the addon zip (`godot-react-ui-package`). No job runs a library: the demo and the verifiers need a Godot with GodotJS, which the runners do not have.
