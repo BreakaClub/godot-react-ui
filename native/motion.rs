@@ -192,7 +192,8 @@ impl ReactUiRoot {
 
     fn publish(&mut self, changes: &[StyleChange], structure_changed: bool) {
         let pending_text = std::mem::take(&mut self.pending_text);
-        if changes.is_empty() && pending_text.is_empty() && !structure_changed {
+        let pending_images = std::mem::take(&mut self.pending_images);
+        if changes.is_empty() && pending_text.is_empty() && pending_images.is_empty() && !structure_changed {
             return;
         }
         self.stats.nodes_restyled += changes.len() as u64;
@@ -288,6 +289,9 @@ impl ReactUiRoot {
                 self.refresh_paragraph(tag);
             }
         }
+        for tag in pending_images {
+            self.refresh_image(tag);
+        }
 
         // New content is present in native measurement contexts, but no geometry has been
         // published or drawn from this target-only state.
@@ -340,14 +344,22 @@ impl ReactUiRoot {
         let Some(node) = self.mounted.nodes.get_mut(&tag) else {
             return;
         };
-        let authored = node
-            .computed
-            .taffy_style()
-            .expect("computed styles are built from validated layers");
-        let previous_authored = change.previous.as_ref().map(|previous| {
-            previous
+        // An image without an authored `aspect-ratio` takes its picture's (`image.rs`), in both, so a restyle that leaves the
+        // authored layout alone leaves it alone too.
+        let image_aspect = node.visual.image_aspect;
+        let authored = crate::image::with_intrinsic_aspect(
+            node.computed
                 .taffy_style()
-                .expect("a stored computed style was valid")
+                .expect("computed styles are built from validated layers"),
+            image_aspect,
+        );
+        let previous_authored = change.previous.as_ref().map(|previous| {
+            crate::image::with_intrinsic_aspect(
+                previous
+                    .taffy_style()
+                    .expect("a stored computed style was valid"),
+                image_aspect,
+            )
         });
         if change.previous.as_ref().is_none_or(|previous| {
             previous.overflow_x != node.computed.overflow_x
@@ -550,10 +562,12 @@ impl ReactUiRoot {
             if node.transform.is_some() || !value.transform.0.is_empty() {
                 transformed.push(*tag);
             }
-            let mut style = node
-                .computed
-                .taffy_style()
-                .expect("computed styles are built from validated layers");
+            let mut style = crate::image::with_intrinsic_aspect(
+                node.computed
+                    .taffy_style()
+                    .expect("computed styles are built from validated layers"),
+                node.visual.image_aspect,
+            );
             match (value.width.to_taffy(), value.height.to_taffy()) {
                 (Ok(width), Ok(height)) => {
                     if let Some(width) = width {

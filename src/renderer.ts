@@ -33,7 +33,7 @@ const MAX_TAG = 0xffff_ffff;
 /** `focusNode`'s `focusVisible` argument for "follow how the user last gave input". */
 const FOCUS_VISIBLE_BY_MODALITY = -1;
 /** What each kind of element is called in JSX, for the errors that name one. */
-const COMPONENT_NAMES: Readonly<Record<NativeKind, string>> = { view: 'View', text: 'Text', button: 'Button', textinput: 'TextInput' };
+const COMPONENT_NAMES: Readonly<Record<NativeKind, string>> = { view: 'View', text: 'Text', button: 'Button', textinput: 'TextInput', image: 'Image' };
 /** Where a host element is being created: React Native's `isInAParentText`. Strings and nested `Text` are runs of a `Text` only. */
 interface TextContext {
   readonly insideText: boolean;
@@ -649,6 +649,7 @@ const hostConfig = {
     if (child.kind === 'run' || child.kind === 'span') {
       throw new Error('UI internal error: a run of text was appended to an element that is not a Text');
     }
+    if (parent.kind === 'image') throw new Error('An <Image> has no children: its picture is its `source`');
     parent.children.push(child);
   },
   finalizeInitialChildren: () => false,

@@ -12,7 +12,7 @@ import {
   watchTextSelection,
   type RootSize,
 } from './renderer';
-import type { KeyboardType } from './props';
+import type { ImageFit, ImageRect, ImageSlice, KeyboardType } from './props';
 import type { StyleProp, UIAriaProps } from './types';
 
 export interface UIHandle {
@@ -263,7 +263,30 @@ export interface TextSpanHostProps {
 }
 
 /** The props of any element the host renders. */
-export type HostProps = UIProps & TextInputHostProps & TextSpanHostProps;
+/** What an `Image` element carries beyond {@link UIProps}. */
+export interface ImageHostProps {
+  /**
+   * The id of a texture registered on the root (`registerTexture`). Until that id is registered the image draws nothing and has
+   * no size of its own, as an `<img>` that has not loaded. `undefined` is an image whose picture is not known yet.
+   */
+  source?: string | undefined;
+  /** How the picture fills the content box; `fill` (stretched) when absent. */
+  fit?: ImageFit;
+  /** Draw the picture as a nine-slice over the whole content box. */
+  slice?: ImageSlice;
+  /** Show only this part of the texture, in its pixels. */
+  sourceRect?: ImageRect;
+  /** A hex colour the picture is multiplied by. */
+  tintColor?: string;
+  /** The id of a material registered on the root (`registerMaterial`) to draw the picture with. */
+  material?: string;
+  flipX?: boolean;
+  flipY?: boolean;
+  /** The image's accessible name; gives it the `img` role unless `role` is set. An empty `alt` marks it decorative. */
+  alt?: string;
+}
+
+export type HostProps = UIProps & TextInputHostProps & TextSpanHostProps & ImageHostProps;
 
 /** The handle of a `TextInput`: an element handle that can also read and move the selection. */
 export interface TextInputHandle extends UIHandle {
@@ -293,6 +316,19 @@ export interface TextInputHandle extends UIHandle {
 export const View = forwardRef<UIHandle, UIProps>((props, ref) =>
   createElement('view', { ...props, ref }));
 View.displayName = 'View';
+
+/** The props of an `Image`: those of a `View` without children, and the picture's. */
+export interface ImageProps extends Omit<UIProps, 'children'>, ImageHostProps {}
+
+/**
+ * A picture from a texture the root registered, drawn into the element's content box as a replaced element: with no size set it
+ * takes the picture's size, with one of width and height set it keeps the picture's proportions (unless `aspect-ratio` is
+ * set), and `fit` places it as CSS `object-fit` does. Its background, border, padding and every other box style apply as on a
+ * `View`. It has no children.
+ */
+export const Image = forwardRef<UIHandle, ImageProps>((props, ref) =>
+  createElement('image', { ...props, ref }));
+Image.displayName = 'Image';
 
 /**
  * The props of a `Text`. A `Text` nested in another is a run of its parent's text, not an element: it takes `className`,

@@ -40,7 +40,7 @@ function parsePayload(value: unknown): CommitPayload {
   assert.deepEqual(Object.keys(value).sort(), ['children', 'created', 'updated'], 'a payload has exactly these keys');
   return {
     created: entries(value.created).map((entry) => {
-      assert.ok(entry.kind === 'view' || entry.kind === 'text' || entry.kind === 'button' || entry.kind === 'textinput');
+      assert.ok(entry.kind === 'view' || entry.kind === 'text' || entry.kind === 'button' || entry.kind === 'textinput' || entry.kind === 'image');
       assert.ok(isRecord(entry.props));
       return { tag: tagOf(entry), kind: entry.kind, props: entry.props };
     }),
@@ -52,7 +52,7 @@ function parsePayload(value: unknown): CommitPayload {
   };
 }
 
-export function node(id: number, kind: 'view' | 'text' | 'button' | 'textinput'): NativeSnapshotNode {
+export function node(id: number, kind: NativeSnapshotNode['kind']): NativeSnapshotNode {
   return {
     id, kind, layer: 0, text: '', parent: null, children: [], paintParent: null, paintIndex: 0, documentIndex: 0, style: {}, props: {},
     scroll: null, textInput: null, effects: null, transform: null, rasterScale: null,

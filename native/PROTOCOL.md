@@ -46,7 +46,7 @@ JS, unique for the root's lifetime and never reused.
 }
 ```
 
-- `created`: nodes new to this root with their full props. `kind` is `view`, `text`, `button` or `textinput`.
+- `created`: nodes new to this root with their full props. `kind` is `view`, `text`, `button`, `textinput` or `image`.
   `Text` carries its string in the `text` prop and has no children; a `Button` renders its label
   through a child `Text`; a `TextInput` has neither (its text is in a native edit buffer, "Text input").
 - `updated`: mounted nodes with a props diff. An absent key is unchanged and JSON `null` resets the
@@ -182,6 +182,36 @@ point to a clipping element's paint children only inside its padding box, plus t
 the hit, but its children are still tested (CSS semantics). The root clips drawing and input to its own
 rectangle. Enabled buttons, text inputs and `tabIndex` elements participate in Tab/Shift-Tab focus (document order); Enter and
 Space activate enabled buttons only.
+
+## Images
+
+`register_texture(id: String, texture: Texture2D) -> String` and `register_material(id: String, material: Material) -> String`
+register, per root, what an `image` node's `source` and `material` name; an empty return is success (an empty id is refused). A
+second registration of an id replaces the first. `unregister_texture(id) -> bool` and `unregister_material(id) -> bool` forget one
+and say whether it was there. Registering or forgetting an id lays out and draws again the images that name it, so a picture
+fetched after its UI mounted appears without a commit (`ReactUiRoot::refresh_image_users`).
+
+An `image` node has no children and these props (`native/image.rs`, validated in `PropsSpec::validate_image`; every one is rejected
+on another kind with `<prop> is only valid on images`):
+
+| Prop | Type |
+| --- | --- |
+| `source` | a texture id; until it is registered the image draws nothing and has no intrinsic size |
+| `fit` | `fill` (default) `contain` `cover` `none` `scale-down`, as CSS `object-fit`, or `tile` (the whole texture repeated at its size from the content box's top left) |
+| `slice` | `{top, right, bottom, left, fill?}`: a nine-slice in the picture's pixels drawn over the whole content box (`canvas_item_add_nine_patch`); only with `fit: fill`, no flips |
+| `sourceRect` | `{x, y, width, height}`: the region of the texture shown (an atlas region); not with `fit: tile` |
+| `tintColor` | hex colour the picture is multiplied by |
+| `material` | a material id; its shader sees the picture as `TEXTURE`. An unregistered id draws without one |
+| `flipX`, `flipY` | booleans; not with `slice` or `fit: tile` |
+
+Layout treats an image as a replaced element: its leaf's intrinsic size is the region's (`TextContext::Intrinsic`), and unless the
+author set an `aspect-ratio` the region's proportions are the Taffy `aspect_ratio` (`image::with_intrinsic_aspect`, applied where
+the authored and presented layout styles are made), so a width alone gives the height. Paint draws the picture in an **image** item
+under the box item, after the background and border and before the outline; the material is set on that item only. `fit` is
+resolved analytically (`image::place`): what falls outside the content box is cut from the source rectangle, so the item needs no
+clip of its own. The paint ancestors' clips apply to it as to any child. Not built: `object-position`, per-image texture filtering
+or repeat modes beyond `tile`, nine-slice tiling, and an `image` kind in the transition probe tree (an `auto` size transition of an
+image's ancestor measures the image as empty).
 
 ## Positioning and stacking
 

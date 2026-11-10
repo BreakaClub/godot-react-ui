@@ -49,17 +49,61 @@ pub enum Kind {
     Button,
     /// A text field. Its text lives in a native edit buffer, not in props.
     TextInput,
+    /// A picture: a texture the root registered (`register_texture`), drawn into the element's content box.
+    Image,
 }
 
 impl Kind {
-    /// `Text` carries its string in the `text` prop (React Native's rule), and a `TextInput` its text
-    /// in its edit buffer, so neither has children.
+    /// `Text` carries its string in the `text` prop (React Native's rule), a `TextInput` its text
+    /// in its edit buffer, and an `Image` its picture in `source`, so none of them has children.
     pub(crate) fn allows_children(self) -> bool {
         match self {
             Kind::View | Kind::Button => true,
-            Kind::Text | Kind::TextInput => false,
+            Kind::Text | Kind::TextInput | Kind::Image => false,
         }
     }
+}
+
+/// How an image's picture fills its content box: CSS `object-fit`, plus `tile` (Godot's `TextureRect` tile mode),
+/// which repeats the picture at its own size from the top left.
+#[derive(Clone, Copy, Debug, Default, DeriveDeserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ImageFitSpec {
+    /// Stretched to the box, ignoring its proportions (CSS's initial `object-fit`).
+    #[default]
+    Fill,
+    /// As large as fits inside the box, keeping its proportions, centred.
+    Contain,
+    /// As small as covers the box, keeping its proportions, centred and cut by the box.
+    Cover,
+    /// At its own size, centred and cut by the box.
+    None,
+    /// `none` or `contain`, whichever is smaller.
+    ScaleDown,
+    /// Repeated at its own size from the box's top left, cut by the box.
+    Tile,
+}
+
+/// A nine-slice (CSS `border-image-slice`, Godot's `NinePatchRect`): the margins, in the picture's own pixels, that keep
+/// their size at the corners while the middle stretches. `fill: false` leaves the middle empty.
+#[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ImageSliceSpec {
+    pub top: f32,
+    pub right: f32,
+    pub bottom: f32,
+    pub left: f32,
+    pub fill: Option<bool>,
+}
+
+/// The part of a texture an image shows, in the texture's pixels (an atlas region).
+#[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ImageRectSpec {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
 }
 
 #[derive(Clone, Debug, DeriveDeserialize, Serialize, PartialEq)]
@@ -1714,6 +1758,18 @@ pub struct PropsSpec {
     /// The most UTF-16 code units the user may type into the input.
     pub max_length: Option<u32>,
     pub keyboard_type: Option<KeyboardTypeSpec>,
+    /// `Image` only: the id of a texture the root registered (`register_texture`). An image whose id is not
+    /// registered draws nothing and takes no size of its own.
+    pub source: Option<String>,
+    pub fit: Option<ImageFitSpec>,
+    pub slice: Option<ImageSliceSpec>,
+    pub source_rect: Option<ImageRectSpec>,
+    /// A hex colour the picture is multiplied by (`modulate`).
+    pub tint_color: Option<String>,
+    /// The id of a material the root registered (`register_material`), drawn with the picture only.
+    pub material: Option<String>,
+    pub flip_x: Option<bool>,
+    pub flip_y: Option<bool>,
 }
 
 /// A change to one prop inside a commit payload. JSON `null` resets the prop to its default and an
@@ -1827,6 +1883,22 @@ pub struct PropsDiff {
     pub max_length: Patch<u32>,
     #[serde(default)]
     pub keyboard_type: Patch<KeyboardTypeSpec>,
+    #[serde(default)]
+    pub source: Patch<String>,
+    #[serde(default)]
+    pub fit: Patch<ImageFitSpec>,
+    #[serde(default)]
+    pub slice: Patch<ImageSliceSpec>,
+    #[serde(default)]
+    pub source_rect: Patch<ImageRectSpec>,
+    #[serde(default)]
+    pub tint_color: Patch<String>,
+    #[serde(default)]
+    pub material: Patch<String>,
+    #[serde(default)]
+    pub flip_x: Patch<bool>,
+    #[serde(default)]
+    pub flip_y: Patch<bool>,
 }
 
 impl PropsSpec {
@@ -1874,6 +1946,14 @@ impl PropsSpec {
             rows: diff.rows.apply(&self.rows),
             max_length: diff.max_length.apply(&self.max_length),
             keyboard_type: diff.keyboard_type.apply(&self.keyboard_type),
+            source: diff.source.apply(&self.source),
+            fit: diff.fit.apply(&self.fit),
+            slice: diff.slice.apply(&self.slice),
+            source_rect: diff.source_rect.apply(&self.source_rect),
+            tint_color: diff.tint_color.apply(&self.tint_color),
+            material: diff.material.apply(&self.material),
+            flip_x: diff.flip_x.apply(&self.flip_x),
+            flip_y: diff.flip_y.apply(&self.flip_y),
         }
     }
 
@@ -1897,7 +1977,84 @@ impl PropsSpec {
             return Err(format!("tabIndex must be 0 or -1, not {index}"));
         }
         self.validate_text_input(kind)?;
+        self.validate_image(kind)?;
         self.validate_accessibility()
+    }
+
+    /// The image props belong to `Image` nodes; their numbers are finite and their sizes and margins nonnegative.
+    fn validate_image(&self, kind: Kind) -> Result<(), String> {
+        if kind != Kind::Image {
+            for (name, present) in [
+                ("source", self.source.is_some()),
+                ("fit", self.fit.is_some()),
+                ("slice", self.slice.is_some()),
+                ("sourceRect", self.source_rect.is_some()),
+                ("tintColor", self.tint_color.is_some()),
+                ("material", self.material.is_some()),
+                ("flipX", self.flip_x.is_some()),
+                ("flipY", self.flip_y.is_some()),
+            ] {
+                if present {
+                    return Err(format!("{name} is only valid on images"));
+                }
+            }
+            return Ok(());
+        }
+        for (name, id) in [("source", &self.source), ("material", &self.material)] {
+            if id.as_deref() == Some("") {
+                return Err(format!("{name} must be a registered id, not an empty string"));
+            }
+        }
+        if let Some(slice) = self.slice {
+            for (side, value) in [
+                ("top", slice.top),
+                ("right", slice.right),
+                ("bottom", slice.bottom),
+                ("left", slice.left),
+            ] {
+                if !value.is_finite() || value < 0.0 {
+                    return Err(format!("slice.{side} must be a nonnegative number, not {value}"));
+                }
+            }
+            if !matches!(self.fit, None | Some(ImageFitSpec::Fill)) {
+                return Err("slice draws the picture over the whole box; it is only valid with fit: fill".into());
+            }
+        }
+        let flipped = self.flip_x == Some(true) || self.flip_y == Some(true);
+        if flipped && self.slice.is_some() {
+            return Err("flipX and flipY are not valid with slice".into());
+        }
+        // The engine tiles a whole texture from the box's top left (`canvas_item_add_texture_rect` with `tile`).
+        if self.fit == Some(ImageFitSpec::Tile) {
+            if self.source_rect.is_some() {
+                return Err("sourceRect is not valid with fit: tile".into());
+            }
+            if flipped {
+                return Err("flipX and flipY are not valid with fit: tile".into());
+            }
+        }
+        if let Some(rect) = self.source_rect {
+            for (field, value) in [("x", rect.x), ("y", rect.y)] {
+                if !value.is_finite() || value < 0.0 {
+                    return Err(format!("sourceRect.{field} must be a nonnegative number, not {value}"));
+                }
+            }
+            for (field, value) in [("width", rect.width), ("height", rect.height)] {
+                if !value.is_finite() || value <= 0.0 {
+                    return Err(format!("sourceRect.{field} must be a positive number, not {value}"));
+                }
+            }
+        }
+        if let Some(color) = &self.tint_color {
+            // The same rule the style colours follow (`StyleSpec::validate`).
+            let valid = color.strip_prefix('#').is_some_and(|hex| {
+                matches!(hex.len(), 3 | 4 | 6 | 8) && hex.bytes().all(|byte| byte.is_ascii_hexdigit())
+            });
+            if !valid {
+                return Err(format!("tintColor must be #RGB, #RGBA, #RRGGBB, or #RRGGBBAA, not {color}"));
+            }
+        }
+        Ok(())
     }
 
     /// The text input props belong to `TextInput` nodes, and `rows` to multi-line ones.
@@ -3080,6 +3237,59 @@ mod tests {
             merge_diff(&merged, Kind::TextInput, r#"{"placeholder":null}"#)
                 .unwrap()
                 .placeholder,
+            None
+        );
+    }
+
+    #[test]
+    fn image_props_are_valid_on_images_only_and_checked() {
+        let empty = PropsSpec::default();
+        let all = r##"{"source":"oak","fit":"cover","sourceRect":{"x":0,"y":4,"width":8,"height":8},
+            "tintColor":"#ff000080","material":"paper","flipX":true,"flipY":false}"##;
+        let merged = merge_diff(&empty, Kind::Image, all).unwrap();
+        assert_eq!(merged.source.as_deref(), Some("oak"));
+        assert_eq!(merged.fit, Some(ImageFitSpec::Cover));
+        assert_eq!(merged.flip_x, Some(true));
+        let sliced = merge_diff(
+            &empty,
+            Kind::Image,
+            r#"{"source":"paper","slice":{"top":4,"right":4,"bottom":4,"left":4,"fill":false}}"#,
+        )
+        .unwrap();
+        assert_eq!(sliced.slice.map(|slice| slice.fill), Some(Some(false)));
+        for field in [
+            r#"{"source":"x"}"#,
+            r#"{"fit":"contain"}"#,
+            r#"{"slice":{"top":1,"right":1,"bottom":1,"left":1}}"#,
+            r#"{"sourceRect":{"x":0,"y":0,"width":1,"height":1}}"#,
+            r##"{"tintColor":"#fff"}"##,
+            r#"{"material":"m"}"#,
+            r#"{"flipX":true}"#,
+            r#"{"flipY":true}"#,
+        ] {
+            for kind in [Kind::View, Kind::Text, Kind::Button, Kind::TextInput] {
+                let error = merge_diff(&empty, kind, field).unwrap_err();
+                assert!(error.contains("only valid on images"), "{field}: {error}");
+            }
+        }
+        for (field, expected) in [
+            (r#"{"source":""}"#, "registered id"),
+            (r#"{"fit":"stretch"}"#, "unknown variant"),
+            (r#"{"slice":{"top":-1,"right":0,"bottom":0,"left":0}}"#, "slice.top"),
+            (r#"{"fit":"contain","slice":{"top":1,"right":1,"bottom":1,"left":1}}"#, "fit: fill"),
+            (r#"{"flipX":true,"slice":{"top":1,"right":1,"bottom":1,"left":1}}"#, "not valid with slice"),
+            (r#"{"sourceRect":{"x":0,"y":0,"width":0,"height":1}}"#, "sourceRect.width"),
+            (r#"{"fit":"tile","sourceRect":{"x":0,"y":0,"width":1,"height":1}}"#, "fit: tile"),
+            (r#"{"fit":"tile","flipY":true}"#, "fit: tile"),
+            (r#"{"tintColor":"red"}"#, "tintColor"),
+        ] {
+            let error = merge_diff(&empty, Kind::Image, field).unwrap_err();
+            assert!(error.contains(expected), "{field}: {error}");
+        }
+        // Images have no children; resets work like any other prop.
+        assert!(!Kind::Image.allows_children());
+        assert_eq!(
+            merge_diff(&merged, Kind::Image, r#"{"source":null}"#).unwrap().source,
             None
         );
     }

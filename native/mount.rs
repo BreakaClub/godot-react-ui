@@ -94,6 +94,17 @@ impl NodeGeometry {
             self.border.top + self.padding.top,
         )
     }
+
+    /// The content box in the node's own coordinates: the border box less border and padding. An image draws its picture here.
+    pub(crate) fn content_box(&self) -> Rect2 {
+        let height = (self.size.y
+            - self.border.top
+            - self.padding.top
+            - self.border.bottom
+            - self.padding.bottom)
+            .max(0.0);
+        Rect2::new(self.content_origin(), Vector2::new(self.content_width(), height))
+    }
 }
 
 /// Godot paint resources of one element.
@@ -105,6 +116,9 @@ pub(crate) struct Visual {
     /// The text as shown when it is not the `text` prop: transformed, and with its white space collapsed. The shown text is what
     /// is shaped, selected and copied.
     pub(crate) shown: Option<String>,
+    /// Images only: the proportions of the picture, which the layout uses when the author set no `aspect-ratio`
+    /// (`image::intrinsic_aspect`).
+    pub(crate) image_aspect: Option<f32>,
 }
 
 impl Visual {
@@ -116,6 +130,7 @@ impl Visual {
             paragraph: None,
             generation: 0,
             shown: None,
+            image_aspect: None,
         }
     }
 
@@ -469,7 +484,8 @@ impl MountedNode {
     pub(crate) fn paints_at_oversampling(&self) -> bool {
         match self.kind {
             Kind::Text | Kind::TextInput => true,
-            Kind::View | Kind::Button => {
+            // A picture is drawn from its texture at whatever scale; only the box around it depends on the oversampling.
+            Kind::View | Kind::Button | Kind::Image => {
                 self.computed
                     .border_radii()
                     .iter()
@@ -951,6 +967,9 @@ impl ReactUiRoot {
         if props.text.is_some() || props.spans.is_some() || kind == Kind::TextInput {
             self.pending_text.insert(tag);
         }
+        if kind == Kind::Image {
+            self.pending_images.insert(tag);
+        }
     }
 
     fn update_props(&mut self, tag: u32, props: &PropsSpec) {
@@ -960,6 +979,7 @@ impl ReactUiRoot {
             .get_mut(&tag)
             .expect("a planned update names a mounted node");
         let previous = std::mem::replace(&mut node.props, props.clone());
+        let kind = node.kind;
         if previous.style != node.props.style {
             node.uses_states = states_used(node.props.style.as_ref());
             self.mounted
@@ -979,7 +999,63 @@ impl ReactUiRoot {
         if self.sync_text_input_props(tag, &previous) {
             self.pending_text.insert(tag);
         }
+        // Any change to an image's props may change its picture, size or proportions; a commit that changes nothing else would
+        // otherwise publish no layout or paint (`publish`).
+        if kind == Kind::Image && previous != *props {
+            self.pending_images.insert(tag);
+        }
         self.paint_dirty.insert(tag);
+    }
+
+    /// Give an image the size and proportions of the picture its props name now: its leaf's intrinsic size, and its layout's
+    /// aspect ratio unless the author set one. An image whose `source` is not registered has neither.
+    pub(crate) fn refresh_image(&mut self, tag: u32) {
+        let Some(node) = self.mounted.nodes.get_mut(&tag) else {
+            return;
+        };
+        let region = self.images.region(&node.props);
+        node.visual.image_aspect = crate::image::intrinsic_aspect(region);
+        let context = region.map(|region| crate::TextContext::Intrinsic(region.size));
+        let mut changed = replace_context(&mut self.tree, node.layout, context);
+        let authored = node
+            .computed
+            .taffy_style()
+            .expect("computed styles are built from validated layers");
+        let mut style = self
+            .tree
+            .style(node.layout)
+            .expect("a mounted node has a layout node")
+            .clone();
+        let aspect = authored.aspect_ratio.or(node.visual.image_aspect);
+        if style.aspect_ratio != aspect {
+            style.aspect_ratio = aspect;
+            self.tree
+                .set_style(node.layout, style)
+                .expect("a mounted node has a layout node");
+            changed = true;
+        }
+        if changed {
+            self.layout_dirty.insert(tag);
+        }
+        self.paint_dirty.insert(tag);
+    }
+
+    /// Refresh the images whose props `uses` says name a texture or material that was registered or forgotten, and lay out.
+    pub(crate) fn refresh_image_users(&mut self, uses: impl Fn(&PropsSpec) -> bool) {
+        let users: Vec<u32> = self
+            .mounted
+            .nodes
+            .iter()
+            .filter(|(_, node)| node.kind == Kind::Image && uses(&node.props))
+            .map(|(tag, _)| *tag)
+            .collect();
+        if users.is_empty() {
+            return;
+        }
+        for tag in users {
+            self.refresh_image(tag);
+        }
+        self.flush_layout();
     }
 
     fn delete_node(&mut self, tag: u32) {

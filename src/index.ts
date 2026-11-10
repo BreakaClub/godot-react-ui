@@ -1,15 +1,17 @@
 export {
-  View, Text, Button, Portal, useKeyClaims, useRangeRects, useRootEvent, useRootSize, useRootSnapshot,
+  View, Text, Button, Image, Portal, useKeyClaims, useRangeRects, useRootEvent, useRootSize, useRootSnapshot,
   useScrollIntoView, useTextSelection,
 } from './components';
 export type {
-  HostProps, TextInputHandle, TextInputHostProps, TextProps, UIProps, UIHandle, UISelection, UISelectionPoint,
-  UITextPosition,
+  HostProps, ImageHostProps, ImageProps, TextInputHandle, TextInputHostProps, TextProps, UIProps, UIHandle, UISelection,
+  UISelectionPoint, UITextPosition,
 } from './components';
+export { registerMaterial, registerTexture } from './images';
+export type { ImageHost } from './images';
 export type { TextSide } from './native';
 export { TextInput, isTextInputHandle } from './text-input';
 export type { TextInputProps } from './text-input';
-export type { KeyboardType } from './props';
+export type { ImageFit, ImageRect, ImageSlice, KeyboardType } from './props';
 export { Checkbox, Combobox, RadioGroup, ScrollView, Select, Slider, Switch, TextField, defaultComboboxFilter } from './kit';
 export type {
   CheckboxProps, CheckedState, ComboboxButtonProps, ComboboxChipProps, ComboboxChipRemoveProps, ComboboxChipsProps,

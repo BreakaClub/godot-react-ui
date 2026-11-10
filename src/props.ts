@@ -6,7 +6,7 @@ import { compileStyle, sameStyleProp, styleKey } from './styles';
 import type { CompiledStyle, UIRole } from './types';
 
 /** What kind of native node an element becomes. */
-export type NativeKind = 'view' | 'text' | 'button' | 'textinput';
+export type NativeKind = 'view' | 'text' | 'button' | 'textinput' | 'image';
 
 /**
  * The subset of an element's React props that native needs. Event handlers and
@@ -69,6 +69,39 @@ export interface NativeProps {
   readonly rows?: number;
   readonly maxLength?: number;
   readonly keyboardType?: KeyboardType;
+  /** `Image` only: the id of a texture registered on the root (`registerTexture`). */
+  readonly source?: string;
+  readonly fit?: ImageFit;
+  readonly slice?: ImageSlice;
+  readonly sourceRect?: ImageRect;
+  readonly tintColor?: string;
+  /** The id of a material registered on the root (`registerMaterial`). */
+  readonly material?: string;
+  readonly flipX?: true;
+  readonly flipY?: true;
+}
+
+/** How an image's picture fills its content box: CSS `object-fit`, plus `tile`, which repeats it at its own size from the top left. */
+export type ImageFit = 'fill' | 'contain' | 'cover' | 'none' | 'scale-down' | 'tile';
+
+/**
+ * A nine-slice: the margins, in the picture's own pixels, that keep their size at the corners while the middle stretches (CSS
+ * `border-image-slice`, Godot's `NinePatchRect`). `fill: false` leaves the middle empty. Only with `fit: 'fill'`.
+ */
+export interface ImageSlice {
+  readonly top: number;
+  readonly right: number;
+  readonly bottom: number;
+  readonly left: number;
+  readonly fill?: boolean;
+}
+
+/** The part of a texture an image shows, in the texture's pixels (an atlas region). */
+export interface ImageRect {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
 }
 
 /** Which on-screen keyboard a text input asks for (one to one with `DisplayServer.VirtualKeyboardType`). */
@@ -86,6 +119,9 @@ const TEXT_INPUT_KEYS = [
   'placeholder', 'multiline', 'readOnly', 'secure', 'selectOnFocus', 'rows', 'maxLength', 'keyboardType',
 ] as const satisfies readonly (keyof NativeProps)[];
 
+/** The `Image` fields of {@link NativeProps} that are compared with `!==`; `slice` and `sourceRect` are compared by value. */
+const IMAGE_KEYS = ['source', 'fit', 'tintColor', 'material', 'flipX', 'flipY'] as const satisfies readonly (keyof NativeProps)[];
+
 /** The changed keys of a node's native props; `null` resets a key to its default. */
 export type NativePropsDiff = { [K in keyof NativeProps]?: NativeProps[K] | null };
 
@@ -95,7 +131,7 @@ export type NativePropsDiff = { [K in keyof NativeProps]?: NativeProps[K] | null
  */
 export const NATIVE_PROP_KEYS = [
   'style', 'text', 'spans', 'disabled', 'hidden', 'testID', 'tabIndex', 'autoFocus', 'draggable', 'dragPreview', ...ACCESSIBILITY_KEYS,
-  'defaultValue', ...TEXT_INPUT_KEYS,
+  'defaultValue', ...TEXT_INPUT_KEYS, ...IMAGE_KEYS, 'slice', 'sourceRect',
 ] as const satisfies readonly (keyof NativeProps)[];
 
 /** The text a `text` element shows, or `undefined` if its children are not plain strings or numbers. */
@@ -163,7 +199,53 @@ export function nativeProps(
   accessibilityProps(props, native);
   if (kind === 'textinput') textInputProps(props, native);
   else rejectTextInputProps(kind, props);
+  if (kind === 'image') imageProps(props, native);
+  else rejectImageProps(kind, props);
   return native;
+}
+
+/**
+ * The props only an image has. `alt` is JavaScript's name for the image's accessible name: it gives the image the `img` role
+ * (unless `role` says otherwise) and its label, as an HTML `<img alt>` does; native validates the values again.
+ */
+function imageProps(props: HostProps, native: { -readonly [K in keyof NativeProps]: NativeProps[K] }): void {
+  if (props.source !== undefined) native.source = props.source;
+  if (props.fit !== undefined) native.fit = props.fit;
+  if (props.slice !== undefined) {
+    for (const side of ['top', 'right', 'bottom', 'left'] as const) finiteNumber(props.slice[side], `slice.${side}`);
+    native.slice = props.slice;
+  }
+  if (props.sourceRect !== undefined) {
+    for (const field of ['x', 'y', 'width', 'height'] as const) finiteNumber(props.sourceRect[field], `sourceRect.${field}`);
+    native.sourceRect = props.sourceRect;
+  }
+  if (props.tintColor !== undefined) native.tintColor = props.tintColor;
+  if (props.material !== undefined) native.material = props.material;
+  if (props.flipX === true) native.flipX = true;
+  if (props.flipY === true) native.flipY = true;
+  if (props.alt !== undefined && props.alt !== '') {
+    native.role ??= 'img';
+    native.ariaLabel ??= props.alt;
+  }
+}
+
+/** An image prop on any other element is a mistake native would reject; say which prop. */
+function rejectImageProps(kind: NativeKind, props: HostProps): void {
+  const names = ['source', 'fit', 'slice', 'sourceRect', 'tintColor', 'material', 'flipX', 'flipY', 'alt'] as const;
+  const present = names.find((name) => props[name] !== undefined);
+  if (present !== undefined) throw new Error(`${present} is only valid on Image, not on a ${kind} element`);
+}
+
+function sameSlice(left: ImageSlice | undefined, right: ImageSlice | undefined): boolean {
+  if (left === right) return true;
+  return left !== undefined && right !== undefined && left.top === right.top && left.right === right.right
+    && left.bottom === right.bottom && left.left === right.left && left.fill === right.fill;
+}
+
+function sameRect(left: ImageRect | undefined, right: ImageRect | undefined): boolean {
+  if (left === right) return true;
+  return left !== undefined && right !== undefined && left.x === right.x && left.y === right.y
+    && left.width === right.width && left.height === right.height;
 }
 
 /** The props only a text input has; a nonnegative `maxLength` and a positive `rows`, as native validates again. */
@@ -302,6 +384,17 @@ export function diffNativeProps(previous: NativeProps, next: NativeProps): Nativ
   }
   for (const key of TEXT_INPUT_KEYS) {
     if (diffScalar(diff, previous, next, key)) changed = true;
+  }
+  for (const key of IMAGE_KEYS) {
+    if (diffScalar(diff, previous, next, key)) changed = true;
+  }
+  if (!sameSlice(previous.slice, next.slice)) {
+    diff.slice = next.slice ?? null;
+    changed = true;
+  }
+  if (!sameRect(previous.sourceRect, next.sourceRect)) {
+    diff.sourceRect = next.sourceRect ?? null;
+    changed = true;
   }
   return changed ? diff : null;
 }

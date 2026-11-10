@@ -36,6 +36,7 @@ use crate::box_paint::{decoration_of, draw_box};
 use crate::commit::LAYER_COUNT;
 use crate::filter_faults::{self as faults, Fault};
 use crate::geometry::BoxRect;
+use crate::image::ImageKey;
 use crate::paint::parse_color;
 use crate::profile::{Sample, micros};
 use crate::props::Kind;
@@ -55,6 +56,9 @@ pub(crate) const SCROLLBAR_THUMB_RADIUS_PX: i32 =
 const OVERLAY_DRAW_INDEX: i32 = 1;
 /// An outline draws over the content and the scrollbars (CSS paints outlines last).
 const OUTLINE_DRAW_INDEX: i32 = 2;
+/// An image's picture draws over its box, under its outline. It shares the content item's index: an image has no text and no
+/// children, so its content item never draws anything.
+const IMAGE_DRAW_INDEX: i32 = 0;
 
 /// Layer items and the top-most item are siblings under the Control's canvas item and sort by this
 /// index. The overlay layer draws after the main layer; the focus ring above both.
@@ -252,6 +256,10 @@ pub(crate) struct RenderNode {
     overlay_item: Option<Rid>,
     /// Text inputs only: the items the text and the caret are drawn in, under the scroll item.
     edit_items: Option<EditItems>,
+    /// Images only: the item the picture is drawn in, under the box item, so it draws over the box and its material
+    /// applies to the picture alone (`image.rs`).
+    image_item: Option<Rid>,
+    image_key: Option<ImageKey>,
     location: Vector2,
     /// The element's transform (`transform.rs`): the box item draws at `location` plus this.
     placement: Option<Placement>,
@@ -301,6 +309,8 @@ impl RenderNode {
             scroll_item: None,
             overlay_item: None,
             edit_items: None,
+            image_item: None,
+            image_key: None,
             location: Vector2::ZERO,
             placement: None,
             transform_hidden: false,
@@ -439,6 +449,40 @@ impl RenderNode {
         self.edit_items = Some(EditItems { text, caret });
         self.edit_text_key = None;
         self.caret_key = None;
+    }
+
+    /// Draw `key`'s picture in the image item (made on first use), or clear it for `None`. Returns true if the item changed.
+    pub(crate) fn record_image(&mut self, key: Option<ImageKey>) -> bool {
+        if self.image_key == key {
+            return false;
+        }
+        let mut rs = server();
+        match &key {
+            Some(key) => {
+                let item = match self.image_item {
+                    Some(item) => item,
+                    None => {
+                        let item = rs.canvas_item_create();
+                        rs.canvas_item_set_parent(item, self.box_item);
+                        rs.canvas_item_set_draw_index(item, IMAGE_DRAW_INDEX);
+                        self.image_item = Some(item);
+                        item
+                    }
+                };
+                rs.canvas_item_clear(item);
+                if self.image_key.as_ref().map(|previous| previous.material) != Some(key.material) {
+                    rs.canvas_item_set_material(item, key.material);
+                }
+                key.draw(item);
+            }
+            None => {
+                if let Some(item) = self.image_item {
+                    rs.canvas_item_clear(item);
+                }
+            }
+        }
+        self.image_key = key;
+        true
     }
 
     /// Re-record the text, selection and preedit underline when `key` differs from what they last
@@ -1095,6 +1139,7 @@ impl Drop for RenderNode {
             self.overlay_item,
             self.outline_item,
             self.content_item,
+            self.image_item,
         ]
         .into_iter()
         .flatten()
@@ -1325,7 +1370,8 @@ impl ReactUiRoot {
         // paint, clipped as before) and keeps its place in layout.
         if size.x <= 0.0 || size.y <= 0.0 || node.computed.is_invisible() {
             node.render.record_outline(None);
-            return (node.render.clear_box(), node.render.clear_content());
+            let image_cleared = node.render.record_image(None);
+            return (node.render.clear_box(), node.render.clear_content() || image_cleared);
         }
         let style = &node.computed;
         let background = match &motion {
@@ -1380,6 +1426,11 @@ impl ReactUiRoot {
         // A text input draws its own text in the items under its scroll item (`paint_text_input`).
         if node.kind == Kind::TextInput {
             return (boxed, false);
+        }
+        // An image draws its picture in its own item (`image.rs`); it has no text.
+        if node.kind == Kind::Image {
+            let key = crate::image::key_for(&self.images, &node.props, node.geometry.content_box());
+            return (boxed, node.render.record_image(key));
         }
         let contented = match node.visual.paragraph.as_mut() {
             Some(paragraph) => {

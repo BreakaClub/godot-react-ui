@@ -698,7 +698,7 @@ function array(value: unknown, label: string): unknown[] {
 }
 
 function kind(value: unknown): NativeKind {
-  if (value === 'view' || value === 'text' || value === 'button' || value === 'textinput') return value;
+  if (value === 'view' || value === 'text' || value === 'button' || value === 'textinput' || value === 'image') return value;
   throw new Error(`Invalid native node kind: ${String(value)}`);
 }
 

@@ -282,7 +282,7 @@ impl ReactUiRoot {
                         !state.buffer.config().secure && state.buffer.composition().is_none()
                     })
             }
-            Kind::View | Kind::Button => false,
+            Kind::View | Kind::Button | Kind::Image => false,
         }
     }
 
@@ -600,7 +600,7 @@ impl ReactUiRoot {
         let selected = match self.mounted.nodes.get(&hit).map(|node| node.kind) {
             Some(Kind::Text) => self.select_word_of_text(hit, position),
             Some(Kind::TextInput) => self.select_word_of_input(hit, position),
-            Some(Kind::View | Kind::Button) | None => Ok(None),
+            Some(Kind::View | Kind::Button | Kind::Image) | None => Ok(None),
         };
         let word = match selected {
             Ok(Some(word)) => word,
