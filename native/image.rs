@@ -155,6 +155,21 @@ fn mirrored(source: Rect2, region: Rect2, flip_x: bool, flip_y: bool) -> Rect2 {
     Rect2::new(position, source.size)
 }
 
+/// `dest` as the rectangle to draw it with, flipped on the axes that are: the same position with a negative size. The engine draws a
+/// rectangle with a negative size over the same place, its size made positive and the picture mirrored on that axis
+/// (`RendererCanvasCull::canvas_item_add_texture_rect_region`, `CANVAS_RECT_FLIP_H`), which is how `TextureRect` flips. Moving the
+/// position by the size as well drew the picture one box further on, outside its box.
+fn flipped(dest: Rect2, flip_x: bool, flip_y: bool) -> Rect2 {
+    let mut size = dest.size;
+    if flip_x {
+        size.x = -size.x;
+    }
+    if flip_y {
+        size.y = -size.y;
+    }
+    Rect2::new(dest.position, size)
+}
+
 /// What an image with `props` and this content box draws: `None` while its `source` is not registered. An unregistered `material`
 /// draws the picture without one, as an unregistered font family shapes with the theme font.
 pub(crate) fn key_for(book: &ImageBook, props: &PropsSpec, content: Rect2) -> Option<ImageKey> {
@@ -224,16 +239,7 @@ impl ImageKey {
         let Some(placed) = place(self.fit, self.content, self.region) else {
             return;
         };
-        // A rectangle with a negative size is drawn flipped on that axis (`TextureRect` flips the same way).
-        let mut dest = placed.dest;
-        if self.flip_x {
-            dest.position.x += dest.size.x;
-            dest.size.x = -dest.size.x;
-        }
-        if self.flip_y {
-            dest.position.y += dest.size.y;
-            dest.size.y = -dest.size.y;
-        }
+        let dest = flipped(placed.dest, self.flip_x, self.flip_y);
         let source = mirrored(placed.source, self.region, self.flip_x, self.flip_y);
         rs.canvas_item_add_texture_rect_region_ex(item, dest, self.texture, source)
             .modulate(self.tint)
@@ -354,6 +360,25 @@ mod tests {
         assert_eq!(
             mirrored(rect(25.0, 2.0, 10.0, 3.0), region, false, true),
             rect(25.0, 5.0, 10.0, 3.0)
+        );
+    }
+
+    #[test]
+    fn a_flipped_picture_is_drawn_over_its_own_box() {
+        // The engine draws a rectangle with a negative size where its position is, mirrored: the position stays.
+        let dest = rect(10.0, 20.0, 48.0, 32.0);
+        assert_eq!(flipped(dest, false, false), dest);
+        assert_eq!(
+            flipped(dest, true, false),
+            Rect2::new(Vector2::new(10.0, 20.0), Vector2::new(-48.0, 32.0))
+        );
+        assert_eq!(
+            flipped(dest, false, true),
+            Rect2::new(Vector2::new(10.0, 20.0), Vector2::new(48.0, -32.0))
+        );
+        assert_eq!(
+            flipped(dest, true, true),
+            Rect2::new(Vector2::new(10.0, 20.0), Vector2::new(-48.0, -32.0))
         );
     }
 
