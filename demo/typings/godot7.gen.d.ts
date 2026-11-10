@@ -1194,6 +1194,10 @@ declare module "godot" {
     /** @deprecated Internal use. Does not exist at runtime. */
     interface __NameMapReactUiRoot extends __NameMapControl {
         register_font_face: "registerFontFace";
+        register_texture: "registerTexture";
+        unregister_texture: "unregisterTexture";
+        register_material: "registerMaterial";
+        unregister_material: "unregisterMaterial";
         set_missing_glyph_reporting: "setMissingGlyphReporting";
         take_missing_codepoints: "takeMissingCodepoints";
         add_font_fallbacks: "addFontFallbacks";
@@ -1245,6 +1249,10 @@ declare module "godot" {
         constructor(identifier?: any)
         commit(layer: int64, payloadJson: string): string
         registerFontFace(family: string, weightMin: int64, weightMax: int64, italic: boolean, font: Font): string
+        registerTexture(id: string, texture: Texture2D): string
+        unregisterTexture(id: string): boolean
+        registerMaterial(id: string, material: Material): string
+        unregisterMaterial(id: string): boolean
         setMissingGlyphReporting(enabled: boolean): any
         takeMissingCodepoints(): PackedInt32Array
         addFontFallbacks(fonts: GArray): string
@@ -9195,22 +9203,5 @@ declare module "godot" {
         __godotRPCMap: __RPCMapSkeletonProfile;
         /** @deprecated Internal use. Does not exist at runtime. */
         __godotNameMap: __NameMapSkeletonProfile;
-    }
-    /** @deprecated Internal use. Does not exist at runtime. */
-    interface __RPCMapSkeletonProfileHumanoid extends __RPCMapSkeletonProfile {
-    }
-    /** @deprecated Internal use. Does not exist at runtime. */
-    interface __NameMapSkeletonProfileHumanoid extends __NameMapSkeletonProfile {
-    }
-    /** A humanoid [SkeletonProfile] preset.  
-     *  	  
-     *  @link https://docs.godotengine.org/en/latest/classes/class_skeletonprofilehumanoid.html  
-     */
-    class SkeletonProfileHumanoid extends SkeletonProfile {
-        constructor(identifier?: any)
-        /** @deprecated Internal use. Does not exist at runtime. */
-        __godotRPCMap: __RPCMapSkeletonProfileHumanoid;
-        /** @deprecated Internal use. Does not exist at runtime. */
-        __godotNameMap: __NameMapSkeletonProfileHumanoid;
     }
 }

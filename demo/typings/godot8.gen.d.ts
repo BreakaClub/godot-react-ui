@@ -1,6 +1,23 @@
 declare module "godot" {
     // AUTO-GENERATED
     /** @deprecated Internal use. Does not exist at runtime. */
+    interface __RPCMapSkeletonProfileHumanoid extends __RPCMapSkeletonProfile {
+    }
+    /** @deprecated Internal use. Does not exist at runtime. */
+    interface __NameMapSkeletonProfileHumanoid extends __NameMapSkeletonProfile {
+    }
+    /** A humanoid [SkeletonProfile] preset.  
+     *  	  
+     *  @link https://docs.godotengine.org/en/latest/classes/class_skeletonprofilehumanoid.html  
+     */
+    class SkeletonProfileHumanoid extends SkeletonProfile {
+        constructor(identifier?: any)
+        /** @deprecated Internal use. Does not exist at runtime. */
+        __godotRPCMap: __RPCMapSkeletonProfileHumanoid;
+        /** @deprecated Internal use. Does not exist at runtime. */
+        __godotNameMap: __NameMapSkeletonProfileHumanoid;
+    }
+    /** @deprecated Internal use. Does not exist at runtime. */
     interface __RPCMapSkin extends __RPCMapResource {
     }
     /** @deprecated Internal use. Does not exist at runtime. */
