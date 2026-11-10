@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
@@ -65,9 +65,10 @@ test('cli setup in a mock Godot project installs addon, writes .version and ensu
     // The installed addon stays out of the project's git, the .gitignore with it; the project's own files do not.
     assert.equal(spawnSync('git', ['init', '-q'], { cwd: mockDir }).status, 0);
     const ignored = (path: string): boolean => spawnSync('git', ['check-ignore', '-q', path], { cwd: mockDir }).status === 0;
-    const binary = readdirSync(join(targetAddon, 'bin'))[0];
-    assert.ok(binary !== undefined, 'the packaged addon has a binary');
-    for (const path of ['addons/godot-react-ui/react_ui.gdextension', `addons/godot-react-ui/bin/${binary}`, 'addons/godot-react-ui/.version', 'addons/godot-react-ui/.gitignore']) {
+    // A binary in the addon (the package ships them only when they were built and staged, which CI does not do, so the test puts one there).
+    mkdirSync(join(targetAddon, 'bin'), { recursive: true });
+    writeFileSync(join(targetAddon, 'bin', 'libgodot_react_ui.dylib'), 'a library');
+    for (const path of ['addons/godot-react-ui/react_ui.gdextension', 'addons/godot-react-ui/bin/libgodot_react_ui.dylib', 'addons/godot-react-ui/.version', 'addons/godot-react-ui/.gitignore']) {
       assert.ok(ignored(path), `${path} is ignored`);
     }
     assert.ok(!ignored('project.godot'), 'the project\'s own files are not');
