@@ -8,6 +8,18 @@ export const DEFAULT_ENGINE: string;
 /** The Cargo package the native and the Web build compile, and the one a stale target has cleaned. */
 export const CARGO_PACKAGE: string;
 
+/** The Web side module's file in the addon for each threading of a Web export, as `react_ui.gdextension` names it. */
+export const WEB_LIBRARY_NAMES: { readonly threads: string; readonly nothreads: string };
+
+/**
+ * Which Web build: the probe build, or (with `threads: false`) the side module for an export without threads. The two do not combine, and
+ * only a profile with a `webNothreads` target has the second.
+ */
+export interface WebBuildOptions {
+  probe?: boolean;
+  threads?: boolean;
+}
+
 export interface WebProfile {
   /** The export preset in `demo/export_presets.cfg` that carries this profile's engine templates. */
   presetName: string;
@@ -30,7 +42,7 @@ export interface Engine {
   apiDirectory: string;
   artifacts: string;
   /** The profile's Web cargo target directories. The native builds have none per profile (scripts/native-binding.mjs `NATIVE_TARGETS`). */
-  targets: { web: string; webProbe: string };
+  targets: { web: string; webProbe: string; webNothreads?: string };
   web: WebProfile;
   root: string;
   /** `release` if the arguments say `--release`, else `debug`. */
@@ -47,7 +59,7 @@ export interface Engine {
    */
   requireInstalledBuilds(options?: { probe?: boolean; faults?: boolean; godotTsc?: boolean }): void;
   /** Throws unless the installed Web side module is this profile's build of the current sources. */
-  requireInstalledWasm(options?: { probe?: boolean }): void;
+  requireInstalledWasm(options?: WebBuildOptions): void;
   installedWasmStamp(): Record<string, unknown> | undefined;
   /** Throws unless the library in the native target directory is a build of the current sources bound to the native API. */
   requireBuiltLibrary(): void;
@@ -55,12 +67,14 @@ export interface Engine {
   requireFreshWebExport(options?: { probe?: boolean }): void;
   prepareNative(options?: { probe?: boolean; faults?: boolean; godotTsc?: boolean }): string;
   /** The cargo features a Web build enables. */
-  webFeatures(options?: { probe?: boolean }): string[];
-  webSourceInputs(options?: { probe?: boolean }): BuildInputs;
+  webFeatures(options?: WebBuildOptions): string[];
+  webSourceInputs(options?: WebBuildOptions): BuildInputs;
+  /** Where a Web build is compiled (its cargo target directory), where cargo leaves its module and where the module is installed. */
+  webBuildPaths(options?: WebBuildOptions): { target: string; built: string; installed: string };
   /** The inputs of the pack, shell and engine template of the Web export in `mode` (scripts/web-content.mjs). */
   webContentInputs(mode: string): BuildInputs;
   /** Hash the Web build's inputs, have `clean` run if cargo's last output is not provably a build of them, and return the recording steps. */
-  beginWebBuild(options: { probe?: boolean; clean: () => void }): BuildRecord;
+  beginWebBuild(options: WebBuildOptions & { clean: () => void }): BuildRecord;
 }
 
 export function argsWithoutEngine(argv: readonly string[]): string[];

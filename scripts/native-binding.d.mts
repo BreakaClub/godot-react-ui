@@ -29,7 +29,26 @@ export interface NativeVariantOptions {
   faults?: boolean;
 }
 
+/** One native build: the Rust targets compiled, the file cargo leaves, the library's name in the addon and its manifest architecture tags. */
+export interface BinaryTarget {
+  readonly platform: 'macos' | 'linux' | 'windows' | 'android' | 'ios';
+  readonly triples: readonly string[];
+  readonly artifact: string;
+  readonly library: string;
+  readonly features: readonly string[];
+}
+
 export const CARGO_PACKAGE: string;
+/** Where scripts/build-binary.mjs puts a release build, one file per target. */
+export const OUT_BIN: string;
+export const BINARY_TARGETS: Readonly<Record<string, BinaryTarget>>;
+/** The targets a release ships, one library each: the universal macOS build and every build of another platform. */
+export const RELEASE_TARGETS: readonly string[];
+/** The target of the machine this runs on, or undefined where there is no build for it. */
+export function hostBinaryTarget(): string | undefined;
+/** What a plain `cargo build` leaves in a release directory on this machine. */
+export const NATIVE_ARTIFACT_NAME: string;
+/** The name this machine's library has in the addon. */
 export const NATIVE_LIBRARY_NAME: string;
 export const NATIVE_INSTALL_DIRECTORY: string;
 export const NATIVE_INSTALLED_LIBRARY: string;

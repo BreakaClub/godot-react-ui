@@ -4,7 +4,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, write
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { scrubOpenScripts } from './editor-session.mjs';
-import { NATIVE_LIBRARY_NAME, NATIVE_TARGETS, nativeBinding, nativeSourceInputs } from './native-binding.mjs';
+import { NATIVE_ARTIFACT_NAME, NATIVE_LIBRARY_NAME, NATIVE_TARGETS, nativeBinding, nativeSourceInputs } from './native-binding.mjs';
 
 // The GodotJS declarations the `stock` engine profile typechecks against.
 //
@@ -33,7 +33,7 @@ export function stockTypingsPaths() {
     directory: resolve(directory, 'typings'),
     record: resolve(directory, 'typings.json'),
     stage: resolve(directory, 'project'),
-    library: resolve(NATIVE_TARGETS.default, 'release', NATIVE_LIBRARY_NAME),
+    library: resolve(NATIVE_TARGETS.default, 'release', NATIVE_ARTIFACT_NAME),
   };
 }
 

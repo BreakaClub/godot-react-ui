@@ -22,6 +22,8 @@
     "test:types": "node scripts/test-types.mjs",
     "gen:types": "node scripts/generate-types.mjs",
     "build:native": "node scripts/build-native.mjs",
+    "build:binary": "node scripts/build-binary.mjs",
+    "verify:load": "node scripts/verify-load.mjs",
     "build:web": "node scripts/build-web.mjs",
     "build:font-slices": "node scripts/build-font-slices.mjs",
     "build": "pnpm test:types && node scripts/build.mjs",

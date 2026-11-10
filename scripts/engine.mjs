@@ -82,7 +82,9 @@ const profiles = {
     versionPrefix: '4.7.',
     apiDirectory: resolve(root, 'native/api/stock-4.7.2'),
     artifacts: resolve(root, 'artifacts/stock'),
-    targets: { web: resolve(root, 'target/stock-web'), webProbe: resolve(root, 'target/stock-web-probe') },
+    // `webNothreads` is the side module for a Web export without threads, which the package ships beside the threaded one. Breaka's profile
+    // has none: its Web templates are threaded.
+    targets: { web: resolve(root, 'target/stock-web'), webProbe: resolve(root, 'target/stock-web-probe'), webNothreads: resolve(root, 'target/stock-web-nothreads') },
     web: {
       presetName: 'Web (stock)',
       emscripten: `${stockRoot}/emsdk`,
@@ -95,21 +97,34 @@ const profiles = {
   },
 };
 
-const webLibrary = resolve(installDirectory, 'godot_react_ui.web.wasm');
-const webStamp = resolve(installDirectory, 'react_ui.web.build.json');
+/**
+ * The Web side module's file in the addon for each threading of a Web export, as `react_ui.gdextension` names it (`web.*.threads.wasm32`,
+ * `web.*.nothreads.wasm32`). A module imports the engine's memory, shared or not, so neither loads in the other kind of export.
+ */
+export const WEB_LIBRARY_NAMES = Object.freeze({ threads: 'godot_react_ui.web.wasm', nothreads: 'godot_react_ui.web.nothreads.wasm' });
+const WEB_STAMP_NAMES = Object.freeze({ threads: 'react_ui.web.build.json', nothreads: 'react_ui.web.nothreads.build.json' });
+const webStamp = resolve(installDirectory, WEB_STAMP_NAMES.threads);
 
 /**
- * What the Web build of a profile is made of: the cargo features, its cargo target directory, where cargo leaves the artifact, where it is
- * installed (the `.gdextension` names that path) and the stamp beside each. `fix` is the command that rebuilds it.
+ * What one Web build of a profile is made of: the cargo features, its cargo target directory, where cargo leaves the artifact, where it is
+ * installed (the `.gdextension` names that path) and the stamp beside each. `fix` is the command that rebuilds it. `threads: false` is the
+ * side module for an export without threads (cargo feature `web-nothreads`), a build of its own beside the threaded one.
  */
-function webKind(profile) {
+function webKind(profile, { probe = false, threads = true } = {}) {
+  if (!threads && probe) throw new Error('--probe and --nothreads are separate builds: the probe is a threaded build.');
+  if (!threads && profile.targets.webNothreads === undefined) {
+    throw new Error(`The ${profile.name} profile has no Web build without threads: its Web templates are threaded.`);
+  }
+  const threading = threads ? 'threads' : 'nothreads';
+  const target = !threads ? profile.targets.webNothreads : probe ? profile.targets.webProbe : profile.targets.web;
   return {
-    features: probe => probe ? ['web', 'probe'] : ['web'],
-    target: probe => probe ? profile.targets.webProbe : profile.targets.web,
-    built: target => resolve(target, 'wasm32-unknown-emscripten/release/godot_react_ui.wasm'),
-    targetStamp: target => resolve(target, 'react_ui.web.build.json'),
-    installed: webLibrary, installedStamp: webStamp,
-    fix: probe => `pnpm build:web --wasm-only${probe ? ' --probe' : ''} ${ENGINE_FLAG}${profile.name}`,
+    features: !threads ? ['web-nothreads'] : probe ? ['web', 'probe'] : ['web'],
+    target,
+    built: resolve(target, 'wasm32-unknown-emscripten/release/godot_react_ui.wasm'),
+    targetStamp: resolve(target, WEB_STAMP_NAMES.threads),
+    installed: resolve(installDirectory, WEB_LIBRARY_NAMES[threading]),
+    installedStamp: resolve(installDirectory, WEB_STAMP_NAMES[threading]),
+    fix: `pnpm build:web --wasm-only${probe ? ' --probe' : ''}${threads ? '' : ' --nothreads'} ${ENGINE_FLAG}${profile.name}`,
   };
 }
 
@@ -161,8 +176,7 @@ export function selectEngine(argv = process.argv.slice(2), env = process.env) {
   const profile = profiles[selectEngineName(argv, env)];
   env[ENGINE_VARIABLE] = profile.name;
   const godot = env.GODOT === undefined || env.GODOT === '' ? profile.godot : env.GODOT;
-  const web = webKind(profile);
-  const webSourceInputs = probe => collectInputs({ root, apiFiles: apiFiles(profile), features: web.features(probe) });
+  const webSourceInputs = web => collectInputs({ root, apiFiles: apiFiles(profile), features: web.features });
   return {
     ...profile,
     godot,
@@ -220,10 +234,13 @@ export function selectEngine(argv = process.argv.slice(2), env = process.env) {
       return version;
     },
     /** The Web side module `build:web` installs for this profile: refuse it unless it is this profile's build of the current sources. */
-    requireInstalledWasm: ({ probe = false } = {}) => requireBuild({
-      library: web.installed, stamp: readStamp(web.installedStamp), engine: profile.name, probe,
-      current: webSourceInputs(probe), subject: `installed ${basename(web.installed)}`, fix: web.fix(probe),
-    }),
+    requireInstalledWasm({ probe = false, threads = true } = {}) {
+      const web = webKind(profile, { probe, threads });
+      requireBuild({
+        library: web.installed, stamp: readStamp(web.installedStamp), engine: profile.name, probe,
+        current: webSourceInputs(web), subject: `installed ${basename(web.installed)}`, fix: web.fix,
+      });
+    },
     /** The stamp of the installed Web side module, for the receipt of an export made from it. */
     installedWasmStamp: () => readStamp(webStamp),
     /**
@@ -239,7 +256,8 @@ export function selectEngine(argv = process.argv.slice(2), env = process.env) {
       const mode = this.webMode();
       const directory = this.artifactPath(`web-${mode}`);
       requireExport({
-        directory, receiptName: WEB_RECEIPT, libraryName: 'godot_react_ui.web.wasm', engine: profile.name, probe, current: webSourceInputs(probe),
+        directory, receiptName: WEB_RECEIPT, libraryName: WEB_LIBRARY_NAMES.threads, engine: profile.name, probe,
+        current: webSourceInputs(webKind(profile, { probe })),
         content: webContentInputs({ root, presetName: profile.web.presetName, mode }),
         subject: `Web export ${relative(root, directory)}`,
         fix: `pnpm build:web${mode === 'release' ? ' --release' : ''}${probe ? ' --probe' : ''} ${ENGINE_FLAG}${profile.name}`,
@@ -255,20 +273,25 @@ export function selectEngine(argv = process.argv.slice(2), env = process.env) {
     /** The inputs of the pack, shell and engine template of the Web export in `mode` (scripts/web-content.mjs); the receipt records them. */
     webContentInputs: mode => webContentInputs({ root, presetName: profile.web.presetName, mode }),
     /** The cargo features a Web build enables; `build:web` passes exactly these. */
-    webFeatures: ({ probe = false } = {}) => web.features(probe),
+    webFeatures: ({ probe = false, threads = true } = {}) => webKind(profile, { probe, threads }).features,
     /** The content hashes a Web build is made from (scripts/freshness.mjs). */
-    webSourceInputs: ({ probe = false } = {}) => webSourceInputs(probe),
+    webSourceInputs: ({ probe = false, threads = true } = {}) => webSourceInputs(webKind(profile, { probe, threads })),
+    /** Where a Web build is compiled, where cargo leaves its module and where the module is installed. */
+    webBuildPaths({ probe = false, threads = true } = {}) {
+      const { target, built, installed } = webKind(profile, { probe, threads });
+      return { target, built, installed };
+    },
     /**
      * Start a Web build: hash its inputs and, if the artifact cargo left from the last build is not provably a build of them, have `clean` remove
      * this crate's artifacts so cargo cannot keep it. Returns the steps that record the build: `compiled()` once cargo has succeeded (stamps
      * cargo's output; throws if the sources changed while it ran) and `installed()` once the side module is in place.
      */
-    beginWebBuild({ probe = false, clean }) {
-      const target = web.target(probe);
+    beginWebBuild({ probe = false, threads = true, clean }) {
+      const web = webKind(profile, { probe, threads });
       return beginBuild({
-        identity: { engine: profile.name }, probe, collect: () => webSourceInputs(probe),
-        built: web.built(target), targetStamp: web.targetStamp(target), installed: web.installed, installedStamp: web.installedStamp,
-        subject: `${profile.name} side module built in ${relative(root, target)}`, compiler: 'the Web build', fix: web.fix(probe), crate: CARGO_PACKAGE, clean,
+        identity: { engine: profile.name }, probe, collect: () => webSourceInputs(web),
+        built: web.built, targetStamp: web.targetStamp, installed: web.installed, installedStamp: web.installedStamp,
+        subject: `${profile.name} side module built in ${relative(root, web.target)}`, compiler: 'the Web build', fix: web.fix, crate: CARGO_PACKAGE, clean,
       });
     },
   };

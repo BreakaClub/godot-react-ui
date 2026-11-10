@@ -8,8 +8,8 @@ name: Release
 # the tarball's files), and `pnpm publish --dry-run` takes that tarball as far as publishing it. Only a pushed tag publishes, whatever ref
 # a run by hand names.
 #
-# Platforms: every one build.yml builds (macOS arm64 and x86_64, Linux x86_64, Windows x86_64, and the Web side module for stock Godot 4.7
-# templates). The release job refuses to pack unless all of them are there.
+# Platforms: every one build.yml builds (a universal macOS library; Linux, Windows and Android for x86_64 and arm64; iOS arm64; and the Web
+# side modules for stock Godot 4.7 templates with and without threads). The release job refuses to pack unless all of them are there.
 on:
   push:
     tags:

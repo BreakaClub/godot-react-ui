@@ -7,6 +7,7 @@ import { scrubOpenScripts } from './editor-session.mjs';
 import { argsWithoutEngine, CARGO_PACKAGE, selectEngine } from './engine.mjs';
 import { assertReleasePack, planReleaseStageOf, stageReleaseProject } from './release-stage.mjs';
 import { godotTscWebExportProblem, godotTscWebPlan, removeGodotTscWebModules, withGodotTscWebManifest } from './godot-tsc.mjs';
+import { importsSharedMemory } from './wasm-memory.mjs';
 import { presetTemplate } from './web-content.mjs';
 import { exportFontSlices } from './font-slices/paths.mjs';
 
@@ -17,9 +18,14 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const engine = selectEngine();
 const web = engine.web;
 const args = new Set(argsWithoutEngine(process.argv.slice(2)));
-const supportedArgs = new Set(['--wasm-only', '--export-only', '--release', '--probe']);
+const supportedArgs = new Set(['--wasm-only', '--export-only', '--release', '--probe', '--nothreads']);
 for (const arg of args) if (!supportedArgs.has(arg)) throw new Error(`Unknown argument: ${arg}`);
 if (args.has('--wasm-only') && args.has('--export-only')) throw new Error('Choose one partial build mode.');
+// `--nothreads` builds the side module for a Web export without threads (cargo feature `web-nothreads`) and installs it beside the threaded
+// one, under the name react_ui.gdextension gives `web.*.nothreads.wasm32`. The package ships both; the demo's export presets are threaded,
+// so there is no export of it here.
+const threads = !args.has('--nothreads');
+if (!threads && !args.has('--wasm-only')) throw new Error('--nothreads builds only the side module: pass --wasm-only (the export presets here are threaded).');
 // Refuse a Web export mode the profile's engine template cannot start in before spending minutes on the side module.
 const mode = args.has('--wasm-only') ? undefined : engine.webMode([...args]);
 
@@ -40,8 +46,7 @@ const godot = engine.godot;
 // `--probe` builds the evidence probe (cargo feature `probe`) into its own target directory and
 // installs it over the default side module. Rebuild without it afterwards: the probe must never ship.
 const probe = args.has('--probe');
-const targetDirectory = probe ? engine.targets.webProbe : engine.targets.web;
-const wasmPath = join(root, 'demo', 'addons', 'godot-react-ui', 'bin', 'godot_react_ui.web.wasm');
+const { target: targetDirectory, built: compiled, installed: wasmPath } = engine.webBuildPaths({ probe, threads });
 const buildTimeoutMs = 15 * 60 * 1000;
 const env = {
   ...process.env,
@@ -77,9 +82,10 @@ function tableMetadata(bytes, label) {
 if (!args.has('--export-only')) {
   // godot-rust's upstream Web contract requires these nightly flags and a rebuilt
   // standard library. Hidden symbols prevent cross-extension static collisions.
+  // A side module must be linked the way its engine is: with threads (a shared memory and atomics) for a threaded export, without for one
+  // without threads. godot-rust's `experimental-wasm-nothreads` feature (what `web-nothreads` enables) is the other half of the second.
   const flags = [
-    '-C', 'link-args=-pthread',
-    '-C', 'target-feature=+atomics',
+    ...(threads ? ['-C', 'link-args=-pthread', '-C', 'target-feature=+atomics'] : []),
     '-C', 'link-args=-sSIDE_MODULE=2',
     '-C', 'llvm-args=-enable-emscripten-cxx-exceptions=0',
     '-Z', 'default-visibility=hidden',
@@ -111,17 +117,20 @@ print(json.dumps({'binaryen':env['ENV']['EM_BINARYEN_ROOT'],'linkFlags':env['LIN
   // artifact built from the other content. `beginBuild` hashes the inputs and, unless the
   // target's own stamp says its artifact is a build of exactly these, cleans this crate (not its dependencies) first.
   const build = engine.beginWebBuild({
-    probe, clean: () => run(cargo, [`+${toolchain}`, 'clean', '--locked', '-p', CARGO_PACKAGE, '--release', '--target', 'wasm32-unknown-emscripten']),
+    probe, threads, clean: () => run(cargo, [`+${toolchain}`, 'clean', '--locked', '-p', CARGO_PACKAGE, '--release', '--target', 'wasm32-unknown-emscripten']),
   });
-  run(cargo, [`+${toolchain}`, 'build', '--locked', '--release', '--lib', '--config', 'profile.release.opt-level="s"', '--features', engine.webFeatures({ probe }).join(','), '-Zbuild-std', '--target', 'wasm32-unknown-emscripten']);
+  run(cargo, [`+${toolchain}`, 'build', '--locked', '--release', '--lib', '--config', 'profile.release.opt-level="s"', '--features', engine.webFeatures({ probe, threads }).join(','), '-Zbuild-std', '--target', 'wasm32-unknown-emscripten']);
   build.compiled();
-  const compiled = join(targetDirectory, 'wasm32-unknown-emscripten', 'release', 'godot_react_ui.wasm');
   const wasm = readFileSync(compiled);
   if (lazyTable) tableMetadata(wasm, 'React UI extension');
+  // The engine instantiates a side module on its own memory, and a module that imports the other kind fails there, in the browser.
+  if (importsSharedMemory(wasm) !== threads) {
+    throw new Error(`${compiled} imports ${threads ? 'an unshared' : 'a shared'} memory: it was not linked ${threads ? 'with' : 'without'} threads.`);
+  }
   mkdirSync(dirname(wasmPath), { recursive: true });
   copyFileSync(compiled, wasmPath);
   build.installed();
-  console.log(`Web extension (${engine.name} profile${probe ? ', PROBE BUILD, replace with a default build' : ''}): ${wasm.length} bytes, SHA-256 ${hash(wasm)}`);
+  console.log(`Web extension (${engine.name} profile${probe ? ', PROBE BUILD, replace with a default build' : ''}${threads ? '' : ', without threads'}): ${wasm.length} bytes, SHA-256 ${hash(wasm)}`);
 }
 
 if (!args.has('--wasm-only')) {

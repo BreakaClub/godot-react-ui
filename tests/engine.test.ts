@@ -59,7 +59,8 @@ test('the Web builds of the two profiles bind to their own dumps and keep their 
   const stockTargets = Object.values(stock.targets);
   const breakaTargets = Object.values(breaka.targets);
   assert.equal(new Set([...stockTargets, ...breakaTargets]).size, stockTargets.length + breakaTargets.length);
-  assert.deepEqual(Object.keys(stock.targets).sort(), ['web', 'webProbe'], 'a profile has Web target directories and no native ones');
+  assert.deepEqual(Object.keys(stock.targets).sort(), ['web', 'webNothreads', 'webProbe'], 'a profile has Web target directories and no native ones');
+  assert.deepEqual(Object.keys(breaka.targets).sort(), ['web', 'webProbe'], "Breaka's Web templates are threaded: its profile has no build without threads");
   assert.match(stock.artifactPath('native'), /artifacts\/stock\/native$/u);
   assert.match(breaka.artifactPath('native'), /artifacts\/native$/u);
 });

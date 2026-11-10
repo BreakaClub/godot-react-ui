@@ -111,6 +111,14 @@ The Web is per profile, unlike the native library: a Web side module is linked w
 for `breaka`, with Breaka's lazy function-table ABI), and the two cannot load each other's. The native UI library and the godot-tsc library are one build for both
 profiles, bound to Godot API 4.7.2; `build:web` is the only build here that takes `--engine=`.
 
+The `stock` profile has a second side module, for a Web export without threads: `node scripts/build-web.mjs --engine=stock --wasm-only --nothreads`
+builds `godot_react_ui.web.nothreads.wasm` (the `web-nothreads` Cargo feature, which adds godot-rust's `experimental-wasm-nothreads`, and
+no pthread or atomics flags), in a target directory of its own. An engine built without threads gives its side modules an unshared memory
+and one built with threads a shared one, and a module that imports the other kind does not instantiate, so the build reads the module's
+import section and refuses a module whose memory is not the kind it was asked for. The manifest gives each module to its export by Godot's
+`threads` and `nothreads` feature tags. Both export presets here are threaded, and so are Breaka's templates: the module without threads
+is built for the package, and nothing here exports or serves a page with it.
+
 `node scripts/build-web.mjs --engine=stock` (or `GODOT_REACT_ENGINE=stock`) builds the same extension for an unmodified
 Godot 4.7.2 with upstream GodotJS instead of Breaka's engine. The default `breaka` profile is unchanged. What differs:
 

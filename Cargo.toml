@@ -11,6 +11,8 @@ path = "native/lib.rs"
 
 [features]
 web = ["godot/experimental-wasm"]
+# The Web side module for an export without threads (scripts/build-web.mjs --nothreads); `web` alone is the threaded one.
+web-nothreads = ["web", "godot/experimental-wasm-nothreads"]
 # The evidence probe (native/probe.rs). Never enabled in a default build.
 probe = []
 # Negative controls for the filters verifier (native/filter_faults.rs). Never enabled in a default build.

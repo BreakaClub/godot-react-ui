@@ -21,8 +21,55 @@ const DUMP_HEADER_BYTES = 1024;
 
 /** The Cargo package the native build compiles, and the one a stale target has cleaned. */
 export const CARGO_PACKAGE = 'godot-react-ui';
-export const NATIVE_LIBRARY_NAME = process.platform === 'darwin' ? 'libgodot_react_ui.dylib'
-  : process.platform === 'linux' ? 'libgodot_react_ui.so' : 'godot_react_ui.dll';
+
+/** Where a release build of one target is put (scripts/build-binary.mjs): one file per target, under the name the manifest gives it. */
+export const OUT_BIN = resolve(root, 'out/bin');
+const MACOS_LIBRARY = 'libgodot_react_ui.dylib';
+const MACOS_TRIPLES = Object.freeze({ arm64: 'aarch64-apple-darwin', x86_64: 'x86_64-apple-darwin' });
+
+/**
+ * Every native library there is a build of, by the name `--target=` takes (scripts/build-binary.mjs). `triples` are the Rust targets that are
+ * compiled (two make one universal library), `artifact` is the file cargo leaves in each triple's release directory, `library` is the name the
+ * library has in the addon, and `features` are the architecture tags `react_ui.gdextension` gives it (a test holds the manifest to this table).
+ *
+ * A release ships `macos.universal` and every target of another platform (.github/workflows/build.yml builds exactly those; a test holds the
+ * workflow to this table too). `macos.arm64` and `macos.x86_64` are the one-architecture builds a Mac makes for itself.
+ */
+export const BINARY_TARGETS = Object.freeze({
+  'macos.universal': { platform: 'macos', triples: Object.values(MACOS_TRIPLES), artifact: 'libgodot_react_ui.dylib', library: MACOS_LIBRARY, features: ['arm64', 'x86_64'] },
+  'macos.arm64': { platform: 'macos', triples: [MACOS_TRIPLES.arm64], artifact: 'libgodot_react_ui.dylib', library: MACOS_LIBRARY, features: ['arm64'] },
+  'macos.x86_64': { platform: 'macos', triples: [MACOS_TRIPLES.x86_64], artifact: 'libgodot_react_ui.dylib', library: MACOS_LIBRARY, features: ['x86_64'] },
+  'linux.x86_64': { platform: 'linux', triples: ['x86_64-unknown-linux-gnu'], artifact: 'libgodot_react_ui.so', library: 'libgodot_react_ui.linux.x86_64.so', features: ['x86_64'] },
+  'linux.arm64': { platform: 'linux', triples: ['aarch64-unknown-linux-gnu'], artifact: 'libgodot_react_ui.so', library: 'libgodot_react_ui.linux.arm64.so', features: ['arm64'] },
+  'windows.x86_64': { platform: 'windows', triples: ['x86_64-pc-windows-msvc'], artifact: 'godot_react_ui.dll', library: 'godot_react_ui.windows.x86_64.dll', features: ['x86_64'] },
+  'windows.arm64': { platform: 'windows', triples: ['aarch64-pc-windows-msvc'], artifact: 'godot_react_ui.dll', library: 'godot_react_ui.windows.arm64.dll', features: ['arm64'] },
+  'android.arm64': { platform: 'android', triples: ['aarch64-linux-android'], artifact: 'libgodot_react_ui.so', library: 'libgodot_react_ui.android.arm64.so', features: ['arm64'] },
+  'android.x86_64': { platform: 'android', triples: ['x86_64-linux-android'], artifact: 'libgodot_react_ui.so', library: 'libgodot_react_ui.android.x86_64.so', features: ['x86_64'] },
+  // A device build only. A simulator build would be a second arm64 library, which a manifest cannot tell from the device's by feature tags.
+  'ios.arm64': { platform: 'ios', triples: ['aarch64-apple-ios'], artifact: 'libgodot_react_ui.dylib', library: 'libgodot_react_ui.ios.arm64.dylib', features: ['arm64'] },
+});
+
+/** The targets a release ships, one library each: the universal macOS build and every build of another platform. */
+export const RELEASE_TARGETS = Object.freeze(Object.keys(BINARY_TARGETS).filter(name => BINARY_TARGETS[name].platform !== 'macos' || name === 'macos.universal'));
+
+/** The target of the machine this runs on, or undefined where there is no build for it. */
+export function hostBinaryTarget() {
+  const platform = { darwin: 'macos', linux: 'linux', win32: 'windows' }[process.platform];
+  const arch = { arm64: 'arm64', x64: 'x86_64' }[process.arch];
+  const name = `${platform}.${arch}`;
+  return name in BINARY_TARGETS ? name : undefined;
+}
+
+function hostBinary() {
+  const name = hostBinaryTarget();
+  if (name === undefined) throw new Error(`There is no native build for ${process.platform} ${process.arch}: the builds are ${Object.keys(BINARY_TARGETS).join(', ')}.`);
+  return BINARY_TARGETS[name];
+}
+
+/** What a plain `cargo build` leaves in a release directory on this machine. */
+export const NATIVE_ARTIFACT_NAME = hostBinary().artifact;
+/** The name this machine's library has in the addon, which is the name `react_ui.gdextension` gives it. */
+export const NATIVE_LIBRARY_NAME = hostBinary().library;
 /** Where the `.gdextension` expects the library, and the stamp that says what it was built from. */
 export const NATIVE_INSTALL_DIRECTORY = resolve(root, 'demo/addons/godot-react-ui/bin');
 export const NATIVE_INSTALLED_LIBRARY = resolve(NATIVE_INSTALL_DIRECTORY, NATIVE_LIBRARY_NAME);
@@ -98,7 +145,7 @@ export function nativeVariant({ probe = false, faults = false } = {}) {
   return {
     probe, faults, target,
     features: [...probe ? ['probe'] : [], ...faults ? ['filter-faults'] : []],
-    built: resolve(target, 'release', NATIVE_LIBRARY_NAME),
+    built: resolve(target, 'release', NATIVE_ARTIFACT_NAME),
     targetStamp: resolve(target, 'react_ui.build.json'),
     fix: `pnpm build:native${probe ? ' --probe' : ''}${faults ? ' --faults' : ''}`,
   };

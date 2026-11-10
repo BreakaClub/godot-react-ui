@@ -24,7 +24,7 @@ test('the helper takes the listed flags, the listed prefixes and the engine sele
 const SCRIPTS_WITH_OPTIONS = [
   'analyze-keystroke-profile', 'analyze-native-detail', 'build', 'build-font-slices', 'build-native', 'build-web', 'check-site', 'deploy-web', 'dev', 'generate-types', 'keystroke-ab', 'keystroke-bench', 'lab-captures', 'live-compile-agreement', 'live-compile-project', 'navigator-captures', 'probe-web', 'profile-keystrokes', 'repro-editor-pointer', 'serve-web', 'test-types', 'transform-lab-label-experiment', 'transform-lab-web-capture', 'verify', 'verify-a11y', 'verify-casing',
   'verify-interaction-web', 'verify-live-compile-web', 'verify-motion-web', 'verify-text-layout', 'verify-web', 'verify-world', 'verify-world-web',
-  'stage-addon',
+  'stage-addon', 'build-binary', 'verify-load',
 ];
 
 /** Scripts run with tsx, which loads the TypeScript modules they import. */

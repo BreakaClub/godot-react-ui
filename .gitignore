@@ -11,6 +11,11 @@ artifacts/
 .DS_Store
 demo/gen/godot/addons/godot-react-ui/bin/
 
+# Release libraries, one per target (scripts/build-binary.mjs), and the addon and engine cache scripts/verify-load.mjs gives the load check
+out/
+tests/stock/addons/
+tests/stock/.godot/
+
 # The code editor's checker and transpiler: the godot-tsc package's addon, installed by `godot-tsc setup`, and the project the editor
 # opens, which scripts/live-compile-project.mjs writes
 demo/live-compile/
