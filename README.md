@@ -27,18 +27,20 @@ React for Godot. Write your UI in React and TSX on [GodotJS](https://github.com/
 
 - **Godot with GodotJS on V8**, version 4.7.2 or newer: the native library is bound to the Godot 4.7.2 API. The library works in a project with
   GodotJS's camel-case bindings on or off.
-- **Platforms.** The release addon carries macOS (arm64 and x86_64), Linux x86_64, Windows x86_64 and Web libraries. Apple Silicon macOS and
-  the Web (stock Godot 4.7.2 templates, in Chrome) are the platforms that have been verified; the others are built and not yet qualified.
+- **Platforms.** The release addon carries a universal macOS library, Linux and Windows libraries for x86_64 and arm64, Android libraries for
+  arm64 and x86_64, an iOS arm64 library, and Web side modules for stock Godot 4.7.2 exports with and without threads. Apple Silicon macOS and
+  the Web with threads (stock Godot 4.7.2 templates, in Chrome) are the platforms that have been verified. CI loads each desktop library in the
+  official Godot editor; the rest are built and not yet qualified ([docs/LIMITS.md](docs/LIMITS.md)).
 - **React 19.2.0** as a peer dependency.
 
 ## Install
 
-The package is not on npm yet. Each [GitHub release](https://github.com/BreakaClub/godot-react-ui/releases) has an npm tarball and the addon as a zip.
-
 ```sh
-pnpm add react@19.2.0 ./godot-react-ui-0.9.0.tgz
+pnpm add react@19.2.0 godot-react-ui
 pnpm exec godot-react-ui setup --project-dir path/to/your/godot/project
 ```
+
+Each [GitHub release](https://github.com/BreakaClub/godot-react-ui/releases) also has the npm tarball and the addon as a zip.
 
 `setup` copies the GDExtension to `res://addons/godot-react-ui/` and writes `node_modules/.gdignore`, so Godot does not import npm's tree. The
 package's `postinstall` does the same when it finds a `project.godot` above where you installed (pnpm 10 runs it only if `onlyBuiltDependencies`
