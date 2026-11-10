@@ -1065,9 +1065,8 @@ impl ReactUiRoot {
             .nodes
             .remove(&tag)
             .expect("a planned deletion names a mounted node");
-        self.tree
-            .remove(node.layout)
-            .expect("a deleted node has a layout node");
+        // Not removed from the layout tree yet: a hidden containing block may still name it (`DeletedLayouts`).
+        self.deleted_layouts.hold(node.layout);
         self.mounted
             .breakpoints
             .unregister(tag, node.props.style.as_ref());

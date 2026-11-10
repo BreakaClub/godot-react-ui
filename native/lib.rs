@@ -216,6 +216,8 @@ pub struct ReactUiRoot {
     /// be put in `order` before the next layout (`layout.rs`).
     ordered_parents: BTreeSet<Parent>,
     order_dirty: BTreeSet<Parent>,
+    /// The layout nodes of deleted elements that Taffy may still name (`layout.rs`).
+    deleted_layouts: layout::DeletedLayouts,
     /// Nodes whose canvas items may need re-recording.
     paint_dirty: BTreeSet<u32>,
     /// Nodes whose paint parent or sort position must be re-examined: a new tree parent, a changed
@@ -324,6 +326,7 @@ impl IControl for ReactUiRoot {
             layout_dirty: BTreeSet::new(),
             ordered_parents: BTreeSet::new(),
             order_dirty: BTreeSet::new(),
+            deleted_layouts: layout::DeletedLayouts::default(),
             paint_dirty: BTreeSet::new(),
             paint_reeval: BTreeSet::new(),
             paint_dirty_parents: BTreeSet::new(),

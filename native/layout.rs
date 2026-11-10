@@ -1,5 +1,6 @@
 //! Taffy layout computation with Godot `TextParagraph` leaf measurement, and the layout pass that
 //! follows every change to the mounted tree.
+use std::collections::HashSet;
 use std::time::Instant;
 
 use godot::prelude::*;
@@ -118,6 +119,77 @@ pub(crate) fn compute_tree<C: LeafContext>(tree: &mut TaffyTree<C>, root: NodeId
     .expect("validated measurement tree");
 }
 
+/// The layout nodes of deleted elements, kept until no node that is still laid out names one.
+///
+/// Taffy lists with each node the out-of-flow boxes it is the containing block of, and its rounding pass visits those
+/// boxes through that list. The list is replaced only when the node is laid out visible: a node that is `display: none`,
+/// or inside one, keeps the list it had (`compute_hidden_layout` runs no positioning pass), and the rounding pass still
+/// walks it. A box deleted from under such a node would be read after it is gone, and Taffy panics (see
+/// `props::tests::taffy_keeps_a_stale_hoisted_list_when_its_container_is_hidden`). So a deleted element's layout node,
+/// with the subtree under it, outlives the element for as long as a list names it: until its containing block is shown
+/// again, or is deleted in its turn.
+#[derive(Default)]
+pub(crate) struct DeletedLayouts {
+    held: HashSet<NodeId>,
+    /// Nodes were added, or a layout ran, since the lists were last read.
+    unexamined: bool,
+}
+
+impl DeletedLayouts {
+    /// Keep the layout node of a deleted element. It is already out of its parent's child list, unless its parent is
+    /// deleted with it.
+    pub(crate) fn hold(&mut self, node: NodeId) {
+        self.held.insert(node);
+        self.unexamined = true;
+    }
+
+    /// A layout ran, so the lists of the nodes it laid out visible are new.
+    pub(crate) fn layout_ran(&mut self) {
+        self.unexamined |= !self.held.is_empty();
+    }
+
+    /// Remove from the tree every held node that no list of a `live` node reaches. `live` is every layout node of
+    /// an element that is still mounted, and the layer roots.
+    pub(crate) fn release<C>(
+        &mut self,
+        tree: &mut TaffyTree<C>,
+        live: impl IntoIterator<Item = NodeId>,
+    ) {
+        if !std::mem::take(&mut self.unexamined) {
+            return;
+        }
+        // What the rounding pass can reach: a held node a live list names, and everything under it.
+        let mut reached: HashSet<NodeId> = HashSet::new();
+        let mut pending: Vec<NodeId> = Vec::new();
+        for node in live {
+            let hoisted = tree.hoisted_children(node).expect("a live node is in the tree");
+            pending.extend(hoisted.iter().filter(|box_| self.held.contains(box_)));
+        }
+        while let Some(node) = pending.pop() {
+            if !reached.insert(node) {
+                continue;
+            }
+            pending.extend(tree.children(node).expect("a held node is in the tree"));
+            pending.extend(
+                tree.hoisted_children(node)
+                    .expect("a held node is in the tree"),
+            );
+        }
+        self.held.retain(|node| {
+            let keep = reached.contains(node);
+            if !keep {
+                tree.remove(*node).expect("a held node is in the tree");
+            }
+            keep
+        });
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.held.len()
+    }
+}
+
 impl ReactUiRoot {
     /// The layout nodes of a parent's children in document order, and the node itself.
     fn layout_children(&self, parent: Parent) -> Option<(NodeId, Vec<u32>)> {
@@ -206,8 +278,17 @@ impl ReactUiRoot {
                 compute_tree(&mut self.tree, root, self.viewport_size);
                 self.stats.layout_micros = start.elapsed().as_micros() as u64;
                 self.stats.layout_passes += 1;
+                self.deleted_layouts.layout_ran();
             }
         }
+        self.deleted_layouts.release(
+            &mut self.tree,
+            self.mounted
+                .nodes
+                .values()
+                .map(|node| node.layout)
+                .chain(self.layer_roots),
+        );
         self.last_layout_micros = if self.stats.layout_passes > layout_passes_before {
             self.stats.layout_micros
         } else {
@@ -382,6 +463,64 @@ mod tests {
         tree.remove(lone).unwrap();
         compute_tree(&mut tree, only, size);
         assert_eq!(tree.layout(only).unwrap().size.height, 50.0);
+    }
+
+    /// A corner of the screen is hidden in the commit that unmounts an absolute child of it (the day disc, when a
+    /// window takes the top of the HUD). Taffy keeps naming the child in the hidden corner's list, so its layout node is
+    /// held until the corner is shown and laid out again; a deleted node no list names goes at once.
+    #[test]
+    fn a_box_deleted_from_a_hidden_container_is_held_until_no_list_names_it() {
+        let mut tree: TaffyTree<TextContext> = TaffyTree::new();
+        let toolbar = tree.new_leaf(style(r#"{"width":60,"height":20}"#)).unwrap();
+        let glyph = tree.new_leaf(style(r#"{"width":10,"height":10}"#)).unwrap();
+        let disc = tree
+            .new_with_children(
+                style(r#"{"position":"absolute","right":10,"top":30,"width":40,"height":40}"#),
+                &[glyph],
+            )
+            .unwrap();
+        let shown = style(r#"{"position":"absolute","left":0,"top":0,"right":0,"bottom":0}"#);
+        let corner = tree
+            .new_with_children(shown.clone(), &[toolbar, disc])
+            .unwrap();
+        let label = tree.new_leaf(style(r#"{"width":30,"height":10}"#)).unwrap();
+        let root = tree
+            .new_with_children(style(r#"{"width":200,"height":100}"#), &[corner, label])
+            .unwrap();
+        let size = Vector2::new(200.0, 100.0);
+        compute_tree(&mut tree, root, size);
+        assert_eq!(tree.layout(disc).unwrap().location.x, 150.0);
+        let mounted = tree.total_node_count();
+
+        // The corner is hidden, and the disc and a label elsewhere are deleted, as the mounting layer deletes them.
+        let mut deleted = DeletedLayouts::default();
+        tree.set_style(corner, style(r#"{"display":"none"}"#)).unwrap();
+        tree.remove_child_at_index(corner, 1).unwrap();
+        tree.remove_child_at_index(root, 1).unwrap();
+        for node in [disc, glyph, label] {
+            deleted.hold(node);
+        }
+        compute_tree(&mut tree, root, size);
+        deleted.layout_ran();
+        deleted.release(&mut tree, [root, corner, toolbar]);
+        assert_eq!(deleted.len(), 2, "the disc and what is under it are still named");
+        assert_eq!(tree.total_node_count(), mounted - 1, "the label is gone");
+
+        // Laid out again while hidden: the list is the same, and so is what is held.
+        tree.mark_dirty(root).unwrap();
+        compute_tree(&mut tree, root, size);
+        deleted.layout_ran();
+        deleted.release(&mut tree, [root, corner, toolbar]);
+        assert_eq!(deleted.len(), 2);
+
+        // Shown again, the corner lists the boxes it has now.
+        tree.set_style(corner, shown).unwrap();
+        compute_tree(&mut tree, root, size);
+        deleted.layout_ran();
+        deleted.release(&mut tree, [root, corner, toolbar]);
+        assert_eq!(deleted.len(), 0);
+        assert_eq!(tree.total_node_count(), mounted - 3);
+        assert_eq!(tree.layout(toolbar).unwrap().size.width, 60.0);
     }
 
     /// The status bar of the code editor, inside the two rows that make the panel as wide as its content: a row of four texts that the layout
