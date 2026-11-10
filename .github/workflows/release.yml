@@ -17,7 +17,7 @@ jobs:
       target_sha: ${{ steps.detect.outputs.target_sha }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 0
@@ -72,7 +72,7 @@ jobs:
             artifact: godot_react_ui.dll
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.detect-changes.outputs.target_sha }}
 
@@ -112,7 +112,7 @@ jobs:
           Copy-Item target/release/godot_react_ui.dll bin/
 
       - name: Upload Binary Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: native-${{ matrix.platform }}
           path: bin/${{ matrix.artifact }}
@@ -124,14 +124,14 @@ jobs:
     name: Build Web (WASM)
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.detect-changes.outputs.target_sha }}
 
       # The package's side module is the stock profile's: upstream GodotJS on stock Godot 4.7, whose Web templates are built with Emscripten
       # 4.0.11 and have no lazy function table (Breaka's engine needs a module of its own, built with its own SDK, and is not this package's).
       - name: Setup Emscripten 4.0.11 (the stock profile's SDK)
-        uses: mymindstorm/setup-emsdk@v14
+        uses: emscripten-core/setup-emsdk@v16
         with:
           version: 4.0.11
 
@@ -145,7 +145,7 @@ jobs:
           targets: wasm32-unknown-emscripten
 
       - name: Setup Node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
           node-version: 24
           package-manager-cache: false
@@ -161,7 +161,7 @@ jobs:
           cp demo/addons/godot-react-ui/bin/godot_react_ui.web.wasm bin/godot_react_ui.web.wasm
 
       - name: Upload Web Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: native-web
           path: bin/godot_react_ui.web.wasm
@@ -181,19 +181,19 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.detect-changes.outputs.target_sha }}
           fetch-depth: 0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
           node-version: 24
           package-manager-cache: false
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v5
+        uses: pnpm/action-setup@v6
         with:
           version: 11.5.2
           run_install: false
@@ -202,7 +202,7 @@ jobs:
         run: echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_ENV"
 
       - name: Cache pnpm store
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ${{ env.STORE_PATH }}
           key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
@@ -228,7 +228,7 @@ jobs:
 
       - name: Download Pre-built Native Binaries
         if: ${{ steps.release_plan.outputs.release_created == 'true' }}
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: native-*
           path: addon-binaries/
