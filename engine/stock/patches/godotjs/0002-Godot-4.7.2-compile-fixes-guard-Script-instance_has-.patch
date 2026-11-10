@@ -1,0 +1,62 @@
+From b11415b95b087e96a3ea614bfebd239408e0b427 Mon Sep 17 00:00:00 2001
+From: stock-build <stock-build@invalid>
+Date: Fri, 6 Nov 2026 16:42:15 +1100
+Subject: [PATCH 2/2] Godot 4.7.2 compile fixes: guard Script::instance_has
+ override, add 4.7 display_server/scene_tree includes
+
+---
+ weaver-editor/jsb_editor_plugin.cpp | 2 ++
+ weaver/jsb_script.cpp               | 2 ++
+ weaver/jsb_script.h                 | 3 +++
+ 3 files changed, 7 insertions(+)
+
+diff --git a/weaver-editor/jsb_editor_plugin.cpp b/weaver-editor/jsb_editor_plugin.cpp
+index 53f9f8b..e42ce7a 100644
+--- a/weaver-editor/jsb_editor_plugin.cpp
++++ b/weaver-editor/jsb_editor_plugin.cpp
+@@ -4,6 +4,8 @@
+ 
+ #if GODOT_4_7_OR_NEWER
+ #include "core/object/callable_mp.h"
++#include "scene/main/scene_tree.h"
++#include "servers/display/display_server.h"
+ #endif
+ 
+ #define JSB_TYPE_ROOT "typings"
+diff --git a/weaver/jsb_script.cpp b/weaver/jsb_script.cpp
+index 8c8b4ab..b9b3c13 100644
+--- a/weaver/jsb_script.cpp
++++ b/weaver/jsb_script.cpp
+@@ -471,12 +471,14 @@ bool GodotJSScript::has_static_method(const StringName& p_method) const
+     return false;
+ }
+ 
++#if !GODOT_4_7_OR_NEWER
+ bool GodotJSScript::instance_has(const Object* p_this) const
+ {
+     jsb_check(loaded_);
+     MutexLock lock(GodotJSScriptLanguage::get_singleton()->mutex_);
+     return instances_.has(const_cast<Object*>(p_this));
+ }
++#endif
+ 
+ Error GodotJSScript::load_source_code(const String &p_path)
+ {
+diff --git a/weaver/jsb_script.h b/weaver/jsb_script.h
+index e8fd403..2a1ddca 100644
+--- a/weaver/jsb_script.h
++++ b/weaver/jsb_script.h
+@@ -82,7 +82,10 @@ public:
+     virtual ScriptInstance* instance_create(Object* p_this) override { return instance_construct(p_this, true); }
+ 
+     virtual PlaceHolderScriptInstance* placeholder_instance_create(Object* p_this) override;
++#if !GODOT_4_7_OR_NEWER
++    // Godot 4.7 replaced the virtual with a non-virtual helper built on Object::get_script().
+     virtual bool instance_has(const Object* p_this) const override;
++#endif
+ 
+     virtual bool has_source_code() const override { return !source_.is_empty(); }
+     virtual String get_source_code() const override { return source_; }
+-- 
+2.52.0
+

@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import vm from 'node:vm';
 import { isolateBrowserClipboard } from '../scripts/web-clipboard.mjs';
-import { presetTemplate, webContentInputs, webSourcePaths } from '../scripts/web-content.mjs';
+import { presetTemplate, templateVersionOf, webContentInputs, webSourcePaths, webTemplate } from '../scripts/web-content.mjs';
 import { startExportServer } from '../scripts/web-server.mjs';
 import { passedLine, servedAssetProblems, startVerificationServer, writeEvidence } from '../scripts/web-verify.mjs';
 
@@ -124,6 +124,28 @@ test('the preset names the engine template of each mode, and a missing preset is
   assert.equal(presetTemplate(presets, 'Web (stock)', 'debug'), '/s/debug.zip');
   assert.equal(presetTemplate(presets, 'Web (stock)', 'release'), undefined);
   assert.throws(() => presetTemplate(presets, 'Elsewhere', 'debug'), /No export preset named "Elsewhere"/);
+});
+
+test('a Godot version line names the directory its export templates are installed under', () => {
+  assert.equal(templateVersionOf('4.7.2.stable.custom_build.ed1daf0bf'), '4.7.2.stable');
+  assert.equal(templateVersionOf('4.7.2.stable.official.ed1daf0bf\n'), '4.7.2.stable');
+  assert.equal(templateVersionOf('4.7.2.stable.mono.official'), '4.7.2.stable.mono');
+  assert.throws(() => templateVersionOf('4.7.2'), /not a Godot version line/);
+});
+
+test('a preset without a custom template exports with the one its Godot installed, beside a self-contained editor', () => {
+  const root = mkdtempSync(join(tmpdir(), 'web-template-'));
+  mkdirSync(join(root, 'demo'), { recursive: true });
+  writeFileSync(join(root, 'demo/export_presets.cfg'), '[preset.0]\nname="Web"\n\n[preset.0.options]\ncustom_template/debug="/t/debug.zip"\ncustom_template/release=""\n');
+  const bin = join(root, 'bin');
+  mkdirSync(bin);
+  writeFileSync(join(bin, '_sc_'), '');
+  let asked = 0;
+  const exporter = { executable: join(bin, 'godot'), version: () => { asked += 1; return '4.7.2.stable.custom_build.ed1daf0bf'; } };
+  assert.equal(webTemplate({ root, presetName: 'Web', mode: 'debug', ...exporter }), '/t/debug.zip');
+  assert.equal(asked, 0, 'a custom template does not run Godot');
+  assert.equal(webTemplate({ root, presetName: 'Web', mode: 'release', ...exporter }), join(bin, 'editor_data/export_templates/4.7.2.stable/web_dlink_release.zip'));
+  assert.throws(() => webTemplate({ root, presetName: 'Web', mode: 'release' }), /names no release template, and no Godot was given/);
 });
 
 test('the sources of an export are what git lists as source, with the generated and ignored left out', () => {

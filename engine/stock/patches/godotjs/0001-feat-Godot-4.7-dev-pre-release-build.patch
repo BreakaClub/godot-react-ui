@@ -1,0 +1,755 @@
+From 4f6ea1f11ed736009cbf1440a9a9ce83ee14690c Mon Sep 17 00:00:00 2001
+From: Benjamin Dobell <git@benjamin.dobell.email>
+Date: Fri, 20 Mar 2026 21:33:06 +1100
+Subject: [PATCH 1/2] feat: Godot 4.7 (dev/pre-release) build
+
+---
+ .changeset/shaggy-sloths-report.md  |   5 +
+ .github/workflows/runner.yml        |  13 +-
+ bridge/jsb_editor_utility_funcs.cpp | 237 +++++++++++++---------------
+ bridge/jsb_environment.cpp          |   2 +-
+ bridge/jsb_object_bindings.cpp      |  42 ++---
+ internal/jsb_class_util.h           | 136 ++++++++++++++++
+ tests/test_jsb_any_runtime.h        |   3 +-
+ weaver-editor/jsb_editor_helper.cpp |  12 +-
+ weaver-editor/jsb_export_plugin.h   |   2 +-
+ 9 files changed, 288 insertions(+), 164 deletions(-)
+ create mode 100644 .changeset/shaggy-sloths-report.md
+
+diff --git a/.changeset/shaggy-sloths-report.md b/.changeset/shaggy-sloths-report.md
+new file mode 100644
+index 0000000..8055074
+--- /dev/null
++++ b/.changeset/shaggy-sloths-report.md
+@@ -0,0 +1,5 @@
++---
++"@godot-js/editor": minor
++---
++
++feat: Godot 4.7 (dev/pre-release) build.
+diff --git a/.github/workflows/runner.yml b/.github/workflows/runner.yml
+index eeba276..a05ea62 100644
+--- a/.github/workflows/runner.yml
++++ b/.github/workflows/runner.yml
+@@ -37,9 +37,9 @@ jobs:
+           - version: 4.6.1
+             version_mm: 4.6
+             version_ref: 4.6.1-stable
+-#          - version: 4.7dev
+-#            version_mm: 4.7
+-#            version_ref: master
++          - version: 4.7dev
++            version_mm: 4.7
++            version_ref: master
+     uses: ./.github/workflows/build_engine_version.yml
+     with:
+       version: ${{ matrix.version }}
+@@ -56,7 +56,7 @@ jobs:
+       matrix:
+         include:
+           - version: 4.6.1
+-#          - version: 4.7dev
++          - version: 4.7dev
+     with:
+       version: ${{ matrix.version }}
+ 
+@@ -79,8 +79,7 @@ jobs:
+     uses: ./.github/workflows/misc_release.yml
+     secrets: inherit
+     with:
+-      versions: '4.6.1'
+-#      versions: '4.6.1, 4.7'
++      versions: '4.6.1, 4.7'
+ 
+   upload-assets:
+     name: 📁 Upload Assets
+@@ -95,6 +94,6 @@ jobs:
+       matrix:
+         include:
+           - version: 4.6.1
+-#          - version: 4.7dev
++          - version: 4.7dev
+     with:
+       version: ${{ matrix.version }}
+diff --git a/bridge/jsb_editor_utility_funcs.cpp b/bridge/jsb_editor_utility_funcs.cpp
+index be3462a..fc2fbad 100644
+--- a/bridge/jsb_editor_utility_funcs.cpp
++++ b/bridge/jsb_editor_utility_funcs.cpp
+@@ -14,15 +14,6 @@ using ConstantHashMap = HashMap<StringName, int64_t>;
+ #endif
+ 
+ #if JSB_WITH_EDITOR_UTILITY_FUNCS
+-namespace jsb_private
+-{
+-    //NOTE dummy functions only for compile-time check and never being really compiled
+-    template <typename T>                   bool get_member_name(const T&);
+-    template <typename T>                   bool get_member_name(const volatile T&);
+-    template <typename R, typename... Args> bool get_member_name(R (*)(Args...));
+-}
+-
+-#define JSB_GET_FIELD_NAME_PRESET(InstName, ValueName) ((void)sizeof(jsb_private::get_member_name(std::decay_t<decltype(InstName)>::ValueName)), JSB_STRINGIFY(ValueName)), InstName.ValueName
+ 
+ #define JSB_TYPE_BEGIN(InType) template<> struct OperatorRegister<InType>\
+     {\
+@@ -315,33 +306,32 @@ namespace jsb
+             }
+         }
+ 
+-        void build_enum_info(v8::Isolate* isolate, const v8::Local<v8::Context>& context, const Variant::Type variant, const StringName &enum_name, const ClassDB::ClassInfo::EnumInfo& enum_info, const v8::Local<v8::Object>& object)
++        void build_primitive_enum_info(v8::Isolate* isolate, const v8::Local<v8::Context>& context, const Variant::Type variant, const StringName &enum_name, const v8::Local<v8::Object>& object)
+         {
++            List<StringName> enumerations;
++            Variant::get_enumerations_for_enum(variant, enum_name, &enumerations);
++
+             v8::Local<v8::Object> values_object = v8::Object::New(isolate);
+-            int index = 0;
+-            for (List<StringName>::ConstIterator it = enum_info.constants.begin(); it != enum_info.constants.end(); ++it, ++index)
++            for (const StringName& enumeration : enumerations)
+             {
+-                const String name = internal::NamingUtil::get_enum_value_name(*it);
++                const String name = internal::NamingUtil::get_enum_value_name(enumeration);
+                 bool valid = true;
+-                int value = Variant::get_enum_value(variant, enum_name, *it, &valid);
++                int value = Variant::get_enum_value(variant, enum_name, enumeration, &valid);
+                 values_object->Set(context, impl::Helper::new_string(isolate, name), v8::Number::New(isolate, value)).Check();
+             }
+             set_field(isolate, context, object, "literals", values_object);
+-            set_field(isolate, context, object, JSB_GET_FIELD_NAME_PRESET(enum_info, is_bitfield));
++            set_field(isolate, context, object, "is_bitfield", false);
+         }
+ 
+-        void build_enum_info(v8::Isolate* isolate, const v8::Local<v8::Context>& context, const ConstantHashMap& constants, const StringName &enum_name, const ClassDB::ClassInfo::EnumInfo& enum_info, const v8::Local<v8::Object>& object)
++        void build_enum_info(v8::Isolate* isolate, const v8::Local<v8::Context>& context, const internal::ClassConstantMap& constants, const internal::ClassEnumInfo& enum_info, const v8::Local<v8::Object>& object)
+         {
+             v8::Local<v8::Object> values_object = v8::Object::New(isolate);
+-            int index = 0;
+-            for (List<StringName>::ConstIterator it = enum_info.constants.begin(); it != enum_info.constants.end(); ++it, ++index)
+-            {
+-                int64_t value = constants.get(*it);
+-                const String name = internal::NamingUtil::get_enum_value_name(*it);
+-                values_object->Set(context, impl::Helper::new_string(isolate, name), v8::Number::New(isolate, value)).Check();
+-            }
++            internal::ClassUtil::for_enum_internal_names(enum_info, [&](const StringName& internal_name) {
++                const String name = internal::NamingUtil::get_enum_value_name(internal_name);
++                values_object->Set(context, impl::Helper::new_string(isolate, name), v8::Number::New(isolate, constants[internal_name])).Check();
++            });
+             set_field(isolate, context, object, "literals", values_object);
+-            set_field(isolate, context, object, JSB_GET_FIELD_NAME_PRESET(enum_info, is_bitfield));
++            set_field(isolate, context, object, "is_bitfield", enum_info.is_bitfield);
+         }
+ 
+         void build_signal_info(v8::Isolate* isolate, const v8::Local<v8::Context>& context, const MethodInfo& method_info, const v8::Local<v8::Object>& signal_obj)
+@@ -361,7 +351,7 @@ namespace jsb
+             const ClassDB::ClassInfo& class_info = class_it->value;
+             set_field(isolate, context, class_info_obj, "name", internal::NamingUtil::get_class_name(class_name));
+             set_field(isolate, context, class_info_obj, "internal_name", class_name);
+-            set_field(isolate, context, class_info_obj, "super", internal::NamingUtil::get_class_name(class_info.inherits));
++            set_field(isolate, context, class_info_obj, "super", internal::NamingUtil::get_class_name(internal::ClassUtil::get_class_super_type_internal_name(class_info)));
+ 
+ #if JSB_EXCLUDE_GETSET_METHODS
+             HashSet<StringName> omitted_methods;
+@@ -482,29 +472,27 @@ namespace jsb
+             // class: enums
+             {
+                 JSB_HANDLE_SCOPE(isolate);
+-                v8::Local<v8::Array> enums_obj = v8::Array::New(isolate, (int) class_info.enum_map.size());
++                v8::Local<v8::Array> enums_obj = v8::Array::New(isolate, (int) internal::ClassUtil::get_class_enum_map(class_info).size());
+                 set_field(isolate, context, class_info_obj, "enums", enums_obj);
+                 int index = 0;
+-                const ConstantHashMap& constants = class_info.constant_map;
+-                for (const KeyValue<StringName, ClassDB::ClassInfo::EnumInfo>& pair : class_info.enum_map)
+-                {
++                internal::ClassUtil::for_class_enums(class_info, [&](const StringName enum_name, const internal::ClassEnumInfo& enum_info) {
+                     JSB_HANDLE_SCOPE(isolate);
+-                    const ClassDB::ClassInfo::EnumInfo& enum_info = pair.value;
+                     v8::Local<v8::Object> enum_info_obj = v8::Object::New(isolate);
+-                    set_field(isolate, context, enum_info_obj, "name", internal::NamingUtil::get_enum_name(pair.key));
+-                    build_enum_info(isolate, context, constants, pair.key, enum_info, enum_info_obj);
++                    set_field(isolate, context, enum_info_obj, "name", internal::NamingUtil::get_enum_name(enum_name));
++                    build_enum_info(isolate, context, internal::ClassUtil::get_class_enum_constants(class_info, enum_name), enum_info, enum_info_obj);
+                     enums_obj->Set(context, index++, enum_info_obj).Check();
+-                }
++                });
+             }
+ 
+             // class: constants (int only)
+             {
+                 JSB_HANDLE_SCOPE(isolate);
+ 
+-                v8::Local<v8::Array> constants_obj = v8::Array::New(isolate, (int) class_info.constant_map.size());
++                auto& constant_map = internal::ClassUtil::get_class_constant_map(class_info);
++                v8::Local<v8::Array> constants_obj = v8::Array::New(isolate, (int) constant_map.size());
+                 set_field(isolate, context, class_info_obj, "constants", constants_obj);
+                 int index = 0;
+-                for (const KeyValue<StringName, int64_t>& pair : class_info.constant_map)
++                for (const KeyValue<StringName, int64_t>& pair : constant_map)
+                 {
+                     JSB_HANDLE_SCOPE(isolate);
+                     v8::Local<v8::Object> constant_info_obj = v8::Object::New(isolate);
+@@ -518,16 +506,17 @@ namespace jsb
+             {
+                 JSB_HANDLE_SCOPE(isolate);
+ 
+-                v8::Local<v8::Array> signals_obj = v8::Array::New(isolate, (int) class_info.signal_map.size());
++                const auto& signal_map = internal::ClassUtil::get_class_signal_map(class_info);
++                v8::Local<v8::Array> signals_obj = v8::Array::New(isolate, (int) signal_map.size());
+                 set_field(isolate, context, class_info_obj, "signals", signals_obj);
+                 int index = 0;
+-                for (const KeyValue<StringName, MethodInfo>& pair : class_info.signal_map)
++                for (auto& pair : signal_map)
+                 {
+                     JSB_HANDLE_SCOPE(isolate);
+                     v8::Local<v8::Object> signal_info_obj = v8::Object::New(isolate);
+                     set_field(isolate, context, signal_info_obj, "internal_name", pair.key);
+                     set_field(isolate, context, signal_info_obj, "name", internal::NamingUtil::get_member_name(pair.key));
+-                    build_signal_info(isolate, context, pair.value, signal_info_obj);
++                    build_signal_info(isolate, context, internal::ClassUtil::get_value(pair.value), signal_info_obj);
+                     signals_obj->Set(context, index++, signal_info_obj).Check();
+                 }
+             }
+@@ -723,16 +712,9 @@ namespace jsb
+             for (const StringName& enum_name : enums)
+             {
+                 JSB_HANDLE_SCOPE(isolate);
+-                List<StringName> enumerations;
+-                Variant::get_enumerations_for_enum(TYPE, enum_name, &enumerations);
+-                ClassDB::ClassInfo::EnumInfo enum_info;
+-                for (const StringName& enumeration : enumerations)
+-                {
+-                    enum_info.constants.push_back(enumeration);
+-                }
+                 v8::Local<v8::Object> enum_info_obj = v8::Object::New(isolate);
+                 set_field(isolate, context, enum_info_obj, "name", enum_name);
+-                build_enum_info(isolate, context, TYPE, enum_name, enum_info, enum_info_obj);
++                build_primitive_enum_info(isolate, context, TYPE, enum_name, enum_info_obj);
+                 enums_obj->Set(context, index++, enum_info_obj).Check();
+             }
+         }
+@@ -838,16 +820,9 @@ namespace jsb
+             for (const StringName& enum_name : enums)
+             {
+                 JSB_HANDLE_SCOPE(isolate);
+-                List<StringName> enumerations;
+-                Variant::get_enumerations_for_enum(TYPE, enum_name, &enumerations);
+-                ClassDB::ClassInfo::EnumInfo enum_info;
+-                for (const StringName& enumeration : enumerations)
+-                {
+-                    enum_info.constants.push_back(enumeration);
+-                }
+                 v8::Local<v8::Object> enum_info_obj = v8::Object::New(isolate);
+                 set_field(isolate, context, enum_info_obj, "name", enum_name);
+-                build_enum_info(isolate, context, TYPE, enum_name, enum_info, enum_info_obj);
++                build_primitive_enum_info(isolate, context, TYPE, enum_name, enum_info_obj);
+                 enums_obj->Set(context, index++, enum_info_obj).Check();
+             }
+         }
+@@ -891,83 +866,83 @@ namespace jsb
+ 
+         const String name = impl::Helper::to_string(isolate, info[0]);
+ 
+-		if (DocTools *doc_tools = EditorHelp::get_doc_data()) {
+-			if (const DocData::ClassDoc *ptr = doc_tools->class_list.getptr(name)){
+-        		const DocData::ClassDoc& class_doc = *ptr;
+-        		v8::Local<v8::Object> class_doc_obj = v8::Object::New(isolate);
+-
+-        		// doc:class<brief>
+-        		set_field(isolate, context, class_doc_obj, JSB_GET_FIELD_NAME_PRESET(class_doc, brief_description));
+-
+-        		// doc:constants
+-        		{
+-        			JSB_HANDLE_SCOPE(isolate);
+-
+-        			v8::Local<v8::Object> constants_obj = v8::Object::New(isolate);
+-        			set_field(isolate, context, class_doc_obj, "constants", constants_obj);
+-        			for (const DocData::ConstantDoc& constant_doc : class_doc.constants)
+-        			{
+-        				JSB_HANDLE_SCOPE(isolate);
+-        				v8::Local<v8::Object> constant_obj = v8::Object::New(isolate);
+-        				String constant_name = internal::NamingUtil::get_constant_name(constant_doc.name);
+-        				constants_obj->Set(context, impl::Helper::new_string(isolate, constant_name), constant_obj).Check();
+-
+-        				set_field(isolate, context, constant_obj, "description", constant_doc.description);
+-        			}
+-        		}
+-
+-        		// doc:methods
+-        		{
+-        			JSB_HANDLE_SCOPE(isolate);
+-
+-        			v8::Local<v8::Object> methods_obj = v8::Object::New(isolate);
+-        			set_field(isolate, context, class_doc_obj, "methods", methods_obj);
+-        			for (const DocData::MethodDoc& method_doc : class_doc.methods)
+-        			{
+-        				JSB_HANDLE_SCOPE(isolate);
+-        				v8::Local<v8::Object> method_obj = v8::Object::New(isolate);
+-        				String method_name = internal::NamingUtil::get_member_name(method_doc.name);
+-        				methods_obj->Set(context, impl::Helper::new_string(isolate, method_name), method_obj).Check();
+-
+-        				set_field(isolate, context, method_obj, "description", method_doc.description);
+-        			}
+-        		}
+-
+-        		// doc:properties
+-        		{
+-        			JSB_HANDLE_SCOPE(isolate);
+-        			v8::Local<v8::Object> properties_obj = v8::Object::New(isolate);
+-        			set_field(isolate, context, class_doc_obj, "properties", properties_obj);
+-        			for (const DocData::PropertyDoc& property_doc : class_doc.properties)
+-        			{
+-        				JSB_HANDLE_SCOPE(isolate);
+-        				v8::Local<v8::Object> property_obj = v8::Object::New(isolate);
+-        				String property_name = internal::NamingUtil::get_member_name(property_doc.name);
+-        				properties_obj->Set(context, impl::Helper::new_string(isolate, property_name), property_obj).Check();
+-
+-        				set_field(isolate, context, property_obj, "description", property_doc.description);
+-        			}
+-        		}
+-
+-        		// doc:signals
+-        		{
+-        			JSB_HANDLE_SCOPE(isolate);
+-
+-        			v8::Local<v8::Object> signals_obj = v8::Object::New(isolate);
+-        			set_field(isolate, context, class_doc_obj, "signals", signals_obj);
+-        			for (const DocData::MethodDoc& signal_doc : class_doc.signals)
+-        			{
+-        				JSB_HANDLE_SCOPE(isolate);
+-        				v8::Local<v8::Object> signal_obj = v8::Object::New(isolate);
+-        				String signal_name = internal::NamingUtil::get_member_name(signal_doc.name);
+-        				signals_obj->Set(context, impl::Helper::new_string(isolate, signal_name), signal_obj).Check();
+-
+-        				set_field(isolate, context, signal_obj, "description", signal_doc.description);
+-        			}
+-        		}
+-
+-        		info.GetReturnValue().Set(class_doc_obj);
+-        	}
++        if (DocTools *doc_tools = EditorHelp::get_doc_data()) {
++            if (const DocData::ClassDoc *ptr = doc_tools->class_list.getptr(name)){
++                const DocData::ClassDoc& class_doc = *ptr;
++                v8::Local<v8::Object> class_doc_obj = v8::Object::New(isolate);
++
++                // doc:class<brief>
++                set_field(isolate, context, class_doc_obj, "brief_description", class_doc.brief_description);
++
++                // doc:constants
++                {
++                    JSB_HANDLE_SCOPE(isolate);
++
++                    v8::Local<v8::Object> constants_obj = v8::Object::New(isolate);
++                    set_field(isolate, context, class_doc_obj, "constants", constants_obj);
++                    for (const DocData::ConstantDoc& constant_doc : class_doc.constants)
++                    {
++                        JSB_HANDLE_SCOPE(isolate);
++                        v8::Local<v8::Object> constant_obj = v8::Object::New(isolate);
++                        String constant_name = internal::NamingUtil::get_constant_name(constant_doc.name);
++                        constants_obj->Set(context, impl::Helper::new_string(isolate, constant_name), constant_obj).Check();
++
++                        set_field(isolate, context, constant_obj, "description", constant_doc.description);
++                    }
++                }
++
++                // doc:methods
++                {
++                    JSB_HANDLE_SCOPE(isolate);
++
++                    v8::Local<v8::Object> methods_obj = v8::Object::New(isolate);
++                    set_field(isolate, context, class_doc_obj, "methods", methods_obj);
++                    for (const DocData::MethodDoc& method_doc : class_doc.methods)
++                    {
++                        JSB_HANDLE_SCOPE(isolate);
++                        v8::Local<v8::Object> method_obj = v8::Object::New(isolate);
++                        String method_name = internal::NamingUtil::get_member_name(method_doc.name);
++                        methods_obj->Set(context, impl::Helper::new_string(isolate, method_name), method_obj).Check();
++
++                        set_field(isolate, context, method_obj, "description", method_doc.description);
++                    }
++                }
++
++                // doc:properties
++                {
++                    JSB_HANDLE_SCOPE(isolate);
++                    v8::Local<v8::Object> properties_obj = v8::Object::New(isolate);
++                    set_field(isolate, context, class_doc_obj, "properties", properties_obj);
++                    for (const DocData::PropertyDoc& property_doc : class_doc.properties)
++                    {
++                        JSB_HANDLE_SCOPE(isolate);
++                        v8::Local<v8::Object> property_obj = v8::Object::New(isolate);
++                        String property_name = internal::NamingUtil::get_member_name(property_doc.name);
++                        properties_obj->Set(context, impl::Helper::new_string(isolate, property_name), property_obj).Check();
++
++                        set_field(isolate, context, property_obj, "description", property_doc.description);
++                    }
++                }
++
++                // doc:signals
++                {
++                    JSB_HANDLE_SCOPE(isolate);
++
++                    v8::Local<v8::Object> signals_obj = v8::Object::New(isolate);
++                    set_field(isolate, context, class_doc_obj, "signals", signals_obj);
++                    for (const DocData::MethodDoc& signal_doc : class_doc.signals)
++                    {
++                        JSB_HANDLE_SCOPE(isolate);
++                        v8::Local<v8::Object> signal_obj = v8::Object::New(isolate);
++                        String signal_name = internal::NamingUtil::get_member_name(signal_doc.name);
++                        signals_obj->Set(context, impl::Helper::new_string(isolate, signal_name), signal_obj).Check();
++
++                        set_field(isolate, context, signal_obj, "description", signal_doc.description);
++                    }
++                }
++
++                info.GetReturnValue().Set(class_doc_obj);
++            }
+         }
+     }
+ 
+diff --git a/bridge/jsb_environment.cpp b/bridge/jsb_environment.cpp
+index e121efa..67c379e 100644
+--- a/bridge/jsb_environment.cpp
++++ b/bridge/jsb_environment.cpp
+@@ -1604,7 +1604,7 @@ namespace jsb
+             return nullptr;
+         }
+ 
+-        String class_name = internal::NamingUtil::get_class_name(p_class_info->name);
++        String class_name = internal::NamingUtil::get_class_name(internal::ClassUtil::get_internal_class_name(*p_class_info));
+ 
+         if (const NativeClassID* it = godot_classes_index_.getptr(class_name))
+         {
+diff --git a/bridge/jsb_object_bindings.cpp b/bridge/jsb_object_bindings.cpp
+index d891752..50f2612 100644
+--- a/bridge/jsb_object_bindings.cpp
++++ b/bridge/jsb_object_bindings.cpp
+@@ -1,6 +1,7 @@
+ #include "jsb_object_bindings.h"
+ #include "jsb_transpiler.h"
+ #include "jsb_type_convert.h"
++#include "../internal/jsb_class_util.h"
+ // TODO: Refactor. Violates isolation of bridge.
+ #include "../weaver/jsb_script_instance.h"
+ #include "../weaver/jsb_script_language.h"
+@@ -24,9 +25,10 @@ namespace jsb
+ 
+         jsb_check(p_class_info);
+ 
+-        String class_name = internal::NamingUtil::get_class_name(p_class_info->name);
++        const StringName& internal_class_name = internal::ClassUtil::get_internal_class_name(*p_class_info);
++        String class_name = internal::NamingUtil::get_class_name(internal_class_name);
+         const NativeClassID class_id = p_env->add_native_class(NativeClassType::GodotObject, class_name);
+-        JSB_LOG(VeryVerbose, "expose godot type %s(%d) as %s", p_class_info->name, class_id, class_name);
++        JSB_LOG(VeryVerbose, "expose godot type %s(%d) as %s", internal_class_name, class_id, class_name);
+ 
+         // construct type template
+         {
+@@ -34,7 +36,7 @@ namespace jsb
+             impl::ClassBuilder class_builder = ObjectTemplate::create(p_env, class_id);
+ 
+             //NOTE all singleton object will overwrite the class itself in 'godot' module, so we need make all things defined on PrototypeTemplate.
+-            const bool is_singleton_class = Engine::get_singleton()->has_singleton(p_class_info->name);
++            const bool is_singleton_class = Engine::get_singleton()->has_singleton(internal_class_name);
+             auto static_builder = is_singleton_class ? class_builder.Instance() : class_builder.Static();
+ 
+ #if JSB_EXCLUDE_GETSET_METHODS
+@@ -95,14 +97,14 @@ namespace jsb
+                 }
+             }
+ 
+-             if (p_class_info->name == jsb_string_name(Object))
++             if (internal_class_name == jsb_string_name(Object))
+              {
+                  // class: special methods
+                  class_builder.Instance().Method(jsb_literal(free), _godot_object_free);
+              }
+ 
+              // class: signals
+-             for (const KeyValue<StringName, MethodInfo>& pair : p_class_info->signal_map)
++             for (auto& pair : internal::ClassUtil::get_class_signal_map(*p_class_info))
+              {
+                  v8::HandleScope handle_scope_for_signal(isolate);
+                  String signal_name = internal::NamingUtil::get_member_name(pair.key);
+@@ -113,23 +115,21 @@ namespace jsb
+              HashSet<StringName> enum_consts;
+ 
+              // class: enum (nested in class)
+-             for (const KeyValue<StringName, ClassDB::ClassInfo::EnumInfo>& pair : p_class_info->enum_map)
+-             {
++             internal::ClassUtil::for_class_enums(*p_class_info, [&](const StringName& enum_name, const internal::ClassEnumInfo& enum_info) {
+                  v8::HandleScope handle_scope_for_enum(isolate);
+-                 impl::ClassBuilder::EnumDeclaration enumeration = static_builder.Enum(internal::NamingUtil::get_enum_name(pair.key));
+-                 for (const StringName& enum_value_name : pair.value.constants)
+-                 {
+-                     const String& js_enum_name = internal::NamingUtil::get_enum_value_name(enum_value_name);
++                 impl::ClassBuilder::EnumDeclaration enumeration = static_builder.Enum(internal::NamingUtil::get_enum_name(enum_name));
++
++                 const internal::ClassConstantMap& enum_map = internal::ClassUtil::get_class_enum_constants(*p_class_info, enum_name);
++                 internal::ClassUtil::for_enum_internal_names(enum_info, [&](const StringName& internal_name) {
++                     const String& js_enum_name = internal::NamingUtil::get_enum_value_name(internal_name);
+                      jsb_not_implemented(js_enum_name.contains("."), "hierarchically nested definition is currently not supported");
+-                     const auto& const_it = p_class_info->constant_map.find(enum_value_name);
+-                     jsb_check(const_it);
+-                     enumeration.Value(js_enum_name, const_it->value);
+-                     enum_consts.insert(enum_value_name);
+-                 }
+-             }
++                     enumeration.Value(js_enum_name, enum_map[internal_name]);
++                     enum_consts.insert(internal_name);
++                 });
++             });
+ 
+              // class: constants
+-             for (const KeyValue<StringName, int64_t>& pair : p_class_info->constant_map)
++             for (const KeyValue<StringName, int64_t>& pair : internal::ClassUtil::get_class_constant_map(*p_class_info))
+              {
+                  if (enum_consts.has(pair.key)) continue;
+                  const String& js_const_name = (String) internal::NamingUtil::get_constant_name(pair.key);
+@@ -148,7 +148,7 @@ namespace jsb
+                 // It's safe to expect that the base class is fully built,
+                 // because single inheritance is used in Godot (which means a reflect_bind class will only be accessed until it's fully built).
+                 class_builder.Inherit(super_class_info->clazz);
+-                JSB_LOG(VeryVerbose, "%s (%d) extends %s (%d)", p_class_info->name, class_id, p_class_info->inherits_ptr->name, super_class_id);
++                JSB_LOG(VeryVerbose, "%s (%d) extends %s (%d)", internal_class_name, class_id, internal::ClassUtil::get_class_super_type_internal_name(*p_class_info), super_class_id);
+             }
+ 
+             // preparation for return
+@@ -157,8 +157,8 @@ namespace jsb
+ 
+                 class_info->clazz = class_builder.Build();
+                 jsb_check(!class_info->clazz.IsEmpty());
+-                jsb_check(class_info->name == internal::NamingUtil::get_class_name(p_class_info->name));
+-                JSB_LOG(VeryVerbose, "build class info %s (%d) exposed as %s, addr: %s", p_class_info->name, class_id, class_info->name, class_info.ptr());
++                jsb_check(class_info->name == internal::NamingUtil::get_class_name(internal_class_name));
++                JSB_LOG(VeryVerbose, "build class info %s (%d) exposed as %s, addr: %s", internal_class_name, class_id, class_info->name, class_info.ptr());
+                 if (r_class_id) *r_class_id = class_id;
+                 return class_info;
+             }
+diff --git a/internal/jsb_class_util.h b/internal/jsb_class_util.h
+index e290d48..94052c0 100644
+--- a/internal/jsb_class_util.h
++++ b/internal/jsb_class_util.h
+@@ -3,6 +3,27 @@
+ 
+ namespace jsb::internal
+ {
++
++#if GODOT_4_6_OR_NEWER
++    using ClassConstantMap = AHashMap<StringName, int64_t>;
++#else
++    using ClassConstantMap = HashMap<StringName, int64_t>;
++#endif
++
++#if GODOT_4_7_OR_NEWER
++    using ClassEnumInfo = GDType::EnumInfo;
++#else
++    using ClassEnumInfo = ClassDB::ClassInfo::EnumInfo;
++#endif
++
++#if GODOT_4_7_OR_NEWER
++	using ClassSignalMap = AHashMap<StringName, const MethodInfo*>;
++#elif GODOT_4_6_OR_NEWER
++	using ClassSignalMap = AHashMap<StringName, MethodInfo>;
++#else
++	using ClassSignalMap = HashMap<StringName, MethodInfo>;
++#endif
++
+     struct ClassUtil
+     {
+         // jsb_force_inline static bool check_class(const StringName& p_class_name, const StringName& p_expected_class_name)
+@@ -18,6 +39,121 @@ namespace jsb::internal
+         //     return get_method_info_recursively(*p_class_info.inherits_ptr, method_name);
+         // }
+ 
++        template <typename T>
++        static constexpr decltype(auto) get_value(T&& arg)
++        {
++            if constexpr (std::is_pointer_v<std::remove_reference_t<T>>)
++            {
++                return *arg;
++            }
++            else
++            {
++                return std::forward<T>(arg);
++            }
++        }
++
++#if GODOT_4_7_OR_NEWER
++
++        static const StringName& get_internal_class_name(const ClassDB::ClassInfo& class_info)
++        {
++            return class_info.gdtype->get_name();
++        }
++
++        template <typename Lambda>
++        static void for_enum_internal_names(const ClassEnumInfo &enum_info, Lambda callback)
++        {
++            for (auto it = enum_info.values.begin(); it != enum_info.values.end(); ++it)
++            {
++                callback(it->key);
++            }
++        }
++
++        template <typename Lambda>
++        static void for_class_enums(const ClassDB::ClassInfo& class_info, Lambda callback)
++        {
++            for (auto it : class_info.gdtype->get_enum_map(true))
++            {
++                callback(it.key, *it.value);
++            }
++        }
++
++        static const ClassConstantMap& get_class_constant_map(const ClassDB::ClassInfo& class_info)
++        {
++            return class_info.gdtype->get_integer_constant_map(true);
++        }
++
++        static const AHashMap<StringName, const ClassEnumInfo*>& get_class_enum_map(const ClassDB::ClassInfo& class_info)
++        {
++            return class_info.gdtype->get_enum_map(true);
++        }
++
++        static const ClassSignalMap& get_class_signal_map(const ClassDB::ClassInfo& class_info)
++        {
++            return class_info.gdtype->get_signal_map(true);
++        }
++
++        static const ClassConstantMap& get_class_enum_constants(const ClassDB::ClassInfo& class_info, const StringName& enum_name)
++        {
++            return class_info.gdtype->get_enum_map(true)[enum_name]->values;
++        }
++
++        static String get_class_super_type_internal_name(const ClassDB::ClassInfo& class_info)
++        {
++            return class_info.gdtype->get_super_type_name();
++        }
++
++#else
++
++        static constexpr const StringName& get_internal_class_name(const ClassDB::ClassInfo& class_info)
++        {
++            return class_info.name;
++        }
++
++        template <typename Lambda>
++        static void for_enum_internal_names(const ClassEnumInfo &enum_info, Lambda callback)
++        {
++            for (List<StringName>::ConstIterator it = enum_info.constants.begin(); it != enum_info.constants.end(); ++it)
++            {
++                callback(*it);
++            }
++        }
++
++        template <typename Lambda>
++        static void for_class_enums(const ClassDB::ClassInfo& class_info, Lambda callback)
++        {
++            for (auto it : class_info.enum_map)
++            {
++                callback(it.key, it.value);
++            }
++        }
++
++        static const ClassConstantMap& get_class_constant_map(const ClassDB::ClassInfo& class_info)
++        {
++            return class_info.constant_map;
++        }
++
++        static const HashMap<StringName, ClassEnumInfo>& get_class_enum_map(const ClassDB::ClassInfo& class_info)
++        {
++            return class_info.enum_map;
++        }
++
++        static const ClassSignalMap& get_class_signal_map(const ClassDB::ClassInfo& class_info)
++        {
++            return class_info.signal_map;
++        }
++
++        static const ClassConstantMap& get_class_enum_constants(const ClassDB::ClassInfo& class_info, const StringName& _enum_name)
++        {
++            return class_info.constant_map;
++        }
++
++        static String get_class_super_type_internal_name(const ClassDB::ClassInfo& class_info)
++        {
++            return class_info.inherits;
++        }
++
++#endif
++
+     };
+ }
+ #endif
+diff --git a/tests/test_jsb_any_runtime.h b/tests/test_jsb_any_runtime.h
+index fafb12a..631c34d 100644
+--- a/tests/test_jsb_any_runtime.h
++++ b/tests/test_jsb_any_runtime.h
+@@ -504,7 +504,7 @@ console.assert(!gd.is_instance_valid(inst));
+ 
+     TEST_CASE("[jsb] RefCounted objects")
+     {
+-        WeakRef* weak_ref = memnew(WeakRef);
++        Ref<WeakRef> weak_ref = memnew(WeakRef);
+         {
+             GodotJSScriptLanguageIniter initer;
+ 
+@@ -535,7 +535,6 @@ file = undefined;
+         }
+         // There is no strong reference anymore, therefore the FileAccess object should have been deleted by JS GC.
+         CHECK(weak_ref->get_ref().is_null());
+-        memdelete(weak_ref);
+     }
+ }
+ 
+diff --git a/weaver-editor/jsb_editor_helper.cpp b/weaver-editor/jsb_editor_helper.cpp
+index 9359421..a1a82b5 100644
+--- a/weaver-editor/jsb_editor_helper.cpp
++++ b/weaver-editor/jsb_editor_helper.cpp
+@@ -159,7 +159,12 @@ Dictionary GodotJSEditorHelper::_build_node_type_descriptor(jsb::JSEnvironment&
+ 
+             if (animation_mixer)
+             {
++#if GODOT_4_7_OR_NEWER
++                LocalVector<StringName> library_names;
++#else
+                 List<StringName> library_names;
++#endif
++
+                 animation_mixer->get_animation_library_list(&library_names);
+ 
+                 Dictionary animation_libraries_object_literal;
+@@ -173,7 +178,12 @@ Dictionary GodotJSEditorHelper::_build_node_type_descriptor(jsb::JSEnvironment&
+ 
+                     Array animation_names_union_array;
+ 
++#if GODOT_4_7_OR_NEWER
++                    LocalVector<StringName> animation_names;
++#else
+                     List<StringName> animation_names;
++#endif
++
+                     library->get_animation_list(&animation_names);
+ 
+                     for (const StringName& animation_name : animation_names)
+@@ -316,7 +326,7 @@ Dictionary GodotJSEditorHelper::get_resource_type_descriptor(const String& p_pat
+         return descriptor;
+     }
+ 
+-	PackedScene* scene = Object::cast_to<PackedScene>(resource.ptr());
++    PackedScene* scene = Object::cast_to<PackedScene>(resource.ptr());
+ 
+     if (scene)
+     {
+diff --git a/weaver-editor/jsb_export_plugin.h b/weaver-editor/jsb_export_plugin.h
+index ce7be9f..66124ad 100644
+--- a/weaver-editor/jsb_export_plugin.h
++++ b/weaver-editor/jsb_export_plugin.h
+@@ -19,7 +19,7 @@ public:
+     virtual String get_name() const override;
+     virtual bool supports_platform(const Ref<EditorExportPlatform>& p_export_platform) const override;
+ 
+-    static const HashSet<String> get_ignored_paths() { return ignored_paths_; }
++    static const HashSet<String>& get_ignored_paths() { return ignored_paths_; }
+ 
+ protected:
+     virtual void _export_begin(const HashSet<String>& p_features, bool p_debug, const String& p_path, int p_flags) override;
+-- 
+2.52.0
+

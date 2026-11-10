@@ -63,14 +63,16 @@ export interface Engine {
   installedWasmStamp(): Record<string, unknown> | undefined;
   /** Throws unless the library in the native target directory is a build of the current sources bound to the native API. */
   requireBuiltLibrary(): void;
-  /** Throws unless the Web export (`--release` or debug) carries this profile's side module built from the current sources. */
-  requireFreshWebExport(options?: { probe?: boolean }): void;
+  /** Throws unless the Web export (`mode`, by default `--release` or debug from the arguments) carries this profile's side module built from the current sources. */
+  requireFreshWebExport(options?: { probe?: boolean; mode?: 'debug' | 'release' }): void;
   prepareNative(options?: { probe?: boolean; faults?: boolean; godotTsc?: boolean }): string;
   /** The cargo features a Web build enables. */
   webFeatures(options?: WebBuildOptions): string[];
   webSourceInputs(options?: WebBuildOptions): BuildInputs;
   /** Where a Web build is compiled (its cargo target directory), where cargo leaves its module and where the module is installed. */
   webBuildPaths(options?: WebBuildOptions): { target: string; built: string; installed: string };
+  /** The engine template the Web export in `mode` is made with: the preset's custom template, or the one the exporting Godot installed. */
+  webTemplate(mode: string): string;
   /** The inputs of the pack, shell and engine template of the Web export in `mode` (scripts/web-content.mjs). */
   webContentInputs(mode: string): BuildInputs;
   /** Hash the Web build's inputs, have `clean` run if cargo's last output is not provably a build of them, and return the recording steps. */

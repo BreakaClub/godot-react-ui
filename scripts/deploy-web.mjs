@@ -6,6 +6,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { POINTER_KEY, objectKey, parsePointer, parseReleaseManifest, releaseKey } from '../deploy/release-layout.mjs';
 import { rejectUnknownArguments } from './arguments.mjs';
+import { ENGINE_FLAG, ENGINE_VARIABLE, selectEngine } from './engine.mjs';
 import { fontSliceKeysOf, planFontSlices } from './font-slices/release.mjs';
 import { MANIFEST_FILE } from './font-slices/manifest.mjs';
 import { buildRelease } from './release-bundle.mjs';
@@ -20,6 +21,8 @@ import { assertReleasePack, planReleaseStageOf } from './release-stage.mjs';
 //   node scripts/deploy-web.mjs --rollback [--execute]          point the site at the release it showed before the current one
 //   node scripts/deploy-web.mjs --rollback=<id> [--execute]     point the site at a named release
 //   --rebuild builds the release export first; --deploy-worker deploys the Worker even if its source has not changed
+//   --engine=<name> publishes that engine profile's release export. The site runs the stock profile (stock Godot 4.7 with upstream GodotJS, what
+//   the package's users run, and what CI builds and deploys: .github/workflows/deploy-demo.yml), so stock is the default here, not `breaka`.
 //   --check-bucket makes the plan read the bucket (read-only) to say exactly which objects it lacks, instead of listing all of them
 //   --local --persist-to=<directory> does all of it against wrangler's local R2 state in that directory instead of the real bucket
 //   (for `wrangler dev --persist-to <directory>`); a local run never deploys the Worker and never reaches the network.
@@ -33,6 +36,10 @@ rejectUnknownArguments(argv, {
   flags: ['--execute', '--dry-run', '--rebuild', '--local', '--releases', '--rollback', '--deploy-worker', '--check-bucket'],
   prefixes: ['--persist-to=', '--rollback='],
 });
+
+// The profile the site runs, unless `--engine=` or GODOT_REACT_ENGINE names another.
+const SITE_ENGINE = 'stock';
+const engine = selectEngine(argv, { ...process.env, [ENGINE_VARIABLE]: process.env[ENGINE_VARIABLE] || SITE_ENGINE });
 
 const execute = argv.includes('--execute');
 const rebuild = argv.includes('--rebuild');
@@ -56,7 +63,7 @@ const UPLOAD_ATTEMPTS = 3;
 const UPLOAD_RETRY_DELAY_MS = 2000;
 /** How many releases back the bucket is asked what it already has: the pointer remembers 20, and a manifest means all its objects are there. */
 const RELEASES_CHECKED = 5;
-const releaseDirectory = join(root, 'artifacts', 'web-release');
+const releaseDirectory = engine.artifactPath('web-release');
 const cacheDirectory = join(root, 'artifacts', 'web-deploy-cache');
 const workerConfiguration = resolve(root, 'wrangler.react-demo.jsonc');
 const workerSourceFiles = [resolve(root, 'deploy/cloudflare-worker.ts'), resolve(root, 'deploy/release-layout.mjs'), workerConfiguration];
@@ -211,10 +218,12 @@ function rollback() {
 
 async function publish() {
   if (rebuild || !existsSync(releaseDirectory)) {
-    console.log('[deploy-web] Building release web export...');
-    const build = spawnSync('node', [resolve(root, 'scripts/build-web.mjs'), '--release'], { cwd: root, stdio: 'inherit', encoding: 'utf8' });
+    console.log(`[deploy-web] Building the ${engine.name} profile's release Web export...`);
+    const build = spawnSync('node', [resolve(root, 'scripts/build-web.mjs'), '--release', `${ENGINE_FLAG}${engine.name}`], { cwd: root, stdio: 'inherit', encoding: 'utf8' });
     if (build.status !== 0) throw new Error('Release web export failed');
   }
+  // Only an export of this profile made from the working tree as it is: its side module, pack, shell and template (scripts/freshness.mjs).
+  engine.requireFreshWebExport({ mode: 'release' });
   const receiptPath = join(releaseDirectory, 'build-receipt.json');
   const receipt = existsSync(receiptPath) ? JSON.parse(readFileSync(receiptPath, 'utf8')) : undefined;
   if (receipt !== undefined && receipt.mode !== 'release') throw new Error(`${releaseDirectory} holds a ${receipt.mode} export; deploy a release export.`);

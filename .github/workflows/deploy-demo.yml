@@ -1,0 +1,181 @@
+name: Deploy demo
+
+# Publishes the demo's release Web export to https://react.breaka.club with scripts/deploy-web.mjs, the same script a deploy by hand runs. It runs
+# for every commit on main that CI passed, and by hand (Actions > Deploy demo > Run workflow) for the head of main. Nothing here touches npm:
+# releases are release.yml's, by tag.
+#
+# The site runs the stock engine profile (scripts/engine.mjs): Godot 4.7.2 with upstream GodotJS, what the package's users run. Upstream
+# GodotJS publishes no build for 4.7, so the editor that exports and the Web template are built from source (scripts/build-stock-engine.mjs) and
+# kept in the Actions cache under a key made of that script and its patches: built once, then restored.
+#
+# Needs, in the `react-demo` environment: CLOUDFLARE_API_TOKEN (Workers Scripts: Edit, Workers R2 Storage: Edit and Workers Routes or the zone
+# for the custom domain) and CLOUDFLARE_ACCOUNT_ID.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+# One deploy at a time, and a deploy that started finishes: the pointer moves last (scripts/deploy-web.mjs), but a cancelled upload is wasted.
+concurrency:
+  group: deploy-demo
+  cancel-in-progress: false
+
+env:
+  # The commit to deploy: the one CI passed, or the head of the branch a run by hand names.
+  DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+  STOCK_ENGINE: ${{ github.workspace }}/../stock-engine
+  # The stock profile's Web toolchain, as build.yml's Web job and scripts/engine.mjs pin it.
+  EMSCRIPTEN_VERSION: 4.0.11
+  WEB_NIGHTLY: nightly-2026-05-15
+  WRANGLER_VERSION: 4.151.0
+
+jobs:
+  # The editor that exports and the Web template, each restored from the cache or built and saved there.
+  engine:
+    name: Stock engine (${{ matrix.part }})
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    strategy:
+      fail-fast: true
+      matrix:
+        part: [editor, web-template]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
+
+      - id: cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ env.STOCK_ENGINE }}-${{ matrix.part }}
+          key: stock-engine-${{ matrix.part }}-${{ hashFiles('scripts/build-stock-engine.mjs', 'engine/stock/**') }}
+          lookup-only: true
+
+      - uses: actions/setup-node@v7
+        if: steps.cache.outputs.cache-hit != 'true'
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - uses: actions/setup-python@v7
+        if: steps.cache.outputs.cache-hit != 'true'
+        with:
+          python-version: '3.13'
+
+      - name: SCons
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: python -m pip install scons==4.9.1
+
+      - name: Emscripten ${{ env.EMSCRIPTEN_VERSION }}
+        if: steps.cache.outputs.cache-hit != 'true' && matrix.part == 'web-template'
+        uses: emscripten-core/setup-emsdk@v16
+        with:
+          version: ${{ env.EMSCRIPTEN_VERSION }}
+
+      - name: Build
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: node scripts/build-stock-engine.mjs --part=${{ matrix.part }} --out="$STOCK_ENGINE-${{ matrix.part }}" --work="$RUNNER_TEMP/stock-engine-work"
+
+      - uses: actions/cache/save@v6
+        if: steps.cache.outputs.cache-hit != 'true'
+        with:
+          path: ${{ env.STOCK_ENGINE }}-${{ matrix.part }}
+          key: stock-engine-${{ matrix.part }}-${{ hashFiles('scripts/build-stock-engine.mjs', 'engine/stock/**') }}
+
+  deploy:
+    name: Export and publish
+    needs: engine
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    environment:
+      name: react-demo
+      url: https://react.breaka.club
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
+
+      - name: Restore the stock editor
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ env.STOCK_ENGINE }}-editor
+          key: stock-engine-editor-${{ hashFiles('scripts/build-stock-engine.mjs', 'engine/stock/**') }}
+          fail-on-cache-miss: true
+
+      - name: Restore the stock Web template
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ env.STOCK_ENGINE }}-web-template
+          key: stock-engine-web-template-${{ hashFiles('scripts/build-stock-engine.mjs', 'engine/stock/**') }}
+          fail-on-cache-miss: true
+
+      # One self-contained editor directory: the editor with its `_sc_`, and the template where it looks for templates (editor_data/export_templates).
+      - name: Put the template beside the editor
+        run: |
+          cp -R "$STOCK_ENGINE-web-template/bin/editor_data" "$STOCK_ENGINE-editor/bin/"
+          echo "GODOT=$STOCK_ENGINE-editor/bin/godot.linuxbsd.editor.x86_64" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.5.2
+          run_install: false
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The code editor's checker and transpiler: the godot-tsc package's addon, with its stock Web side module.
+      - name: Install the godot-tsc addon in the demo
+        run: pnpm exec godot-tsc setup --project-dir demo --force
+
+      # The native library (rust-toolchain.toml): the editor loads the extension while it imports and exports the demo.
+      - name: Rust toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: deploy-demo
+
+      - name: Native library
+        run: CARGO="$(command -v cargo)" pnpm build:native
+
+      - name: Emscripten ${{ env.EMSCRIPTEN_VERSION }}
+        uses: emscripten-core/setup-emsdk@v16
+        with:
+          version: ${{ env.EMSCRIPTEN_VERSION }}
+
+      - name: Rust ${{ env.WEB_NIGHTLY }} for the Web side module
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.WEB_NIGHTLY }}
+          components: rust-src
+          targets: wasm32-unknown-emscripten
+
+      # A fresh checkout has never been opened: the editor imports the demo's resources and discovers its extensions first (scripts/import-demo.mjs).
+      - name: Import the demo
+        run: |
+          pnpm build
+          "$GODOT" --headless --audio-driver Dummy --editor --import --path demo
+
+      - name: Build the side module and export the release
+        run: |
+          test -n "${EMSDK:-}" || { echo "setup-emsdk did not set EMSDK: the build needs the SDK's root"; exit 1; }
+          EMSDK_ROOT="$EMSDK" CARGO="$(command -v cargo)" node scripts/build-web.mjs --engine=stock --release
+
+      - name: Wrangler ${{ env.WRANGLER_VERSION }}
+        run: |
+          npm install --global "wrangler@$WRANGLER_VERSION"
+          echo "WRANGLER=$(command -v wrangler)" >> "$GITHUB_ENV"
+
+      - name: Publish to react.breaka.club
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node scripts/deploy-web.mjs --engine=stock --execute

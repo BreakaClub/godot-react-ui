@@ -351,6 +351,8 @@ test('the stock typecheck refuses a stale stock library by name and never builds
 // every script that selects an engine and the guard it must call, and fails for one that is not listed.
 const GUARDS: Record<string, readonly string[]> = {
   'build-web.mjs': ['beginWebBuild(', 'requireInstalledWasm('],
+  // Publishes the release export it is given: the export must be the current one.
+  'deploy-web.mjs': ['requireFreshWebExport('],
   'dev.mjs': ['prepareNative('],
   // The default profile's editor writes the tracked typings with the godot-tsc manifest out of the project (the shared helper, which puts it back).
   'generate-types.mjs': ['prepareNative(', 'generateStockTypings(', 'withoutGodotTscManifest('],

@@ -8,7 +8,6 @@ import { argsWithoutEngine, CARGO_PACKAGE, selectEngine } from './engine.mjs';
 import { assertReleasePack, planReleaseStageOf, stageReleaseProject } from './release-stage.mjs';
 import { godotTscWebExportProblem, godotTscWebPlan, removeGodotTscWebModules, withGodotTscWebManifest } from './godot-tsc.mjs';
 import { importsSharedMemory } from './wasm-memory.mjs';
-import { presetTemplate } from './web-content.mjs';
 import { exportFontSlices } from './font-slices/paths.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -151,8 +150,7 @@ if (!args.has('--wasm-only')) {
   // that lab's code panel said "The live-compile project has no lab". It is made from the labs' sources, which the inputs do cover, so it is
   // written again here, for every lab the demo registers, before every export.
   run('node', [join(root, 'scripts', 'live-compile-project.mjs')]);
-  const template = presetTemplate(readFileSync(join(root, 'demo', 'export_presets.cfg'), 'utf8'), web.presetName, mode);
-  if (!template) throw new Error(`Missing ${mode} template in the "${web.presetName}" export preset`);
+  const template = engine.webTemplate(mode);
   const modules = ['godot.wasm', 'godot.side.wasm'].map(name => {
     const bytes = run('unzip', ['-p', template, name], { stdio: ['ignore', 'pipe', 'inherit'], maxBuffer: 128 * 1024 * 1024 });
     // Breaka's lazy function-table ABI is recorded per module; stock modules have none, and say so by omission.

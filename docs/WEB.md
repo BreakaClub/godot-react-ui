@@ -125,7 +125,7 @@ Godot 4.7.2 with upstream GodotJS instead of Breaka's engine. The default `break
 | | `breaka` (default) | `stock` |
 | --- | --- | --- |
 | Engine and exporter | Godot 4.8, `/Applications/Godot48.app` | Godot 4.7.2, `/Users/ben/Development/godot-stock/bin/godot-stock` |
-| Templates | the `lean3d_closure_sdk6` dlink zips named by the `Web` preset | `godot-stock/templates/4.7.2.stable.custom_build/web_dlink_{debug,release}.zip`, named by the `Web (stock)` preset |
+| Templates | the `lean3d_closure_sdk6` dlink zips named by the `Web` preset | the ones the exporting Godot installed, as a stock user has them: the `Web (stock)` preset names none, so the exporter takes `web_dlink_{debug,release}.zip` from `<editor data>/export_templates/4.7.2.stable/` (`godot-stock/bin/editor_data` for the self-contained editor; `webTemplate` in `scripts/web-content.mjs` finds the same file) |
 | Emscripten | 6.0.12 plus Binaryen 133 | 4.0.11 (`godot-stock/emsdk`), with its own Binaryen |
 | Lazy function-table pass | `-sLAZY_FUNCTION_TABLE=side`, validated by the engine's helper; the `breaka.lazy-table` custom section is checked on all three modules | none: no Binaryen override, no helper, no metadata check |
 | godot-rust flags | pthread, atomics, `SIDE_MODULE=2`, hidden visibility, `-Zbuild-std` | the same |
@@ -237,9 +237,15 @@ wrangler.react-demo.jsonc --persist-to <directory>`, refuses to run without a di
 Measured in headless Chrome through the Worker on `wrangler dev` with a browser that accepts only `br`: a cold visit transfers 12.16 MiB (it was 66.58 MiB with the pack uncompressed
 and every deploy emptying the cache), a returning visitor after a deploy that changed the pack and the page 2.01 MiB, one with nothing new two small requests; on a 20 Mbit/s line with a
 40 ms round trip the demo is ready in 6.7 s where it took 29.8 s. Not observed: whether Cloudflare's edge passes the stored brotli through untouched (the local runtime re-encodes it
-for Chrome's own `Accept-Encoding`, so every local `br` figure forces the header). Chrome only; the stock engine's release
-export was not built. The deploy publishes `artifacts/web-release`, the `breaka` profile's release export, which has no godot-tsc side module since the package ships one for
-the stock profile only: a release made from it shows the code read-only. A build or test command never deploys anything; `pnpm deploy:web` needs the wrangler login of the breaka account.
+for Chrome's own `Accept-Encoding`, so every local `br` figure forces the header). Chrome only.
+
+The site runs the stock profile, what the package's users run: the deploy publishes `artifacts/stock/web-release` unless `--engine=breaka` says otherwise, and with the
+package's godot-tsc module for that profile its code panel is live (the `breaka` profile has none, so a release made from it shows the code read-only). CI deploys every commit on
+`main` that CI passed (`.github/workflows/deploy-demo.yml`, also runnable by hand): it builds the stock editor for Linux and the Web release template from Godot 4.7.2 and upstream
+GodotJS with the patches in `engine/stock/patches/godotjs` (`scripts/build-stock-engine.mjs`; upstream GodotJS releases nothing for 4.7), keeps them in the Actions cache keyed by that
+script and the patches, imports the demo, runs `build-web.mjs --engine=stock --release` and `deploy-web.mjs --engine=stock --execute`. It needs `CLOUDFLARE_API_TOKEN` and
+`CLOUDFLARE_ACCOUNT_ID` in the `react-demo` environment, and it never publishes to npm. A build or test command never deploys anything; a deploy by hand needs the wrangler login of
+the breaka account.
 
 ## Web-specific limits
 

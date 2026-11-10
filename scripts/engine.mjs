@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { beginBuild, collectInputs, readStamp, requireBuild, requireExport } from './freshness.mjs';
 import { godotTscRefusal, godotTscWebExportProblem } from './godot-tsc.mjs';
 import { CARGO_PACKAGE, NATIVE_BINDING_API, NATIVE_INSTALL_DIRECTORY, nativeRefusal, requireBuiltNative } from './native-binding.mjs';
-import { webContentInputs } from './web-content.mjs';
+import { webContentInputs, webTemplate } from './web-content.mjs';
 
 /**
  * Engine profiles.
@@ -252,13 +252,12 @@ export function selectEngine(argv = process.argv.slice(2), env = process.env) {
      * Fail unless the Web export a verifier or the server is about to use carries the profile's side module built
      * from the current sources (the export's receipt records the side module's stamp).
      */
-    requireFreshWebExport({ probe = false } = {}) {
-      const mode = this.webMode();
+    requireFreshWebExport({ probe = false, mode = this.webMode() } = {}) {
       const directory = this.artifactPath(`web-${mode}`);
       requireExport({
         directory, receiptName: WEB_RECEIPT, libraryName: WEB_LIBRARY_NAMES.threads, engine: profile.name, probe,
         current: webSourceInputs(webKind(profile, { probe })),
-        content: webContentInputs({ root, presetName: profile.web.presetName, mode }),
+        content: this.webContentInputs(mode),
         subject: `Web export ${relative(root, directory)}`,
         fix: `pnpm build:web${mode === 'release' ? ' --release' : ''}${probe ? ' --probe' : ''} ${ENGINE_FLAG}${profile.name}`,
       });
@@ -270,8 +269,17 @@ export function selectEngine(argv = process.argv.slice(2), env = process.env) {
         throw new Error(`${moduleProblem} Run \`pnpm build:web --export-only${mode === 'release' ? ' --release' : ''} ${ENGINE_FLAG}${profile.name}\` first (it says what to install if the installed addon is not the package's).`);
       }
     },
+    /**
+     * The engine template the Web export in `mode` is made with: the preset's custom template (Breaka's), or the one the exporting Godot installed for
+     * its version (stock: templates installed beside a self-contained editor, or in Godot's data directory). scripts/web-content.mjs `webTemplate`.
+     */
+    webTemplate(mode) {
+      return webTemplate({ root, presetName: profile.web.presetName, mode, executable: directLaunchOf(godot)?.command ?? godot, version: () => this.verifiedVersion() });
+    },
     /** The inputs of the pack, shell and engine template of the Web export in `mode` (scripts/web-content.mjs); the receipt records them. */
-    webContentInputs: mode => webContentInputs({ root, presetName: profile.web.presetName, mode }),
+    webContentInputs(mode) {
+      return webContentInputs({ root, presetName: profile.web.presetName, mode, executable: directLaunchOf(godot)?.command ?? godot, version: () => this.verifiedVersion() });
+    },
     /** The cargo features a Web build enables; `build:web` passes exactly these. */
     webFeatures: ({ probe = false, threads = true } = {}) => webKind(profile, { probe, threads }).features,
     /** The content hashes a Web build is made from (scripts/freshness.mjs). */
