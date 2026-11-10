@@ -408,6 +408,9 @@ impl ReactUiRoot {
         let decorations_changed = previous_text
             .as_ref()
             .is_some_and(|previous| previous.decorations != now.decorations);
+        let stroke_changed = previous_text
+            .as_ref()
+            .is_some_and(|previous| previous.stroke != now.stroke);
         let has_text = node.props.text.is_some()
             || node.props.spans.is_some()
             || node.visual.paragraph.is_some();
@@ -420,21 +423,23 @@ impl ReactUiRoot {
         self.paint_dirty.insert(tag);
         // The spans of a text resolve against the node's colour and decorations (a span with no colour of its own has the node's
         // for its `currentcolor`), so a text with spans takes the paragraph again when those change; one that is shaped as it was
-        // is only painted again.
+        // is only painted again. The stroke is the node's for all its spans, and is painted again the same way.
         let spanned = node.props.spans.is_some();
         let color_changed = change
             .previous
             .as_ref()
             .is_some_and(|previous| previous.color != node.computed.color);
-        if (shaping_changed || (spanned && (decorations_changed || color_changed)))
+        if (shaping_changed
+            || (spanned && (decorations_changed || stroke_changed || color_changed)))
             && has_text
             && rebuilt.insert(tag)
         {
             self.refresh_paragraph(tag);
-        } else if decorations_changed && !spanned {
-            // Only the lines drawn over the text differ: the text is not shaped again, but it is drawn again.
+        } else if (decorations_changed || stroke_changed) && !spanned {
+            // Only the lines or the stroke drawn with the text differ: the text is not shaped or measured again, but it is drawn again.
             if let Some(paragraph) = node.visual.paragraph.as_mut() {
                 paragraph.set_decorations(now.decorations);
+                paragraph.set_stroke(now.stroke.as_ref());
                 self.paragraph_generation += 1;
                 node.visual.generation = self.paragraph_generation;
             }

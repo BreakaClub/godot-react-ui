@@ -41,7 +41,7 @@ export { registerFontFace } from './fonts';
 export type { FontFace, FontFaceHost } from './fonts';
 export { StyleSheet, compileStyle } from './styles';
 export type {
-  CompiledStyle, Cursor, FontStyle, FontWeight, LineHeight, LonghandStyle, Overflow, OverscrollBehavior, PointerEvents, PseudoState,
+  CompiledStyle, Cursor, FontStyle, FontWeight, LineHeight, LonghandStyle, Overflow, OverscrollBehavior, PaintOrder, PointerEvents, PseudoState,
   ScrollbarWidth, Style, StyleLayer, StyleProp, TextDecorationLine, TextOverflow, TextTransform, TouchAction, Transition,
   TransitionProperty, UIAriaProps, UIRole, UserSelect, WhiteSpace,
 } from './types';

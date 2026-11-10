@@ -23,6 +23,7 @@ import { verifyFontFallback } from './verify-font-fallback';
 import type { FontSlicesLabProps } from './font-slices-lab';
 import { verifyNavigator } from './verify-navigator';
 import { verifyRichText } from './verify-rich-text';
+import { verifyTextStroke } from './verify-text-stroke';
 import { verifyTextStyles } from './verify-text-styles';
 import { verifyTransformFaults, verifyTransforms } from './verify-transforms';
 import type { LayoutUtilitiesPage } from './layout-utilities-lab';
@@ -63,6 +64,8 @@ export interface InteractionInspection extends DemoInspection {
   /** One page of the text styles lab, and the lines of a text as the native layout has them (`ReactUiRoot.getTextLines`). */
   showTextStyles(page: string): void;
   textLines(testID: string): unknown;
+  /** One case of the text stroke lab, bare (`verify-text-stroke.ts`). */
+  showTextStroke(strokeCase: string): void;
   /** One page of the rich text lab, or a file of highlighted lines (`verify-rich-text.ts`). */
   showRichText(props: RichTextLabProps): void;
   /** The font fallback lab, with one of its samples (`verify-font-fallback.ts`). */
@@ -3704,6 +3707,7 @@ export async function runInteractionVerification(owner: Node, api: InteractionIn
   if (sections.has('paint')) await timed('paint', () => verifyPaint(owner, api, capture));
   if (sections.has('layout-utilities')) await timed('layout-utilities', () => verifyLayoutUtilities(owner, api));
   if (sections.has('text-styles')) await timed('text-styles', () => verifyTextStyles(owner, api, capture));
+  if (sections.has('text-stroke')) await timed('text-stroke', () => verifyTextStroke(owner, api, capture));
   if (sections.has('rich-text')) await timed('rich-text', () => verifyRichText(owner, api, capture));
   if (sections.has('live-compile')) await timed('live-compile', () => verifyLiveCompile(owner, api, capture));
   if (sections.has('code-editor')) await timed('code-editor', () => verifyCodeEditor(owner, api, capture));

@@ -28,8 +28,8 @@ use crate::text_style::spec::{MAX_FONT_WEIGHT, MIN_FONT_WEIGHT};
 use crate::text_style::{
     DecorationLines, DecorationStyleSpec, DecorationThicknessSpec, FontStyleSpec,
     LetterSpacingSpec, LineClampSpec, LineHeightSpec, NumericFigureSpec, NumericFractionSpec,
-    NumericSpacingSpec, OverflowWrapSpec, TextDecoration, TextOverflowSpec, TextTransformSpec,
-    UnderlineOffsetSpec, WhiteSpaceSpec, WordBreakSpec,
+    NumericSpacingSpec, OverflowWrapSpec, PaintOrderSpec, TextDecoration, TextOverflowSpec,
+    TextTransformSpec, UnderlineOffsetSpec, WhiteSpaceSpec, WordBreakSpec,
 };
 use crate::transform::{TransformList, TransformOriginSpec, TransformParts};
 pub use crate::transition::Easing;
@@ -686,6 +686,14 @@ pub struct StyleSpec {
     pub numeric_fraction: Option<NumericFractionSpec>,
     pub ordinal: Option<bool>,
     pub slashed_zero: Option<bool>,
+    /// Inherited, as are the two below it. px, finite and not negative: CSS `-webkit-text-stroke-width`, which a stroke is centred on
+    /// the glyph's edge with. Above zero it needs `paint_order` to be `stroke` in the same layer (`StyleSpec::validate_text`).
+    #[serde(rename = "WebkitTextStrokeWidth")]
+    pub text_stroke_width: Option<f32>,
+    /// The stroke's colour; the text colour (`currentcolor`) when not set, which is each glyph's own colour.
+    #[serde(rename = "WebkitTextStrokeColor")]
+    pub text_stroke_color: Option<String>,
+    pub paint_order: Option<PaintOrderSpec>,
     /// Computed only (never on the wire): the decorations that apply to this element's text, those it
     /// inherited from the elements above it and its own.
     #[serde(skip)]
@@ -1216,6 +1224,9 @@ impl StyleSpec {
             numeric_fraction,
             ordinal,
             slashed_zero,
+            text_stroke_width,
+            text_stroke_color,
+            paint_order,
             border_radius,
             border_width,
             border_color,
@@ -1511,6 +1522,7 @@ impl StyleSpec {
             ("caretColor", &self.caret_color),
             ("placeholderColor", &self.placeholder_color),
             ("textDecorationColor", &self.text_decoration_color),
+            ("WebkitTextStrokeColor", &self.text_stroke_color),
         ] {
             if let Some(value) = value {
                 let Some(hex) = value.strip_prefix('#') else {

@@ -1690,14 +1690,18 @@ impl ReactUiRoot {
             if let Some(paragraph) = node.visual.paragraph.as_ref() {
                 let size = paragraph.drawn_size();
                 let text = node.geometry.content_origin();
+                let reach = paragraph.ink_reach();
                 bounds = union(
                     bounds,
-                    frame.bounds_of(BoxRect {
-                        x: text.x,
-                        y: text.y,
-                        width: size.x,
-                        height: size.y,
-                    }),
+                    frame.bounds_of(grown_by_reach(
+                        BoxRect {
+                            x: text.x,
+                            y: text.y,
+                            width: size.x,
+                            height: size.y,
+                        },
+                        [reach; 4],
+                    )),
                 );
             }
         }

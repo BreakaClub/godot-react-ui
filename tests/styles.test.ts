@@ -199,6 +199,10 @@ test('compiled styles match the native contract fixture, which the Rust tests pa
     { className: 'overflow-auto overscroll-auto scrollbar-auto scrollbar-slate-400 touch-none' },
     { className: 'select-text selection-[#3b82f659] hover:select-none md:selection-rose-400' },
     {
+      className: 'uppercase',
+      style: { WebkitTextStrokeWidth: 3, WebkitTextStrokeColor: '#ffffff', paintOrder: 'stroke' },
+    },
+    {
       className: 'overflow-hidden shrink-0',
       style: [{ height: 'auto', padding: 4, interpolateSize: 'allow-keywords', transition: {
         properties: ['height', 'backgroundColor', 'opacity'], durationMs: 600, delayMs: 20, easing: 'ease-in-out',

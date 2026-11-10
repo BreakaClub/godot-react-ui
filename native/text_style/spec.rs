@@ -108,6 +108,17 @@ fn parse_em(text: &str) -> Option<f32> {
     text.strip_suffix("em").and_then(parse_number)
 }
 
+/// CSS `paint-order` as it applies to text. `normal` paints the fill and then the stroke over it, which Godot's text server cannot
+/// draw (its outline is a separate pass that can only go first); `stroke` paints the stroke first, under the fill, which is what
+/// its outline is. A stroke of any width therefore needs `stroke` (see `StyleSpec::validate_text`).
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PaintOrderSpec {
+    #[default]
+    Normal,
+    Stroke,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum TextTransformSpec {
