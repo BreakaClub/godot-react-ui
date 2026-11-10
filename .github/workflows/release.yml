@@ -1,269 +1,125 @@
-name: Auto Release (godot-react-ui)
+name: Release
 
+# A tag `v<version>` (matching package.json) builds the binaries, stages the addon, packs the npm tarball, attaches both to a GitHub release
+# and publishes that tarball to npm (the `publish` job: trusted publishing, in the `npm` environment).
+#
+# Run by hand (Actions > Release > Run workflow, or `gh workflow run release.yml --ref <branch>`), it is a dry run: it makes everything a
+# release would publish and stops there. The tarball and the addon zip are the run's `godot-react-ui-release` artifact (`pnpm pack` lists
+# the tarball's files), and `pnpm publish --dry-run` takes that tarball as far as publishing it. Only a pushed tag publishes, whatever ref
+# a run by hand names.
+#
+# Platforms: every one build.yml builds (macOS arm64 and x86_64, Linux x86_64, Windows x86_64, and the Web side module for stock Godot 4.7
+# templates). The release job refuses to pack unless all of them are there.
 on:
-  workflow_run:
-    workflows:
-      - CI
-    types:
-      - completed
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
 
+# What the run is, in the list of runs: a release of a tag, or a dry run of the ref it was run on.
+run-name: ${{ github.event_name == 'push' && format('Release {0}', github.ref_name) || format('Release dry run ({0})', github.ref_name) }}
+
 jobs:
-  detect-changes:
-    if: ${{ (github.event_name == 'workflow_dispatch') || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main') }}
-    runs-on: ubuntu-latest
-    outputs:
-      release_needed: ${{ steps.detect.outputs.release_needed }}
-      target_sha: ${{ steps.detect.outputs.target_sha }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
-          fetch-depth: 0
-
-      - name: Detect godot-react-ui release-scope changes
-        id: detect
-        shell: bash
-        run: |
-          set -euo pipefail
-          target_sha="${{ github.event.workflow_run.head_sha || github.sha }}"
-          echo "target_sha=${target_sha}" >> "$GITHUB_OUTPUT"
-
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "release_needed=true" >> "$GITHUB_OUTPUT"
-            echo "Workflow dispatched manually; proceeding with release."
-            exit 0
-          fi
-
-          last_tag="$(git tag --list 'godot-react-ui@*' --sort=-v:refname | head -n1)"
-          if [[ -n "$last_tag" ]]; then
-            changed_files="$(git diff --name-only "${last_tag}..${target_sha}")"
-          else
-            changed_files="$(git ls-files)"
-          fi
-
-          root_changes="$(printf '%s\n' "$changed_files" | grep -E -v '^$|^\\.github/|^scripts/|^\\.gitignore$|^\\.editorconfig$|^README(\\.md)?$' || true)"
-          if [[ -n "$root_changes" ]]; then
-            echo "release_needed=true" >> "$GITHUB_OUTPUT"
-            echo "Detected godot-react-ui release-scope changes."
-          else
-            echo "release_needed=false" >> "$GITHUB_OUTPUT"
-            echo "No godot-react-ui release-scope changes since last scoped tag."
-          fi
-
-  build-native:
-    needs: [detect-changes]
-    if: ${{ needs.detect-changes.outputs.release_needed == 'true' }}
-    name: Build Native (${{ matrix.platform }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: macos
-            os: macos-latest
-            artifact: libgodot_react_ui.dylib
-          - platform: linux
-            os: ubuntu-22.04
-            artifact: libgodot_react_ui.so
-          - platform: windows
-            os: windows-latest
-            artifact: godot_react_ui.dll
-
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ needs.detect-changes.outputs.target_sha }}
-
-      - name: Setup Rust (pinned 1.99.1)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: 1.99.1
-          targets: ${{ matrix.platform == 'macos' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
-
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: Build macOS (Universal arm64 + x86_64)
-        if: matrix.platform == 'macos'
-        run: |
-          cargo build --locked --release --target aarch64-apple-darwin
-          cargo build --locked --release --target x86_64-apple-darwin
-          mkdir -p bin
-          lipo -create \
-            target/aarch64-apple-darwin/release/libgodot_react_ui.dylib \
-            target/x86_64-apple-darwin/release/libgodot_react_ui.dylib \
-            -output bin/libgodot_react_ui.dylib
-
-      - name: Build Linux (x86_64)
-        if: matrix.platform == 'linux'
-        run: |
-          cargo build --locked --release
-          mkdir -p bin
-          cp target/release/libgodot_react_ui.so bin/
-
-      - name: Build Windows (x86_64)
-        if: matrix.platform == 'windows'
-        shell: pwsh
-        run: |
-          cargo build --locked --release
-          New-Item -ItemType Directory -Force -Path bin
-          Copy-Item target/release/godot_react_ui.dll bin/
-
-      - name: Upload Binary Artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: native-${{ matrix.platform }}
-          path: bin/${{ matrix.artifact }}
-          if-no-files-found: error
-
-  build-web:
-    needs: [detect-changes]
-    if: ${{ needs.detect-changes.outputs.release_needed == 'true' }}
-    name: Build Web (WASM)
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ needs.detect-changes.outputs.target_sha }}
-
-      # The package's side module is the stock profile's: upstream GodotJS on stock Godot 4.7, whose Web templates are built with Emscripten
-      # 4.0.11 and have no lazy function table (Breaka's engine needs a module of its own, built with its own SDK, and is not this package's).
-      - name: Setup Emscripten 4.0.11 (the stock profile's SDK)
-        uses: emscripten-core/setup-emsdk@v16
-        with:
-          version: 4.0.11
-
-      # The nightly scripts/engine.mjs pins for the Web build (`web.nightly`): -Zbuild-std rebuilds the standard library with atomics, which
-      # needs rust-src, and a later nightly lacks the JS exception-handling switch gdext 0.5.5's Web ABI needs.
-      - name: Setup Rust (nightly-2026-05-15, as scripts/engine.mjs pins it)
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: nightly-2026-05-15
-          components: rust-src
-          targets: wasm32-unknown-emscripten
-
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          package-manager-cache: false
-
-      # The repository's own recipe (scripts/build-web.mjs): the side-module, threads and visibility flags, -Zbuild-std, the stock
-      # profile's API dumps and its build stamp. Not a cargo command written out here, so the two cannot drift.
-      - name: Build Web Side Module
-        shell: bash
-        run: |
-          test -n "${EMSDK:-}" || { echo "setup-emsdk did not set EMSDK: the build needs the SDK's root"; exit 1; }
-          EMSDK_ROOT="$EMSDK" CARGO="$(command -v cargo)" node scripts/build-web.mjs --engine=stock --wasm-only
-          mkdir -p bin
-          cp demo/addons/godot-react-ui/bin/godot_react_ui.web.wasm bin/godot_react_ui.web.wasm
-
-      - name: Upload Web Artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: native-web
-          path: bin/godot_react_ui.web.wasm
-          if-no-files-found: error
+  # Every platform's library and the Web side module (build.yml). Handed to the release job in the same run; the release keeps what it
+  # publishes.
+  binaries:
+    name: Binaries
+    uses: ./.github/workflows/build.yml
+    with:
+      retention-days: 1
 
   release:
-    needs: [detect-changes, build-native, build-web]
-    if: ${{ needs.detect-changes.outputs.release_needed == 'true' }}
-    name: Auto Release & NPM Publish
+    needs: binaries
+    name: "${{ github.event_name == 'push' && 'Pack & GitHub release' || 'Pack (dry run, nothing published)' }}"
     runs-on: ubuntu-latest
-
     permissions:
       contents: write
-      issues: write
-      pull-requests: write
-      id-token: write
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ needs.detect-changes.outputs.target_sha }}
-          fetch-depth: 0
+      - uses: actions/checkout@v7
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           package-manager-cache: false
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@v6
         with:
           version: 11.5.2
           run_install: false
 
-      - name: Get pnpm store path
-        run: echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_ENV"
-
-      - name: Cache pnpm store
-        uses: actions/cache@v6
-        with:
-          path: ${{ env.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Plan Release
-        id: release_plan
-        run: node scripts/run-auto-release.mts --plan-only --tag-prefix "godot-react-ui@" --target-sha "${{ needs.detect-changes.outputs.target_sha }}" --github-output "${GITHUB_OUTPUT}"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: The tag names package.json's version
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        run: test "v$(node -p "require('./package.json').version")" = "${GITHUB_REF_NAME}"
 
-      - name: Set package version for release
-        if: ${{ steps.release_plan.outputs.release_created == 'true' }}
-        run: npm pkg set version="${{ steps.release_plan.outputs.release_version }}"
-
-      - name: Build TypeScript Reconciler & Kit
-        if: ${{ steps.release_plan.outputs.release_created == 'true' }}
+      - name: Build TypeScript
         run: pnpm build
 
-      - name: Download Pre-built Native Binaries
-        if: ${{ steps.release_plan.outputs.release_created == 'true' }}
-        uses: actions/download-artifact@v8
+      # Each artifact is one library, stored at its root: together they are the addon's bin directory.
+      - uses: actions/download-artifact@v8
         with:
           pattern: native-*
-          path: addon-binaries/
+          path: demo/addons/godot-react-ui/bin/
           merge-multiple: true
 
-      - name: Stage Addon Directory
-        if: ${{ steps.release_plan.outputs.release_created == 'true' }}
+      - name: Stage the addon
         run: |
-          mkdir -p demo/addons/godot-react-ui/bin
-          cp -f addon-binaries/* demo/addons/godot-react-ui/bin/
-          node scripts/stage-addon.mjs
-          
-          # Create standalone zip for GitHub Release asset
-          mkdir -p release/godot-react-ui
-          (cd addon && zip -r ../release/godot-react-ui/godot-react-ui-addon.zip godot-react-ui/)
+          mkdir -p release
+          node scripts/stage-addon.mjs --require-all-platforms
+          (cd addon && zip -r ../release/godot-react-ui-addon.zip godot-react-ui/)
 
-      - name: Package Release Assets (pnpm pack)
-        if: ${{ steps.release_plan.outputs.release_created == 'true' }}
-        run: |
-          mkdir -p release/godot-react-ui
-          rm -f release/godot-react-ui/*.tgz
-          pnpm pack --pack-destination release/godot-react-ui
-          ls -lah release/godot-react-ui
+      - name: Pack
+        run: pnpm pack --pack-destination release && ls -lah release
 
-      - name: Auto Release (Create Tag & GitHub Release)
-        id: auto_release
-        if: ${{ steps.release_plan.outputs.release_created == 'true' }}
-        run: node scripts/run-auto-release.mts --tag-prefix "godot-react-ui@" --target-sha "${{ needs.detect-changes.outputs.target_sha }}" --expected-version "${{ steps.release_plan.outputs.release_version }}" --github-output "${GITHUB_OUTPUT}"
+      # The tarball as far as publishing it, published or not. It needs no npm credentials.
+      - name: pnpm publish --dry-run
+        run: pnpm publish --dry-run --no-git-checks release/godot-react-ui-*.tgz
+
+      # What a release publishes, for a dry run to download and try.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: godot-react-ui-release
+          path: release/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: GitHub release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "${GITHUB_REF_NAME}" release/* --title "${GITHUB_REF_NAME}" --notes "godot-react-ui ${GITHUB_REF_NAME}"
 
-      - name: Publish to npm (Skipped - pending NPM credentials)
-        if: ${{ steps.auto_release.outputs.release_created == 'true' }}
-        run: |
-          package_tgz="release/godot-react-ui/godot-react-ui-${{ steps.auto_release.outputs.release_version }}.tgz"
-          test -f "$package_tgz"
-          echo "Verified package tarball exists at: $package_tgz"
-          echo "NPM publishing is intentionally skipped at this stage pending credentials / OIDC configuration."
+  # A tag's release goes to npm with the very tarball the GitHub release has. Trusted publishing: npm takes GitHub's identity token for this
+  # workflow and environment (configured on the package at npmjs.com), so no npm token is stored anywhere. A run by hand never gets here.
+  publish:
+    name: Publish to npm
+    needs: release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      # pnpm 11 exchanges the identity token for a publish token itself (package.json's packageManager names the version).
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.5.2
+          run_install: false
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: godot-react-ui-release
+          path: release/
+
+      - name: pnpm publish
+        run: pnpm publish --no-git-checks release/godot-react-ui-*.tgz

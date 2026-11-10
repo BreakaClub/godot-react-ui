@@ -1,0 +1,121 @@
+name: Build binaries
+
+# The extension for every platform the package ships: the macOS, Linux and Windows libraries and the Web side module, each as a `native-*`
+# artifact of one file. CI and Release both call this, so what a release publishes is built the way every commit is.
+#
+# Nothing here runs a library: no job has a Godot with GodotJS, which the demo and the verifiers need (docs/DEVELOPMENT.md).
+on:
+  workflow_call:
+    inputs:
+      retention-days:
+        description: Days the artifacts are kept
+        type: number
+        default: 14
+
+jobs:
+  native:
+    name: ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos
+            os: macos-latest
+            artifact: libgodot_react_ui.dylib
+          # The oldest Ubuntu GitHub runs: the library needs the glibc of the system it is linked on, or a newer one (2.35).
+          - platform: linux
+            os: ubuntu-22.04
+            artifact: libgodot_react_ui.so
+          - platform: windows
+            os: windows-latest
+            artifact: godot_react_ui.dll
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Rust (pinned 1.99.1)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.99.1
+          targets: ${{ matrix.platform == 'macos' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build macOS (Universal arm64 + x86_64)
+        if: matrix.platform == 'macos'
+        run: |
+          cargo build --locked --release --target aarch64-apple-darwin
+          cargo build --locked --release --target x86_64-apple-darwin
+          mkdir -p bin
+          lipo -create \
+            target/aarch64-apple-darwin/release/libgodot_react_ui.dylib \
+            target/x86_64-apple-darwin/release/libgodot_react_ui.dylib \
+            -output bin/libgodot_react_ui.dylib
+
+      - name: Build Linux (x86_64)
+        if: matrix.platform == 'linux'
+        run: |
+          cargo build --locked --release
+          mkdir -p bin
+          cp target/release/libgodot_react_ui.so bin/
+
+      - name: Build Windows (x86_64)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          cargo build --locked --release
+          New-Item -ItemType Directory -Force -Path bin
+          Copy-Item target/release/godot_react_ui.dll bin/
+
+      # One file per artifact: a file is stored at the artifact's root, which the packing job downloads into the addon's bin directory.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: native-${{ matrix.platform }}
+          path: bin/${{ matrix.artifact }}
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention-days }}
+
+  web:
+    name: web (stock profile)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+
+      # The package's side module is the stock profile's: upstream GodotJS on stock Godot 4.7, whose Web templates are built with Emscripten
+      # 4.0.11 and have no lazy function table (Breaka's engine needs a module of its own, built with its own SDK, and is not this package's).
+      - name: Setup Emscripten 4.0.11 (the stock profile's SDK)
+        uses: emscripten-core/setup-emsdk@v16
+        with:
+          version: 4.0.11
+
+      # The nightly scripts/engine.mjs pins for the Web build (`web.nightly`): -Zbuild-std rebuilds the standard library with atomics, which
+      # needs rust-src, and a later nightly lacks the JS exception-handling switch gdext 0.5.5's Web ABI needs.
+      - name: Setup Rust (nightly-2026-05-15, as scripts/engine.mjs pins it)
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-05-15
+          components: rust-src
+          targets: wasm32-unknown-emscripten
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      # The repository's own recipe (scripts/build-web.mjs): the side-module, threads and visibility flags, -Zbuild-std, the stock
+      # profile's API dumps and its build stamp. Not a cargo command written out here, so the two cannot drift.
+      - name: Build the Web side module
+        shell: bash
+        run: |
+          test -n "${EMSDK:-}" || { echo "setup-emsdk did not set EMSDK: the build needs the SDK's root"; exit 1; }
+          EMSDK_ROOT="$EMSDK" CARGO="$(command -v cargo)" node scripts/build-web.mjs --engine=stock --wasm-only
+          mkdir -p bin
+          cp demo/addons/godot-react-ui/bin/godot_react_ui.web.wasm bin/godot_react_ui.web.wasm
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: native-web
+          path: bin/godot_react_ui.web.wasm
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention-days }}

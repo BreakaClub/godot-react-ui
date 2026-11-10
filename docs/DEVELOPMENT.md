@@ -120,3 +120,15 @@ The Web interaction verifier sends Chrome wheel events, and Godot's Web display 
 Web verification is real Chrome through Puppeteer, at device pixel ratio 1 and 2, in landscape and portrait, with a touch page, against the debug template of Breaka's engine; the `stock` profile also ran its debug and release templates. On Breaka's engine the release export ran `verify:web --release` and the landscape pass of the navigator section, and `verify-live-compile-web.mjs` runs on the `stock` profile only (the godot-tsc package has no Web side module for Breaka's templates); the rest of the interaction verifier ran against the debug export. Safari, other browsers and mobile devices have not been qualified.
 
 When Godot's Web shell (`fetchWithProgress`) finishes reading `index.pck` through `ReadableStream.getReader()`, Chromium can emit a benign `net::ERR_ABORTED` on the completed stream close after all `Content-Length` bytes are delivered; `verify-motion-web.mjs` verifies the exact byte count and SHA-256 of `index.pck` before allowing that post-completion event. The verifier also records the existing Emscripten dynamic-loader synchronization warning once before startup and treats all other runtime errors as failures.
+
+## Releases
+
+Pushing a tag `v<version>` that matches `package.json` runs `.github/workflows/release.yml`, which builds the library for every platform the package ships (macOS arm64 and x86_64, Linux x86_64, Windows x86_64, and the Web side module for stock Godot 4.7 templates), stages the addon, packs the package, attaches the tarball and the addon zip to a GitHub release and publishes that tarball to npm. Publishing uses npm's trusted publishing: the package's settings on npmjs.com trust this repository's `release.yml` in its `npm` environment, so no npm token is stored. Run by hand, the same workflow is a dry run: it makes everything a release would publish, uploads it as the run's `godot-react-ui-release` artifact and runs `pnpm publish --dry-run` on the tarball, and publishes nothing.
+
+```sh
+gh workflow run release.yml --ref main
+```
+
+To release, set `version` in `package.json`, commit, and push the tag `v<version>` for that commit. The release refuses a tag that does not name `package.json`'s version, and the staging (`node scripts/stage-addon.mjs --require-all-platforms`) refuses to pack unless every library the extension's manifest names was built.
+
+Every CI run builds the same binaries (`.github/workflows/build.yml`) and uploads them, kept 14 days: `native-macos`, `native-linux`, `native-windows`, `native-web`, and the npm tarball with the addon zip (`godot-react-ui-package`). No job runs a library: the demo and the verifiers need a Godot with GodotJS, which the runners do not have. Releases up to 0.9.3 were tagged `godot-react-ui@<version>` and are GitHub releases only; 0.9.4 is the first on npm.
