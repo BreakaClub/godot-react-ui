@@ -6,13 +6,13 @@ import * as library from '../src';
 import { Text, View, createRoot } from '../src';
 import { LiveSession } from '../demo/src/live-compile-session';
 import { installRefreshHook, performRefresh, refreshHooks } from '../demo/src/live-compile-refresh';
-import type { Project } from '../demo/src/live-compile-protocol';
-import { RequestCancelled } from '../demo/src/live-compile-scope';
+import type { Project } from '../demo/src/live-compile-project';
+import { RequestCancelled } from 'godot-tsc/host';
 import { cliHost, NEEDS_CLI } from './live-compile-cli-host';
 import { NO_SUBSCRIPTION, RecordingHost } from './recording-host';
 
-// A live session whose edits are overtaken (demo/src/live-compile-session.ts), against the real compiler (the `live-compile-cli` process, `node
-// scripts/build-live-compile.mjs --cli`) answering when the test lets it, as the extension answers when the service thread is free. What is held
+// A live session whose edits are overtaken (demo/src/live-compile-session.ts), against the real transpiler (the godot-tsc package's `godot-tsc-cli`
+// process, tests/live-compile-cli-host.ts) answering when the test lets it, as the extension answers when the service thread is free. What is held
 // is the answer to a compile: the page, meanwhile, is the last good version, and an answer that comes after the work was given up is not applied.
 
 const LAB_PATH = '/project/lab/small-lab.tsx';

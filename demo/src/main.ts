@@ -28,9 +28,9 @@ import { TextStylesLab } from './text-styles-lab';
 import { observeInputFailure, runVerification } from './verify';
 import { BenchmarkApp, type BenchmarkProps } from './benchmark';
 import { runProbe } from './probe';
-import { openLiveSession } from './live-compile-open';
-import { openExtensionHost, readProject } from './live-compile-host';
-import type { ExtensionHost } from './live-compile-service';
+import { openTsc } from 'godot-tsc';
+import type { Tsc } from 'godot-tsc/host';
+import { openLiveSession, readProject } from './live-compile-open';
 import type { CodeSupport } from './editor/lab-code';
 import { verifyLiveCompile } from './verify-live-compile';
 import { installRefreshHook } from './live-compile-refresh';
@@ -139,9 +139,9 @@ export default class Main extends Node {
   /** The loader of fonts for characters no registered font has (the Web only), and what it was last configured with. */
   private fontSlices: DemoFontSlices | undefined = undefined;
   /** The live-compile service of this page, made at the first lab that is edited and ended with the node: one thread however many labs are opened. */
-  private liveCompile: ExtensionHost | undefined = undefined;
+  private liveCompile: Tsc | undefined = undefined;
   /** Services a verifier holds to use up a browser's pool of workers (`holdLiveCompileThreads`). */
-  private readonly heldServices: ExtensionHost[] = [];
+  private readonly heldServices: Tsc[] = [];
   private fontSliceOptions: FontSliceSettings | null = {};
 
   override _ready(): void {
@@ -243,7 +243,7 @@ export default class Main extends Node {
       },
       /** A lab compiled from its source and kept up to date as the source changes (`live-compile-session.ts`), for the `live-compile` section. */
       openLiveSession: (labId: string, exportName: string) => openLiveSession({ host: this.requireLiveCompile(), root: this.requireRenderer(), labId, exportName }),
-      /** The service the live sessions share (`ExtensionHost`): its state, a ping, and the hooks the `live-compile` section tries. */
+      /** The service the live sessions share (`Tsc`): its state, a ping, and the hooks the `live-compile` section tries. */
       liveCompile: () => this.requireLiveCompile(),
       /** Ends the page's service, as leaving the page does: the next session starts a new one, with a new thread. */
       restartLiveCompile: () => this.closeLiveCompile(),
@@ -253,7 +253,7 @@ export default class Main extends Node {
        * after these needs a worker that the pool cannot give at once. Returns how many are held.
        */
       holdLiveCompileThreads: (count: number) => {
-        for (let index = 0; index < count; index += 1) this.heldServices.push(openExtensionHost());
+        for (let index = 0; index < count; index += 1) this.heldServices.push(openTsc());
         return this.heldServices.length;
       },
       releaseLiveCompileThreads: () => {
@@ -766,8 +766,8 @@ export default class Main extends Node {
   }
 
   /** The page's live-compile service; throws, saying how to build it, when the extension is not there. */
-  private requireLiveCompile(): ExtensionHost {
-    this.liveCompile ??= openExtensionHost();
+  private requireLiveCompile(): Tsc {
+    this.liveCompile ??= openTsc();
     return this.liveCompile;
   }
 

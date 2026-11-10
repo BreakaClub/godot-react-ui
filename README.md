@@ -132,7 +132,7 @@ calls differ in a project without them: `add_child`, `events_ready`, `grab_focus
 | `src/` | The TypeScript package: the renderer, the style compiler, the kit |
 | `native/` | The Rust GDExtension: layout, text, drawing, input, motion, accessibility |
 | `demo/` | A Godot project with a navigator of labs, one per feature, which the verifiers drive |
-| `live-compile/` | The demo's code editor backend: Bun's TypeScript checker and compiler as a separate, demo-only GDExtension |
+| `demo/src/editor/`, `demo/src/live-compile-*.ts` | The demo's code editor, over [godot-tsc](https://github.com/BreakaClub/godot-tsc) (Bun's TypeScript checker and transpiler as a GDExtension; a demo-only dev dependency) |
 | `scripts/`, `tests/` | Builds, native and browser verifiers, and unit tests |
 | `deploy/` | The Cloudflare Worker that serves the hosted demo |
 

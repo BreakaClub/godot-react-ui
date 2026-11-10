@@ -4,8 +4,8 @@ Two dump pairs are kept:
 
 | Dump pair | Godot | Binds |
 | --- | --- | --- |
-| `stock-4.7.2/` | stock 4.7.2 | **the native UI library and the native live-compile extension, for both engine profiles** (`NATIVE_BINDING_API`, `scripts/native-binding.mjs`; `.cargo/config.toml` names the same files for a hand-run cargo), and the `stock` profile's Web build |
-| this directory (`extension_api.json`, `gdextension_interface.json`) | Breaka's custom 4.8 | the `breaka` profile's **Web** build only (`scripts/build-web.mjs`, `scripts/build-live-compile-web.mjs`) |
+| `stock-4.7.2/` | stock 4.7.2 | **the native UI library, for both engine profiles, and the binding the installed godot-tsc library must have** (`NATIVE_BINDING_API`, `scripts/native-binding.mjs`; `.cargo/config.toml` names the same files for a hand-run cargo), and the `stock` profile's Web build |
+| this directory (`extension_api.json`, `gdextension_interface.json`) | Breaka's custom 4.8 | the `breaka` profile's **Web** build only (`scripts/build-web.mjs`; a godot-tsc Web module linked for the `breaka` profile would have to record the same pair, which `scripts/godot-tsc.mjs` checks, and the published package ships none) |
 
 A GDExtension loads in the Godot it was bound to or a newer one, so the native builds are bound to the oldest engine either profile runs and Breaka's 4.8 loads them too.
 The Web keeps its own pair because a Web side module is linked with the Emscripten of the engine that loads it. The sections below record where each pair came from.
@@ -67,7 +67,7 @@ The native builds (both profiles) and the `stock` profile's Web build bind to th
 - `stock-4.7.2/extension_api.json` SHA-256: `9586558a2eeb7781f9aadc6b6085294b0f9b38728fcd4f207a7deabf95a11d50`
 - `stock-4.7.2/gdextension_interface.json` SHA-256: `7d8c0a039d9743eb8ebf88681ae0c641d8d3aa5ffca11081745a84da803e09a1`
 
-`.cargo/config.toml` selects this pair for a hand-run cargo (`cargo test`, `cargo clippy`), and `scripts/build-native.mjs`, `scripts/build-live-compile.mjs` and `scripts/build-web.mjs`
+`.cargo/config.toml` selects this pair for a hand-run cargo (`cargo test`, `cargo clippy`), and `scripts/build-native.mjs` and `scripts/build-web.mjs`
 set `GDRUST_GODOT_API_JSON` and `GDRUST_GODOT_INTERFACE_JSON` for the cargo child process themselves (cargo's `[env]` entries do not replace a variable already in the
 environment, so a shell exporting the other pair would otherwise bind a build to the wrong API; the native pair is `NATIVE_BINDING_API`, a test holds `.cargo/config.toml` to it).
 The two dumps differ: the 4.8 dump has 35 classes the stock engine lacks (for example `GodotJSObjectDBSnapshot`, `Line3D`, `Trail3D`), which this library does not use; it compiles
@@ -79,9 +79,10 @@ Regenerate the stock dumps from the stock tree with the command above (replace t
 
 ## Dumps and the freshness guard
 
-A build's dump pair is an input of that build (the native builds' is the 4.7.2 pair; a Web build's is its profile's): `build:native`, `build-live-compile` and `build:web` hash it with `native/` (except `native/api` itself, Markdown and `.DS_Store`), `Cargo.toml`, `Cargo.lock`,
+A build's dump pair is an input of that build (the native builds' is the 4.7.2 pair; a Web build's is its profile's): `build:native` and `build:web` hash it with `native/` (except `native/api` itself, Markdown and `.DS_Store`), `Cargo.toml`, `Cargo.lock`,
 and `build.rs`, `rust-toolchain.toml` and `.cargo/config.toml` where present, plus the cargo features, and a run refuses an installed library, side module or Web export that was built from other bytes
 . A dump that is not a build's own is not an input of it, so replacing Breaka's 4.8 dump marks only Breaka's Web builds stale. Native stamps also record the
 API version and a hash of the pair (`binding`), and `NATIVE_BINDING_API.version` must match the dump's header or every native run fails with a message saying so.
-After replacing a dump, rebuild with `pnpm build:native` and `node scripts/build-live-compile.mjs` (or `pnpm build:web --engine=<name>`), which cleans this crate; godot-rust's own
-bindings regenerate from the dump through cargo's usual dependency tracking.
+After replacing a dump, rebuild with `pnpm build:native` (or `pnpm build:web --engine=<name>`), which cleans this crate; godot-rust's own
+bindings regenerate from the dump through cargo's usual dependency tracking. The installed godot-tsc addon is refused until its package is built against the same dump
+(its `build.json` records the hashes of the pair each binary is bound to).

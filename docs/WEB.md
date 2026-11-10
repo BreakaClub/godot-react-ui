@@ -13,7 +13,7 @@ pnpm verify:web
 pnpm verify:motion:web
 pnpm verify:interaction:web
 node scripts/verify-world-web.mjs
-node scripts/verify-live-compile-web.mjs    # the code editor's compiler in Chrome (needs the profile's live-compile Web side module; --engine=stock for stock's)
+node scripts/verify-live-compile-web.mjs --engine=stock    # the code editor's compiler in Chrome (the godot-tsc package has a Web side module for the stock profile only)
 # To look at it by hand: node scripts/serve-web.mjs   (pnpm demo:web; --lab=<id> opens a lab)
 ```
 
@@ -61,7 +61,7 @@ page stays that wide (the root laid out at the landscape width, off the screen).
 
 The Rust binding is generated against checked-in API dumps, and which pair binds what depends on the target (`native/api/README.md`). The Web side module of the `breaka`
 profile is bound to the custom Godot 4.8 dumps under `native/api/`, which `scripts/build-web.mjs` sets for the cargo child process; the `stock` profile's Web side module is bound to
-`native/api/stock-4.7.2/`. The native builds are not bound to Breaka's dumps any more: the UI library and the live-compile extension are one build bound to the 4.7.2 pair for both
+`native/api/stock-4.7.2/`. The native builds are not bound to Breaka's dumps any more: the UI library and the godot-tsc library are one build bound to the 4.7.2 pair for both
 engine profiles (`NATIVE_BINDING_API` in `scripts/native-binding.mjs`; `.cargo/config.toml` names the same pair for a hand-run `cargo test`), which Breaka's 4.8 loads
 (see `native/api/README.md`). A stable 4.7 binding built from godot-rust's own table is insufficient for Breaka's custom engine: an editor method expected by that binding
 was removed in 4.8, causing eager binding initialization to fail, which is why the Breaka Web build keeps its own dumps. The Web receipt records the hashes of the pair a side module
@@ -108,8 +108,8 @@ globally. No build or server command deploys anything.
 ## The `stock` engine profile
 
 The Web is per profile, unlike the native library: a Web side module is linked with the Emscripten SDK of the engine whose templates load it (4.0.11 for `stock`, 6.0.12
-for `breaka`, with Breaka's lazy function-table ABI), and the two cannot load each other's. The native UI library and live-compile extension are one build for both
-profiles, bound to Godot API 4.7.2; `build:web` and `build-live-compile-web.mjs` are the only builds that take `--engine=`.
+for `breaka`, with Breaka's lazy function-table ABI), and the two cannot load each other's. The native UI library and the godot-tsc library are one build for both
+profiles, bound to Godot API 4.7.2; `build:web` is the only build here that takes `--engine=`.
 
 `node scripts/build-web.mjs --engine=stock` (or `GODOT_REACT_ENGINE=stock`) builds the same extension for an unmodified
 Godot 4.7.2 with upstream GodotJS instead of Breaka's engine. The default `breaka` profile is unchanged. What differs:
@@ -121,7 +121,7 @@ Godot 4.7.2 with upstream GodotJS instead of Breaka's engine. The default `break
 | Emscripten | 6.0.12 plus Binaryen 133 | 4.0.11 (`godot-stock/emsdk`), with its own Binaryen |
 | Lazy function-table pass | `-sLAZY_FUNCTION_TABLE=side`, validated by the engine's helper; the `breaka.lazy-table` custom section is checked on all three modules | none: no Binaryen override, no helper, no metadata check |
 | godot-rust flags | pthread, atomics, `SIDE_MODULE=2`, hidden visibility, `-Zbuild-std` | the same |
-| live-compile side module | `live_compile.web.wasm`, Emscripten 6.0.12 with the lazy function-table flags | `live_compile.web.stock.wasm`, Emscripten 4.0.11, an ordinary side module |
+| godot-tsc side module (the code editor's checker) | none: the package ships no module for Breaka's templates, and the code editor is read-only | `godot_tsc.web.stock.wasm`, Emscripten 4.0.11, an ordinary side module |
 | API input | `native/api` | `native/api/stock-4.7.2` |
 | Output | `target/web`, `artifacts/web-<mode>` | `target/stock-web`, `artifacts/stock/web-<mode>` |
 
@@ -158,15 +158,17 @@ digest of the sources and each source file's hash), and `serve-web`, `probe-web`
 longer matches the working tree, naming the files that differ and the fix (`pnpm build:web`, or `pnpm build:web --export-only` when the pack, shell, template or an exported file is what moved). An export made
 before the guard has no stamp and is refused once.
 
-## The live-compile side module
+## The godot-tsc side module
 
-The code editor's compiler and checker (`live-compile/`) are a second Web side module, `live_compile.web.wasm` (8.7 MB, about 2.3 MB brotli), built by
-`node scripts/build-live-compile-web.mjs` per profile (`--engine=stock` builds `live_compile.web.stock.wasm` with the stock SDK, Emscripten 4.0.11, and no lazy function-table flags). It has its own toolchain, `live-compile/rust-toolchain.toml` (`nightly-2026-09-15`, because Bun's crates need
-`core::alloc::AllocatorClone`, which `nightly-2026-05-15` lacks), and its recipe is the UI extension's with `--cap-lints=warn` and without `-Z emscripten-wasm-eh=false` (that switch is gone
-on the newer nightly); it is built with `panic=abort`, so a panic traps the service thread and the requests outstanding fail after the host's deadline (30 s, a timer). The page lists it in `gdextensionLibs`, so it is
-fetched at startup with the other side modules whether or not the code panel ever opens; loading it on first use is not built. The export also
-carries `demo/live-compile/project.json` (the labs' TSX, the library's and React's declarations and the ES2022 lib files; 2.07 MB in the pack, 198 KB compressed). The Web build checks that
-the export holds the side module and the project, and `node scripts/verify-live-compile-web.mjs` runs the `live-compile` section in Chrome.
+The code editor's checker and transpiler are the [godot-tsc](https://github.com/BreakaClub/godot-tsc) package, a dev dependency from
+npm. It ships one Web side module, `godot_tsc.web.stock.wasm` (8.8 MB, about 2.4 MB brotli), linked with Emscripten 4.0.11 for stock Godot 4.7.2's templates, which its own
+repository builds (the recipe that was this repository's `build-live-compile-web.mjs` moved with it). It ships none for Breaka's templates, so a Web export of the `breaka` profile has
+no module and its code editor is read-only.
+`pnpm exec godot-tsc setup --project-dir demo --force` installs the module with the native libraries at `demo/addons/godot-tsc/`; nothing here builds them. A panic traps the service thread
+(`panic=abort`), and the requests outstanding fail after the host's deadline (30 s, a timer). The page lists the module in `gdextensionLibs`, so it is fetched at startup with the
+other side modules whether or not the code panel ever opens; loading it on first use is not built. The export also carries
+`demo/live-compile/project.json` (the labs' TSX, the library's and React's declarations and the ES2022 lib files from the package's `typescript_libs.bin`; 2.07 MB in the pack, 198 KB
+compressed). The Web build checks that the export holds the side module and the project, and `node scripts/verify-live-compile-web.mjs --engine=stock` runs the `live-compile` section in Chrome.
 
 **Nothing on the page's thread waits for the module's service thread.** The service is a pthread, and a browser starts a pthread's
 Worker only when the page's own thread returns to its event loop, if the pool of Workers is empty. The pool holds eight (`emscriptenPoolSize`, `platform/web/js/engine/config.js`),
@@ -176,12 +178,13 @@ answer: on react.breaka.club, with the code panel open and a dozen labs behind i
 Every request is now queued and answered on a later frame (`poll`), a request can be taken back, the page shares one service thread (the demo owns the host and ends it
 when it leaves the tree), and the Web pass of the `code-editor` section and `verify-live-compile-web.mjs` hold the page to this with the pool used up.
 
-**This module is per profile, and an export holds exactly its own profile's or none.** Each profile has its own file (`live_compile.web.wasm` for `breaka`, `live_compile.web.stock.wasm`
-for `stock`), stamp and cargo target (`live-compile/target/web`, `live-compile/target/web-stock`). The stamp records the profile; `build:web` writes the extension's manifest with a Web library only for the
-module stamped for the profile it exports, clears modules an earlier export left in the output, and records the module in the receipt (`liveCompile`: its file name and stamp, or `null`). With no module
-installed for the profile the export has none and the code editor is read-only (it says so in its banner). A module that is installed and is not the profile's current build stops the export, naming the
-build. Every Web verifier refuses, before it opens a page, an export that contains a module its receipt does not record or one stamped for another profile: the page loads whatever the manifest lists, and a
-Breaka module in a stock page dies at load with `unknown dylink.0 subsection: 6`.
+**This module is per profile, and an export holds exactly its own profile's or none**. The package's `build.json` records, for each module, the profile it
+is linked for, the dump pair it is bound to and its SHA-256, and its manifest names the stock module. `build:web` (`scripts/godot-tsc.mjs`) lists the profile's module in the installed
+manifest for the export and puts the package's manifest back afterwards, or takes the manifest out of the project when the package has no module for the profile; it clears modules an
+earlier export left in the output, and records the module in the receipt (`godotTsc`: its file name and SHA-256, or `null`). With no module for the profile the export has none and the
+code editor is read-only (it says so in its banner). An installed addon that is not the package's current build, or a module bound to other dumps than its profile's, stops the export,
+saying what to install. Every Web verifier refuses, before it opens a page, an export that contains a module its receipt does not record, one recorded for another profile, or one that
+is no longer the installed package's: the page loads whatever the manifest lists, and a Breaka module in a stock page dies at load with `unknown dylink.0 subsection: 6`.
 
 ## The release export and hosting (react.breaka.club)
 
@@ -227,12 +230,13 @@ Measured in headless Chrome through the Worker on `wrangler dev` with a browser 
 and every deploy emptying the cache), a returning visitor after a deploy that changed the pack and the page 2.01 MiB, one with nothing new two small requests; on a 20 Mbit/s line with a
 40 ms round trip the demo is ready in 6.7 s where it took 29.8 s. Not observed: whether Cloudflare's edge passes the stored brotli through untouched (the local runtime re-encodes it
 for Chrome's own `Accept-Encoding`, so every local `br` figure forces the header). Chrome only; the stock engine's release
-export was not built. A build or test command never deploys anything; `pnpm deploy:web` needs the wrangler login of the breaka account.
+export was not built. The deploy publishes `artifacts/web-release`, the `breaka` profile's release export, which has no godot-tsc side module since the package ships one for
+the stock profile only: a release made from it shows the code read-only. A build or test command never deploys anything; `pnpm deploy:web` needs the wrangler login of the breaka account.
 
 ## Web-specific limits
 
-Verified in headless Chrome only (debug template of the `breaka` profile; the `stock` profile also ran its release template; on the `breaka` release export, `verify-web.mjs --release`,
-`verify-live-compile-web.mjs --release` and the landscape pass of the navigator section ran): Safari, Firefox and mobile devices are not qualified. The Web engine has no accessibility code, so the accessibility tree is native only. A paste asks the browser through
+Verified in headless Chrome only (debug template of the `breaka` profile; the `stock` profile also ran its release template; on the `breaka` release export, `verify-web.mjs --release`
+and the landscape pass of the navigator section ran; `verify-live-compile-web.mjs` runs on the `stock` profile only): Safari, Firefox and mobile devices are not qualified. The Web engine has no accessibility code, so the accessibility tree is native only. A paste asks the browser through
 `JavaScriptBridge` because the engine's `clipboard_get` is stale, and the root writes the engine's hidden soft-keyboard element itself; after a Web IME composition
 ended by a focus move the engine keeps `ime_started` set (an engine bug, not worked around). Horizontal wheel ticks have the opposite sign on Web, a wheel event's pixel delta `d` is `0.03 * d` ticks (so a 100 px notch from Chrome is 3 ticks at device pixel ratio 1 and 1.5 at 2,
 where a native notch is one), a touch's `pointerId` is the browser's contact identifier, and the stock 4.7.2 engine turns `touchcancel` into a plain release. The full list is in [LIMITS.md](LIMITS.md).

@@ -2,3 +2,9 @@ packages:
   - .
 allowBuilds:
   esbuild: true
+  # Its postinstall installs the addon into a Godot project above the install, and there is none above this one: the demo's is installed
+  # by hand (`pnpm exec godot-tsc setup --project-dir demo --force`).
+  godot-tsc: false
+# pnpm 11 installs no release younger than a day unless it is listed here. 7.0.0 was published on 2026-11-10.
+minimumReleaseAgeExclude:
+  - godot-tsc@7.0.0

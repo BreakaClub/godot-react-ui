@@ -8,14 +8,14 @@ import * as library from '../src';
 import { createRoot } from '../src';
 import { LiveSession } from '../demo/src/live-compile-session';
 import { installRefreshHook, performRefresh, refreshHooks } from '../demo/src/live-compile-refresh';
-import type { Project } from '../demo/src/live-compile-protocol';
+import type { Project } from '../demo/src/live-compile-project';
 import { cliHost, NEEDS_CLI } from './live-compile-cli-host';
 import { NO_SUBSCRIPTION, RecordingHost } from './recording-host';
 
-// The live session against the real thing short of Godot: Bun's compiler (the `live-compile-cli` process, one spawn for each compile),
+// The live session against the real thing short of Godot: Bun's transpiler (the godot-tsc package's `godot-tsc-cli` process, one spawn for each compile),
 // the real React, the real reconciler through the library's own `createRoot`, and the real React Fast Refresh runtime. The page is the
 // fake native host's tree. What this does not have is the extension and the pixels (the `live-compile` section of the interaction
-// verifier has those). Needs `node scripts/build-live-compile.mjs --cli`.
+// verifier has those). Needs `godot-tsc-cli` (tests/live-compile-cli-host.ts).
 
 const root = resolve(__dirname, '..');
 const LAB_PATH = '/project/lab/inputs-lab.tsx';

@@ -11,11 +11,11 @@ artifacts/
 .DS_Store
 demo/gen/godot/addons/godot-react-ui/bin/
 
-# live-compile: generated vendor trees, cargo targets and built modules
-live-compile/vendor/
-live-compile/target/
-live-compile/out/
+# The code editor's checker and transpiler: the godot-tsc package's addon, installed by `godot-tsc setup`, and the project the editor
+# opens, which scripts/live-compile-project.mjs writes
 demo/live-compile/
-demo/addons/live-compile/
-demo/gen/godot/addons/live-compile/
+demo/addons/godot-tsc/
+demo/gen/godot/addons/godot-tsc/
 demo/gen/godot/live-compile/
+# What the in-repo extension generated (Bun's vendored crates, cargo targets), which a checkout still holds after it moved to the godot-tsc package
+live-compile/

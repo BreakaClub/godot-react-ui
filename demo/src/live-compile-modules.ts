@@ -1,11 +1,10 @@
-import type { CompileDiagnostic, CompileResult } from './live-compile-protocol';
-import type { RequestScope } from './live-compile-scope';
+import type { RequestScope, SyntaxDiagnostic, TranspileResult } from 'godot-tsc/host';
 
 /**
  * The module registry of the live code editor: the compiled files of the project, evaluated in the realm that is running (this
  * one), with the library, React and the other things the demo's bundle holds as the modules they import.
  *
- * A compiled file is a function body (`live-compile/core/lower.rs`): `require`, `exports`, `module`, `$RefreshReg$` and
+ * A compiled file is a function body (the godot-tsc package's `core/lower.rs`): `require`, `exports`, `module`, `$RefreshReg$` and
  * `$RefreshSig$` are its free identifiers. `require` answers a module's namespace, a stable object that reads the module's current
  * exports at the time of each use, so a module that is evaluated again (an edit) is seen by every importer without re-evaluating
  * them. An edit that cannot be seen that way, because the module exports something that is not a component (a constant an
@@ -39,7 +38,7 @@ export interface RefreshHooks {
 }
 
 /** The compiler: the extension's, or a stand-in in a test. It answers when the service has; `scope` takes the request back. */
-export type CompileFunction = (path: string, source: string, scope: RequestScope) => Promise<CompileResult>;
+export type CompileFunction = (path: string, source: string, scope: RequestScope) => Promise<TranspileResult>;
 
 type Exports = Record<string, unknown>;
 
@@ -114,7 +113,7 @@ export interface Change {
 }
 
 export type PrepareFailure =
-  | { readonly ok: false; readonly phase: 'compile'; readonly path: string; readonly diagnostics: readonly CompileDiagnostic[] }
+  | { readonly ok: false; readonly phase: 'compile'; readonly path: string; readonly diagnostics: readonly SyntaxDiagnostic[] }
   | { readonly ok: false; readonly phase: 'evaluate'; readonly path: string; readonly error: Error };
 
 export type PrepareResult = { readonly ok: true; readonly change: Change } | PrepareFailure;

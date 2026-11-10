@@ -12,5 +12,5 @@
     "types": ["node", "react"],
     "paths": {"godot-react-ui": ["./src/index.ts"]}
   },
-  "include": ["src", "demo/src", "demo/typings", "tests", "live-compile/types"]
+  "include": ["src", "demo/src", "demo/typings", "tests"]
 }

@@ -1,5 +1,5 @@
 declare module "godot" {
     interface ResourceTypes {
-        "res://src/live-compile-host.ts": GObject;
+        "res://src/live-compile-project.ts": GObject;
     }
 }

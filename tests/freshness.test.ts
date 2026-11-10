@@ -8,7 +8,6 @@ import { selectEngine, type Engine } from '../scripts/engine.mjs';
 import {
   collectContentInputs, collectInputs, compareInputs, describeBinding, exportFileProblems, findProblem, installFile, prepareTarget, readStamp, requireBuild, requireExport, stampFor, writeStamp, type BuildInputs, type BuildStamp,
 } from '../scripts/freshness.mjs';
-import { WEB_LIBRARY_NAME, writeGdextension } from '../scripts/live-compile-build.mjs';
 import { nativeSourceInputs, nativeVariant } from '../scripts/native-binding.mjs';
 import { ensureStockTypings } from '../scripts/typings.mjs';
 
@@ -351,12 +350,10 @@ test('the stock typecheck refuses a stale stock library by name and never builds
 // A script that runs an installed build must check it first; a new one that forgets would run unguarded again. This lists
 // every script that selects an engine and the guard it must call, and fails for one that is not listed.
 const GUARDS: Record<string, readonly string[]> = {
-  // The Web side module of live-compile: a build per profile, stamped with its profile and installed beside the native library; the Web export lists it or none (tests/stock-web.test.ts).
-  'build-live-compile-web.mjs': ['beginBuild(', 'identity: { engine: engine.name }'],
   'build-web.mjs': ['beginWebBuild(', 'requireInstalledWasm('],
   'dev.mjs': ['prepareNative('],
-  // The default profile's editor writes the tracked typings with the live-compile manifest out of the project (the shared helper, which puts it back).
-  'generate-types.mjs': ['prepareNative(', 'generateStockTypings(', 'withoutLiveCompileManifest('],
+  // The default profile's editor writes the tracked typings with the godot-tsc manifest out of the project (the shared helper, which puts it back).
+  'generate-types.mjs': ['prepareNative(', 'generateStockTypings(', 'withoutGodotTscManifest('],
   // Reads the captures a verifier left and lays them out: it runs no build, so there is nothing to guard.
   'navigator-captures.mjs': [],
   'probe-web.mjs': ['requireFreshWebExport('],
@@ -457,22 +454,4 @@ test('an install of a file that is not the one its stamp describes installs noth
   assert.deepEqual(readdirSync(join(root, 'install')), ['lib.dylib']);
   installFile(source, join(root, 'made/for/it/lib.dylib'));
   assert.equal(readFileSync(join(root, 'made/for/it/lib.dylib'), 'utf8'), 'new, but another build finished under the stamp');
-});
-
-test('the live-compile manifest is rewritten only when it differs, and by a rename a reader never sees half of', () => {
-  const root = mkdtempSync(join(tmpdir(), 'manifest-'));
-  const manifest = join(root, 'live_compile.gdextension');
-  writeGdextension({ installDirectory: root });
-  const first = statSync(manifest).ino;
-  assert.doesNotMatch(readFileSync(manifest, 'utf8'), /web\./u);
-  writeGdextension({ installDirectory: root });
-  assert.equal(statSync(manifest).ino, first, 'the same manifest is not rewritten');
-  // A Web library is listed when the caller names one, whether or not a file of that name is installed: the Web export decides (liveCompileWebPlan).
-  write(root, `bin/${WEB_LIBRARY_NAME}`, 'web side module');
-  writeGdextension({ installDirectory: root });
-  assert.equal(statSync(manifest).ino, first, 'an installed Web module alone does not change the manifest');
-  writeGdextension({ installDirectory: root, webLibrary: WEB_LIBRARY_NAME });
-  assert.notEqual(statSync(manifest).ino, first);
-  assert.match(readFileSync(manifest, 'utf8'), new RegExp(`web\\.release\\.threads\\.wasm32 = "res://addons/live-compile/bin/${WEB_LIBRARY_NAME}"`, 'u'));
-  assert.deepEqual(readdirSync(root).filter(name => name.endsWith('.tmp')), []);
 });

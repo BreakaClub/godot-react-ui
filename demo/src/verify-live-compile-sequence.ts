@@ -1,6 +1,6 @@
 import { Engine, Time, Vector2 } from 'godot';
 import type { LayoutRect, NativeSnapshot, NativeSnapshotNode } from '../../src/native';
-import type { ExtensionHost } from './live-compile-service';
+import type { Tsc } from 'godot-tsc/host';
 import { assertionTally } from './verifier-input';
 import { settleFrames } from './verify-filters';
 import { click } from './verify-text-input';
@@ -27,7 +27,7 @@ export interface SequenceInspection {
   /** The labs in the navigator's order. */
   labs(): readonly { readonly id: string; readonly title: string; readonly kind: string }[];
   /** The page's service: its state tells how many service threads the process has. */
-  liveCompile(): ExtensionHost;
+  liveCompile(): Tsc;
 }
 
 /** The lab the sequence starts on, the lab after it (a scene, so no code), and the one after that. */
@@ -206,7 +206,7 @@ export async function verifyLabWalk(api: SequenceInspection): Promise<Record<str
   api.restartLiveCompile();
   api.showNavigator({ initialLab: first.id });
   await settleFrames();
-  const service = (): ExtensionHost => api.liveCompile();
+  const service = (): Tsc => api.liveCompile();
   await click(centerOf(node(api, 'toggle-code').rect));
   await waitUntil('the first lab\'s code panel', () => api.find('code-editor') !== undefined, PANEL_DEADLINE_MS);
   await waitUntil('the first lab to be live', () => textOf(api, 'code-status-run').startsWith('Live.'), STEP_DEADLINE_MS);

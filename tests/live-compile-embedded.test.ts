@@ -6,14 +6,14 @@ import * as library from '../src';
 import { View, createRoot } from '../src';
 import { LiveSession } from '../demo/src/live-compile-session';
 import { installRefreshHook, performRefresh, refreshHooks } from '../demo/src/live-compile-refresh';
-import type { Project } from '../demo/src/live-compile-protocol';
+import type { Project } from '../demo/src/live-compile-project';
 import { cliHost, NEEDS_CLI } from './live-compile-cli-host';
 import { NO_SUBSCRIPTION, RecordingHost } from './recording-host';
 
-// A live session rendered inside a tree the caller owns (`LiveSession.Lab`), against the real compiler (the `live-compile-cli`
+// A live session rendered inside a tree the caller owns (`LiveSession.Lab`), against the real transpiler (the godot-tsc package's `godot-tsc-cli`
 // process), the real React, the library's reconciler and the production Fast Refresh family proxy. The cases are the ones a family
 // proxy that re-renders only from the root gets wrong: a component React skips because its props did not change, and an element a
-// parent kept. Needs `node scripts/build-live-compile.mjs --cli`.
+// parent kept. Needs `godot-tsc-cli` (tests/live-compile-cli-host.ts).
 
 const LAB_PATH = '/project/lab/memo-lab.tsx';
 const ROW_PATH = '/project/lab/row.tsx';

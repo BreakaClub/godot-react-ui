@@ -3,9 +3,9 @@ import type { NativeSnapshot, NativeSnapshotNode } from '../../src/native';
 import {
   BACKGROUND_COLOURS, HOOK_ORDER, INPUTS_LAB_PATH, MEMO_EDIT, MEMO_SETUP, RECOLOUR, SYNTAX_ERROR, THROW_IN_MODULE, THROW_IN_RENDER, TYPE_ERROR, anchorOffset, applyEdits,
 } from '../../scripts/live-compile-edits.mjs';
-import { RequestCancelled, RequestScope } from './live-compile-scope';
-import { readProject } from './live-compile-host';
-import type { ExtensionHost } from './live-compile-service';
+import { RequestCancelled, RequestScope, type Tsc } from 'godot-tsc/host';
+import { readProject } from './live-compile-open';
+import { LspChecker } from './live-compile-checker';
 import type { LiveSession, UpdateReport } from './live-compile-session';
 import { assertionTally } from './verifier-input';
 import { grab, settleFrames } from './verify-filters';
@@ -28,7 +28,7 @@ import { click } from './verify-text-input';
  *   request given up while the service runs it is let finish and its answer is dropped; the page has one service thread however many labs
  *   it opens; and the reported sequence (`verify-live-compile-sequence.ts`) with the code panel open.
  *
- * It needs the extension (`node scripts/build-live-compile.mjs`); the driver refuses a stale one before it opens a window.
+ * It needs the godot-tsc addon (`pnpm exec godot-tsc setup --project-dir demo --force`); the driver refuses one that is not the package's before it opens a window.
  */
 export interface LiveCompileInspection extends SequenceInspection {
   showLab(name: 'inputs'): void;
@@ -57,7 +57,7 @@ const FRAME_POLL_MS = 1;
 const LATENCY_EDITS = 30;
 const LATER_CHECKS = 10;
 const SUPERSEDING_BURST = 20;
-/** How long the service thread is held to stand for a long check or compile (`ExtensionHost.stall`). */
+/** How long the service thread is held to stand for a long check or compile (`Tsc.stall`). */
 const SERVICE_BUSY_MS = 1_500;
 /** The share of that time the edit that waits behind it must have waited, or the service was not what it waited for. */
 const BUSY_WAIT_SHARE = 0.8;
@@ -191,7 +191,7 @@ function withBackground(text: string, backgroundClass: string): string {
 }
 
 /** Waits for the service thread to have begun a request, so that what is queued behind it waits. */
-async function waitForServiceBusy(service: ExtensionHost): Promise<void> {
+async function waitForServiceBusy(service: Tsc): Promise<void> {
   const deadline = nowMs() + SERVICE_STATE_DEADLINE_MS;
   while (service.state().running === null) {
     assert(nowMs() < deadline, `The service thread did not take the request that holds it within ${SERVICE_STATE_DEADLINE_MS} ms: ${JSON.stringify(service.state())}`);
@@ -199,7 +199,7 @@ async function waitForServiceBusy(service: ExtensionHost): Promise<void> {
   }
 }
 
-async function waitForServiceIdle(service: ExtensionHost, what: string): Promise<void> {
+async function waitForServiceIdle(service: Tsc, what: string): Promise<void> {
   const deadline = nowMs() + SERVICE_STATE_DEADLINE_MS;
   while (service.state().running !== null || service.state().queued > 0) {
     assert(nowMs() < deadline, `The service was not idle within ${SERVICE_STATE_DEADLINE_MS} ms ${what}: ${JSON.stringify(service.state())}`);
@@ -212,7 +212,7 @@ async function waitForServiceIdle(service: ExtensionHost, what: string): Promise
  * the page's next poll (a timer, while a request is outstanding). An answer that stays is one nobody is waiting for, which is a defect: the message
  * says how many requests the page still had outstanding.
  */
-async function waitForRepliesTaken(service: ExtensionHost, what: string): Promise<void> {
+async function waitForRepliesTaken(service: Tsc, what: string): Promise<void> {
   const deadline = nowMs() + SERVICE_STATE_DEADLINE_MS;
   while (service.state().replies > 0 || service.outstandingCount > 0) {
     assert(nowMs() < deadline,
@@ -253,7 +253,7 @@ async function worstStall(work: () => Promise<void>): Promise<number> {
  * (a later check of the same program is far cheaper). Each is from the service's own clock. A request waits for the one in front of it, so the
  * largest of these is the longest any other request of the page can be kept waiting by the work of one lab.
  */
-async function measureLabs(service: ExtensionHost): Promise<Record<string, unknown>> {
+async function measureLabs(service: Tsc): Promise<Record<string, unknown>> {
   const project = readProject();
   const perLab: { readonly id: string; readonly compileMs: number; readonly firstCheckMs: number }[] = [];
   for (const [id, lab] of Object.entries(project.labs)) {
@@ -261,11 +261,14 @@ async function measureLabs(service: ExtensionHost): Promise<Record<string, unkno
     for (const path of lab.sources) {
       const file = project.files.find(candidate => candidate.path === path);
       assert(file, `The project has the source ${path} of the lab ${id}`);
-      const timed = await service.compileTimed(path, file.text, true, new RequestScope());
+      const timed = await service.transpileTimed(path, file.text, { reactRefresh: true }, new RequestScope());
       assert(timed.result.ok, `${path} compiles: ${timed.result.ok ? '' : JSON.stringify(timed.result.diagnostics).slice(0, DIAGNOSTICS_SHOWN)}`);
       compileMs += timed.serviceMs;
     }
-    const outcome = await service.requestCheck(lab.config, project.libDir);
+    // Each lab's first check, by a checker of its own: a language server session for the lab's project, as the code panel opens one.
+    const checker = new LspChecker(service, { config: lab.config, libDir: project.libDir }, project.files);
+    const outcome = await checker.check();
+    await checker.close();
     assert(outcome.kind === 'checked', `The lab ${id} is checked: ${outcome.kind}`);
     perLab.push({ id, compileMs: round(compileMs, TENTH), firstCheckMs: round(outcome.serviceMs, TENTH) });
   }
@@ -330,7 +333,7 @@ export async function verifyLiveCompile(owner: Node, api: LiveCompileInspection,
   const stateHover = await session.hover(INPUTS_LAB_PATH, original.indexOf('const [state, setState]') + 'const ['.length);
   assert(stateHover !== null && stateHover.name === 'state' && stateHover.type === 'InputsState', `and a state variable its declared type: ${JSON.stringify(stateHover)}`);
   const hintsStarted = nowMs();
-  const hints = await session.inlayHints(INPUTS_LAB_PATH, 0, original.length, 'literals');
+  const hints = await session.inlayHints(INPUTS_LAB_PATH, 0, original.length);
   facts.inlayHintsMs = round(nowMs() - hintsStarted, TENTH);
   assert(hints.some(hint => hint.kind === 'parameter' && hint.label === 'initialState:' && original.startsWith('false', hint.position)), `A literal argument gets its parameter's name: ${JSON.stringify(hints.slice(0, 3))}`);
   assert(hints.some(hint => hint.kind === 'type' && hint.label === ': readonly Choice[]' && original.slice(hint.position - 5, hint.position) === 'sizes'), 'and a variable with no annotation the type TypeScript inferred');
@@ -500,7 +503,7 @@ export async function verifyLiveCompile(owner: Node, api: LiveCompileInspection,
   const busyFramesBefore = Engine.getProcessFrames();
   const busyStarted = nowMs();
   const busyUpdate = session.update(INPUTS_LAB_PATH, busyEdit);
-  const midway: { state?: ReturnType<ExtensionHost['state']>; report?: UpdateReport } = {};
+  const midway: { state?: ReturnType<Tsc['state']>; report?: UpdateReport } = {};
   const busyWorstGap = await worstStall(async () => {
     await frames(MIDWAY_FRAMES);
     midway.state = service.state();

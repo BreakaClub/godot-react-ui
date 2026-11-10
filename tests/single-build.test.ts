@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { mock, test } from 'node:test';
 import type { Engine } from '../scripts/engine.mjs';
 import * as NativeBinding from '../scripts/native-binding.mjs';
-import { BREAKA_VERSION, DUMP_HEADER, LIVE_COMPILE_BUILD, makeSkeleton, OTHER_API, SCRIPTS, STOCK_VERSION, type Skeleton } from './skeleton';
+import { BREAKA_VERSION, DUMP_HEADER, GODOT_TSC_LIBRARY, GODOT_TSC_SETUP, makeSkeleton, OTHER_API, SCRIPTS, STOCK_VERSION, write, type Skeleton } from './skeleton';
 
-// The native guard: one native UI library and one native live-compile extension per platform, bound to Godot API 4.7.2 and
-// accepted by both engine profiles. `engine.prepareNative` is what every native run calls; the scripts that decide are copied into a temporary
+// The native guard: one native UI library and one native godot-tsc library (the code editor's checker, a package) per
+// platform, bound to Godot API 4.7.2 and accepted by both engine profiles. `engine.prepareNative` is what every native run calls; the scripts that decide are copied into a temporary
 // repository (tests/skeleton.ts) and a stub stands in for `godot --version`, so the real wiring runs with no cargo, no Godot and no window.
 
 /** What `prepareNative` throws for the profile, or undefined when the run may go ahead. It runs silent: the engine line is not the test's. */
@@ -32,13 +32,17 @@ function refusals(skeleton: Skeleton, options: Parameters<Engine['prepareNative'
   return breaka;
 }
 
-/** The state every row starts from: one native library and one live-compile extension, built from the current sources and installed. */
+/** The state every row starts from: the native library built from the current sources and installed, and the godot-tsc package's addon installed. */
 async function installedBoth(): Promise<Skeleton> {
   const skeleton = await makeSkeleton();
   skeleton.buildNative('native library bound to 4.7.2', { install: true });
-  skeleton.buildLiveCompile('live-compile bound to 4.7.2', { install: true });
+  skeleton.packageGodotTsc();
+  skeleton.installGodotTsc();
   return skeleton;
 }
+
+/** The setup command every godot-tsc refusal ends with, as a pattern. */
+const SETUP = GODOT_TSC_SETUP.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
 
 // ---- The guard table ---------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -58,7 +62,7 @@ test('right API, current sources: one install is accepted by both profiles, and 
 
 test('the stamps a build records name the API it is bound to and the hash of its dump pair, and no profile', async () => {
   const skeleton = await installedBoth();
-  for (const path of [skeleton.native.NATIVE_INSTALLED_STAMP, skeleton.native.nativeVariant().targetStamp, skeleton.liveCompile.INSTALLED_STAMP, skeleton.liveCompile.liveCompileLayout().builtStamp]) {
+  for (const path of [skeleton.native.NATIVE_INSTALLED_STAMP, skeleton.native.nativeVariant().targetStamp]) {
     const stamp = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
     assert.deepEqual(stamp.binding, skeleton.native.nativeBinding(), path);
     assert.equal((stamp.binding as { api: string }).api, '4.7.2');
@@ -99,7 +103,7 @@ test('stale sources: a changed native file refuses the library and names the fil
   skeleton.write('native/lib.rs', 'a change to the library\n');
   const refusal = refusals(skeleton) ?? '';
   assert.match(refusal, /(?:lib)?godot_react_ui\.(?:dylib|so|dll) is stale: it was built from different sources[^]*changed: native\/lib\.rs[^\n]*Run `pnpm build:native` first\./u);
-  assert.doesNotMatch(refusal, /live_compile/u, 'the extension does not read native/, so it is still current');
+  assert.doesNotMatch(refusal, /godot-tsc/u, 'the godot-tsc addon is the package\'s and does not read native/, so it is still current');
   skeleton.buildNative('native library, rebuilt', { install: true });
   assert.equal(refusals(skeleton), undefined);
 });
@@ -128,49 +132,88 @@ test('probe and faults are variants of the build, one each and not one per profi
   assert.deepEqual(readdirSync(join(skeleton.root, 'target')).sort(), ['faults', 'probe', 'react_ui.build.json', 'release'], 'three target directories in all, no profile among them');
 });
 
-// ---- The live-compile extension ------------------------------------------------------------------------------------------------------------------------
+// ---- The godot-tsc addon ------------------------------------------------------------------------------------------------------------------------------
 
-test('extension absent: a run that does not use it goes ahead, and the section that does is refused with the build command', async () => {
+test('addon absent: a run that does not use it goes ahead, and the section that does is refused with the setup command', async () => {
   const skeleton = await makeSkeleton();
   skeleton.buildNative('native library', { install: true });
+  skeleton.packageGodotTsc();
   assert.equal(refusals(skeleton), undefined, 'nothing is installed, so nothing is loaded and nothing is wrong');
-  assert.match(skeleton.liveCompile.liveCompileRefusal({ required: true }) ?? '', new RegExp(`^No build of (?:lib)?live_compile\\.(?:dylib|so|dll) bound to Godot API 4\\.7\\.2[^]*Run \`${LIVE_COMPILE_BUILD}\` first\\.$`, 'u'));
-  assert.throws(() => skeleton.liveCompile.requireLiveCompile(), new RegExp(`Run \`${LIVE_COMPILE_BUILD}\` first`, 'u'));
-  assert.equal(skeleton.liveCompile.liveCompileRefusal(), undefined);
+  assert.match(skeleton.godotTsc.godotTscRefusal({ required: true }) ?? '', new RegExp(`^The godot-tsc addon is not installed in the demo\\. Run \`${SETUP}\` first\\.$`, 'u'));
+  assert.throws(() => skeleton.godotTsc.requireGodotTsc(), new RegExp(`Run \`${SETUP}\` first`, 'u'));
+  assert.equal(skeleton.godotTsc.godotTscRefusal(), undefined);
+  skeleton.installGodotTsc();
+  assert.equal(skeleton.godotTsc.godotTscRefusal({ required: true }), undefined, 'the setup installs it');
 });
 
-test('extension present: bound to another API, stale, replaced or half installed are all refused under both profiles', async () => {
-  const skeleton = await installedBoth();
-  skeleton.restampLiveCompile(stamp => { stamp.binding = OTHER_API; });
-  assert.match(refusals(skeleton) ?? '', new RegExp(`^The installed (?:lib)?live_compile\\.(?:dylib|so|dll) is bound to Godot API 4\\.8\\.0 \\(dump abababababab\\), not bound to Godot API 4\\.7\\.2[^]*Run \`${LIVE_COMPILE_BUILD}\` first\\.$`, 'u'));
-  assert.doesNotMatch(refusals(skeleton) ?? '', /godot_react_ui/u, 'the library is fine');
+test('addon present: not the package\'s current build, a replaced binary, another API, other dumps or half installed are all refused under both profiles', async () => {
+  // The package was rebuilt (or updated) since the install.
+  const rebuilt = await installedBoth();
+  rebuilt.packageGodotTsc({ native: 'godot-tsc library, rebuilt' });
+  assert.match(refusals(rebuilt) ?? '', new RegExp(`^The installed godot-tsc addon is not the package's current build: demo/addons/godot-tsc/build\\.json differs from node_modules/godot-tsc/addon/godot-tsc/build\\.json\\. Run \`${SETUP}\` first\\.$`, 'u'));
+  assert.doesNotMatch(refusals(rebuilt) ?? '', /godot_react_ui/u, 'the library is fine');
+  rebuilt.installGodotTsc();
+  assert.equal(refusals(rebuilt), undefined);
 
-  const stale = await installedBoth();
-  stale.write('live-compile/core/lib.rs', 'a change to the checker\n');
-  assert.match(refusals(stale) ?? '', /(?:lib)?live_compile\.(?:dylib|so|dll) is stale[^]*changed: live-compile\/core\/lib\.rs[^\n]*Run `node scripts\/build-live-compile\.mjs` first\./u);
+  // A binary replaced after the install.
+  const replaced = await installedBoth();
+  write(replaced.godotTsc.INSTALL_DIRECTORY, `bin/${GODOT_TSC_LIBRARY}`, 'a library of some other build');
+  assert.match(refusals(replaced) ?? '', new RegExp(`^The installed godot-tsc bin/${GODOT_TSC_LIBRARY.replaceAll('.', '\\.')} is not the file its build record lists\\. Run \`${SETUP}\` first\\.$`, 'u'));
+  rmSync(join(replaced.godotTsc.INSTALL_DIRECTORY, 'bin', GODOT_TSC_LIBRARY));
+  assert.match(refusals(replaced) ?? '', /has no bin\/libgodot_tsc\.dylib, which its build record lists/u);
 
-  const legacy = await installedBoth();
-  legacy.restampLiveCompile(stamp => { delete stamp.binding; stamp.engine = 'stock'; });
-  assert.match(refusals(legacy) ?? '', /made before native builds were bound to one Godot API/u);
+  // Bound to another API, or to other dumps of 4.7.2.
+  const newer = await makeSkeleton();
+  newer.buildNative('native library', { install: true });
+  newer.packageGodotTsc({ nativeApi: { version: '4.8.0', extensionApiSha256: 'ab'.repeat(32), gdextensionInterfaceSha256: 'cd'.repeat(32) } });
+  newer.installGodotTsc();
+  assert.match(refusals(newer) ?? '', /^The installed godot-tsc library is bound to Godot API 4\.8\.0, not 4\.7\.2, the API this repository's native builds are bound to/u);
+  const otherDumps = await makeSkeleton();
+  otherDumps.buildNative('native library', { install: true });
+  otherDumps.packageGodotTsc({ nativeApi: { version: '4.7.2', extensionApiSha256: 'ab'.repeat(32), gdextensionInterfaceSha256: 'cd'.repeat(32) } });
+  otherDumps.installGodotTsc();
+  assert.match(refusals(otherDumps) ?? '', /^The installed godot-tsc library is bound to other Godot 4\.7\.2 dumps than native\/api\/stock-4\.7\.2: extension_api\.json abababababab, not [0-9a-f]{12}\./u);
+  // A change to the repository's dump is a change of binding: the installed library is not bound to it.
+  const regenerated = await installedBoth();
+  regenerated.write('native/api/stock-4.7.2/gdextension_interface.json', '{"interface":"4.7.2","regenerated":true}');
+  assert.match(refusals(regenerated) ?? '', /bound to other Godot 4\.7\.2 dumps than native\/api\/stock-4\.7\.2: gdextension_interface\.json/u);
 
+  // Half installed: a manifest without its build record, a record without its manifest.
   const half = await makeSkeleton();
   half.buildNative('native library', { install: true });
-  mkdirSync(half.liveCompile.INSTALL_DIRECTORY, { recursive: true });
-  half.liveCompile.writeGdextension();
-  assert.match(refusals(half) ?? '', /^No build of (?:lib)?live_compile\.(?:dylib|so|dll) bound to Godot API 4\.7\.2[^]*its build stamp is missing/u, 'a manifest without its library is an installation Godot would fail to load');
+  half.packageGodotTsc();
+  write(half.godotTsc.INSTALL_DIRECTORY, 'godot_tsc.gdextension', '[configuration]\n');
+  assert.match(refusals(half) ?? '', new RegExp(`^demo/addons/godot-tsc has no build\\.json, so it is not an install of the godot-tsc package\\. Run \`${SETUP}\` first\\.$`, 'u'), 'a manifest alone is an installation Godot would load');
+  const unlisted = await installedBoth();
+  rmSync(unlisted.godotTsc.GDEXTENSION_FILE);
+  assert.match(refusals(unlisted) ?? '', /^The installed godot-tsc addon has no godot_tsc\.gdextension, so Godot does not load it/u);
+
+  // Installed, and the package gone from node_modules.
+  const orphan = await installedBoth();
+  rmSync(orphan.godotTsc.PACKAGE_DIRECTORY, { recursive: true });
+  assert.match(refusals(orphan) ?? '', /^The godot-tsc package has no built addon \(node_modules\/godot-tsc\/addon\/godot-tsc\/build\.json is missing\)/u);
+});
+
+test('a build record that is not one is an error, not an install', async () => {
+  const skeleton = await installedBoth();
+  const { godotTsc } = skeleton;
+  assert.throws(() => godotTsc.parseBuildRecord('{"version":"7.0.0"}', 'build.json'), /^Error: build\.json is not a godot-tsc build record: its nativeApi has no version and binding$/u);
+  const record = JSON.parse(readFileSync(godotTsc.INSTALLED_RECORD, 'utf8')) as Record<string, unknown>;
+  assert.throws(() => godotTsc.parseBuildRecord(JSON.stringify({ ...record, webModules: { 'godot_tsc.web.stock.wasm': { profile: 'stock', binding: record.nativeApi } } }), 'build.json'), /its binaries do not list the Web module godot_tsc\.web\.stock\.wasm/u);
+  assert.equal(godotTsc.parseBuildRecord(readFileSync(godotTsc.INSTALLED_RECORD, 'utf8'), 'build.json').version, '7.0.0');
 });
 
 test('both refusals come at once, each with its own fix, before the engine line is printed', async () => {
   const skeleton = await installedBoth();
   skeleton.restampNative(stamp => { stamp.binding = OTHER_API; });
-  skeleton.write('live-compile/core/lib.rs', 'a change to the checker\n');
+  skeleton.packageGodotTsc({ native: 'godot-tsc library, rebuilt' });
   const log = mock.method(console, 'log', () => undefined);
   try {
     assert.throws(() => skeleton.engine('stock').prepareNative(), (error: unknown) => {
       const lines = (error instanceof Error ? error.message : '').split('\n');
       assert.equal(lines.length, 2);
       assert.match(lines[0] ?? '', /(?:lib)?godot_react_ui\.(?:dylib|so|dll) is bound to Godot API 4\.8\.0[^\n]*Run `pnpm build:native` first\.$/u);
-      assert.match(lines[1] ?? '', /(?:lib)?live_compile\.(?:dylib|so|dll) is stale[^\n]*Run `node scripts\/build-live-compile\.mjs` first\.$/u);
+      assert.match(lines[1] ?? '', new RegExp(`^The installed godot-tsc addon is not the package's current build[^\\n]*Run \`${SETUP}\` first\\.$`, 'u'));
       return true;
     });
     assert.equal(log.mock.calls.length, 0);
@@ -179,11 +222,11 @@ test('both refusals come at once, each with its own fix, before the engine line 
   }
 });
 
-test('a run that takes the extension out of the project is not refused for it', async () => {
+test('a run that takes the addon out of the project is not refused for it', async () => {
   const skeleton = await installedBoth();
-  skeleton.restampLiveCompile(stamp => { stamp.binding = OTHER_API; });
-  assert.match(refusals(skeleton) ?? '', /(?:lib)?live_compile\.(?:dylib|so|dll) is bound to Godot API 4\.8\.0/u);
-  assert.equal(refusals(skeleton, { liveCompile: false }), undefined, '`gen:types` hides the manifest while Godot runs');
+  skeleton.packageGodotTsc({ native: 'godot-tsc library, rebuilt' });
+  assert.match(refusals(skeleton) ?? '', /godot-tsc addon is not the package's current build/u);
+  assert.equal(refusals(skeleton, { godotTsc: false }), undefined, '`gen:types` hides the manifest while Godot runs');
 });
 
 // ---- The engine under test --------------------------------------------------------------------------------------------------------------------------------
@@ -233,7 +276,7 @@ test('a Web side module is still the profile\'s: another profile\'s is refused',
 });
 
 test('the native builds refuse --engine=, because they have no profile', () => {
-  for (const script of ['build-native.mjs', 'build-live-compile.mjs']) {
+  for (const script of ['build-native.mjs']) {
     const result = spawnSync('node', [join(SCRIPTS, script), '--engine=stock'], { encoding: 'utf8', timeout: 30_000 });
     assert.notEqual(result.status, 0, script);
     assert.match(result.stderr, /Unknown argument: --engine=stock \(this script has no engine profile: the native builds are one build for every profile/u, script);
@@ -261,7 +304,6 @@ test('the repository\'s own dump is a dump of the version the record names', () 
 // build is bound to and made from, and install by rename.
 const NATIVE_BUILD_SCRIPTS: Record<string, readonly string[]> = {
   'build-native.mjs': ['beginNativeBuild(', 'build.compiled()', 'installFile(', 'build.installed()', 'engine: false'],
-  'build-live-compile.mjs': ['beginBuild(', 'identity: { binding: nativeBinding() }', 'build.compiled()', 'installFile(', 'build.installed()', 'engine: false'],
 };
 
 test('the native build scripts stamp the target and the install with the binding, and install by rename', () => {

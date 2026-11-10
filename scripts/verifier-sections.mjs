@@ -12,8 +12,8 @@ export const NATIVE_INTERACTION_SECTIONS = [
 ];
 
 /**
- * Sections that measure or need a special build rather than verify (`live-compile` needs the checker and compiler extension, which has its
- * own toolchain and build: `node scripts/build-live-compile.mjs`): they run only when `--only=` names them, and a run without them is not partial. */
+ * Sections that measure or need a special build rather than verify (`live-compile` needs the checker and transpiler, the godot-tsc package's
+ * addon: `pnpm exec godot-tsc setup --project-dir demo --force`): they run only when `--only=` names them, and a run without them is not partial. */
 export const NATIVE_OPT_IN_SECTIONS = ['filters-sizes', 'filters-cost', 'filters-faults', 'transforms-faults', 'live-compile'];
 
 /** The Web verifier's sections, in the order they run: the native names it covers, `rotation`, which turns an emulated phone, `labs-fit`, which shows every lab on one (both exist only on the Web), and `touch`, its touch page. */

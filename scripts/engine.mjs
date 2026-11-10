@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beginBuild, collectInputs, readStamp, requireBuild, requireExport } from './freshness.mjs';
-import { liveCompileRefusal, liveCompileWebExportProblem } from './live-compile-build.mjs';
+import { godotTscRefusal, godotTscWebExportProblem } from './godot-tsc.mjs';
 import { CARGO_PACKAGE, NATIVE_BINDING_API, NATIVE_INSTALL_DIRECTORY, nativeRefusal, requireBuiltNative } from './native-binding.mjs';
 import { webContentInputs } from './web-content.mjs';
 
@@ -14,8 +14,8 @@ import { webContentInputs } from './web-content.mjs';
  * upstream GodotJS. A profile decides which Godot binary runs the demo, where a run's evidence goes, which GodotJS typings the
  * project is checked against and how the **Web** build is made.
  *
- * What a profile does not decide is the native build. There is one native UI library and one native live-compile extension per
- * platform, bound to the oldest Godot API either profile runs (`NATIVE_BINDING_API`, scripts/native-binding.mjs) and loaded by both
+ * What a profile does not decide is the native build. There is one native UI library and one native godot-tsc library (the code editor's
+ * checker and transpiler, a package: scripts/godot-tsc.mjs) per platform, bound to the oldest Godot API either profile runs (`NATIVE_BINDING_API`, scripts/native-binding.mjs) and loaded by both
  * engines: a GDExtension loads in the Godot it was bound to or a newer one. The Web is per profile: a Web side module must be linked with
  * the Emscripten of the engine that loads it (4.0.11 for `stock`, 6.0.12 for `breaka`, and Breaka's lazy function-table ABI), so each
  * profile has its own Web target directories, receipts and dump binding (`apiDirectory`).
@@ -198,14 +198,14 @@ export function selectEngine(argv = process.argv.slice(2), env = process.env) {
       return version;
     },
     /**
-     * Fail unless every native build a demo run loads may be loaded: the UI library, and the live-compile extension if one is installed (it is
-     * loaded by every run of the demo, not only by the sections that use it). Each must be bound to `NATIVE_BINDING_API`, be the variant asked for
-     * (`probe` is the evidence/text-layout probe build, `faults` the filters negative-controls build; neither ships) and be built from the current
-     * sources. The profile does not enter into it. Both are checked, and a refusal names each one's fix. `liveCompile: false` is for a run that takes
-     * the extension out of the project while Godot runs (`gen:types`).
+     * Fail unless every native build a demo run loads may be loaded: the UI library, and the godot-tsc addon if one is installed (it is loaded
+     * by every run of the demo, not only by the sections that use it). Each must be bound to `NATIVE_BINDING_API`. The UI library must be the variant
+     * asked for (`probe` is the evidence/text-layout probe build, `faults` the filters negative-controls build; neither ships) and built from the
+     * current sources; the addon must be the package's current build (scripts/godot-tsc.mjs). The profile does not enter into it. Both are checked,
+     * and a refusal names each one's fix. `godotTsc: false` is for a run that takes the addon out of the project while Godot runs (`gen:types`).
      */
-    requireInstalledBuilds({ probe = false, faults = false, liveCompile = true } = {}) {
-      const refusals = [nativeRefusal({ probe, faults }), liveCompile ? liveCompileRefusal() : undefined].filter(refusal => refusal !== undefined);
+    requireInstalledBuilds({ probe = false, faults = false, godotTsc = true } = {}) {
+      const refusals = [nativeRefusal({ probe, faults }), godotTsc ? godotTscRefusal() : undefined].filter(refusal => refusal !== undefined);
       if (refusals.length > 0) throw new Error(refusals.join('\n'));
     },
     /**
@@ -213,9 +213,9 @@ export function selectEngine(argv = process.argv.slice(2), env = process.env) {
      * builds are bound to, and the installed native builds are bound to that API and built from the current sources. Logs which engine the
      * evidence will come from.
      */
-    prepareNative({ probe = false, faults = false, liveCompile = true } = {}) {
+    prepareNative({ probe = false, faults = false, godotTsc = true } = {}) {
       const version = this.verifiedVersion();
-      this.requireInstalledBuilds({ probe, faults, liveCompile });
+      this.requireInstalledBuilds({ probe, faults, godotTsc });
       console.log(`Engine profile ${profile.name} (${profile.description}): ${godot}, Godot ${version}; native builds bound to Godot API ${NATIVE_BINDING_API.version}`);
       return version;
     },
@@ -244,12 +244,12 @@ export function selectEngine(argv = process.argv.slice(2), env = process.env) {
         subject: `Web export ${relative(root, directory)}`,
         fix: `pnpm build:web${mode === 'release' ? ' --release' : ''}${probe ? ' --probe' : ''} ${ENGINE_FLAG}${profile.name}`,
       });
-      // The live-compile extension's Web side module is per profile as well: the export carries the one stamped for this profile or none, never another's
-      // (the page loads whatever the pack's manifest lists, and another profile's Emscripten kills it at load).
+      // The godot-tsc Web side module is per profile as well: the export carries this profile's or none, never another's (the page loads whatever
+      // the pack's manifest lists, and another profile's Emscripten kills it at load).
       const receipt = JSON.parse(readFileSync(join(directory, WEB_RECEIPT), 'utf8'));
-      const moduleProblem = liveCompileWebExportProblem(this, directory, receipt.liveCompile);
+      const moduleProblem = godotTscWebExportProblem(this, directory, receipt.godotTsc);
       if (moduleProblem !== undefined) {
-        throw new Error(`${moduleProblem} Run \`pnpm build:web --export-only${mode === 'release' ? ' --release' : ''} ${ENGINE_FLAG}${profile.name}\` first (it names the live-compile build if the installed module is out of date).`);
+        throw new Error(`${moduleProblem} Run \`pnpm build:web --export-only${mode === 'release' ? ' --release' : ''} ${ENGINE_FLAG}${profile.name}\` first (it says what to install if the installed addon is not the package's).`);
       }
     },
     /** The inputs of the pack, shell and engine template of the Web export in `mode` (scripts/web-content.mjs); the receipt records them. */

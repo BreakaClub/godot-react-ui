@@ -32,7 +32,7 @@ import { verifyPaint } from './verify-paint';
 import { verifyImages } from './verify-images';
 import { verifyTextInput } from './verify-text-input';
 import type { DemoInspection } from './verify';
-import type { ExtensionHost } from './live-compile-service';
+import type { Tsc } from 'godot-tsc/host';
 import type { LiveSession } from './live-compile-session';
 import {
   NATIVE_INTERACTION_SECTIONS, NATIVE_OPT_IN_SECTIONS, describeSections, requestedSections, type SectionCoverage,
@@ -55,7 +55,7 @@ export interface InteractionInspection extends DemoInspection {
   /** A lab compiled from its source, mounted and kept up to date as the source changes (the `live-compile` section). */
   openLiveSession(labId: string, exportName: string): LiveSession;
   /** The page's live-compile service and the hooks that try it (`verify-live-compile.ts`). */
-  liveCompile(): ExtensionHost;
+  liveCompile(): Tsc;
   restartLiveCompile(): void;
   holdLiveCompileThreads(count: number): number;
   releaseLiveCompileThreads(): void;

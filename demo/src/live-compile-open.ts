@@ -1,10 +1,11 @@
-import { Time } from 'godot';
+import { FileAccess, Time } from 'godot';
 import * as React from 'react';
 import type { ComponentType } from 'react';
 import * as jsxRuntime from 'react/jsx-runtime';
 import * as library from 'godot-react-ui';
 import type { ReactRoot } from 'godot-react-ui';
-import { readProject, type LiveCompileHost } from './live-compile-host';
+import type { TscHost } from 'godot-tsc/host';
+import { PROJECT_RESOURCE, parseProject, type Project } from './live-compile-project';
 import { performRefresh, refreshHooks } from './live-compile-refresh';
 import { LiveSession } from './live-compile-session';
 
@@ -14,10 +15,10 @@ const LIBRARY_SOURCE_PATH = '../../src';
 
 export interface LiveSessionRequest {
   /**
-   * The compiler and the checker. The caller owns it and closes it: one host serves every session of the page, because each host is a
-   * thread, and a browser has a small pool of them.
+   * The transpiler and the checker (the godot-tsc package's `Tsc`, from `openTsc`). The caller owns it and closes it: one host serves every
+   * session of the page, because each host is a thread, and a browser has a small pool of them.
    */
-  readonly host: LiveCompileHost;
+  readonly host: TscHost;
   readonly root: ReactRoot;
   /** The lab's id in the registry (`demo/src/labs.tsx`). */
   readonly labId: string;
@@ -27,6 +28,13 @@ export interface LiveSessionRequest {
   readonly embedded?: boolean;
   /** What `LiveSession.Lab` renders until the lab has been compiled and run: the bundled lab. */
   readonly placeholder?: ComponentType;
+}
+
+/** The project the build wrote, read from the Godot project (a file in the pack on the Web). */
+export function readProject(): Project {
+  const text = FileAccess.getFileAsString(PROJECT_RESOURCE);
+  if (text === '') throw new Error(`${PROJECT_RESOURCE} is missing or empty: run "node scripts/live-compile-project.mjs" (the export needs it in the pack too)`);
+  return parseProject(text);
 }
 
 /**

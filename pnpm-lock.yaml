@@ -60,6 +60,9 @@ importers:
       esbuild:
         specifier: 0.25.11
         version: 0.25.11
+      godot-tsc:
+        specifier: 7.0.0
+        version: 7.0.0
       puppeteer-core:
         specifier: 24.37.2
         version: 24.37.2
@@ -1123,6 +1126,11 @@ packages:
   globby@7.1.1:
     resolution: {integrity: sha512-yANWAN2DUcBtuus5Cpd+SKROzXHs2iVXFZt/Ykrfz6SAXqacLX25NZpltE+39ceMexYF4TtEadjuSTw8+3wX4g==}
     engines: {node: '>=4'}
+
+  godot-tsc@7.0.0:
+    resolution: {integrity: sha512-gF+NxHHVkiJXQ1EGRouAe0Tq27kwrXJ6xndUlPNd0AItVAwMnFfCGL+2BbWKZXIwr/FPIkpC6doXhpAzj3bSnQ==}
+    engines: {node: '>=18'}
+    hasBin: true
 
   gopd@1.2.0:
     resolution: {integrity: sha512-ZUKRh6/kUFoAiTAtTYPZJ3hw9wNxx+BIBOijnlG9PnrJsCcSjs1wyyD6vJpaYtgnzDrKYRSqf3OO6Rfa93xsRg==}
@@ -3658,6 +3666,8 @@ snapshots:
       ignore: 3.3.10
       pify: 3.0.0
       slash: 1.0.0
+
+  godot-tsc@7.0.0: {}
 
   gopd@1.2.0: {}
 

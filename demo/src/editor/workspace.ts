@@ -1,5 +1,5 @@
-import type { CheckOutcome, CompileDiagnostic, Hover, InlayHint, ParameterNames } from '../live-compile-protocol';
-import { RequestCancelled } from '../live-compile-scope';
+import { RequestCancelled, type SyntaxDiagnostic } from 'godot-tsc/host';
+import type { CheckOutcome, Hover, InlayHint } from '../live-compile-checker';
 import type { UpdateOutcome, UpdateReport, UpdateTimings } from '../live-compile-session';
 import type { ClipboardPort } from './clipboard';
 import type { ViewMetrics } from './command-target';
@@ -26,7 +26,8 @@ export interface LiveBackend {
   /** Gives the checker this text of a file and checks it, without running it. */
   checkText(path: string, text: string): Promise<CheckOutcome>;
   hover(path: string, offset: number): Promise<Hover | null>;
-  inlayHints(path: string, from: number, to: number, parameterNames?: ParameterNames): Promise<InlayHint[]>;
+  /** The inferred types and the parameter names of literal arguments between two offsets. */
+  inlayHints(path: string, from: number, to: number): Promise<InlayHint[]>;
 }
 
 export interface WorkspaceOptions {
@@ -369,7 +370,7 @@ export class EditorWorkspace {
   private async requestInlays(file: FileEditor): Promise<void> {
     const version = file.syncedVersion;
     const length = file.controller.model.doc.length;
-    const hints = await this.backend.inlayHints(file.path, 0, length, 'literals');
+    const hints = await this.backend.inlayHints(file.path, 0, length);
     if (this.disposed) return;
     file.controller.setInlays(version, hints.map((hint): EditorInlay => ({
       at: hint.position, kind: hint.kind, label: shortened(hint.kind === 'parameter' ? `${hint.label} ` : hint.label),
@@ -406,7 +407,7 @@ function format(ms: number): string {
   return ms.toFixed(MS_DIGITS);
 }
 
-function compilerDiagnostic(diagnostic: CompileDiagnostic): EditorDiagnostic {
+function compilerDiagnostic(diagnostic: SyntaxDiagnostic): EditorDiagnostic {
   return {
     from: diagnostic.start, to: Math.max(diagnostic.end, diagnostic.start + 1), severity: diagnostic.severity,
     message: diagnostic.message, code: undefined, source: 'compiler',

@@ -27,7 +27,7 @@ import { click, drag, move, typeText } from './verify-text-input';
  * - Budgets: a window of lines mounts quickly, a keystroke is one small commit, and an editor with the panel open and unfocused asks
  *   for no frames.
  *
- * Needs the live-compile extension (`node scripts/build-live-compile.mjs`): the driver refuses a stale one before it opens a window.
+ * Needs the godot-tsc addon (`pnpm exec godot-tsc setup --project-dir demo --force`): the driver refuses one that is not the package's before it opens a window.
  * In a window narrower than the `md` breakpoint (the portrait window) the Code button is not offered, and the section checks that.
  */
 export interface CodeEditorInspection {

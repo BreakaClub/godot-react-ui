@@ -20,8 +20,11 @@ import { NATIVE_LIBRARY_NAME, NATIVE_TARGETS, nativeBinding, nativeSourceInputs 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const GENERATE_TIMEOUT_MS = 120_000;
 
-/** The parts of `demo/` the staged project does not have: Breaka's typings and scene wrappers, whichever library is installed, and live-compile's (optional) extension and project. */
-const STAGE_LEFT_OUT = ['typings', 'gen', 'addons/godot-react-ui/bin', 'addons/live-compile', 'live-compile'];
+/**
+ * The parts of `demo/` the staged project does not have: Breaka's typings and scene wrappers, whichever library is installed, the code editor's
+ * (optional) godot-tsc addon and its project, and the in-repo extension's install that the godot-tsc package replaced, which an earlier stage copied.
+ */
+const STAGE_LEFT_OUT = ['typings', 'gen', 'addons/godot-react-ui/bin', 'addons/godot-tsc', 'addons/live-compile', 'live-compile'];
 
 /** Where the stock profile keeps its declarations, and the record of what they were generated from. The library is the one native build. */
 export function stockTypingsPaths() {

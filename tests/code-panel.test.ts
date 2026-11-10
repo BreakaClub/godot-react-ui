@@ -13,12 +13,12 @@ import { gutterWidthFor } from '../demo/src/editor/geometry';
 import { openLabCode, releaseLabCode, type CodeSupport, type LabCode } from '../demo/src/editor/lab-code';
 import { HOVER_DELAY_MS } from '../demo/src/editor/view/hover';
 import { THEME } from '../demo/src/editor/theme';
-import type { LiveCompileHost } from '../demo/src/live-compile-host';
+import type { CheckOutcome, Hover, InlayHint, TypeChecker } from '../demo/src/live-compile-checker';
 import { installRefreshHook, performRefresh, refreshHooks } from '../demo/src/live-compile-refresh';
-import { parseProject, type CheckOutcome, type Hover, type InlayHint } from '../demo/src/live-compile-protocol';
+import { parseProject } from '../demo/src/live-compile-project';
 import { LiveSession } from '../demo/src/live-compile-session';
 import { findLab, type InlineLab } from '../demo/src/labs';
-import { CLI, cliHost } from './live-compile-cli-host';
+import { cliHost, NEEDS_CLI } from './live-compile-cli-host';
 import { installMonospaceGeometry } from './monospace-text-geometry';
 import { createTestRoot } from './recording-host';
 import { TextInputHost } from './text-input-host';
@@ -26,11 +26,11 @@ import { TextInputHost } from './text-input-host';
 // The code panel against the fake host, with the real compiler and the real session: a click puts the caret at a column, typing
 // reaches the page, a syntax error is shown and the last good page stays, a type error is underlined where the checker said.
 // What this does not have is the font, the layout and the pixels (the `code-editor` section of the interaction verifier has those).
-// Needs `node scripts/build-live-compile.mjs --cli` and the project file `node scripts/live-compile-project.mjs` writes.
+// Needs the godot-tsc package's `godot-tsc-cli` (tests/live-compile-cli-host.ts) and the project file `node scripts/live-compile-project.mjs` writes.
 
 const root = resolve(__dirname, '..');
 const PROJECT = resolve(root, 'demo/live-compile/project.json');
-const NEEDS: string | false = !existsSync(CLI) ? 'live-compile-cli is not built: run `node scripts/build-live-compile.mjs --cli`'
+const NEEDS: string | false = NEEDS_CLI !== false ? NEEDS_CLI
   : !existsSync(PROJECT) ? 'demo/live-compile/project.json is missing: run `node scripts/live-compile-project.mjs`' : false;
 /** The advance of the demo's mono font at 12 px, as the text measures it (a 26.6 fixed point number). */
 const ADVANCE = 7.203125;
@@ -96,19 +96,22 @@ async function mount(options: MountOptions = {}): Promise<Scenario> {
   const project = parseProject(readFileSync(PROJECT, 'utf8'));
   const control: Control = {
     hovers: [], hints: [],
-    nextCheck: () => ({ kind: 'checked', serviceMs: 1, report: { diagnostics: [], filesLoaded: 1, incomplete: [], deepestStack: 0 } }),
+    nextCheck: () => ({ kind: 'checked', serviceMs: 1, report: { diagnostics: [], filesLoaded: 1, incomplete: [] } }),
   };
   const clipboard = new MemoryClipboard();
-  const compiler: LiveCompileHost = {
-    ...cliHost({ hold: options.hold === undefined ? undefined : () => options.hold ?? Promise.resolve() }),
-    requestCheck: () => Promise.resolve(control.nextCheck()),
+  const compiler = cliHost({ hold: options.hold === undefined ? undefined : () => options.hold ?? Promise.resolve() });
+  // The checker answers what the test tells it to.
+  const checker: TypeChecker = {
+    setText() {},
+    check: () => Promise.resolve(control.nextCheck()),
     hover: () => Promise.resolve(control.hovers[0] ?? null),
     inlayHints: () => Promise.resolve(control.hints),
+    close: () => Promise.resolve(),
   };
   installRefreshHook();
   const support: CodeSupport = {
     openSession: target => new LiveSession({
-      host: compiler, project, labId: target.id, exportName: target.component.name, root: uiRoot, embedded: true, placeholder: target.component,
+      host: compiler, checker, project, labId: target.id, exportName: target.component.name, root: uiRoot, embedded: true, placeholder: target.component,
       externals: { react: React, 'react/jsx-runtime': jsxRuntime, 'godot-react-ui': library },
       aliases: { '../../src': 'godot-react-ui' }, refresh: refreshHooks, performRefresh, now: () => Date.now(),
     }),
@@ -520,7 +523,7 @@ panelTest('a syntax error keeps the last good page, is said in the status bar, a
   assert.equal(textOf(s, 'inputs-next'), 'Next 1');
   const line = controller.model.doc.lineAt(immediate.from);
   // The checker, which has the same error, answers for the same text and replaces the compiler's mark.
-  s.control.nextCheck = () => ({ kind: 'checked', serviceMs: 1, report: { diagnostics: [], filesLoaded: 1, incomplete: [], deepestStack: 0 } });
+  s.control.nextCheck = () => ({ kind: 'checked', serviceMs: 1, report: { diagnostics: [], filesLoaded: 1, incomplete: [] } });
   controller.setDiagnostics(controller.model.version, [immediate]);
   await pause(20);
   assert.ok(has(s, `code-marker-${line.number}`), 'and the gutter marks its line');
@@ -536,7 +539,7 @@ panelTest('a type error is underlined at the checker\'s range, marked in the gut
     kind: 'checked', serviceMs: 2,
     report: {
       diagnostics: [{ fileName: workspace(s).active.path, pos: at.offset + EDIT_HEADER.length, end: at.offset + EDIT_HEADER.length + 'NICKNAME_MIN_LENGTH'.length, code: 2322, category: 1, messageText: 'Type error here' }],
-      filesLoaded: 1, incomplete: [], deepestStack: 0,
+      filesLoaded: 1, incomplete: [],
     },
   });
   controller.model.dispatch({ changes: { from: 0, insert: EDIT_HEADER } });

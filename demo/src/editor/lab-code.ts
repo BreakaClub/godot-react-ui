@@ -1,6 +1,6 @@
 import type { InlineLab } from '../labs';
 import type { LiveSession } from '../live-compile-session';
-import { RequestCancelled } from '../live-compile-scope';
+import { RequestCancelled } from 'godot-tsc/host';
 import type { ClipboardPort } from './clipboard';
 import type { Platform } from './keymap';
 import { COMPILING_RUN, EditorWorkspace, StaticBackend, UNMEASURED_METRICS, type RunStatus } from './workspace';

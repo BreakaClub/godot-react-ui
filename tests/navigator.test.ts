@@ -358,7 +358,7 @@ test('there is no Code button when the host gives the navigator no way to edit a
 
 /** A host whose live compiler is not there: the code is shown, read-only, with the reason. */
 const withoutCompiler: CodeSupport = {
-  openSession: () => { throw new Error('The live-compile extension is not loaded: run "node scripts/build-live-compile.mjs"'); },
+  openSession: () => { throw new Error('The godot-tsc extension is not loaded: install it with "godot-tsc setup"'); },
   readSource: path => `// source of ${path}\nexport const answer = 42;\n`,
   platform: 'mac',
   clipboard: { writeText: () => {} },
@@ -375,7 +375,7 @@ test('the Code button opens the panel: without a compiler it shows the code read
     m.click('toggle-code');
     assert.equal(m.has('code-editor'), true);
     assert.equal(m.has('editor-input-sink'), true);
-    assert.match(m.textOf('code-read-only'), /Read-only\. The live-compile extension is not loaded: run "node scripts\/build-live-compile\.mjs"/u);
+    assert.match(m.textOf('code-read-only'), /Read-only\. The godot-tsc extension is not loaded: install it with "godot-tsc setup"/u);
     assert.match(m.textOf('code-status-run'), /^Read-only\. Live compile is not available: /u);
     assert.equal(m.props('code-status-run').text !== 'Ready', true);
     assert.match(m.textOf('code-line-1'), /^\/\/ source of res:\/\/src\/app\.tsx$/u);

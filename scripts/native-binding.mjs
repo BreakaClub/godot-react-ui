@@ -1,7 +1,7 @@
 // The native builds: the Godot API they are bound to, where they are built and installed, and the guard every native run uses on them.
 // This file is the one place that names the API.
 //
-// There is one native UI library and one native live-compile extension per platform, and both engine profiles load them. A GDExtension
+// There is one native UI library per platform (and one godot-tsc library, which the code editor installs from its package: scripts/godot-tsc.mjs), and both engine profiles load them. A GDExtension
 // loads in the Godot it was bound to or a newer one, never an older one (godot-rust: "compiled against newer Godot version"), so a build bound to
 // the oldest engine that is run serves them all. That engine is Godot 4.7.2, the `stock` profile's. A build records the API it is bound to
 // and the hash of its dump pair (`binding`), never a profile; a run accepts it under either profile, and refuses one bound to another API.
@@ -31,7 +31,7 @@ export const NATIVE_INSTALLED_STAMP = resolve(NATIVE_INSTALL_DIRECTORY, 'react_u
 export const NATIVE_TARGETS = Object.freeze({ default: resolve(root, 'target'), probe: resolve(root, 'target/probe'), faults: resolve(root, 'target/faults') });
 
 /**
- * The Godot API the native UI library and the native live-compile extension are compiled against: `version`, and the two dumps godot-rust
+ * The Godot API the native UI library is compiled against, and the one the installed godot-tsc library must be bound to: `version`, and the two dumps godot-rust
  * generates its bindings from (`GDRUST_GODOT_API_JSON`, `GDRUST_GODOT_INTERFACE_JSON`; `.cargo/config.toml` names the same files for a plain
  * `cargo` run, and a test holds the two together). The dumps are of stock Godot 4.7.2 and are not an engine profile: Breaka's 4.8 loads builds
  * bound to them (no 4.8-only API is used in `native/**\/*.rs`; the manifests say `compatibility_minimum = "4.7"`).

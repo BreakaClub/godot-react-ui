@@ -6,8 +6,7 @@ import {
   NATIVE_INTERACTION_SECTIONS, NATIVE_OPT_IN_SECTIONS, checkSectionNames, interactionDeadlineMs, requestedSections, sectionsToRun,
 } from './verifier-sections.mjs';
 import { runNativeVerifiers, summarizeRuns } from './native-run.mjs';
-import { existsSync } from 'node:fs';
-import { INSTALLED_LIBRARY, requireLiveCompile } from './live-compile-build.mjs';
+import { isInstalled as isGodotTscInstalled, requireGodotTsc } from './godot-tsc.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 // The engine profile (`--engine=stock`, `GODOT_REACT_ENGINE=stock`; scripts/engine.mjs) picks the Godot binary,
@@ -63,13 +62,13 @@ if (faults && !requested.some(name => name === 'filters-faults' || name === 'tra
 }
 // Fail first if the binary or the installed library belongs to the other engine profile.
 engine.prepareNative({ faults });
-// The `live-compile` section needs the checker and compiler extension (its own build) and the project it opens,
+// The `live-compile` section needs the checker and transpiler (the godot-tsc package's addon: scripts/godot-tsc.mjs) and the project it opens,
 // which is made from the labs' sources as they are now.
 // The `code-editor` section uses it when it is installed (and checks the read-only panel when it is not): an installed extension must still be
 // fresh, or the section would run the live path against an old compiler.
-const usesLiveCompile = requested.includes('live-compile') || ((requested.length === 0 || requested.includes('code-editor')) && existsSync(INSTALLED_LIBRARY));
+const usesLiveCompile = requested.includes('live-compile') || ((requested.length === 0 || requested.includes('code-editor')) && isGodotTscInstalled());
 if (usesLiveCompile) {
-  requireLiveCompile();
+  requireGodotTsc();
   const project = spawnSync('node', [resolve(root, 'scripts/live-compile-project.mjs')], { cwd: root, stdio: 'inherit' });
   if (project.error) throw project.error;
   if (project.status !== 0) process.exit(project.status ?? 1);

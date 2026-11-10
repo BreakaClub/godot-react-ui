@@ -31,11 +31,10 @@ export const DEMO_ENTRY_POINTS = [
   'demo/src/demo-fonts.ts', 'demo/src/text-styles-data.ts', 'demo/src/text-styles-golden.ts', 'demo/src/text-ink.ts', 'demo/src/verify-text-styles.ts',
   // The rich text lab: its samples (which the Chrome reference reads too), Chrome's numbers and its verifier.
   'demo/src/rich-text-data.ts', 'demo/src/rich-text-golden.ts', 'demo/src/verify-rich-text.ts',
-  // The live code editor's compiler and checker, the swap that keeps state, and their verifier.
-  'demo/src/live-compile-protocol.ts', 'demo/src/live-compile-modules.ts', 'demo/src/live-compile-refresh.ts', 'demo/src/live-compile-host.ts',
-  'demo/src/live-compile-session.ts', 'demo/src/live-compile-open.ts', 'demo/src/verify-live-compile.ts',
-  // The requests to the service thread are answered later and can be taken back, and the reported sequence with the code panel open.
-  'demo/src/live-compile-scope.ts', 'demo/src/live-compile-service.ts', 'demo/src/verify-live-compile-sequence.ts',
+  // The live code editor over the godot-tsc package's checker and transpiler: the project it opens, the module registry, the swap that keeps state,
+  // and their verifiers, with the reported sequence with the code panel open.
+  'demo/src/live-compile-project.ts', 'demo/src/live-compile-checker.ts', 'demo/src/live-compile-modules.ts', 'demo/src/live-compile-refresh.ts',
+  'demo/src/live-compile-session.ts', 'demo/src/live-compile-open.ts', 'demo/src/verify-live-compile.ts', 'demo/src/verify-live-compile-sequence.ts',
   // The dropdown lists' touch verifier.
   'demo/src/verify-dropdown-touch.ts',
   // The touch text selection verifier.

@@ -8,7 +8,7 @@
 //   /project/types/godot-react-ui   the library's declarations (`tsc -p tsconfig.package.json` emits them into dist/)
 //   /project/types/react            @types/react, and csstype beside it
 //   /project/tsconfig.<id>.json     one configuration for each lab: its sources are the roots, everything else is shared
-//   /libs/lib.*.d.ts                the standard library's declarations: Bun's bundle of TypeScript 7.0.2's
+//   /libs/lib.*.d.ts                the standard library's declarations: Bun's bundle of TypeScript 7.0.2's (`godot-tsc/typescript_libs.bin`)
 //
 // The Godot project packages the file (`include_filter` in demo/export_presets.cfg) and the editor reads it with FileAccess,
 // natively and in the Web pack. Nothing here is in the library's package.
@@ -20,6 +20,7 @@ import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync
 import path from 'node:path';
 import { zstdDecompressSync } from 'node:zlib';
 import { rejectUnknownArguments } from './arguments.mjs';
+import { typescriptLibBundle } from './godot-tsc.mjs';
 
 rejectUnknownArguments(process.argv.slice(2));
 
@@ -36,7 +37,8 @@ if (Number(process.versions.node.split('.')[0]) < NODE_WITH_ZSTD_DICTIONARIES) {
 
 const root = path.resolve(import.meta.dirname, '..');
 const OUTPUT = path.join(root, 'demo/live-compile/project.json');
-const LIB_BUNDLE = path.join(root, 'live-compile/vendor/bun/typescript_libs.bin');
+// Bun's bundle of TypeScript 7.0.2's lib files, which the godot-tsc package ships.
+const LIB_BUNDLE = typescriptLibBundle();
 export const PROJECT_DIR = '/project';
 export const LIB_DIR = '/libs';
 const LAB_DIR = `${PROJECT_DIR}/lab`;

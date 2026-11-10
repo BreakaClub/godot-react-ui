@@ -41,11 +41,11 @@ export interface Engine {
   /** The `godot --version` line. Throws if the binary is not the profile's, or is older than the API the native builds are bound to. */
   verifiedVersion(): string;
   /**
-   * Throws unless every native build a demo run loads may be loaded: the UI library and, if one is installed, the live-compile extension
-   * (`liveCompile: false` skips it, for a run that takes it out of the project). Bound to `NATIVE_BINDING_API`, the variant asked for, built from the
+   * Throws unless every native build a demo run loads may be loaded: the UI library and, if one is installed, the godot-tsc addon
+   * (`godotTsc: false` skips it, for a run that takes it out of the project). Bound to `NATIVE_BINDING_API`, the variant asked for, built from the
    * current sources; the profile does not enter into it.
    */
-  requireInstalledBuilds(options?: { probe?: boolean; faults?: boolean; liveCompile?: boolean }): void;
+  requireInstalledBuilds(options?: { probe?: boolean; faults?: boolean; godotTsc?: boolean }): void;
   /** Throws unless the installed Web side module is this profile's build of the current sources. */
   requireInstalledWasm(options?: { probe?: boolean }): void;
   installedWasmStamp(): Record<string, unknown> | undefined;
@@ -53,7 +53,7 @@ export interface Engine {
   requireBuiltLibrary(): void;
   /** Throws unless the Web export (`--release` or debug) carries this profile's side module built from the current sources. */
   requireFreshWebExport(options?: { probe?: boolean }): void;
-  prepareNative(options?: { probe?: boolean; faults?: boolean; liveCompile?: boolean }): string;
+  prepareNative(options?: { probe?: boolean; faults?: boolean; godotTsc?: boolean }): string;
   /** The cargo features a Web build enables. */
   webFeatures(options?: { probe?: boolean }): string[];
   webSourceInputs(options?: { probe?: boolean }): BuildInputs;

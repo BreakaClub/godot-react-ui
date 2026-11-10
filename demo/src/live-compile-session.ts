@@ -1,11 +1,11 @@
 import { createElement, useSyncExternalStore, type ComponentType } from 'react';
 import type { ReactRoot } from 'godot-react-ui';
-import type { LiveCompileHost } from './live-compile-host';
+import { RequestCancelled, RequestScope, type SyntaxDiagnostic, type TscHost } from 'godot-tsc/host';
+import { LspChecker, type CheckOutcome, type Hover, type InlayHint, type TypeChecker } from './live-compile-checker';
 import { onPerformRefresh, resolveRefreshComponent, stableWrapper } from './live-compile-refresh';
 import { liveTree } from './live-compile-root';
 import { ModuleRegistry, type PrepareResult, type RefreshHooks } from './live-compile-modules';
-import { RequestCancelled, RequestScope } from './live-compile-scope';
-import type { CheckOutcome, CompileDiagnostic, Hover, InlayHint, ParameterNames, Project } from './live-compile-protocol';
+import type { Project } from './live-compile-project';
 
 /**
  * A page the person edits: one lab of the demo, mounted from its compiled source and kept up to date as the source changes.
@@ -44,7 +44,7 @@ export interface UpdateReport {
   readonly path: string;
   readonly outcome: UpdateOutcome;
   /** Syntax errors, when the file did not compile. */
-  readonly diagnostics: readonly CompileDiagnostic[];
+  readonly diagnostics: readonly SyntaxDiagnostic[];
   /** The message of the error a module or a render threw. */
   readonly error?: string;
   /** The modules that were evaluated again. */
@@ -57,7 +57,7 @@ export interface UpdateReport {
 }
 
 export interface LiveSessionOptions {
-  readonly host: LiveCompileHost;
+  readonly host: TscHost;
   readonly project: Project;
   /** The lab to edit: its id in the registry (`demo/src/labs.tsx`), as the project names it. */
   readonly labId: string;
@@ -84,6 +84,11 @@ export interface LiveSessionOptions {
   readonly performRefresh: () => unknown;
   /** Milliseconds, from a clock with sub-millisecond resolution. */
   readonly now: () => number;
+  /**
+   * The type checker of the lab's project. By default the host's language server (`LspChecker`); a test gives one that answers what it is
+   * told to.
+   */
+  readonly checker?: TypeChecker;
 }
 
 const LAB_SOURCE_PATTERN = /^\/project\/lab\/.+\.tsx?$/u;
@@ -191,6 +196,8 @@ export class LiveSession {
    * not spend its time on a lab nobody is looking at.
    */
   private readonly lifetime = new RequestScope();
+  /** The type checker of the lab's project: it has every text the service has. */
+  private readonly checker: TypeChecker;
   /** The compile requests of the newest edit of each file that has not been answered. */
   private readonly edits = new Map<string, RequestScope>();
   private readonly unsubscribeRefresh: () => void;
@@ -234,13 +241,14 @@ export class LiveSession {
     const [entry] = lab.sources;
     if (entry === undefined) throw new Error(`The lab ${options.labId} has no source`);
     this.entryPath = entry;
+    this.checker = options.checker ?? new LspChecker(options.host, { config: lab.config, libDir: options.project.libDir }, options.project.files);
     const files = new Map(options.project.files.filter(file => LAB_SOURCE_PATTERN.test(file.path)).map(file => [file.path, file.text]));
     this.registry = new ModuleRegistry({
       files,
       externals: wrapExternals(options.externals),
       aliases: options.aliases,
       refresh: options.refresh,
-      compile: (path, source, scope) => this.options.host.compile(path, source, true, scope),
+      compile: (path, source, scope) => this.options.host.transpile(path, source, { reactRefresh: true }, scope),
       moduleExternals: path => (specifier, external) => (specifier === 'react' ? reactForModule(external, path) : external),
     });
     this.unsubscribeRefresh = onPerformRefresh(() => this.refreshRender());
@@ -287,33 +295,29 @@ export class LiveSession {
 
   /** Checks the project as the checker has it now. */
   check(): Promise<CheckOutcome> {
-    const lab = this.options.project.labs[this.options.labId];
-    if (lab === undefined) return Promise.reject(new Error(`The live-compile project has no lab ${this.options.labId}`));
-    return this.expected(this.options.host.requestCheck(lab.config, this.options.project.libDir, this.lifetime));
+    return this.expected(this.checker.check(this.lifetime));
   }
 
   /** Gives the checker `text` as the new text of `path` and checks the project, without compiling or running it. */
   checkText(path: string, text: string): Promise<CheckOutcome> {
-    this.options.host.setFile(path, text);
+    this.setText(path, text);
     return this.check();
   }
 
   /** What is under a UTF-16 offset of a source file: the name and its type. The checker has the text of the last `update`. */
   hover(path: string, offset: number): Promise<Hover | null> {
-    const lab = this.lab();
-    return this.expected(this.options.host.hover(lab.config, this.options.project.libDir, path, offset, this.lifetime));
+    return this.expected(this.checker.hover(path, offset, this.lifetime));
   }
 
-  /** The inferred types and parameter names to draw between two UTF-16 offsets of a source file. */
-  inlayHints(path: string, from: number, to: number, parameterNames: ParameterNames = 'literals'): Promise<InlayHint[]> {
-    const lab = this.lab();
-    return this.expected(this.options.host.inlayHints(lab.config, this.options.project.libDir, path, from, to, parameterNames, this.lifetime));
+  /** The inferred types and parameter names (of literal arguments) to draw between two UTF-16 offsets of a source file. */
+  inlayHints(path: string, from: number, to: number): Promise<InlayHint[]> {
+    return this.expected(this.checker.inlayHints(path, from, to, this.lifetime));
   }
 
-  private lab(): { readonly config: string } {
-    const lab = this.options.project.labs[this.options.labId];
-    if (lab === undefined) throw new Error(`The live-compile project has no lab ${this.options.labId}`);
-    return lab;
+  /** Gives the service and the checker the new text of a file. */
+  private setText(path: string, text: string): void {
+    this.options.host.setFile(path, text);
+    this.checker.setText(path, text);
   }
 
   async update(path: string, text: string): Promise<UpdateReport> {
@@ -321,7 +325,7 @@ export class LiveSession {
     const started = now();
     let compileMs = 0;
     // The checker has every text, working or not, and checks while the compile and the swap happen.
-    host.setFile(path, text);
+    this.setText(path, text);
     const scope = this.beginEdit(path);
     // The compile is asked for before the check: the service takes its requests in order, and the page waits for the compile, not the check.
     const compiling = this.compileEdit(path, text, scope);
@@ -390,6 +394,8 @@ export class LiveSession {
     this.unmounted = true;
     this.openScope?.cancel();
     this.lifetime.cancel();
+    // The lab's language server session ends with it.
+    void this.expected(this.checker.close());
     for (const scope of this.edits.values()) scope.cancel();
     this.edits.clear();
     this.unsubscribeRefresh();

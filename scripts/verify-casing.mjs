@@ -119,8 +119,8 @@ function run(command, args) {
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
-// The staged project has the UI library and nothing else, so the live-compile extension the demo loads is not this run's to check.
-const godotVersion = engine.prepareNative({ liveCompile: false });
+// The staged project has the UI library and nothing else, so the godot-tsc addon the demo loads is not this run's to check.
+const godotVersion = engine.prepareNative({ godotTsc: false });
 // The package the probe consumes: `dist` and its declarations.
 run('pnpm', ['build']);
 stageProject();
@@ -153,7 +153,7 @@ for (const camelCase of [false, true]) {
   results.push(await runNativeVerifier({
     godot: engine.godot, project: STAGE, output, name: `casing (${naming})`, resolution: RESOLUTION,
     leading: ['--headless'], scriptArgs: [], successMarker: SUCCESS_MARKER, deadlineMs: RUN_DEADLINE_MS, retry: false,
-    beforeLaunch: () => engine.requireInstalledBuilds({ liveCompile: false }),
+    beforeLaunch: () => engine.requireInstalledBuilds({ godotTsc: false }),
     errorPattern: /ERROR:|Uncaught|\[panic /u,
   }));
   const { payload } = describePass(readFileSync(resolve(output, 'run.log'), 'utf8'), SUCCESS_MARKER);

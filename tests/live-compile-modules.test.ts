@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ModuleRegistry, type RefreshHooks } from '../demo/src/live-compile-modules';
-import type { CompileResult } from '../demo/src/live-compile-protocol';
-import { RequestCancelled, RequestScope } from '../demo/src/live-compile-scope';
+import { RequestCancelled, RequestScope, type TranspileResult } from 'godot-tsc/host';
 
 // The module registry of the live code editor (demo/src/live-compile-modules.ts) against a compiler that is the identity: the "source"
 // of each test file is already the function body the real compiler would make, so what is tested is the registry's own work: what a
@@ -28,7 +27,7 @@ function importsOf(source: string): string[] {
 }
 
 /** The compiler as the registry asks it: answered later, from a stand-in that makes no change to the source. */
-function compile(path: string, source: string, scope: RequestScope): Promise<CompileResult> {
+function compile(path: string, source: string, scope: RequestScope): Promise<TranspileResult> {
   scope.throwIfCancelled();
   if (source.includes('SYNTAX ERROR')) return Promise.resolve({ ok: false, diagnostics: [{ start: 0, end: 1, line: 0, character: 0, severity: 'error', message: `cannot compile ${path}` }] });
   return Promise.resolve({ ok: true, code: source, imports: importsOf(source), exports: [], diagnostics: [] });

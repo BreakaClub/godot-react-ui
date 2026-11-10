@@ -3,21 +3,26 @@
 //
 //   node scripts/live-compile-agreement.mjs [--cli=<path>]
 //
-// Bun's checker runs in `live-compile-cli` (the native process the build writes to live-compile/target/release); `tsc` is the
-// repository's TypeScript, on the same files written to artifacts/live-compile-agreement/. They differ in their standard
-// library (TypeScript 7.0.2's against 5.9.3's), which is why a message is compared by its code and position, and its text is
-// compared and reported but is not the verdict.
+// Bun's checker runs in `godot-tsc-cli`, the godot-tsc package's native test process. The npm package does not ship it: a checkout of
+// godot-tsc builds it, and `--cli=` or `GODOT_TSC_CLI` names it. `tsc` is the repository's TypeScript, on the same files written to
+// artifacts/live-compile-agreement/. They differ in their standard library (TypeScript 7.0.2's against 5.9.3's), which is why a message
+// is compared by its code and position, and its text is compared and reported but is not the verdict.
 import { spawn } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import ts from 'typescript';
 import { rejectUnknownArguments } from './arguments.mjs';
+import { CLI_FIX, godotTscCli } from './godot-tsc.mjs';
 import { INPUTS_LAB_PATH, SYNTAX_ERROR, THROW_IN_MODULE, THROW_IN_RENDER, TYPE_ERROR, HOOK_ORDER, RECOLOUR, anchorOffset, applyEdits } from './live-compile-edits.mjs';
 
 rejectUnknownArguments(process.argv.slice(2), { prefixes: ['--cli='] });
 const root = path.resolve(import.meta.dirname, '..');
 const cli = process.argv.find(argument => argument.startsWith('--cli='))?.slice('--cli='.length)
-  ?? path.join(root, 'live-compile/target/release/live-compile-cli');
+  ?? godotTscCli();
+if (cli === undefined) {
+  console.error(`No godot-tsc-cli: pass --cli=<path>, or ${CLI_FIX}.`);
+  process.exit(1);
+}
 const project = JSON.parse(readFileSync(path.join(root, 'demo/live-compile/project.json'), 'utf8'));
 const workDir = path.join(root, 'artifacts/live-compile-agreement/project');
 

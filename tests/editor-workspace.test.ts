@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { MemoryClipboard } from '../demo/src/editor/clipboard';
 import { COMPILING_RUN, EditorWorkspace, INLAY_MAX_CHARACTERS, visibleRange, type LiveBackend } from '../demo/src/editor/workspace';
-import type { CheckDiagnostic, CheckOutcome, CompileDiagnostic, Hover, InlayHint } from '../demo/src/live-compile-protocol';
+import type { SyntaxDiagnostic } from 'godot-tsc/host';
+import type { CheckDiagnostic, CheckOutcome, Hover, InlayHint } from '../demo/src/live-compile-checker';
 import type { UpdateOutcome, UpdateReport } from '../demo/src/live-compile-session';
 import { TEST_METRICS } from './editor-helpers';
 
@@ -29,7 +30,7 @@ class FakeBackend implements LiveBackend {
   readonly checks: Deferred<CheckOutcome>[] = [];
   readonly hints: Deferred<InlayHint[]>[] = [];
   readonly hovers: Deferred<Hover | null>[] = [];
-  next: { outcome: UpdateOutcome; diagnostics?: CompileDiagnostic[]; error?: string } = { outcome: 'swapped' };
+  next: { outcome: UpdateOutcome; diagnostics?: SyntaxDiagnostic[]; error?: string } = { outcome: 'swapped' };
   readonly texts = new Map<string, string>([[LAB, 'const a = 1;\nconst b = 2;\n'], [OTHER, 'export const other = 0;\n']]);
 
   sourceOf(path: string): string {
@@ -91,7 +92,7 @@ function open(options: { debounceMs?: number; maxWaitMs?: number } = {}) {
 const pause = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
 
 const checkedWith = (diagnostics: CheckDiagnostic[]): CheckOutcome => ({
-  kind: 'checked', serviceMs: 3.2, report: { diagnostics, filesLoaded: 1, incomplete: [], deepestStack: 0 },
+  kind: 'checked', serviceMs: 3.2, report: { diagnostics, filesLoaded: 1, incomplete: [] },
 });
 
 const error = (fileName: string, pos: number, end: number, messageText = 'Type error', code = 2322): CheckDiagnostic => ({ fileName, pos, end, code, category: 1, messageText });
@@ -212,7 +213,7 @@ test('diagnostics of other files are not drawn, and a superseded check changes n
   workspace.flush();
   workspace.active.controller.model.dispatch({ changes: { from: 0, insert: ' ' } });
   workspace.flush();
-  backend.checks[0]?.resolve({ kind: 'superseded', by: 2 });
+  backend.checks[0]?.resolve({ kind: 'superseded' });
   await pause(0);
   assert.equal(workspace.active.controller.diagnostics.length, 0);
   backend.checks[1]?.resolve(checkedWith([error(OTHER, 0, 3), error(LAB, 2, 5)]));

@@ -1,4 +1,4 @@
-// The `live-compile` section in real Chrome: the checker and compiler extension as a Web side module, the
+// The `live-compile` section in real Chrome: the checker and transpiler (the godot-tsc package) as a Web side module, the
 // compiled lab, the swap that keeps state, and the failures that leave the last good page up, all run in the page by the same code the native
 // section runs (demo/src/verify-live-compile.ts, started through `globalThis.godotReactLiveCompile`). This script serves the export, opens
 // it, checks that the export carries the extension and the project, runs the section, and fails on any browser error the section does not announce.
@@ -11,7 +11,7 @@ import { resolve } from 'node:path';
 import puppeteer from 'puppeteer-core';
 import { rejectUnknownArguments } from './arguments.mjs';
 import { selectEngine } from './engine.mjs';
-import { requireLiveCompileWebModule, webLibraryNameOf, webLibraryOf, WEB_FIX } from './live-compile-build.mjs';
+import { FIX, requireGodotTscWebModule, webModuleNameOf, webModuleOf } from './godot-tsc.mjs';
 import { passedLine, startVerificationServer, writeEvidence } from './web-verify.mjs';
 
 rejectUnknownArguments(process.argv.slice(2), { flags: ['--release'] });
@@ -19,9 +19,9 @@ const root = resolve(import.meta.dirname, '..');
 const engine = selectEngine();
 engine.requireFreshWebExport();
 const exportDirectory = engine.artifactPath(`web-${engine.webMode()}`);
-// The section needs the extension, which a Web export has only when a module stamped for its profile existed when it was made.
-const WEB_LIBRARY_NAME = webLibraryNameOf(engine);
-requireLiveCompileWebModule(engine, exportDirectory, engine.webMode());
+// The section needs the extension, which a Web export has only when the installed package had a module for its profile when it was made.
+const WEB_LIBRARY_NAME = webModuleNameOf(engine);
+requireGodotTscWebModule(engine, exportDirectory, engine.webMode());
 const executablePath = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const output = engine.artifactPath('web-live-compile-verification');
 const STARTUP_TIMEOUT_MS = 240_000;
@@ -53,10 +53,10 @@ function check(name, condition, detail) {
  * beside the page, as the UI extension's is; the project is in the pack, whole, so its head and tail identify it there.
  */
 function checkExport() {
-  const installed = readFileSync(webLibraryOf(engine));
+  const installed = readFileSync(webModuleOf(engine));
   const exported = readFileSync(resolve(exportDirectory, WEB_LIBRARY_NAME));
   check(`The export serves ${WEB_LIBRARY_NAME} as it is now (${installed.length} bytes)`, installed.equals(exported),
-    `run \`${WEB_FIX(engine)}\` and \`node scripts/build-web.mjs --export-only --engine=${engine.name}\` after a change to the extension`);
+    `run \`${FIX}\` and \`node scripts/build-web.mjs --export-only --engine=${engine.name}\` after a change to the package`);
   const pack = readFileSync(resolve(exportDirectory, 'index.pck'));
   const project = readFileSync(resolve(root, 'demo/live-compile/project.json'));
   check(`The pack carries demo/live-compile/project.json as it is now (${project.length} bytes)`,
