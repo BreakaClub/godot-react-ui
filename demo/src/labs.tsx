@@ -18,6 +18,7 @@ import { KeyPassthroughLab } from './key-passthrough-lab';
 import { MotionLab } from './motion-lab';
 import { LayoutUtilitiesExplorer } from './layout-utilities-lab';
 import { PaintExplorer } from './paint-lab';
+import { ImageLab } from './image-lab';
 import { PassthroughHud } from './passthrough-hud';
 import { PointerLab } from './pointer-lab';
 import { PositioningLab } from './positioning-lab';
@@ -205,6 +206,11 @@ export const LABS = defineLabs([
     id: 'filters', kind: 'inline', group: 'Effects', title: 'Filters',
     description: 'CSS filters and backdrop filters on real layouts: pick a fixture and a blur radius.',
     component: FiltersExplorer, sources: ['res://src/filters-explorer.tsx', 'res://src/filters-lab.tsx'],
+  },
+  {
+    id: 'images', kind: 'inline', group: 'Foundations', title: 'Images',
+    description: 'Registered textures drawn as replaced elements: object-fit, atlas regions, flips, tints, nine-slices and sizes from the picture.',
+    component: ImageLab, sources: ['res://src/image-lab.tsx'],
   },
   {
     id: 'paint', kind: 'inline', group: 'Effects', title: 'Shadows, rings and gradients',

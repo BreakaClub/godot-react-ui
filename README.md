@@ -11,7 +11,7 @@ React for Godot. Write your UI in React and TSX on [GodotJS](https://github.com/
 
 - **React 19 with hooks.** The renderer is `react-reconciler` in persistent mode, the architecture of React Native's Fabric. A commit sends one native call
   with only what changed. Hover, press, focus and breakpoint changes restyle natively, with no React render.
-- **Primitives and a kit.** `View`, `Text`, `Button`, `Portal` and `TextInput`, plus `Checkbox`, `Switch`, `RadioGroup`, `Slider`, `Select`, `Combobox`,
+- **Primitives and a kit.** `View`, `Text`, `Button`, `Image`, `Portal` and `TextInput`, plus `Checkbox`, `Switch`, `RadioGroup`, `Slider`, `Select`, `Combobox`,
   `TextField` and `ScrollView` built from them.
 - **A typed, Tailwind-like class subset** and inline styles: layout, spacing, colours with opacity, typography, shadows, rings, outlines, gradients, 2D
   transforms, filters and frosted glass (`backdrop-blur`), CSS transitions (Stylo's timing), and `sm:`/`md:`/`hover:`/`focus-visible:`… variants. An
@@ -108,7 +108,7 @@ The owner also keeps the surface's size up to date (native restyles the breakpoi
 
 | Document | What it covers |
 | --- | --- |
-| [docs/AUTHORING.md](docs/AUTHORING.md) | The primitives, focus, events, pointers, scrolling, selection, drag and drop, `TextInput`, the combobox, rich text, accessibility, mounting and display scale |
+| [docs/AUTHORING.md](docs/AUTHORING.md) | The primitives, images, focus, events, pointers, scrolling, selection, drag and drop, `TextInput`, the combobox, rich text, accessibility, mounting and display scale |
 | [docs/STYLES.md](docs/STYLES.md) | The class subset and the inline styles: layout, text, paint, transforms, filters, motion and variants |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How a commit reaches the screen, and what it costs |
 | [docs/MOTION_ARCHITECTURE.md](docs/MOTION_ARCHITECTURE.md) | The motion engine and where new features plug in |

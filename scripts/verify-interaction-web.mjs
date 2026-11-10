@@ -209,6 +209,19 @@ async function section(name, run) {
   }
 }
 
+/** How long the image lab's probes may take in the page: two renders read back, a click and a texture registered. */
+const IMAGES_TIMEOUT_MS = 60_000;
+
+/**
+ * The `images` section runs in the page (`demo/src/verify-images.ts`, through `godotReactVerifyImages`): the same geometry and pixel probes as
+ * natively, read back from this job's render at its device pixel ratio. A probe that fails throws in the page and fails the section here.
+ */
+async function runImagesScenario() {
+  const facts = await withDeadline(page.evaluate(() => globalThis.godotReactVerifyImages()), IMAGES_TIMEOUT_MS, 'the images section');
+  check('The image lab is laid out and drawn as the probes expect, in the page', typeof facts?.probes === 'number' && facts.probes > 0, facts);
+  check(`and at this job's device pixel ratio (${facts.ratio})`, facts.ratio === await page.evaluate(() => globalThis.devicePixelRatio), facts);
+}
+
 function checkBrowserErrors() {
   assert.equal(fatalErrors.length, 0, `Browser/runtime errors:\n${fatalErrors.join('\n')}`);
 }
@@ -3014,6 +3027,10 @@ async function runWorkflow(viewport) {
 
   if (wanted('paint')) {
     await section('paint', () => runPaintScenario({ demo, page, frames, snapshot, find, check, capture, decodePng, actionTimeoutMs: ACTION_TIMEOUT_MS }));
+  }
+
+  if (wanted('images')) {
+    await section('images', () => runImagesScenario());
   }
 
   if (wanted('rich-text')) {

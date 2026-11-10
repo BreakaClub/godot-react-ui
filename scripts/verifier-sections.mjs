@@ -7,7 +7,7 @@ export const ONLY_PREFIX = '--only=';
 
 /** The native verifier's sections, in the order they run. */
 export const NATIVE_INTERACTION_SECTIONS = [
-  'font-fallback', 'events', 'cooperation', 'pointers', 'keyboard', 'positioning', 'inputs', 'scroll', 'selection', 'touch-selection', 'drag', 'forms', 'combobox', 'dropdown-touch', 'hidpi', 'filters', 'glass', 'paint',
+  'font-fallback', 'events', 'cooperation', 'pointers', 'keyboard', 'positioning', 'inputs', 'scroll', 'selection', 'touch-selection', 'drag', 'forms', 'combobox', 'dropdown-touch', 'hidpi', 'filters', 'glass', 'paint', 'images',
   'navigator', 'transforms', 'layout-utilities', 'text-styles', 'rich-text', 'filters-sizes', 'filters-cost', 'filters-faults', 'transforms-faults', 'live-compile', 'code-editor', 'key-passthrough',
 ];
 
@@ -18,7 +18,7 @@ export const NATIVE_OPT_IN_SECTIONS = ['filters-sizes', 'filters-cost', 'filters
 
 /** The Web verifier's sections, in the order they run: the native names it covers, `rotation`, which turns an emulated phone, `labs-fit`, which shows every lab on one (both exist only on the Web), and `touch`, its touch page. */
 export const WEB_INTERACTION_SECTIONS = [
-  'events', 'cooperation', 'pointers', 'keyboard', 'scroll', 'selection', 'touch-selection', 'drag', 'forms', 'combobox', 'dropdown-touch', 'hidpi', 'filters', 'glass', 'paint', 'navigator', 'transforms', 'text-styles', 'rich-text', 'font-slices', 'rotation', 'labs-fit', 'code-editor', 'key-passthrough', 'touch',
+  'events', 'cooperation', 'pointers', 'keyboard', 'scroll', 'selection', 'touch-selection', 'drag', 'forms', 'combobox', 'dropdown-touch', 'hidpi', 'filters', 'glass', 'paint', 'images', 'navigator', 'transforms', 'text-styles', 'rich-text', 'font-slices', 'rotation', 'labs-fit', 'code-editor', 'key-passthrough', 'touch',
 ];
 
 /**
@@ -27,7 +27,7 @@ export const WEB_INTERACTION_SECTIONS = [
  * case (the navigator's starts, the font slices' groups, the rotations); and the touch pages. A section appears in every job that runs part of it.
  */
 const WEB_VIEWPORT_SECTIONS = [
-  'events', 'cooperation', 'pointers', 'keyboard', 'scroll', 'selection', 'drag', 'forms', 'combobox', 'hidpi', 'filters', 'glass', 'paint', 'navigator', 'transforms', 'text-styles', 'rich-text', 'code-editor', 'key-passthrough',
+  'events', 'cooperation', 'pointers', 'keyboard', 'scroll', 'selection', 'drag', 'forms', 'combobox', 'hidpi', 'filters', 'glass', 'paint', 'images', 'navigator', 'transforms', 'text-styles', 'rich-text', 'code-editor', 'key-passthrough',
 ];
 export const WEB_INTERACTION_JOBS = [
   { name: 'landscape', sections: WEB_VIEWPORT_SECTIONS },

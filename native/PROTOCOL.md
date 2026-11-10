@@ -206,7 +206,9 @@ on another kind with `<prop> is only valid on images`):
 
 Layout treats an image as a replaced element: its leaf's intrinsic size is the region's (`TextContext::Intrinsic`), and unless the
 author set an `aspect-ratio` the region's proportions are the Taffy `aspect_ratio` (`image::with_intrinsic_aspect`, applied where
-the authored and presented layout styles are made), so a width alone gives the height. Paint draws the picture in an **image** item
+the authored and presented layout styles are made), so a width alone gives the height. What it adds to its scroll container's
+scrollable overflow is its box, never its intrinsic size (`LeafContext::is_replaced` in `native/layout.rs`; a text input's leaf is
+the same), as for a CSS replaced element. Paint draws the picture in an **image** item
 under the box item, after the background and border and before the outline; the material is set on that item only. `fit` is
 resolved analytically (`image::place`): what falls outside the content box is cut from the source rectangle, so the item needs no
 clip of its own. The paint ancestors' clips apply to it as to any child. Not built: `object-position`, per-image texture filtering

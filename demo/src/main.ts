@@ -15,6 +15,8 @@ import { PaintLab } from './paint-lab';
 import { Navigator, type NavigatorProps } from './navigator';
 import { openSceneWithBack } from './scene-return';
 import { registerDemoFonts } from './demo-fonts';
+import { registerDemoImages, registerLateImage, unregisterLateImage } from './demo-images';
+import { verifyImages } from './verify-images';
 import { FiltersLab, type FiltersLabProps } from './filters-lab';
 import { selectionLabControls } from './selection-lab';
 import { LayoutUtilitiesLab, TransitionClassesLab, type LayoutUtilitiesPage } from './layout-utilities-lab';
@@ -225,6 +227,9 @@ export default class Main extends Node {
       },
       // A page in place of the app: the HUD over the backdrop Control, the pointer lab, ...
       showLab: (name: LabName) => this.requireRenderer().render(labElement(name)),
+      /** Register the picture the image lab's late image names, and take it away again (`demo-images.ts`, the `images` section). */
+      registerLateImage: () => registerLateImage(this.requireSurface()),
+      unregisterLateImage: () => unregisterLateImage(this.requireSurface()),
       /**
        * The text of a lab's first source file as the live-compile project has it (the pack carries the project, not the `.tsx` files), for a browser
        * verifier of the code panel (`scripts/verify-code-editor-web.mjs`).
@@ -457,6 +462,8 @@ export default class Main extends Node {
       godotReactDemo: api,
       // The `live-compile` section by itself, in this page, with no captures: how the Web verifier runs it (scripts/verify-live-compile-web.mjs).
       godotReactLiveCompile: () => verifyLiveCompile(this, api, async () => {}),
+      // The `images` section in this page, with no captures: how the Web interaction verifier runs it (`verify-images.ts`).
+      godotReactVerifyImages: () => verifyImages(this, api, async () => {}),
     });
     console.log('GODOT_REACT_DEMO_READY');
     // The keystroke cost diagnostic: it only drives the editor, and only when asked.
@@ -666,6 +673,7 @@ export default class Main extends Node {
     surface.setName('ReactSurface');
     this.addChild(surface);
     registerDemoFonts(surface);
+    registerDemoImages(surface);
     this.fontSlices = this.fontSliceOptions === null ? undefined : installDemoFontSlices(surface, this.fontSliceOptions);
     this.sizeToViewport();
     surface.size = new Vector2(this.width, this.height);

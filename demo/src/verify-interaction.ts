@@ -29,6 +29,7 @@ import type { LayoutUtilitiesPage } from './layout-utilities-lab';
 import type { RichTextLabProps } from './rich-text-lab';
 import { verifyLayoutUtilities } from './verify-layout-utilities';
 import { verifyPaint } from './verify-paint';
+import { verifyImages } from './verify-images';
 import { verifyTextInput } from './verify-text-input';
 import type { DemoInspection } from './verify';
 import type { ExtensionHost } from './live-compile-service';
@@ -46,6 +47,9 @@ export interface InteractionInspection extends DemoInspection {
   benchmark(props: BenchmarkProps): void;
   /** Render a page in place of the app: the pass-through HUD, the pointer lab. */
   showLab(name: LabName): void;
+  /** Register the picture the image lab's late image names, and take it away again (the `images` section). */
+  registerLateImage(): void;
+  unregisterLateImage(): void;
   /** One page of the layout utilities lab, bare at the root's corner so that its rectangles are the page's own (`verify-layout-utilities.ts`). */
   showLayoutUtilities(page: LayoutUtilitiesPage): void;
   /** A lab compiled from its source, mounted and kept up to date as the source changes (the `live-compile` section). */
@@ -3685,6 +3689,7 @@ export async function runInteractionVerification(owner: Node, api: InteractionIn
   if (sections.has('navigator')) await timed('navigator', () => verifyNavigator(owner, api, capture));
   if (sections.has('transforms')) await timed('transforms', () => verifyTransforms(owner, api, capture));
   if (sections.has('paint')) await timed('paint', () => verifyPaint(owner, api, capture));
+  if (sections.has('images')) await timed('images', () => verifyImages(owner, api, capture));
   if (sections.has('layout-utilities')) await timed('layout-utilities', () => verifyLayoutUtilities(owner, api));
   if (sections.has('text-styles')) await timed('text-styles', () => verifyTextStyles(owner, api, capture));
   if (sections.has('rich-text')) await timed('rich-text', () => verifyRichText(owner, api, capture));

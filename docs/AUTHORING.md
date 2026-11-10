@@ -1,6 +1,6 @@
 # Authoring
 
-Use ordinary React, including hooks and component composition, with five native primitives (`View`, `Text`, `Button`, `Portal` and `TextInput`) and a small component kit built from them (`Checkbox`, `Switch`, `RadioGroup`, `Slider`, `Select`, `Combobox`, `TextField`, `ScrollView`):
+Use ordinary React, including hooks and component composition, with six native primitives (`View`, `Text`, `Button`, `Image`, `Portal` and `TextInput`) and a small component kit built from them (`Checkbox`, `Switch`, `RadioGroup`, `Slider`, `Select`, `Combobox`, `TextField`, `ScrollView`):
 
 ## Primitives
 
@@ -75,6 +75,38 @@ Drag and drop follows HTML inside one root: `draggable` (and `dragPreview`: `nat
 ## State variants and refs
 
 Hover, press and focus are native state: they restyle `hover:`, `active:`, `focus:`, `focus-visible:`, `focus-within:` and `disabled:` variants without any React render or JS call. Refs expose a typed handle with its native tag and `getRect()` (a native query); `testID` supports inspection and `findByTestID` (a native query) without becoming native identity.
+
+## Images
+
+`Image` draws a texture the root has registered. Register one with `registerTexture(root, id, texture)`, where `root` is the
+`ReactUiRoot` and `texture` any Godot `Texture2D`, and name it in `source`. Registrations are per root, as font faces are, and a
+second registration of an id replaces the first:
+
+```tsx
+import { Image, registerTexture } from 'godot-react-ui';
+
+registerTexture(surface, 'coin', coinTexture);       // in the owner, once the surface exists
+
+<Image source="coin" fit="contain" className="h-8 w-8" alt="Coins" />
+```
+
+An `Image` is a replaced element. With no size of its own it takes the picture's; with a width or a height alone it keeps the picture's
+proportions, unless the author set `aspect-ratio`; and what it adds to a scroll container's range is its box, never the picture's size.
+Until its `source` is registered it draws nothing and has no size of its own, as an `<img>` that has not loaded. Registering the
+texture later, or naming it in a later render, lays it out and draws it. Its background, border, padding and every other box style
+apply as on a `View`, and the picture is drawn in the content box, over the background and under the outline. It has no children.
+
+- `fit`: `fill` (the default), `contain`, `cover`, `none` and `scale-down`, as CSS `object-fit`, or `tile` (the whole texture repeated at
+  its own size from the content box's top left).
+- `sourceRect`: `{ x, y, width, height }`, the part of the texture shown, in its pixels: a region of an atlas.
+- `slice`: `{ top, right, bottom, left, fill? }`, a nine-slice in the picture's pixels, drawn over the whole content box: the corners keep
+  their size and the edges and middle stretch. Only with `fit: 'fill'`.
+- `tintColor`: a hex colour the picture is multiplied by. `flipX` and `flipY` mirror it (not with `slice` or `tile`).
+- `material`: the id of a material registered with `registerMaterial(root, id, material)`. It applies to the picture alone, and a
+  `ShaderMaterial`'s shader sees the picture as `TEXTURE`. An id that is not registered draws without one.
+- `alt`: the accessible name, which gives the image the `img` role; an empty `alt` marks it decorative.
+
+The demo's `Images` lab (`demo/src/image-lab.tsx`) shows each of these, and the `images` verifier section reads them back from the pixels.
 
 ## TextInput
 
