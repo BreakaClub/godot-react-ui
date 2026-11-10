@@ -7,6 +7,11 @@ import type { Engine } from '../scripts/engine.mjs';
 import * as NativeBinding from '../scripts/native-binding.mjs';
 import { BREAKA_VERSION, DUMP_HEADER, GODOT_TSC_LIBRARY, GODOT_TSC_SETUP, makeSkeleton, OTHER_API, SCRIPTS, STOCK_VERSION, write, type Skeleton } from './skeleton';
 
+/** The names the library has in the addon, as the patterns below write them before they know this machine's. */
+const ANY_LIBRARY_NAME = String.raw`(?:lib)?godot_react_ui\.(?:dylib|so|dll)`;
+/** The same pattern for this machine's library, whose name carries its platform and architecture where there are two to tell apart. */
+const withHostLibrary = (pattern: RegExp): RegExp => new RegExp(pattern.source.replaceAll(ANY_LIBRARY_NAME, NativeBinding.NATIVE_LIBRARY_NAME.replaceAll('.', String.raw`\.`)), pattern.flags);
+
 // The native guard: one native UI library and one native godot-tsc library (the code editor's checker, a package) per
 // platform, bound to Godot API 4.7.2 and accepted by both engine profiles. `engine.prepareNative` is what every native run calls; the scripts that decide are copied into a temporary
 // repository (tests/skeleton.ts) and a stub stands in for `godot --version`, so the real wiring runs with no cargo, no Godot and no window.
@@ -75,7 +80,7 @@ test('a library bound to another API is refused under both profiles, up front, n
   const skeleton = await installedBoth();
   skeleton.restampNative(stamp => { stamp.binding = OTHER_API; });
   const refusal = refusals(skeleton) ?? '';
-  assert.match(refusal, /^The installed (?:lib)?godot_react_ui\.(?:dylib|so|dll) is bound to Godot API 4\.8\.0 \(dump abababababab\), not bound to Godot API 4\.7\.2 \(dump [0-9a-f]{12}\)\. Run `pnpm build:native` first\.$/u);
+  assert.match(refusal, withHostLibrary(/^The installed (?:lib)?godot_react_ui\.(?:dylib|so|dll) is bound to Godot API 4\.8\.0 \(dump abababababab\), not bound to Godot API 4\.7\.2 \(dump [0-9a-f]{12}\)\. Run `pnpm build:native` first\.$/u));
   assert.doesNotMatch(refusal, /--engine|switch:engine/u, 'the fix is not per engine');
   skeleton.restampNative(stamp => { stamp.binding = skeleton.native.nativeBinding(); });
   assert.equal(refusals(skeleton), undefined, 'restamped for the right API it is accepted again');
@@ -102,7 +107,7 @@ test('stale sources: a changed native file refuses the library and names the fil
   const skeleton = await installedBoth();
   skeleton.write('native/lib.rs', 'a change to the library\n');
   const refusal = refusals(skeleton) ?? '';
-  assert.match(refusal, /(?:lib)?godot_react_ui\.(?:dylib|so|dll) is stale: it was built from different sources[^]*changed: native\/lib\.rs[^\n]*Run `pnpm build:native` first\./u);
+  assert.match(refusal, withHostLibrary(/(?:lib)?godot_react_ui\.(?:dylib|so|dll) is stale: it was built from different sources[^]*changed: native\/lib\.rs[^\n]*Run `pnpm build:native` first\./u));
   assert.doesNotMatch(refusal, /godot-tsc/u, 'the godot-tsc addon is the package\'s and does not read native/, so it is still current');
   skeleton.buildNative('native library, rebuilt', { install: true });
   assert.equal(refusals(skeleton), undefined);
@@ -110,7 +115,7 @@ test('stale sources: a changed native file refuses the library and names the fil
 
 test('the library is not installed, or its stamp is gone: refused with the build command', async () => {
   const skeleton = await makeSkeleton();
-  assert.match(refusals(skeleton) ?? '', /^No build of (?:lib)?godot_react_ui\.(?:dylib|so|dll) bound to Godot API 4\.7\.2 \(dump [0-9a-f]{12}\) is available: the installed (?:lib)?godot_react_ui\.(?:dylib|so|dll) or its build stamp is missing\. Run `pnpm build:native` first\.$/u);
+  assert.match(refusals(skeleton) ?? '', withHostLibrary(/^No build of (?:lib)?godot_react_ui\.(?:dylib|so|dll) bound to Godot API 4\.7\.2 \(dump [0-9a-f]{12}\) is available: the installed (?:lib)?godot_react_ui\.(?:dylib|so|dll) or its build stamp is missing\. Run `pnpm build:native` first\.$/u));
 });
 
 test('the library replaced after it was stamped is refused', async () => {
@@ -212,7 +217,7 @@ test('both refusals come at once, each with its own fix, before the engine line 
     assert.throws(() => skeleton.engine('stock').prepareNative(), (error: unknown) => {
       const lines = (error instanceof Error ? error.message : '').split('\n');
       assert.equal(lines.length, 2);
-      assert.match(lines[0] ?? '', /(?:lib)?godot_react_ui\.(?:dylib|so|dll) is bound to Godot API 4\.8\.0[^\n]*Run `pnpm build:native` first\.$/u);
+      assert.match(lines[0] ?? '', withHostLibrary(/(?:lib)?godot_react_ui\.(?:dylib|so|dll) is bound to Godot API 4\.8\.0[^\n]*Run `pnpm build:native` first\.$/u));
       assert.match(lines[1] ?? '', new RegExp(`^The installed godot-tsc addon is not the package's current build[^\\n]*Run \`${SETUP}\` first\\.$`, 'u'));
       return true;
     });
