@@ -43,6 +43,9 @@ pnpm exec godot-react-ui setup --project-dir path/to/your/godot/project
 package's `postinstall` does the same when it finds a `project.godot` above where you installed (pnpm 10 runs it only if `onlyBuiltDependencies`
 lists `godot-react-ui`). Open the project in the editor once afterwards, so Godot imports the extension.
 
+The installed addon stays out of your project's git, as `node_modules` does: `setup` writes `addons/godot-react-ui/.gitignore` (`*`), and an
+install on a fresh clone puts the addon back. If your project must commit the addon, delete that `.gitignore` after each install.
+
 ## Use
 
 ```tsx

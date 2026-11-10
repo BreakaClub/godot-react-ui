@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -126,6 +126,14 @@ function run() {
   mkdirSync(targetAddonDir, { recursive: true });
   cpSync(SOURCE_ADDON_DIR, targetAddonDir, { recursive: true, force: true });
   writeFileSync(stampFile, pkg.version, 'utf8');
+
+  // npm owns the addon, as it owns node_modules: the project's git leaves it out (the `*` covers the folder, this file included) and an
+  // install puts it back. Written here, not shipped, because npm leaves `.gitignore` files out of packages. Not in this package's own
+  // repository, whose demo tracks its addon: a `*` there would hide a new file from `git status`.
+  const withinPackage = relative(PACKAGE_ROOT, godotRoot);
+  if (withinPackage.startsWith('..') || isAbsolute(withinPackage)) {
+    writeFileSync(join(targetAddonDir, '.gitignore'), '# Installed by the godot-react-ui npm package (godot-react-ui setup); not committed.\n*\n', 'utf8');
+  }
 
   // Ensure node_modules has .gdignore
   const createdGdignore = ensureGdignore(godotRoot);

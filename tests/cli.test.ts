@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
@@ -62,6 +62,16 @@ test('cli setup in a mock Godot project installs addon, writes .version and ensu
     assert.equal(readFileSync(join(targetAddon, '.version'), 'utf8'), pkg.version);
     assert.ok(existsSync(join(mockNodeModules, '.gdignore')));
 
+    // The installed addon stays out of the project's git, the .gitignore with it; the project's own files do not.
+    assert.equal(spawnSync('git', ['init', '-q'], { cwd: mockDir }).status, 0);
+    const ignored = (path: string): boolean => spawnSync('git', ['check-ignore', '-q', path], { cwd: mockDir }).status === 0;
+    const binary = readdirSync(join(targetAddon, 'bin'))[0];
+    assert.ok(binary !== undefined, 'the packaged addon has a binary');
+    for (const path of ['addons/godot-react-ui/react_ui.gdextension', `addons/godot-react-ui/bin/${binary}`, 'addons/godot-react-ui/.version', 'addons/godot-react-ui/.gitignore']) {
+      assert.ok(ignored(path), `${path} is ignored`);
+    }
+    assert.ok(!ignored('project.godot'), 'the project\'s own files are not');
+
     // 2. Idempotent second run
     const secondResult = spawnSync('node', [cliPath, 'setup', '--project-dir', mockDir], { encoding: 'utf8' });
     assert.equal(secondResult.status, 0);
@@ -73,5 +83,19 @@ test('cli setup in a mock Godot project installs addon, writes .version and ensu
     assert.match(forcedResult.stdout, /Installed GDExtension/);
   } finally {
     rmSync(mockDir, { recursive: true, force: true });
+  }
+});
+
+test('cli setup into a project inside this package\'s own repository writes no .gitignore: the demo tracks its addon', () => {
+  const projectDir = join(root, 'artifacts', `cli-test-own-repository-${Date.now()}`);
+  mkdirSync(projectDir, { recursive: true });
+  writeFileSync(join(projectDir, 'project.godot'), '; Godot Project Config\n');
+  try {
+    const result = spawnSync('node', [cliPath, 'setup', '--project-dir', projectDir], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(existsSync(join(projectDir, 'addons', 'godot-react-ui', '.version')));
+    assert.ok(!existsSync(join(projectDir, 'addons', 'godot-react-ui', '.gitignore')));
+  } finally {
+    rmSync(projectDir, { recursive: true, force: true });
   }
 });
