@@ -1161,8 +1161,14 @@ impl ReactUiRoot {
             let current = self.mounted.nodes[&tag].paint_parent;
             if desired != current {
                 self.move_paint_item(tag, desired);
+                // Both lists change: the one it left and the one it joined. A node moved by an ancestor's change (its
+                // containing block went static or became positioned) is not in `explicit`, so its new painter is added
+                // here or its list never gains it: drawn, but never hit and missing from snapshots.
                 if let Some(previous) = current {
                     self.paint_dirty_parents.insert(previous);
+                }
+                if let Some(painter) = desired {
+                    self.paint_dirty_parents.insert(painter);
                 }
             }
             // Its z-index or position may have changed where it sorts, wherever it is painted.

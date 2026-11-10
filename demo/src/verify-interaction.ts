@@ -1422,6 +1422,23 @@ async function verifyPositioning(owner: Node, api: InteractionInspection, captur
   image = frameImage(owner);
   assert(paintIs(image, pointAB, STACK_B), `Lowering A restores the order: ${describePaint(image, pointAB)}`);
 
+  // Taking the container's position away moves the boxes' containing block to an ancestor, and giving it back moves it back: each
+  // time they are painted, hit and listed by the new one. (Moved by an ancestor's change, not their own, the boxes once kept their
+  // drawing but fell out of the new painter's list, so nothing hit them and the snapshot lost them.)
+  await click(api, 'pos-contain-toggle');
+  assert(nodeOf('pos-z-b').paintParent !== nodeOf('pos-stack').id, 'A static container does not paint its absolute boxes');
+  const loose = nodeOf('pos-z-b').rect;
+  assert(await hoveredAt(centerOf(loose)) === nodeOf('pos-z-b').id, 'A pointer reaches B where its new containing block places it');
+  await click(api, 'pos-contain-toggle');
+  assert(nodeOf('pos-z-a').paintParent === nodeOf('pos-stack').id && nodeOf('pos-z-b').paintParent === nodeOf('pos-stack').id,
+    'A container made relative again paints its absolute boxes');
+  assert(await hoveredAt(pointAB) === nodeOf('pos-z-b').id, 'A pointer over A and B reaches B again');
+  assert(await hoveredAt(pointC) === nodeOf('pos-z-c').id, 'And C where only C is');
+  assert(paintIndex('pos-z-c') < paintIndex('pos-z-a') && paintIndex('pos-z-a') < paintIndex('pos-z-b'),
+    'The stack paints C, A, B back to front again');
+  image = frameImage(owner);
+  assert(paintIs(image, pointAB, STACK_B), `And draws B over A: ${describePaint(image, pointAB)}`);
+
   // ---- Clipping: the containing block clips an absolute box; an ancestor in between does not; fixed is free -------
   const cell1 = rectOf('pos-clip-1');
   const wrap = rectOf('pos-clip-wrap');
@@ -1463,7 +1480,7 @@ async function verifyPositioning(owner: Node, api: InteractionInspection, captur
   const menuRect = rectOf('pos-menu');
   const laterRect = rectOf('pos-later');
   const closedStops = tabStops(api, 'pos-');
-  assert(closedStops.join(',') === 'pos-z-toggle,pos-menu,pos-later', `The lab's tab stops while closed: ${closedStops.join(',')}`);
+  assert(closedStops.join(',') === 'pos-z-toggle,pos-contain-toggle,pos-menu,pos-later', `The lab's tab stops while closed: ${closedStops.join(',')}`);
   assert(!api.find('pos-popover') && status().startsWith('open false'), `The popover starts closed: ${status()}`);
   await click(api, 'pos-menu');
   assert(status().startsWith('open true'), `The Menu button opens it: ${status()}`);
@@ -1492,7 +1509,7 @@ async function verifyPositioning(owner: Node, api: InteractionInspection, captur
   assert(await hoveredAt(overLater) === popover.id, 'And a pointer there reaches the popover');
   assert(await hoveredAt(centerOf(rectOf('pos-z-toggle'))) === backdrop.id, 'The backdrop takes the pointer from the main layer under it');
   const openStops = tabStops(api, 'pos-');
-  assert(openStops.join(',') === 'pos-z-toggle,pos-menu,pos-later,pos-item-rename,pos-item-duplicate,pos-item-delete',
+  assert(openStops.join(',') === 'pos-z-toggle,pos-contain-toggle,pos-menu,pos-later,pos-item-rename,pos-item-duplicate,pos-item-delete',
     `Overlay stops come after every main stop, in document order: ${openStops.join(',')}`);
   await capture('21-positioning-popover');
 
@@ -1508,7 +1525,7 @@ async function verifyPositioning(owner: Node, api: InteractionInspection, captur
     await tap({ keycode: Key.KeyTab });
     visited.push(focusedTestID());
   }
-  assert(visited.join(',') === 'pos-later,pos-item-rename,pos-item-duplicate,pos-item-delete,pos-z-toggle',
+  assert(visited.join(',') === 'pos-later,pos-item-rename,pos-item-duplicate,pos-item-delete,pos-z-toggle,pos-contain-toggle',
     `Tab walks the main stops, then the popover's, then wraps: ${visited.join(',')}`);
 
   // A click where a popover item lies over the later button is the item's, not the later button's; the
