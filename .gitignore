@@ -7,6 +7,8 @@ release/
 demo/.godot/
 demo/addons/godot-react-ui/bin/
 artifacts/
+# The stock engine CI builds and caches (.github/workflows/deploy-demo.yml)
+.stock-engine-*/
 .wrangler/
 .DS_Store
 demo/gen/godot/addons/godot-react-ui/bin/

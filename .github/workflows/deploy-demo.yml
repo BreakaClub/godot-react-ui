@@ -25,7 +25,8 @@ concurrency:
 env:
   # The commit to deploy: the one CI passed, or the head of the branch a run by hand names.
   DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
-  STOCK_ENGINE: ${{ github.workspace }}/../stock-engine
+  # Inside the workspace: actions/cache refuses a path with `..` in it (and its save only warns, so the restore is what fails). Git ignores it.
+  STOCK_ENGINE: ${{ github.workspace }}/.stock-engine
   # The stock profile's Web toolchain, as build.yml's Web job and scripts/engine.mjs pin it.
   EMSCRIPTEN_VERSION: 4.0.11
   WEB_NIGHTLY: nightly-2026-05-15
