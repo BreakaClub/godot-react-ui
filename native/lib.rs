@@ -120,7 +120,7 @@ use pointer::{
     DOM_BUTTON_NONE, DOM_BUTTON_PRIMARY, KEYBOARD_POINTER_ID, MOUSE_POINTER_ID, cursor_shape,
     dom_buttons,
 };
-use pointer_state::{ClickCounter, PointerTable};
+use pointer_state::{ClickCounter, PointerTable, TouchIds};
 use profile::{Profiler, micros};
 use props::{PseudoState, TransitionProperty, Viewport};
 use render_tree::{Oversampling, RingKey, RootItem};
@@ -268,6 +268,8 @@ pub struct ReactUiRoot {
     pointer_modifiers: Modifiers,
     /// Every pointer that is down, with its capture, and the click counts.
     pointers: PointerTable,
+    /// The pointer id of each finger that is down, by Godot touch index.
+    touch_ids: TouchIds,
     clicks: ClickCounter,
     stats: Stats,
     /// The accessibility elements this root has made for assistive technologies.
@@ -357,6 +359,7 @@ impl IControl for ReactUiRoot {
             pointer_buttons: 0,
             pointer_modifiers: Modifiers::default(),
             pointers: PointerTable::default(),
+            touch_ids: TouchIds::default(),
             clicks: ClickCounter::default(),
             stats: Stats::default(),
             accessibility: Accessibility::default(),

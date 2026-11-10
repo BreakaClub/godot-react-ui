@@ -16,7 +16,7 @@ use crate::pointer::{
     DOM_BUTTON_NONE, DOM_BUTTON_PRIMARY, DOM_BUTTON_SECONDARY, DOM_BUTTONS_PRIMARY,
     MOUSE_POINTER_ID, click_target_of, dom_button_of, wheel_ticks,
 };
-use crate::pointer_state::{Capture, PointerKind, Press, touch_pointer_id};
+use crate::pointer_state::{Capture, PointerKind, Press};
 use crate::scroll::{ScrollInput, Vec2, wheel_factor};
 use crate::{ROOT_TARGET, ReactUiRoot, event_time_ms, modifiers_of};
 
@@ -437,8 +437,16 @@ impl ReactUiRoot {
     }
 
     pub(crate) fn handle_touch(&mut self, touch: &Gd<InputEventScreenTouch>) {
-        let Some(id) = touch_pointer_id(touch.get_index()) else {
-            return;
+        let index = touch.get_index();
+        let id = if touch.is_pressed() {
+            self.touch_ids.press(index)
+        } else {
+            // A finger lifting that this root never saw go down is not its to handle.
+            let Some(id) = self.touch_ids.get(index) else {
+                return;
+            };
+            self.touch_ids.lift(index);
+            id
         };
         let position = touch.get_position();
         if touch.is_pressed() {
@@ -466,7 +474,7 @@ impl ReactUiRoot {
     /// A finger moved. Its events go to the element that captured it (its `pointerdown` target
     /// unless an element took the capture), wherever the finger is.
     pub(crate) fn handle_touch_drag(&mut self, drag: &Gd<InputEventScreenDrag>) {
-        let Some(id) = touch_pointer_id(drag.get_index()) else {
+        let Some(id) = self.touch_ids.get(drag.get_index()) else {
             return;
         };
         // A finger that selected a word by a long press, or drags a handle, is the selection's. One still waiting to be a long press

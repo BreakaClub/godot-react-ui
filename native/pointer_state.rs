@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 
 use godot::prelude::Vector2;
 
-/// Browsers report the mouse as pointer 1; touches follow, one id per Godot touch index.
+/// Browsers report the mouse as pointer 1; touches follow, from this id up, one per finger that is down.
 /// Pointer 0 is reserved for synthetic keyboard activation (`pointer::KEYBOARD_POINTER_ID`).
 pub(crate) const TOUCH_POINTER_ID_BASE: u32 = 2;
 /// A press continues a click sequence if it follows the previous one within this long. The common OS
@@ -22,11 +22,41 @@ pub(crate) enum PointerKind {
     Touch,
 }
 
-/// The pointer id of Godot touch `index`, or `None` for a negative index (Godot never sends one).
-pub(crate) fn touch_pointer_id(index: i32) -> Option<u32> {
-    u32::try_from(index)
-        .ok()
-        .and_then(|index| TOUCH_POINTER_ID_BASE.checked_add(index))
+/// The pointer id of each finger that is down, by its Godot touch index.
+///
+/// A touch index is whatever the platform calls the finger, not a small count: Godot's Web
+/// platform passes the browser's `Touch.identifier` through as the index
+/// (`platform/web/js/libs/library_godot_input.js`, as an `i32`), and Safari on an iPad gives
+/// identifiers that are large, and negative once read as an `i32`. So a finger is given the
+/// lowest free pointer id when it goes down, keeps it until it lifts, and any index is accepted.
+#[derive(Debug, Default)]
+pub(crate) struct TouchIds {
+    by_index: BTreeMap<i32, u32>,
+}
+
+impl TouchIds {
+    /// The pointer id of the finger going down at `index`: the one it already has, or the lowest free one.
+    pub(crate) fn press(&mut self, index: i32) -> u32 {
+        if let Some(&id) = self.by_index.get(&index) {
+            return id;
+        }
+        let mut id = TOUCH_POINTER_ID_BASE;
+        while self.by_index.values().any(|&taken| taken == id) {
+            id += 1;
+        }
+        self.by_index.insert(index, id);
+        id
+    }
+
+    /// The pointer id of the finger at `index`, or `None` if no finger is down there.
+    pub(crate) fn get(&self, index: i32) -> Option<u32> {
+        self.by_index.get(&index).copied()
+    }
+
+    /// The finger at `index` has lifted (or was cancelled): its pointer id is free again.
+    pub(crate) fn lift(&mut self, index: i32) {
+        self.by_index.remove(&index);
+    }
 }
 
 /// Where a pointer's events go regardless of what lies under it.
@@ -366,14 +396,20 @@ mod tests {
     }
 
     #[test]
-    fn touch_ids_follow_the_base_and_reject_negative_indices() {
-        assert_eq!(touch_pointer_id(0), Some(TOUCH_POINTER_ID_BASE));
-        assert_eq!(touch_pointer_id(3), Some(TOUCH_POINTER_ID_BASE + 3));
-        assert_eq!(touch_pointer_id(-1), None);
-        assert_eq!(
-            touch_pointer_id(i32::MAX),
-            Some(TOUCH_POINTER_ID_BASE + i32::MAX as u32)
-        );
+    fn touch_ids_give_each_finger_down_the_lowest_free_id_whatever_its_index() {
+        let mut ids = TouchIds::default();
+        // Safari's identifiers, read as an i32, can be large or negative.
+        let first = ids.press(-1_441_129_248);
+        let second = ids.press(i32::MAX);
+        assert_eq!(first, TOUCH_POINTER_ID_BASE);
+        assert_eq!(second, TOUCH_POINTER_ID_BASE + 1);
+        assert_eq!(ids.press(-1_441_129_248), first, "a finger already down keeps its id");
+        assert_eq!(ids.get(i32::MAX), Some(second));
+        assert_eq!(ids.get(7), None, "no finger is down at 7");
+        ids.lift(-1_441_129_248);
+        assert_eq!(ids.get(-1_441_129_248), None);
+        assert_eq!(ids.press(0), TOUCH_POINTER_ID_BASE, "a lifted finger's id is free again");
+        assert_eq!(ids.press(-1), TOUCH_POINTER_ID_BASE + 2);
     }
 
     #[test]
@@ -463,7 +499,7 @@ mod tests {
             "the mouse stays known"
         );
 
-        let touch = touch_pointer_id(0).unwrap();
+        let touch = TOUCH_POINTER_ID_BASE + 0;
         table.press(
             touch,
             PointerKind::Touch,
@@ -594,7 +630,7 @@ mod tests {
     #[test]
     fn only_a_capture_an_element_asked_for_counts_as_js_taking_the_pointer() {
         let mut table = PointerTable::default();
-        let touch = touch_pointer_id(0).unwrap();
+        let touch = TOUCH_POINTER_ID_BASE + 0;
         assert!(
             !table.captured_by_js(MOUSE),
             "an unknown pointer is nobody's"
@@ -662,7 +698,7 @@ mod tests {
         assert!(!table.has_capture(MOUSE, 5));
         table.release_capture(MOUSE, 5);
 
-        let touch = touch_pointer_id(1).unwrap();
+        let touch = TOUCH_POINTER_ID_BASE + 1;
         table.press(
             touch,
             PointerKind::Touch,
@@ -728,7 +764,7 @@ mod tests {
             "without capture, the press target"
         );
 
-        let touch = touch_pointer_id(0).unwrap();
+        let touch = TOUCH_POINTER_ID_BASE + 0;
         table.press(
             touch,
             PointerKind::Touch,
@@ -764,8 +800,8 @@ mod tests {
             })
         );
         assert!(table.touch_targets().is_empty(), "the mouse is not a touch");
-        let first = touch_pointer_id(0).unwrap();
-        let second = touch_pointer_id(1).unwrap();
+        let first = TOUCH_POINTER_ID_BASE + 0;
+        let second = TOUCH_POINTER_ID_BASE + 1;
         table.press(
             first,
             PointerKind::Touch,
@@ -808,7 +844,7 @@ mod tests {
             press(8),
         );
         table.set_capture(MOUSE, 8, true).unwrap();
-        let touch = touch_pointer_id(0).unwrap();
+        let touch = TOUCH_POINTER_ID_BASE + 0;
         table.press(
             touch,
             PointerKind::Touch,
