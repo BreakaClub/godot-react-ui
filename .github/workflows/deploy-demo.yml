@@ -164,6 +164,28 @@ jobs:
           pnpm build
           "$GODOT" --headless --audio-driver Dummy --editor --import --path demo
 
+      # The font slices a release carries (the manifest and its licence) and the deploy uploads: built from pinned downloads with fontTools in a
+      # virtual environment, the same bytes every time, so the cache only saves the time.
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+
+      - id: font-slices
+        uses: actions/cache/restore@v6
+        with:
+          path: artifacts/font-slices/dist
+          key: font-slices-${{ hashFiles('scripts/build-font-slices.mjs', 'scripts/font-slices/**') }}
+
+      - name: Font slices
+        if: steps.font-slices.outputs.cache-hit != 'true'
+        run: node scripts/build-font-slices.mjs
+
+      - uses: actions/cache/save@v6
+        if: steps.font-slices.outputs.cache-hit != 'true'
+        with:
+          path: artifacts/font-slices/dist
+          key: font-slices-${{ hashFiles('scripts/build-font-slices.mjs', 'scripts/font-slices/**') }}
+
       - name: Build the side module and export the release
         run: |
           test -n "${EMSDK:-}" || { echo "setup-emsdk did not set EMSDK: the build needs the SDK's root"; exit 1; }
