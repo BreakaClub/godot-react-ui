@@ -471,6 +471,7 @@ mod tests {
     use super::*;
     use crate::grid_style::GridTemplateSpec;
     use crate::props::{AlignSpec, Dimension, FlexDirectionSpec, JustifySpec, TransitionProperty};
+    use crate::text_style::PaintOrderSpec;
 
     const WIDE: f32 = 1120.0;
     const NARROW: f32 = 600.0;
@@ -734,6 +735,44 @@ mod tests {
             computed(&layers, WIDE, &[]).display,
             Some(DisplaySpec::Grid)
         );
+    }
+
+    #[test]
+    fn a_text_stroke_flows_down_the_tree_and_a_later_layer_takes_it_away() {
+        let root = InheritedStyle::default();
+        let stroked = layers(
+            r##"{"layers":[
+                {"style":{"WebkitTextStrokeWidth":4,"WebkitTextStrokeColor":"#ffffff","paintOrder":"stroke"}},
+                {"states":["hover"],"style":{"WebkitTextStrokeWidth":0,"paintOrder":"normal"}}
+            ]}"##,
+        );
+        let hovered = conditions(WIDE, &[PseudoState::Hover]);
+        let parent = resolve(
+            Kind::View,
+            Some(&stroked),
+            false,
+            &root,
+            &conditions(WIDE, &[]),
+        );
+        assert_eq!(parent.text_stroke_width, Some(4.0));
+        let none = StyleLayers::default();
+        let child = resolve(
+            Kind::Text,
+            Some(&none),
+            false,
+            &parent.inherited(),
+            &conditions(WIDE, &[]),
+        );
+        assert_eq!(child.text_stroke_width, Some(4.0));
+        assert_eq!(child.text_stroke_color.as_deref(), Some("#ffffff"));
+        assert_eq!(child.paint_order, Some(PaintOrderSpec::Stroke));
+        let off = resolve(Kind::View, Some(&stroked), false, &root, &hovered);
+        let child = resolve(Kind::Text, Some(&none), false, &off.inherited(), &hovered);
+        assert_eq!(child.text_stroke_width, Some(0.0));
+        assert_eq!(child.paint_order, Some(PaintOrderSpec::Normal));
+        child
+            .validate()
+            .expect("the computed style of validated layers is valid");
     }
 
     #[test]

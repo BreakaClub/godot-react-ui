@@ -107,6 +107,22 @@ test('tracking classes', () => {
   }
 });
 
+test('text stroke longhands reach native under their CSS names, and a later style replaces an earlier one', () => {
+  assert.deepEqual(
+    style('', { WebkitTextStrokeWidth: 4, WebkitTextStrokeColor: '#ffffff', paintOrder: 'stroke' }),
+    { WebkitTextStrokeWidth: 4, WebkitTextStrokeColor: '#ffffff', paintOrder: 'stroke' },
+  );
+  // Native accepts `normal` only with a zero width, which is how a style takes a stroke away.
+  assert.deepEqual(
+    style('', [{ WebkitTextStrokeWidth: 4, paintOrder: 'stroke' }, { WebkitTextStrokeWidth: 0, paintOrder: 'normal' }]),
+    { WebkitTextStrokeWidth: 0, paintOrder: 'normal' },
+  );
+  // A state layer is its own layer: it carries the pair native validates.
+  const [base, hover] = compileStyle('hover:uppercase', { WebkitTextStrokeWidth: 2, paintOrder: 'stroke' }).layers;
+  assert.deepEqual(base?.states, ['hover']);
+  assert.deepEqual(hover?.style, { WebkitTextStrokeWidth: 2, paintOrder: 'stroke' });
+});
+
 test('case classes', () => {
   assert.deepEqual(style('uppercase'), { textTransform: 'uppercase' });
   assert.deepEqual(style('lowercase'), { textTransform: 'lowercase' });

@@ -24,9 +24,9 @@ use crate::text_layout::{
 use crate::text_span::RichText;
 use crate::text_span::offsets::OffsetMap;
 use crate::text_span::plan::fragments;
-use crate::text_style::TextDecoration;
 use crate::text_style::metrics::LineBox;
 use crate::text_style::resolve::{Alignment, LineHeight, ShapingStyle, Wrapping};
+use crate::text_style::{TextDecoration, TextStroke};
 
 /// CSS `tab-size` initial value: a tab advances to the next multiple of this many spaces.
 const TAB_SIZE_SPACES: f32 = 8.0;
@@ -57,6 +57,8 @@ pub(crate) struct StyledParagraph {
     line_box: Option<LineBox>,
     /// The decoration lines drawn over the text.
     decorations: Vec<TextDecoration>,
+    /// The stroke drawn under the glyphs, if the style has one. It is paint only: shaping and measuring never read it.
+    stroke: Option<draw::StrokePaint>,
     /// The spans of a text made of nested `Text`: its fonts, colours, backgrounds and decorations per fragment. With them the
     /// decorations are the segments' (the node's own are in each), and `decorations` is empty.
     rich: Option<Rc<rich::RichParagraph>>,
@@ -190,6 +192,7 @@ impl StyledParagraph {
             style: style.clone(),
             line_box,
             decorations: Vec::new(),
+            stroke: None,
             rich,
             plain_text,
             shaped: RefCell::new(None),
@@ -260,6 +263,16 @@ impl StyledParagraph {
     /// Replace the decoration lines; the shaping does not change.
     pub(crate) fn set_decorations(&mut self, decorations: Vec<TextDecoration>) {
         self.decorations = decorations;
+    }
+
+    /// Replace the stroke under the glyphs; the shaping does not change, and neither does the size of the text.
+    pub(crate) fn set_stroke(&mut self, stroke: Option<&TextStroke>) {
+        self.stroke = stroke.map(draw::StrokePaint::of);
+    }
+
+    /// How far past the text's box what is drawn reaches on every side, px: the stroke's.
+    pub(crate) fn ink_reach(&self) -> f32 {
+        self.stroke.map_or(0.0, |stroke| stroke.reach)
     }
 
     /// A copy that shares nothing with this one, for a layout probe that must not disturb what is drawn.
@@ -616,28 +629,62 @@ impl StyledParagraph {
             fonts: &fonts,
         };
         // Where each line starts: `TextLayout` places them with this, and the lines after a final hard break (which has nothing to draw)
-        // come after the ones drawn.
-        let origins = place_lines(
+        // come after the ones drawn. The baseline is on a device pixel, as a browser draws it.
+        let baselines: Vec<Vector2> = place_lines(
             origin,
             shaped.facts.width,
             shaped.facts.alignment,
             shaped.facts.line_spacing,
             &shaped.facts.lines,
-        );
-        for (index, (line, line_origin)) in shaped.lines.iter().zip(origins).enumerate() {
-            // The baseline is on a device pixel, as a browser draws it.
-            let position = Vector2::new(
+        )
+        .into_iter()
+        .map(|line_origin| {
+            Vector2::new(
                 line_origin.x,
                 (line_origin.y * oversampling).round() / oversampling,
-            );
+            )
+        })
+        .collect();
+        let line_rid = |index: usize| -> Result<Rid, String> {
+            Ok(self
+                .paragraph
+                .get_line_rid(i32::try_from(index).map_err(|error| error.to_string())?))
+        };
+        // Every line's stroke goes down before any line's fill, so one line's stroke never covers a neighbour's glyphs.
+        if let Some(stroke) = self.stroke {
+            for (index, (line, position)) in shaped.lines.iter().zip(&baselines).enumerate() {
+                if glyphwise {
+                    draw::draw_glyphs(
+                        &mut server,
+                        *position,
+                        (-1.0, -1.0),
+                        &drawing,
+                        line,
+                        draw::Ink::Stroke(stroke),
+                    )?;
+                } else {
+                    server
+                        .shaped_text_draw_outline_ex(line_rid(index)?, canvas, *position)
+                        .outline_size(stroke.outline_size)
+                        .color(stroke.color_around(color))
+                        .oversampling(oversampling)
+                        .done();
+                }
+            }
+        }
+        for (index, (line, position)) in shaped.lines.iter().zip(&baselines).enumerate() {
             if glyphwise {
-                draw::draw_glyphs(&mut server, position, (-1.0, -1.0), &drawing, line)?;
+                draw::draw_glyphs(
+                    &mut server,
+                    *position,
+                    (-1.0, -1.0),
+                    &drawing,
+                    line,
+                    draw::Ink::Fill,
+                )?;
             } else {
-                let rid = self
-                    .paragraph
-                    .get_line_rid(i32::try_from(index).map_err(|error| error.to_string())?);
                 server
-                    .shaped_text_draw_ex(rid, canvas, position)
+                    .shaped_text_draw_ex(line_rid(index)?, canvas, *position)
                     .color(color)
                     .oversampling(oversampling)
                     .done();

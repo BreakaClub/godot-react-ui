@@ -98,6 +98,11 @@ export type OverflowWrap = 'normal' | 'break-word' | 'anywhere';
 export type NumericFigure = 'normal' | 'lining' | 'oldstyle';
 export type NumericSpacing = 'normal' | 'proportional' | 'tabular';
 export type NumericFraction = 'normal' | 'diagonal' | 'stacked';
+/**
+ * CSS `paint-order` for text. `stroke` paints the stroke under the fill. `normal` (CSS's initial value) paints it over the
+ * fill, which cannot be drawn here, so a stroke needs `stroke`.
+ */
+export type PaintOrder = 'normal' | 'stroke';
 export type Cursor =
   | 'default' | 'pointer' | 'text' | 'move' | 'grab' | 'grabbing' | 'not-allowed' | 'crosshair'
   | 'wait' | 'progress' | 'help' | 'ew-resize' | 'ns-resize' | 'nesw-resize' | 'nwse-resize';
@@ -243,6 +248,22 @@ export interface Style {
   ordinal?: boolean;
   /** Inherited. OpenType `zero`. */
   slashedZero?: boolean;
+  /**
+   * Inherited. CSS `-webkit-text-stroke-width`: px, finite and not negative; `0` (the default) is no stroke. The stroke is
+   * centred on the glyph's edge, as in CSS, so half the width lies outside the glyph. It is drawn with the text server's
+   * outline, whose size is a whole number of quarter px, so the width is kept to the nearest half px (and a positive width
+   * to at least that). It needs `paintOrder: 'stroke'` in the same style. It is painted only: it does not change the text's
+   * size or its layout, and the ink may extend past the element's box. A nested `<Text>` takes its parent's.
+   */
+  WebkitTextStrokeWidth?: number;
+  /** Inherited. The stroke's colour; the text colour (`currentcolor`) when not set, which for a nested `<Text>` is its own. */
+  WebkitTextStrokeColor?: HexColor;
+  /**
+   * Inherited. `stroke` draws the stroke first and the fill over it (a white edge behind ink-coloured glyphs).
+   * `normal` is CSS's default and draws the stroke over the fill, which is refused: a style that sets it must also set
+   * `WebkitTextStrokeWidth: 0`, and a style that sets a stroke width above 0 must set `stroke`.
+   */
+  paintOrder?: PaintOrder;
   /** All four corners. `borderTopLeftRadius` and the other corners win over it, in the same style or a later one. */
   borderRadius?: number;
   borderTopLeftRadius?: number;

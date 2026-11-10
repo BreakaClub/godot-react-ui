@@ -25,6 +25,7 @@ import { PositioningLab } from './positioning-lab';
 import { RichTextLab } from './rich-text-lab';
 import { ScrollLab } from './scroll-lab';
 import { SelectionLab } from './selection-lab';
+import { TextStrokeLab } from './text-stroke-lab';
 import { TextStylesLab } from './text-styles-lab';
 import { TouchSelectionLab } from './touch-selection-lab';
 import { TransformLab } from './transform-lab';
@@ -181,6 +182,11 @@ export const LABS = defineLabs([
     id: 'text-styles', kind: 'inline', group: 'Text', title: 'Text styles',
     description: 'Font families, weights, italics, tracking, leading, decoration, wrapping, overflow and numerals.',
     component: TextStylesLab, sources: ['res://src/text-styles-lab.tsx'],
+  },
+  {
+    id: 'text-stroke', kind: 'inline', group: 'Text', title: 'Text stroke',
+    description: 'A stroke round the glyphs, drawn under them: a white edge behind black words, the text colour, and runs with colours of their own.',
+    component: TextStrokeLab, sources: ['res://src/text-stroke-lab.tsx'],
   },
   {
     id: 'rich-text', kind: 'inline', group: 'Text', title: 'Rich text',

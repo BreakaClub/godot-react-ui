@@ -1067,9 +1067,8 @@ impl ReactUiRoot {
             .nodes
             .remove(&tag)
             .expect("a planned deletion names a mounted node");
-        self.tree
-            .remove(node.layout)
-            .expect("a deleted node has a layout node");
+        // Not removed from the layout tree yet: a hidden containing block may still name it (`DeletedLayouts`).
+        self.deleted_layouts.hold(node.layout);
         self.mounted
             .breakpoints
             .unregister(tag, node.props.style.as_ref());
@@ -1163,8 +1162,14 @@ impl ReactUiRoot {
             let current = self.mounted.nodes[&tag].paint_parent;
             if desired != current {
                 self.move_paint_item(tag, desired);
+                // Both lists change: the one it left and the one it joined. A node moved by an ancestor's change (its
+                // containing block went static or became positioned) is not in `explicit`, so its new painter is added
+                // here or its list never gains it: drawn, but never hit and missing from snapshots.
                 if let Some(previous) = current {
                     self.paint_dirty_parents.insert(previous);
+                }
+                if let Some(painter) = desired {
+                    self.paint_dirty_parents.insert(painter);
                 }
             }
             // Its z-index or position may have changed where it sorts, wherever it is painted.
@@ -1265,7 +1270,7 @@ impl ReactUiRoot {
         let epoch = self.fonts.epoch();
         // Spans that change only what is painted (a colour, a background, a decoration) leave the shaped paragraph as it is.
         let rich = match rich {
-            Some(rich) => match self.repaint_rich_paragraph(tag, rich, &style.shaping, epoch) {
+            Some(rich) => match self.repaint_rich_paragraph(tag, rich, &style, epoch) {
                 Ok(()) => return false,
                 Err(rich) => Some(*rich),
             },
@@ -1274,7 +1279,12 @@ impl ReactUiRoot {
         // What the paragraph was missing is found out afresh as it is shaped.
         self.forget_missing_glyphs(tag);
         let paragraph = match rich {
-            Some(rich) => self.shape_rich(tag, rich, &style.shaping, epoch),
+            Some(rich) => self
+                .shape_rich(tag, rich, &style.shaping, epoch)
+                .map(|mut paragraph| {
+                    paragraph.set_stroke(style.stroke.as_ref());
+                    paragraph
+                }),
             None => {
                 let font = self
                     .fonts
@@ -1284,6 +1294,7 @@ impl ReactUiRoot {
                 (!shown.is_empty()).then(|| {
                     let mut paragraph = StyledParagraph::build(&shown, &style.shaping, font);
                     paragraph.set_decorations(style.decorations);
+                    paragraph.set_stroke(style.stroke.as_ref());
                     paragraph
                 })
             }
@@ -1322,13 +1333,13 @@ impl ReactUiRoot {
         had || has
     }
 
-    /// Give a node's paragraph the spans `rich` resolved, if shaping them gives what it already holds. Hands `rich` back when the
-    /// paragraph has to be shaped again.
+    /// Give a node's paragraph the spans `rich` resolved and the stroke of `style`, if shaping the spans gives what it already holds.
+    /// Hands `rich` back when the paragraph has to be shaped again.
     fn repaint_rich_paragraph(
         &mut self,
         tag: u32,
         rich: RichText,
-        style: &ShapingStyle,
+        style: &TextStyle,
         epoch: u64,
     ) -> Result<(), Box<RichText>> {
         let node = self
@@ -1339,7 +1350,8 @@ impl ReactUiRoot {
         let Some(paragraph) = node.visual.paragraph.as_mut() else {
             return Err(Box::new(rich));
         };
-        paragraph.repaint_rich(rich, style, epoch)?;
+        paragraph.repaint_rich(rich, &style.shaping, epoch)?;
+        paragraph.set_stroke(style.stroke.as_ref());
         self.paragraph_generation += 1;
         node.visual.generation = self.paragraph_generation;
         self.paint_dirty.insert(tag);

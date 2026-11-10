@@ -24,6 +24,7 @@ import { RichTextLab, richTextHandles, type RichTextLabProps } from './rich-text
 import { installDemoFontSlices, type DemoFontSlices } from './font-fallback';
 import { FontSlicesLab, type FontSlicesLabProps } from './font-slices-lab';
 import { currentFontSlices, installedFontSlices } from './font-slices-store';
+import { TextStrokeLab } from './text-stroke-lab';
 import { TextStylesLab } from './text-styles-lab';
 import { observeInputFailure, runVerification } from './verify';
 import { BenchmarkApp, type BenchmarkProps } from './benchmark';
@@ -264,6 +265,8 @@ export default class Main extends Node {
       /** The filters lab: rendered again with new props, so a change is an ordinary commit. */
       /** One page of the text styles lab (`text-styles-data.ts`). */
       showTextStyles: (page: string) => this.requireRenderer().render(createElement(TextStylesLab, { page })),
+      /** One case of the text stroke lab (`text-stroke-lab.tsx`) bare, at the root's corner. */
+      showTextStroke: (strokeCase: string) => this.requireRenderer().render(createElement(TextStrokeLab, { case: strokeCase })),
       /** One page of the rich text lab (`rich-text-data.ts`) bare, with the tone its changing samples have; rendered again with another tone it is an ordinary commit. */
       showRichText: (props: RichTextLabProps) => this.requireRenderer().render(createElement(RichTextLab, props)),
       showFontSlices: (props: FontSlicesLabProps) => this.requireRenderer().render(createElement(FontSlicesLab, props)),

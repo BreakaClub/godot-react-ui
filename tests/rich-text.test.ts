@@ -127,6 +127,12 @@ test('what is still an error says why', () => {
   assert.throws(() => render(h(Text, { inlay: true }, 'x')), /inlay is only valid on a <Text> nested in another <Text>/);
   assert.throws(() => render(h(Text, null, 'a', h(Text, { onClick() {} }, 'b'))), /onClick cannot be set on a nested <Text>/);
   assert.throws(() => render(h(Text, null, 'a', h(Text, { testID: 'x' }, 'b'))), /testID cannot be set on a nested <Text>/);
+  // A nested Text strokes with its parent's stroke: the stroke is not one of the longhands a span sets.
+  assert.throws(
+    () => render(h(Text, null, 'a', h(Text, { style: { WebkitTextStrokeWidth: 2, paintOrder: 'stroke' } }, 'b'))),
+    /WebkitTextStrokeWidth cannot be set on a nested <Text>/,
+  );
+  assert.throws(() => render(h(Text, null, 'a', h(Text, { style: { paintOrder: 'stroke' } }, 'b'))), /paintOrder cannot be set on a nested <Text>/);
   assert.throws(() => render(h(Text, null, 'a', h(Text, { className: 'p-2' }, 'b'))), /paddingTop cannot be set on a nested <Text>|padding\w* cannot be set/);
   assert.throws(() => render(h(Text, null, 'a', h(Text, { className: 'hover:text-red-500' }, 'b'))), /cannot use a breakpoint or a state/);
   assert.throws(() => render(h(Text, null, 'a', h(Text, { className: 'md:font-bold' }, 'b'))), /cannot use a breakpoint or a state/);

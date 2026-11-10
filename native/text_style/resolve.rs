@@ -4,8 +4,9 @@
 use super::spec::{
     DecorationLines, DecorationStyleSpec, DecorationThickness, DecorationThicknessSpec,
     FontStyleSpec, LetterSpacingSpec, LineClampSpec, LineHeightSpec, LineHeightValue,
-    NumericFigureSpec, NumericFractionSpec, NumericSpacingSpec, OverflowWrapSpec, TextLength,
-    TextOverflowSpec, TextTransformSpec, UnderlineOffsetSpec, WhiteSpaceSpec, WordBreakSpec,
+    NumericFigureSpec, NumericFractionSpec, NumericSpacingSpec, OverflowWrapSpec, PaintOrderSpec,
+    TextLength, TextOverflowSpec, TextTransformSpec, UnderlineOffsetSpec, WhiteSpaceSpec,
+    WordBreakSpec,
 };
 use crate::DEFAULT_FONT_SIZE;
 use crate::props::{PositionSpec, StyleSpec, TextAlignSpec};
@@ -44,6 +45,9 @@ pub struct InheritedText {
     numeric_fraction: Option<NumericFractionSpec>,
     ordinal: Option<bool>,
     slashed_zero: Option<bool>,
+    text_stroke_width: Option<f32>,
+    text_stroke_color: Option<String>,
+    paint_order: Option<PaintOrderSpec>,
     decorations: Vec<TextDecoration>,
 }
 
@@ -66,6 +70,9 @@ impl InheritedText {
             numeric_fraction: style.numeric_fraction,
             ordinal: style.ordinal,
             slashed_zero: style.slashed_zero,
+            text_stroke_width: style.text_stroke_width,
+            text_stroke_color: style.text_stroke_color.clone(),
+            paint_order: style.paint_order,
             decorations: style.text_decorations.clone(),
         }
     }
@@ -87,6 +94,9 @@ impl InheritedText {
         style.numeric_fraction = self.numeric_fraction;
         style.ordinal = self.ordinal;
         style.slashed_zero = self.slashed_zero;
+        style.text_stroke_width = self.text_stroke_width;
+        style.text_stroke_color = self.text_stroke_color.clone();
+        style.paint_order = self.paint_order;
         style.text_decorations = self.decorations.clone();
     }
 }
@@ -198,11 +208,48 @@ pub struct ShapingStyle {
     pub features: Vec<Feature>,
 }
 
+/// The share of a CSS stroke's width that lies outside the glyph: CSS centres the stroke on the glyph's edge, so half of it does.
+const STROKE_WIDTH_OUTSIDE_GLYPH: f32 = 0.5;
+
+/// How far past the glyph the text server's outline reaches, in px, per unit of its `outline_size`: a quarter. The server strokes
+/// the glyph with FreeType's stroker, whose radius it sets to `outline_size * 16` in 26.6 fixed point, which is `outline_size / 4`
+/// px (`text_server_adv.cpp`, `FT_Stroker_Set` in `_ensure_glyph`). `outline_size` is not a distance in px; the stroke text verifier
+/// reads the reach off the raster and holds it to this (`demo/src/verify-text-stroke.ts`).
+const OUTLINE_REACH_PX_PER_SIZE: f32 = 0.25;
+
+/// A stroke around the glyphs (`-webkit-text-stroke`), drawn under the fill (`paint-order: stroke`), which is how Godot draws
+/// an outline. It is painted, not shaped: it does not change the text's size, as in CSS.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextStroke {
+    /// px, CSS's `-webkit-text-stroke-width`; above zero.
+    pub width: f32,
+    /// The stroke's colour; `None` is `currentcolor`, the colour each glyph is drawn in.
+    pub color: Option<String>,
+}
+
+impl TextStroke {
+    /// The `outline_size` Godot's text server draws the stroke with, a whole number because that is what the server takes. The stroke
+    /// reaches half its CSS width outside the glyph (`STROKE_WIDTH_OUTSIDE_GLYPH`) and the server's outline reaches a quarter px per
+    /// unit (`OUTLINE_REACH_PX_PER_SIZE`), so the size is twice the width, rounded (the width is kept to the nearest half px) and at
+    /// least 1: a positive width is always visible.
+    pub fn outline_size(&self) -> i64 {
+        let size = self.width * STROKE_WIDTH_OUTSIDE_GLYPH / OUTLINE_REACH_PX_PER_SIZE;
+        size.round().max(1.0) as i64
+    }
+
+    /// How far past the glyph the stroke is drawn, px.
+    pub fn reach(&self) -> f32 {
+        self.outline_size() as f32 * OUTLINE_REACH_PX_PER_SIZE
+    }
+}
+
 /// What painting adds to the shaped text.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextStyle {
     pub shaping: ShapingStyle,
     pub decorations: Vec<TextDecoration>,
+    /// `None` when the width is zero.
+    pub stroke: Option<TextStroke>,
 }
 
 impl TextStyle {
@@ -265,8 +312,25 @@ impl TextStyle {
                 features: features_of(style, letter_spacing != 0.0),
             },
             decorations: style.text_decorations.clone(),
+            stroke: stroke_of(style),
         }
     }
+}
+
+/// The stroke of a computed style. Layers are validated to set a width above zero only with `paint-order: stroke`, and to set
+/// `normal` only with a width of zero (`StyleSpec::validate_text`), and the two inherit together, so a width above zero never
+/// meets another order here.
+fn stroke_of(style: &StyleSpec) -> Option<TextStroke> {
+    let width = style.text_stroke_width.filter(|width| *width > 0.0)?;
+    assert_eq!(
+        style.paint_order,
+        Some(PaintOrderSpec::Stroke),
+        "computed styles are built from validated layers"
+    );
+    Some(TextStroke {
+        width,
+        color: style.text_stroke_color.clone(),
+    })
 }
 
 /// `font-family`'s comma separated list.
@@ -422,6 +486,88 @@ mod tests {
         );
         assert!(shaping.features.is_empty() && !shaping.ellipsis && shaping.line_clamp.is_none());
         assert!(resolved.decorations.is_empty());
+    }
+
+    #[test]
+    fn an_unset_or_zero_width_style_has_no_stroke() {
+        assert_eq!(TextStyle::of(&style("{}"), false).stroke, None);
+        let none = style(r#"{"WebkitTextStrokeWidth":0,"paintOrder":"normal"}"#);
+        assert_eq!(TextStyle::of(&none, false).stroke, None);
+    }
+
+    #[test]
+    fn a_stroke_inherits_with_its_colour_and_order() {
+        let parent = settled(
+            r##"{"WebkitTextStrokeWidth":4,"WebkitTextStrokeColor":"#ffffff","paintOrder":"stroke"}"##,
+        );
+        let mut child = style(r##"{"color":"#123456"}"##);
+        InheritedText::of(&parent).inherit_into(&mut child);
+        settle(&mut child);
+        assert_eq!(
+            TextStyle::of(&child, false).stroke,
+            Some(TextStroke {
+                width: 4.0,
+                color: Some("#ffffff".into())
+            })
+        );
+        // A child that sets nothing of its own keeps `currentcolor` as its own text colour: no colour is inherited.
+        let mut plain = style(r#"{"WebkitTextStrokeWidth":3,"paintOrder":"stroke"}"#);
+        settle(&mut plain);
+        let mut inner = style(r##"{"color":"#abcdef"}"##);
+        InheritedText::of(&plain).inherit_into(&mut inner);
+        assert_eq!(TextStyle::of(&inner, false).stroke.unwrap().color, None);
+        // A width of zero in the child takes the parent's stroke away.
+        let mut off = StyleSpec::default();
+        InheritedText::of(&parent).inherit_into(&mut off);
+        off.merge(&style(r#"{"WebkitTextStrokeWidth":0}"#));
+        settle(&mut off);
+        assert_eq!(TextStyle::of(&off, false).stroke, None);
+    }
+
+    #[test]
+    fn a_stroke_changes_what_is_painted_and_not_what_is_shaped() {
+        let plain = TextStyle::of(&style("{}"), false);
+        let stroked = TextStyle::of(
+            &style(r#"{"WebkitTextStrokeWidth":6,"paintOrder":"stroke"}"#),
+            false,
+        );
+        assert_eq!(
+            plain.shaping, stroked.shaping,
+            "the paragraph is not shaped or measured again"
+        );
+        assert_ne!(plain, stroked, "but it is drawn again");
+        let wider = TextStyle::of(
+            &style(r#"{"WebkitTextStrokeWidth":8,"paintOrder":"stroke"}"#),
+            false,
+        );
+        assert_eq!(stroked.shaping, wider.shaping);
+        assert_ne!(stroked.stroke, wider.stroke);
+    }
+
+    #[test]
+    fn the_servers_outline_size_reaches_half_the_css_width_in_quarter_px_and_at_least_one() {
+        let stroke = |width: f32| TextStroke { width, color: None };
+        // The server's outline reaches a quarter px per unit, and a CSS stroke reaches half its width: the size is twice the width.
+        assert_eq!(stroke(2.0).outline_size(), 4);
+        assert_eq!(stroke(6.0).outline_size(), 12);
+        assert_eq!(stroke(1.0).outline_size(), 2);
+        assert_eq!(stroke(1.25).outline_size(), 3, "2.5 rounds away from zero");
+        assert_eq!(
+            stroke(0.1).outline_size(),
+            1,
+            "a wanted stroke is never rounded away"
+        );
+        for width in [1.0, 2.0, 6.0, 9.5] {
+            assert_eq!(stroke(width).reach(), width / 2.0, "half of {width}");
+        }
+        assert_eq!(stroke(0.1).reach(), 0.25);
+    }
+
+    #[test]
+    #[should_panic(expected = "validated layers")]
+    fn a_stroke_over_the_fill_is_a_bug_in_validation_not_something_to_draw() {
+        let unvalidated = style(r#"{"WebkitTextStrokeWidth":2}"#);
+        let _ = TextStyle::of(&unvalidated, false);
     }
 
     #[test]

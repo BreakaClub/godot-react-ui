@@ -249,6 +249,26 @@
     }
   },
   {
+    "className": "uppercase",
+    "style": {
+      "WebkitTextStrokeWidth": 3,
+      "WebkitTextStrokeColor": "#ffffff",
+      "paintOrder": "stroke"
+    },
+    "compiled": {
+      "layers": [
+        {
+          "style": {
+            "WebkitTextStrokeColor": "#ffffff",
+            "WebkitTextStrokeWidth": 3,
+            "paintOrder": "stroke",
+            "textTransform": "uppercase"
+          }
+        }
+      ]
+    }
+  },
+  {
     "className": "overflow-hidden shrink-0",
     "style": [
       {

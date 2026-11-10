@@ -28,8 +28,8 @@ use crate::text_style::spec::{MAX_FONT_WEIGHT, MIN_FONT_WEIGHT};
 use crate::text_style::{
     DecorationLines, DecorationStyleSpec, DecorationThicknessSpec, FontStyleSpec,
     LetterSpacingSpec, LineClampSpec, LineHeightSpec, NumericFigureSpec, NumericFractionSpec,
-    NumericSpacingSpec, OverflowWrapSpec, TextDecoration, TextOverflowSpec, TextTransformSpec,
-    UnderlineOffsetSpec, WhiteSpaceSpec, WordBreakSpec,
+    NumericSpacingSpec, OverflowWrapSpec, PaintOrderSpec, TextDecoration, TextOverflowSpec,
+    TextTransformSpec, UnderlineOffsetSpec, WhiteSpaceSpec, WordBreakSpec,
 };
 use crate::transform::{TransformList, TransformOriginSpec, TransformParts};
 pub use crate::transition::Easing;
@@ -686,6 +686,14 @@ pub struct StyleSpec {
     pub numeric_fraction: Option<NumericFractionSpec>,
     pub ordinal: Option<bool>,
     pub slashed_zero: Option<bool>,
+    /// Inherited, as are the two below it. px, finite and not negative: CSS `-webkit-text-stroke-width`, which a stroke is centred on
+    /// the glyph's edge with. Above zero it needs `paint_order` to be `stroke` in the same layer (`StyleSpec::validate_text`).
+    #[serde(rename = "WebkitTextStrokeWidth")]
+    pub text_stroke_width: Option<f32>,
+    /// The stroke's colour; the text colour (`currentcolor`) when not set, which is each glyph's own colour.
+    #[serde(rename = "WebkitTextStrokeColor")]
+    pub text_stroke_color: Option<String>,
+    pub paint_order: Option<PaintOrderSpec>,
     /// Computed only (never on the wire): the decorations that apply to this element's text, those it
     /// inherited from the elements above it and its own.
     #[serde(skip)]
@@ -1216,6 +1224,9 @@ impl StyleSpec {
             numeric_fraction,
             ordinal,
             slashed_zero,
+            text_stroke_width,
+            text_stroke_color,
+            paint_order,
             border_radius,
             border_width,
             border_color,
@@ -1511,6 +1522,7 @@ impl StyleSpec {
             ("caretColor", &self.caret_color),
             ("placeholderColor", &self.placeholder_color),
             ("textDecorationColor", &self.text_decoration_color),
+            ("WebkitTextStrokeColor", &self.text_stroke_color),
         ] {
             if let Some(value) = value {
                 let Some(hex) = value.strip_prefix('#') else {
@@ -2732,6 +2744,46 @@ mod tests {
         }
         tree.compute_layout(root, Size::MAX_CONTENT).unwrap();
         assert_eq!(tree.layout(root).unwrap().size.width, 200.0);
+    }
+
+    /// Evidence for `layout::DeletedLayouts`: at the pinned Taffy revision a node laid out hidden (`display: none`, or
+    /// under one) keeps its list of hoisted boxes, because `compute_hidden_layout` never runs the positioning pass that
+    /// replaces it, while the rounding pass still walks a hidden node's list. A corner of the screen that is hidden in the
+    /// commit that unmounts an absolute child of it panics there. When a Taffy update fixes this, this test fails: delete
+    /// it and `DeletedLayouts`.
+    #[test]
+    #[should_panic(expected = "invalid SlotMap key used")]
+    fn taffy_keeps_a_stale_hoisted_list_when_its_container_is_hidden() {
+        use taffy::prelude::*;
+
+        let mut tree: TaffyTree<()> = TaffyTree::new();
+        let make = |tree: &mut TaffyTree<()>, json: &str, children: &[NodeId]| {
+            tree.new_with_children(style(json).taffy_style().unwrap(), children)
+                .unwrap()
+        };
+        let toolbar = make(&mut tree, r#"{"width":60,"height":20}"#, &[]);
+        let disc = make(
+            &mut tree,
+            r#"{"position":"absolute","right":10,"top":30,"width":40,"height":40}"#,
+            &[],
+        );
+        let corner = make(
+            &mut tree,
+            r#"{"position":"absolute","left":0,"top":0,"right":0,"bottom":0}"#,
+            &[toolbar, disc],
+        );
+        let root = make(&mut tree, r#"{"width":200,"height":100}"#, &[corner]);
+        tree.compute_layout(root, Size::MAX_CONTENT).unwrap();
+        assert_eq!(tree.layout(disc).unwrap().location.x, 150.0);
+
+        tree.set_style(
+            corner,
+            style(r#"{"display":"none"}"#).taffy_style().unwrap(),
+        )
+        .unwrap();
+        tree.remove_child_at_index(corner, 1).unwrap();
+        tree.remove(disc).unwrap();
+        tree.compute_layout(root, Size::MAX_CONTENT).unwrap();
     }
 
     #[test]

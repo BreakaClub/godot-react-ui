@@ -8,7 +8,7 @@ export const ONLY_PREFIX = '--only=';
 /** The native verifier's sections, in the order they run. */
 export const NATIVE_INTERACTION_SECTIONS = [
   'font-fallback', 'events', 'cooperation', 'pointers', 'keyboard', 'positioning', 'inputs', 'scroll', 'selection', 'touch-selection', 'drag', 'forms', 'combobox', 'dropdown-touch', 'hidpi', 'filters', 'glass', 'paint', 'images',
-  'navigator', 'transforms', 'layout-utilities', 'text-styles', 'rich-text', 'filters-sizes', 'filters-cost', 'filters-faults', 'transforms-faults', 'live-compile', 'code-editor', 'key-passthrough',
+  'navigator', 'transforms', 'layout-utilities', 'text-styles', 'text-stroke', 'rich-text', 'filters-sizes', 'filters-cost', 'filters-faults', 'transforms-faults', 'live-compile', 'code-editor', 'key-passthrough',
 ];
 
 /**

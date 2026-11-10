@@ -10,8 +10,54 @@ use crate::text_decoration::raster::{dot, split_center, wave_layout, wave_tile};
 use crate::text_decoration::{DotsPlan, Fragment, LineKind, Shape, WavePlan, shapes};
 use crate::text_layout::{ShapedGlyph, ShapedLine};
 use crate::text_span::plan::ColorRuns;
-use crate::text_style::TextDecoration;
 use crate::text_style::metrics::DecorationFont;
+use crate::text_style::{TextDecoration, TextStroke};
+
+/// A stroke as the text server draws it: its `outline_size` and its colour.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct StrokePaint {
+    /// What the server draws the outline with (`TextStroke::outline_size`).
+    pub(super) outline_size: i64,
+    /// How far past the glyph that reaches, px (`TextStroke::reach`).
+    pub(super) reach: f32,
+    /// `None` is each glyph's own colour (`currentcolor`).
+    pub(super) color: Option<Color>,
+}
+
+impl StrokePaint {
+    pub(super) fn of(stroke: &TextStroke) -> Self {
+        Self {
+            outline_size: stroke.outline_size(),
+            reach: stroke.reach(),
+            color: stroke
+                .color
+                .as_deref()
+                .map(|color| parse_color(Some(color), Color::WHITE)),
+        }
+    }
+
+    /// The colour of the stroke around a glyph that is filled with `fill`.
+    pub(super) fn color_around(self, fill: Color) -> Color {
+        self.color.unwrap_or(fill)
+    }
+}
+
+/// What one pass over the glyphs of a line draws: the fill, or the stroke that goes under it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum Ink {
+    Fill,
+    Stroke(StrokePaint),
+}
+
+impl Ink {
+    /// The colour a glyph is drawn in by this pass when its fill is `fill`.
+    fn color_of(self, fill: Color) -> Color {
+        match self {
+            Self::Fill => fill,
+            Self::Stroke(stroke) => stroke.color_around(fill),
+        }
+    }
+}
 
 /// What to draw a line with.
 pub(super) struct LineDrawing<'a> {
@@ -49,34 +95,52 @@ fn draws_hex_box(hex_codes: bool, glyph: &ShapedGlyph) -> bool {
     hex_codes && !glyph.is_virtual() && !glyph.is_embedded_object()
 }
 
-/// `TextServer::shaped_text_draw` (`servers/text/text_server.cpp`) for a horizontal line, except that each glyph is drawn
+/// `TextServer::shaped_text_draw` (`servers/text/text_server.cpp`), or with `ink` a stroke `TextServer::shaped_text_draw_outline`,
+/// for a horizontal line, except that each glyph is drawn
 /// with the font `drawing` names in place of the one that shaped it, and in the colour its cluster has. `position` is the line's
 /// baseline origin; `clip_left` and `clip_right` are the paragraph's clip, a right edge of zero or less meaning none. A glyph that
 /// no font has is drawn as the server draws it, a hex box (`TextServer::draw_hex_code_box`) in the colour of its cluster. The glyphs
-/// of an ellipsis have no such branch there, because the server only makes an ellipsis of a font that has the glyph.
+/// of an ellipsis have no such branch there, because the server only makes an ellipsis of a font that has the glyph. A stroke has
+/// no hex boxes: the server's outline draws nothing for a glyph no font has.
 pub(super) fn draw_glyphs(
     server: &mut Gd<TextServer>,
     position: Vector2,
     clip: (f32, f32),
     drawing: &LineDrawing,
     line: &ShapedLine,
+    ink: Ink,
 ) -> Result<(), String> {
     let rtl = line.draws_right_to_left;
     let mut pen = 0.0_f32;
     let origin_of =
         |glyph: &ShapedGlyph, pen: f32| position + Vector2::new(pen, 0.0) + glyph.offset;
-    let draw = |server: &mut Gd<TextServer>, glyph: &ShapedGlyph, color: Color, pen: &mut f32| {
-        server
-            .font_draw_glyph_ex(
-                drawing.drawn_as(glyph.font),
-                drawing.canvas,
-                glyph.size,
-                origin_of(glyph, *pen),
-                glyph.index,
-            )
-            .color(color)
-            .oversampling(drawing.oversampling)
-            .done();
+    let draw = |server: &mut Gd<TextServer>, glyph: &ShapedGlyph, fill: Color, pen: &mut f32| {
+        let color = ink.color_of(fill);
+        match ink {
+            Ink::Fill => server
+                .font_draw_glyph_ex(
+                    drawing.drawn_as(glyph.font),
+                    drawing.canvas,
+                    glyph.size,
+                    origin_of(glyph, *pen),
+                    glyph.index,
+                )
+                .color(color)
+                .oversampling(drawing.oversampling)
+                .done(),
+            Ink::Stroke(stroke) => server
+                .font_draw_glyph_outline_ex(
+                    drawing.drawn_as(glyph.font),
+                    drawing.canvas,
+                    glyph.size,
+                    stroke.outline_size,
+                    origin_of(glyph, *pen),
+                    glyph.index,
+                )
+                .color(color)
+                .oversampling(drawing.oversampling)
+                .done(),
+        }
         *pen += glyph.advance;
     };
     if rtl && line.ellipsis_at >= 0 {
@@ -110,7 +174,7 @@ pub(super) fn draw_glyphs(
                 draw(server, glyph, drawing.color_of(glyph), &mut pen);
                 continue;
             }
-            if draws_hex_box(line.hex_codes, glyph) {
+            if ink == Ink::Fill && draws_hex_box(line.hex_codes, glyph) {
                 server.draw_hex_code_box(
                     drawing.canvas,
                     glyph.size,
@@ -314,6 +378,48 @@ mod tests {
             let glyph = unresolved(&[GraphemeFlag::VALID, flag]);
             assert!(!draws_hex_box(true, &glyph), "{flag:?} is not a character");
         }
+    }
+
+    #[test]
+    fn a_stroke_is_in_its_own_colour_or_the_fill_it_goes_under() {
+        let red = Color::from_rgba(1.0, 0.0, 0.0, 1.0);
+        let blue = Color::from_rgba(0.0, 0.0, 1.0, 1.0);
+        let own = Ink::Stroke(StrokePaint {
+            outline_size: 4,
+            reach: 1.0,
+            color: Some(red),
+        });
+        let currentcolor = Ink::Stroke(StrokePaint {
+            outline_size: 4,
+            reach: 1.0,
+            color: None,
+        });
+        assert_eq!(Ink::Fill.color_of(blue), blue);
+        assert_eq!(
+            own.color_of(blue),
+            red,
+            "a set colour is the stroke's for every glyph"
+        );
+        assert_eq!(
+            currentcolor.color_of(blue),
+            blue,
+            "currentcolor is each glyph's own colour"
+        );
+    }
+
+    #[test]
+    fn a_stroke_paint_takes_the_servers_outline_size_and_no_colour_without_one() {
+        // A colour written as text is parsed by the engine's `Color::from_html`, which needs the engine to run.
+        let paint = StrokePaint::of(&TextStroke {
+            width: 5.0,
+            color: None,
+        });
+        assert_eq!(
+            paint.outline_size, 10,
+            "twice the width: the server's size is in quarter px"
+        );
+        assert_eq!(paint.reach, 2.5);
+        assert_eq!(paint.color, None);
     }
 
     #[test]

@@ -67,6 +67,7 @@ function Case({ title, caption, expected, limit, stageClassName, children }: Cas
 /** `position`, insets and `zIndex`, what clips an out-of-flow box, and a popover in the overlay layer. */
 export function PositioningLab() {
   const [raised, setRaised] = useState(false);
+  const [contained, setContained] = useState(true);
   const [anchor, setAnchor] = useState<Anchor | null>(null);
   const [laterClicks, setLaterClicks] = useState(0);
   const [cardClicks, setCardClicks] = useState(0);
@@ -97,17 +98,20 @@ export function PositioningLab() {
       <Case
         title="Stacking"
         stageClassName="w-48 shrink-0"
-        caption="A, B and C are absolute boxes in one container. Later boxes paint over earlier ones, so B covers A. C has a negative z-index, so it goes behind both. Raise A gives A a z-index of 10."
+        caption="A, B and C are absolute boxes in one container. Later boxes paint over earlier ones, so B covers A. C has a negative z-index, so it goes behind both. Raise A gives A a z-index of 10. Make static takes the container's position away, so the boxes are placed against the page instead, and Make relative gives it back."
         expected="after Raise A, A's indigo comes over B's green, and C stays behind both."
         limit="z-index only orders the boxes one parent paints. There are no stacking contexts, so C is still drawn over its container's white background."
       >
-        <View testID="pos-stack" className="relative w-48 h-20 rounded-lg border border-slate-200 bg-white">
+        <View testID="pos-stack" className={`${contained ? 'relative' : ''} w-48 h-20 rounded-lg border border-slate-200 bg-white`}>
           <View testID="pos-z-a" className="absolute w-24 h-14 bg-indigo-500" style={{ ...STACK_BOXES.a, zIndex: raised ? RAISED_Z_INDEX : 0 }} />
           <View testID="pos-z-b" className="absolute w-24 h-14 bg-emerald-500" style={STACK_BOXES.b} />
           <View testID="pos-z-c" className="absolute w-24 h-14 bg-amber-500 -z-10" style={STACK_BOXES.c} />
         </View>
         <Button testID="pos-z-toggle" className={`self-start ${labButton}`} onClick={() => setRaised(value => !value)}>
           {raised ? 'Lower A' : 'Raise A'}
+        </Button>
+        <Button testID="pos-contain-toggle" className={`self-start ${labButton}`} onClick={() => setContained(value => !value)}>
+          {contained ? 'Make static' : 'Make relative'}
         </Button>
       </Case>
 
