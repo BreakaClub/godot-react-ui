@@ -969,7 +969,7 @@ impl ReactUiRoot {
             self.pending_text.insert(tag);
         }
         if kind == Kind::Image {
-            self.refresh_image(tag);
+            self.pending_images.insert(tag);
         }
     }
 
@@ -980,6 +980,7 @@ impl ReactUiRoot {
             .get_mut(&tag)
             .expect("a planned update names a mounted node");
         let previous = std::mem::replace(&mut node.props, props.clone());
+        let kind = node.kind;
         if previous.style != node.props.style {
             node.uses_states = states_used(node.props.style.as_ref());
             self.mounted
@@ -999,8 +1000,10 @@ impl ReactUiRoot {
         if self.sync_text_input_props(tag, &previous) {
             self.pending_text.insert(tag);
         }
-        if previous.source != props.source || previous.source_rect != props.source_rect {
-            self.refresh_image(tag);
+        // Any change to an image's props may change its picture, size or proportions; a commit that changes nothing else would
+        // otherwise publish no layout or paint (`publish`).
+        if kind == Kind::Image && previous != *props {
+            self.pending_images.insert(tag);
         }
         self.paint_dirty.insert(tag);
     }

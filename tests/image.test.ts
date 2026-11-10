@@ -79,3 +79,16 @@ test('the registration helpers report the reason native gives', () => {
   assert.throws(() => registerTexture(host, '', 'Texture2D'), /Cannot register the texture : a texture id must not be empty/);
   assert.deepEqual(calls, ['texture oak Texture2D', 'material paper ShaderMaterial', 'texture  Texture2D']);
 });
+
+test('an image whose source arrives after it mounted is updated with the source', () => {
+  const host = new RecordingHost();
+  const root = createRoot(host, { subscribeToEvents: NO_SUBSCRIPTION });
+  const scene = (source: string | undefined) => h(View, null, h(Image, { testID: 'later', source, style: { width: 10, height: 10 } }));
+  root.render(scene(undefined));
+  root.render(scene('oak'));
+  const image = root.findByTestID('later');
+  assert.ok(image);
+  const payload = host.commits.at(-1)?.payload;
+  assert.deepEqual(payload?.updated, [{ tag: image.id, props: { source: 'oak' } }]);
+  root.unmount();
+});

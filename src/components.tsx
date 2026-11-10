@@ -267,9 +267,9 @@ export interface TextSpanHostProps {
 export interface ImageHostProps {
   /**
    * The id of a texture registered on the root (`registerTexture`). Until that id is registered the image draws nothing and has
-   * no size of its own, as an `<img>` that has not loaded.
+   * no size of its own, as an `<img>` that has not loaded. `undefined` is an image whose picture is not known yet.
    */
-  source?: string;
+  source?: string | undefined;
   /** How the picture fills the content box; `fill` (stretched) when absent. */
   fit?: ImageFit;
   /** Draw the picture as a nine-slice over the whole content box. */

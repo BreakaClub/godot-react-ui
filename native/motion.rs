@@ -192,7 +192,8 @@ impl ReactUiRoot {
 
     fn publish(&mut self, changes: &[StyleChange], structure_changed: bool) {
         let pending_text = std::mem::take(&mut self.pending_text);
-        if changes.is_empty() && pending_text.is_empty() && !structure_changed {
+        let pending_images = std::mem::take(&mut self.pending_images);
+        if changes.is_empty() && pending_text.is_empty() && pending_images.is_empty() && !structure_changed {
             return;
         }
         self.stats.nodes_restyled += changes.len() as u64;
@@ -287,6 +288,9 @@ impl ReactUiRoot {
             if rebuilt.insert(tag) {
                 self.refresh_paragraph(tag);
             }
+        }
+        for tag in pending_images {
+            self.refresh_image(tag);
         }
 
         // New content is present in native measurement contexts, but no geometry has been

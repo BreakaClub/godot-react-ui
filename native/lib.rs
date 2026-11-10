@@ -229,6 +229,9 @@ pub struct ReactUiRoot {
     hit_stale: bool,
     /// Nodes whose text paragraph must be rebuilt.
     pending_text: BTreeSet<u32>,
+    /// Images whose props changed: their size, proportions and picture are refreshed when the commit is published
+    /// (`refresh_image`), as text is.
+    pending_images: BTreeSet<u32>,
     pending_style_removals: Vec<u32>,
     /// Tags deleted by the last successful commit.
     deletions: Vec<u32>,
@@ -326,6 +329,7 @@ impl IControl for ReactUiRoot {
             paint_dirty_parents: BTreeSet::new(),
             hit_stale: false,
             pending_text: BTreeSet::new(),
+            pending_images: BTreeSet::new(),
             pending_style_removals: Vec::new(),
             deletions: Vec::new(),
             paragraph_generation: 0,
