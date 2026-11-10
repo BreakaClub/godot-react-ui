@@ -25,7 +25,8 @@ React for Godot. Write your UI in React and TSX on [GodotJS](https://github.com/
 
 ## Requirements
 
-- **Godot with GodotJS on V8**, with GodotJS's camel-cased bindings, version 4.7.2 or newer: the native library is bound to the Godot 4.7.2 API.
+- **Godot with GodotJS on V8**, version 4.7.2 or newer: the native library is bound to the Godot 4.7.2 API. The library works in a project with
+  GodotJS's camel-case bindings on or off.
 - **Platforms.** The release addon carries macOS (arm64 and x86_64), Linux x86_64, Windows x86_64 and Web libraries. Apple Silicon macOS and
   the Web (stock Godot 4.7.2 templates, in Chrome) are the platforms that have been verified; the others are built and not yet qualified.
 - **React 19.2.0** as a peer dependency.
@@ -106,6 +107,9 @@ export default class Hud extends Control {
 The owner also keeps the surface's size up to date (native restyles the breakpoints a new width crosses, with no React render) and calls
 `grabFocus()` on it when the UI should take the keyboard first. [The demo's owner](demo/src/main.ts) is a complete example, and
 [docs/AUTHORING.md](docs/AUTHORING.md#mounting) has the details.
+
+The owner above is a project with GodotJS's camel-case bindings. The library takes a `ReactUiRoot` under either naming, so only the owner's own
+calls differ in a project without them: `add_child`, `events_ready`, `grab_focus`.
 
 ## Documentation
 

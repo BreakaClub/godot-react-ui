@@ -8,6 +8,7 @@ export type {
 } from './components';
 export { registerMaterial, registerTexture } from './images';
 export type { ImageHost } from './images';
+export type { GodotHost, GodotNamed } from './godot-host';
 export type { TextSide } from './native';
 export { TextInput, isTextInputHandle } from './text-input';
 export type { TextInputProps } from './text-input';

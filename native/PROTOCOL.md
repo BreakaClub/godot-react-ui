@@ -1,8 +1,10 @@
 # Native API v2: the Fabric-style commit protocol
 
-`ReactUiRoot` is a Godot `Control`; GodotJS imports it from `godot` and calls its `#[func]`s under camelCase names
-(`take_commit_deletions` is `takeCommitDeletions`; gdext exposes the Rust names as written, and `#[func]`/`#[signal]` take no
-arguments here). The renderer (`src/renderer.ts`, typed in `src/native.ts`) calls:
+`ReactUiRoot` is a Godot `Control`. gdext exposes its `#[func]`s under the Rust names as written (`#[func]`/`#[signal]` take no
+arguments here), and GodotJS gives a project those names (`take_commit_deletions`) or, with camel-case bindings, camel-cased ones
+(`takeCommitDeletions`). This document uses the camel-cased names, which are the renderer's own: `src/godot-host.ts` lists the
+Godot name of each and binds a root of either naming once, when it is mounted. The renderer (`src/renderer.ts`, typed in
+`src/native.ts`) calls:
 
 - `commit`, `takeCommitDeletions` ("Commit");
 - `drainEvents`, `resolveEvent` and the `eventsReady` signal ("Input events");

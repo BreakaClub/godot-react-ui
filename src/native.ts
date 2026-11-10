@@ -1,5 +1,6 @@
 import { LAYER_ROOT_TAG, type CommitPayload } from './commit';
 import { isDropEffect, type DropEffect } from './data-transfer';
+import { unwrapHost, type GodotHost } from './godot-host';
 import type { NativeKind } from './props';
 import { TRANSITION_PROPERTIES } from './types';
 import type { TransitionProperty } from './types';
@@ -1010,8 +1011,9 @@ function transitionValue(value: unknown): number | string | NativeMatrix {
   return typeof value === 'string' ? value : number(value, 'transition value');
 }
 
-export function readActivity(host: NativeDiagnosticsHost): NativeActivity {
-  const value: unknown = JSON.parse(host.getActivity());
+export function readActivity(host: GodotHost<NativeDiagnosticsHost>): NativeActivity {
+  const root = unwrapHost(host);
+  const value: unknown = JSON.parse('getActivity' in root ? root.getActivity() : root.get_activity());
   return parseActivity(value);
 }
 
@@ -1104,8 +1106,9 @@ function regionTuple(value: unknown): [number, number, number, number] {
   return [x, y, width, height];
 }
 
-export function takeNativeProfile(host: NativeDiagnosticsHost): NativeProfile {
-  const value: unknown = JSON.parse(host.takeProfile());
+export function takeNativeProfile(host: GodotHost<NativeDiagnosticsHost>): NativeProfile {
+  const root = unwrapHost(host);
+  const value: unknown = JSON.parse('takeProfile' in root ? root.takeProfile() : root.take_profile());
   const profile = record(value, 'profile');
   return {
     dropped: number(profile.dropped, 'profile dropped'), counters: parseActivity(profile.counters),

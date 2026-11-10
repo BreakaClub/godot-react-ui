@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "lib": ["ES2022"],
+    "types": ["node", "react"],
+    "noEmit": true,
+    "paths": {"godot-react-ui": ["../dist/index.d.ts"]}
+  },
+  "include": ["probe.ts", "../target/casing/typings"]
+}

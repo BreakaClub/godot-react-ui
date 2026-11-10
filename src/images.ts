@@ -4,6 +4,8 @@
  * so a picture can be fetched after the UI that shows it has mounted. Registrations are per root, as font faces are.
  */
 
+import { unwrapHost, type GodotHost } from './godot-host';
+
 /** What registers textures and materials: a `ReactUiRoot`. `Texture` is a Godot `Texture2D`, `Material` a Godot `Material`. */
 export interface ImageHost<Texture, Material> {
   /** An empty string means success; anything else says why nothing changed. */
@@ -17,13 +19,15 @@ export interface ImageHost<Texture, Material> {
 }
 
 /** Register `texture` under `id`, replacing what the id had. */
-export function registerTexture<Texture>(host: ImageHost<Texture, unknown>, id: string, texture: Texture): void {
-  const error = host.registerTexture(id, texture);
+export function registerTexture<Texture>(host: GodotHost<ImageHost<Texture, unknown>>, id: string, texture: Texture): void {
+  const root = unwrapHost(host);
+  const error = 'registerTexture' in root ? root.registerTexture(id, texture) : root.register_texture(id, texture);
   if (error !== '') throw new Error(`Cannot register the texture ${id}: ${error}`);
 }
 
 /** Register `material` under `id`, replacing what the id had. A `ShaderMaterial` sees the picture as `TEXTURE`. */
-export function registerMaterial<Material>(host: ImageHost<unknown, Material>, id: string, material: Material): void {
-  const error = host.registerMaterial(id, material);
+export function registerMaterial<Material>(host: GodotHost<ImageHost<unknown, Material>>, id: string, material: Material): void {
+  const root = unwrapHost(host);
+  const error = 'registerMaterial' in root ? root.registerMaterial(id, material) : root.register_material(id, material);
   if (error !== '') throw new Error(`Cannot register the material ${id}: ${error}`);
 }

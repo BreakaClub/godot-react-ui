@@ -1,0 +1,9 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "godot-react-ui": ["../src/index.ts"],
+      "godot.lib.api": ["./support/godot-lib-api.ts"]
+    }
+  }
+}

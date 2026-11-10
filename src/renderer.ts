@@ -7,6 +7,7 @@ import {
 import { buildCommit, type CommitNode } from './commit';
 import type { HostProps, TextInputHandle, UIHandle, UIProps, UISelection } from './components';
 import { DragSessions, type DragDispatch } from './drag';
+import { bindNativeHost, type GodotHost } from './godot-host';
 import { anyChordMatches, parseKeyChordsOf, type KeyChord, type KeyPlatform, type KeyPress } from './key-claims';
 import { pagePassthrough, type KeyPassthrough, type KeyPassthroughRegistration } from './key-passthrough';
 import type { NativeTextInputState } from './native';
@@ -849,7 +850,9 @@ function claimsKey(state: RootState, press: KeyPress, platform: KeyPlatform): bo
   return false;
 }
 
-export function createRoot(host: NativeHost, options: RootOptions): UIRoot {
+/** `godotHost` is a `ReactUiRoot`, whichever naming the project's GodotJS gives its methods. */
+export function createRoot(godotHost: GodotHost<NativeHost>, options: RootOptions): UIRoot {
+  const host = bindNativeHost(godotHost);
   // Fail on a host that does not answer a snapshot before any React work.
   readSnapshot(host);
   injectIntoDevTools();

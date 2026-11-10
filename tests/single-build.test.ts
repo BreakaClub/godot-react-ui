@@ -274,7 +274,7 @@ test('the native build scripts stamp the target and the install with the binding
 
 test('every script that launches a window checks the installed builds, not the library alone, before each launch', () => {
   const launching = readdirSync(SCRIPTS).filter(name => name.endsWith('.mjs') && readFileSync(join(SCRIPTS, name), 'utf8').includes('beforeLaunch:'));
-  assert.deepEqual(launching.sort(), ['verify-a11y.mjs', 'verify-text-layout.mjs', 'verify-world.mjs', 'verify.mjs'], 'a new launcher must be listed here with the check it makes');
+  assert.deepEqual(launching.sort(), ['verify-a11y.mjs', 'verify-casing.mjs', 'verify-text-layout.mjs', 'verify-world.mjs', 'verify.mjs'], 'a new launcher must be listed here with the check it makes');
   for (const name of launching) {
     const source = readFileSync(join(SCRIPTS, name), 'utf8');
     assert.match(source, /beforeLaunch: \(\) => engine\.requireInstalledBuilds\(/u, `${name} checks the extension as well as the library before every window`);

@@ -45,7 +45,8 @@
     "verify:world": "node scripts/verify-world.mjs",
     "verify:text-layout": "node scripts/verify-text-layout.mjs",
     "verify:a11y": "node scripts/verify-a11y.mjs",
-    "test": "NODE_ENV=test tsx --test tests/*.test.ts"
+    "verify:casing": "node scripts/verify-casing.mjs",
+    "test": "NODE_ENV=test TSX_TSCONFIG_PATH=tests/tsconfig.json tsx --test tests/*.test.ts"
   },
   "dependencies": {
     "react-reconciler": "0.33.0"
