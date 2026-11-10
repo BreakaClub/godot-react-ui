@@ -1,4 +1,4 @@
-// A/B of the cost of a keystroke between builds of the library and the demo (docs/tracks/keystroke-speed.md).
+// A/B of the cost of a keystroke between builds of the library and the demo.
 //
 //   node scripts/keystroke-ab.mjs snapshot <name> [--replace]     keep the demo as built now (native library, bundle, imports) as a variant
 //   node scripts/keystroke-ab.mjs run <variant>... [--rounds=4] [--site=attribute|function] [--bursts=25] [--warmup=100] [--move]

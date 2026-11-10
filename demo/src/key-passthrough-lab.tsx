@@ -27,7 +27,7 @@ function isChord(event: UIKeyboardEvent, key: string): boolean {
 }
 
 /**
- * Which keys the browser gets (docs/tracks/key-passthrough.md). On the Web a key chord that nothing here claims (Cmd+R, Cmd+F, Cmd+T, F5, F12)
+ * Which keys the browser gets. On the Web a key chord that nothing here claims (Cmd+R, Cmd+F, Cmd+T, F5, F12)
  * goes to the browser and never reaches this page, as on a page that does not prevent it; one a focused element claims stays here. The log
  * lists the keys that reached the page, so a chord that reloads the page, opens the find bar or focuses the address bar is not in it.
  */

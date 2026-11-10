@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { compileStyle } from '../src/styles';
 import type { FilterParts, StyleProp } from '../src/types';
 
-// ---- filter and backdrop-filter utilities (Phase V1): one function per utility, merged per function ----
+// ---- filter and backdrop-filter utilities: one function per utility, merged per function ----
 
 function layersOf(className: string, style?: StyleProp) {
   return compileStyle(className, style).layers;

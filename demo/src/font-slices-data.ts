@@ -1,5 +1,5 @@
 /**
- * The texts of the font fallback lab (docs/tracks/font-slices.md): a line in each language the slices cover, the emoji, a mix, and a line no
+ * The texts of the font fallback lab: a line in each language the slices cover, the emoji, a mix, and a line no
  * downloaded font is needed for. Each is written for this and is a plain sentence a person might write. The `language` is the tag the loader is
  * told for it: the Han characters of the Chinese, Japanese and Korean lines are largely the same code points, and the language chooses their forms.
  */

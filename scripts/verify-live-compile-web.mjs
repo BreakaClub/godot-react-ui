@@ -1,4 +1,4 @@
-// The `live-compile` section in real Chrome (docs/tracks/live-compile.md): the checker and compiler extension as a Web side module, the
+// The `live-compile` section in real Chrome: the checker and compiler extension as a Web side module, the
 // compiled lab, the swap that keeps state, and the failures that leave the last good page up, all run in the page by the same code the native
 // section runs (demo/src/verify-live-compile.ts, started through `globalThis.godotReactLiveCompile`). This script serves the export, opens
 // it, checks that the export carries the extension and the project, runs the section, and fails on any browser error the section does not announce.
@@ -19,7 +19,7 @@ const root = resolve(import.meta.dirname, '..');
 const engine = selectEngine();
 engine.requireFreshWebExport();
 const exportDirectory = engine.artifactPath(`web-${engine.webMode()}`);
-// The section needs the extension, which a Web export has only when a module stamped for its profile existed when it was made (docs/tracks/stock-web.md).
+// The section needs the extension, which a Web export has only when a module stamped for its profile existed when it was made.
 const WEB_LIBRARY_NAME = webLibraryNameOf(engine);
 requireLiveCompileWebModule(engine, exportDirectory, engine.webMode());
 const executablePath = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';

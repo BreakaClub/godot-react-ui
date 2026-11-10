@@ -1,4 +1,4 @@
-// Writes the project the live code editor opens, as one JSON file: the checker's files (docs/tracks/live-compile.md).
+// Writes the project the live code editor opens, as one JSON file: the checker's files.
 //
 //   demo/live-compile/project.json   { version, config, libDir, files: [{ path, text }], labs: { <id>: { config, sources } } }
 //

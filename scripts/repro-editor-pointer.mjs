@@ -1,7 +1,7 @@
-// Ben's four pointer sequences in the code editor (docs/tracks/editor-pointer.md), driven through a headless browser's own input protocol:
+// Four reported pointer sequences in the code editor, driven through a headless browser's own input protocol:
 // Chrome through CDP (`Input.dispatchMouseEvent`), Firefox through WebDriver BiDi (`input.performActions`), both by puppeteer-core. No OS input
 // is generated. It opens a page of the lab navigator on the Counter lab, presses Code and runs the sequences one after the other in that page,
-// as Ben did, recording after each step what the editor says and what the native scroll container says.
+// as reported, recording after each step what the editor says and what the native scroll container says.
 //
 //   node scripts/repro-editor-pointer.mjs [--browser=chrome|firefox] [--url=<address of the navigator>] [--width=1400] [--height=900]
 //                                         [--dpr=1] [--out=<json file>] [--expect-fixed]

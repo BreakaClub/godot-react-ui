@@ -1,4 +1,4 @@
-//! The commit payload, its validation and the plan it becomes (plan sections 3.4 and 3.7).
+//! The commit payload, its validation and the plan it becomes.
 //!
 //! One commit per layer carries only what changed: the nodes created, the prop diffs of mounted
 //! nodes, and the child lists that changed. [`validate`] decides, from the payload and a read-only

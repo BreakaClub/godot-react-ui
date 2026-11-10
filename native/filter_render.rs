@@ -1,5 +1,4 @@
-//! Drawing `filter` and `backdrop-filter` with canvas items (plan Phase V1, D40; measurements and
-//! reasons in `docs/tracks/filters.md`).
+//! Drawing `filter` and `backdrop-filter` with canvas items.
 //!
 //! * **Backdrop.** An element with a `backdrop-filter` gets a copy item and a backdrop item, both
 //!   before its background (`render_tree.rs`). The copy item copies a rectangle of the render target
@@ -963,7 +962,7 @@ impl ReactUiRoot {
     }
 
     /// The nearest paint ancestor with a live filter group. Canvas groups do not nest and screen reads
-    /// inside one are ignored (D40 e), so an effect below one cannot be drawn.
+    /// inside one are ignored, so an effect below one cannot be drawn.
     fn group_ancestor(&self, tag: u32) -> Option<u32> {
         if self.effects.groups.is_empty() || faults::active(Fault::NoNestingCheck) {
             return None;
@@ -1472,7 +1471,7 @@ impl ReactUiRoot {
             state.backdrop_chain = Some(chain);
         }
         if state.region != region {
-            // The copy is its own item, drawn before the one that reads it (D40 b).
+            // The copy is its own item, drawn before the one that reads it.
             let copy = if faults::active(Fault::MergedCopy) {
                 draw
             } else {

@@ -1,10 +1,10 @@
-// The `text-styles` section of the Web interaction verifier (docs/tracks/utilities-text.md): the native section's comparison of the text
+// The `text-styles` section of the Web interaction verifier: the native section's comparison of the text
 // styles lab with Chrome (demo/src/verify-text-styles.ts), from the real canvas in Chrome at both device pixel ratios. It holds the box
 // of every text and the baseline and the two ends of every line to the numbers headless Chrome reports for the same classes
 // (scripts/text-styles-golden.json, written by `node --import tsx scripts/text-styles-reference.mjs --golden`), selects with Chrome's own
 // mouse where Chrome's characters are, and captures every page for the per channel comparison
 // (`node --import tsx scripts/text-styles-reference.mjs --diff --native=<capture directory>`). It also reads the canvas: the right edge
-// of every line's ink, and for the white space page the ink of every character, are held to Chrome's (docs/tracks/justify-clip.md).
+// of every line's ink, and for the white space page the ink of every character, are held to Chrome's.
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { decodePng } from './png.mjs';

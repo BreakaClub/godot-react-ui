@@ -23,7 +23,7 @@ node scripts/verify-live-compile-web.mjs    # the code editor's compiler in Chro
 Chrome's round trips only allow when the other browsers are not using the host. The run prints the same pass line one run made, with the sections' assertion
 counts added over the jobs, and `report.json` holds every job's assertions and captures (`report-<job>.json` and `browser-<job>.log` are each job's own).
 `--serial` runs the jobs one after another, `--jobs=<n>` at most n at a time, and `--job=<name>` is one job on its own (what the run starts each job with).
-A failed job does not stop the others, and the run's failure line names it. Details and the measurements: tracks/suite-speed.md.
+A failed job does not stop the others, and the run's failure line names it.
 
 The build runs the TypeScript check and bundle before exporting with the V8 Godot
 4.8 editor. `serve-web` listens on `http://127.0.0.1:8096` (or `PORT`). `--release` selects the
@@ -46,7 +46,7 @@ rounded-edge draw it records (Godot supplies it only to a `CanvasItem` drawing i
 `_draw`, and the root records its own canvas items). The owner checks the live
 ratio each frame so browser zoom and display changes are handled even when the
 backing size does not change; native repaints on the viewport's redraw request, so
-text is redrawn at the new ratio without a commit (`docs/tracks/hidpi.md`). Browser verification covers both DPR 1 and DPR 2 at landscape
+text is redrawn at the new ratio without a commit. Browser verification covers both DPR 1 and DPR 2 at landscape
 and portrait sizes, plus real touch input.
 
 The source shell `demo/web-shell.html` passes `--audio-driver Dummy` to the Web
@@ -57,13 +57,13 @@ A page that hosts the canvas must keep the canvas out of the document's size, on
 `window.innerWidth` and `innerHeight` every frame, in pixels, and a phone turned from landscape back to portrait still has the landscape-sized canvas when the
 browser measures the page: a canvas that counts toward the document's size makes mobile Chrome zoom out to fit it, which makes `innerWidth` the wider size, and the
 page stays that wide (the root laid out at the landscape width, off the screen). The shell therefore puts the canvas in a fixed, clipping `#stage` and sets
-`minimum-scale=1` in its viewport meta (`docs/tracks/rotation.md`; the Web verifier's `rotation` section holds a page to it).
+`minimum-scale=1` in its viewport meta (the Web verifier's `rotation` section holds a page to it).
 
 The Rust binding is generated against checked-in API dumps, and which pair binds what depends on the target (`native/api/README.md`). The Web side module of the `breaka`
 profile is bound to the custom Godot 4.8 dumps under `native/api/`, which `scripts/build-web.mjs` sets for the cargo child process; the `stock` profile's Web side module is bound to
 `native/api/stock-4.7.2/`. The native builds are not bound to Breaka's dumps any more: the UI library and the live-compile extension are one build bound to the 4.7.2 pair for both
 engine profiles (`NATIVE_BINDING_API` in `scripts/native-binding.mjs`; `.cargo/config.toml` names the same pair for a hand-run `cargo test`), which Breaka's 4.8 loads
-(`docs/tracks/single-build.md`). A stable 4.7 binding built from godot-rust's own table is insufficient for Breaka's custom engine: an editor method expected by that binding
+(see `native/api/README.md`). A stable 4.7 binding built from godot-rust's own table is insufficient for Breaka's custom engine: an editor method expected by that binding
 was removed in 4.8, causing eager binding initialization to fail, which is why the Breaka Web build keeps its own dumps. The Web receipt records the hashes of the pair a side module
 is bound to.
 
@@ -109,11 +109,10 @@ globally. No build or server command deploys anything.
 
 The Web is per profile, unlike the native library: a Web side module is linked with the Emscripten SDK of the engine whose templates load it (4.0.11 for `stock`, 6.0.12
 for `breaka`, with Breaka's lazy function-table ABI), and the two cannot load each other's. The native UI library and live-compile extension are one build for both
-profiles, bound to Godot API 4.7.2 (docs/tracks/single-build.md); `build:web` and `build-live-compile-web.mjs` are the only builds that take `--engine=`.
+profiles, bound to Godot API 4.7.2; `build:web` and `build-live-compile-web.mjs` are the only builds that take `--engine=`.
 
 `node scripts/build-web.mjs --engine=stock` (or `GODOT_REACT_ENGINE=stock`) builds the same extension for an unmodified
-Godot 4.7.2 with upstream GodotJS instead of Breaka's engine. The default `breaka` profile is unchanged. What differs
-(the decisions and evidence are in [tracks/stock-engine.md](tracks/stock-engine.md)):
+Godot 4.7.2 with upstream GodotJS instead of Breaka's engine. The default `breaka` profile is unchanged. What differs:
 
 | | `breaka` (default) | `stock` |
 | --- | --- | --- |
@@ -141,11 +140,11 @@ difference.
 
 The stock debug template as first built aborted in every pthread worker (the closure compiler plus Emscripten assertions: a global
 collision in `godot.js`); `godot-stock/templates/.../web_dlink_debug.zip` was relinked without the closure compiler and works
-(tracks/stock-engine.md, S10). If you have the older zip (sha256 `aee48977...`), use `--release` or rebuild it that way.
+If you have the older zip (sha256 `aee48977...`), use `--release` or rebuild it that way.
 
 Stock Godot 4.7.2's Web input turns a browser `touchcancel` into a plain release, so the touch page of
 `verify:interaction:web` records that gap (`GODOT_REACT_WEB_GAP`) instead of asserting a `pointercancel` there
-(tracks/stock-engine.md, S11). The stock side module needs the stock Emscripten 4.0.11 at `godot-stock/emsdk`, and the same pinned
+The stock side module needs the stock Emscripten 4.0.11 at `godot-stock/emsdk`, and the same pinned
 nightly accepts it.
 
 The receipt (`build-receipt.json`) records the profile, the exporting binary and version, the template and its hash, the mode,
@@ -156,20 +155,20 @@ the same Emscripten as the template, whatever the profile, so the two profiles u
 target directory. `build:web` refuses to export when the installed side module was built for the other profile, or from other
 sources than the working tree. The receipt records the side module's stamp (`extension`: profile, probe flag, hash, cargo features, a
 digest of the sources and each source file's hash), and `serve-web`, `probe-web` and every Web verifier refuse an export whose stamp no
-longer matches the working tree, naming the files that differ and the fix (`pnpm build:web`, or `pnpm build:web --export-only` when the pack, shell, template or an exported file is what moved; `docs/tracks/freshness.md`). An export made
+longer matches the working tree, naming the files that differ and the fix (`pnpm build:web`, or `pnpm build:web --export-only` when the pack, shell, template or an exported file is what moved). An export made
 before the guard has no stamp and is refused once.
 
 ## The live-compile side module
 
-The code editor's compiler and checker (`live-compile/`, `docs/tracks/live-compile.md`) are a second Web side module, `live_compile.web.wasm` (8.7 MB, about 2.3 MB brotli), built by
+The code editor's compiler and checker (`live-compile/`) are a second Web side module, `live_compile.web.wasm` (8.7 MB, about 2.3 MB brotli), built by
 `node scripts/build-live-compile-web.mjs` per profile (`--engine=stock` builds `live_compile.web.stock.wasm` with the stock SDK, Emscripten 4.0.11, and no lazy function-table flags). It has its own toolchain, `live-compile/rust-toolchain.toml` (`nightly-2026-09-15`, because Bun's crates need
 `core::alloc::AllocatorClone`, which `nightly-2026-05-15` lacks), and its recipe is the UI extension's with `--cap-lints=warn` and without `-Z emscripten-wasm-eh=false` (that switch is gone
 on the newer nightly); it is built with `panic=abort`, so a panic traps the service thread and the requests outstanding fail after the host's deadline (30 s, a timer). The page lists it in `gdextensionLibs`, so it is
-fetched at startup with the other side modules whether or not the code panel ever opens; loading it on first use is designed in `docs/tracks/web-load.md` and not built. The export also
+fetched at startup with the other side modules whether or not the code panel ever opens; loading it on first use is not built. The export also
 carries `demo/live-compile/project.json` (the labs' TSX, the library's and React's declarations and the ES2022 lib files; 2.07 MB in the pack, 198 KB compressed). The Web build checks that
 the export holds the side module and the project, and `node scripts/verify-live-compile-web.mjs` runs the `live-compile` section in Chrome.
 
-**Nothing on the page's thread waits for the module's service thread** (docs/tracks/live-compile-async.md). The service is a pthread, and a browser starts a pthread's
+**Nothing on the page's thread waits for the module's service thread.** The service is a pthread, and a browser starts a pthread's
 Worker only when the page's own thread returns to its event loop, if the pool of Workers is empty. The pool holds eight (`emscriptenPoolSize`, `platform/web/js/engine/config.js`),
 the engine and the audio take some, and the engine's `threads_pool_strict` option, which would turn a pool that is used up into an error, is off, so a thread asked
 for after the pool is used up quietly gets a new Worker that cannot run until the page yields. The first version of this module made `compile` wait for the thread's
@@ -177,7 +176,7 @@ answer: on react.breaka.club, with the code panel open and a dozen labs behind i
 Every request is now queued and answered on a later frame (`poll`), a request can be taken back, the page shares one service thread (the demo owns the host and ends it
 when it leaves the tree), and the Web pass of the `code-editor` section and `verify-live-compile-web.mjs` hold the page to this with the pool used up.
 
-**This module is per profile, and an export holds exactly its own profile's or none** (docs/tracks/stock-web.md). Each profile has its own file (`live_compile.web.wasm` for `breaka`, `live_compile.web.stock.wasm`
+**This module is per profile, and an export holds exactly its own profile's or none.** Each profile has its own file (`live_compile.web.wasm` for `breaka`, `live_compile.web.stock.wasm`
 for `stock`), stamp and cargo target (`live-compile/target/web`, `live-compile/target/web-stock`). The stamp records the profile; `build:web` writes the extension's manifest with a Web library only for the
 module stamped for the profile it exports, clears modules an earlier export left in the output, and records the module in the receipt (`liveCompile`: its file name and stamp, or `null`). With no module
 installed for the profile the export has none and the code editor is read-only (it says so in its banner). A module that is installed and is not the profile's current build stops the export, naming the
@@ -227,7 +226,7 @@ wrangler.react-demo.jsonc --persist-to <directory>`, refuses to run without a di
 Measured in headless Chrome through the Worker on `wrangler dev` with a browser that accepts only `br`: a cold visit transfers 12.16 MiB (it was 66.58 MiB with the pack uncompressed
 and every deploy emptying the cache), a returning visitor after a deploy that changed the pack and the page 2.01 MiB, one with nothing new two small requests; on a 20 Mbit/s line with a
 40 ms round trip the demo is ready in 6.7 s where it took 29.8 s. Not observed: whether Cloudflare's edge passes the stored brotli through untouched (the local runtime re-encodes it
-for Chrome's own `Accept-Encoding`, so every local `br` figure forces the header; the `curl` that shows it is in `docs/tracks/web-load.md`). Chrome only; the stock engine's release
+for Chrome's own `Accept-Encoding`, so every local `br` figure forces the header). Chrome only; the stock engine's release
 export was not built. A build or test command never deploys anything; `pnpm deploy:web` needs the wrangler login of the breaka account.
 
 ## Web-specific limits
@@ -236,7 +235,7 @@ Verified in headless Chrome only (debug template of the `breaka` profile; the `s
 `verify-live-compile-web.mjs --release` and the landscape pass of the navigator section ran): Safari, Firefox and mobile devices are not qualified. The Web engine has no accessibility code, so the accessibility tree is native only. A paste asks the browser through
 `JavaScriptBridge` because the engine's `clipboard_get` is stale, and the root writes the engine's hidden soft-keyboard element itself; after a Web IME composition
 ended by a focus move the engine keeps `ime_started` set (an engine bug, not worked around). Horizontal wheel ticks have the opposite sign on Web, a wheel event's pixel delta `d` is `0.03 * d` ticks (so a 100 px notch from Chrome is 3 ticks at device pixel ratio 1 and 1.5 at 2,
-where a native notch is one; `docs/tracks/web-fixes.md`), a touch's `pointerId` is the browser's contact identifier, and the stock 4.7.2 engine turns `touchcancel` into a plain release. The full list is the README's "Current limits".
+where a native notch is one), a touch's `pointerId` is the browser's contact identifier, and the stock 4.7.2 engine turns `touchcancel` into a plain release. The full list is in [LIMITS.md](LIMITS.md).
 
 Primary contracts: [godot-rust Web exports](https://godot-rust.github.io/book/toolchain/export-web.html),
 [Godot Web export requirements](https://docs.godotengine.org/en/stable/tutorials/export/exporting_for_web.html).

@@ -1,4 +1,4 @@
-// The `font-slices` section of the Web interaction verifier (docs/tracks/font-slices.md): text with characters no registered font has, which the Web draws with a font
+// The `font-slices` section of the Web interaction verifier: text with characters no registered font has, which the Web draws with a font
 // the page downloads for them. Each group is a page of its own, because what a page has fetched and added is state that outlives a lab:
 //
 //   - a page with nothing to download fetches nothing;
@@ -33,7 +33,7 @@ const MARGIN_PX = 4;
 /** How far Chrome's rendering may sit from ours before the best match is looked for, in css pixels: the two place a baseline a pixel apart. */
 const SHIFT_REACH_PX = 3;
 
-// What "the same text" means in numbers, from the first run of this section (docs/tracks/font-slices.md): correlation of the ink of the two rasters, at the best shift.
+// What "the same text" means in numbers, from the first run of this section: correlation of the ink of the two rasters, at the best shift.
 const MINIMUM_CORRELATION = 0.95;
 /**
  * Colour emoji against Chrome's: the same pictures, but Godot advances each by the font's own 1275 units of 1024 (29.9 px at 24 px) and Chrome by 28.7 px,

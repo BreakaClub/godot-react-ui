@@ -31,7 +31,7 @@ const LEVELS = 255;
 /**
  * Transition values are compared in 8-bit levels for a colour, in pixels for a width, as they are for opacity. A sample is taken
  * from the library's clock a frame at a time, and its value matched Chrome's curve at the same progress to within a few milliseconds
- * of that progress, never in one direction (the mean difference is zero, `docs/tracks/utilities-layout-motion.md`): so a sample must
+ * of that progress, never in one direction (the mean difference is zero): so a sample must
  * lie within what Chrome's curve covers over `TIME_SLACK_MS` either side of its progress, widened by the rounding of 8 bits, which
  * is the tolerance of a steep curve where a millisecond is several levels.
  */

@@ -3,7 +3,7 @@ import {
 } from '../../../src/touch-selection';
 
 /**
- * Touch selection in the code editor (plan D71, `docs/tracks/touch-selection.md`), without the engine. The selection is CodeMirror's, so
+ * Touch selection in the code editor, without the engine. The selection is CodeMirror's, so
  * the root's own long press, handles and menu (`native/touch_selection*.rs`) cannot act on it: the editor's view asks this for the
  * hold that starts a selection, the handles' geometry and the menu's, and draws them itself, with the root's numbers.
  */

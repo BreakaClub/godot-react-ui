@@ -1,4 +1,4 @@
-//! One touch's pan gesture (plan 3.12 gesture arbitration, rule 4, and 3.16): from the finger going
+//! One touch's pan gesture (gesture arbitration): from the finger going
 //! down to the moment it turns into a scroll, is declined, or lifts. Nothing here touches the engine
 //! or the mounted tree: the integrating code (`scroll_input.rs`) builds the candidate path when the
 //! touch first moves beyond the slop and applies the scroll this returns.

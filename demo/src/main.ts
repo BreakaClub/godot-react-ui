@@ -44,7 +44,7 @@ const bind = createClassBinder();
 const MICROSECONDS_PER_MILLISECOND = 1000;
 const BACKDROP_COLOR = new Color(0.86, 0.9, 0.84, 1);
 /**
- * The tag the backdrop draws where it saw a press (the HUD lab, docs/tracks/lab-clarity.md): the one thing on screen that shows a press went
+ * The tag the backdrop draws where it saw a press (the HUD lab): the one thing on screen that shows a press went
  * through the React root to the Godot scene behind it. A slate-900 pill with white text, the colours the scene-return button uses.
  */
 const PRESS_TAG_FILL = new Color(0.059, 0.09, 0.165, 0.9);
@@ -134,7 +134,7 @@ export default class Main extends Node {
   private navigatorShown = 0;
   /** The pending return of the navigator's root after a lab took it away (`recoverRoot`); at most one. */
   private recovery: ReturnType<typeof setTimeout> | null = null;
-  /** The loader of fonts for characters no registered font has (the Web only: `docs/tracks/font-slices.md`), and what it was last configured with. */
+  /** The loader of fonts for characters no registered font has (the Web only), and what it was last configured with. */
   private fontSlices: DemoFontSlices | undefined = undefined;
   /** The live-compile service of this page, made at the first lab that is edited and ended with the node: one thread however many labs are opened. */
   private liveCompile: ExtensionHost | undefined = undefined;
@@ -193,7 +193,7 @@ export default class Main extends Node {
         this.requireSurface().setProfiling(enabled);
       },
       takeProfile: () => ({js: this.requireRenderer().takeProfile(), native: takeNativeProfile(this.requireSurface())}),
-      // Phase F0 evidence probe; only a build with the `probe` cargo feature can run it.
+      // The evidence probe; only a build with the `probe` cargo feature can run it.
       runProbe: () => runProbe(),
       benchmark: (props: BenchmarkProps) => this.requireRenderer().render(createElement(BenchmarkApp, props)),
       restoreDemo: () => this.requireRenderer().render(createElement(App)),
@@ -223,7 +223,7 @@ export default class Main extends Node {
           this.handlingPopState = false;
         }
       },
-      // A page in place of the app: the HUD over the backdrop Control (plan I1), the pointer lab (I2), ...
+      // A page in place of the app: the HUD over the backdrop Control, the pointer lab, ...
       showLab: (name: LabName) => this.requireRenderer().render(labElement(name)),
       /**
        * The text of a lab's first source file as the live-compile project has it (the pack carries the project, not the `.tsx` files), for a browser
@@ -254,9 +254,9 @@ export default class Main extends Node {
       releaseLiveCompileThreads: () => {
         for (const held of this.heldServices.splice(0)) held.close();
       },
-      /** One page of the paint lab on its own (`docs/tracks/utilities-paint.md`), at the stage's size, from the window's corner. */
+      /** One page of the paint lab on its own, at the stage's size, from the window's corner. */
       showPaintPage: (page: string) => this.requireRenderer().render(createElement(PaintLab, { page })),
-      /** The filters lab (plan Phase V1): rendered again with new props, so a change is an ordinary commit. */
+      /** The filters lab: rendered again with new props, so a change is an ordinary commit. */
       /** One page of the text styles lab (`text-styles-data.ts`). */
       showTextStyles: (page: string) => this.requireRenderer().render(createElement(TextStylesLab, { page })),
       /** One page of the rich text lab (`rich-text-data.ts`) bare, with the tone its changing samples have; rendered again with another tone it is an ordinary commit. */
@@ -300,7 +300,7 @@ export default class Main extends Node {
       /** The `key` of every `keydown` addressed to the root itself (no element focused), in order. */
       rootKeys: () => [...this.rootKeys],
       resetRootKeys: () => { this.rootKeys = []; },
-      /** Deliver the notification the window system sends when the window loses OS focus (plan D6). */
+      /** Deliver the notification the window system sends when the window loses OS focus. */
       simulateWindowFocusLoss: () => {
         const window = this.getWindow();
         if (!window) throw new Error('The demo requires its owning Window');
@@ -342,7 +342,7 @@ export default class Main extends Node {
         this.passthrough = { backdropPresses: 0, unhandledPresses: 0, unhandledWheels: 0, unhandledPans: 0, unhandledKeys: {} };
         if (this.pressTag) this.pressTag.visible = false;
       },
-      /** Whether the engine's `Input` has this key (a `Key` value) down: a key the engine heard go down and never come up stays down (docs/tracks/key-passthrough.md). */
+      /** Whether the engine's `Input` has this key (a `Key` value) down: a key the engine heard go down and never come up stays down. */
       keyPressed: (keycode: number) => Input.isKeyPressed(keycode),
       /** Whether key chords that nothing in the root claims go to the browser (`RootOptions.keyPassthrough`). */
       setKeyPassthrough: (enabled: boolean) => { this.requireRenderer().setKeyPassthrough(enabled); },
@@ -355,7 +355,7 @@ export default class Main extends Node {
       claimsKeyChord: (code: string, key: string, shift: boolean, ctrl: boolean, alt: boolean, meta: boolean) => (
         this.requireSurface().claimsKeyChord(code, key, shift, ctrl, alt, meta)
       ),
-      /** What the engine says about the scale this window draws at, for the HiDPI verifiers (docs/tracks/hidpi.md). */
+      /** What the engine says about the scale this window draws at, for the HiDPI verifiers. */
       scaleFacts: () => {
         const window = this.getWindow();
         if (!window) throw new Error('The demo requires its owning Window');
@@ -459,7 +459,7 @@ export default class Main extends Node {
       godotReactLiveCompile: () => verifyLiveCompile(this, api, async () => {}),
     });
     console.log('GODOT_REACT_DEMO_READY');
-    // The keystroke cost diagnostic (docs/tracks/keystroke-profile.md): it only drives the editor, and only when asked.
+    // The keystroke cost diagnostic: it only drives the editor, and only when asked.
     if (userArgs.some(argument => argument.startsWith('--profile-keystrokes'))) installKeystrokeProfile(this, api, userArgs);
     const verify = userArgs.includes('--verify');
     const verifyMotion = userArgs.includes('--verify-motion');
@@ -747,7 +747,7 @@ export default class Main extends Node {
       }),
       readSource: path => FileAccess.getFileAsString(path),
       platform: onMac ? 'mac' : 'other',
-      // The browser's clipboard is read asynchronously and the engine's own read answers one call late (docs/tracks/text-input.md): on the Web the
+      // The browser's clipboard is read asynchronously and the engine's own read answers one call late: on the Web the
       // editor's menu offers no Paste, and the keyboard's own paste is the way.
       clipboard: {
         writeText: text => ReactUiRoot.setClipboardText(text),

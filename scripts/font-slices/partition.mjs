@@ -1,4 +1,4 @@
-// The partition of a font's characters into slices (docs/tracks/font-slices.md): which code points go in which slice file. Pure, so it is tested
+// The partition of a font's characters into slices: which code points go in which slice file. Pure, so it is tested
 // without a font; `scripts/build-font-slices.mjs` supplies the font's code points and slices the fonts by the plan this returns.
 //
 // A language's slices are of two kinds. **Google's** are the ranges Google Fonts serves for the same family (`google-ranges.json`, recorded once

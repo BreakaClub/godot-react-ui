@@ -2,7 +2,7 @@ import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { runSupervised } from './supervised-process.mjs';
 
-// The Web interaction run as several jobs at the same time (docs/tracks/suite-speed.md). Each job is this script run again with `--job=<name>`:
+// The Web interaction run as several jobs at the same time. Each job is this script run again with `--job=<name>`:
 // a Node process of its own with its own Chrome, its own page(s), its own export server and its own clipboard, focus, counters and captures, so
 // nothing the verifier keeps in module state (`activeViewport`, the section counters, the report) can be seen by another job. The jobs write
 // `report-<job>.json` beside the evidence; the run that started them reads those and reports them as one run (`mergeJobReports`).
@@ -81,7 +81,7 @@ async function readJobReport(output, job) {
  * the job wrote and `missing` says why it wrote none.
  *
  * An `exclusive` job runs by itself, once every other job has ended: it is one whose checks depend on how long the host takes between two of its own
- * steps (a finger's fling needs the lift within a tenth of a second of the last move: docs/tracks/suite-speed.md), and these take as long as the
+ * steps (a finger's fling needs the lift within a tenth of a second of the last move), and these take as long as the
  * other browsers let them.
  *
  * Each job's deadline is its own hang guard; this kills a job `killAfterMs` past it, when the job's own has not ended it.

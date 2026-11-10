@@ -7,11 +7,11 @@ import { beginNativeBuild, CARGO_PACKAGE, NATIVE_BINDING_API, NATIVE_INSTALL_DIR
 
 // There is one native library, bound to Godot API 4.7.2 (`NATIVE_BINDING_API`, scripts/native-binding.mjs) and loaded by both engine profiles, so this
 // script has no engine profile: `--engine=` is refused. It builds in `target/` and installs over the one path where the `.gdextension` expects it, and
-// records the API it is bound to: a run refuses a library bound to another API (docs/tracks/single-build.md).
+// records the API it is bound to: a run refuses a library bound to another API.
 rejectUnknownArguments(process.argv.slice(2), { flags: ['--probe', '--faults'], engine: false });
 const root = resolve(import.meta.dirname, '..');
 const cargo = process.env.CARGO ?? resolve(homedir(), '.cargo/bin/cargo');
-// `--probe` builds the Phase F0 evidence probe (cargo feature `probe`) into its own target directory,
+// `--probe` builds the evidence probe (cargo feature `probe`) into its own target directory,
 // leaving the default build's cache alone, and installs it over the default library. Run a default
 // `pnpm build:native` afterwards: the probe must never ship.
 // `--faults` does the same for the filters negative controls (cargo feature `filter-faults`, native/filter_faults.rs).
@@ -32,7 +32,7 @@ function runCargo(cargoArgs) {
 }
 
 // Cargo rebuilds from file modification times, so a source restored to old content with its old mtime keeps the
-// artifact built from the other content (docs/tracks/freshness.md). `beginNativeBuild` hashes the inputs and, unless the
+// artifact built from the other content. `beginNativeBuild` hashes the inputs and, unless the
 // target's own stamp says its artifact is a build of exactly these, cleans this crate (not its dependencies) first.
 const build = beginNativeBuild({ probe, faults, clean: () => runCargo(['clean', '--locked', '-p', CARGO_PACKAGE, '--release']) });
 runCargo(['build', '--locked', '--release', ...(variant.features.length > 0 ? ['--features', variant.features.join(',')] : [])]);

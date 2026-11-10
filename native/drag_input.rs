@@ -1,4 +1,4 @@
-//! Drag and drop in the mounted tree (plan sections 3.12 rule 3 and 3.19): the glue between the
+//! Drag and drop in the mounted tree: the glue between the
 //! Godot-free state machine (`drag.rs`) and the engine's input, the mounted tree, the event queue, the
 //! cursor, the ghost (`drag_ghost.rs`) and edge auto-scroll.
 //!
@@ -52,7 +52,7 @@ struct Grab {
     origin: Vec2,
 }
 
-/// What the root keeps beside the state machine (plan 3.19).
+/// What the root keeps beside the state machine.
 pub(crate) struct DragRuntime {
     /// `None` only while the machine handles an input: it is taken so the JS handlers it triggers can
     /// reach the rest of the root.
@@ -214,7 +214,7 @@ impl ReactUiRoot {
     }
 
     /// A primary press or touch that JS left alone: if it is inside a `draggable` element, it may become
-    /// a drag (plan 3.12 rule 3). Nothing happens for a pointer an element captured on purpose. Returns
+    /// a drag. Nothing happens for a pointer an element captured on purpose. Returns
     /// whether the press is inside a draggable element, which keeps the text inside it from starting a
     /// selection (a press that moves on drags the element, and one that does not is a click).
     pub(crate) fn begin_drag_gesture(
@@ -316,7 +316,7 @@ impl ReactUiRoot {
         self.drag_input(DragInput::RootExit);
     }
 
-    /// Escape while a drag runs cancels it and is accepted (plan 3.19). Called from `input`, which is
+    /// Escape while a drag runs cancels it and is accepted. Called from `input`, which is
     /// only enabled while a drag runs, so the root needs no key focus.
     pub(crate) fn drag_escape(&mut self, event: &Gd<InputEvent>) {
         let Ok(key) = event.clone().try_cast::<InputEventKey>() else {
@@ -420,7 +420,7 @@ impl ReactUiRoot {
     // ---- Cursor -----------------------------------------------------------------------------------
 
     /// The cursor a running drag overrides the element's own with: can-drop over a target that accepted
-    /// the drop, forbidden anywhere else (Appendix A). Godot asks for the cursor before it hands the
+    /// the drop, forbidden anywhere else. Godot asks for the cursor before it hands the
     /// motion to `gui_input`, so it shows what the previous motion decided.
     pub(crate) fn drag_cursor(&self) -> Option<CursorShape> {
         let machine = self.drag.machine.as_ref()?;
@@ -591,7 +591,7 @@ impl ReactUiRoot {
 
     // ---- Diagnostics ------------------------------------------------------------------------------
 
-    /// The drag as the snapshot reports it (plan 4.5): its state, elements, the effect the target
+    /// The drag as the snapshot reports it: its state, elements, the effect the target
     /// accepted, the ghost, and how the last drag ended.
     pub(crate) fn drag_snapshot_json(&self) -> Value {
         let ended = self.drag.last_end.map(|ended| {

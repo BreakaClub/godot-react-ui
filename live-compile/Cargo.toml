@@ -1,4 +1,4 @@
-# live-compile: Bun's TypeScript checker and JavaScript compiler for the demo's code editor (docs/tracks/live-compile.md).
+# live-compile: Bun's TypeScript checker and JavaScript compiler for the demo's code editor.
 # `core` is the library, `ext` the GDExtension that loads it into Godot. The vendored crates (`vendor/bun`, written by
 # `scripts/vendor-bun.py`) are a workspace of their own, used as path dependencies, as UCGE's type checker and
 # Luanalysis use their extractions of `bun_sema`.

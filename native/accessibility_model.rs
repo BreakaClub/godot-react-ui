@@ -1,6 +1,5 @@
 //! The accessibility tree as data: which mounted elements are exposed, with what role, name, state
-//! and bounds, and the registry that keeps Godot's accessibility elements in step with it (plan
-//! section 3.21, Appendix D).
+//! and bounds, and the registry that keeps Godot's accessibility elements in step with it.
 //!
 //! Nothing here touches Godot. [`walk`] reads a [`AxSource`] (the mounted tree) and lists the
 //! exposed elements in document order, each under its nearest exposed ancestor. [`props_of`] says
@@ -1162,7 +1161,7 @@ mod tests {
         }
         assert!(
             resolve_role(Kind::View, &props(r#"{"role":"textbox"}"#)).is_none(),
-            "text fields wait for TextInput (I7)"
+            "text fields wait for TextInput"
         );
     }
 
@@ -1782,7 +1781,7 @@ mod tests {
             x: None,
             y: axis_with_track(10.0, 120.0, [0.0; 4]),
         };
-        // A role of its own changes what the container is, not that it scrolls (plan D38).
+        // A role of its own changes what the container is, not that it scrolls.
         assert_eq!(
             bars_at(&scroller(scroll, r#"{"role":"listbox"}"#), 1).len(),
             1

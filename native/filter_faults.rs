@@ -1,4 +1,4 @@
-//! Negative controls for the filters verifier (`docs/tracks/filters.md`, "Negative controls").
+//! Negative controls for the filters verifier.
 //!
 //! Each [`Fault`] puts back one of the mistakes the filters (and the glass showcase) were built to avoid, at the one place the fix
 //! lives, so the verifier can show the check that guards the fix fails without it. A fault is switched on
@@ -18,7 +18,7 @@ pub(crate) const FAULT_ENV: &str = "GODOT_REACT_FILTER_FAULT";
 #[cfg_attr(not(feature = "filter-faults"), allow(dead_code))]
 pub(crate) enum Fault {
     /// The backdrop's copy is asked of the item that draws the blur, not a separate item before it
-    /// (stacked panels then read stale mip levels, D40 b).
+    /// (stacked panels then read stale mip levels).
     MergedCopy,
     /// The copy rectangle is not aligned outward to the blur level's texel size. Not a regression guard:
     /// with the shader placing texels by the region's own origin the residual is small, and the verifier
@@ -79,7 +79,7 @@ pub(crate) enum Fault {
     /// it was outside is never planned.
     KeepTransformOutOfTree,
     /// Hit testing ignores an element's transform: the point is tested against the layout box, not the turned or scaled one
-    /// (`docs/tracks/transforms.md`, negative controls; the transforms section shares this build).
+    /// (negative controls; the transforms section shares this build).
     TransformHitFlat,
     /// The bounding box of a turned or scaled rectangle is the untransformed rectangle moved by the map's translation, so
     /// `getRect()` of a rotated element is its layout size.

@@ -1,4 +1,4 @@
-//! Touch text selection in the mounted tree (plan D71, `docs/tracks/touch-selection.md`): the glue between the Godot-free gesture and
+//! Touch text selection in the mounted tree: the glue between the Godot-free gesture and
 //! chrome model (`touch_selection.rs`), the document selection (`selection_input.rs`), the text inputs' own selections
 //! (`text_input_godot/`), the touch pipeline (`pointer_input.rs`, `scroll_input.rs`) and the canvas items that draw the handles and the
 //! edit menu.
@@ -189,7 +189,7 @@ impl ReactUiRoot {
             .is_some_and(|layout| layout.hit(to_scroll(point)).is_some())
     }
 
-    /// Whether a touch selection of the document exists: a touch press does not clear it, a tap does (plan D71).
+    /// Whether a touch selection of the document exists: a touch press does not clear it, a tap does.
     pub(crate) fn touch_selection_holds_document(&self) -> bool {
         self.touch_selection.owner == Some(Owner::Document)
     }
@@ -657,7 +657,7 @@ impl ReactUiRoot {
         self.select_points(&document, first, last)
             .map_err(|error| error.to_string())?;
         self.touch_selection.owner = Some(Owner::Document);
-        // Starting a selection takes Godot key focus for the root, so `ui_copy` reaches it (plan 3.11).
+        // Starting a selection takes Godot key focus for the root, so `ui_copy` reaches it.
         if self.base().is_inside_tree() && !self.base().has_focus() {
             self.base_mut().grab_focus();
         }

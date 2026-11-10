@@ -171,7 +171,7 @@ function TouchSection() {
 
 /**
  * A list whose `pointerdown` captures the pointer, on a row or on its scrollbar thumb. JS has taken that pointer, so
- * native neither pans it with a finger nor drags the thumb with the mouse (plan 3.12 rule 1): the list gets the moves.
+ * native neither pans it with a finger nor drags the thumb with the mouse: the list gets the moves.
  */
 function CaptureSection() {
   const [seen, setSeen] = useState({ down: 0, moves: 0, cancels: 0 });
@@ -210,7 +210,7 @@ function ReversedSection() {
 }
 
 /**
- * Phase I5: scroll containers. The cases are in three columns that keep the document order the verifier's Tab and keys walk (the list, the quiet list,
+ * Scroll containers. The cases are in three columns that keep the document order the verifier's Tab and keys walk (the list, the quiet list,
  * the carousel, the two nested lists, the touch list, the reversed list, the captured one), and the intro is one paragraph: the page must fit its
  * window with the captions in it (see `Section`), so there is no heading over it (the navigator's header names the lab) and `scroll-title` is the
  * intro text, which the verifier presses and wheels over as "UI that does not scroll".

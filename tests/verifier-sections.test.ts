@@ -10,7 +10,7 @@ import {
   sectionsToRun, webInteractionJobDeadlineMs,
 } from '../scripts/verifier-sections.mjs';
 
-// Which sections an interaction verifier runs and when a run is partial (plan 0.4.1; scripts/verifier-sections.mjs).
+// Which sections an interaction verifier runs and when a run is partial (scripts/verifier-sections.mjs).
 
 const root = resolve(__dirname, '..');
 const DEFAULT_SECTIONS = NATIVE_INTERACTION_SECTIONS.filter((name) => !NATIVE_OPT_IN_SECTIONS.some((optIn) => optIn === name));

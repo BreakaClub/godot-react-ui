@@ -1,4 +1,4 @@
-// The `transforms` section of the Web interaction verifier (docs/tracks/transforms.md): the native section's reads of the transforms lab
+// The `transforms` section of the Web interaction verifier: the native section's reads of the transforms lab
 // (demo/src/verify-transforms.ts), from the real canvas in Chrome at both device pixel ratios, with Chrome's own mouse and keyboard. It
 // holds each shape's rectangle to the one Chrome reports for the same CSS (scripts/transform-golden.json, written by
 // `node --import tsx scripts/transform-reference.mjs --golden`), drives hit testing, hover, scrolling, anchoring and a text field through
@@ -20,7 +20,7 @@ const OUTSIDE_PX = 6;
 const WHEEL_TICK_PIXELS = 100;
 const WHEEL_PAGE_DIVISOR = 8;
 // Godot's Web display server turns a DOM wheel delta of `d` CSS pixels into `0.03 * d` wheel ticks (`MOUSE_WHEEL_PIXEL_FACTOR`,
-// `DisplayServerWeb::_mouse_wheel_callback`), and a native `ScrollContainer` notch is one tick; docs/INTERACTION_PLAN.md D13.
+// `DisplayServerWeb::_mouse_wheel_callback`), and a native `ScrollContainer` notch is one tick.
 const WHEEL_PIXEL_FACTOR = 0.03;
 // A wheel tick moves the offset by a fraction of a page, so what the offset reaches is exact; this only absorbs the f32 arithmetic and
 // the snapshot's rounding. It is well under the 0.51 px that three ticks of a list tilted 8 degrees differ from three ticks along the screen.
@@ -113,7 +113,7 @@ export async function runTransformsScenario(context) {
   await showCase('hit');
   const bar = await find('hit-bar');
   check('The bar under rotate(30deg): its rectangle is the box round it', rectApart(bar.rect, golden.bar) <= RECT_TOLERANCE_PX, { rect: bar.rect, golden: golden.bar });
-  // A bare `Button` centres its label, as a browser's `<button>` does (docs/tracks/button-centre.md): the lab's bar sets no alignment.
+  // A bare `Button` centres its label, as a browser's `<button>` does: the lab's bar sets no alignment.
   const label = (await snapshot()).nodes.find((entry) => entry.parent === bar.id && entry.kind === 'text');
   const middleOf = (rect) => ({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 });
   const labelApart = label === undefined ? Infinity : Math.hypot(middleOf(label.rect).x - middleOf(bar.rect).x, middleOf(label.rect).y - middleOf(bar.rect).y);

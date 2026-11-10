@@ -7,7 +7,7 @@ import type { InteractionInspection } from './verify-interaction';
 import { assertionTally, parseVerifierEvent, verifierClipboard, waitForNewClickSequence } from './verifier-input';
 
 /**
- * Phase I7: `TextInput` in a window (docs/tracks/text-input.md). Real Godot input only (`Input.parseInputEvent`, marked
+ * `TextInput` in a window. Real Godot input only (`Input.parseInputEvent`, marked
  * as the verifier's), and the keys are the project's own `InputMap` actions, so the section holds on any platform.
  * Typing, selecting by key and by mouse, word jumps, deleting over an emoji sequence, `maxLength`, a transforming
  * controlled field, read-only, a password, undo and redo, the caret in the raster, horizontal scrolling that follows
@@ -301,7 +301,7 @@ export async function verifyTextInput(owner: Node, api: InteractionInspection, c
   move(FAR_CORNER);
   await settle();
 
-  // The actions text inputs use are the engine's own; record which this project has (the plan asks for it).
+  // The actions text inputs use are the engine's own; record which this project has.
   const wanted = [
     'ui_copy', 'ui_cut', 'ui_paste', 'ui_undo', 'ui_redo', 'ui_text_select_all', 'ui_text_submit', 'ui_text_newline',
     'ui_text_backspace', 'ui_text_backspace_word', 'ui_text_backspace_all_to_left', 'ui_text_delete', 'ui_text_delete_word',
@@ -763,7 +763,7 @@ async function verifyMultiline(owner: Node, api: InteractionInspection, capture:
   await wheel(centre, MouseButton.MouseButtonWheelDown);
   assert(scrollOf(api, notes).scrollTop > 0 && scrollOf(api, lab).scrollTop === 0, `The first tick scrolls the text, not the page: ${scrollOf(api, notes).scrollTop} and ${scrollOf(api, lab).scrollTop}`);
   // The page does not move while the text can still scroll. (The tick that reaches the end of the text may spill what is left
-  // of it over to the page: chaining passes on the remainder, which is deliberate, plan 3.12.)
+  // of it over to the page: chaining passes on the remainder, which is deliberate.)
   let atEnd = false;
   for (let step = 0; step < MAX_STEPS && !atEnd; step++) {
     await wheel(centre, MouseButton.MouseButtonWheelDown);
@@ -778,7 +778,7 @@ async function verifyMultiline(owner: Node, api: InteractionInspection, capture:
   assert(text.scrollTop >= text.scrollHeight - text.clientHeight - 1, 'And the text stays at its end');
   await capture('forms-13-page-scrolled');
 
-  // A scrollbar thumb wins the press (plan 3.12 puts it before a drag and before a selection): dragging the text area's thumb
+  // A scrollbar thumb wins the press (it comes before a drag and before a selection): dragging the text area's thumb
   // scrolls its text and neither moves the caret nor selects anything.
   await pressAction('ui_text_caret_document_start');
   await wheel(centerOf(boxOf(api, notes)), MouseButton.MouseButtonWheelDown);
@@ -862,7 +862,7 @@ async function verifyTrailingBreak(owner: Node, api: InteractionInspection, capt
 }
 
 /**
- * The fixes of docs/tracks/text-input-fixes.md that need a page of their own (`forms-extra`): a kit field whose label
+ * The fixes that need a page of their own (`forms-extra`): a kit field whose label
  * focuses it, and a field whose box changes while it has the focus.
  */
 async function verifyFixes(

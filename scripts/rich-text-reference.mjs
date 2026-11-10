@@ -1,8 +1,7 @@
 // The rich text lab (demo/src/rich-text-data.ts) as plain HTML, rendered by headless Chrome through Puppeteer, to compare with what the
-// library draws (docs/tracks/rich-text.md). A sample is nested `<span>`s with the CSS its classes make (written here from the library's
+// library draws. A sample is nested `<span>`s with the CSS its classes make (written here from the library's
 // own compiled styles, so a class means the same thing to both); an inlay is a plain span, so every other glyph lands where it does
-// in the library. Chrome's text is drawn with `-webkit-font-smoothing: antialiased`, which is how the library draws it
-// (docs/tracks/utilities-text.md), so a difference in a pixel is a difference in what is drawn, not in how text is smoothed.
+// in the library. Chrome's text is drawn with `-webkit-font-smoothing: antialiased`, which is how the library draws it, so a difference in a pixel is a difference in what is drawn, not in how text is smoothed.
 //
 //   node --import tsx scripts/rich-text-reference.mjs [--out=<dir>] [--page=<id>[,<id>]]
 //       Renders each page to <dir>/chrome-<page>-dpr<N>.png and writes <dir>/chrome-<page>-dpr<N>.json with, for each text, its box, its

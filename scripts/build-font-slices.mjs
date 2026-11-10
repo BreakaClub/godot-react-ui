@@ -8,7 +8,7 @@ import { rejectUnknownArguments } from './arguments.mjs';
 import { FAMILIES, LICENSE_FILE, MANIFEST_FILE, buildManifest, manifestProblems, objectPath, sha256Hex, sliceFileName } from './font-slices/manifest.mjs';
 import { planSlices } from './font-slices/partition.mjs';
 
-// Builds the font slices the Web fallback downloads when text needs characters no registered font has (docs/tracks/font-slices.md):
+// Builds the font slices the Web fallback downloads when text needs characters no registered font has:
 // Noto Sans SC, TC, JP and KR, cut into woff2 files by unicode-range, content-addressed, with the manifest that maps characters to them.
 //
 //   node scripts/build-font-slices.mjs                 download (checked by sha256), slice, write artifacts/font-slices/dist

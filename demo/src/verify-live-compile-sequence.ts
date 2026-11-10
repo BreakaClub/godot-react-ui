@@ -6,7 +6,7 @@ import { settleFrames } from './verify-filters';
 import { click } from './verify-text-input';
 
 /**
- * Ben's sequence (docs/tracks/live-compile-async.md): the code panel open on a lab, on to a lab that has no code (a scene), then to the
+ * The reported sequence: the code panel open on a lab, on to a lab that has no code (a scene), then to the
  * next lab that has some, and the page never stops. On react.breaka.club that last step froze the page for 30 s and ended in a read-only
  * panel, because the compile of the new lab waited for a service thread that the browser could not start while the page waited.
  *
@@ -47,7 +47,7 @@ const PANEL_DEADLINE_MS = 2_000;
 const TENTH = 10;
 /** `md:` (README: Styles): from here the Code button is offered; a narrower window has no room for the page and its code together. */
 const PHONE_BREAKPOINT_PX = 768;
-/** Ben went through at least this many labs with the code panel open before the page hung. */
+/** The reporter went through at least this many labs with the code panel open before the page hung. */
 const MIN_LAB_CHANGES = 20;
 const THREAD_DEADLINE_MS = 10_000;
 /** The service threads of the page when nothing else holds one: its own service's. */
@@ -188,7 +188,7 @@ function node(api: SequenceInspection, testID: string): NativeSnapshotNode {
 }
 
 /**
- * Every lab with the code panel open, as Ben went through them: the panel stays open while the lab changes, each lab with code opens, compiles and goes
+ * Every lab with the code panel open, as the reporter went through them: the panel stays open while the lab changes, each lab with code opens, compiles and goes
  * live, and the page and the service stay what they were. A lab change used to start a service thread of its own that nothing ended, and a browser has
  * eight Workers for them all, so after a dozen labs the next one hung the page for 30 s. Held to:
  *

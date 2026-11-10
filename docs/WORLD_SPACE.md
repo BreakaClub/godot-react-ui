@@ -4,8 +4,7 @@ A React root can be drawn on a quad in a 3D scene and still take mouse, touch an
 needs no native code: the root lives in a `SubViewport` like any other root, the viewport's texture is
 the quad's material, and the scene's owner turns main-viewport input into `SubViewport` input.
 
-This is the recipe of plan Phase I11 (`docs/INTERACTION_PLAN.md`, section 3.22). It is built and
-verified in `demo/world.tscn`; every number below is from that scene.
+This is the recipe. It is built and verified in `demo/world.tscn`; every number below is from that scene.
 
 Verified on macOS (Godot 4.8, Compatibility renderer, `pnpm verify:world`, landscape 1120x800 and
 portrait 600x900, including the panel at twice its texels) and in real Chrome on Breaka's Web template
@@ -128,11 +127,11 @@ not chosen: it depends on the root's bounds and fakes input.
 **Touch.** Real touches arrive as `InputEventScreenTouch` and `InputEventScreenDrag` and are forwarded
 the same way, by touch index: a finger that goes down on the panel owns its drags and its end, wherever
 they land. Godot also turns each real touch into an emulated mouse event (`emulate_mouse_from_touch`,
-`device == DEVICE_ID_EMULATION`); the owner ignores every such event, as the root does (plan D16), or
+`device == DEVICE_ID_EMULATION`); the owner ignores every such event, as the root does, or
 a tap would be a second press. A touch never sets hover.
 
 **Keys** are pushed to the `SubViewport` only while the root has key focus (`surface.hasFocus()`).
-Focus is the root's own (plan 3.11, D11): a click on a button focuses it and gives the root key
+Focus is the root's own: a click on a button focuses it and gives the root key
 focus, Tab and Enter then go to the panel, and a press on something that cannot take focus (here
 the title) releases it, after which keys belong to the game again. Godot would drop a key itself
 when nothing in the `SubViewport` has focus, so the explicit check states the contract rather
@@ -155,7 +154,7 @@ World (Node, world-main.ts)
 - **A second root.** `LabelSurface` is a `ReactUiRoot` added to the owner like the demo's own root and sized to the
   window (the owner follows the window's size each frame). It is a separate React root from the panel's: the panel's
   lives in a `SubViewport` on a quad, this one is drawn over the 3D view. Everything in it is `pointer-events-none`, so
-  `_has_point` is false everywhere and Godot hands every pointer on to the owner's quad routing (plan 3.11); it holds no
+  `_has_point` is false everywhere and Godot hands every pointer on to the owner's quad routing; it holds no
   key focus.
 - **Each frame**, in `_process` after the node moved: `world = orbiter.globalPosition`,
   `screen = camera.unprojectPosition(world)`, `behind = camera.isPositionBehind(world)`, and the owner renders
@@ -202,7 +201,7 @@ are unchanged.
   caret through the quad at scale 2), `panelPixelAt` and `screenPointOf` do not change.
 - **Why that makes the text sharp.** A viewport's font oversampling is its size over its 2D override when the stretch is on
   (`Viewport::_set_size`), so the panel's viewport has an oversampling of 2, and the root draws its glyphs at the
-  viewport's oversampling (`docs/tracks/hidpi.md`): a 2x raster for a 2x texture. The first version of this recipe tried
+  viewport's oversampling: a 2x raster for a 2x texture. The first version of this recipe tried
   the same override and found the text soft ("the glyphs in it are softer than the 1x texture scaled up"): the root
   then drew its text with no oversampling at all, outside Godot's `_draw`, so the texture held a 1x raster scaled up by
   the viewport. Read from the raster now: the digit in the panel at scale 2 has a peak edge step of 0.81 (the same
@@ -241,7 +240,7 @@ a press on the projected field is routed as any other press and focuses it (the 
 `SubViewport`), and `routeKey` forwards the key events the main viewport leaves unhandled while the root holds focus. The
 text input matches the keys to its `InputMap` actions with the device of the event normalised to the keyboard's, because a
 key pushed into a `SubViewport` keeps the device it came with, and `InputMap` matches an event only to bindings of the
-same device (decision T3, `docs/tracks/text-input.md`); without that, a forwarded key would type its character but none of
+same device; without that, a forwarded key would type its character but none of
 the editing keys would act. Verified natively (`06a-typing`: Hello, Hi ther) with real Godot input: a press on the projected
 field focuses it, typed characters and Backspace edit it, React follows, no key reaches the game, a press at the projected
 start of the text puts the caret there, typing goes in at the caret, and a press on the title hands key focus back so the
@@ -260,15 +259,13 @@ $GODOT --audio-driver Dummy --path demo --resolution 1120x800 res://world.tscn
 $GODOT --audio-driver Dummy --path demo --resolution 1120x800 res://world.tscn -- --verify-world
 ```
 
-The native verifier shares its isolation with the other native verifiers (`demo/src/verifier-input.ts`, plan D21 and
-D22): it injects every event with its own device id, the owner drops every other device, input accumulation is off,
+The native verifier shares its isolation with the other native verifiers (`demo/src/verifier-input.ts`): it injects every event with its own device id, the owner drops every other device, input accumulation is off,
 and the window is unfocusable and mouse-passthrough. A real mouse over the window would otherwise send events too
 (device 32 was seen, at positions on another display), Godot would merge a stray motion into an injected one, and
-the window losing OS focus would cancel a press in flight (plan D6). What still gets in is logged as
+the window losing OS focus would cancel a press in flight. What still gets in is logged as
 `GODOT_REACT_RUN_DISTURBED`, and `scripts/verify-world.mjs` (through `scripts/native-run.mjs`) runs again a run that
-failed within 5 s of a disturbance that could reach the root, at most twice (`--no-retry` runs each window once); a failure without one is real and is not run again
-(D22, narrowed by D46). The window-exit test sends its
-own `NOTIFICATION_WM_MOUSE_EXIT` (`simulateWindowMouseExit`), so it is not counted as a disturbance.
+failed within 5 s of a disturbance that could reach the root, at most twice (`--no-retry` runs each window once); a failure without one is real and is not run again.
+The window-exit test sends its own `NOTIFICATION_WM_MOUSE_EXIT` (`simulateWindowMouseExit`), so it is not counted as a disturbance.
 
 Web: `pnpm build:web`, then `node scripts/verify-world-web.mjs` (it has no package script; like the other Web verifiers it serves the
 export itself on a free port, and `GODOT_REACT_WEB_URL` only names a server whose files it checks against the export's receipt). It leaves `report.json` and `browser.log` in `artifacts/web-world-verification/` and prints `GODOT_REACT_WEB_WORLD_VERIFY_PASSED` only for a run that passed. To look at the scene

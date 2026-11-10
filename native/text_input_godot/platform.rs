@@ -1,4 +1,4 @@
-//! A text input and the platform around it (plan 3.18): what happens when it gains and loses focus,
+//! A text input and the platform around it: what happens when it gains and loses focus,
 //! the IME window and its composition, the on-screen keyboard, and the clipboard. It mirrors
 //! `LineEdit`: `_edit`/`unedit` (`line_edit.cpp:56-110`), `_update_ime_window_position` (`:133-147`),
 //! `NOTIFICATION_OS_IME_UPDATE` (`:1694-1715`), `show_virtual_keyboard` (`:2255-2265`) and `_set_text`
@@ -127,8 +127,8 @@ impl ReactUiRoot {
         // ends below and takes the OS's own copy of the marked text with it, so nothing is inserted twice.
         //
         // Blur happens in the middle of many things (a commit that disabled the input, a press, Tab, the root
-        // losing key focus), and `beforeinput` waits for JS, which is only for input-origin entry points
-        // (plan 3.3). The composition ends here, so the input is in a settled state, and the insertion is made
+        // losing key focus), and `beforeinput` waits for JS, which is only for input-origin entry points.
+        // The composition ends here, so the input is in a settled state, and the insertion is made
         // from the next frame (`commit_blurred_preedits`).
         let preedit = self.text_state(tag).and_then(|state| {
             state

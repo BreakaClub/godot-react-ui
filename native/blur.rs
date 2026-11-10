@@ -1,5 +1,4 @@
-//! How a Gaussian blur is drawn from the render target's back-buffer mipmaps (plan Phase V1, D40 and
-//! `docs/tracks/filters.md`). Nothing here touches Godot.
+//! How a Gaussian blur is drawn from the render target's back-buffer mipmaps. Nothing here touches Godot.
 //!
 //! Godot generates a chain of ever blurrier, half-size copies of the back buffer
 //! (`render_target_gen_back_buffer_mipmaps`). Sampling one of them directly shows the texels: a hard edge
@@ -15,13 +14,13 @@ use crate::filter_faults::{self as faults, Fault};
 /// runs with its tap offsets two *source* texels apart, is the one-dimensional kernel
 /// `[1, 3, 4, 4, 3, 1] / 16` at texel centres -2.5 to +2.5 from the destination centre: a variance of
 /// 1.75 source texels squared. Measured on the Compatibility and the Mobile renderer (identical to one
-/// 8-bit step) by `experiments/filters-engine/exp1.gd` against this module's model.
+/// 8-bit step) against this module's model.
 pub const CHAIN_VARIANCE_PER_STEP: f32 = 1.75;
 /// The Forward+ renderer does not use that filter. Its back-buffer mipmaps come from the compute shader
 /// `copy.glsl` (`MODE_GAUSSIAN_BLUR`): a separable 7-tap kernel `{0.2146, 0.1899, 0.1315, 0.0713}` over 2 x 2
 /// bilinear quads, taps two source texels apart, which has a variance of `4 * 2.715 + 0.25` = 11.1 source texels
 /// squared per step. `exp1.gd` under `--rendering-method forward_plus` measured the first five levels at 10.8, 11.1,
-/// 11.1, 11.0 and 11.0 (`docs/tracks/filter-fixes.md`), so 11.0.
+/// 11.1, 11.0 and 11.0, so 11.0.
 pub const FORWARD_PLUS_CHAIN_VARIANCE_PER_STEP: f32 = 11.0;
 /// The kernel's weights over the previous level's texels, for the model: `DOWNSAMPLE[i]` weighs source
 /// texel `2 * j + i - 2` for destination texel `j`.
@@ -378,7 +377,7 @@ pub fn copy_region(area: PixelRect, plan: &BlurPlan, target: (i32, i32)) -> Pixe
 mod model {
     //! A CPU model of the engine's back-buffer chain and the shader's kernel on a vertical hard edge,
     //! which is all a one-dimensional profile needs. It reproduces the GPU's profiles to 0.003 (an 8-bit
-    //! step is 0.004): `experiments/filters-engine/exp1.gd` measured levels 1 to 4 on the Compatibility
+    //! step is 0.004): measurements covered levels 1 to 4 on the Compatibility
     //! and levels 1 to 7 on the Mobile renderer, and levels 1 to 5 on Forward+ (whose step is the compute kernel).
 
     use super::*;

@@ -3,7 +3,7 @@ import type { InteractionInspection } from './verify-interaction';
 import { assertionTally, parseVerifierEvent } from './verifier-input';
 
 /**
- * The `key-passthrough` section, native half (docs/tracks/key-passthrough.md): what the root says it uses, asked the way the Web page asks,
+ * The `key-passthrough` section, native half: what the root says it uses, asked the way the Web page asks,
  * with a DOM key (`code`, `key` and the modifiers) and no key press. The answer decides whether a chord goes to the browser, so it is checked
  * against what the root really does with the key, in the states the page can be in: a Godot control holding the keyboard, the root holding it
  * with nothing focused, a text input, a button, a plain focusable element. The Web half (`scripts/verify-key-passthrough-web.mjs`) checks the

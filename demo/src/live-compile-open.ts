@@ -15,7 +15,7 @@ const LIBRARY_SOURCE_PATH = '../../src';
 export interface LiveSessionRequest {
   /**
    * The compiler and the checker. The caller owns it and closes it: one host serves every session of the page, because each host is a
-   * thread, and a browser has a small pool of them (docs/tracks/live-compile-async.md).
+   * thread, and a browser has a small pool of them.
    */
   readonly host: LiveCompileHost;
   readonly root: ReactRoot;

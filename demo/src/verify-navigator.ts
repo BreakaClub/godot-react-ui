@@ -321,7 +321,7 @@ async function checkPassthrough(api: NavigatorInspection): Promise<void> {
 
 /**
  * A lab that anchors to `getRect()` must hold in the shell: the rectangle is root-local, and the shell moves the lab off the root's corner,
- * which a run of the lab alone in the window cannot see. Ben saw this one: the marker stood off by the sidebar's width and the header's height.
+ * which a run of the lab alone in the window cannot see. This was reported: the marker stood off by the sidebar's width and the header's height.
  */
 async function checkAnchorInShell(api: NavigatorInspection): Promise<void> {
   setTransformCase('anchor');

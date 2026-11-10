@@ -8,7 +8,7 @@ import { click, move, pressAction, waitForCaretOn } from './verify-text-input';
 import { readOurText } from './verify-text-styles';
 
 /**
- * Phase H1 (docs/tracks/hidpi.md): HiDPI text and box rendering, checked in the raster of a window that runs at a content
+ * HiDPI text and box rendering, checked in the raster of a window that runs at a content
  * scale of two, and the engine facts the rule for the text oversampling rests on.
  *
  * Every check is recorded and the section fails at its end with all of the failures, so one run says everything that is
@@ -630,7 +630,7 @@ function percentile(sorted: readonly number[], share: number): number {
   return element(sorted, Math.min(sorted.length - 1, Math.floor(sorted.length * share)));
 }
 
-/** What a repaint of every node costs, from the native draw samples (plan F4's scenario b). */
+/** What a repaint of every node costs, from the native draw samples. */
 async function measureFullRepaint(api: InteractionInspection): Promise<void> {
   api.profile(true);
   const started = Time.getTicksMsec();

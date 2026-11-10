@@ -39,7 +39,7 @@ const SYNTAX_JUNK = ' = = ;';
 const EMERALD_100 = '#d1fae5';
 const PAGE_BACKGROUND = '#f8fafc';
 
-/** Pointer and scroll (docs/tracks/editor-pointer.md): the characters a drag covers, and how many characters the line a press or a drag is made on has at least. */
+/** Pointer and scroll: the characters a drag covers, and how many characters the line a press or a drag is made on has at least. */
 const POINTER_DRAG_COLUMNS = 6;
 const POINTER_LINE_MIN_CHARACTERS = 30;
 const POINTER_COLUMN = 10;
@@ -152,7 +152,7 @@ function helpers(context) {
 }
 
 /**
- * What Ben saw in Firefox and Chrome: a click mid-file highlighted a slab of text, the next click scrolled, a drag selected a slab and scrolled, and
+ * What was reported in Firefox and Chrome: a click mid-file highlighted a slab of text, the next click scrolled, a drag selected a slab and scrolled, and
  * the first click after a scroll scrolled again. One cause: the editor took the keyboard for its input before the input stood at the new caret, and
  * focusing an input brings it into view, so a caret that the wheel had scrolled out of view pulled the editor back to it from under the press.
  * Each sequence is made with the browser's own mouse and wheel, after the caret has been left where the wheel takes it out of view.
@@ -358,7 +358,7 @@ export async function runCodeEditorScenario(context) {
     return;
   }
   await waitUntil('the caret', () => nodeExists('code-caret'));
-  // The panel is there, editable, while the lab is compiled; the page is the bundled lab until the compiled one is ready (docs/tracks/live-compile-async.md).
+  // The panel is there, editable, while the lab is compiled; the page is the bundled lab until the compiled one is ready.
   await waitUntil('the lab to be compiled and live', async () => (await text('code-status-run')).startsWith('Live.'), LIVE_DEADLINE_MS);
   check('The lab on the stage is the live session\'s and reads as the bundled lab did', (await text('inputs-lab')) === pageBefore);
   check('The status bar says the page is live, not just Ready', (await text('code-status-run')).startsWith('Live.'), await text('code-status-run'));
@@ -418,7 +418,7 @@ export async function runCodeEditorScenario(context) {
   check('After the wheel the first line is not an element and the ones drawn read as the source', !drawn.has(1) && [...drawn].every(([n, t]) => t === lines[n - 1]), [...drawn.keys()]);
   await toTop();
 
-  // Ben's sequences: clicks and drags at the edges, after a scroll, and with a nudge (docs/tracks/editor-pointer.md).
+  // The reported sequences: clicks and drags at the edges, after a scroll, and with a nudge.
   await pointerAndScroll(context, h, lines, toTop);
 
   // An edit reaches the page, and the counter keeps its count.
@@ -584,7 +584,7 @@ export async function runCodeEditorScenario(context) {
   await runLiveCompileSequence(context, h);
 }
 
-/** Ben's sequence needs the live-compile service to start a thread the pool of workers cannot give at once: more threads than the pool holds. */
+/** The reported sequence needs the live-compile service to start a thread the pool of workers cannot give at once: more threads than the pool holds. */
 const POOL_HOGS = 12;
 /**
  * The longest the page may go without a frame while a lab compiles and goes live. The wait ends with the page's own work, the compiled lab run and
@@ -597,7 +597,7 @@ const LIVE_DEADLINE_MS = 60_000;
 const PANEL_DEADLINE_MS = 2_000;
 
 /**
- * Ben's sequence in Chrome, with Chrome's own mouse: the code panel open on the HUD lab, on to the scene lab that has no code, then to the Accessibility
+ * The reported sequence in Chrome, with Chrome's own mouse: the code panel open on the HUD lab, on to the scene lab that has no code, then to the Accessibility
  * lab. On react.breaka.club the compile of that last lab waited for a service thread that the browser could not start while the page waited, and the
  * page hung for 30 s and ended read-only. Here the page's service is started again behind more threads than the pool of workers holds, which is the
  * state that led to it, and the page's frames are counted from the page itself (requestAnimationFrame) while it waits for each compile.
@@ -626,7 +626,7 @@ async function runLiveCompileSequence(context, h) {
     await demo('restartLiveCompile');
     await context.click('toggle-code');
     await waitUntil('the code panel, editable, while the lab compiles', () => nodeExists('code-editor'), PANEL_DEADLINE_MS);
-    check('Ben\'s sequence: the panel opens at once and is not read-only', !(await nodeExists('code-read-only')));
+    check('The reported sequence: the panel opens at once and is not read-only', !(await nodeExists('code-read-only')));
     const firstMark = await now();
     await waitUntil('the HUD lab to be live', async () => (await text('code-status-run')).startsWith('Live.'), LIVE_DEADLINE_MS);
     const first = await framesSince(firstMark);
@@ -691,7 +691,7 @@ export async function runTouchCodeEditorScenario(context) {
   // The keyboard's keys edit the code, and the editor's input never holds text.
   // One letter at a time, a frame apart, as a person types. The engine presses Right once per character a frame after the soft keyboard's text arrives, and the
   // editor keeps one count of presses to expect (`softKeyboardPresses`): two letters typed in the same millisecond, which no keyboard sends, share a count, and
-  // the second's presses are then taken for the user's own, moving the caret on (docs/tracks/suite-speed.md, "A race that was already there").
+  // the second's presses are then taken for the user's own, moving the caret on.
   for (const letter of 'XY') {
     await page.keyboard.type(letter);
     await frames();
@@ -742,7 +742,7 @@ export async function runTouchCodeEditorScenario(context) {
   check('A tap after the pan puts the caret under the finger', tapped?.line === tapLine && tapped.column === 7, { tapped, tapLine });
   check('and does not scroll the code', Math.abs((await context.find('code-scroll')).scroll.scrollTop - panned.scrollTop) <= SCROLL_TOLERANCE_PX, { before: panned.scrollTop, after: (await context.find('code-scroll')).scroll.scrollTop });
 
-  // A long press selects the word under the finger and shows the handles and the menu the editor draws itself (docs/tracks/touch-selection.md); the
+  // A long press selects the word under the finger and shows the handles and the menu the editor draws itself; the
   // soft keyboard comes back when the finger lifts, the menu's Copy writes the browser's clipboard, and a finger that goes on moving extends the selection.
   await demo('scrollTo', 'code-scroll', 0);
   await frames();

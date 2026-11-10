@@ -1,4 +1,4 @@
-// The `key-passthrough` section of the Web interaction verifier (docs/tracks/key-passthrough.md): key chords that nothing in the UI claims reach
+// The `key-passthrough` section of the Web interaction verifier: key chords that nothing in the UI claims reach
 // the browser, and the ones it claims stay with the UI. Real Chrome, driven by its own keyboard through puppeteer (CDP, headless: no OS input).
 //
 // What the browser does with a key is decided when the key's event has finished being dispatched: it acts unless something called

@@ -1,4 +1,4 @@
-// What a picture of black text on white holds, measured the way the text styles verifiers hold the library to Chrome (docs/tracks/justify-clip.md):
+// What a picture of black text on white holds, measured the way the text styles verifiers hold the library to Chrome:
 // the ink of one character's cell, and the right edge of the ink of one line. Chrome's numbers (`scripts/text-styles-reference.mjs --golden`) and the
 // Web verifier's (`scripts/verify-text-styles-web.mjs`) are read with these functions; the native verifier has the same two in
 // `demo/src/text-ink.ts`, and `tests/text-ink.test.ts` holds the two copies to the same answers.

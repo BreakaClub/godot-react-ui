@@ -9,7 +9,7 @@ import { LICENSE_FILE, MANIFEST_FILE, FAMILIES, buildManifest, objectPath, sha25
 import { exportFontSlices, exportedFontSliceProblems, fontSlicesBuilt } from '../scripts/font-slices/paths.mjs';
 import { fontSliceKeysOf, planFontSlices } from '../scripts/font-slices/release.mjs';
 
-// What a deploy does with the font slices (scripts/font-slices/release.mjs and paths.mjs, docs/tracks/font-slices.md), against a small slice build laid out
+// What a deploy does with the font slices (scripts/font-slices/release.mjs and paths.mjs), against a small slice build laid out
 // as the real one is: the manifest and licence, and `o/<hash>/<name>` for the indexes and the slices.
 
 function temporary(): string {

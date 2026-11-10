@@ -5,7 +5,7 @@ import { history } from '@codemirror/commands';
 
 /**
  * The editor's document: a CodeMirror 6 `EditorState` (text, selections, undo history, the TypeScript and JSX parse) with no
- * `EditorView`. JS owns the text; native only shows it (docs/tracks/code-editor-evaluation.md, section 6).
+ * `EditorView`. JS owns the text; native only shows it.
  *
  * Besides the state the model keeps what the asynchronous services need: a document version that grows with every change to
  * the text, and the changes that made each version, so a result computed for an older version (a type check, a hover, inlay

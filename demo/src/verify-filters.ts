@@ -9,7 +9,7 @@ import type { GlassInspection } from './verify-glass';
 import { assertionTally, parseVerifierEvent, waitEngineTime } from './verifier-input';
 
 /**
- * The `filters` section of the interaction verifier (plan Phase V1). Every claim is read from the rendered pixels of a
+ * The `filters` section of the interaction verifier. Every claim is read from the rendered pixels of a
  * fixture made of hard edges and flat colours, never from native's own bookkeeping alone.
  */
 export interface FiltersInspection {
@@ -1477,7 +1477,7 @@ function renderer(): string {
 
 const FAULT_CONTROLS: readonly FaultControl[] = [
   {
-    fault: 'merged-copy', guards: 'a panel over another blurs the other\'s blur (D40 b: separate copy item)',
+    fault: 'merged-copy', guards: 'a panel over another blurs the other\'s blur (separate copy item)',
     run: verifyStacking, fails: /Where B is over A it blurs A's blur/u,
   },
   {

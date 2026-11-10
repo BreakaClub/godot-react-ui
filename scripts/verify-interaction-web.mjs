@@ -4,7 +4,7 @@
 // Infrastructure (page observation, pack transfer check, geometry, captures) is shared in text with
 // verify-web.mjs; the scenarios mirror demo/src/verify-interaction.ts.
 //
-// The run is a set of jobs that run at the same time, each in a Chrome of its own (docs/tracks/suite-speed.md): one for each viewport, one for
+// The run is a set of jobs that run at the same time, each in a Chrome of its own: one for each viewport, one for
 // the pages that are each their own case, one for the touch pages. Without `--job=<name>` this script starts them and reports their results as
 // one run; with it, this script is that job. `--serial` runs the jobs one after another, `--jobs=<n>` at most n at a time.
 import assert from 'node:assert/strict';
@@ -43,10 +43,10 @@ import { runPaintScenario } from './verify-paint-web.mjs';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 rejectUnknownArguments(process.argv.slice(2), { flags: ['--release', SERIAL_FLAG], prefixes: ['--only=', JOB_ARGUMENT, JOBS_ARGUMENT] });
 const engine = selectEngine();
-// Refuse an export whose side module was built from other sources than the working tree (docs/tracks/freshness.md).
+// Refuse an export whose side module was built from other sources than the working tree.
 engine.requireFreshWebExport();
 // The names, the order and what counts as left out are scripts/verifier-sections.mjs, shared with the native verifier.
-// `--only=<section>[,<section>]` runs just those sections (plan 0.4.1); the names are the native verifier's, and `touch`
+// `--only=<section>[,<section>]` runs just those sections; the names are the native verifier's, and `touch`
 // is this verifier's touch page. An unknown name is an error: a typo must not skip a section.
 const SECTIONS = WEB_INTERACTION_SECTIONS;
 const coverage = describeSections(SECTIONS, [], requestedSections(process.argv.slice(2)));
@@ -86,7 +86,7 @@ if (jobName === undefined) {
 }
 const job = jobs.find((candidate) => candidate.name === jobName);
 if (job === undefined) throw new Error(`${JOB_ARGUMENT}${jobName}: no such job in this run; the jobs are ${jobs.map((candidate) => candidate.name).join(', ')}`);
-// `--release` verifies the release export (the stock profile's only Web mode that starts: docs/tracks/stock-engine.md, S10).
+// `--release` verifies the release export (the stock profile's only Web mode that starts).
 const packBuffer = await readFile(engine.artifactPath(`web-${engine.webMode()}`, 'index.pck'));
 const expectedPack = {
   bytes: packBuffer.byteLength,
@@ -136,7 +136,7 @@ const EMPTY_POINT_SEARCH_STEP = 24;
 // Where the root is moved inside the window to tell root-local from viewport coordinates.
 const SURFACE_OFFSET = { x: 50, y: 30 };
 const WHEEL_TICK_PIXELS = 100;
-// Longer than the click-count interval (plan Appendix A, 500 ms), and farther than its slop (4 px).
+// Longer than the click-count interval (500 ms), and farther than its slop (4 px).
 const CLICK_SEQUENCE_PAUSE_MS = 650;
 /** How far inside and outside the pad label's left edge a click's press and release are. */
 const CLICK_EDGE_PX = 2;
@@ -835,7 +835,7 @@ async function focusCanvas() {
 }
 
 /**
- * Plan I1: the root cooperates with Godot. Empty space and `pointer-events: none` regions belong to
+ * The root cooperates with Godot. Empty space and `pointer-events: none` regions belong to
  * the Controls underneath; keys, Tab and wheel ticks belong to the game unless React used them.
  * Mirrors demo/src/verify-interaction.ts, with real Chrome input and the canvas's own CSS cursor.
  */
@@ -1065,7 +1065,7 @@ async function expectPadTally(name, predicate) {
 }
 
 /**
- * Plan I2, mouse half: the pointer model with real Chrome input: every mouse button, click counting and a
+ * Mouse half: the pointer model with real Chrome input: every mouse button, click counting and a
  * knob that keeps following a captured drag outside the page. Mirrors demo/src/verify-interaction.ts.
  */
 async function runPointersScenario() {
@@ -1206,7 +1206,7 @@ async function testIDOf(id) {
 }
 
 /**
- * Plan I3 with real Chrome keyboard input: Tab order, the focus ring and focus-visible, DOM key events
+ * Real Chrome keyboard input: Tab order, the focus ring and focus-visible, DOM key events
  * and repeats, keyboard activation without pointer events, a focus trap and `focus()`. Mirrors
  * demo/src/verify-interaction.ts; the ring is a pixel of the canvas screenshot.
  */
@@ -1378,7 +1378,7 @@ async function runKeyboardScenario() {
 }
 
 /**
- * Plan I2, touch half, on the page with real touch support: a tap with the engine's mouse emulation
+ * Touch half, on the page with real touch support: a tap with the engine's mouse emulation
  * on (one pointer, never a mouse press, no hover left), two fingers through CDP (two ids), and a
  * cancelled touch.
  */
@@ -1504,7 +1504,7 @@ async function scrollOf(testID) {
 const nearly = (actual, expected, tolerance = SCROLL_TOLERANCE) => Math.abs(actual - expected) <= tolerance;
 
 /**
- * Plan I5, mouse half: wheel, keys, the scrollbar thumb, chaining and clicks in scrolled content in real Chrome, at both
+ * Mouse half: wheel, keys, the scrollbar thumb, chaining and clicks in scrolled content in real Chrome, at both
  * device pixel ratios. Mirrors the native `scroll` section; the wheel differs because the Web build scales a notch.
  */
 async function runScrollScenario() {
@@ -1623,7 +1623,7 @@ async function runScrollScenario() {
 }
 
 /**
- * Plan I5, touch half (the touch page): a swipe over a button scrolls the list, cancels the pointer and does not click;
+ * Touch half (the touch page): a swipe over a button scrolls the list, cancels the pointer and does not click;
  * the content coasts after the finger lifts; a swipe on a `touch-none` element is pointer events.
  */
 async function runTouchScrollScenario() {
@@ -1741,7 +1741,7 @@ async function canvasPixel(logical) {
 const near = (pixel, expected, tolerance) => pixel.every((channel, index) => Math.abs(channel - expected[index]) <= tolerance);
 
 /**
- * Plan I9, mouse half: drags in real Chrome at both device pixel ratios. Reordering and a cross-column move, the
+ * Mouse half: drags in real Chrome at both device pixel ratios. Reordering and a cross-column move, the
  * event sequence and `pointercancel` without a `click`, effect negotiation and the CSS cursor, Escape, a release
  * beyond the page, the ghost in the canvas's pixels, edge auto-scroll with the target following the scroll under a
  * stationary pointer. Mirrors the native `drag` section.
@@ -1919,7 +1919,7 @@ async function runDragScenario() {
 }
 
 /**
- * Plan I9, touch half (the touch page): a touch held still on a draggable element becomes a drag, and a finger that
+ * Touch half (the touch page): a touch held still on a draggable element becomes a drag, and a finger that
  * moves first pans the list instead, with no drag, no click and one pointercancel.
  */
 async function runTouchDragScenario() {
@@ -2027,7 +2027,7 @@ async function formReadout() {
 }
 
 /**
- * Phase I7: text inputs in a real browser. Real Chrome key events type, select and move (the keys are the project's
+ * Text inputs in a real browser. Real Chrome key events type, select and move (the keys are the project's
  * own InputMap actions, as the native verifier presses them); an IME composition and its commit come through the
  * Chrome DevTools Protocol (`Input.imeSetComposition`, `Input.insertText`), which is how Godot's Web IME element hears
  * them. The platform facts are recorded: with `html/experimental_virtual_keyboard` on, desktop Chrome has no
@@ -2648,7 +2648,7 @@ async function scanCanvas(area, rgb) {
 }
 
 /**
- * Plan I6: text selection in real Chrome, at both device pixel ratios. Mirrors the native `selection` section's mouse
+ * Text selection in real Chrome, at both device pixel ratios. Mirrors the native `selection` section's mouse
  * gestures; what differs is what only the browser can answer: the clipboard (`navigator.clipboard`, the in-memory one of
  * scripts/web-clipboard.mjs, so no permission is granted and the system's is never touched), real keyboard chords, and the highlight's pixels on the real canvas.
  */
@@ -2734,7 +2734,7 @@ async function runSelectionScenario() {
 }
 
 
-// ---- HiDPI (docs/tracks/hidpi.md; the measurements are those of demo/src/verify-hidpi.ts, on a real canvas screenshot) ----
+// ---- HiDPI (the measurements are those of demo/src/verify-hidpi.ts, on a real canvas screenshot) ----
 const LUMA_RED = 0.2126;
 const LUMA_GREEN = 0.7152;
 const LUMA_BLUE = 0.0722;
@@ -2933,7 +2933,7 @@ async function runHidpiFieldScenario(dpr) {
 }
 
 /**
- * HiDPI (docs/tracks/hidpi.md): text and rounded edges drawn at the page's device pixel ratio, read from real screenshots
+ * HiDPI: text and rounded edges drawn at the page's device pixel ratio, read from real screenshots
  * of the canvas, and the text input's caret, selection and preedit at that ratio. On the DPR 1 landscape page the ratio
  * is also changed in place, with the CSS size unchanged (the browser moved to another display, or zoomed): the root is not
  * told and must draw again at the new scale.
@@ -3137,12 +3137,12 @@ async function runPagesWorkflow() {
     }));
   }
   if (wanted('rotation')) {
-    // A device turned from portrait to landscape and back: each case is a page of its own, in Chrome's mobile emulation (docs/tracks/rotation.md).
+    // A device turned from portrait to landscape and back: each case is a page of its own, in Chrome's mobile emulation.
     activeViewport = 'rotation';
     await section('rotation', () => runRotationScenario({ browser, base: url, check, output: resolve(output, activeViewport) }));
   }
   if (wanted('labs-fit')) {
-    // Every lab on Ben's phone (412 x 915 at 2.625, Chrome's mobile emulation), a page of its own (docs/tracks/lab-clarity.md).
+    // Every lab on an Android phone (412 x 915 at 2.625, Chrome's mobile emulation), a page of its own.
     activeViewport = 'labs-fit';
     await section('labs-fit', () => runLabsFitScenario({ browser, base: url, check }));
   }

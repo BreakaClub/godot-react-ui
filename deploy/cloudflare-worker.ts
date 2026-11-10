@@ -1,4 +1,4 @@
-// The Worker behind https://react.breaka.club (docs/tracks/web-load.md, docs/tracks/web-deploy.md).
+// The Worker behind https://react.breaka.club.
 //
 // A deploy publishes an immutable release to R2 (scripts/deploy-web.mjs) and points `current.json` at it. This Worker serves:
 //   /                    the current release's document (`index.html`), revalidated on every visit so a deploy is picked up on the next one

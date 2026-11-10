@@ -10,7 +10,7 @@ import {
   type NativeVerifierResult, withoutExpectedErrors,
 } from '../scripts/native-run.mjs';
 
-// The retry policy of the native verify scripts (plan D22 and docs/tracks/verifier-integrity.md), exercised with a
+// The retry policy of the native verify scripts, exercised with a
 // stand-in for Godot that prints a scripted log per launch, so no window opens and no input is involved.
 
 const PASSED = 'GODOT_REACT_VERIFY_PASSED';
@@ -170,7 +170,7 @@ test('an error line before the success marker fails a run like a failed assertio
   assert.match(result.error?.message ?? '', /emitted a runtime error before completion/);
 });
 
-// The scripted case of the review (docs/tracks/verifier-integrity.md, finding 1): a real, flaky assertion failure whose
+// The scripted case of the review: a real, flaky assertion failure whose
 // log happens to carry a focus loss. The old rule re-ran it on the focus loss and a lucky second run passed.
 test('a real failure is not laundered by a focus loss that cannot have caused it', async () => {
   // The routine one: the window loses focus once, with nothing pressed, long before the failing assertion.

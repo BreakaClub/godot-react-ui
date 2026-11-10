@@ -1,12 +1,12 @@
 import { fitProblems } from './labs-fit.mjs';
 
-// The `labs-fit` section of the Web interaction verifier (docs/tracks/lab-clarity.md): every lab of the navigator on Ben's phone, in Chrome's mobile
+// The `labs-fit` section of the Web interaction verifier: every lab of the navigator on an Android phone, in Chrome's mobile
 // emulation through the DevTools protocol (412 x 915 CSS pixels at a pixel ratio of 2.625, touch on), headless, so no OS input. A lab fits when
 // nothing outside a scroll container that scrolls sideways passes the viewport and the navigator's content area has nothing to scroll sideways
 // (`fitProblems` in scripts/labs-fit.mjs). A window lab is opened in its window and judged there; the scene lab is a Godot scene of its own and is
 // judged by its launch card only.
 
-/** Chrome's mobile emulation of Ben's Android phone class. */
+/** Chrome's mobile emulation of an Android phone class. */
 const PHONE = { width: 412, height: 915, deviceScaleFactor: 2.625 };
 const PORTRAIT = { type: 'portraitPrimary', angle: 0 };
 const STARTUP_TIMEOUT_MS = 180_000;

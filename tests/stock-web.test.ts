@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import type { Engine } from '../scripts/engine.mjs';
 import { makeSkeleton, SCRIPTS, write, type ProfileName, type Skeleton } from './skeleton';
 
-// The live-compile extension's Web side module is per engine profile (docs/tracks/stock-web.md). A side module is linked with the Emscripten of the engine whose
+// The live-compile extension's Web side module is per engine profile. A side module is linked with the Emscripten of the engine whose
 // templates load it, and the stock page cannot read a Breaka module ("unknown dylink.0 subsection: 6", then `__breaka_lazy_register` of undefined). So an export
 // contains exactly the module stamped for its own profile, or none, and a Web verifier refuses an export that does anything else before it opens a page.
 // The scripts that decide are copied into a temporary repository (tests/skeleton.ts); no cargo, Godot, Emscripten or browser is involved.

@@ -1,4 +1,4 @@
-//! A text input for assistive technologies (plan 3.21, Phase I7): a text field or text area with its
+//! A text input for assistive technologies: a text field or text area with its
 //! text, its selection and the actions that read and change them, as Godot's `LineEdit` and `TextEdit`
 //! expose themselves (`line_edit.cpp:1245-1332`, `text_edit.cpp:760-840`).
 //!

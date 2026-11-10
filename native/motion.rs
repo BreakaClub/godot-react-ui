@@ -760,7 +760,7 @@ impl ReactUiRoot {
     }
 
     /// The size an intrinsic dimension would settle at, measured in a clone of the layout tree.
-    /// This is the one remaining whole-tree cost on a commit path (plan section 8).
+    /// This is the one remaining whole-tree cost on a commit path.
     fn measure_endpoint(&self, tag: u32, axis: DimensionAxis) -> f32 {
         let mut probe = self.tree.clone();
         // TaffyTree::clone would otherwise retain the same mutable Godot paragraph

@@ -1,4 +1,4 @@
-// The `dropdown-touch` section of the Web interaction verifier (docs/tracks/dropdown-touch.md), on the touch page: real touch input from
+// The `dropdown-touch` section of the Web interaction verifier, on the touch page: real touch input from
 // Chrome over the DevTools Protocol (puppeteer's touchscreen: touchstart, touchmove and touchend, no OS input) on the lists of the kit's
 // `Select`, `Combobox` and `Combobox` with chips (demo/src/dropdown-touch-lab.tsx). The checks are the native section's
 // (demo/src/verify-dropdown-touch.ts), made with the events a browser sends: a tap opens a list, a slow pan moves the list by about the

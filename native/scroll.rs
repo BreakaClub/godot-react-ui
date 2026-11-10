@@ -1,9 +1,9 @@
-//! Scroll math for scroll containers (plan section 3.16): ranges and clamping, wheel / pan / keyboard
+//! Scroll math for scroll containers: ranges and clamping, wheel / pan / keyboard
 //! conversions, chaining, touch-pan arbitration, momentum, overlay scrollbar geometry and drag
-//! auto-scroll. Nothing here touches the engine or the mounted tree: the integrating phase (I5) feeds
+//! auto-scroll. Nothing here touches the engine or the mounted tree: the integration feeds
 //! it layout results and input and applies the offsets it returns. Mirrors Godot's `ScrollContainer`
-//! (`scene/gui/scroll_container.cpp`) where the plan says so; every deliberate difference is noted at
-//! the item and recorded in `docs/tracks/scroll-drag-core.md`.
+//! (`scene/gui/scroll_container.cpp`) where relevant; every deliberate difference is noted at
+//! the item.
 //!
 //! # Public API (what Phases I5 and I9 call)
 //!
@@ -18,7 +18,7 @@
 //!
 //! Input conversion and chaining:
 //! - [`wheel_factor`] (a Godot `factor` of 0 means 1), [`ScrollInput::wheel`] (Shift swaps axes) and
-//!   [`ScrollInput::pan`] (no swap) build an input in wheel ticks (decision D13); [`ScrollInput::Pixels`]
+//!   [`ScrollInput::pan`] (no swap) build an input in wheel ticks; [`ScrollInput::Pixels`]
 //!   carries pixels.
 //! - [`ticks_to_pixels`] converts ticks for a single container; [`scroll_chain`] walks an ordered list of [`ScrollLink`]s (innermost first), moves each by what it
 //!   can, passes the remainder on and stops after an `overscroll-behavior: contain` link. The
@@ -53,16 +53,16 @@ pub(crate) const MOMENTUM_DECELERATION_PX_PER_S2: f32 = 1000.0;
 /// finger that stopped moving for longer than this therefore flings nothing.
 pub(crate) const MOMENTUM_SAMPLE_INTERVAL_S: f32 = 0.1;
 
-/// Logical pixels a touch may travel before it stops being a tap or a hold (plan Appendix A: Android's
+/// Logical pixels a touch may travel before it stops being a tap or a hold (Android's
 /// 8 dp; Godot's own scroll deadzone defaults to 0, `scroll_container.cpp:951`).
 pub(crate) const TOUCH_SLOP_PX: f32 = 8.0;
 
-/// Overlay scrollbar sizes (plan Appendix A).
+/// Overlay scrollbar sizes.
 pub(crate) const SCROLLBAR_THICKNESS_PX: f32 = 6.0;
 pub(crate) const SCROLLBAR_MARGIN_PX: f32 = 2.0;
 pub(crate) const SCROLLBAR_MIN_THUMB_PX: f32 = 24.0;
 
-/// Drag auto-scroll (plan Appendix A; tune with evidence): within this many pixels of a container's
+/// Drag auto-scroll (tune with evidence): within this many pixels of a container's
 /// edge the container scrolls, ramping linearly up to the full speed at the edge itself
 /// (`drag_input.rs`).
 pub(crate) const AUTOSCROLL_EDGE_PX: f32 = 32.0;
@@ -165,7 +165,7 @@ impl Rect {
 
 /// The offsets one axis can take. A normal axis allows `0..=magnitude`; a reversed axis
 /// (`row-reverse` / `column-reverse`, where content starts at the far edge) allows
-/// `-magnitude..=0` (plan 3.16). Positive deltas always move the offset towards `max`, so wheel down
+/// `-magnitude..=0`. Positive deltas always move the offset towards `max`, so wheel down
 /// and right are positive for both.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct ScrollRange {
@@ -329,7 +329,7 @@ pub(crate) fn wheel_factor(raw: f32) -> f32 {
 /// [`SCROLL_PAGE_DIVISOR`] per tick on each axis (`scroll_container.cpp:190-226`; a trackpad pan's
 /// `page * delta / PAGE_DIVISOR` is the same, `:311-318`). The renderer scrolls through
 /// [`scroll_chain`], which does this per container; this is for a caller with a single container
-/// (the accessibility scroll actions, Phase I10).
+/// (the accessibility scroll actions).
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn ticks_to_pixels(ticks: Vec2, client: Vec2) -> Vec2 {
     Vec2::new(
@@ -341,7 +341,7 @@ pub(crate) fn ticks_to_pixels(ticks: Vec2, client: Vec2) -> Vec2 {
 /// What a scroll gesture asks for.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum ScrollInput {
-    /// Wheel ticks, positive down and right (decision D13). Each container turns them into pixels as
+    /// Wheel ticks, positive down and right. Each container turns them into pixels as
     /// `ScrollContainer` does: `client size / SCROLL_PAGE_DIVISOR` per tick
     /// (`scroll_container.cpp:190-226`). Trackpad pans scale the same way (`:311-318`).
     Ticks(Vec2),
@@ -349,7 +349,7 @@ pub(crate) enum ScrollInput {
 }
 
 impl ScrollInput {
-    /// A mouse wheel. Shift requests horizontal scrolling for vertical wheel inputs (decision D13 /
+    /// A mouse wheel. Shift requests horizontal scrolling for vertical wheel inputs (see
     /// `scroll_container.cpp:187`).
     ///
     /// Browsers (Godot Web export) and macOS Cocoa already map Shift + vertical wheel to horizontal
@@ -389,7 +389,7 @@ impl ScrollInput {
     }
 }
 
-/// `overscroll-behavior` (plan 4.2): `contain` ends scroll chaining at the container.
+/// `overscroll-behavior`: `contain` ends scroll chaining at the container.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum OverscrollBehavior {
     Auto,
@@ -684,7 +684,7 @@ pub(crate) fn dominant_axis(displacement: Vec2) -> Axis {
     }
 }
 
-/// CSS `touch-action` as the plan supports it (4.2).
+/// CSS `touch-action` as supported here.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TouchAction {
     Auto,
@@ -751,7 +751,7 @@ pub(crate) struct PanOwner {
     pub(crate) allowed: PanAllowed,
 }
 
-/// Plan 3.12 rule 4: after a touch moved beyond the slop by `displacement` (the finger's movement
+/// After a touch moved beyond the slop by `displacement` (the finger's movement
 /// since it went down), which container pans, if any. Walks the path from the touched element
 /// outwards, intersecting `touch-action` as it goes (a `pan-y` child inside a `none` parent does not
 /// pan). The owner is the first scroll container that can still move opposite to the finger along

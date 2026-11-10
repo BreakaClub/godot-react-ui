@@ -39,7 +39,7 @@ const WorldCaption = memo(function WorldCaption() {
 });
 
 /**
- * A 2D label that follows a moving 3D node (plan 3.22, anchored 2D UI). The owner projects the node every frame
+ * A 2D label that follows a moving 3D node (anchored 2D UI). The owner projects the node every frame
  * with `Camera3D.unprojectPosition()` and renders this with the result; the label is one `absolute` element of the
  * main screen-space root, centred over the point and `LABEL_GAP` pixels above it. A node behind the camera projects
  * to a mirrored point, so the owner passes `visible: false` for it (`isPositionBehind`) and the label is not shown.

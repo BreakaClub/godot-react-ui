@@ -3,7 +3,7 @@ import { installFontSlices, type FontSliceFailure, type FontSliceHost, type Font
 import { changed, setFontSlicesOwner } from './font-slices-store';
 
 /**
- * Where the demo's fonts for characters no registered font has are (docs/tracks/font-slices.md). The library takes both addresses from its owner and
+ * Where the demo's fonts for characters no registered font has are. The library takes both addresses from its owner and
  * knows nothing of this host: `font-slices.json` is a file of the release the page is part of (the document's `<base>` makes the address relative to
  * the release), and the slices are content-addressed objects at `/o/<hash>/<name>`, which every release shares.
  *

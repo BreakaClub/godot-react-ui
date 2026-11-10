@@ -1,4 +1,4 @@
-// Windows of automated runs that cannot take focus (docs/tracks/quiet-windows.md). `scripts/quiet-window/quiet_window.m` does the
+// Windows of automated runs that cannot take focus. `scripts/quiet-window/quiet_window.m` does the
 // work inside the Godot process; this file builds it and says how to start a process with it.
 //
 //   node scripts/quiet-window.mjs <godot> [arguments]     run any Godot command this way (for an experiment's own scene)

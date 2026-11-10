@@ -7,7 +7,7 @@ import { assertionTally, parseVerifierEvent } from './verifier-input';
 import { typeText } from './verify-text-input';
 
 /**
- * The combobox kit part (`docs/tracks/combobox.md`) in a window, with Godot's own input events (`Input.parseInputEvent`,
+ * The combobox kit part in a window, with Godot's own input events (`Input.parseInputEvent`,
  * marked as the verifier's): a mouse that moves, presses and wheels, and keys with the characters they type. The lab is
  * `combobox-lab.tsx`: a single combobox beside a button its list does not cover, a multiple one whose chips wrap, a
  * disabled one, and one fixed to the bottom of the window with a long list. Every claim of the unit tests that depends on
@@ -67,7 +67,7 @@ function near(actual: number, expected: number, message: string): void {
 
 /**
  * Injected positions are window pixels, which the window divides by its content scale: at scale 2 a logical point is
- * twice as far (docs/tracks/hidpi.md). 1 except while the states are captured at device pixel ratio 2.
+ * twice as far. 1 except while the states are captured at device pixel ratio 2.
  */
 let inputScale = 1;
 

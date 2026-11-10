@@ -104,7 +104,7 @@ function ChipsCombobox(props: { value: readonly string[]; onChange: (value: read
 }
 
 /**
- * The dropdown lists of the kit under a finger (`docs/tracks/dropdown-touch.md`): a `Select`, a single `Combobox` and a `Combobox`
+ * The dropdown lists of the kit under a finger: a `Select`, a single `Combobox` and a `Combobox`
  * with chips, each with forty options, so each list is capped to the room it has and has to be panned. They sit in a page that
  * scrolls, so a list can be panned with the page at rest or already scrolled, and the page must stay where it is. The state of all
  * three is the JSON readout the verifiers parse.

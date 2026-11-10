@@ -70,7 +70,7 @@ export async function waitEngineTime(ms: number): Promise<void> {
   }
 }
 
-/** Longer than the click-count interval (`CLICK_COUNT_INTERVAL_MS` in native/pointer_state.rs, plan Appendix A, 500 ms), so a press after it begins a new click sequence. */
+/** Longer than the click-count interval (`CLICK_COUNT_INTERVAL_MS` in native/pointer_state.rs, 500 ms), so a press after it begins a new click sequence. */
 export const CLICK_SEQUENCE_PAUSE_MS = 650;
 
 /**
@@ -100,7 +100,7 @@ export type Disturbance = 'foreign-input' | 'window-focus-loss' | 'window-mouse-
 
 /**
  * Keeps the real keyboard, mouse and window system out of a run that injects its own input, and reports it when
- * it gets in anyway (docs/INTERACTION_PROGRESS.md, Task 0; plan decisions D21 and D22; docs/tracks/verifier-integrity.md).
+ * it gets in anyway.
  *
  * Why it is needed: while a window is the key window, AppKit delivers every mouse move on the machine to it,
  * whatever display the cursor is on (`setAcceptsMouseMovedEvents`, platform/macos/display_server_macos.mm:156),
@@ -109,7 +109,7 @@ export type Disturbance = 'foreign-input' | 'window-focus-loss' | 'window-mouse-
  * real move hands the hover to whatever is under the real cursor and sends the root `MOUSE_EXIT`; accumulated
  * input merges a real motion into an injected one whatever their devices (`Input::parse_input_event`,
  * core/input/input.cpp:1654, and `InputEventMouseMotion::accumulate` checks no device); and a real key lands in the
- * focused element. A window the system takes focus from also cancels the press in flight (plan D6).
+ * focused element. A window the system takes focus from also cancels the press in flight.
  *
  * What it does:
  * - `unfocusable` (`NSWindow.canBecomeKeyWindow` is false, platform/macos/godot_window.mm:60): the window cannot become
@@ -140,7 +140,7 @@ export class VerifierInputIsolation {
   private readonly lastLoggedMs = new Map<Disturbance, number>();
   /** The keys, buttons and fingers the verifier has pressed and not released: what a focus loss would cancel. */
   private readonly held = new Set<string>();
-  /** Notifications the verifier sends itself (D6's focus-out, a window mouse exit) that are not the window system's. */
+  /** Notifications the verifier sends itself (a focus-out, a window mouse exit) that are not the window system's. */
   private readonly simulated = new Map<number, number>();
 
   private constructor(window: Window, restrictWindow: boolean) {
@@ -160,7 +160,7 @@ export class VerifierInputIsolation {
    * Isolate `window`. `restrictWindow: false` keeps everything but the two window flags: the device filter, the
    * disturbance reports and unaccumulated input. The accessibility verifier needs that: with `unfocusable` and
    * `mousePassthrough` set the platform's accessibility tree has the window and nothing under it, with them
-   * unset it has the whole lab (docs/tracks/stock-engine.md, "The accessibility tree"). A window that can take
+   * unset it has the whole lab. A window that can take
    * key status receives real keys and mouse moves like any other; they are rejected by device and reported.
    */
   static begin(window: Window, { restrictWindow = true }: { restrictWindow?: boolean } = {}): VerifierInputIsolation {
@@ -194,7 +194,7 @@ export class VerifierInputIsolation {
       return;
     }
     if (what === Node.NOTIFICATION_WM_WINDOW_FOCUS_OUT) {
-      // The root cancels every pointer that is down when the window loses focus (plan D6): with nothing pressed it
+      // The root cancels every pointer that is down when the window loses focus: with nothing pressed it
       // changes nothing the system under test can observe.
       this.disturb('window-focus-loss', 'NOTIFICATION_WM_WINDOW_FOCUS_OUT', this.held.size > 0);
     } else if (what === Node.NOTIFICATION_WM_MOUSE_ENTER) {
@@ -205,7 +205,7 @@ export class VerifierInputIsolation {
   }
 
   /**
-   * The next notification `what` is one the verifier sends itself (D6's focus-out, a window mouse exit to test
+   * The next notification `what` is one the verifier sends itself (a focus-out, a window mouse exit to test
    * what leaving the window does), not the window system's.
    */
   expectSimulated(what: number): void {

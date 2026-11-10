@@ -1,7 +1,7 @@
 import { POINTER_HISTORY_LENGTH, objectKey } from '../deploy/release-layout.mjs';
 
 /**
- * The pointer's bookkeeping (docs/tracks/web-load.md): which release `current.json` names after a deploy or a rollback, which release a rollback
+ * The pointer's bookkeeping: which release `current.json` names after a deploy or a rollback, which release a rollback
  * means, and which objects a release needs that the bucket already has. Pure, so the decisions are tested without a bucket.
  */
 

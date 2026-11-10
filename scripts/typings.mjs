@@ -6,16 +6,16 @@ import { fileURLToPath } from 'node:url';
 import { scrubOpenScripts } from './editor-session.mjs';
 import { NATIVE_LIBRARY_NAME, NATIVE_TARGETS, nativeBinding, nativeSourceInputs } from './native-binding.mjs';
 
-// The GodotJS declarations the `stock` engine profile typechecks against (docs/tracks/stock-engine.md S5).
+// The GodotJS declarations the `stock` engine profile typechecks against.
 //
-// Typings stay per profile because GodotJS differs, though the native library does not (docs/tracks/single-build.md).
+// Typings stay per profile because GodotJS differs, though the native library does not.
 // `demo/typings` and `demo/gen` are tracked and are Breaka's engine's: that is what the default profile checks. The
 // stock editor writes different declarations (a different GodotJS, a different Godot), so they are generated in a
 // staged copy of the project, with the one native library (bound to Godot API 4.7.2, the stock editor's own), and kept
 // untracked in `target/stock-typings`, which `tsconfig.stock.json` includes.
 //
 // The declarations list the library's classes, so they are only as current as the library. They are never generated
-// from, or checked against, a library built from older sources (docs/tracks/freshness.md): that would report the
+// from, or checked against, a library built from older sources: that would report the
 // newest `#[func]`s as missing types. A typecheck never builds the library; it says which build to run.
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const GENERATE_TIMEOUT_MS = 120_000;

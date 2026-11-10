@@ -1,4 +1,4 @@
-// Measuring ink in a raster (docs/tracks/font-slices.md): how much of a rectangle is drawn on, and how like another rendering of the same text it is. The Web
+// Measuring ink in a raster: how much of a rectangle is drawn on, and how like another rendering of the same text it is. The Web
 // verifier takes a rectangle of the canvas and the same rectangle of Chrome's own rendering of the text with the same font files, and compares them here.
 // Both are decoded screenshots (`{ width, height, channels, pixels }`); a rectangle is `{ x, y, width, height }` in device pixels.
 

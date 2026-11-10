@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { LOADED_MARKER, quietLaunch, quietWindowProblem } from '../scripts/quiet-window.mjs';
 
-// The mechanism itself runs inside Godot (scripts/quiet-window/quiet_window.m); docs/tracks/quiet-windows.md has the measurement
+// The mechanism itself runs inside Godot (scripts/quiet-window/quiet_window.m) has the measurement
 // that a run keeps the frontmost application. These tests cover what the runner decides, and open no window.
 
 const library = (): string => '/somewhere/libquiet.dylib';

@@ -117,7 +117,7 @@ const PAGES_AS_WRITTEN: readonly TextPage[] = [
       // 200 px: every line ends well clear of the edge, so Chrome and the library wrap it the same way.
       { id: 'tracking-wrap', note: 'wrapped, tracking-wide', className: 'text-sm tracking-wide', text: QUOTE, cellClassName: 'flex flex-col w-[200px]' },
       // 220 px: "over" ends 0.5 px inside the edge and the space after it does not fit. Chrome lets that space hang past the edge
-      // and keeps "over" on the line; the text server counts the space and breaks before the word (docs/tracks/utilities-text.md).
+      // and keeps "over" on the line; the text server counts the space and breaks before the word.
       { id: 'tracking-wrap-edge', note: 'wrapped at a width the next space does not fit', className: 'text-sm tracking-wide', text: QUOTE, cellClassName: NARROW },
       { id: 'tracking-center', note: 'centred, tracking-widest', className: 'text-sm text-center tracking-widest', text: 'Centred', cellClassName: NARROW },
       { id: 'tracking-right', note: 'right, tracking-wider', className: 'text-sm text-right tracking-wider', text: 'Right aligned', cellClassName: NARROW },

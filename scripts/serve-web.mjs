@@ -16,7 +16,7 @@ const lab = process.argv.find((argument) => argument.startsWith('--lab='))?.slic
 if (lab === '') throw new Error('--lab= needs the id of a lab');
 const landing = lab === undefined ? '?demo=navigator' : `?lab=${encodeURIComponent(lab)}`;
 // Serving an export is how a Web run starts: refuse one whose side module was built from other sources than the working
-// tree (docs/tracks/freshness.md). `--probe` serves the Phase F0 probe export that `build:web --probe` makes.
+// tree. `--probe` serves the probe export that `build:web --probe` makes.
 try {
   engine.requireFreshWebExport({ probe: process.argv.includes('--probe') });
 } catch (error) {

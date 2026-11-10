@@ -1,5 +1,5 @@
 /**
- * Fonts for characters no registered font has, downloaded when text first needs them (docs/tracks/font-slices.md).
+ * Fonts for characters no registered font has, downloaded when text first needs them.
  *
  * A browser draws a character its page's fonts lack with a font from the system. A WebGL page cannot read the system's fonts, so on the Web the same
  * is done with fonts the app hosts: the root reports the characters its text has no glyph for, this module finds the font file (a slice of Noto Sans

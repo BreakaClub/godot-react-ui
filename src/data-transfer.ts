@@ -1,11 +1,11 @@
 /**
- * HTML `DataTransfer` for drag and drop (plan 3.19), without the DOM: the drag data store with its
+ * HTML `DataTransfer` for drag and drop, without the DOM: the drag data store with its
  * three protection modes, `setData` / `getData` / `clearData` / `types`, and the `effectAllowed` /
  * `dropEffect` negotiation. Native decides when each drag event happens; JS owns the data, because
  * only JS handlers read and write it. Specification: WHATWG HTML, "Drag and drop"
  * (https://html.spec.whatwg.org/multipage/dnd.html).
  *
- * # How the renderer uses it (Phase I9)
+ * # How the renderer uses it
  *
  * One {@link DragDataStore} per drag session, created when native reports `dragstart`. Every event's
  * handlers get a fresh {@link DataTransfer} bound to that store, put in the mode its event calls for:

@@ -1,5 +1,5 @@
 // The paint lab (demo/src/paint-lab.tsx) as plain HTML with the classes as a developer writes them, compiled by Tailwind v3.4.17's
-// own compiler and rendered by headless Chrome through Puppeteer, to hold the library's raster against (docs/tracks/utilities-paint.md).
+// own compiler and rendered by headless Chrome through Puppeteer, to hold the library's raster against.
 //
 //   node --import tsx scripts/paint-reference.mjs --render [--out=<dir>]
 //       Renders each page of the lab to <dir>/chrome-<page>-dpr1.png and -dpr2.png (the stage alone: 296 x 392 CSS pixels at device pixel

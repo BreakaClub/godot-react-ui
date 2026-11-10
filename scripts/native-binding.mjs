@@ -1,5 +1,5 @@
 // The native builds: the Godot API they are bound to, where they are built and installed, and the guard every native run uses on them.
-// docs/tracks/single-build.md has the decision; this file is the one place that names the API.
+// This file is the one place that names the API.
 //
 // There is one native UI library and one native live-compile extension per platform, and both engine profiles load them. A GDExtension
 // loads in the Godot it was bound to or a newer one, never an older one (godot-rust: "compiled against newer Godot version"), so a build bound to
@@ -34,7 +34,7 @@ export const NATIVE_TARGETS = Object.freeze({ default: resolve(root, 'target'), 
  * The Godot API the native UI library and the native live-compile extension are compiled against: `version`, and the two dumps godot-rust
  * generates its bindings from (`GDRUST_GODOT_API_JSON`, `GDRUST_GODOT_INTERFACE_JSON`; `.cargo/config.toml` names the same files for a plain
  * `cargo` run, and a test holds the two together). The dumps are of stock Godot 4.7.2 and are not an engine profile: Breaka's 4.8 loads builds
- * bound to them (docs/tracks/stock-engine.md S4 found no 4.8-only API in `native/**\/*.rs`; the manifests say `compatibility_minimum = "4.7"`).
+ * bound to them (no 4.8-only API is used in `native/**\/*.rs`; the manifests say `compatibility_minimum = "4.7"`).
  */
 export const NATIVE_BINDING_API = Object.freeze({
   version: '4.7.2',
@@ -80,7 +80,7 @@ export function dumpVersion(path) {
 export function nativeBinding() {
   const dumped = dumpVersion(NATIVE_BINDING_API.dumps.extensionApi);
   if (dumped !== NATIVE_BINDING_API.version) {
-    throw new Error(`NATIVE_BINDING_API names Godot ${NATIVE_BINDING_API.version}, but ${relative(root, NATIVE_BINDING_API.dumps.extensionApi)} is a dump of Godot ${dumped}: change them together (docs/tracks/single-build.md).`);
+    throw new Error(`NATIVE_BINDING_API names Godot ${NATIVE_BINDING_API.version}, but ${relative(root, NATIVE_BINDING_API.dumps.extensionApi)} is a dump of Godot ${dumped}: change them together.`);
   }
   const dump = createHash('sha256');
   for (const file of nativeDumpFiles()) dump.update(sha256(file));
@@ -88,7 +88,7 @@ export function nativeBinding() {
 }
 
 /**
- * The three variants of the native build, each with its own cargo target directory and stamp: the default build, the Phase F0/text-layout
+ * The three variants of the native build, each with its own cargo target directory and stamp: the default build, the evidence/text-layout
  * `probe` build (cargo feature `probe`) and the filters negative-controls `faults` build (feature `filter-faults`, native/filter_faults.rs).
  * Neither of the last two ships, and a run refuses a variant it did not ask for because the stamp's features differ.
  */

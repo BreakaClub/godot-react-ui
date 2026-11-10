@@ -49,7 +49,7 @@ const MAX_EVENT_DRAIN_ROUNDS = 64;
 /**
  * One element as React completed it. Instances are immutable once React has built them: a change
  * clones the instance (and every ancestor) and shares the unchanged children by reference, which is
- * what lets the commit walk skip whole subtrees (plan 3.9).
+ * what lets the commit walk skip whole subtrees.
  */
 interface Instance extends CommitNode<Instance> {
   readonly root: RootState;
@@ -135,7 +135,7 @@ interface RootState {
   readonly listeners: RootListeners;
   /** The chords the app claimed for the whole root (`claimKeys`), one list for each call. */
   readonly claimedChords: Set<readonly KeyChord[]>;
-  /** The `DataTransfer` stores of the drags underway (plan 3.19). */
+  /** The `DataTransfer` stores of the drags underway. */
   readonly drags: DragSessions;
   /** Handle for the layer root, the target of events addressed to root listeners only. */
   readonly handle: UIHandle;
@@ -164,7 +164,7 @@ export interface RootOptions {
   /**
    * On the Web, whether a key chord that nothing in this root claims (Cmd+R, Cmd+F, Cmd+T, F5, F12) goes to the browser instead of the
    * engine, as on a page that does not prevent it. Default true; `setKeyPassthrough` changes it later. Ignored where there is no page
-   * (the native platforms). See `UIProps.keyClaims` and `UIRoot.claimKeys` for how an app claims a chord (docs/tracks/key-passthrough.md).
+   * (the native platforms). See `UIProps.keyClaims` and `UIRoot.claimKeys` for how an app claims a chord.
    */
   keyPassthrough?: boolean;
   /** The page's key decision this root joins: the browser's `window` by default. Hosts with a page of their own, and tests, supply one. */
@@ -535,7 +535,7 @@ function recordFailure(root: RootState, error: Error): void {
 /**
  * Walk what changed against what native has committed, send it as one `commit` call, then adopt the
  * result. A native error leaves `committed` as it was, so the next commit diffs from the last
- * accepted state (plan 3.9).
+ * accepted state.
  */
 function commitLayer(container: LayerContainer, children: readonly Instance[]): void {
   const root = container.root;
@@ -629,7 +629,7 @@ const hostConfig = {
     return handleFor(instance.root, instance.tag, instance.kind);
   },
   // Render makes no native call: instances are plain JS objects, so an abandoned render costs
-  // nothing natively (plan 3.9).
+  // nothing natively.
   createInstance: (kind: NativeKind, props: HostProps, container: Container, context: TextContext) =>
     createInstance(kind, props, container, context),
   createTextInstance(text: string, _container: Container, context: TextContext): RichRun {

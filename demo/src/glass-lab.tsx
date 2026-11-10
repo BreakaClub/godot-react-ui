@@ -16,7 +16,7 @@ export const GLASS_DECOR_IDS = [
 ];
 
 /**
- * Frosted glass as a product developer would write it (plan Phase V1 showcase, `docs/tracks/filters.md`): a colourful
+ * Frosted glass as a product developer would write it: a colourful
  * background, a glass bar fixed over a scrolling page, glass cards with a button that has a `hover:` state, two glass panels
  * overlapping, and a sheet over a `backdrop-blur-sm` scrim in a `Portal`. Every glass element uses the utilities as written
  * for a browser (`backdrop-blur-xl backdrop-saturate-150 bg-white/20 border border-white/30`).

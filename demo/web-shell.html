@@ -9,7 +9,7 @@
       html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #f8fafc; }
       /* The engine sizes the canvas from window.innerWidth, in pixels. A phone turned from landscape back to portrait still has the landscape canvas
          for a few frames, and that canvas is wider than the layout viewport and counts toward the document's size: a mobile browser zooms out to fit
-         it, which makes innerWidth the wider size, and the canvas never shrinks (docs/tracks/rotation.md). The stage, fixed and clipping, keeps the
+         it, which makes innerWidth the wider size, and the canvas never shrinks. The stage, fixed and clipping, keeps the
          canvas out of the document's size, and `minimum-scale=1` above stops the browser zooming out. */
       #stage { position: fixed; inset: 0; overflow: hidden; }
       #canvas { display: block; width: 100%; height: 100%; outline: none; touch-action: none; }

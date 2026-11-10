@@ -254,7 +254,7 @@ function style(hexColor: string): Color {
 }
 
 /**
- * Plan I11, the anchored label: a second root in the main viewport (the screen-space root) holds one label that is
+ * The anchored label: a second root in the main viewport (the screen-space root) holds one label that is
  * placed every frame with `Camera3D.unprojectPosition()` of a moving 3D node, centred over it and above it, hidden
  * when the node is behind the camera, and see-through to input.
  */
@@ -380,7 +380,7 @@ async function verifyAnchoredLabel(owner: Node, api: WorldInspection, capture: (
 }
 
 /**
- * Plan I11: a React root in a `SubViewport` shown on a 3D quad, driven by the camera ray. Every input here
+ * A React root in a `SubViewport` shown on a 3D quad, driven by the camera ray. Every input here
  * enters through `Input.parseInputEvent` in the main viewport, at the screen point where the element is
  * drawn, so what is exercised is the whole route: ray, plane, pixel, copy, `pushInput`.
  */
@@ -408,7 +408,7 @@ function meanLumaDifference(a: Image, b: Image, region: { x: number; y: number; 
 }
 
 /**
- * The panel's texture at twice the panel's pixels (docs/tracks/hidpi.md, W9): the `SubViewport` is stretched to its 2D
+ * The panel's texture at twice the panel's pixels (W9): the `SubViewport` is stretched to its 2D
  * override, its oversampling is 2, and native draws the root's text at it; a root in an unstretched `SubViewport` does
  * not follow the content scale of the window around it; and the input still maps through the quad.
  */

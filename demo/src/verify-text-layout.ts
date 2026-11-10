@@ -64,7 +64,7 @@ function summarize(checks: Check[]): { lines: string[]; failed: number } {
 }
 
 /**
- * Plan 3.17, `TextLayout`: the geometry checks run inside the probe; this drives the cases through it,
+ * `TextLayout`: the geometry checks run inside the probe; this drives the cases through it,
  * reads back the viewport's pixels for the draw-parity check and saves one capture per case with the
  * carets, line boxes and a selection drawn over the text. Nothing here sends input of any kind.
  */

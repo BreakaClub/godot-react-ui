@@ -1,5 +1,5 @@
 /**
- * The numbers of touch text selection (plan D71, `docs/tracks/touch-selection.md`) that JS needs. The root draws the handles and the edit
+ * The numbers of touch text selection that JS needs. The root draws the handles and the edit
  * menu of a selection in a `Text` or a `TextInput` itself (`native/touch_selection.rs`); the code editor owns its selection, in
  * CodeMirror, and draws its own, which must time and look the same. `tests/touch-selection.test.ts` holds this file to the same values
  * as the Rust one.

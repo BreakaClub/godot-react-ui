@@ -17,7 +17,7 @@ function dispatched(result: DispatchResult, dropEffect: DropEffect | ''): DragDi
 }
 
 /**
- * The `DataTransfer` stores of a root's drags (plan 3.19), one per drag, found by the session id native numbers
+ * The `DataTransfer` stores of a root's drags, one per drag, found by the session id native numbers
  * the drag's events with. A store is made at `dragstart`, dropped when a handler prevents it or when `dragend`
  * has been delivered, and wiped when the root unmounts. Native always ends a drag with `dragend` (addressed to
  * the root when the dragged element has gone), so no store outlives its drag.

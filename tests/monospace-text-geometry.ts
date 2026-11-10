@@ -4,7 +4,7 @@ import type { RecordingHost } from './recording-host';
 
 /**
  * The text geometry queries (`getCaretRect`, `getOffsetAtPoint`, `getRangeRects`) of a fake host, answered for a monospace font by the
- * rule of the native text (docs/tracks/rich-text.md): offsets are the source text's, an inlay is `advance` times its length of width at the
+ * rule of the native text: offsets are the source text's, an inlay is `advance` times its length of width at the
  * offset it stands at and is not counted, a caret is on either side of the group of inlays at an offset, and a character that is wide
  * (CJK, an emoji) is two columns. Where a text is comes from `origin`, which the test says per element.
  */

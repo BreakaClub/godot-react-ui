@@ -59,7 +59,7 @@ pub struct DecorationFont {
 }
 
 /// Where a browser puts the decoration lines of text at a device pixel ratio of `scale`. These are the rules Blink draws
-/// by, read off Chrome's pixels (`docs/tracks/utilities-text.md`, "Decoration"): the sizes are worked out in CSS pixels and
+/// by, read off Chrome's pixels: the sizes are worked out in CSS pixels and
 /// then each edge is rounded to a device pixel, so a line is never blurred.
 #[derive(Clone, Copy, Debug)]
 pub struct Decorator {

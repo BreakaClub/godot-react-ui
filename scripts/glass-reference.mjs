@@ -1,5 +1,5 @@
 // The glass showcase (demo/src/glass-lab.tsx) as a plain HTML page with the CSS a browser developer would write, rendered
-// by headless Chrome through Puppeteer, to compare against what the library draws (docs/tracks/filters.md, "Glass showcase").
+// by headless Chrome through Puppeteer, to compare against what the library draws.
 //
 //   node --import tsx scripts/glass-reference.mjs [--out=<dir>]
 //       Renders each state to <dir>/chrome-<state>-<viewport>.png, in the windows the verifiers use: landscape (1120 x 800) and

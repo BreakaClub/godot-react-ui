@@ -3,14 +3,14 @@ import { resolve } from 'node:path';
 import { SIDEBAR_BREAKPOINT_PX } from './verify-navigator-web.mjs';
 import { outsideTheRoot, rotationProblems, transientRootProblems } from './rotation-check.mjs';
 
-// The `rotation` section of the Web interaction verifier (docs/tracks/rotation.md): a phone or tablet turned from portrait to landscape and
+// The `rotation` section of the Web interaction verifier: a phone or tablet turned from portrait to landscape and
 // back, with the navigator on screen. Chrome's mobile emulation drives it through the DevTools protocol (`Emulation.setDeviceMetricsOverride` with
 // `mobile` and a screen orientation), headless, so no OS input and no real device; a real Android or iOS device is not covered.
 //
 // After each turn, once the page has settled, every layer the size passes through is compared with the device's viewport
 // (`rotationProblems`): the browser's layout viewport and zoom, the document's overflow, the canvas, the root, and the navigator's nodes.
 
-/** Chrome's mobile emulation of Ben's Android phone class: 412 x 915 CSS pixels at a device pixel ratio of 2.625 (1080 x 2400 device pixels). */
+/** Chrome's mobile emulation of an Android phone class: 412 x 915 CSS pixels at a device pixel ratio of 2.625 (1080 x 2400 device pixels). */
 const PHONE = { name: 'phone', width: 412, height: 915, deviceScaleFactor: 2.625 };
 /** A tablet: its portrait is under the navigator's sidebar breakpoint and its landscape over it, so the turn changes the navigator's layout. */
 const TABLET = { name: 'tablet', width: 800, height: 1280, deviceScaleFactor: 2 };

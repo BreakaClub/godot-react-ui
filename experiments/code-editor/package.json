@@ -1,5 +1,0 @@
-{
-  "name": "code-editor-experiments",
-  "private": true,
-  "description": "Throwaway probes for docs/tracks/code-editor-evaluation.md. Not part of the library; each subdirectory installs its own candidates. CommonJS like the repo's tests, so probes wrap their top level in an async main."
-}

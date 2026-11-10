@@ -1,9 +1,9 @@
-//! Touch text selection without the engine (plan D71, `docs/tracks/touch-selection.md`): the long press that starts it, the
+//! Touch text selection without the engine: the long press that starts it, the
 //! two handles that move its ends and the edit menu beside them. Nothing here touches Godot or the mounted tree; the integrating
 //! code (`touch_selection_input.rs`) feeds it positions and times, measured label widths and where the selection's ends are, and
 //! draws and acts on what it answers.
 //!
-//! Where the numbers come from, and what a mobile browser does that this copies, is the behaviour table of the track notes.
+//! The numbers are what a mobile browser does, which this copies.
 
 use crate::scroll::{TOUCH_SLOP_PX, Vec2, exceeds_slop};
 

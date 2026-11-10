@@ -1,5 +1,5 @@
 //! Typed native props: what a React element contributes to the mounted tree, with the style
-//! layers that native resolves (docs/INTERACTION_PLAN.md sections 3.5, 3.6 and 4.2).
+//! layers that native resolves.
 //!
 //! Nothing here touches Godot. A prop set arrives as JSON inside a commit payload, is parsed into
 //! these types with `deny_unknown_fields`, merged over the node's previous props and validated
@@ -37,7 +37,7 @@ use crate::transition::{
     PropertiesKeyword, TransitionParts, TransitionProperties, merge_transition,
 };
 
-/// The `tabIndex` values the plan allows (3.13): `0` in the tab order, `-1` focusable only.
+/// The `tabIndex` values allowed: `0` in the tab order, `-1` focusable only.
 pub const TAB_INDICES: [i32; 2] = [0, -1];
 
 /// What a node is.
@@ -47,7 +47,7 @@ pub enum Kind {
     View,
     Text,
     Button,
-    /// A text field. Its text lives in a native edit buffer, not in props (plan 3.18).
+    /// A text field. Its text lives in a native edit buffer, not in props.
     TextInput,
 }
 
@@ -237,7 +237,7 @@ pub enum LineStyleSpec {
 }
 
 /// CSS `overflow` for one axis. `scroll` and `auto` make the axis a scroll container's; they behave
-/// the same here because the scrollbars overlay the content and take no layout space (plan 3.16), so
+/// the same here because the scrollbars overlay the content and take no layout space, so
 /// a bar is drawn only while there is something to scroll to.
 #[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -264,7 +264,7 @@ impl OverflowSpec {
 }
 
 /// CSS `overscroll-behavior`: `contain` ends scroll chaining at the element, for wheel, pan gestures
-/// and touch. One value covers both axes (plan 3.16).
+/// and touch. One value covers both axes.
 #[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum OverscrollBehaviorSpec {
@@ -280,7 +280,7 @@ pub enum ScrollbarWidthSpec {
     None,
 }
 
-/// CSS `touch-action`, the subset plan 4.2 lists: which pans the browser (here, native) may take from
+/// CSS `touch-action`, the supported subset: which pans the browser (here, native) may take from
 /// a touch that starts on the element. Each element on the path from the touched one to the scroller
 /// that would pan restricts it further (`scroll::pan_owner`).
 #[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq)]
@@ -292,8 +292,8 @@ pub enum TouchActionSpec {
     PanY,
 }
 
-/// CSS `position`, without `sticky` (a non-goal, plan 2.3). `relative`, `absolute` and `fixed` make
-/// an element positioned: a containing block for the absolute descendants below it (plan 3.15).
+/// CSS `position`, without `sticky` (a non-goal). `relative`, `absolute` and `fixed` make
+/// an element positioned: a containing block for the absolute descendants below it.
 #[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum PositionSpec {
@@ -317,7 +317,7 @@ impl PositionSpec {
 }
 
 /// CSS `pointer-events`: `none` makes an element itself never the target of a pointer; its
-/// children can still be (plan 3.7, hit testing).
+/// children can still be (hit testing).
 #[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum PointerEventsSpec {
@@ -325,8 +325,8 @@ pub enum PointerEventsSpec {
     None,
 }
 
-/// CSS `user-select`, the subset plan 4.2 lists: `text` lets the pointer select the text of an element
-/// and of the elements below it that do not say otherwise; the default, `none`, does not (plan 3.17).
+/// CSS `user-select`, the supported subset: `text` lets the pointer select the text of an element
+/// and of the elements below it that do not say otherwise; the default, `none`, does not.
 #[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum UserSelectSpec {
@@ -334,7 +334,7 @@ pub enum UserSelectSpec {
     Text,
 }
 
-/// CSS `cursor`, the subset plan 4.2 lists; `pointer.rs` maps each to a Godot `CursorShape`.
+/// CSS `cursor`, the supported subset; `pointer.rs` maps each to a Godot `CursorShape`.
 #[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum CursorSpec {
@@ -355,7 +355,7 @@ pub enum CursorSpec {
     NwseResize,
 }
 
-/// The `role` prop (plan Appendix D). `none` and `presentation` keep an element out of the
+/// The `role` prop. `none` and `presentation` keep an element out of the
 /// accessibility tree; every other value names what the element is. Wire names are the ARIA role
 /// names, all lowercase.
 #[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq)]
@@ -438,7 +438,7 @@ pub enum LiveSpec {
     Assertive,
 }
 
-/// `dragPreview` (plan 3.19, 4.2): what follows the pointer while a `draggable` element is dragged.
+/// `dragPreview`: what follows the pointer while a `draggable` element is dragged.
 #[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum DragPreviewSpec {
@@ -498,7 +498,7 @@ impl TransitionSpec {
 /// The style layers' conditions. `focus` and `focusVisible` apply to the focused element only,
 /// `focusWithin` to it and its ancestors, `hover` and `active` to the target and its ancestors,
 /// `disabled` to a node whose own `disabled` prop is true, and `starting` to a node's
-/// `@starting-style` before-change style on mount or when shown from `display: none` (plan 3.6).
+/// `@starting-style` before-change style on mount or when shown from `display: none`.
 #[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "camelCase")]
 pub enum PseudoState {
@@ -702,7 +702,7 @@ pub struct StyleSpec {
     pub right: Option<Inset>,
     pub bottom: Option<Inset>,
     pub left: Option<Inset>,
-    /// Orders an element among the siblings that share its paint parent (plan 3.8); React Native's
+    /// Orders an element among the siblings that share its paint parent; React Native's
     /// `zIndex`, which applies to every element and creates no stacking context.
     pub z_index: Option<i32>,
     /// An explicit `filter` list (CSS text on the wire). It replaces what the utilities composed, and
@@ -1635,7 +1635,7 @@ fn template_components(
 }
 
 /// `keyboardType`: which on-screen keyboard a text input asks for, one to one with
-/// `DisplayServer.VirtualKeyboardType` (plan 4.2).
+/// `DisplayServer.VirtualKeyboardType`.
 #[derive(Clone, Copy, Debug, DeriveDeserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum KeyboardTypeSpec {
@@ -1663,18 +1663,18 @@ pub struct PropsSpec {
     pub hidden: Option<bool>,
     #[serde(rename = "testID")]
     pub test_id: Option<String>,
-    /// `0` makes the element focusable and tabbable, `-1` focusable but skipped by Tab (plan 3.13).
+    /// `0` makes the element focusable and tabbable, `-1` focusable but skipped by Tab.
     /// Buttons are focusable and tabbable without it.
     pub tab_index: Option<i32>,
     /// Focus this element when it is first mounted (the first such element of a commit, in document
     /// order).
     pub auto_focus: Option<bool>,
     /// A press on this element (or inside it, unless a nearer element is `draggable` too) that moves
-    /// beyond the drag threshold, or a touch held in place, starts a drag (plan 3.12 rule 3, 3.19).
+    /// beyond the drag threshold, or a touch held in place, starts a drag.
     pub draggable: Option<bool>,
     /// What follows the pointer while this element is dragged; `native` when absent.
     pub drag_preview: Option<DragPreviewSpec>,
-    /// Accessibility (plan 3.21, 4.2, Appendix D). `Button`, `Text` and `TextInput` have implicit
+    /// Accessibility. `Button`, `Text` and `TextInput` have implicit
     /// roles; every other element is exposed only if it has an explicit one.
     pub role: Option<RoleSpec>,
     pub aria_label: Option<String>,
@@ -1700,7 +1700,7 @@ pub struct PropsSpec {
     /// by its tag; the tag must be that of an element exposed in the accessibility tree when it is built.
     pub aria_active_descendant: Option<u32>,
     pub aria_controls: Option<u32>,
-    /// `TextInput` only (plan 4.2). The text a text input starts with; later changes are ignored, as
+    /// `TextInput` only. The text a text input starts with; later changes are ignored, as
     /// in the DOM (the buffer owns the text, `setTextAndSelection` replaces it).
     pub default_value: Option<String>,
     pub placeholder: Option<String>,
@@ -1999,7 +1999,7 @@ impl PropsSpec {
     }
 
     /// Everything that decides whether an element is in the accessibility tree and where: when it
-    /// changes, the tree's structure may have (plan 3.21). Other accessibility props only change
+    /// changes, the tree's structure may have. Other accessibility props only change
     /// what an exposed element says.
     pub(crate) fn exposure(&self) -> Exposure {
         Exposure {
@@ -2410,7 +2410,7 @@ mod tests {
         );
     }
 
-    /// Plan I4, task 1: which frame is the `location` of an absolute node expressed in? Taffy at the
+    /// Which frame is the `location` of an absolute node expressed in? Taffy at the
     /// pinned revision (`oof.rs`, "its `location` is relative to the containing block's border box")
     /// lays an absolute box out in its containing block and reports `location` there, not in its parent,
     /// so the mounting layer's frames follow the paint-parent rule and need no correction. This test

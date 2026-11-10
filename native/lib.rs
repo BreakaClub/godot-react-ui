@@ -56,8 +56,8 @@ mod text_input;
 mod text_style;
 // `<TextInput>` on the mounted tree: key, pointer, IME and virtual keyboard input, painting.
 mod text_input_godot;
-// Caret, hit-test and selection geometry over Godot's `TextParagraph`; text selection (Phase I6) and text
-// inputs (Phase I7) use it. The few items neither calls carry their own `allow(dead_code)`.
+// Caret, hit-test and selection geometry over Godot's `TextParagraph`; text selection and text
+// inputs use it. The few items neither calls carry their own `allow(dead_code)`.
 mod text_layout;
 #[cfg(feature = "probe")]
 mod text_layout_probe;
@@ -73,7 +73,7 @@ mod text_decoration;
 mod text_geometry;
 // The spans of a `Text`: nested `Text` in JS is one attributed paragraph, with inlays and per-span styles.
 mod text_span;
-// Touch text selection (plan D71): the long press, the handles and the edit menu, Godot-free; `touch_selection_input.rs` is the glue.
+// Touch text selection: the long press, the handles and the edit menu, Godot-free; `touch_selection_input.rs` is the glue.
 mod touch_selection;
 mod touch_selection_input;
 mod transform;
@@ -149,7 +149,7 @@ unsafe impl ExtensionLibrary for ReactUiExtension {}
 enum TextContext {
     /// A `Text` node: its shaped paragraph, wrapped to the width Taffy offers, and the sizes it has given.
     Paragraph(Box<MeasuredText<StyledParagraph>>),
-    /// A `TextInput`: a size that never depends on its value (plan 3.18), so typing does not lay out.
+    /// A `TextInput`: a size that never depends on its value, so typing does not lay out.
     Intrinsic(Vector2),
 }
 
@@ -252,7 +252,7 @@ pub struct ReactUiRoot {
     /// A commit removed the focused element: once it has settled the root hands Godot key focus back
     /// unless something else took focus meanwhile (`settle_key_focus`).
     key_focus_release_due: bool,
-    /// How the user last gave input (plan 3.13).
+    /// How the user last gave input.
     modality: Modality,
     focus_visible: bool,
     /// Where the mouse is, which of its buttons are down and which modifiers are held.
@@ -260,11 +260,11 @@ pub struct ReactUiRoot {
     pointer_known: bool,
     pointer_buttons: u16,
     pointer_modifiers: Modifiers,
-    /// Every pointer that is down, with its capture (plan 3.12), and the click counts.
+    /// Every pointer that is down, with its capture, and the click counts.
     pointers: PointerTable,
     clicks: ClickCounter,
     stats: Stats,
-    /// The accessibility elements this root has made for assistive technologies (plan 3.21).
+    /// The accessibility elements this root has made for assistive technologies.
     accessibility: Accessibility,
     /// What text inputs share: the selection drag in progress, the window's focus, the `InputMap`
     /// actions their keys are (`text_input_godot.rs`).
@@ -375,12 +375,12 @@ impl IControl for ReactUiRoot {
     fn ready(&mut self) {
         self.update_process();
         self.base_mut().set_mouse_filter(MouseFilter::STOP);
-        // Click focus only: Godot's own Tab navigation must never hand the root key focus (plan
-        // 3.11). `grab_focus` still works, which is how the owner and a focused element take it.
+        // Click focus only: Godot's own Tab navigation must never hand the root key focus.
+        // `grab_focus` still works, which is how the owner and a focused element take it.
         self.base_mut().set_focus_mode(FocusMode::CLICK);
         self.base_mut().set_clip_contents(true);
         // MOUSE_FILTER_STOP would otherwise mark every wheel event handled; whether one is consumed
-        // is decided by JS and, from Phase I5, by scrolling (plan 3.11).
+        // is decided by JS and by scrolling.
         self.base_mut().set_force_pass_scroll_events(true);
         // A filter's rectangles are in render-target pixels, so they follow the root's own transform.
         self.base_mut().set_notify_transform(true);
@@ -415,7 +415,7 @@ impl IControl for ReactUiRoot {
         self.apply_presentation();
         self.flush_layout();
         // The root takes key focus only when an element is focused, or when its owner calls
-        // `grabFocus()` (plan 3.11). An element focused by a commit before the root entered the
+        // `grabFocus()`. An element focused by a commit before the root entered the
         // tree (`autoFocus`) could not take it then.
         if self.focused.is_some() {
             self.base_mut().grab_focus();
@@ -451,7 +451,7 @@ impl IControl for ReactUiRoot {
             }
             ControlNotification::MOUSE_EXIT => {
                 self.pointer_known = false;
-                // The hover is frozen while a drag runs (I9-3): leaving the root with the button down is
+                // The hover is frozen while a drag runs: leaving the root with the button down is
                 // part of the drag, and its end catches the hover up.
                 if !self.drag_in_progress() {
                     self.update_hover(None);
@@ -553,20 +553,20 @@ impl IControl for ReactUiRoot {
     }
 
     /// While a drag runs the root hears every input event first, so Escape cancels it whether or not
-    /// the root holds key focus (plan 3.19). `update_process` turns this on only for a running drag.
+    /// the root holds key focus. `update_process` turns this on only for a running drag.
     fn input(&mut self, event: Gd<InputEvent>) {
         self.drag_escape(&event);
     }
 
     /// Godot routes a pointer to this Control only where an element would receive it, so empty
-    /// space and `pointer-events: none` regions reach whatever lies underneath (plan 3.11). Called
+    /// space and `pointer-events: none` regions reach whatever lies underneath. Called
     /// during routing; it reads the mounted tree and changes nothing.
     fn has_point(&self, point: Vector2) -> bool {
         self.mounted.hit_test(point).is_some() || self.touch_chrome_hit(point)
     }
 
     fn get_cursor_shape(&self, at_position: Vector2) -> i32 {
-        // A drag overrides the element's cursor with can-drop or forbidden (Appendix A).
+        // A drag overrides the element's cursor with can-drop or forbidden.
         self.drag_cursor()
             .unwrap_or_else(|| {
                 cursor_shape(
@@ -606,7 +606,7 @@ impl ReactUiRoot {
     #[signal]
     fn missing_glyphs_ready();
 
-    /// Apply one layer's commit payload (plan section 4.1): validate all of it, then mount it. An
+    /// Apply one layer's commit payload: validate all of it, then mount it. An
     /// empty return is success; anything else describes why nothing changed.
     #[func]
     fn commit(&mut self, layer: i64, payload_json: GString) -> GString {
@@ -700,7 +700,7 @@ impl ReactUiRoot {
     }
 
     /// The system font families tried, in order, for a character no font has and the text server found no system font for, which on macOS 26 is every Han
-    /// character (`docs/tracks/font-slices.md`). The library has a list for each system language; an app with its own gives it here, and an empty list looks
+    /// character. The library has a list for each system language; an app with its own gives it here, and an empty list looks
     /// nowhere.
     #[func]
     fn set_system_font_candidates(&mut self, families: PackedStringArray) {
@@ -773,7 +773,7 @@ impl ReactUiRoot {
 
     /// `element.setPointerCapture(pointer_id)`: the element receives the pointer's events (wherever
     /// the pointer is) until `release_pointer_capture`, the pointer goes up or is cancelled, or the
-    /// element is removed. An empty return is success; otherwise nothing changed (plan 4.4).
+    /// element is removed. An empty return is success; otherwise nothing changed.
     #[func]
     fn set_pointer_capture(&mut self, tag: i64, pointer_id: i64) -> GString {
         let result = ids(tag, pointer_id)
@@ -838,7 +838,7 @@ impl ReactUiRoot {
         self.handle_accessibility_action(&data, tag, action);
     }
 
-    /// An assistive technology acted on one of node `tag`'s scroll bar elements (plan D42). The bar's
+    /// An assistive technology acted on one of node `tag`'s scroll bar elements. The bar's
     /// action callables are bound to this method with the tag, the bar's axis and the action's code
     /// (`accessibility_model/scroll_bars.rs`); the request carries no data for an increment or a decrement.
     #[func]
@@ -905,7 +905,7 @@ impl ReactUiRoot {
     }
 
     /// The document's text selection as JSON, or `null` for none: `{"anchor": {"tag", "offset"},
-    /// "focus": {"tag", "offset"}, "isCollapsed", "text"}`, offsets in UTF-16 code units (plan 3.17).
+    /// "focus": {"tag", "offset"}, "isCollapsed", "text"}`, offsets in UTF-16 code units.
     #[func]
     fn get_selection(&mut self) -> GString {
         self.selection_json().to_string().as_str().into()
@@ -918,7 +918,7 @@ impl ReactUiRoot {
         self.clear_selection_command();
     }
 
-    /// `setTextAndSelection(eventCount, value, start, end)` on a text input (plan 3.18, 4.4): replace its
+    /// `setTextAndSelection(eventCount, value, start, end)` on a text input: replace its
     /// text and selection, unless the user typed since JS read `eventCount`. `start` and `end` are UTF-16
     /// offsets into `value`, both -1 for the caret at the end. Returns "" when it was applied, "stale"
     /// when it was ignored for its count, else why nothing changed.
@@ -1060,7 +1060,7 @@ impl ReactUiRoot {
         json.to_string().as_str().into()
     }
 
-    /// Whether the root would act on this key if it were pressed now, which keeps it from the browser on the Web (docs/tracks/key-passthrough.md).
+    /// Whether the root would act on this key if it were pressed now, which keeps it from the browser on the Web.
     /// The key is a DOM key, as a page's `keydown` has it; the answer is for the chords a browser also uses: a focused text input's
     /// editing and clipboard chords, copy and select all for the selection, Enter and Space on a focused button. True when a control
     /// that is not a root holds the keyboard; false when none does, or another root does.
@@ -1360,7 +1360,7 @@ impl ReactUiRoot {
     }
 
     /// Queue an event and block until JS has dispatched it and reported `preventDefault()`.
-    /// Everything native knew before this call may be stale when it returns (plan 3.3 rule 3).
+    /// Everything native knew before this call may be stale when it returns.
     fn dispatch_cancelable(&mut self, target: u32, payload: EventPayload) -> EventOutcome {
         if self.dispatch_depth > 0 || !self.base().is_inside_tree() {
             // Nested input (JS pushed an event from a handler) cannot be answered synchronously:
@@ -1377,7 +1377,7 @@ impl ReactUiRoot {
     }
 
     /// Synchronously hand every queued event to JS through `events_ready`. Only input-origin entry
-    /// points may call this (plan 3.3 rule 1); events queued anywhere else wait for the next
+    /// points may call this; events queued anywhere else wait for the next
     /// delivery or the owner's per-frame `dispatchEvents()`.
     fn deliver(&mut self) {
         // An edit that put characters no font has into a text field has shaped it already; the fonts for them are looked for now.

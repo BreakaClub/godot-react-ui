@@ -8,7 +8,7 @@ import { CARGO_PACKAGE, NATIVE_BINDING_API, NATIVE_INSTALL_DIRECTORY, nativeRefu
 import { webContentInputs } from './web-content.mjs';
 
 /**
- * Engine profiles (docs/tracks/stock-engine.md; the native split is docs/tracks/single-build.md).
+ * Engine profiles.
  *
  * `breaka` is the default: Breaka's custom Godot 4.8 with its GodotJS. `stock` is an unmodified Godot 4.7.2 with
  * upstream GodotJS. A profile decides which Godot binary runs the demo, where a run's evidence goes, which GodotJS typings the
@@ -25,7 +25,7 @@ import { webContentInputs } from './web-content.mjs';
  * from the flag exports it as `GODOT_REACT_ENGINE` so the scripts it starts agree. `GODOT` still overrides the
  * profile's Godot binary; the binary's version is checked against the profile before anything runs.
  *
- * The freshness guard (docs/tracks/freshness.md, scripts/freshness.mjs): the build scripts record what each installed build was made from,
+ * The freshness guard (scripts/freshness.mjs): the build scripts record what each installed build was made from,
  * and every script that runs one refuses it when the sources have moved on or it is bound to another API.
  */
 // `import.meta.url`, not `import.meta.dirname`: the unit tests load this file through tsx's CommonJS bridge.
@@ -200,7 +200,7 @@ export function selectEngine(argv = process.argv.slice(2), env = process.env) {
     /**
      * Fail unless every native build a demo run loads may be loaded: the UI library, and the live-compile extension if one is installed (it is
      * loaded by every run of the demo, not only by the sections that use it). Each must be bound to `NATIVE_BINDING_API`, be the variant asked for
-     * (`probe` is the Phase F0/text-layout probe build, `faults` the filters negative-controls build; neither ships) and be built from the current
+     * (`probe` is the evidence/text-layout probe build, `faults` the filters negative-controls build; neither ships) and be built from the current
      * sources. The profile does not enter into it. Both are checked, and a refusal names each one's fix. `liveCompile: false` is for a run that takes
      * the extension out of the project while Godot runs (`gen:types`).
      */

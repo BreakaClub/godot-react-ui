@@ -1,5 +1,4 @@
-//! Paint parents, paint order, hit testing and absolute geometry over them (plan sections 3.8 and
-//! 3.15). Nothing here touches Godot's engine: the mounting layer implements the two traits over its
+//! Paint parents, paint order, hit testing and absolute geometry over them. Nothing here touches Godot's engine: the mounting layer implements the two traits over its
 //! mounted nodes and the tests over a plain structure.
 //!
 //! The tree React describes (the *tree*) decides events, inheritance, Tab order and layout. What is
@@ -30,7 +29,7 @@
 //! is exact because it clips in the element's own frame.
 //!
 //! A scroll container shifts what it paints: its paint children are located in its frame less its
-//! scroll offset (the `scroll` canvas item's transform, plan 3.8). Because that follows the paint
+//! scroll offset (the `scroll` canvas item's transform). Because that follows the paint
 //! parent, an absolute element scrolls with a positioned scroll container that is its containing
 //! block, and does not scroll with one that is merely between the two (CSS's rule).
 

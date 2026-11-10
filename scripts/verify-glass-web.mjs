@@ -1,4 +1,4 @@
-// The `glass` section of the Web interaction verifier (plan Phase V1 showcase): the native section's reads of the showcase lab, taken
+// The `glass` section of the Web interaction verifier: the native section's reads of the showcase lab, taken
 // from the real canvas in Chrome at both device pixel ratios, with Chrome's own mouse for the hover and the clicks. Mirrors
 // demo/src/verify-glass.ts (without its scroll-stability run, which only repeats the native renderer's); what differs is only how
 // pixels are read (a canvas screenshot, decoded here).

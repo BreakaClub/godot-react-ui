@@ -1,4 +1,4 @@
-//! The native drag ghost (plan sections 3.8 and 3.19): a translucent copy of the dragged element, drawn
+//! The native drag ghost: a translucent copy of the dragged element, drawn
 //! in a top-most canvas item above both layers and the focus ring, following the pointer.
 //!
 //! The copy is a second render tree (`RenderNode`s) whose items replay the box and content commands the
@@ -20,7 +20,7 @@ use crate::render_tree::{ContentKey, GHOST_DRAW_INDEX, RenderNode, RootItem};
 use crate::text_input_godot::GhostText;
 use crate::transform::{Affine2, Placement};
 
-/// How opaque the ghost is (plan Appendix A: a browser-like ghost), multiplied into whatever
+/// How opaque the ghost is (a browser-like ghost), multiplied into whatever
 /// opacity the copied elements already have.
 pub(crate) const DRAG_GHOST_OPACITY: f32 = 0.6;
 

@@ -1,5 +1,5 @@
 // The transforms lab (demo/src/transform-lab.tsx) as plain HTML with the CSS a browser developer would write, rendered by
-// headless Chrome through Puppeteer, to compare against what the library draws (docs/tracks/transforms.md, "Against Chrome").
+// headless Chrome through Puppeteer, to compare against what the library draws.
 //
 //   node --import tsx scripts/transform-reference.mjs --render [--out=<dir>]
 //       Renders each shape case to <dir>/chrome-<case>-dpr1.png (a 1120 x 800 window) and -dpr2.png (the 560 x 400 logical window

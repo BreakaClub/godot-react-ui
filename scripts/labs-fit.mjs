@@ -1,4 +1,4 @@
-// What the Web verifier's `labs-fit` section judges (scripts/verify-labs-fit-web.mjs, docs/tracks/lab-clarity.md), kept apart from the browser so that
+// What the Web verifier's `labs-fit` section judges (scripts/verify-labs-fit-web.mjs), kept apart from the browser so that
 // the judgement can be tested against snapshots a broken lab really gave.
 //
 // A lab fits a phone when nothing of it runs off the right (or left) edge of the viewport: no node outside a scroll container that scrolls sideways

@@ -12,7 +12,7 @@ import { WEB_LIBRARY_NAME, writeGdextension } from '../scripts/live-compile-buil
 import { nativeSourceInputs, nativeVariant } from '../scripts/native-binding.mjs';
 import { ensureStockTypings } from '../scripts/typings.mjs';
 
-// The freshness guard (scripts/freshness.mjs, docs/tracks/freshness.md): a build records the content of what it was
+// The freshness guard (scripts/freshness.mjs): a build records the content of what it was
 // made from, and a run compares that with the working tree. These tests build a small repository in a temporary
 // directory, so no cargo, Godot or window is involved.
 
@@ -360,9 +360,9 @@ const GUARDS: Record<string, readonly string[]> = {
   // Reads the captures a verifier left and lays them out: it runs no build, so there is nothing to guard.
   'navigator-captures.mjs': [],
   'probe-web.mjs': ['requireFreshWebExport('],
-  // Drive the code panel under a V8 profiler (docs/tracks/keystroke-profile.md) and compare builds of it (docs/tracks/keystroke-speed.md): they
+  // Drive the code panel under a V8 profiler and compare builds of it: they
   // run the installed library like a verifier does, and a variant is only taken from a build that is fresh.
-  // Captures the labs in the navigator in headless Chrome from the Web export (docs/tracks/lab-clarity.md): the export is checked; the sheets and compare commands read only the files it left.
+  // Captures the labs in the navigator in headless Chrome from the Web export: the export is checked; the sheets and compare commands read only the files it left.
   'lab-captures.mjs': ['requireFreshWebExport('],
   'keystroke-ab.mjs': ['prepareNative('],
   'profile-keystrokes.mjs': ['prepareNative('],

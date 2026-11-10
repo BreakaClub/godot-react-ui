@@ -4,7 +4,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LICENSE_FILE, MANIFEST_FILE } from './manifest.mjs';
 
-// Where the font slices are, and how a Web export gets the part of them that belongs to it (docs/tracks/font-slices.md).
+// Where the font slices are, and how a Web export gets the part of them that belongs to it.
 //
 // `scripts/build-font-slices.mjs` writes `artifacts/font-slices/dist`: the manifest and the licence, which are release files, and `o/<hash>/<name>`, the
 // content-addressed slices and indexes, which are not part of any release. A Web export carries the manifest and the licence beside its page (the

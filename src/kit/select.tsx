@@ -335,7 +335,7 @@ SelectItemIndicator.displayName = 'Select.ItemIndicator';
 
 /**
  * The list while the select is open: a backdrop that closes it, and the listbox, both in the overlay
- * layer. Overlay events bubble along the overlay's own tree (plan D26), so everything that handles them
+ * layer. Overlay events bubble along the overlay's own tree, so everything that handles them
  * is inside it: the listbox for the keys and the items for their clicks.
  */
 const OpenContent = forwardRef<UIHandle, SelectContentProps>(function OpenContent(props, ref) {

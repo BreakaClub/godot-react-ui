@@ -100,7 +100,7 @@ function Paragraphs({ sample, explain }: { sample: FontSample; explain: boolean 
 }
 
 /**
- * Font fallback (docs/tracks/font-slices.md): text with characters no registered font has, which a Web page draws with a font it downloads for them when
+ * Font fallback: text with characters no registered font has, which a Web page draws with a font it downloads for them when
  * they first appear, in plain text and in a coloured span. Until the font has arrived the characters are the engine's hex boxes; then the text is shaped
  * again and laid out with real glyphs. A sample that needs nothing downloaded (Latin only) makes no request. The status line is the loader's.
  */

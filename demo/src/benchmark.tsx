@@ -16,7 +16,7 @@ export interface BenchmarkProps {
   /**
    * Render each cell through a memoized component whose props are primitives, as a real app keeps
    * list rows: a cell that did not change is not re-rendered, so what a commit costs is what changed.
-   * The F0 baseline fixture re-renders every cell on every update; that stays the default.
+   * The baseline fixture re-renders every cell on every update; that stays the default.
    */
   memoCells?: boolean;
   /**

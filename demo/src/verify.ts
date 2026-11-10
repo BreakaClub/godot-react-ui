@@ -200,7 +200,7 @@ export async function runVerification(owner: Node, api: DemoInspection): Promise
   pointer(point(api, 'increment'), true);
   await capture('03-pressed');
   const pressed = get(api, 'increment').rect;
-  // The ring marks a keyboard focus (plan 3.13, D17): pressing a button focuses it without the ring.
+  // The ring marks a keyboard focus: pressing a button focuses it without the ring.
   // The regression this assertion used to guard (a focus change that restyles nothing must still
   // paint the ring) is covered with keyboard focus by the Keyboard lab in verify:interaction.
   assert(!isFocusRingColor(viewportPixel(owner, pressed.x + FOCUS_RING_PROBE_INSET, pressed.y + pressed.height / 2)),
@@ -235,7 +235,7 @@ export async function runVerification(owner: Node, api: DemoInspection): Promise
 
   const increment = get(api, 'increment').id;
   // The release above left `increment` focused by the mouse. At least one Tab is pressed so the
-  // focus that is captured is a keyboard focus (plan 3.13, D17), which is the one that paints the ring.
+  // focus that is captured is a keyboard focus, which is the one that paints the ring.
   let tabs = 0;
   do {
     await key(Key.KeyTab);

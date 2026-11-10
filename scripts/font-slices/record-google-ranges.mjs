@@ -3,8 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { rejectUnknownArguments } from '../arguments.mjs';
 
-// Records the unicode-range partition that Google Fonts serves for Noto Sans SC, TC, JP and KR, and Noto Color Emoji, into `google-ranges.json`
-// (docs/tracks/font-slices.md). It is run by a person, once, when the partition is to be taken again; the build never fetches it.
+// Records the unicode-range partition that Google Fonts serves for Noto Sans SC, TC, JP and KR, and Noto Color Emoji, into `google-ranges.json`. It is run by a person, once, when the partition is to be taken again; the build never fetches it.
 //
 //   node scripts/font-slices/record-google-ranges.mjs --write     fetch the four stylesheets and write google-ranges.json
 //   node scripts/font-slices/record-google-ranges.mjs             fetch and print a summary, write nothing

@@ -1,4 +1,4 @@
-//! Characters no font has, noticed when a text is shaped (docs/tracks/font-slices.md).
+//! Characters no font has, noticed when a text is shaped.
 //!
 //! A text that has a character none of its fonts has is drawn with the engine's hex box. The root notices such characters as it builds a paragraph, so that
 //! something can find a font for them: natively a system font FreeType can read (`system_fonts.rs`), on the Web a font file the page downloads

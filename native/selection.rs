@@ -1,6 +1,6 @@
-//! The static text selection model (plan section 3.17): an anchor and a focus, each a node `tag` and a
+//! The static text selection model: an anchor and a focus, each a node `tag` and a
 //! code point offset in that node's text, over an ordered list of text nodes. Nothing here touches
-//! Godot, a layout or the DOM; Phase I6 feeds it from pointer gestures and reads ranges back for
+//! Godot, a layout or the DOM; the selection input feeds it from pointer gestures and reads ranges back for
 //! painting, copying and `root.getSelection()`.
 //!
 //! Offsets here are code point indices (what `TextServer` returns). Convert to and from JS's UTF-16

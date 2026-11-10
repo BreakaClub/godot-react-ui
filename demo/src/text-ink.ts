@@ -1,6 +1,6 @@
 /**
  * What a picture of black text on white holds, measured the way the text styles verifiers hold the library to Chrome
- * (docs/tracks/justify-clip.md): the ink of one character's cell, and the right edge of the ink of one line. Chrome's numbers
+ *: the ink of one character's cell, and the right edge of the ink of one line. Chrome's numbers
  * (`text-styles-golden.ts`) are read with `scripts/text-ink.mjs`, which this file repeats for the native verifier (it has no
  * dependency on Godot, so a test can run it); `tests/text-ink.test.ts` holds the two copies to the same answers.
  *

@@ -100,7 +100,7 @@ function ChoiceSelect(props: {
 }
 
 /**
- * Phase I8: the input kit (Checkbox, Switch, RadioGroup, Slider, Select, TextField) bound to one state object, whose JSON is the
+ * The input kit (Checkbox, Switch, RadioGroup, Slider, Select, TextField) bound to one state object, whose JSON is the
  * readout the verifier parses. Locked copies show the `disabled` look; Reverse reorders the radio items, which the
  * group must follow; the selects head the second column (beside the first in a wide window, under it in a narrow one) and one more is pinned at
  * the bottom of the window, where its list has to flip. The one with forty items has more than fit under it: its list is capped to the room and

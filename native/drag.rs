@@ -1,9 +1,9 @@
-//! HTML-style drag and drop (plan section 3.19) as a state machine, `Idle -> Pending -> Dragging ->
+//! HTML-style drag and drop as a state machine, `Idle -> Pending -> Dragging ->
 //! Ended`, with no engine, tree or clock behind it: hit testing and event delivery are injected through
-//! [`DragEnvironment`], and time arrives as the `now_ms` of every call. Phase I9 owns the integration
+//! [`DragEnvironment`], and time arrives as the `now_ms` of every call. The integration is elsewhere
 //! (which pointers feed it, how events become `UiEvent`s, the ghost, the cursor, edge auto-scroll).
 //!
-//! # Public API (what Phase I9 calls)
+//! # Public API (what the integration calls)
 //!
 //! - [`DragMachine::new`]`(`[`DragConfig::new`]`(viewport.get_drag_threshold()))`; keep one per root.
 //! - [`DragMachine::handle`]`(now_ms, `[`DragInput`]`, &mut env)` for every input that may concern a
@@ -33,7 +33,7 @@
 //!
 //! # Re-entrancy
 //!
-//! `emit` runs JS, which can unmount anything, including the root (plan 3.10). The machine therefore
+//! `emit` runs JS, which can unmount anything, including the root. The machine therefore
 //! never holds a borrow of the owner: keep it in an `Option` on the root, `take()` it, call `handle`
 //! with an environment that borrows the rest of the root, and put it back only if the root is still
 //! mounted. After `emit`, the source and target tags may no longer exist; the environment skips an
@@ -43,7 +43,7 @@
 use crate::events::{DropEffect, EventOutcome};
 use crate::scroll::{TOUCH_SLOP_PX, Vec2, exceeds_slop};
 
-/// How long a touch must stay within the slop to become a drag (plan Appendix A: mobile
+/// How long a touch must stay within the slop to become a drag (mobile
 /// long-press-to-drag; tune with evidence).
 pub(crate) const TOUCH_DRAG_HOLD_MS: f64 = 500.0;
 
@@ -58,7 +58,7 @@ pub(crate) struct DragConfig {
 }
 
 impl DragConfig {
-    /// `mouse_threshold_px` comes from the viewport; the touch values are the plan's constants.
+    /// `mouse_threshold_px` comes from the viewport; the touch values are constants.
     pub(crate) fn new(mouse_threshold_px: f32) -> Self {
         Self {
             mouse_threshold_px,

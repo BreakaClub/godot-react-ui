@@ -1,9 +1,9 @@
-//! Finding a system font that has a character no font of the root has (docs/tracks/font-slices.md), on the platforms that have system fonts.
+//! Finding a system font that has a character no font of the root has, on the platforms that have system fonts.
 //!
 //! The text server already looks for one: when a font allows it (`Font.allow_system_fallback`) and the platform reports `system_fonts`, shaping asks the
 //! platform for the font of a character (`OS::get_system_font_path_for_text`). A character is reported here only when that failed, and for Han on macOS 26
 //! it fails: CoreText answers with `PingFangUI.ttc`, whose outlines are an `hvgl` table FreeType cannot open, so no glyph is found and the text is hex
-//! boxes (docs/tracks/missing-glyph.md). The platform's answer is not all there is: there are families FreeType does read. A list of them is tried, in the
+//! boxes. The platform's answer is not all there is: there are families FreeType does read. A list of them is tried, in the
 //! order the system's language prefers, and a font is made and kept only for a character it has, so a face is read from disk (Hiragino Sans GB is
 //! 23.5 MB) when text needs it and not at start.
 

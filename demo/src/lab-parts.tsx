@@ -12,7 +12,7 @@ export function useExpectedVisible(): boolean {
 }
 
 /**
- * The parts the labs explain themselves with (docs/tracks/lab-clarity.md): an introduction that says what the lab shows and which part of the
+ * The parts the labs explain themselves with: an introduction that says what the lab shows and which part of the
  * library and which web behaviour it is about, a card for each case with a caption (what it shows, what to try) and the outcome to expect, a
  * labelled result, and a note for a limit the case shows. They are plain `View`s and `Text`s in the demo's slate and indigo, so a lab reads the
  * same everywhere and wraps at the window's width: nothing here has a fixed width.

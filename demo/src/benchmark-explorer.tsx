@@ -10,7 +10,7 @@ import { LabCase, LabIntro, LabLimit, Readout } from './lab-parts';
  *
  * It also times what it does. A press (or a choice of size) stamps the clock; a layout effect in this component runs after React's commit,
  * and the commit includes the renderer's one synchronous call to native (`replaceContainerChildren` in `src/renderer.ts`, which in the Fabric
- * renderer lays out, updates geometry and records the changed canvas items, `docs/INTERACTION_PROGRESS.md` Phase F4), so the difference is the
+ * renderer lays out, updates geometry and records the changed canvas items), so the difference is the
  * time from the press until the change has been committed. It stops before the GPU draws the frame, and it is not the fixture's own
  * measurement: the baselines read the renderer's profile and counters from the verifier.
  */
@@ -183,7 +183,7 @@ export function BenchmarkExplorer() {
       >
         <LabLimit>the times are wall-clock time on this device and in this build, one reading at a time, so they are not the project's baselines.</LabLimit>
         <Text className="text-sm text-slate-600">
-          For comparison, the project's own run on 6 November 2026 (a Mac, Chrome, the Web debug template, React's development build; docs/INTERACTION_PROGRESS.md, Phase F4) updated every one of 2,000 cells in 51.7 ms (median). It changed one cell, in rows React skips, in 1.8 ms, and native's commit for it took 0.15 ms.
+          For comparison, the project's own run on 6 November 2026 (a Mac, Chrome, the Web debug template, React's development build) updated every one of 2,000 cells in 51.7 ms (median). It changed one cell, in rows React skips, in 1.8 ms, and native's commit for it took 0.15 ms.
         </Text>
       </LabCase>
       <BenchmarkApp key={gridKey(count, text, mode)} {...fixtureProps(mode, count, text, phase)} />

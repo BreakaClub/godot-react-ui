@@ -32,7 +32,7 @@ export function CollectingItems(props: { children?: ReactNode }): ReactNode {
 
 const ICON_CLASS = 'items-center';
 const ICON_ROW_CLASS = 'h-px bg-slate-500';
-/** The widths of the caret's rows, top to bottom: a triangle drawn with one pixel high boxes (no icons, plan 3.23). */
+/** The widths of the caret's rows, top to bottom: a triangle drawn with one pixel high boxes (no icons). */
 const CARET_ROW_WIDTHS: readonly number[] = [9, 7, 5, 3, 1];
 const CARET_ROW_STYLES: readonly Style[] = CARET_ROW_WIDTHS.map((width) => Object.freeze({ width }));
 

@@ -9,7 +9,7 @@ import {
 } from '../scripts/web-interaction-jobs.mjs';
 import { WEB_INTERACTION_JOBS, WEB_INTERACTION_SECTIONS, webInteractionJobsToRun } from '../scripts/verifier-sections.mjs';
 
-// The Web interaction run as jobs that run at the same time (scripts/web-interaction-jobs.mjs, docs/tracks/suite-speed.md), exercised with a
+// The Web interaction run as jobs that run at the same time (scripts/web-interaction-jobs.mjs), exercised with a
 // stand-in for the verifier script, so no browser opens.
 
 function assertion(viewport: string, name: string): JobReport['assertions'][number] {

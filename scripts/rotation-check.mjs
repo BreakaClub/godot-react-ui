@@ -1,4 +1,4 @@
-// What the Web verifier's `rotation` section judges (scripts/verify-rotation-web.mjs, docs/tracks/rotation.md), kept apart from the browser so
+// What the Web verifier's `rotation` section judges (scripts/verify-rotation-web.mjs), kept apart from the browser so
 // that the judgement can be tested against the observations a broken page really gave.
 
 /** The most a size may differ from the viewport's: the engine floors the canvas's CSS size and its backing store, so a root is up to a pixel short. */
@@ -90,7 +90,7 @@ export function outsideTheRoot(snapshot, tolerance = OVERFLOW_TOLERANCE_PX) {
 /**
  * The root's size at every frame of a turn, as `[width, height]` pairs: a root has the size of one orientation or the other, so a frame in
  * which it is outside the device's two sides is a root that was not told the window's size (the Web batch regression once saw one 32 px wide
- * for no proven reason, docs/tracks/regression-fixes.md). One sentence, or none.
+ * for no proven reason). One sentence, or none.
  */
 export function transientRootProblems(samples, device) {
   const shorter = Math.min(device.width, device.height);

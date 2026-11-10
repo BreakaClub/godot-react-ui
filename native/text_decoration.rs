@@ -1,6 +1,6 @@
 //! Decoration lines in the five CSS styles (`text-decoration-style`), drawn as Chrome draws them. A line is drawn per *fragment*:
 //! the stretch of one text run on one line, as Chrome paints a decoration once per inline box fragment, so a wavy or dashed
-//! pattern starts again at every span boundary and every wrapped line (`docs/tracks/rich-text.md`, "Decoration styles").
+//! pattern starts again at every span boundary and every wrapped line.
 //!
 //! The geometry is Blink's, read off its pixels (headless Chrome 156, JetBrains Mono and Open Sans at 12 to 48 px, device pixel
 //! ratios 1 and 2, thicknesses 1 to 10), not recalled from its source:

@@ -1,5 +1,5 @@
-// The label of the hit page's turned bar (docs/tracks/transforms-lab.md, "The label of the turned bar"): the bar's box as Chrome draws it three ways, at a phone's
-// device pixel ratio, to say which of them Ben's screenshot of the library is. A flex column with its label as its only child (what the lab had: the library's
+// The label of the hit page's turned bar: the bar's box as Chrome draws it three ways, at a phone's
+// device pixel ratio, to say which of them a reported screenshot of the library is. A flex column with its label as its only child (what the lab had: the library's
 // `Button` is one) puts the label in the top left corner; a browser's own `<button>` centres its content, and so does a flex column told to.
 //
 //   node scripts/transform-lab-label-experiment.mjs --out=<file.json>   writes { variant: base64 PNG } of the bar's corner.

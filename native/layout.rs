@@ -178,7 +178,7 @@ impl ReactUiRoot {
 
     /// Lay out every layer whose tree changed, update the geometry of the nodes that moved or
     /// resized, drop focus and press from anything that became invisible, re-hit-test the pointer
-    /// and paint what changed (plan 3.3, "Layout" to "Events").
+    /// and paint what changed ("Layout" to "Events").
     pub(crate) fn flush_layout(&mut self) {
         let layout_passes_before = self.stats.layout_passes;
         self.viewport_size = self.base().get_size();
@@ -234,7 +234,7 @@ impl ReactUiRoot {
         }
         // The element under the pointer can only have changed if something that decides it did, and
         // finding it walks the siblings at every level, so a flush that moved nothing skips it.
-        // The hover is frozen while a drag runs (I9-3); the end of the drag catches it up.
+        // The hover is frozen while a drag runs; the end of the drag catches it up.
         if std::mem::take(&mut self.hit_stale) && !self.drag_in_progress() {
             let hit = if self.pointer_known {
                 self.mounted.hit_test(self.pointer)

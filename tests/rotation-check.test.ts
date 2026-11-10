@@ -4,7 +4,7 @@ import {
   OVERFLOW_TOLERANCE_PX, outsideTheRoot, rotationProblems, transientRootProblems, type RotationObservation, type RotationSnapshot, type RotationViewport,
 } from '../scripts/rotation-check.mjs';
 
-// The judgement of the Web verifier's `rotation` section (scripts/verify-rotation-web.mjs, docs/tracks/rotation.md), against the observations of a
+// The judgement of the Web verifier's `rotation` section (scripts/verify-rotation-web.mjs), against the observations of a
 // phone in Chrome's mobile emulation: the healthy one, and the broken one a page gave after landscape back to portrait, recorded on main.
 
 const PHONE: RotationViewport = { width: 412, height: 915, deviceScaleFactor: 2.625 };

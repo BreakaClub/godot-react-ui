@@ -1,4 +1,4 @@
-//! A key press as a text edit (plan Appendix C): which `InputMap` action it is, as `LineEdit`
+//! A key press as a text edit: which `InputMap` action it is, as `LineEdit`
 //! decides it (`scene/gui/line_edit.cpp:690-1075`), and what that asks of the edit buffer.
 //!
 //! The actions are matched in `LineEdit`'s order with `event.is_action(name, true)` (an exact

@@ -11,7 +11,7 @@ path = "native/lib.rs"
 
 [features]
 web = ["godot/experimental-wasm"]
-# Phase F0 evidence probe (native/probe.rs). Never enabled in a default build.
+# The evidence probe (native/probe.rs). Never enabled in a default build.
 probe = []
 # Negative controls for the filters verifier (native/filter_faults.rs). Never enabled in a default build.
 filter-faults = []

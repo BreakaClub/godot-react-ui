@@ -60,13 +60,13 @@ function FieldRow({ label, caption, tall = false, result, children }: FieldRowPr
 }
 
 /**
- * Phase I7: the text fields, bound to one state object whose JSON is the readout the verifier parses. Name is
+ * The text fields, bound to one state object whose JSON is the readout the verifier parses. Name is
  * controlled and stores what is typed; password is secure; code stops at six characters; shout is controlled and stores
  * the text in capitals, so native has to be told; the read-only field can be focused and copied from; notes is a text
  * area; free is uncontrolled. Enter in a single-line field counts a submit. The page scrolls, and a comments area below
  * the readout is reached by scrolling: a wheel over notes scrolls the text first and the page after it.
  *
- * Each field has a caption (docs/tracks/lab-clarity.md) beside it, or under it where the window is narrow. The verifier drives the fields at
+ * Each field has a caption beside it, or under it where the window is narrow. The verifier drives the fields at
  * their places in a 600 x 900 and a 1120 x 800 window, so what the page adds above the notes area is kept short: the captions are one line
  * each, and the intro is two paragraphs.
  */

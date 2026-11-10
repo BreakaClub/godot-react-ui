@@ -1,5 +1,5 @@
 /**
- * The browser's clipboard for a Web verifier: in the page's own memory (docs/tracks/verifier-integrity.md, finding 7).
+ * The browser's clipboard for a Web verifier: in the page's own memory.
  *
  * Headless Chrome is the full browser without a window, and its `navigator.clipboard` is the machine's pasteboard; a verifier
  * that copies and pastes through it overwrites what the person using the Mac copied. The engine reaches the browser's clipboard

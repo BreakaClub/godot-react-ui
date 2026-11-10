@@ -20,7 +20,7 @@ const LOOPBACK = '127.0.0.1';
  * a person (`pnpm demo:web`) gives the bare address a landing, and the verifiers' servers give it none.
  *
  * `objects` is a directory laid out as `<hash>/<name>`, served at `/o/<hash>/<name>` as the deployed site serves its objects: the font slices
- * (`scripts/build-font-slices.mjs`, docs/tracks/font-slices.md), which are not part of the export.
+ * (`scripts/build-font-slices.mjs`), which are not part of the export.
  */
 export async function startExportServer({ root, port = 0, landing, objects }) {
   /** What was asked of `objects`, in order: a verifier counts the bytes a page fetched here, and that a page without the feature fetched none. */

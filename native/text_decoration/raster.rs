@@ -4,8 +4,7 @@
 //! Chrome (Skia) draws these with 4 samples per pixel, at the offsets below (read off the corners of dashes, whose coverage came
 //! out as 0, 1/4, 1/2, 3/4 and 1). A pixel's alpha is the share of its samples inside the stroke, a sample being inside when its
 //! distance to the stroke's centre line is at most half the stroke's width. That model agrees with Chrome for 93 to 97 % of the
-//! pixels inside a wave and differs by one sample at a few crest and trough tips, where Skia's stroker is slightly tighter
-//! (`docs/tracks/rich-text.md`).
+//! pixels inside a wave and differs by one sample at a few crest and trough tips, where Skia's stroker is slightly tighter.
 
 use super::Wave;
 

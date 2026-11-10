@@ -20,7 +20,7 @@ export interface RichTextLabProps {
   tone?: number;
   /** The word the `retext` sample shows (an index of `TONES`), so that a change of the colour and a change of the text are different commits. Without it, the tone's. */
   word?: number;
-  /** Show a file of this many lines of highlighted code, one `Text` a line, in place of the pages: the cost of a code view (`docs/tracks/rich-text.md`). */
+  /** Show a file of this many lines of highlighted code, one `Text` a line, in place of the pages: the cost of a code view. */
   file?: number;
   /** With `file`: each line is one plain string, for the baseline the spans are measured against. */
   plain?: boolean;

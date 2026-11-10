@@ -7,11 +7,11 @@
 // then `npm install` of that tarball into an empty directory). Every core plugin is run against a recording stand-in for
 // Tailwind's plugin API, which enumerates the class names the default theme generates (the same source `tailwind build` uses).
 // Each name is then handed to `compileStyle`: it counts as supported when it compiles and unsupported when it throws, so the
-// table in `docs/tracks/tailwind-coverage.md` is a measurement, and this script is how to refresh it after a merge.
+// coverage table is a measurement, and this script is how to refresh it after a merge.
 //
 // `--plugin=<name>` limits the run to one plugin, `--missing` lists every unsupported class of each plugin shown, and
 // `--json=<file>` writes the full result (per plugin: all classes, the unsupported ones, the error of the first). `--markdown=<file>`
-// writes docs/tracks/tailwind-coverage.md: one row per plugin and per variant with the measured counts, the owner of what is left
+// writes the coverage table: one row per plugin and per variant with the measured counts, the owner of what is left
 // (scripts/tailwind-coverage-notes.mjs) and, with `--before=<json>`, the counts of an earlier run beside them.
 import { createRequire } from 'node:module';
 import { readFile, writeFile } from 'node:fs/promises';
@@ -156,7 +156,7 @@ for (const entry of variants) console.log(`${entry.supported ? 'yes' : 'no '} ${
 const jsonPath = argument('json');
 if (jsonPath !== undefined) await writeFile(resolve(jsonPath), JSON.stringify({ version, results, variants }, null, 2));
 
-// ---- docs/tracks/tailwind-coverage.md ----
+// ---- The coverage table ----
 
 const TRACKS = { paint: 'utilities-paint', text: 'utilities-text', transforms: 'transforms', 'layout-motion': 'utilities-layout-motion' };
 const MISSING_SHOWN = 8;
@@ -191,17 +191,17 @@ function markdownDocument(before) {
   const variantsBefore = before?.variants;
   const lines = [];
   lines.push('# Tailwind v3.4.17 coverage', '');
-  lines.push('Which of Tailwind v3.4.17\'s utilities and variants this library compiles, measured, not listed by hand. Ben asked to see the missing');
-  lines.push('utilities; this is that list, with who adds each gap or why it stays one. Regenerate it after a merge:', '');
+  lines.push('Which of Tailwind v3.4.17\'s utilities and variants this library compiles, measured, not listed by hand. This is the list of missing');
+  lines.push('utilities, with who adds each gap or why it stays one. Regenerate it after a merge:', '');
   lines.push('```', 'npm pack tailwindcss@3.4.17 && mkdir tw && (cd tw && npm init -y && npm install --ignore-scripts ../tailwindcss-3.4.17.tgz)',
-    'node --import tsx scripts/tailwind-coverage.mjs --tailwind=tw --markdown=docs/tracks/tailwind-coverage.md [--before=<json>]', '```', '');
+    'node --import tsx scripts/tailwind-coverage.mjs --tailwind=tw --markdown=<file> [--before=<json>]', '```', '');
   lines.push('**Method.** Each of the 178 core plugins of `lib/corePlugins.js` (all but `preflight`) is run against a recording stand-in for Tailwind\'s');
   lines.push('plugin API with the default theme, which lists the class names `tailwind build` would generate (named values and the negative classes');
   lines.push('Tailwind\'s `negateValue` allows; arbitrary `[...]` values are not enumerable, and the tests in `tests/utilities-layout.test.ts` and');
   lines.push('`tests/styles.test.ts` cover the ones this library takes). Each class name is handed to `compileStyle`: it counts as compiled when it');
   lines.push('does not throw. A variant is tried in front of `p-1`. Colour classes and the per-side border classes dominate the counts, which is why');
   lines.push('the share is lower than the importance of what is missing. "Compiles" means the class is accepted and native honours it, not that it');
-  lines.push('has been checked against a browser: `docs/tracks/utilities-layout-motion.md` says which layout and transition classes were.', '');
+  lines.push('has been checked against a browser.', '');
   lines.push('Owners: `utilities-paint` (shadows, rings, outlines, per-side borders and radii, gradients), `utilities-text` (font and text utilities),');
   lines.push('`transforms`, and `utilities-layout-motion` (everything else that has a meaning here). A track\'s row says "added by" until its branch');
   lines.push('is merged; regenerating after the merge turns it into "supported". "Deliberately absent" always gives the reason.', '');

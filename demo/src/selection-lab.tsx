@@ -75,7 +75,7 @@ function SelectionReadout() {
 }
 
 /**
- * Phase I6: text selection. `select-text` opts text in; `select-none` opts a part of it out; a Button is never selectable.
+ * Text selection. `select-text` opts text in; `select-none` opts a part of it out; a Button is never selectable.
  *
  * The verifier selects all and expects exactly the texts of `SELECTABLE_LAB_TEXTS` in document order, so nothing the lab adds to explain itself is
  * selectable: every caption sits outside the `select-text` boxes, and the boxes keep their order. It drives the lab in a 600 x 900 and a 1120 x 800

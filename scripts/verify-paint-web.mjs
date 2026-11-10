@@ -1,6 +1,6 @@
 // The `paint` section of the Web interaction verifier: the paint lab's pages (demo/src/paint-lab.tsx) drawn by the library in Chrome's
 // canvas, one capture a page at the viewport's device pixel ratio, for `scripts/paint-reference.mjs --compare` to hold against the same
-// pages as plain HTML in Chrome (docs/tracks/utilities-paint.md). A few of the native section's reads (demo/src/verify-paint.ts) are
+// pages as plain HTML in Chrome. A few of the native section's reads (demo/src/verify-paint.ts) are
 // repeated here, from the canvas: the ones that carry the claims (no shadow through a translucent box, a ring's width, a shadow that
 // reaches in from a box wholly off the window, the corners a gradient heads for). What differs is only how pixels are read.
 import { build } from 'esbuild';

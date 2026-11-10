@@ -20,7 +20,7 @@ export interface PressInit {
  *   new one as `relatedTarget`) and `focus` to the new one, and `blurNode` sends `blur` with nothing related
  *   (`native/focus.rs`, `native/lib.rs` `set_focus`);
  * - a primary press that JS did not prevent focuses the nearest focusable ancestor-or-self, and a press on nothing
- *   focusable clears element focus, which sends a `blur` (plan 3.11, 3.13).
+ *   focusable clears element focus, which sends a `blur`.
  */
 export class ComboboxHost extends TextInputHost {
   override focusNode(tag: number, focusVisible: number): string {

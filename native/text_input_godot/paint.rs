@@ -1,6 +1,6 @@
 //! Drawing a text input: the selection, the text (or the placeholder), the IME preedit's underline
 //! and the caret, in the two items under its scroll item (`render_tree.rs`), and keeping the caret
-//! in view by scrolling that item (plan 3.8, 3.18).
+//! in view by scrolling that item.
 //!
 //! The drawing follows `LineEdit::_notification(NOTIFICATION_DRAW)` (`line_edit.cpp:1498-1670`): the
 //! selection under the text, the preedit underlined at the baseline (a thin line, thick for the part

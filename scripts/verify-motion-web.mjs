@@ -9,9 +9,8 @@ import { selectEngine } from './engine.mjs';
 import { startVerificationServer } from './web-verify.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-// `--baseline` records the pre-Fabric benchmark scenarios (Phase F0) and never touches the motion evidence.
-// `--acceptance` reruns the same scenarios on the Fabric renderer and checks Phase F4's criteria
-// (docs/INTERACTION_PLAN.md); it writes to its own directory so the F0 evidence stays intact.
+// `--baseline` records the pre-Fabric benchmark scenarios and never touches the motion evidence.
+// `--acceptance` reruns the same scenarios on the Fabric renderer and checks the acceptance criteria; it writes to its own directory so the earlier evidence stays intact.
 // `--stage-cpu-throttle=<rate>` runs the page under Chrome's CPU slowdown (`Emulation.setCPUThrottlingRate`: 3 is a machine three times slower) while the
 // independent-owners scenario reads its transitions in flight, and only then: a check that reads transitions in flight must not depend on how fast
 // the machine runs its steps, and this shows that it does not. (The rest of this verifier waits on the wall clock after each click and has little
@@ -24,7 +23,7 @@ if (stageThrottleRate !== undefined && !(Number.isFinite(stageThrottleRate) && s
   throw new Error(`${STAGE_THROTTLE_PREFIX}<rate> takes a number of at least 1, not ${throttleArgument.slice(STAGE_THROTTLE_PREFIX.length)}`);
 }
 const engine = selectEngine();
-// Refuse an export whose side module was built from other sources than the working tree (docs/tracks/freshness.md).
+// Refuse an export whose side module was built from other sources than the working tree.
 engine.requireFreshWebExport();
 const baseline = process.argv.includes('--baseline');
 const acceptance = process.argv.includes('--acceptance');
@@ -68,7 +67,7 @@ const VIEWPORT = { width: 1120, height: 800 };
 const RESIZED_VIEWPORT = { width: 600, height: 900 };
 const BENCHMARK_VIEWPORT = { width: 1120, height: 800 };
 const EXPECTED_DIAGNOSTIC = 'Blocking on the main thread is very dangerous, see https://emscripten.org/docs/porting/pthreads.html#blocking-on-the-main-browser-thread';
-// Baseline cell counts, one-cell colour change repetitions, sweep length and breakpoint crossings (F0 task 4).
+// Baseline cell counts, one-cell colour change repetitions, sweep length and breakpoint crossings.
 const BASELINE_COUNTS = [50, 2000];
 const BASELINE_HOVER_CELLS = 200;
 const BASELINE_RESIZE_PAIRS = 10;
@@ -613,7 +612,7 @@ async function runMotion(dpr) {
   }
   // The stages below look at a paint transition that is still in flight, across a click each, and the paint lasts MOTION_DURATION_MS (600) of the
   // engine's clock. A click takes as long as the browser takes to paint six frames and answer a dozen calls, 300 ms on a busy machine, so on a
-  // slow one the paint ended before the last stage and the check failed with the swatch at its end value (docs/tracks/regression-fixes.md).
+  // slow one the paint ended before the last stage and the check failed with the swatch at its end value.
   // The clock is the engine's, so the check holds it: slowed while the heights and the paint are brought to the overlap, held while the
   // stages read them, whatever time the steps take.
   const setTimeScale = (scale) => page.evaluate((value) => globalThis.godotReactDemo.setTimeScale(value), scale);
@@ -867,9 +866,9 @@ async function cellPositions(count) {
     };
   });
 }
-/** Appendix A: the allowed growth of a one-node change from 50 to 2,000 nodes. */
+/** The allowed growth of a one-node change from 50 to 2,000 nodes. */
 const MAX_SCALE_RATIO = 2;
-/** The F0 baseline's median React reconcile time for updating every cell of the 2,000-cell fixture (docs/INTERACTION_PROGRESS.md, Phase F0). */
+/** The F0 baseline's median React reconcile time for updating every cell of the 2,000-cell fixture. */
 const F0_EVERY_CELL_2000_RECONCILE_P50_MS = 41.30;
 /** The F0 baseline's median native draw CPU time for the same update; F0 drew in the frame after its reconcile window. */
 const F0_EVERY_CELL_2000_DRAW_P50_MS = 15.885;
@@ -949,15 +948,15 @@ async function runBaselineScenarios() {
 }
 
 /**
- * The decision (docs/INTERACTION_PLAN.md, decision log) that explains the JS clauses of criterion 1
+ * The recorded reason that explains the JS clauses of criterion 1
  * for the flat variants: every cell is a child of one parent, and React rebuilds the parent's child
  * list on every update, so JS time follows the sibling count. The rows variant bounds every parent's
- * fan-out and meets the same clauses. A failure with a decision is reported with it and does not fail
+ * fan-out and meets the same clauses. A failure with a recorded reason is reported with it and does not fail
  * the run; any other failing criterion does.
  */
-const FLAT_LIST_DEVIATION = 'D8';
+const FLAT_LIST_DEVIATION = 'flat list: every cell is a child of one parent';
 
-/** Phase F4's pass criteria, evaluated on the scenario results and recorded in the report. */
+/** The pass criteria, evaluated on the scenario results and recorded in the report. */
 function acceptanceCriteria(results) {
   const verdicts = [];
   const criterion = (name, passed, detail, deviation) => {
@@ -1036,7 +1035,7 @@ function acceptanceCriteria(results) {
   }
   const failed = verdicts.filter((verdict) => !verdict.passed && verdict.deviation === undefined);
   if (failed.length > 0) {
-    throw new Error(`Phase F4 criteria failed:\n${failed.map((verdict) => `${verdict.name}: ${JSON.stringify(verdict.detail)}`).join('\n')}`);
+    throw new Error(`Acceptance criteria failed:\n${failed.map((verdict) => `${verdict.name}: ${JSON.stringify(verdict.detail)}`).join('\n')}`);
   }
 }
 

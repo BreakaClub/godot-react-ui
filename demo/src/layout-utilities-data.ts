@@ -17,7 +17,7 @@ export interface LabCase {
   readonly title: string;
   /**
    * Set when the library is known to differ from Chrome in this case: the boxes of the case are left out of the comparison and the
-   * reason is reported (`docs/tracks/utilities-layout-motion.md`, "Limits"). The case stays in the lab so that the page shows it.
+   * reason is reported. The case stays in the lab so that the page shows it.
    */
   readonly known?: string;
   /** The classes that give the case's stage its size; the stage is the box with the case's id. */

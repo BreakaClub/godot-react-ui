@@ -1,4 +1,4 @@
-//! The pointer in a text input (plan 3.17, 3.18): a click places the caret, a double click selects a
+//! The pointer in a text input: a click places the caret, a double click selects a
 //! word, a triple click everything, Shift extends, and dragging with the button down extends the
 //! selection to the pointer. They are the default action of a primary `pointerdown`, so JS can keep
 //! them with `preventDefault()`, and they need no capture: while the button is down Godot keeps
@@ -15,8 +15,7 @@ use crate::pointer::MOUSE_POINTER_ID;
 use crate::scroll_input::to_vector;
 use crate::text_input::EditCommand;
 
-/// The click count at which a click selects a word, and from which it selects everything (plan
-/// Appendix A: `detail` counts the consecutive presses of one sequence).
+/// The click count at which a click selects a word, and from which it selects everything (`detail` counts the consecutive presses of one sequence).
 const WORD_CLICK_COUNT: u32 = 2;
 const SELECT_ALL_CLICK_COUNT: u32 = 3;
 

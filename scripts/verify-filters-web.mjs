@@ -1,4 +1,4 @@
-// The `filters` section of the Web interaction verifier (plan Phase V1): the native section's blur accuracy, shape, stacking, live
+// The `filters` section of the Web interaction verifier: the native section's blur accuracy, shape, stacking, live
 // scrolling, hover and colour checks, read from the real canvas in Chrome at both device pixel ratios. Mirrors
 // demo/src/verify-filters.ts; what differs is only how pixels are read (a canvas screenshot, decoded here).
 

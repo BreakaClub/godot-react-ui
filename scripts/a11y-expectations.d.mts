@@ -2,7 +2,7 @@ import type { AxNode, Frame } from './ax-tree.mjs';
 
 export interface Expectation {
   id: string; label: string; roles: string[]; enabled?: boolean; value?: [number, number]; mixed?: true; range?: [number, number]; engineGap?: string; scroll?: true; actions?: string[];
-  /** The scroll bar elements (plan D42) the element has as children, by axis, horizontal first. */
+  /** The scroll bar elements the element has as children, by axis, horizontal first. */
   bars?: Array<'x' | 'y'>;
 }
 /** The native scroll state of a scroll container, as `NativeScrollState` reports it: what its scroll bars must say. */

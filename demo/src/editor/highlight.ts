@@ -9,7 +9,7 @@ import { highlightTree, tagHighlighter, tags as t } from '@lezer/highlight';
  * The parse never holds a frame. Every edit asks `ensureSyntaxTree` for the part of the file in view with a small budget; if the
  * budget is not enough the lines show with the colours of the tree so far, and a timer carries the parse on in budget-sized steps and
  * reports when it has more to show. CodeMirror itself does up to 20 ms of incremental parse work inside each transaction
- * (`LanguageState.apply`), which for a typed character is under a millisecond (docs/tracks/code-editor-evaluation.md, section 3.1).
+ * (`LanguageState.apply`), which for a typed character is under a millisecond.
  */
 
 export type SyntaxTree = ReturnType<typeof syntaxTree>;

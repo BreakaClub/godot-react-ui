@@ -1,4 +1,4 @@
-//! Child-list differ and the mounting transaction it feeds (plan sections 3.4 and 3.7).
+//! Child-list differ and the mounting transaction it feeds.
 //!
 //! Nothing here touches Godot. A commit plans one [`ListDiff`] per changed child list; the
 //! mounting layer applies the resulting transaction in the order Remove, Delete, Create, Update,

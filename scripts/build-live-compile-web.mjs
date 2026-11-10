@@ -7,8 +7,7 @@
 //   demo/addons/live-compile/live_compile.web[.stock].build.json   the stamp: the profile it was linked for, the sources and Web dumps it was built from
 //
 // The Web is per profile: a side module must be linked with the Emscripten of the engine that loads it, and a module of the other profile's kills the page at
-// load. Nothing here touches the extension's manifest: the Web export of a profile lists exactly this profile's module, or none (scripts/build-web.mjs,
-// docs/tracks/stock-web.md).
+// load. Nothing here touches the extension's manifest: the Web export of a profile lists exactly this profile's module, or none (scripts/build-web.mjs).
 //
 // The recipe is the UI extension's (scripts/build-web.mjs, docs/WEB.md): the profile's Emscripten SDK, a rebuilt standard library with atomics and pthreads, a
 // side module (`SIDE_MODULE=2`) with hidden symbols and, for `breaka`, its lazy function-table link flags and Binaryen. Keep the constants below in step with
@@ -87,7 +86,7 @@ env.CARGO_ENCODED_RUSTFLAGS = flags.join('\x1f');
 delete env.RUSTFLAGS;
 console.log(`live-compile Web side module, ${engine.name} profile: Emscripten ${sdk}, target ${targetDirectory}`);
 const built = join(targetDirectory, 'wasm32-unknown-emscripten', 'wasm', 'live_compile.wasm');
-// Cargo decides what to rebuild from file modification times (docs/tracks/freshness.md): hash the inputs and, unless the target's own stamp says the module
+// Cargo decides what to rebuild from file modification times: hash the inputs and, unless the target's own stamp says the module
 // cargo left is a build of exactly these, clean the workspace's crates so cargo compiles them. The stamp records the profile the module is linked for.
 const build = beginBuild({
   identity: { engine: engine.name }, probe: false, collect: () => liveCompileWebInputs(engine),

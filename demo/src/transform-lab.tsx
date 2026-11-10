@@ -8,7 +8,7 @@ import {
 } from './transform-data';
 
 /**
- * CSS transforms (`docs/tracks/transforms.md`). One page, one case at a time, chosen by `setTransformCase` so the
+ * CSS transforms. One page, one case at a time, chosen by `setTransformCase` so the
  * verifier can step through them: the shape cases (a card under every kind of transform, compared pixel by pixel with
  * Chrome's), the transition cases, and the behaviour pages that the input checks drive (a click in a turned frame, a hover
  * that scales, a field in a turned card, selectable text, a drag from a turned source, scrolling inside a rotation, an

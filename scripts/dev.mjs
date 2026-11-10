@@ -12,7 +12,7 @@ const engine = selectEngine();
 const godot = engine.godot;
 // Checked once, at startup, before the watcher or the editor exist: the library the editor loads must be a build of the
 // current sources. Not policed afterwards: the running editor has its library mapped and a rebuild is a restart
-// (docs/tracks/freshness.md, F9).
+// (F9).
 engine.prepareNative();
 // An interactive editor restores the scripts of the last session, and Godot's script editor rewrites a TypeScript file it has open.
 // Open TypeScript in an external editor (README).

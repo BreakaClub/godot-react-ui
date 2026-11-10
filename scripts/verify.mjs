@@ -39,12 +39,12 @@ const viewport = process.argv.find(argument => argument.startsWith('--viewport='
 if (viewport !== undefined && !/^\d+x\d+$/u.test(viewport)) throw new Error(`--viewport=${viewport}: WxH`);
 const artifactRoot = engine.artifactPath(`${motion ? 'native-motion' : interaction ? 'native-interaction' : 'native'}${renderer === undefined || renderer === 'gl_compatibility' ? '' : `-${renderer}`}`);
 const userFlag = motion ? '--verify-motion' : interaction ? '--verify-interaction' : '--verify';
-// `--only=<section>[,<section>]` runs just those sections of the interaction verifier (plan 0.4.1).
+// `--only=<section>[,<section>]` runs just those sections of the interaction verifier.
 const only = process.argv.filter(argument => argument.startsWith('--only='));
 // `--no-retry` runs each window once, whatever disturbed it: for negative controls, where a re-run would hide the very failure being looked for.
 const retry = !process.argv.includes('--no-retry');
 // The landscape and portrait windows are two Godot processes with nothing in common, and run at the same time. `--serial` runs one after the other, the way
-// every run did before (docs/tracks/suite-speed.md): to tell whether running together changes a result, or on a host that cannot carry two windows.
+// every run did before: to tell whether running together changes a result, or on a host that cannot carry two windows.
 const serial = process.argv.includes('--serial');
 if (only.length > 0 && !interaction) throw new Error('--only=<section> applies to the interaction workflow (--interaction).');
 if (lab !== undefined && (!interaction || !only.includes('--only=navigator'))) throw new Error('--lab=<id> applies to --interaction --only=navigator: that section checks the start on a lab.');
@@ -63,7 +63,7 @@ if (faults && !requested.some(name => name === 'filters-faults' || name === 'tra
 }
 // Fail first if the binary or the installed library belongs to the other engine profile.
 engine.prepareNative({ faults });
-// The `live-compile` section needs the checker and compiler extension (its own build: docs/tracks/live-compile.md) and the project it opens,
+// The `live-compile` section needs the checker and compiler extension (its own build) and the project it opens,
 // which is made from the labs' sources as they are now.
 // The `code-editor` section uses it when it is installed (and checks the read-only panel when it is not): an installed extension must still be
 // fresh, or the section would run the live path against an old compiler.

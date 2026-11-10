@@ -1,5 +1,5 @@
 // The editor's per-keystroke data work (demo/src/editor/keystroke-bench.ts) in Node and in headless Chrome, without a window or React:
-// the CodeMirror transaction, the lezer parse and the colour spans for the lines the view draws (docs/tracks/keystroke-profile.md). The same
+// the CodeMirror transaction, the lezer parse and the colour spans for the lines the view draws. The same
 // function runs inside the Godot V8 through `godotReactKeystrokeProfile.bench`, so the three can be compared.
 //
 //   node scripts/keystroke-bench.mjs [--site=attribute|function] [--keystrokes=1000] [--warmup=400] [--first=84] [--last=124] [--out=<directory>]

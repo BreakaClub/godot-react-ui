@@ -4,7 +4,7 @@
 //! available space, and a flex row asks for the minimum and the maximum width and then the height at the width it settled on. Taffy keeps
 //! nine answers per node, and a text in a status bar is asked eleven different questions per layout, so once a layout of its row runs again
 //! the answers are evicted in the order they are asked for, none is found, and every text of the row is measured again although none of them
-//! changed (docs/tracks/keystroke-speed.md). Measuring a `TextParagraph` is a call into the text server for each question (set the width, read
+//! changed. Measuring a `TextParagraph` is a call into the text server for each question (set the width, read
 //! the size), so a leaf remembers what it answered: asked again, it answers from memory.
 //!
 //! Remembering the questions also tells whether a new text can change the layout. The layout depends on a leaf only through its answers; so a

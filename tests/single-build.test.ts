@@ -7,7 +7,7 @@ import type { Engine } from '../scripts/engine.mjs';
 import * as NativeBinding from '../scripts/native-binding.mjs';
 import { BREAKA_VERSION, DUMP_HEADER, LIVE_COMPILE_BUILD, makeSkeleton, OTHER_API, SCRIPTS, STOCK_VERSION, type Skeleton } from './skeleton';
 
-// The native guard (docs/tracks/single-build.md): one native UI library and one native live-compile extension per platform, bound to Godot API 4.7.2 and
+// The native guard: one native UI library and one native live-compile extension per platform, bound to Godot API 4.7.2 and
 // accepted by both engine profiles. `engine.prepareNative` is what every native run calls; the scripts that decide are copied into a temporary
 // repository (tests/skeleton.ts) and a stub stands in for `godot --version`, so the real wiring runs with no cargo, no Godot and no window.
 

@@ -11,7 +11,7 @@ import { buildRelease, hashBytes, injectBase, releaseIdOf } from '../scripts/rel
 import { objectKeysOf, pointerAfter, rollbackTarget } from '../scripts/release-pointer.mjs';
 
 // The release layout, the staging of a release, and the pointer's bookkeeping (deploy/release-layout.mjs, scripts/release-bundle.mjs,
-// scripts/release-pointer.mjs; docs/tracks/web-load.md).
+// scripts/release-pointer.mjs).
 
 function temporaryDirectory(): string {
   return mkdtempSync(join(tmpdir(), 'web-release-test-'));

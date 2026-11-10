@@ -12,7 +12,7 @@ import { buildRelease } from './release-bundle.mjs';
 import { objectKeysOf, pointerAfter, rollbackTarget } from './release-pointer.mjs';
 import { assertReleasePack, planReleaseStageOf } from './release-stage.mjs';
 
-// Publishes the release Web export to react.breaka.club, or rolls the site back (docs/tracks/web-load.md, docs/tracks/web-deploy.md).
+// Publishes the release Web export to react.breaka.club, or rolls the site back.
 //
 //   node scripts/deploy-web.mjs                  plan: stage and compress the release, print what would be uploaded; touches nothing
 //   node scripts/deploy-web.mjs --execute        upload what the bucket lacks, point the site at the new release, deploy the Worker if its source changed
@@ -228,7 +228,7 @@ async function publish() {
     source: receipt === undefined ? {} : { engine: receipt.engine, mode: receipt.mode, contentDigest: receipt.content?.digest },
   });
   // The font slices are not part of the release: the manifest and the licence are release files (listed above), and the indexes and slices are
-  // content-addressed objects shared by every release that names them (docs/tracks/font-slices.md).
+  // content-addressed objects shared by every release that names them.
   console.log('[deploy-web] Checking the font slices against the manifest the release carries (size and SHA-256 of every file)...');
   const fonts = await planFontSlices({ exportDirectory: releaseDirectory, cacheDirectory });
   const objects = [...releaseObjects, ...fonts.objects];

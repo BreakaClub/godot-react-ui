@@ -8,7 +8,7 @@
 //! and returns an id at once, and `poll` hands over the finished replies, which carry their id; `cancel` takes a request back.
 //! The caller is the engine's main thread, and on the Web the page's: a browser starts a pthread only when the page's thread
 //! returns to its event loop, so a call that waited for the service thread would stall the page for as long as it takes the
-//! thread to start (docs/tracks/live-compile-async.md has the evidence), and would never be answered if the page waited in
+//! thread to start, and would never be answered if the page waited in
 //! the turn that asked for the thread. The calls that remain synchronous are the ones that only move a value under a lock
 //! that is never held while a request runs: `start`, `stop`, `set_file`, `set_files`, `remove_file`, `request_*`, `cancel`,
 //! `poll` and `state`.

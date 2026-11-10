@@ -21,8 +21,7 @@ import type { CheckOutcome, CompileDiagnostic, Hover, InlayHint, ParameterNames,
  * 4. if the render then throws, puts the last version that worked back and renders it.
  *
  * A file that does not compile, or whose module throws when it runs, changes nothing on the page. A type error changes nothing
- * either: the check reports it, and the page runs the new code as a browser's dev server does (the decision is in
- * docs/tracks/live-compile.md). The check's outcome is the report's `check`, a promise: the editor shows its diagnostics when it
+ * either: the check reports it, and the page runs the new code as a browser's dev server does. The check's outcome is the report's `check`, a promise: the editor shows its diagnostics when it
  * arrives, and a newer edit's check supersedes an older one that has not begun.
  *
  * An edit that is overtaken is given up. A newer `update` of the same file, or `unmount`, takes back the compile requests of the

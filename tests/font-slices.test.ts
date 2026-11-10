@@ -7,7 +7,7 @@ import {
 } from '../src/font-slices';
 import { SliceLookup } from '../src/font-slices/lookup';
 
-// The runtime half of the font slices (docs/tracks/font-slices.md) against a fake network and a fake root: what it fetches and when, what it does
+// The runtime half of the font slices against a fake network and a fake root: what it fetches and when, what it does
 // not fetch twice, what it does when a request fails. The files it fetches are made here with the hashes the manifest pins.
 
 const sha256 = (bytes: Uint8Array | string): string => createHash('sha256').update(bytes).digest('hex');

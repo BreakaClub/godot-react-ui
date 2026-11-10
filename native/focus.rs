@@ -1,4 +1,4 @@
-//! Which elements can take focus and the order Tab visits them (plan section 3.13).
+//! Which elements can take focus and the order Tab visits them.
 //!
 //! Focusable: a `Button` or a `TextInput`, or any element with a `tabIndex` (`0` or `-1`), unless it or
 //! an ancestor is disabled. Tabbable: focusable, and not `tabIndex` `-1`, and visible. Tab order is document

@@ -39,7 +39,7 @@ const RECTS: Record<string, Frame> = {
   'a11y-gallery': { x: 16, y: 860, width: 320, height: 72 },
 };
 
-// The scroll containers' native state and the tracks of their bars (plan D42): what a faithful tree's AXScrollBar elements must say.
+// The scroll containers' native state and the tracks of their bars: what a faithful tree's AXScrollBar elements must say.
 const scrollState = (overrides: Partial<SnapshotScroll>): SnapshotScroll => ({
   scrollLeft: 0, scrollTop: 0, minScrollLeft: 0, maxScrollLeft: 0, minScrollTop: 0, maxScrollTop: 0, tracks: null, ...overrides,
 });
@@ -299,7 +299,7 @@ test('platform focus must be the volume slider when the window is key, and is no
 const noteFor = (notes: readonly string[], id: string, fragment: string): boolean => notes.some(note => note.startsWith(`${id}: `) && note.includes(fragment));
 
 test('what the engine cannot convey is noted and is not a failure', () => {
-  // The real macOS tree of the lab (docs/tracks/stock-engine.md): no group named Size, and the mixed checkbox unchecked.
+  // The real macOS tree of the lab: no group named Size, and the mixed checkbox unchecked.
   const notes: string[] = [];
   const asRecorded = reading(0, { remove: 'a11y-size', patch: { 'a11y-select-all': { value: 0 } } });
   assert.deepEqual(checkElements(asRecorded, 0, snapshots, notes, { mixedGap: true }), []);

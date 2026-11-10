@@ -11,7 +11,7 @@ artifacts/
 .DS_Store
 demo/gen/godot/addons/godot-react-ui/bin/
 
-# live-compile: generated vendor trees, cargo targets and built modules (docs/tracks/live-compile.md)
+# live-compile: generated vendor trees, cargo targets and built modules
 live-compile/vendor/
 live-compile/target/
 live-compile/out/

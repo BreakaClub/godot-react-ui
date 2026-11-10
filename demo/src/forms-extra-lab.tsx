@@ -71,7 +71,7 @@ const KIT_CAPTION = 'The kit TextField: its label focuses the field and selectTe
   + 'Pass: a press inside the text then places the caret where you pressed. The bug was that press being ignored.';
 
 /**
- * Phase I7 fixes (docs/tracks/text-input-fixes.md): the fields that a review found misbehaving, each one the smallest
+ * The fields that a review found misbehaving, each one the smallest
  * page that shows it. Chat is cleared by its submit, the way a message box is, and digits refuses any edit that is not a
  * number, so a soft keyboard (which holds the whole text itself) shows whether native tells it when the text changed
  * under it. Picky refuses some insertions in `beforeinput` and makes itself read-only at a composition of its own, to see what happens to a

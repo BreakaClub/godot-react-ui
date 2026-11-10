@@ -58,7 +58,7 @@ export function PassthroughHud() {
   return (
     <View testID="hud" className="w-full h-full justify-between p-6 gap-3 pointer-events-none">
       <View className="gap-3">
-        {/* No heading and no LabIntro: the navigator's header names the lab, and a phone's stage is short (docs/tracks/lab-clarity.md). */}
+        {/* No heading and no LabIntro: the navigator's header names the lab, and a phone's stage is short. */}
         <Text className="text-sm text-slate-700">
           The pale green is a Godot node behind this page, standing for the game. Press empty green, or plain text like this, and the press goes through to it: Godot tags the spot with a count. Buttons and cards keep their own presses.
         </Text>

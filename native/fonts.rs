@@ -1,7 +1,6 @@
 //! The fonts a root draws its text with: the registry of faces `ReactUiRoot.registerFontFace` fills, CSS font matching over it
 //! (`text_style/face.rs`), and the cache of `FontVariation`s that carry what a request needs beyond the face (a weight on a
-//! variable font's axis, synthetic bold and italic, OpenType features, letter-spacing). The design is in
-//! `docs/tracks/utilities-text.md`, "Fonts".
+//! variable font's axis, synthetic bold and italic, OpenType features, letter-spacing).
 
 use std::collections::HashMap;
 

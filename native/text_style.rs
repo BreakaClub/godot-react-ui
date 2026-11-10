@@ -1,6 +1,6 @@
 //! Text styles: the longhands Tailwind's text utilities set (`src/utilities/text.ts`), how they inherit, and the arithmetic that
 //! turns them into shaped text. The Godot side that applies them is `text_paragraph.rs` and `fonts.rs`; everything here is
-//! Godot-free and unit tested. The design and its evidence are in `docs/tracks/utilities-text.md`.
+//! Godot-free and unit tested.
 
 pub(crate) mod face;
 pub(crate) mod flow;

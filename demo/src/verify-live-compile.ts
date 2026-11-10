@@ -13,7 +13,7 @@ import { MAX_FRAME_GAP_MS, POOL_HOGS, verifyLabWalk, verifyLiveCompileSequence, 
 import { click } from './verify-text-input';
 
 /**
- * The `live-compile` section of the interaction verifier (docs/tracks/live-compile.md): the checker, the compiler and the swap that
+ * The `live-compile` section of the interaction verifier: the checker, the compiler and the swap that
  * the live code editor stands on, driven from code with no editor. It compiles the real source of the Controls lab
  * (`inputs-lab.tsx`) in the running realm, mounts it in place of the bundled copy, edits the source and reads the page back:
  *
@@ -23,10 +23,10 @@ import { click } from './verify-text-input';
  * - a syntax error, a module that throws and a render that throws each leave the last good page on screen, with the error reported;
  * - a type error is reported at the position `tsc` reports it at, and does not stop the new code running;
  * - how long an edit takes from the change to the pixels, how long a check takes, and what a frame costs while one runs;
- * - nothing waits for the service thread (docs/tracks/live-compile-async.md): while the service is held busy the page keeps its frames, and
+ * - nothing waits for the service thread: while the service is held busy the page keeps its frames, and
  *   the edit that was waiting for it is swapped in when it is free; an edit that a newer one overtakes is taken back and never applied; a
  *   request given up while the service runs it is let finish and its answer is dropped; the page has one service thread however many labs
- *   it opens; and Ben's sequence (`verify-live-compile-sequence.ts`) with the code panel open.
+ *   it opens; and the reported sequence (`verify-live-compile-sequence.ts`) with the code panel open.
  *
  * It needs the extension (`node scripts/build-live-compile.mjs`); the driver refuses a stale one before it opens a window.
  */
@@ -578,7 +578,7 @@ export async function verifyLiveCompile(owner: Node, api: LiveCompileInspection,
   api.releaseLiveCompileThreads();
   facts.threadsGivenBack = await verifyThreadsAreGivenBack(api);
 
-  // ---- Ben's sequence, with the code panel open ---------------------------------------------------------------------------------------------
+  // ---- The reported sequence, with the code panel open ---------------------------------------------------------------------------------------------
   facts.sequence = await verifyLiveCompileSequence(api);
 
   // ---- Every lab with the code panel open: the page keeps one thread, and every lab compiles ---------------------------------------------------

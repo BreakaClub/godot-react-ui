@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { Text, View } from 'godot-react-ui';
 
 /**
- * What the text labs explain themselves with, beside `lab-parts.tsx` (docs/tracks/lab-clarity.md). `LabCase` is a card that stacks its caption
+ * What the text labs explain themselves with, beside `lab-parts.tsx`. `LabCase` is a card that stacks its caption
  * above and below the control, which is more height than the verifiers' windows give these labs (they drive each control at its place in a
  * 600 x 900 or 1120 x 800 window), so `CaseRow` puts the caption beside the control while the window is wide enough and under it when it is not.
  */

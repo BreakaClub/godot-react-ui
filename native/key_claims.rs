@@ -1,4 +1,4 @@
-//! Whether the root would act on a key, asked before the key comes (docs/tracks/key-passthrough.md).
+//! Whether the root would act on a key, asked before the key comes.
 //!
 //! On the Web the browser decides what a key does when its event has been dispatched, a frame before the engine hands the key to the
 //! root. A key the root has no use for should go to the browser (Cmd+R reloads), and one it does use must not: so the page asks, at the

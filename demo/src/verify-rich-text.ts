@@ -12,7 +12,7 @@ import { fontsOfText } from './demo-fonts';
 import { assertionTally, parseVerifierEvent, verifierClipboard } from './verifier-input';
 
 /**
- * The `rich-text` section of the interaction verifier (docs/tracks/rich-text.md). Every page of the rich text lab, nested `Text` with
+ * The `rich-text` section of the interaction verifier. Every page of the rich text lab, nested `Text` with
  * coloured, weighted and decorated spans and inlays, is shown at device pixel ratios one and two and held to the numbers headless
  * Chrome reports for the same tree as nested `<span>`s (`rich-text-golden.ts`, written by `scripts/rich-text-reference.mjs --golden`):
  * the box of each text, each line, and where each character is; the pictures are captured for the per channel comparison
@@ -888,7 +888,7 @@ async function mountFile(api: RichTextInspection, plain: boolean): Promise<Recor
   };
 }
 
-/** The cost of a highlighted file in one `Text` a line, and of the same lines as plain strings, against the evaluation's numbers (docs/tracks/rich-text.md). */
+/** The cost of a highlighted file in one `Text` a line, and of the same lines as plain strings, against the evaluation's numbers. */
 async function measureFile(api: RichTextInspection): Promise<void> {
   const plain = await mountFile(api, true);
   const spans = await mountFile(api, false);

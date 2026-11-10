@@ -15,7 +15,7 @@ test('the Web export presets of both profiles differ only in their name, path an
   assert.deepEqual(presets[1], presets[0]);
 });
 
-// The engine profile mechanism every script shares (scripts/engine.mjs, docs/tracks/stock-engine.md): one flag, one
+// The engine profile mechanism every script shares (scripts/engine.mjs): one flag, one
 // variable, one default. These tests pass their own argv and environment, so nothing here touches the process's.
 
 test('the default profile is breaka when nothing selects one', () => {

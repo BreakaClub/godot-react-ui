@@ -216,7 +216,7 @@ async function readTree(directory: string, name: string, satisfied: (nodes: Flat
 }
 
 /**
- * Phase I10 (native): the lab in a real window, read three ways. Godot's own input and the assistive actions
+ * Native: the lab in a real window, read three ways. Godot's own input and the assistive actions
  * the platform adapter would deliver change its state, the native snapshot says what native knows, and, when the
  * engine has an accessibility driver, `scripts/ax-dump.swift` reads the tree the platform exposes before and after
  * the changes and `scripts/a11y-expectations.mjs` judges it. Without a driver (an engine built without AccessKit)
@@ -280,7 +280,7 @@ export async function runA11yVerification(api: A11yInspection): Promise<void> {
     assert(baselineMessageY !== undefined, `The platform tree has no "${SCROLL_PROBE_LABEL}" before any scroll`);
   }
   /**
-   * The platform's view of the lab at a scroll position (plan D38: the accessibility update each scroll requests keeps a
+   * The platform's view of the lab at a scroll position (the accessibility update each scroll requests keeps a
    * live tree current). Read after the Godot-side scroll has settled, and judged in full like the others: every frame
    * must agree with where native has the element now, so a tree that did not follow the scroll fails. `satisfied` is
    * only the wait for the update to arrive; the judgement is the same whenever it does.

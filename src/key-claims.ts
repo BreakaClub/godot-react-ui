@@ -1,4 +1,4 @@
-// Which key chords the UI claims, and which chords a browser keeps for itself (docs/tracks/key-passthrough.md).
+// Which key chords the UI claims, and which chords a browser keeps for itself.
 //
 // On the Web the engine's key listeners `preventDefault()` every key, so a page built on the library could not reload, find or open a tab
 // with the keyboard. A browser decides what a key does when its event has finished being dispatched, long before the engine's next frame

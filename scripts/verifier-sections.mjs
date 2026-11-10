@@ -1,4 +1,4 @@
-// The sections of the interaction verifiers and the rules that pick them (plan 0.4.1): one definition for the native verifier
+// The sections of the interaction verifiers and the rules that pick them: one definition for the native verifier
 // (`demo/src/verify-interaction.ts`, which runs inside Godot), the Web verifier (`scripts/verify-interaction-web.mjs`) and the
 // driver that validates `--only=` before it launches anything (`scripts/verify.mjs`).
 
@@ -22,7 +22,7 @@ export const WEB_INTERACTION_SECTIONS = [
 ];
 
 /**
- * The Web interaction run is split into jobs that run at the same time, each in a Chrome of its own (docs/tracks/suite-speed.md has why): one for
+ * The Web interaction run is split into jobs that run at the same time, each in a Chrome of its own: one for
  * each viewport, which runs these sections on one page (`runWorkflow` in `scripts/verify-interaction-web.mjs`); the pages that are each their own
  * case (the navigator's starts, the font slices' groups, the rotations); and the touch pages. A section appears in every job that runs part of it.
  */
@@ -36,7 +36,7 @@ export const WEB_INTERACTION_JOBS = [
   { name: 'retina-portrait', sections: WEB_VIEWPORT_SECTIONS },
   { name: 'pages', sections: ['navigator', 'font-slices', 'rotation', 'labs-fit'] },
   // The touch pages run by themselves, after the others (`exclusive`): a finger's fling needs the lift within a tenth of a second of the engine's time after the last
-  // move, and the verifier's steps between them (Chrome's round trips) take as long as the other browsers let them (docs/tracks/suite-speed.md).
+  // move, and the verifier's steps between them (Chrome's round trips) take as long as the other browsers let them.
   { name: 'touch', sections: ['touch', 'drag', 'combobox', 'dropdown-touch', 'touch-selection', 'code-editor'], exclusive: true },
 ];
 

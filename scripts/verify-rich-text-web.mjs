@@ -1,4 +1,4 @@
-// The `rich-text` section of the Web interaction verifier (docs/tracks/rich-text.md): the native section's comparison of the rich text lab
+// The `rich-text` section of the Web interaction verifier: the native section's comparison of the rich text lab
 // with Chrome (demo/src/verify-rich-text.ts), from the real canvas in Chrome at both device pixel ratios. It holds the box of every text and
 // the baseline and the two ends of every line, and the edges of every character and inlay the geometry queries report, to the numbers headless
 // Chrome reports for the same tree as nested spans (scripts/rich-text-golden.json, written by `node --import tsx scripts/rich-text-reference.mjs
@@ -53,7 +53,7 @@ function cropDifference(a, b) {
 /**
  * The glyph page, on the Web: no font has the characters of its samples that the demo's faces lack, so a Han and a Thai character in plain, coloured
  * and letter-spaced text are each the hex box the text server draws for a character no font has, the same box in every way of drawing it, and the
- * private-use character is the same box in plain text and in a span (docs/tracks/missing-glyph.md).
+ * private-use character is the same box in plain text and in a span.
  */
 async function verifyGlyphs(context) {
   const { demo, page, frames, snapshot, find, check, capture, decodePng, actionTimeoutMs } = context;

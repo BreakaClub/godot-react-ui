@@ -9,7 +9,7 @@ import {
 } from '../deploy/release-layout.mjs';
 
 /**
- * Turns the release export (`artifacts/web-release`) into what a deploy uploads (docs/tracks/web-load.md): a manifest naming every file by the
+ * Turns the release export (`artifacts/web-release`) into what a deploy uploads: a manifest naming every file by the
  * hash of its bytes, a brotli copy of each file that gains from one, and the document with a `<base>` that sends the engine's relative loads to
  * this release. Nothing here talks to a network; `scripts/deploy-web.mjs` uploads the result.
  */

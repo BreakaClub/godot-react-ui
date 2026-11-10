@@ -15,7 +15,7 @@ export interface PackedTags {
 /** The ClassDB-facing API. Structural typing also permits fake hosts in tests. */
 export interface NativeHost {
   /**
-   * Apply one layer's commit payload (a JSON string, plan 4.1). An empty string means success;
+   * Apply one layer's commit payload (a JSON string). An empty string means success;
    * anything else says why nothing changed.
    */
   commit(layer: number, payloadJson: string): string;
@@ -75,7 +75,7 @@ export interface NativeHost {
    */
   getTouchSelection(): string;
   /**
-   * `setTextAndSelection(eventCount, value, start, end)` on a text input (plan 3.18): replace its text and
+   * `setTextAndSelection(eventCount, value, start, end)` on a text input: replace its text and
    * selection unless the user typed since the event count was read. `start` and `end` are UTF-16 offsets into
    * `value`, both -1 for the caret at the end. Returns '' when applied, `STALE_TEXT_COMMAND` when ignored for its
    * count, else why nothing changed.
@@ -102,7 +102,7 @@ export interface NativeHost {
    */
   resolveEvent(seq: number, defaultPrevented: boolean, dropEffect: string): string;
   /**
-   * Whether native itself would act on this key chord if it were pressed now, so it must not go to the browser (docs/tracks/key-passthrough.md):
+   * Whether native itself would act on this key chord if it were pressed now, so it must not go to the browser:
    * the editing, clipboard and caret chords of a focused text input, copy and select all for the document's text selection, Enter and Space on a
    * focused button. The key is a DOM one (`code` and `key`, as a `keydown` has them). True too when a Godot control that is not a root holds
    * the keyboard, because native knows nothing of what that control uses; false when no control holds it, or another root does.
@@ -128,7 +128,7 @@ export interface NativeActivity {
   clockMs: number;
   drawSerial: number;
   nodeCount: number;
-  /** Commit counters (plan 4.5): what the mounting and render layers did, cumulatively. */
+  /** Commit counters: what the mounting and render layers did, cumulatively. */
   mutations: number;
   nodesUpdated: number;
   nodesRestyled: number;
@@ -137,7 +137,7 @@ export interface NativeActivity {
   /** Text paragraphs shaped, and ones whose spans changed only what is painted, which were not shaped again. */
   paragraphBuilds: number;
   paragraphRepaints: number;
-  /** What the filter and backdrop-filter effects hold and have done, cumulatively (plan Phase V1). */
+  /** What the filter and backdrop-filter effects hold and have done, cumulatively. */
   effects: NativeEffectsActivity;
   /** The textures (shadow and outline masks, gradient ramps) the boxes hold: none while no box has a shadow, ring, outline or gradient. */
   paintTextures: number;
@@ -304,7 +304,7 @@ export interface NativeKeyEvent extends NativeEventBase {
   metaKey: boolean;
 }
 
-/** What an assistive technology can ask of a slider (plan 3.21): step it, or set it to a number. */
+/** What an assistive technology can ask of a slider: step it, or set it to a number. */
 export type NativeAccessibilityAction = 'increment' | 'decrement' | 'setValue';
 
 /**
@@ -351,7 +351,7 @@ export interface NativeInputSelectionChangeEvent extends NativeEventBase {
 /** Both events share the wire name `selectionchange`; the target tells them apart (0 is the document's). */
 export type NativeSelectionChangeEvent = NativeDocumentSelectionChangeEvent | NativeInputSelectionChangeEvent;
 
-/** The DOM `inputType`s a text input's edits have (plan 4.3). */
+/** The DOM `inputType`s a text input's edits have. */
 export type NativeInputType =
   | 'insertText' | 'insertLineBreak' | 'insertFromPaste' | 'insertReplacementText' | 'deleteContentBackward'
   | 'deleteContentForward' | 'deleteWordBackward' | 'deleteWordForward' | 'deleteSoftLineBackward'
@@ -386,7 +386,7 @@ export interface NativeCompositionEvent extends NativeEventBase {
 }
 
 /**
- * A drag-and-drop event (plan 3.19). `dragstart`, `dragover` and `drop` are cancelable. Every event of one
+ * A drag-and-drop event. `dragstart`, `dragover` and `drop` are cancelable. Every event of one
  * drag carries the same `sessionId`, which is how JS finds the drag's `DataTransfer` store.
  */
 export interface NativeDragEvent extends NativeMouseFields {
@@ -419,7 +419,7 @@ export interface NativeSelectionPoint {
 }
 
 /**
- * The document's text selection (plan 3.17): where it started (`anchor`) and where it ends (`focus`, which may come
+ * The document's text selection: where it started (`anchor`) and where it ends (`focus`, which may come
  * before the anchor), and the text copying it would produce (the selected nodes' text joined by `\n`).
  */
 export interface NativeSelection {
@@ -450,7 +450,7 @@ export interface NativeTouchMenuItem {
 }
 
 /**
- * The handles and edit menu a touch selection shows (plan D71), in root-local pixels. `owner` is where the selection is: the document's, or
+ * The handles and edit menu a touch selection shows, in root-local pixels. `owner` is where the selection is: the document's, or
  * a text input's (its tag). `gesture` is what a finger on the chrome is doing now. Either may be missing from what is on screen: a handle is
  * not shown for an end that has scrolled out of view, and the menu steps aside while a finger moves the selection or the content scrolls.
  */
@@ -608,7 +608,7 @@ export interface NativeSnapshot {
   modality: 'keyboard' | 'pointer';
   /** Every pointer native knows: the mouse, and each touch while it is down. */
   pointers: NativePointerState[];
-  /** The drag-and-drop state machine (plan 3.19). */
+  /** The drag-and-drop state machine. */
   drag: NativeDragState;
 }
 

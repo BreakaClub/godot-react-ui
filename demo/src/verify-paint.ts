@@ -10,7 +10,7 @@ import { grab, settleFrames } from './verify-filters';
  * The `paint` section of the interaction verifier: the paint lab (`paint-lab.tsx`), one page at a time, captured at device
  * pixel ratios one and two, with what can be read from the pixels asserted. `scripts/paint-reference.mjs --compare` holds the
  * captures against the same pages in Chrome; these assertions are what has to hold whatever Chrome draws, and each has a control
- * (docs/tracks/utilities-paint.md) that makes it fail.
+ * that makes it fail.
  */
 export interface PaintInspection {
   showLab(name: LabName): void;

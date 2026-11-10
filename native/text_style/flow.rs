@@ -1,6 +1,6 @@
 //! The text an element shows, from the text its props hold: `text-transform`, then `white-space` (CSS Text 3, "Text Transformation"
 //! and "White Space Processing"). The shown text is what is shaped, selected and copied: Chrome copies the transformed text, not
-//! the source (`docs/tracks/utilities-text.md`, "Case"), and a collapsed run of spaces copies as one.
+//! the source, and a collapsed run of spaces copies as one.
 
 use std::borrow::Cow;
 
@@ -98,7 +98,7 @@ fn owned_if_changed(source: &str, transformed: String) -> Cow<'_, str> {
 }
 
 /// Characters that continue a word when a letter follows them and one precedes them: the apostrophes of "don't" and the middle
-/// dot of "l·l". Chrome's `capitalize` (read off its output, `docs/tracks/utilities-text.md`) goes no further than those: a
+/// dot of "l·l". Chrome's `capitalize` (read off its output) goes no further than those: a
 /// full stop, a hyphen or a colon starts a new word ("e.g." is "E.G."), though Unicode's word boundaries would keep "e.g" whole.
 const WORD_JOINERS: [char; 3] = ['\'', '\u{2019}', '\u{b7}'];
 

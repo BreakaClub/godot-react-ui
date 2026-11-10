@@ -16,7 +16,7 @@ const ENDED_MARKER = 'GODOT_REACT_RUN_ENDED';
 const FAILED_MARKER = 'GODOT_REACT_VERIFY_FAILED';
 /** Printed when a verifier run's input isolation starts (demo/src/verifier-input.ts). */
 const ISOLATED_MARKER = 'GODOT_REACT_INPUT_ISOLATED';
-/** A run that failed with a relevant disturbance in its log is run again at most this many times (plan D22). */
+/** A run that failed with a relevant disturbance in its log is run again at most this many times. */
 export const MAX_DISTURBED_RERUNS = 2;
 /**
  * How long before a failure a disturbance can still be the cause of it. The verifier re-asserts what it has just injected
@@ -198,7 +198,7 @@ export function summarizeRuns(results) {
 /**
  * Run the windows of one workflow (landscape and portrait) at the same time. Each is a Godot process of its own, with the retry, the
  * deadline, the evidence directory, the freshness check, the quiet window and the failure judgement `runNativeVerifier` gives a single
- * window; they share nothing that can race (docs/tracks/suite-speed.md has the audit). `common` are the options every window has and
+ * window; they share nothing that can race. `common` are the options every window has and
  * `windows` what differs (`name`, `resolution`, `output`, ...).
  *
  * Resolves with the windows' results in the order given, once every window has ended. A window that fails does not stop the others: a
@@ -275,7 +275,7 @@ function judge(log, successMarker, errorPattern, name, code, output, killedAtDea
 
 /**
  * Start Godot and wait for it: `runSupervised` closes it on every way out (its deadline, a signal sent to this script, this script exiting).
- * An automated window never takes focus (scripts/quiet-window.mjs, docs/tracks/quiet-windows.md).
+ * An automated window never takes focus (scripts/quiet-window.mjs).
  */
 async function launch({ godot, project, resolution, leading, scriptArgs, artifacts, deadlineMs, killGraceMs, quiet, outputPrefix }) {
   const environment = { ...process.env, GODOT_REACT_ARTIFACTS: artifacts };

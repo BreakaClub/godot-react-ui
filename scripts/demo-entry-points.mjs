@@ -9,9 +9,9 @@ export const DEMO_ENTRY_POINTS = [
   // The demo owner and the verifiers that run in it.
   'demo/src/main.ts', 'demo/src/verify.ts', 'demo/src/verify-motion.ts', 'demo/src/verify-interaction.ts', 'demo/src/verify-hidpi.ts',
   'demo/src/verify-filters.ts', 'demo/src/verify-glass.ts', 'demo/src/glass-data.ts', 'demo/src/probe.ts', 'demo/src/app.tsx',
-  // The layout utilities lab's data, its verifier and the Chrome numbers it compares with (docs/tracks/utilities-layout-motion.md).
+  // The layout utilities lab's data, its verifier and the Chrome numbers it compares with.
   'demo/src/layout-utilities-data.ts', 'demo/src/layout-utilities-reference.ts', 'demo/src/verify-layout-utilities.ts',
-  // The paint lab's data and verifier (docs/tracks/utilities-paint.md).
+  // The paint lab's data and verifier.
   'demo/src/paint-data.ts', 'demo/src/verify-paint.ts',
   // The world-space scene (docs/WORLD_SPACE.md) has its own owner, and the scene launcher starts it on the Web.
   'demo/src/world-main.ts', 'demo/src/world-geometry.ts', 'demo/src/verify-world.ts', 'demo/src/scene-launcher.ts',
@@ -19,32 +19,32 @@ export const DEMO_ENTRY_POINTS = [
   // The lab navigator (`demo/src/navigator.tsx`, bundled into main): what a run opens with, the way back from a lab that is a scene, and
   // the globals its router needs where native GodotJS has none (installed once, by whichever bundle loads first).
   'demo/src/launch.ts', 'demo/src/scene-return.ts', 'demo/src/verify-navigator.ts', 'demo/src/native-web-globals.ts',
-  // The transforms lab's verifier, its shared data and the numbers Chrome reports for it (docs/tracks/transforms.md).
+  // The transforms lab's verifier, its shared data and the numbers Chrome reports for it.
   'demo/src/verify-transforms.ts', 'demo/src/transform-data.ts', 'demo/src/transform-golden.ts',
-  // The text layout probe scene (docs/tracks/text-layout.md) has its own owner and verifier.
+  // The text layout probe scene has its own owner and verifier.
   'demo/src/text-layout-probe.ts', 'demo/src/verify-text-layout.ts',
-  // The accessibility lab (docs/tracks/accessibility.md): its owner and its verifier.
+  // The accessibility lab: its owner and its verifier.
   'demo/src/a11y-main.ts', 'demo/src/verify-a11y.ts',
-  // The text styles lab (docs/tracks/utilities-text.md): its fonts, its samples (which the Chrome reference reads too) and its verifier.
+  // The text styles lab: its fonts, its samples (which the Chrome reference reads too) and its verifier.
   'demo/src/demo-fonts.ts', 'demo/src/text-styles-data.ts', 'demo/src/text-styles-golden.ts', 'demo/src/text-ink.ts', 'demo/src/verify-text-styles.ts',
-  // The rich text lab (docs/tracks/rich-text.md): its samples (which the Chrome reference reads too), Chrome's numbers and its verifier.
+  // The rich text lab: its samples (which the Chrome reference reads too), Chrome's numbers and its verifier.
   'demo/src/rich-text-data.ts', 'demo/src/rich-text-golden.ts', 'demo/src/verify-rich-text.ts',
-  // The live code editor's compiler and checker, the swap that keeps state, and their verifier (docs/tracks/live-compile.md).
+  // The live code editor's compiler and checker, the swap that keeps state, and their verifier.
   'demo/src/live-compile-protocol.ts', 'demo/src/live-compile-modules.ts', 'demo/src/live-compile-refresh.ts', 'demo/src/live-compile-host.ts',
   'demo/src/live-compile-session.ts', 'demo/src/live-compile-open.ts', 'demo/src/verify-live-compile.ts',
-  // The requests to the service thread are answered later and can be taken back, and Ben's sequence with the code panel open (docs/tracks/live-compile-async.md).
+  // The requests to the service thread are answered later and can be taken back, and the reported sequence with the code panel open.
   'demo/src/live-compile-scope.ts', 'demo/src/live-compile-service.ts', 'demo/src/verify-live-compile-sequence.ts',
-  // The dropdown lists' touch verifier (docs/tracks/dropdown-touch.md).
+  // The dropdown lists' touch verifier.
   'demo/src/verify-dropdown-touch.ts',
-  // The touch text selection verifier (docs/tracks/touch-selection.md).
+  // The touch text selection verifier.
   'demo/src/verify-touch-selection.ts',
-  // Which key chords go to the browser: the verifier's native half (docs/tracks/key-passthrough.md).
+  // Which key chords go to the browser: the verifier's native half.
   'demo/src/verify-key-passthrough.ts',
-  // The code panel's verifier (docs/tracks/code-editor.md). The editor itself is `demo/src/editor/`, hidden from Godot (`.gdignore`) and bundled into its importers.
+  // The code panel's verifier. The editor itself is `demo/src/editor/`, hidden from Godot (`.gdignore`) and bundled into its importers.
   'demo/src/verify-code-editor.ts',
-  // The keystroke cost diagnostic that drives the code panel (docs/tracks/keystroke-profile.md).
+  // The keystroke cost diagnostic that drives the code panel.
   'demo/src/profile-keystrokes.ts',
-  // The font fallback lab (docs/tracks/font-slices.md): its samples (which the Chrome reference reads too), the loader's store and the owner's host for the loader.
+  // The font fallback lab: its samples (which the Chrome reference reads too), the loader's store and the owner's host for the loader.
   'demo/src/font-slices-data.ts', 'demo/src/font-slices-store.ts', 'demo/src/font-fallback.ts', 'demo/src/verify-font-fallback.ts',
 ];
 

@@ -1,5 +1,5 @@
 //! Running a command on a text input: the key that asked for it, `beforeinput`, the edit, and the
-//! `input` and `selectionchange` events that follow (plan 3.18), and the commands JS gives
+//! `input` and `selectionchange` events that follow, and the commands JS gives
 //! (`set_text_and_selection`, `set_text_selection`, `get_text_input_state`).
 //!
 //! The order of one key press is fixed:
@@ -38,7 +38,7 @@ use crate::text_offsets::{code_point_range_to_utf16, utf16_range_to_code_points}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TextCommandOutcome {
     Applied,
-    /// The user typed since JS read the count, so the command was ignored (plan 3.18).
+    /// The user typed since JS read the count, so the command was ignored.
     Stale,
 }
 
@@ -240,7 +240,7 @@ impl ReactUiRoot {
     }
 
     /// Everything that follows a command that ran: the clipboard, re-shaping, scrolling to the caret,
-    /// drawing, and the events (`input` before `selectionchange`, plan 3.18).
+    /// drawing, and the events (`input` before `selectionchange`).
     pub(super) fn finish_text_command(&mut self, tag: u32, result: EditResult) {
         match &result.clipboard {
             Some(ClipboardEffect::Write(text)) => {
@@ -387,7 +387,7 @@ impl ReactUiRoot {
 
     // ---- Commands from JS -------------------------------------------------------------------
 
-    /// `setTextAndSelection(eventCount, value, start, end)` (plan 3.18, 4.4). `start` and `end` are
+    /// `setTextAndSelection(eventCount, value, start, end)`. `start` and `end` are
     /// UTF-16 offsets into `value`, both -1 for the caret at the end. A stale `event_count` is
     /// ignored, not an error. No `input` event follows a programmatic change; the selection's
     /// `selectionchange` is queued for the next delivery.

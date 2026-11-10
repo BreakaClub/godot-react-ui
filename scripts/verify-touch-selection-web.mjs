@@ -1,4 +1,4 @@
-// The `touch-selection` section of the Web interaction verifier (docs/tracks/touch-selection.md), on the touch page: real touch input from Chrome
+// The `touch-selection` section of the Web interaction verifier, on the touch page: real touch input from Chrome
 // over the DevTools Protocol (`Input.dispatchTouchEvent`: touchstart, touchmove and touchend with a finger held down for real time, no OS input) on
 // the touch selection lab (demo/src/touch-selection-lab.tsx). The checks are the native section's (demo/src/verify-touch-selection.ts), made
 // with the events a browser sends, and what only a browser has: the engine's soft keyboard element stays up through selection changes, and the
@@ -262,7 +262,7 @@ export async function runTouchSelectionScenario(context) {
   await finger.down(swipeFrom);
   await finger.glide({ x: swipeFrom.x, y: swipeFrom.y - PAN_STEPS * PAN_STEP_PX }, PAN_STEPS);
   check('A swipe keeps the selection, and the menu steps aside while the page scrolls', (await selection())?.text === 'brown' && (await chrome()).menu === null);
-  // The finger rests before it lifts, so nothing coasts: a flick would take the selection out of view (docs/tracks/dropdown-touch.md).
+  // The finger rests before it lifts, so nothing coasts: a flick would take the selection out of view.
   await rest(300);
   await finger.up();
   await h.waitUntil('the menu is back once the page has stopped', async () => (await menuActions()).join() === 'copy,selectAll');

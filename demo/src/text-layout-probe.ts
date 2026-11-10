@@ -22,7 +22,7 @@ const bind = createClassBinder();
 const VERIFY_ARGUMENT = '--verify-text-layout';
 
 /**
- * Owns the text layout probe (docs/tracks/text-layout.md): a Control that draws a paragraph in left,
+ * Owns the text layout probe: a Control that draws a paragraph in left,
  * centre and right alignment with the geometry `native/text_layout.rs` computes drawn over it. The probe
  * takes no input. With `-- --verify-text-layout` the scene runs the verification and quits.
  */

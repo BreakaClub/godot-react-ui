@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { FIT_TOLERANCE_PX, PAGE_SCROLLER, fitProblems, type FitNode, type FitSnapshot } from '../scripts/labs-fit.mjs';
 
-// The judgement of the Web verifier's `labs-fit` section (scripts/verify-labs-fit-web.mjs, docs/tracks/lab-clarity.md): what runs off the edge of a
+// The judgement of the Web verifier's `labs-fit` section (scripts/verify-labs-fit-web.mjs): what runs off the edge of a
 // phone, against snapshots built the way the demo's snapshot is shaped.
 
 const PHONE_WIDTH = 412;

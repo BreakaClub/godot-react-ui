@@ -114,7 +114,7 @@ export interface UIKeyboardEvent extends UISyntheticEvent<NativeKeyEventType> {
  * An assistive technology asked the element to do something no pointer or key gesture says. Sent for an
  * element with `role="slider"` (`increment`, `decrement`, `setValue`); a screen reader's click, focus and
  * blur actions arrive as the ordinary `click`, `focus` and `blur` events. Not cancelable: native has no
- * default action to keep, so the handler is the whole effect (plan 3.21).
+ * default action to keep, so the handler is the whole effect.
  */
 export interface UIAccessibilityActionEvent extends UISyntheticEvent<'accessibilityaction'> {
   readonly action: NativeAccessibilityAction;
@@ -130,7 +130,7 @@ export interface UIAccessibilityActionEvent extends UISyntheticEvent<'accessibil
 export type UISelectionChangeEvent = UISyntheticEvent<'selectionchange'>;
 
 /**
- * A drag-and-drop event (plan 3.19), with the HTML semantics: they all bubble; `dragstart`, `dragover` and
+ * A drag-and-drop event, with the HTML semantics: they all bubble; `dragstart`, `dragover` and
  * `drop` are cancelable. `dragstart` and `drag` target the dragged element, `dragend` too (or the root, if the
  * element was removed during the drag); `dragenter`, `dragover`, `dragleave` and `drop` target the element under
  * the pointer. Preventing `dragstart` stops the drag; preventing `dragover` (with a `dropEffect` the source's
@@ -158,7 +158,7 @@ export interface UIDragEndEvent extends UIDragEvent<'dragend'> {
 }
 
 /**
- * A text input is about to make an edit (plan 4.3). Cancelable: `preventDefault()` keeps the edit from being made,
+ * A text input is about to make an edit. Cancelable: `preventDefault()` keeps the edit from being made,
  * which is how a field rejects a character; native waits for the answer. `inputType` is the DOM's
  * (`insertText`, `deleteContentBackward`, `insertFromPaste`, `historyUndo`, ...) and `data` the text an insertion carries.
  */

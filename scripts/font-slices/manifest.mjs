@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { codepointsOf, formatRanges, parseUnicodeRange, rangesOf } from './partition.mjs';
 
-// The slice manifest (docs/tracks/font-slices.md): what the library reads to find the slice that covers a character. The build writes it, the deploy
+// The slice manifest: what the library reads to find the slice that covers a character. The build writes it, the deploy
 // script reads it to know which objects a release needs, and `src/font-slices/manifest.ts` parses it in the page. This module is the producer's side:
 // it assembles the manifest and checks that one is consistent.
 //

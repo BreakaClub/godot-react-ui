@@ -6,7 +6,7 @@ import { settleFrames } from './verify-filters';
 import { assertionTally } from './verifier-input';
 
 /**
- * The `font-fallback` section of the interaction verifier (docs/tracks/font-slices.md): the fonts for characters no registered font has are found when the
+ * The `font-fallback` section of the interaction verifier: the fonts for characters no registered font has are found when the
  * text that has them first appears, and not before. Where the platform has system fonts (macOS, Windows, Linux, Android, iOS) the root looks for one that
  * FreeType can read; the section holds that to what it promises:
  *

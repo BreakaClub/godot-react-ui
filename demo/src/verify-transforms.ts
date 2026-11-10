@@ -11,7 +11,7 @@ import { assertionTally, parseVerifierEvent } from './verifier-input';
 import { pressAction, typeText } from './verify-text-input';
 
 /**
- * The `transforms` section of the interaction verifier (docs/tracks/transforms.md). The shape cases are drawn at device
+ * The `transforms` section of the interaction verifier. The shape cases are drawn at device
  * pixel ratios one and two and captured for the comparison with Chrome (`scripts/transform-reference.mjs --diff`); the
  * rectangle of each is held to the one Chrome reports for the same CSS (`transform-golden.ts`). The behaviour pages are driven
  * with synthetic input and check that every reader of geometry goes through the matrix, and the transition cases are
@@ -398,7 +398,7 @@ const SQUEEZED_KIND: Readonly<Record<SqueezedBox, string>> = { 'edge-flat': 'squ
  * triangles whose feather is one length across each of its edges, square corners or rounded (`native/box_mesh.rs`), so the squeezed axis
  * keeps a one pixel ramp. `StyleBoxFlat`, which drew a rounded box until then, has one `anti_aliasing_size` for both axes: exact on the
  * stretched axis and 0.6 of a pixel on the squeezed one, where the edge came out nearly hard (rows 1.0 and 0.0 against 0.9 and 0.1 at
- * a device pixel ratio of one, `docs/tracks/box-mesh.md`).
+ * a device pixel ratio of one).
  */
 function squeezedEdgeProblems(image: Image, ratio: number, api: TransformsInspection, suffix: string, testID: SqueezedBox): string[] {
   const box = node(api, testID);
@@ -957,7 +957,7 @@ export async function verifyTransforms(owner: Node, api: TransformsInspection, c
 
 // ---- A phone ------------------------------------------------------------------------------------------------------------
 
-/** Ben's Android phone as Chrome emulates it (`scripts/verify-rotation-web.mjs`): 412 CSS pixels wide. The lab's stage is 520, so it must fit. */
+/** An Android phone as Chrome emulates it (`scripts/verify-rotation-web.mjs`): 412 CSS pixels wide. The lab's stage is 520, so it must fit. */
 const PHONE_WIDTH_PX = 412;
 const PHONE_HEIGHT_PX = 915;
 /** A caption is `text-sm`, 20 px a line, and a phone's width holds about 55 of its characters: a caption this long wraps to two lines or more. */

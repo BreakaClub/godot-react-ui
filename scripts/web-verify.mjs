@@ -6,8 +6,8 @@ import { FONT_SLICES_DIRECTORY, exportedFontSliceProblems } from './font-slices/
 import { startExportServer } from './web-server.mjs';
 
 /**
- * Which server a Web verifier talks to, and proof that it serves the export that was checked
- * (docs/tracks/verifier-integrity.md, finding 2). `requireFreshWebExport` judges the export on disk; a browser pointed at
+ * Which server a Web verifier talks to, and proof that it serves the export that was checked.
+ * `requireFreshWebExport` judges the export on disk; a browser pointed at
  * whatever answers on a port may be shown another one (another checkout, the other engine profile, an older build of the
  * side module under an identical pack).
  *

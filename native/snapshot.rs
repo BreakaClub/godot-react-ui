@@ -1,5 +1,5 @@
-//! Diagnostics: the whole mounted tree as JSON, and single-node queries. Whole-tree by design (plan
-//! section 4.5); nothing on a commit path calls this.
+//! Diagnostics: the whole mounted tree as JSON, and single-node queries. Whole-tree by design;
+//! nothing on a commit path calls this.
 use serde_json::{Value, json};
 
 use crate::ReactUiRoot;

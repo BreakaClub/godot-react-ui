@@ -1,5 +1,4 @@
-//! The retained render tree: each mounted element owns canvas items that mirror the view tree
-//! (plan section 3.8). RID ownership stays inside the native Control; there are no per-element
+//! The retained render tree: each mounted element owns canvas items that mirror the view tree. RID ownership stays inside the native Control; there are no per-element
 //! scene nodes.
 //!
 //! ```text
@@ -44,10 +43,9 @@ use crate::selection_input::{highlight_paint, highlight_rects};
 use crate::text_paragraph::StyledParagraph;
 use crate::transform::{Affine2, Placement};
 
-/// The overlay scrollbar thumb colour when no `scrollbar-color` is set: slate-500 at 60 % (plan
-/// Appendix A). A paint constant, so it lives with the painting rather than in `scroll.rs`.
+/// The overlay scrollbar thumb colour when no `scrollbar-color` is set: slate-500 at 60 %. A paint constant, so it lives with the painting rather than in `scroll.rs`.
 pub(crate) const DEFAULT_SCROLLBAR_COLOR: &str = "#64748b99";
-/// The selection highlight colour when no `selection-color` is set: blue-500 at 35 % (plan Appendix A).
+/// The selection highlight colour when no `selection-color` is set: blue-500 at 35 %.
 pub(crate) const DEFAULT_SELECTION_COLOR: &str = "#3b82f659";
 /// A thumb's ends are round: half its thickness.
 pub(crate) const SCROLLBAR_THUMB_RADIUS_PX: i32 =
@@ -62,7 +60,7 @@ const OUTLINE_DRAW_INDEX: i32 = 2;
 /// index. The overlay layer draws after the main layer; the focus ring above both.
 pub(crate) const LAYER_DRAW_INDEX_BASE: i32 = 0;
 pub(crate) const TOP_ITEM_DRAW_INDEX: i32 = 2;
-/// The drag ghost draws above the focus ring (plan 3.8: both use a top-most item); equal indices have
+/// The drag ghost draws above the focus ring (both use a top-most item); equal indices have
 /// no defined order.
 pub(crate) const GHOST_DRAW_INDEX: i32 = TOP_ITEM_DRAW_INDEX + 1;
 
@@ -76,8 +74,7 @@ const OVERSAMPLING_MIN_FACTOR: f32 = 0.1;
 const OVERSAMPLING_MAX_FACTOR: f32 = 100.0;
 
 /// How many device pixels one logical pixel covers where this root draws: the font oversampling of the viewport it is
-/// in (the same value Godot's own controls draw their text at, `Viewport::get_oversampling`; see
-/// `docs/tracks/hidpi.md`). Everything this root records through the `RenderingServer` outside `NOTIFICATION_DRAW`
+/// in (the same value Godot's own controls draw their text at, `Viewport::get_oversampling`). Everything this root records through the `RenderingServer` outside `NOTIFICATION_DRAW`
 /// has to be given it, because TextServer and `StyleBoxFlat` read it from a global that only `CanvasItem::_draw` sets.
 ///
 /// It is part of every key whose commands depend on it, so a change of scale re-records exactly those items.
@@ -121,8 +118,7 @@ pub(crate) struct OutlineKey {
     pub oversampling: Oversampling,
 }
 
-/// The highlight a content item draws under its text: code points `start..end` (never empty) in `color`
-/// (plan 3.17).
+/// The highlight a content item draws under its text: code points `start..end` (never empty) in `color`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct SelectionPaint {
     pub start: usize,
@@ -131,7 +127,7 @@ pub(crate) struct SelectionPaint {
 }
 
 /// What a content item last drew. `generation` changes whenever the text paragraph is rebuilt; the
-/// selection is part of the key so that selecting re-records the item (plan 3.8).
+/// selection is part of the key so that selecting re-records the item.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct ContentKey {
     pub generation: u64,
@@ -199,7 +195,7 @@ pub(crate) struct Recorded {
 
 /// The two items of a `backdrop-filter`, children of the box item that draw before its background.
 /// They are two items, not one, on purpose: the copy must be its own item for the renderer to
-/// regenerate the mipmaps for it (plan D40 b, `docs/tracks/filters.md`).
+/// regenerate the mipmaps for it.
 pub(crate) struct BackdropItems {
     /// Copies the render target's region into the back buffer.
     pub(crate) copy: Rid,
@@ -1418,7 +1414,7 @@ impl ReactUiRoot {
     /// was redrawn or cleared.
     pub(crate) fn update_focus_ring(&mut self) -> bool {
         let viewport = self.viewport_box();
-        // The ring marks a keyboard focus only (plan 3.13): a press focuses without it.
+        // The ring marks a keyboard focus only: a press focuses without it.
         let target = self.focused.filter(|_| self.focus_visible).and_then(|tag| {
             let node = self.mounted.nodes.get(&tag)?;
             // The ring is the browser's default outline: an element that sets any outline of its own (`outline-none`

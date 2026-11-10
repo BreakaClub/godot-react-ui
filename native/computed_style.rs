@@ -1,5 +1,5 @@
 //! Native style resolution: a node's computed style from its style layers, inheritance and the
-//! conditions that hold for it (plan section 3.6).
+//! conditions that hold for it.
 //!
 //! A computed style is the parent's inherited properties, then the user agent's own style for the kind of
 //! element (`user_agent.rs`: a `Button` centres its content), then every layer whose conditions hold, in order. Conditions are a minimum viewport width and pseudo-states (hover, active, focus,
@@ -83,7 +83,7 @@ impl Deref for ComputedStyle {
 
 /// The properties a node passes on to its children: `color`, `fontSize`, `textAlign`,
 /// `interpolateSize`, `pointerEvents`, `cursor`, `scrollbarColor`, `userSelect`, `selectionColor`, `caretColor`,
-/// `placeholderColor` and `visibility` (plan 3.6).
+/// `placeholderColor` and `visibility`.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct InheritedStyle {
     pub color: Option<String>,

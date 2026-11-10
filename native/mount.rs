@@ -1,5 +1,5 @@
 //! The mounting layer: the mounted tree keyed by tag, the application of a commit's
-//! [`MountingTransaction`], incremental geometry and hit testing (plan section 3.7).
+//! [`MountingTransaction`], incremental geometry and hit testing.
 //!
 //! `Mounted` is the one owner of per-tag state: props, computed style, layout handle, paint
 //! resources, canvas items and geometry. It replaces v1's `Model`, `handles`, `visuals`, `rects`,
@@ -60,7 +60,7 @@ pub(crate) struct NodeGeometry {
     pub(crate) border: Edges,
     pub(crate) padding: Edges,
     /// How far each scrolling axis can move (`ScrollRange::NONE` for an axis that does not scroll):
-    /// Taffy's `scroll_width()` / `scroll_height()` and whether the axis is reversed (plan 3.16).
+    /// Taffy's `scroll_width()` / `scroll_height()` and whether the axis is reversed.
     pub(crate) scroll_ranges: ScrollRanges,
     /// False until the first geometry pass has seen this node.
     pub(crate) laid_out: bool,
@@ -396,8 +396,7 @@ impl Mounted {
     }
 
     /// The cursor to show at `point`: the computed `cursor` of the element a pointer there would
-    /// reach; `unset(tag)` if nothing set one for it (`default`, or `text` over selectable text, plan
-    /// 3.20); `default` over nothing.
+    /// reach; `unset(tag)` if nothing set one for it (`default`, or `text` over selectable text); `default` over nothing.
     pub(crate) fn cursor_at(
         &self,
         point: Vector2,
@@ -705,7 +704,7 @@ impl StyleTree for StyleOverlay<'_> {
 
 impl ReactUiRoot {
     /// Apply one layer's commit payload: validate all of it, plan, check motion, then mount. Any
-    /// error returns before the mounted tree changes (plan 3.2 invariant 4).
+    /// error returns before the mounted tree changes.
     pub(crate) fn run_commit(
         &mut self,
         layer: usize,
@@ -744,7 +743,7 @@ impl ReactUiRoot {
         self.apply_auto_focus(&validated);
         self.settle_key_focus();
         // What is exposed may have changed in any way a commit can change the tree; pruning is a
-        // no-op until an assistive technology has asked for the tree (plan 3.21).
+        // no-op until an assistive technology has asked for the tree.
         self.accessibility.mark_structure_dirty();
         self.prune_accessibility();
         self.request_accessibility_update();
@@ -793,7 +792,7 @@ impl ReactUiRoot {
         })
     }
 
-    /// Remove, Delete, Create, Update, Insert (plan 3.7). Returns the parents whose child lists
+    /// Remove, Delete, Create, Update, Insert. Returns the parents whose child lists
     /// changed. Computed styles, paragraphs and the style engine are settled afterwards.
     fn apply_transaction(
         &mut self,
@@ -1059,7 +1058,7 @@ impl ReactUiRoot {
         }
     }
 
-    /// Settle who paints what (plan 3.8): re-examine the nodes whose tree parent, `position` or
+    /// Settle who paints what: re-examine the nodes whose tree parent, `position` or
     /// `zIndex` changed and every out-of-flow node (an ancestor's change of place or of `position`
     /// can move their containing block; their number, not the tree's size, is the cost), move the
     /// canvas items of those that changed paint parent, and re-order the paint list of every paint
@@ -1330,7 +1329,7 @@ impl ReactUiRoot {
         self.flush_layout();
     }
 
-    /// Recompute the geometry of the nodes whose layout may have changed (plan 3.7): compare each
+    /// Recompute the geometry of the nodes whose layout may have changed: compare each
     /// child of an ancestor of a dirty node, or of a node whose size changed, with what is stored;
     /// a changed location only moves the node's item.
     pub(crate) fn update_geometry(&mut self) {
@@ -1349,7 +1348,7 @@ impl ReactUiRoot {
         }
         // An out-of-flow node is located in its containing block, which a change anywhere between the
         // two can move without any layout flag on the path from the tree's root, so each is compared on
-        // every pass. This loop is over the out-of-flow nodes only (plan 3.2 invariant 6, named here).
+        // every pass. This loop is over the out-of-flow nodes only.
         let out_of_flow: Vec<u32> = self.mounted.out_of_flow.iter().copied().collect();
         for tag in out_of_flow {
             if self.update_node_geometry(tag, &dirty_paths) {

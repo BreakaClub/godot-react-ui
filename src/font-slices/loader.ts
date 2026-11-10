@@ -186,7 +186,7 @@ function defaultFetch(): FontSliceFetch {
 }
 
 /**
- * Downloads the font files that hold the characters text needs and no registered font has, and adds each as a fallback (docs/tracks/font-slices.md).
+ * Downloads the font files that hold the characters text needs and no registered font has, and adds each as a fallback.
  *
  * One cancellable control flow owns everything: the manifest is fetched once, when the first characters are asked for; each slice is fetched once,
  * however many requests name it, with at most `maxConcurrent` in flight; a failure is reported through `onFailure` and kept in `status()`, the text

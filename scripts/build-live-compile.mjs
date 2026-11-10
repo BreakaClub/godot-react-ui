@@ -9,7 +9,7 @@
 //   demo/live-compile/project.json                       the project the editor opens (scripts/live-compile-project.mjs)
 //
 // One build serves both engine profiles: it is bound to the Godot API `NATIVE_BINDING_API` names (scripts/native-binding.mjs), 4.7.2, which Breaka's 4.8
-// loads as well as the stock 4.7.2 does (docs/tracks/single-build.md). So there is no `--engine=` here.
+// loads as well as the stock 4.7.2 does. So there is no `--engine=` here.
 //
 // `--cli` also builds `live-compile-cli`, the native process that speaks the same requests on stdin and stdout, which
 // `scripts/live-compile-agreement.mjs` drives (and which is built again whenever it was there, so that a clean does not lose it). The Bun sources are extracted from the checkout at the pinned revision into
@@ -49,7 +49,7 @@ function run(command, args, options = {}) {
 
 console.log(`live-compile bound to Godot API ${NATIVE_BINDING_API.version}; target ${targetDirectory}`);
 if (!existsSync(resolve(workspace, 'vendor/bun/Cargo.toml'))) run('python3', ['scripts/vendor-bun.py', BUN_CHECKOUT]);
-// Cargo decides what to rebuild from file modification times, which a restored file can defeat (docs/tracks/freshness.md). Hash the inputs,
+// Cargo decides what to rebuild from file modification times, which a restored file can defeat. Hash the inputs,
 // and unless the target's own stamp says the library cargo left is a build of exactly these, clean the workspace's crates so cargo compiles them.
 const build = beginBuild({
   identity: { binding: nativeBinding() }, probe: false, collect: liveCompileInputs,

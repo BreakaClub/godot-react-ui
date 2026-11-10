@@ -1,5 +1,5 @@
 // The transforms lab as the library draws it on the Web, in the navigator, at a phone's size and a desktop's, for the comparison with Chrome's own page
-// (`scripts/transform-lab-reference.mjs`, docs/tracks/transforms-lab.md). Every case is shown with the lab's own case list state (`godotReactTransformLab.setCase`),
+// (`scripts/transform-lab-reference.mjs`). Every case is shown with the lab's own case list state (`godotReactTransformLab.setCase`),
 // and the page's whole viewport is saved as Chrome paints it at that device pixel ratio: `<out>/web-<device>/<case>.png`. `<out>/offsets.json` is where the lab
 // sits on each device, which the reference page is given so that the two pictures have the lab at the same device pixels.
 //
@@ -21,7 +21,7 @@ engine.requireFreshWebExport();
 const executablePath = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const out = resolve(process.argv.find(value => value.startsWith('--out='))?.slice('--out='.length) ?? resolve(root, 'artifacts/transforms-lab-web'));
 
-/** Ben's Android phone as Chrome emulates it (scripts/verify-rotation-web.mjs), and the desktop window the Web verifier has. */
+/** An Android phone as Chrome emulates it (scripts/verify-rotation-web.mjs), and the desktop window the Web verifier has. */
 const DEVICES = {
   phone: { width: 412, height: 915, deviceScaleFactor: 2.625, isMobile: true, hasTouch: true },
   // The same phone at a ratio of two: the lab sits at 276 CSS pixels in the navigator, a whole number of device pixels only at a whole ratio, and a lab placed on a half pixel
@@ -129,7 +129,7 @@ try {
         await save(TAPPED);
       }
     }
-    // Where the labels of the page on screen are, for the notes: Ben's screenshot is this page at this size.
+    // Where the labels of the page on screen are, for the notes: the reported screenshot is this page at this size.
     const view = await page.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight, dpr: window.devicePixelRatio, scrollWidth: document.documentElement.scrollWidth }));
     console.log(`${name}: ${options.length} cases captured in ${directory} (viewport ${view.width} x ${view.height} at ${view.dpr}, document ${view.scrollWidth} wide), lab at ${JSON.stringify(offsets[name])}`);
     await page.close();

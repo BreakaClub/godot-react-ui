@@ -8,7 +8,7 @@
 //!   sees uses (the selection, copy, the geometry queries).
 //! - **Segments.** The display text cut at every span boundary: each piece has the colour, the font and the decorations of the
 //!   innermost span around it. A decoration is drawn per segment, as Chrome draws one per inline box fragment (its wavy pattern
-//!   restarts at every span boundary: `docs/tracks/rich-text.md`).
+//!   restarts at every span boundary.
 //! - **Backgrounds.** A span's `backgroundColor` fills its display range, outermost span first.
 //!
 //! Offsets on the wire are UTF-16 units of the node's `text`; everything after [`resolve`] is in code points of the display text.

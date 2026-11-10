@@ -1,5 +1,4 @@
-//! Exposing the mounted tree to assistive technologies through Godot's `AccessibilityServer` (plan
-//! section 3.21). The model of what is exposed, and the registry that keeps Godot's elements in step
+//! Exposing the mounted tree to assistive technologies through Godot's `AccessibilityServer`. The model of what is exposed, and the registry that keeps Godot's elements in step
 //! with it, are in `accessibility_model.rs`; this file is the Godot side.
 //!
 //! How Godot builds the tree, from the engine source this was written against:
@@ -348,7 +347,7 @@ impl ReactUiRoot {
 
     /// `NOTIFICATION_ACCESSIBILITY_UPDATE`: create the elements the tree is missing and set every
     /// element whose properties changed. The whole mounted tree is walked, which is what Godot asks
-    /// of every node (plan 3.21, invariant 6).
+    /// of every node (invariant 6).
     pub(crate) fn update_accessibility(&mut self) {
         let root = self.base().get_accessibility_element();
         if !root.is_valid() {
@@ -625,7 +624,7 @@ impl ReactUiRoot {
     /// An assistive technology acted on node `tag` (the bound callable, called deferred by the
     /// platform adapter). Native performs `click`, `focus` and `blur` the way input would; a slider's
     /// adjustments are queued for JS (`accessibilityaction`), and everything is delivered at once
-    /// because this is an input-origin entry point (plan 3.10 rule 1).
+    /// because this is an input-origin entry point.
     pub(crate) fn handle_accessibility_action(&mut self, data: &Variant, tag: i64, action: i64) {
         let (Ok(tag), Some(action)) = (u32::try_from(tag), AxAction::from_code(action)) else {
             godot_error!(

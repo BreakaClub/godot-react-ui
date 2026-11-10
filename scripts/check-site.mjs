@@ -10,7 +10,7 @@ import { injectBase } from './release-bundle.mjs';
 import { servedAssetProblems } from './web-verify.mjs';
 
 // Loads the site in headless Chrome (CDP only: no OS input, no focus), reports what the load cost and, unless `--timing-only`, checks that the page works
-// (docs/tracks/web-load.md):
+//:
 //
 //   node scripts/check-site.mjs --url=https://react.breaka.club/                       one cold load (a fresh profile), then the checks
 //   node scripts/check-site.mjs --url=... --profile=<dir>                              a profile kept between runs: the second run is a returning visitor
@@ -18,7 +18,7 @@ import { servedAssetProblems } from './web-verify.mjs';
 //   node scripts/check-site.mjs --url=... --accept-encoding=br                         what the browser says it accepts (CDP header override)
 //   node scripts/check-site.mjs --url=... --files                                      also fetch every file of the release export through the site and compare bytes
 //   node scripts/check-site.mjs --url=... --font-slices                                also fetch the font slice manifest, each family's index and its first slice through the site
-//                                                                                      and check their bytes against the manifest and their headers (docs/tracks/font-slices.md)
+//                                                                                      and check their bytes against the manifest and their headers
 //   node scripts/check-site.mjs --url=... --json=<file>                                write the measurements as JSON
 //
 // The page works when: the demo API appears, the lab navigator lists its labs and shows one without tripping its error boundary, Next shows another,

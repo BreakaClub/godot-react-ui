@@ -1,6 +1,6 @@
 //! Keyboard input and focus movement: Godot's key events become DOM `keydown` and `keyup`, Tab moves
 //! focus along `focus.rs`'s tab stops, Enter and Space activate a focused button, and JS can move
-//! focus itself (plan sections 3.13 and 3.14).
+//! focus itself.
 
 use std::collections::BTreeSet;
 
@@ -21,7 +21,7 @@ use crate::{ROOT_TARGET, ReactUiRoot, modifiers_of};
 /// device: every `InputEventKey` is made with the keyboard's (`input_event.cpp:670`), and `InputMap::_find_event`
 /// ignores a binding unless the event's device is its own (`input_map.cpp:152`). A key that arrives from another
 /// device (an event a `SubViewport` was given, one a host or a verifier injected) is the same key for copying,
-/// selecting and editing, so every place that asks which action a key is matches this copy (D44 T3).
+/// selecting and editing, so every place that asks which action a key is matches this copy.
 pub(crate) fn as_keyboard_event(key: &Gd<InputEventKey>) -> Gd<InputEventKey> {
     let mut copy = key.duplicate_resource();
     copy.set_device(InputEvent::DEVICE_ID_KEYBOARD);
@@ -58,7 +58,7 @@ fn key_release(activation_key: Option<Key>, keycode: Key, prevented: bool) -> Ke
     }
 }
 
-/// The keys that scroll the focused element's scroll container (plan 3.16).
+/// The keys that scroll the focused element's scroll container.
 fn scroll_key_of(keycode: Key) -> Option<ScrollKey> {
     match keycode {
         Key::UP => Some(ScrollKey::ArrowUp),
@@ -77,7 +77,7 @@ fn scroll_key_of(keycode: Key) -> Option<ScrollKey> {
 impl ReactUiRoot {
     /// A key press, echo or release: dispatched to the focused element (or to root listeners when
     /// none is focused) before native acts, and consumed (kept from the game) only if JS prevented
-    /// it or a native default action ran (plan 3.11).
+    /// it or a native default action ran.
     pub(crate) fn handle_key(&mut self, key: &Gd<InputEventKey>) {
         let keycode = key.get_keycode();
         let pressed = key.is_pressed();
@@ -110,7 +110,7 @@ impl ReactUiRoot {
         };
         let prevented = self.dispatch_cancelable(target, payload).default_prevented;
         // JS may have taken the root out of the tree, or the focused element out of the mounted
-        // tree: everything below looks it up again (plan 3.3 rules 3 and 4).
+        // tree: everything below looks it up again.
         if !self.base().is_inside_tree() {
             return;
         }
@@ -174,7 +174,7 @@ impl ReactUiRoot {
             }
             // Space on anything that is not a button to press scrolls, like the other keys below.
         }
-        // Scrolling belongs to the focused element: with none, keys are the game's (plan 3.11). A
+        // Scrolling belongs to the focused element: with none, keys are the game's. A
         // chord with Ctrl, Alt or Meta is a shortcut for the platform or the game.
         let Some(scroll_key) = scroll_key_of(keycode) else {
             return false;
@@ -224,7 +224,7 @@ impl ReactUiRoot {
             self.mounted.visible_for_input(tag, viewport)
         });
         let next = next_tab_stop(&order, &stops, self.focused, backwards);
-        // Tab to something scrolled out of view brings it into view (plan 3.16).
+        // Tab to something scrolled out of view brings it into view.
         if let Some(next) = next {
             self.reveal_node(next);
         }
@@ -283,7 +283,7 @@ impl ReactUiRoot {
     }
 
     /// `autoFocus`: the first element this commit created that asked for focus and can take it, in
-    /// document order (plan 3.13). The whole-tree walk only happens when something asked.
+    /// document order. The whole-tree walk only happens when something asked.
     pub(crate) fn apply_auto_focus(&mut self, validated: &ValidatedCommit) {
         let asking: BTreeSet<u32> = validated
             .created

@@ -1,6 +1,6 @@
 import type { UIKeyboardEvent } from '../events';
 
-/** DOM `key` values (plan Appendix B) for the keys the kit handles. Enter and Space activate buttons natively. */
+/** DOM `key` values for the keys the kit handles. Enter and Space activate buttons natively. */
 export const Key = {
   Enter: 'Enter',
   Escape: 'Escape',

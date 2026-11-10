@@ -37,7 +37,7 @@ const python = process.env.SCONS_PYTHON ?? '/opt/homebrew/Cellar/scons/4.9.1/lib
 // Pin the last compatible generation rather than changing panic semantics.
 const toolchain = process.env.WEB_RUST_TOOLCHAIN ?? web.nightly;
 const godot = engine.godot;
-// `--probe` builds the Phase F0 evidence probe (cargo feature `probe`) into its own target directory and
+// `--probe` builds the evidence probe (cargo feature `probe`) into its own target directory and
 // installs it over the default side module. Rebuild without it afterwards: the probe must never ship.
 const probe = args.has('--probe');
 const targetDirectory = probe ? engine.targets.webProbe : engine.targets.web;
@@ -108,7 +108,7 @@ print(json.dumps({'binaryen':env['ENV']['EM_BINARYEN_ROOT'],'linkFlags':env['LIN
   delete env.RUSTFLAGS;
   console.log(`Engine profile ${engine.name}: ${engine.description}; Emscripten ${sdk}, ${toolchain}, target ${targetDirectory}`);
   // Cargo rebuilds from file modification times, so a source restored to old content with its old mtime keeps the
-  // artifact built from the other content (docs/tracks/freshness.md). `beginBuild` hashes the inputs and, unless the
+  // artifact built from the other content. `beginBuild` hashes the inputs and, unless the
   // target's own stamp says its artifact is a build of exactly these, cleans this crate (not its dependencies) first.
   const build = engine.beginWebBuild({
     probe, clean: () => run(cargo, [`+${toolchain}`, 'clean', '--locked', '-p', CARGO_PACKAGE, '--release', '--target', 'wasm32-unknown-emscripten']),
@@ -128,11 +128,11 @@ if (!args.has('--wasm-only')) {
   // The export must not package the other engine's side module, nor a probe build as the shipping one.
   engine.requireInstalledWasm({ probe });
   // The same for the live-compile extension's Web side module, which is per profile too: the export lists the module stamped for this profile, or none, and
-  // refuses one that is installed and is not this profile's current build (docs/tracks/stock-web.md).
+  // refuses one that is installed and is not this profile's current build.
   const liveCompile = liveCompileWebPlan(engine);
   const exporterVersion = engine.verifiedVersion();
   // What the pack, shell and template are made from, before the build and the export and again after: an edit while they ran
-  // would leave an export that neither state describes (docs/tracks/verifier-integrity.md).
+  // would leave an export that neither state describes.
   const contentBefore = engine.webContentInputs(mode);
   // The authoritative typecheck is part of build; export never trusts a watcher.
   run('pnpm', ['build']);
@@ -156,7 +156,7 @@ if (!args.has('--wasm-only')) {
   // it has open: take TypeScript out of the saved layout first, as every other editor launch does (scripts/editor-session.mjs).
   scrubOpenScripts(join(root, 'demo'));
   // The release export is made from a copy of the project without the verification scripts and the source maps, so its pack holds what the deployed
-  // playground runs and no more; the debug export, which the Web verifiers use, is made from the project itself (docs/tracks/web-load.md).
+  // playground runs and no more; the debug export, which the Web verifiers use, is made from the project itself.
   // The manifest is what makes Godot copy a Web library into the export and the page load it, so it names this profile's module, or the extension is out of the
   // project for the export (a manifest with no Web library is still packed and still loaded, and the page logs an error for it; the code editor without the extension
   // is read-only). It is written, or taken out, before a release export stages its copy of the project, and a module left in the output by an earlier export is
@@ -175,10 +175,10 @@ if (!args.has('--wasm-only')) {
     }
   };
   // The release export is made from a copy of the project without the verification scripts and the source maps, so its pack holds what the deployed
-  // playground runs and no more; the debug export, which the Web verifiers use, is made from the project itself (docs/tracks/web-load.md).
+  // playground runs and no more; the debug export, which the Web verifiers use, is made from the project itself.
   if (liveCompile.include) makeExport();
   else withoutLiveCompileManifest(makeExport);
-  // The font slice manifest and its licence go beside the page (docs/tracks/font-slices.md); the pack is the same with or without them.
+  // The font slice manifest and its licence go beside the page; the pack is the same with or without them.
   exportFontSlices({ output, release: mode === 'release' });
   const content = engine.webContentInputs(mode);
   if (content.digest !== contentBefore.digest) {

@@ -2,7 +2,7 @@ import { Button, Text, TextInput, View, useRootSize } from 'godot-react-ui';
 import { LabIntro, LabLimit } from './lab-parts';
 
 /**
- * Phase H1 (docs/tracks/hidpi.md): what the verifier looks at in the raster when the window runs at a device pixel ratio
+ * What the verifier looks at in the raster when the window runs at a device pixel ratio
  * of two. Everything is black or indigo on white, so a pixel's luminance says how much of it is covered.
  *
  * - `hidpi-stems`: a line of lower-case ls. Each is a vertical stem, so one row of the raster crosses its edges and the

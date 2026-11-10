@@ -5,7 +5,7 @@ import worker from '../deploy/cloudflare-worker';
 import { objectKey, POINTER_KEY, releaseKey, type ReleaseManifest } from '../deploy/release-layout.mjs';
 import { hashBytes } from '../scripts/release-bundle.mjs';
 
-// The Worker behind react.breaka.club (deploy/cloudflare-worker.ts, docs/tracks/web-load.md) against an in-memory bucket.
+// The Worker behind react.breaka.club (deploy/cloudflare-worker.ts) against an in-memory bucket.
 
 const PREFIX = 'react-demo/v2';
 const ORIGIN = 'https://react.breaka.club';

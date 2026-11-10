@@ -130,7 +130,7 @@ export interface UIProps extends UIAriaProps {
   /** Focus the element when it is first mounted (the first such element of a commit, in document order). */
   autoFocus?: boolean;
   /**
-   * The element can be dragged (HTML drag and drop inside this root, plan 3.19): a primary press or a touch
+   * The element can be dragged (HTML drag and drop inside this root): a primary press or a touch
    * on it, or on something inside it that is not `draggable` itself, starts a drag once a mouse moves past the
    * viewport's drag threshold, or a touch is held for half a second without moving. Starting a drag cancels the
    * pointer (`pointercancel`, no `click`); a `pointerdown` that was prevented or captured starts none.

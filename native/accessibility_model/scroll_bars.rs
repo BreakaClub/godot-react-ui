@@ -1,8 +1,8 @@
-//! Scroll bar elements (plan D42): each axis of a scroll container that can move has an element of its
+//! Scroll bar elements: each axis of a scroll container that can move has an element of its
 //! own, a child of the container's element, as Godot's `ScrollContainer` and `TextEdit` have (their
-//! `ScrollBar` children, read from the real macOS tree in `docs/tracks/scroll-bars.md`).
+//! `ScrollBar` children, read from the real macOS tree).
 //!
-//! The container's scroll properties (`update_set_scroll_x/y`, plan D38) stay, for platforms that read
+//! The container's scroll properties (`update_set_scroll_x/y`) stay, for platforms that read
 //! them. The macOS adapter does not, so a screen reader there learns where it is in a scroll view from
 //! this element: a role of `SCROLL_BAR`, the scroll offset as its value, the reachable offsets as its
 //! range, an orientation, and `increment` and `decrement` actions that scroll.
@@ -129,7 +129,7 @@ pub(crate) struct WantedScrollBar {
 
 /// The bars an element's scroll state asks for: one for each axis that can move, horizontal first. An
 /// exposed element that is a scroll container has them whatever its role, as it has the scroll
-/// properties and actions of plan D38 whatever its role: a `ScrollContainer` and a `TextEdit` both do
+/// properties and actions whatever its role: a `ScrollContainer` and a `TextEdit` both do
 /// in the stock tree.
 pub(crate) fn scroll_bars_of(tag: u32, scroll: Option<AxScroll>) -> Vec<WantedScrollBar> {
     let Some(scroll) = scroll else {

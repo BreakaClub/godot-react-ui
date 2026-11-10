@@ -37,7 +37,7 @@ export function isTextInputHandle(handle: UIHandle | null): handle is TextInputH
   return handle !== null && 'setTextAndSelection' in handle && 'setSelectionRange' in handle;
 }
 
-/** Plan 3.18 and React Native's protocol: native owns the text, and JS answers an edit with a command. */
+/** React Native's protocol: native owns the text, and JS answers an edit with a command. */
 export const TextInput = forwardRef<TextInputHandle, TextInputProps>((props, forwardedRef) => {
   const {
     value, defaultValue, onChange, onInput, onSubmit, onKeyDown, onSelectionChange, multiline, ...host

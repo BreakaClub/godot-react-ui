@@ -137,7 +137,7 @@ export function EditorView({ workspace, file }: EditorViewProps) {
   const pointerRef = useRef<{ x: number; y: number } | undefined>(undefined);
   const gridRef = useRef<Grid | undefined>(undefined);
   const clicks = useRef(new ClickSequence());
-  // Touch selection (plan D71): a long press selects the word under the finger, handles move its ends and a menu acts on it. The selection is
+  // Touch selection: a long press selects the word under the finger, handles move its ends and a menu acts on it. The selection is
   // the controller's, so the root cannot draw them.
   const heldRef = useRef<(pointerId: number, origin: Point) => void>(() => undefined);
   const longPress = useMemo(() => new LongPress<ReturnType<typeof setTimeout>>(BROWSER_TIMERS, (pointerId, origin) => { heldRef.current(pointerId, origin); }), []);

@@ -15,7 +15,7 @@ const secondaryButton = 'rounded-lg border border-slate-200 px-4 py-3 bg-white h
  * drives. It does not know it is drawn on a quad; it lays out in the `SubViewport`'s pixels like any other root.
  *
  * Every ancestor of the card is `pointer-events-none`, so the transparent margin around the card belongs to
- * whatever the 3D scene has behind the quad, exactly as a HUD's empty space does (plan 3.11).
+ * whatever the 3D scene has behind the quad, exactly as a HUD's empty space does.
  */
 export function WorldPanel() {
   const [count, setCount] = useState(INITIAL_COUNT);

@@ -2,7 +2,7 @@ import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 /**
- * Keep TypeScript files out of the Godot editor's script editor (docs/tracks/verifier-integrity.md).
+ * Keep TypeScript files out of the Godot editor's script editor.
  *
  * Godot's script editor does not understand TypeScript, but it opens any script the project's saved layout lists
  * (`.godot/editor/editor_layout.cfg`, `[ScriptEditor] open_scripts`, restored by `ScriptEditor::set_window_layout`), and it

@@ -1,4 +1,4 @@
-//! Scroll bar elements on Godot's `AccessibilityServer` (plan D42). What a bar says, and when the
+//! Scroll bar elements on Godot's `AccessibilityServer`. What a bar says, and when the
 //! registry makes and frees one, is in `accessibility_model/scroll_bars.rs`; this file is the Godot side.
 //!
 //! Why the elements exist: the macOS adapter ignores the scroll position and range a node sets
@@ -140,8 +140,7 @@ impl ReactUiRoot {
 
     /// An assistive technology incremented or decremented a scroll bar: scroll the container one arrow
     /// step along the bar's axis, through the same checked path as `scrollBy` and the accessibility scroll
-    /// actions, and deliver what that queued at once, because this is an input-origin entry point (plan
-    /// 3.10 rule 1).
+    /// actions, and deliver what that queued at once, because this is an input-origin entry point.
     pub(crate) fn handle_scroll_bar_action(&mut self, tag: i64, axis: i64, action: i64) {
         let (Ok(tag), Some(axis), Some(action)) = (
             u32::try_from(tag),

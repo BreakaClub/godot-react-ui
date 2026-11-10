@@ -13,7 +13,7 @@ import { grab, settleFrames } from './verify-filters';
 import { assertionTally, parseVerifierEvent, verifierClipboard } from './verifier-input';
 
 /**
- * The `text-styles` section of the interaction verifier (docs/tracks/utilities-text.md). Every page of the text styles lab is
+ * The `text-styles` section of the interaction verifier. Every page of the text styles lab is
  * shown at device pixel ratios one and two and held to the numbers headless Chrome reports for the same classes
  * (`text-styles-golden.ts`, written by `scripts/text-styles-reference.mjs --golden`): the box of each text, and for each of its
  * lines the left and right ends of the glyphs and the baseline, all within a pixel. The pictures are captured for the per

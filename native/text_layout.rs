@@ -1,4 +1,4 @@
-//! Caret, hit-test and selection geometry over a laid-out Godot `TextParagraph` (plan section 3.17),
+//! Caret, hit-test and selection geometry over a laid-out Godot `TextParagraph`,
 //! and the adapters that plug it into the Godot-free text engine (`text_input.rs`, `selection.rs`).
 //!
 //! A [`TextLayout`] is a snapshot of one paragraph as `TextParagraph::draw` puts it on the canvas: every

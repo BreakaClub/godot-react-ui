@@ -96,7 +96,7 @@ function placeCard(board: Board, id: string, column: ColumnName, before: string 
 }
 
 /**
- * Phase I9. A two-column board (cards reorder within a column and move between them), a trash that takes only a
+ * A two-column board (cards reorder within a column and move between them), a trash that takes only a
  * `move`, a palette item that is copy-only (the trash refuses it: the cursor says so), a list long enough to
  * auto-scroll, and readouts of what each drag did.
  */

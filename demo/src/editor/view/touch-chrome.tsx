@@ -6,7 +6,7 @@ import {
 import { MENU_LABELS, type Edge, type MenuAction, type MenuPlacement } from '../touch-selection';
 
 /**
- * The handles and the edit menu of a touch selection in the code editor (plan D71), drawn from the numbers of the root's own
+ * The handles and the edit menu of a touch selection in the code editor, drawn from the numbers of the root's own
  * (`src/touch-selection.ts`, `native/touch_selection.rs`): the editor's selection is CodeMirror's, so the root cannot draw them. They are
  * children of the scrolling content, so they scroll with the text and the scroller clips them; a press on either is prevented, so it
  * neither pans the page nor takes the keyboard from the editor's input.

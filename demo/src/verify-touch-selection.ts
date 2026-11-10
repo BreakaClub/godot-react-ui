@@ -7,7 +7,7 @@ import type { InteractionInspection } from './verify-interaction';
 import { assertionTally, parseVerifierEvent, verifierClipboard, waitEngineTime } from './verifier-input';
 
 /**
- * Touch text selection (`docs/tracks/touch-selection.md`), natively, with the screen-touch and screen-drag events a phone sends: a long
+ * Touch text selection, natively, with the screen-touch and screen-drag events a phone sends: a long
  * press selects the word under the finger, the handles move its ends, the menu copies and selects all, a tap clears, a swipe scrolls and
  * selects nothing, and the same in a text input and its text area. The lab is `touch-selection-lab.tsx`.
  */

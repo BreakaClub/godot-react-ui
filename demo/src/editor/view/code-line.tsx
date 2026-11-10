@@ -7,7 +7,7 @@ import { CODE_TEXT_CLASS } from './grid-probe';
 
 /**
  * One line of the editor: one `Text` that holds the line's text, with a nested `Text` for each segment of it, so a line is one native
- * node however it is coloured (docs/tracks/rich-text.md). The line's own text is the document's: a hint, the preedit of a composition and
+ * node however it is coloured. The line's own text is the document's: a hint, the preedit of a composition and
  * the selected line break are `inlay` spans, which the text shows and does not count, so the offsets of a caret, a press and a range are
  * the document's own. A selection, a bracket match and a diagnostic are a background and a decoration on the span they cover, drawn by
  * the paragraph itself, which puts them where its glyphs are. Only what is not in the line's own colour is a span: the rest is the line's text,

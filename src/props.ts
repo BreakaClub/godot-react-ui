@@ -9,7 +9,7 @@ import type { CompiledStyle, UIRole } from './types';
 export type NativeKind = 'view' | 'text' | 'button' | 'textinput';
 
 /**
- * The subset of an element's React props that native needs (plan 3.5). Event handlers and
+ * The subset of an element's React props that native needs. Event handlers and
  * everything else stay in JavaScript. A prop is absent, never `undefined`-valued or `false`, when it
  * has its default, so a diff can say "reset" with `null`.
  */
@@ -28,11 +28,11 @@ export interface NativeProps {
   readonly tabIndex?: 0 | -1;
   /** Focus the element when it is first mounted. */
   readonly autoFocus?: true;
-  /** A press that moves on (or a touch that is held) drags the element (plan 3.19). */
+  /** A press that moves on (or a touch that is held) drags the element. */
   readonly draggable?: true;
   /** What follows the pointer while the element is dragged; `native` when absent. */
   readonly dragPreview?: 'native' | 'none';
-  /** Explicit accessibility role (plan Appendix D). `Button`, `Text` and `TextInput` have implicit ones. */
+  /** Explicit accessibility role. `Button`, `Text` and `TextInput` have implicit ones. */
   readonly role?: UIRole;
   readonly ariaLabel?: string;
   readonly ariaDescription?: string;
@@ -212,7 +212,7 @@ function elementTag(value: number | undefined, prop: string): number | undefined
 }
 
 /**
- * The accessibility props (plan 4.2, Phase I10): `role` and the JSX `aria-*` names mapped to the
+ * The accessibility props: `role` and the JSX `aria-*` names mapped to the
  * camelCase native fields. A boolean whose default is false is sent only when true; `aria-expanded`,
  * `aria-selected` and `aria-checked` send `false` too, because absent means "not applicable".
  */

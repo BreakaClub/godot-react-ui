@@ -67,7 +67,7 @@ export interface A11yPanelProps {
 }
 
 /**
- * The accessibility lab (Phase I10): one of each element an assistive technology is told about, with the
+ * The accessibility lab: one of each element an assistive technology is told about, with the
  * test ids `scripts/verify-a11y.mjs` looks for in the platform's accessibility tree. Nothing here is
  * specific to accessibility except the labels: the roles and states come from `Button`, `Text` and the kit.
  *
@@ -93,7 +93,7 @@ export function A11yPanel({ explained = true }: A11yPanelProps) {
           paragraphs={[
             'One of each kind of control. A card says what the platform is told about it (its role, its name and its state) and what to try. The cards look like any other page: the accessibility tree is not drawn anywhere on screen.',
             'The tree is read natively: start the demo with --accessibility always, on a Godot built with AccessKit, and read it with the platform\'s own tools. pnpm verify:a11y does that on macOS and checks these controls against what the cards say.',
-            'On the Web there is nothing to read. The engine has no accessibility code on its Web platform, so a browser\'s accessibility tree holds none of this page (docs/tracks/accessibility.md; not measured in a browser).',
+            'On the Web there is nothing to read. The engine has no accessibility code on its Web platform, so a browser\'s accessibility tree holds none of this page (not measured in a browser).',
           ]}
         />
       ) : (

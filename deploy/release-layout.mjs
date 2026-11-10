@@ -1,5 +1,5 @@
 // What the Worker (deploy/cloudflare-worker.ts) and the deploy script (scripts/deploy-web.mjs) must agree on: where a release lives in the
-// bucket, what its manifest says, which encoding a request gets. One module, so the two cannot drift (docs/tracks/web-load.md).
+// bucket, what its manifest says, which encoding a request gets. One module, so the two cannot drift.
 //
 // Layout below the bucket prefix (`REACT_DEMO_R2_PREFIX`, `react-demo/v2`):
 //   current.json              the pointer: which release the site shows, and the releases before it
@@ -37,7 +37,7 @@ const CONTENT_TYPES = new Map([
   ['.svg', 'image/svg+xml'],
   ['.ico', 'image/x-icon'],
   ['.txt', 'text/plain; charset=utf-8'],
-  // The font slices (docs/tracks/font-slices.md). A woff2 file is brotli-compressed already, so it is not in COMPRESSIBLE_EXTENSIONS.
+  // The font slices. A woff2 file is brotli-compressed already, so it is not in COMPRESSIBLE_EXTENSIONS.
   ['.woff2', 'font/woff2'],
 ]);
 /** Types worth a brotli copy; an image is already compressed. */

@@ -24,7 +24,7 @@ if (engine.name === 'stock') {
 } else {
   // The editor rewrites a TypeScript file it has open (scripts/editor-session.mjs).
   scrubOpenScripts(resolve(root, 'demo'));
-  // The live-compile extension is optional (docs/tracks/live-compile.md): the tracked typings must not describe a class a checkout
+  // The live-compile extension is optional: the tracked typings must not describe a class a checkout
   // without it lacks, so its manifest is out of the project while the editor writes them.
   const result = withoutLiveCompileManifest(() => spawnSync(godot, ['--headless', '--audio-driver', 'Dummy', '--editor', '--generate-types', '--path', resolve(root, 'demo')], {cwd:root, stdio:'inherit', timeout:120_000}));
   if (result.error) throw result.error;

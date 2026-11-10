@@ -258,7 +258,7 @@ function CaptureCases() {
   );
 }
 
-/** Phase I2: every pointer event a pointer produces, and pointer capture. */
+/** Every pointer event a pointer produces, and pointer capture. */
 export function PointerLab() {
   return (
     <View testID="pointer-lab" className="w-full min-h-full bg-slate-50 p-6 gap-3">

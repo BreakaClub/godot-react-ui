@@ -1,4 +1,4 @@
-// Reads what `scripts/profile-keystrokes.mjs` wrote (docs/tracks/keystroke-profile.md) and prints Markdown tables:
+// Reads what `scripts/profile-keystrokes.mjs` wrote and prints Markdown tables:
 //
 //   node scripts/analyze-keystroke-profile.mjs <directory>... [--top=40] [--json=<file>]
 //

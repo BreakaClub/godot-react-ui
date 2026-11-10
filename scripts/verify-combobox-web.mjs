@@ -1,4 +1,4 @@
-// The `combobox` section of the Web interaction verifier (docs/tracks/combobox.md): the native section's reads of the combobox lab
+// The `combobox` section of the Web interaction verifier: the native section's reads of the combobox lab
 // (demo/src/verify-combobox.ts), with real Chrome input: its keyboard, its mouse and wheel, an IME composition driven through the
 // Chrome DevTools Protocol, and, on the touch page, a finger tapping and panning with the virtual keyboard up. The lab's four
 // comboboxes are the native section's; what differs is only how input arrives and how the state is read.

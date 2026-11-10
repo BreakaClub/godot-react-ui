@@ -1,4 +1,4 @@
-// Phase F0: run the evidence probe (demo/src/probe.ts) in real Chrome against a Web export built with
+// Run the evidence probe (demo/src/probe.ts) in real Chrome against a Web export built with
 // `pnpm build:web --probe`. The script serves the export itself on a free port; GODOT_REACT_WEB_URL names another server,
 // whose every file is compared with the export first, as for the other Web verifiers.
 import assert from 'node:assert/strict';
@@ -13,7 +13,7 @@ import { startVerificationServer } from './web-verify.mjs';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 rejectUnknownArguments(process.argv.slice(2), { flags: ['--release'] });
 const engine = selectEngine();
-// The probe export (`pnpm build:web --probe`) must be a probe build of the current sources (docs/tracks/freshness.md).
+// The probe export (`pnpm build:web --probe`) must be a probe build of the current sources.
 engine.requireFreshWebExport({ probe: true });
 const output = engine.artifactPath('fabric-probe');
 // Served by this script on a free port, or compared with the export first (scripts/web-verify.mjs).

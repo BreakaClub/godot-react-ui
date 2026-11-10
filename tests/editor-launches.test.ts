@@ -3,7 +3,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
-// Godot's script editor rewrites a TypeScript file it has open (docs/tracks/verifier-integrity.md, finding 5), so every script that
+// Godot's script editor rewrites a TypeScript file it has open, so every script that
 // launches an editor on the project takes TypeScript out of the saved layout first (`scrubOpenScripts`, scripts/editor-session.mjs).
 
 const scripts = resolve(__dirname, '..', 'scripts');

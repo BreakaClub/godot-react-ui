@@ -1,5 +1,5 @@
 // Who owns each Tailwind v3.4.17 core plugin and variant that this library does not (fully) compile, and why a class stays absent. Read by
-// scripts/tailwind-coverage.mjs to write docs/tracks/tailwind-coverage.md. The numbers in that document are measured; this file only says
+// scripts/tailwind-coverage.mjs to write the coverage table. The numbers in that table are measured; this file only says
 // what to do about the gap, so after a merge the statuses follow the numbers and only a new decision needs a new line here.
 //
 // An owner is a track of the batch of 2026-11-07 that adds it (`paint`: utilities-paint, `text`: utilities-text, `transforms`: transforms),

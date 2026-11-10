@@ -7,12 +7,12 @@ import { importDemo } from './import-demo.mjs';
 import { selectEngine } from './engine.mjs';
 import { runNativeVerifier, summarizeRuns } from './native-run.mjs';
 
-// Phase I10: the accessibility tree the platform sees (docs/tracks/accessibility.md). Godot runs the lab scene
+// The accessibility tree the platform sees. Godot runs the lab scene
 // (demo/a11y.tscn) with `--accessibility always`, so the platform tree exists without a screen reader running.
 // The run reads that tree from inside, by starting scripts/ax-dump.swift (macOS Accessibility API, read only)
 // against its own process before and after it changes state with Godot's own input, and judges it with
 // scripts/a11y-expectations.mjs; this script builds the dump tool, launches the run through the shared native
-// runner (isolation from real input, reruns only for a disturbed failure: plan D21, D22) and reports.
+// runner (isolation from real input, reruns only for a disturbed failure) and reports.
 //
 // Reading a process's tree needs macOS Accessibility permission for the process that runs this script.
 // Nothing here performs an accessibility action, types, clicks or changes a system setting.

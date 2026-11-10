@@ -5,7 +5,7 @@ import { brotliCopyOf } from '../release-bundle.mjs';
 import { LICENSE_FILE, MANIFEST_FILE, OBJECT_HASH_LENGTH, manifestObjects, manifestProblems, sha256Hex } from './manifest.mjs';
 import { FONT_SLICES_DIRECTORY } from './paths.mjs';
 
-// What a deploy does about the font slices (docs/tracks/font-slices.md). The manifest and the licence are release files and are published with the
+// What a deploy does about the font slices. The manifest and the licence are release files and are published with the
 // release like any other; the family indexes and the slices are not part of any release: they are content-addressed objects in the same bucket
 // (`objects/<hash>`, served at `/o/<hash>/<name>`), shared by every release whose manifest names them, so a deploy that changes no slice uploads none.
 

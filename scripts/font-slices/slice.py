@@ -1,4 +1,4 @@
-"""Reads and subsets Noto Sans CJK for scripts/build-font-slices.mjs (docs/tracks/font-slices.md).
+"""Reads and subsets Noto Sans CJK for scripts/build-font-slices.mjs.
 
 It does only what needs fontTools; the partition, the hashing and the manifest are the Node side's. Run it isolated, from outside the
 directories it reads, with absolute paths:

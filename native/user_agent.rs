@@ -8,7 +8,7 @@
 //! What a browser's `button` also has, and this does not: padding (1 x 6 px), a 2 px outset border, a grey background and a system font are the app's look (the
 //! library draws none of them for a `View` either); `box-sizing: border-box` is every element's here; `cursor: default` is every element's default;
 //! `display: inline-block` is what a flex item is. Chrome gives `align-items` and `justify-content` no declaration at all: the centring is the layout of the
-//! button's anonymous inner box, which this expresses with the two properties. `docs/tracks/button-centre.md` has the comparison with Chrome.
+//! button's anonymous inner box, which this expresses with the two properties.
 
 use crate::props::{AlignSpec, JustifySpec, Kind, StyleSpec, TextAlignSpec};
 

@@ -7,7 +7,7 @@ import { PAGE_NOTES as RICH_NOTES } from '../demo/src/rich-text-lab';
 import { PAGES as STYLE_PAGES } from '../demo/src/text-styles-data';
 import { PAGE_NOTES as STYLE_NOTES } from '../demo/src/text-styles-lab';
 
-// The text labs explain each of their pages and samples in the lab itself (docs/tracks/lab-clarity.md): a page added to a lab's data must be
+// The text labs explain each of their pages and samples in the lab itself: a page added to a lab's data must be
 // explained, and an explanation must belong to a page, so the two cannot drift apart. The lab throws when it meets a page with no note, but only
 // for the page it shows, so this checks them all.
 

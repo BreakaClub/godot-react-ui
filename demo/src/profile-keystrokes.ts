@@ -8,7 +8,7 @@ import { parseVerifierEvent } from './verifier-input';
 import { move } from './verify-text-input';
 
 /**
- * Keystroke cost diagnostic (docs/tracks/keystroke-profile.md): types into the lab navigator's code panel through the same key
+ * Keystroke cost diagnostic: types into the lab navigator's code panel through the same key
  * injection the `code-editor` verifier uses, and reports what each keystroke cost, from the renderer's own profiler and the native
  * library's. It changes no behaviour of the editor; it only drives it.
  *

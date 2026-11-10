@@ -289,7 +289,7 @@ fn sort_and_deduplicate(diagnostics: &mut Vec<Diagnostic>) {
     });
 }
 
-/// One diagnostic in the shape of breaka-rpg's `TypeScriptRuntimeDiagnostic`: `pos` and `end` in UTF-16 code units,
+/// One diagnostic in the shape TypeScript's API gives one (`Diagnostic` with its positions): `pos` and `end` in UTF-16 code units,
 /// positions with lines and characters from 0, the message with its chain as TypeScript prints it (each level of the
 /// chain on its own line, indented by two spaces a level).
 fn write_diagnostic(out: &mut String, at: Option<(&[u8], &Positions, u32, u32)>, code: u32, kind: Category, text: &[u8]) {

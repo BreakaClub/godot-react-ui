@@ -1,5 +1,5 @@
 //! CSS filter lists (`filter`, `backdrop-filter`): parsing, validation, serialisation for Stylo, and
-//! composition into what the renderer draws (plan Phase V1, D40). Nothing here touches Godot.
+//! composition into what the renderer draws. Nothing here touches Godot.
 //!
 //! A list is the CSS functions in order. The renderer draws one Gaussian blur and one colour matrix
 //! (plus, for `filter` only, one drop shadow), so [`FilterEffect::compose`] folds a list into those:

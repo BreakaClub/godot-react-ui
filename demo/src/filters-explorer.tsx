@@ -103,7 +103,7 @@ const FIXTURES: readonly Fixture[] = [
     id: 'filter-edge', label: 'Filter on an element', usesRadius: true, stage: STAGES.edge,
     caption: 'A panel that carries the filter itself: its own black and white halves are blurred, edges included, over a flat grey page that is not touched.',
     expected: "The black and white meet in the same soft ramp, and the panel's outer edges blur into the grey.",
-    limit: `At the window's edge the blur reads the edge pixels again, where a browser blurs the part beyond the edge, so the panel's outer edges there differ from Chrome's (docs/tracks/filters.md, "Limits found").`,
+    limit: `At the window's edge the blur reads the edge pixels again, where a browser blurs the part beyond the edge, so the panel's outer edges there differ from Chrome's.`,
     draw: scene({ scene: 'edge', target: 'filter' }),
   },
   {

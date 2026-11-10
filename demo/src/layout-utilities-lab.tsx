@@ -90,7 +90,7 @@ const PAGE_NOTES: Readonly<Record<LayoutUtilitiesPage, string>> = {
   transitions: 'Each swatch changes from its resting style to its hover: style, with the transition classes written above it. Hover a swatch with a mouse; on a touch screen press and hold it, because this page adds an active: class beside every hover: class.',
 };
 
-/** The transition page's one known difference from Chrome (`docs/tracks/utilities-layout-motion.md`, "Limits that stay"). */
+/** The transition page's one known difference from Chrome. */
 const TRANSITION_LIMIT = 'a width that goes from pixels to a percentage jumps to its new value where Chrome animates it (the transition-all swatch with hover:w-1/2); its colour still moves, and that is what is compared.';
 
 /** The known differences of a page, one sentence each: the cases the verifier leaves out of its comparison with Chrome, and why. */

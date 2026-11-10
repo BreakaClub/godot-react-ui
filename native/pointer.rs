@@ -96,7 +96,7 @@ fn wheel_ticks_with_horizontal_sign(
     }
 }
 
-/// Appendix A: the Godot cursor each CSS cursor maps to.
+/// The Godot cursor each CSS cursor maps to.
 pub(crate) fn cursor_shape(cursor: CursorSpec) -> CursorShape {
     match cursor {
         CursorSpec::Default => CursorShape::ARROW,

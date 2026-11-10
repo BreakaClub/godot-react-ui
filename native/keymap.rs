@@ -1,4 +1,4 @@
-//! Godot key events to DOM `key` and `code` (plan Appendix B). Pure: it reads only the numbers an
+//! Godot key events to DOM `key` and `code`. Pure: it reads only the numbers an
 //! `InputEventKey` carries, so every rule is unit tested without the engine.
 
 use godot::global::{Key, KeyLocation};

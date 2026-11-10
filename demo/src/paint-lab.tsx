@@ -4,7 +4,7 @@ import { LabCase, LabIntro, LabLimit } from './lab-parts';
 import { PAINT_PAGES, PAINT_STAGE, type PaintCell, type PaintPage } from './paint-data';
 
 /**
- * The paint lab (`docs/tracks/utilities-paint.md`): one page of boxes at a time, each with the Tailwind classes under test
+ * The paint lab: one page of boxes at a time, each with the Tailwind classes under test
  * (shadows, rings, outlines, borders and corners by side, gradients) on a backdrop, and no text. `scripts/paint-reference.mjs`
  * builds the same pages for Chrome from `paint-data.ts`, and the `paint` verifier section holds the two rasters together.
  *
@@ -149,7 +149,7 @@ const PAGE_NOTES: Readonly<Record<string, PageNote>> = {
   borders: {
     label: 'Borders',
     caption: 'Borders on one side or two (top, bottom, left, right, both sides, top and bottom) with their own widths and colours, then the same with rounded corners and a translucent one.',
-    limit: "Where a one-sided border runs out along a curve (rounded-xl border-b-4, rounded-lg border-l-8, rounded-full border-b-4) our pixels differ from Chrome's by up to a quarter of the border's contrast, on a pixel or two (docs/tracks/utilities-paint.md).",
+    limit: "Where a one-sided border runs out along a curve (rounded-xl border-b-4, rounded-lg border-l-8, rounded-full border-b-4) our pixels differ from Chrome's by up to a quarter of the border's contrast, on a pixel or two.",
   },
   'borders-mixed': {
     label: 'Mixed borders',
@@ -160,7 +160,7 @@ const PAGE_NOTES: Readonly<Record<string, PageNote>> = {
   radii: {
     label: 'Radii',
     caption: 'Corner radii by side (top, right, bottom, left) and by corner, and combined with a border.',
-    limit: "A plain rounded box is drawn by the engine's own box, whose arc sits 0.3 to 0.5 px inside Chrome's at 45 degrees: one to three pixels of each corner differ (docs/tracks/utilities-paint.md).",
+    limit: "A plain rounded box is drawn by the engine's own box, whose arc sits 0.3 to 0.5 px inside Chrome's at 45 degrees: one to three pixels of each corner differ.",
   },
   gradients: {
     label: 'Gradients',
@@ -170,7 +170,7 @@ const PAGE_NOTES: Readonly<Record<string, PageNote>> = {
   'gradients-rounded': {
     label: 'Rounded gradients',
     caption: 'Gradients with rounded corners, a border, transparency, a shadow, a ring and an inline backgroundImage: a pill, a bordered card, fades to transparent over a colour, and a hard stop at 50 percent.',
-    limit: 'Beyond its padding box a gradient holds its end colours where CSS tiles the image. It shows only under a translucent border (docs/tracks/utilities-paint.md).',
+    limit: 'Beyond its padding box a gradient holds its end colours where CSS tiles the image. It shows only under a translucent border.',
   },
   glass: {
     label: 'Glass',

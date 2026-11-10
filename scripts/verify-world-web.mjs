@@ -1,4 +1,4 @@
-// Real-Chrome verification of the world-space panel (plan I11, docs/WORLD_SPACE.md): the 3D scene, the
+// Real-Chrome verification of the world-space panel (docs/WORLD_SPACE.md): the 3D scene, the
 // SubViewport's React root and the ray-plane input routing, driven by the browser's own mouse, keyboard and
 // touch input at both device pixel ratios, landscape and portrait. The scenarios mirror
 // demo/src/verify-world.ts; the world scene is selected with `?scene=res://world.tscn` (demo/web-shell.html).
@@ -14,7 +14,7 @@ import { passedLine, startVerificationServer, writeEvidence } from './web-verify
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 rejectUnknownArguments(process.argv.slice(2), { flags: ['--release'] });
 const engine = selectEngine();
-// Refuse an export whose side module was built from other sources than the working tree (docs/tracks/freshness.md).
+// Refuse an export whose side module was built from other sources than the working tree.
 engine.requireFreshWebExport();
 // Served by this verifier on a free port, or compared with the export first (scripts/web-verify.mjs): this verifier used to
 // judge whatever server answered on its port.
@@ -293,7 +293,7 @@ async function runWorkflow(viewport) {
   await waitUntil('the panel renders at the device pixel ratio', async () => (await world('panelPixelScale')) === viewport.deviceScaleFactor);
   check('The panel root draws at the panel texture scale', (await snapshot()).oversampling === viewport.deviceScaleFactor, { oversampling: (await snapshot()).oversampling });
   await expectText('world-count', '0', 'Initial React state in the world panel');
-  // The orbiting node and its anchored label (plan I11) are verified by the native verifier. Here the node waits off to
+  // The orbiting node and its anchored label are verified by the native verifier. Here the node waits off to
   // one side of the window, so that neither it nor its label is drawn over the quad whose pixels are read below.
   await world('placeOrbiterInWorld', 6, -3, 0.5);
   await capture('01-world');

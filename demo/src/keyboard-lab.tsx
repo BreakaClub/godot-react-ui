@@ -82,7 +82,7 @@ function Dialog({ onClose, opener }: { onClose: () => void; opener: RefObject<UI
   );
 }
 
-/** Phase I3: Tab order, the focus ring, key events, keyboard activation, a focus trap and `focus()`. */
+/** Tab order, the focus ring, key events, keyboard activation, a focus trap and `focus()`. */
 export function KeyboardLab() {
   const [keyLog, setKeyLog] = useState<string[]>([]);
   const [focusLog, setFocusLog] = useState<string[]>([]);

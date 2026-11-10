@@ -51,7 +51,7 @@ function Stat({ label, value, detail }: { label: string; value: string; detail: 
   );
 }
 
-/** The explanation a lab adds to the controls the playground's verifiers drive (`docs/tracks/lab-clarity.md`). */
+/** The explanation a lab adds to the controls the playground's verifiers drive. */
 const explanationText = 'text-xs text-slate-500';
 
 interface PlaygroundTabProps {

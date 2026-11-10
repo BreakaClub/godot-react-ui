@@ -1,6 +1,6 @@
-//! Phase F0 evidence probe. Compiled only with `--features probe`; default builds do not contain it.
+//! The evidence probe. Compiled only with `--features probe`; default builds do not contain it.
 //!
-//! It measures the costs the Fabric design (`docs/INTERACTION_PLAN.md` 3.4 and 3.5) depends on before
+//! It measures the costs the Fabric design depends on before
 //! anything is built on them: allocating a `RefCounted` handle that owns a Rust `Rc` for every native
 //! node clone, how long JS garbage collection takes to give those handles back, the JS string to
 //! `serde_json` boundary, and passing arrays of handles. Nothing here is used by the product.
@@ -11,8 +11,7 @@ use godot::prelude::*;
 
 use crate::props::StyleSpec;
 
-/// Size of the heap allocation each probe handle owns, standing in for a shadow node's data
-/// (`PROBE_PAYLOAD_BYTES` in the plan's Appendix A).
+/// Size of the heap allocation each probe handle owns, standing in for a shadow node's data.
 const PROBE_PAYLOAD_BYTES: usize = 64;
 
 /// Handles constructed and not yet dropped. Incremented in construction and decremented in `Drop`,
@@ -91,7 +90,7 @@ impl ReactUiProbe {
         }
     }
 
-    /// A JS array of handles passed as a typed Godot array, the signature the plan's `complete_root`
+    /// A JS array of handles passed as a typed Godot array, the signature a `complete_root`
     /// would use. Reads every element so conversion cost cannot be skipped.
     #[func]
     fn count_handles_typed(&self, handles: Array<Gd<ReactUiProbeHandle>>) -> i64 {

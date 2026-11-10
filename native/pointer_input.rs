@@ -1,5 +1,5 @@
-//! Pointer input: Godot's mouse, touch and gesture events turned into DOM pointer events (plan
-//! section 3.12). `pointer_state.rs` holds the per-pointer records, capture and click counting
+//! Pointer input: Godot's mouse, touch and gesture events turned into DOM pointer events.
+//! `pointer_state.rs` holds the per-pointer records, capture and click counting
 //! (all unit tested); this module reads the engine's events, hit tests, queues the events JS
 //! receives and runs the default actions.
 
@@ -24,7 +24,7 @@ use crate::{ROOT_TARGET, ReactUiRoot, event_time_ms, modifiers_of};
 const DOUBLE_CLICK_DETAIL: u32 = 2;
 
 /// What produced a `wheel` event: a mouse wheel notch, or a trackpad's pan gesture. Both are in wheel
-/// ticks (decision D13); only the wheel's Shift key swaps the axes (`scroll_container.cpp:187`).
+/// ticks; only the wheel's Shift key swaps the axes (`scroll_container.cpp:187`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum WheelSource {
     Wheel,
@@ -58,7 +58,7 @@ impl ReactUiRoot {
             self.pointer,
             self.pointer_buttons,
         );
-        // A text selection being dragged out follows the pointer (plan 3.12 rule 5).
+        // A text selection being dragged out follows the pointer.
         self.selection_drag_moved(hit);
         // A captured pointer's moves belong to the capturing element wherever the pointer is.
         if let Some(target) = self.pointers.target_for(MOUSE_POINTER_ID, hit) {
@@ -125,11 +125,11 @@ impl ReactUiRoot {
 
     /// Hand a wheel tick or pan at the tracked pointer position to JS as a cancelable `wheel`. Unless
     /// JS prevents it, its default action scrolls the scroll containers around the element under the
-    /// pointer, chaining outwards (plan 3.16). The event is consumed when JS prevented it or something
-    /// scrolled; otherwise it goes on to the game's `_unhandled_input` (plan 3.11).
+    /// pointer, chaining outwards. The event is consumed when JS prevented it or something
+    /// scrolled; otherwise it goes on to the game's `_unhandled_input`.
     fn dispatch_wheel(&mut self, delta_x: f32, delta_y: f32, source: WheelSource) {
         let hit = self.mounted.hit_test(self.pointer);
-        // The hover is frozen while a drag runs (I9-3); the drag looks under the pointer itself.
+        // The hover is frozen while a drag runs; the drag looks under the pointer itself.
         if !self.drag_in_progress() {
             self.update_hover(hit);
         }
@@ -142,7 +142,7 @@ impl ReactUiRoot {
         let prevented = self
             .dispatch_cancelable(hit.unwrap_or(ROOT_TARGET), EventPayload::Wheel(wheel))
             .default_prevented;
-        // JS may have changed the tree, or left it: nothing computed before is trusted (plan 3.3).
+        // JS may have changed the tree, or left it: nothing computed before is trusted.
         if !self.base().is_inside_tree() {
             return;
         }
@@ -161,7 +161,7 @@ impl ReactUiRoot {
     }
 
     /// Press of mouse button `button`. Returns false when JS left the root outside the scene tree
-    /// while handling `pointerdown`: nothing native may run afterwards (plan 3.3 rule 4).
+    /// while handling `pointerdown`: nothing native may run afterwards.
     fn press_mouse(&mut self, button: i8, hit: Option<u32>) -> bool {
         let primary = button == DOM_BUTTON_PRIMARY;
         self.modality = Modality::Pointer;
@@ -206,7 +206,7 @@ impl ReactUiRoot {
             }
         }
         if primary {
-            // Gesture arbitration after an un-prevented `pointerdown` (plan 3.12): a pointer JS captured
+            // Gesture arbitration after an un-prevented `pointerdown`: a pointer JS captured
             // is its element's (rule 1), then a press on a scrollbar thumb drags the thumb (rule 2), then a
             // press inside a draggable element may become a drag once it moves (rule 3, which also keeps
             // the text inside it from starting a selection, as in browsers); selectable text starts a
@@ -225,7 +225,7 @@ impl ReactUiRoot {
             self.run_pointerdown_default(hit, prevented, selecting);
             // An un-prevented press in a text input places the caret and may start a selection in it; it
             // is never a document selection (a text input is not selectable text), so the press has
-            // cleared that one above. It comes last in the arbitration (plan 3.12): a press on the
+            // cleared that one above. It comes last in the arbitration: a press on the
             // input's scrollbar thumb is the thumb's, and a draggable element around the input does not
             // take it either (`begin_drag_gesture` declines a press on a text input).
             if !prevented && !grabbed_thumb {
@@ -353,7 +353,7 @@ impl ReactUiRoot {
                 return false;
             }
             // Inside a draggable element a touch held still becomes a drag; one that moves first is
-            // declined and goes on to pan or stay pointer events (plan 3.12 rules 3 and 4). A touch that
+            // declined and goes on to pan or stay pointer events. A touch that
             // only stopped a coasting flick starts nothing.
             if !prevented {
                 self.touch_selection_note_press(id, position);
@@ -363,17 +363,17 @@ impl ReactUiRoot {
                 && !flicking
                 && self.begin_drag_gesture(touch_drag_pointer(id), position, hit);
             // A finger JS took (`setPointerCapture` in a `pointerdown` handler) is its element's, not a
-            // pan's, as a prevented press is (plan 3.12 rule 1, D33).
+            // pan's, as a prevented press is.
             let captured = self.pointers.captured_by_js(id);
             let may_pan = !prevented && !captured;
             self.begin_touch_pan(id, target, position, may_pan);
-            // Selectable text and a text input held still become a selection of the word under the finger (plan D71); a draggable
+            // Selectable text and a text input held still become a selection of the word under the finger; a draggable
             // element's hold is the drag's.
             if !prevented && !captured && !draggable && !flicking {
                 self.touch_selection_arm_hold(id, position, hit);
             }
         }
-        // A touch selection survives the press: a pan scrolls it and keeps it, and a tap clears it when the finger lifts (plan D71).
+        // A touch selection survives the press: a pan scrolls it and keeps it, and a tap clears it when the finger lifts.
         self.run_pointerdown_default(hit, prevented, self.touch_selection_holds_document());
         if !prevented && !self.touch_defers_caret(id, hit, position, detail) {
             self.text_input_pointer_down(hit, position, detail, false, false);
@@ -564,7 +564,7 @@ impl ReactUiRoot {
     /// The default action of a primary `pointerdown`, mouse or touch: the nearest enabled button
     /// takes focus, and pressing anything else clears element focus. A press that did not start (or
     /// extend) a text selection, `keeps_selection`, clears the current one. Skipped if JS prevented the
-    /// event or removed the element it was handling (plan 3.3 rule 3). Whatever JS decided, the
+    /// event or removed the element it was handling. Whatever JS decided, the
     /// root then holds key focus only if an element is focused or a selection is.
     fn run_pointerdown_default(
         &mut self,
@@ -590,7 +590,7 @@ impl ReactUiRoot {
     /// keys that copy and select all), or an owner that asked for it with `grabFocus()` (until the
     /// next press). Godot grants focus to a focusable Control for every left press that reaches it,
     /// before any handler runs (`viewport.cpp:1976-1990`), so a press that leaves no element focused
-    /// and no selection hands it back: keys then go to the game (plan 3.11).
+    /// and no selection hands it back: keys then go to the game.
     pub(crate) fn release_key_focus_without_element(&mut self) {
         if self.focused.is_none() && !self.selection_holds_key_focus() && self.base().has_focus() {
             self.base_mut().release_focus();
@@ -599,7 +599,7 @@ impl ReactUiRoot {
 
     /// The end of a commit: if it removed the focused element (a dialog closing from its own button's
     /// click is the usual way) and nothing took focus since, the root gives Godot key focus back, as it
-    /// does when a press or `blur()` leaves no element focused (plan 3.11, D11). A commit that did not
+    /// does when a press or `blur()` leaves no element focused. A commit that did not
     /// remove focus leaves key focus alone: an owner may have asked for it with `grabFocus()`.
     pub(crate) fn settle_key_focus(&mut self) {
         if std::mem::take(&mut self.key_focus_release_due) {

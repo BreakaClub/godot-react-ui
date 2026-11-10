@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { Portal, ScrollView, Text, View, useRootSize } from 'godot-react-ui';
 
 /**
- * The page the `filters` verifier section drives (plan Phase V1). One component, rendered again with new props by
+ * The page the `filters` verifier section drives. One component, rendered again with new props by
  * `godotReactDemo.showFilters(...)`, so a radius change goes through a real commit while a hover does not.
  *
  * Every fixture is built from hard edges and flat colours, so what the filters do to it can be read from pixels:

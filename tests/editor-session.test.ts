@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { scrubLayoutText, scrubOpenScripts } from '../scripts/editor-session.mjs';
 
-// The guard that keeps TypeScript out of Godot's script editor (docs/tracks/verifier-integrity.md): the editor rewrites
+// The guard that keeps TypeScript out of Godot's script editor: the editor rewrites
 // the indentation of a script it has open when it saves, and it opens whatever the saved layout lists.
 
 /** A layout in the shape Godot writes, with the script editor's part set by `scriptEditor`. */

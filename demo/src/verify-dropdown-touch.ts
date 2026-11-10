@@ -4,7 +4,7 @@ import type { InteractionInspection } from './verify-interaction';
 import { assertionTally, parseVerifierEvent, waitEngineTime } from './verifier-input';
 
 /**
- * The dropdown lists of the kit under a finger (`docs/tracks/dropdown-touch.md`), natively, with the screen-touch and screen-drag
+ * The dropdown lists of the kit under a finger, natively, with the screen-touch and screen-drag
  * events a phone sends (Godot 4.8 buttons ignore the mouse a touch is emulated as, so a finger is always a real touch here). The lab is
  * `dropdown-touch-lab.tsx`: a `Select`, a `Combobox` and a `Combobox` with chips, each with forty options in a page that scrolls. For
  * each, with the page at rest and with the page already scrolled: a tap opens the list, a slow pan moves the list by about the finger's

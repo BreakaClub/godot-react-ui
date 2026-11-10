@@ -4,7 +4,7 @@ import { argsWithoutEngine, selectEngine } from './engine.mjs';
 import { importDemo } from './import-demo.mjs';
 import { runNativeVerifier, summarizeRuns } from './native-run.mjs';
 
-// Text layout probe (docs/tracks/text-layout.md): caret, hit-test and selection geometry against a running
+// Text layout probe: caret, hit-test and selection geometry against a running
 // Godot. It needs a probe build of the extension (`pnpm build:native --probe`; restore a default
 // `pnpm build:native` afterwards). The probe takes no input: it reads geometry and draws, so the window
 // only has to exist. `--headless` skips the pixel checks and the captures, and the run then says it was partial

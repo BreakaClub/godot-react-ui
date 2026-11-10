@@ -8,7 +8,7 @@ import { HighlightCache, ParseScheduler, colorSpans } from './highlight';
 import { LineBuilder, matchedBrackets } from './lines';
 
 /**
- * The editor's per-keystroke work without a window (docs/tracks/keystroke-profile.md): the CodeMirror transaction and the parse, and the
+ * The editor's per-keystroke work without a window: the CodeMirror transaction and the parse, and the
  * data the view asks of the controller for the lines it draws, timed piece by piece. The same code runs in Node, in headless Chrome
  * (`scripts/keystroke-bench.mjs`) and inside the Godot V8 (`demo/src/profile-keystrokes.ts`), so the three can be set side by side: what
  * CodeMirror and lezer cost in a browser, and what the same code costs in the engine's JavaScript.

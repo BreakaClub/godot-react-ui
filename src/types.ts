@@ -208,7 +208,7 @@ export interface Style {
   lineHeight?: LineHeight;
   /**
    * Inherited. Added after every character, the last of a line included, as CSS does. A number is px; `'0.05em'` is a length
-   * of this element's font size (inherited as px). Fractions of a pixel are exact (`docs/tracks/utilities-text.md`).
+   * of this element's font size (inherited as px). Fractions of a pixel are exact.
    */
   letterSpacing?: number | `${number}em`;
   /** Inherited. The text is shown, selected and copied transformed. */
@@ -217,7 +217,7 @@ export interface Style {
   textDecorationLine?: TextDecorationLine;
   /** The colour of the decoration lines; the element's own text colour when not set. */
   textDecorationColor?: HexColor;
-  /** How the decoration lines are drawn; `solid` when not set. Drawn as Chrome draws them (`docs/tracks/rich-text.md`). */
+  /** How the decoration lines are drawn; `solid` when not set. Drawn as Chrome draws them. */
   textDecorationStyle?: TextDecorationStyle;
   /** px, or `auto` (the font's underline thickness) or `from-font` (the same). */
   textDecorationThickness?: number | 'auto' | 'from-font';
@@ -454,7 +454,7 @@ export type LonghandStyle = Omit<Style, 'padding' | 'margin' | 'gap' | 'overflow
 
 export type StyleProp = Style | readonly StyleProp[] | false | null | undefined;
 
-/** The conditions a style layer can depend on besides the viewport width (plan 3.6). `starting` is CSS `@starting-style`. */
+/** The conditions a style layer can depend on besides the viewport width. `starting` is CSS `@starting-style`. */
 export type PseudoState = 'hover' | 'active' | 'focus' | 'focusVisible' | 'focusWithin' | 'disabled' | 'starting';
 
 /** One compiled class or inline style; native applies it when its conditions hold. */
@@ -473,7 +473,7 @@ export interface CompiledStyle {
 }
 
 /**
- * The `role` values the accessibility tree understands (plan Appendix D). `Button`, `TextInput` and
+ * The `role` values the accessibility tree understands. `Button`, `TextInput` and
  * `Text` have implicit roles. Sent to native as the `role` prop; `none` and `presentation` keep an
  * element out of the tree.
  */
@@ -484,8 +484,8 @@ export type UIRole =
   | 'dialog' | 'img' | 'region' | 'tooltip' | 'none' | 'presentation';
 
 /**
- * `role` and the `aria-*` props of plan section 4.2, plus `aria-orientation` (Phase I10 adds the
- * native `ariaOrientation` field for it). `nativeProps` maps each JSX name to the camelCase native
+ * `role` and the `aria-*` props, plus `aria-orientation` (the
+ * native `ariaOrientation` field carries it). `nativeProps` maps each JSX name to the camelCase native
  * field (`aria-valuenow` to `ariaValueNow`) and native applies them to the accessibility tree.
  */
 export interface UIAriaProps {

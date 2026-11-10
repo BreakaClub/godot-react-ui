@@ -1,5 +1,5 @@
-//! The text input edit buffer (plan section 3.18, Appendix C): the text, the selection, the undo
-//! history and the IME composition of one `<TextInput>`, with no Godot types. Phase I7 resolves a
+//! The text input edit buffer: the text, the selection, the undo
+//! history and the IME composition of one `<TextInput>`, with no Godot types. The Godot side resolves a
 //! key or a pointer gesture to an [`EditCommand`], dispatches `beforeinput`, then calls
 //! [`EditBuffer::apply`] and turns the [`EditResult`] into `input`, `selectionchange` and
 //! `composition*` events.
@@ -73,7 +73,7 @@ use std::ops::Range;
 
 use crate::text_offsets::utf16_length;
 
-/// Entries kept in one input's undo stack (plan Appendix A).
+/// Entries kept in one input's undo stack.
 pub(crate) const UNDO_LIMIT: usize = 100;
 
 /// Whether `character` ends a line for the text server (`is_linebreak`, `core/string/char_utils.h`): LF, VT, FF, CR,
@@ -191,7 +191,7 @@ fn delete_input_type(unit: DeleteUnit, direction: Direction) -> InputType {
     }
 }
 
-/// One edit, movement or selection change. Appendix C maps `InputMap` actions to these.
+/// One edit, movement or selection change. `keys.rs` maps `InputMap` actions to these.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum EditCommand {
     /// Typed or committed text (`ui_text_*` has no action and the key has `unicode >= 32`; an IME

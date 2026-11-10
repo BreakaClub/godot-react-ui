@@ -1,6 +1,6 @@
 # Pinned Godot APIs
 
-Two dump pairs are kept, and which one binds what changed with docs/tracks/single-build.md:
+Two dump pairs are kept:
 
 | Dump pair | Godot | Binds |
 | --- | --- | --- |
@@ -56,7 +56,7 @@ The supported UI API surface is exercised by the native and browser verifiers.
 
 ## Stock Godot 4.7.2 (`stock-4.7.2/`)
 
-The native builds (both profiles) and the `stock` profile's Web build bind to these dumps instead of the custom 4.8 ones above (`docs/tracks/stock-engine.md`, `docs/tracks/single-build.md`):
+The native builds (both profiles) and the `stock` profile's Web build bind to these dumps instead of the custom 4.8 ones above:
 
 - Binary: `/Users/ben/Development/godot-stock/bin/godot.macos.editor.arm64`, run through its wrapper
   `bin/godot-stock`. An unmodified Godot 4.7.2-stable (commit `ed1daf0bf001b61586d9930840f2f1394092c079`) with upstream
@@ -81,7 +81,7 @@ Regenerate the stock dumps from the stock tree with the command above (replace t
 
 A build's dump pair is an input of that build (the native builds' is the 4.7.2 pair; a Web build's is its profile's): `build:native`, `build-live-compile` and `build:web` hash it with `native/` (except `native/api` itself, Markdown and `.DS_Store`), `Cargo.toml`, `Cargo.lock`,
 and `build.rs`, `rust-toolchain.toml` and `.cargo/config.toml` where present, plus the cargo features, and a run refuses an installed library, side module or Web export that was built from other bytes
-(`docs/tracks/freshness.md`). A dump that is not a build's own is not an input of it, so replacing Breaka's 4.8 dump marks only Breaka's Web builds stale. Native stamps also record the
+. A dump that is not a build's own is not an input of it, so replacing Breaka's 4.8 dump marks only Breaka's Web builds stale. Native stamps also record the
 API version and a hash of the pair (`binding`), and `NATIVE_BINDING_API.version` must match the dump's header or every native run fails with a message saying so.
 After replacing a dump, rebuild with `pnpm build:native` and `node scripts/build-live-compile.mjs` (or `pnpm build:web --engine=<name>`), which cleans this crate; godot-rust's own
 bindings regenerate from the dump through cargo's usual dependency tracking.

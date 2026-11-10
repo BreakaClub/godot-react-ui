@@ -1,4 +1,4 @@
-//! Keeping the Web's soft keyboard element in step with the text (plan 3.18, docs/tracks/text-input-fixes.md).
+//! Keeping the Web's soft keyboard element in step with the text.
 //!
 //! The engine's on-screen keyboard on the Web is a hidden DOM `<input>` or `<textarea>` (`GodotDisplayVK`,
 //! `library_godot_display.js`). Its value is set once, by `virtual_keyboard_show`, and from then on every `input`

@@ -1,4 +1,4 @@
-//! Scrolling in the mounted tree (plan section 3.16): the glue between the Godot-free scroll math
+//! Scrolling in the mounted tree: the glue between the Godot-free scroll math
 //! (`scroll.rs`, `pan.rs`) and the mounted tree, the render tree and the event queue.
 //!
 //! A scroll container's offset is per-tag state (`MountedNode::scroll`). Changing it moves one canvas
@@ -40,7 +40,7 @@ pub(crate) fn to_vector(value: Vec2) -> Vector2 {
     Vector2::new(value.x, value.y)
 }
 
-/// A touch that went down on an element and may turn into a pan (plan 3.12 rule 4).
+/// A touch that went down on an element and may turn into a pan.
 pub(crate) struct TouchPan {
     pub(crate) gesture: PanGesture,
     /// The element the finger went down on: the pan path starts here.
@@ -168,7 +168,7 @@ impl ReactUiRoot {
     /// Scroll for a wheel tick or pan gesture aimed at the element under the pointer: each container
     /// from the innermost out takes what it can and the rest goes to the next one (`overscroll-behavior:
     /// contain` ends the chain). Returns whether the scroll was taken, which decides whether the
-    /// engine's event is consumed (plan 3.11): a container moved, or one with `contain` kept the
+    /// engine's event is consumed: a container moved, or one with `contain` kept the
     /// scroll it could not take, so that it does not reach the game behind it either.
     pub(crate) fn scroll_chain_from(&mut self, start: Option<u32>, input: ScrollInput) -> bool {
         let Some(start) = start else {
@@ -260,8 +260,7 @@ impl ReactUiRoot {
         self.events.push_scroll(tag, path, data, event_time_ms());
     }
 
-    /// Give a node its scroll and overlay items, or take them away, to match its `overflow`
-    /// (plan 3.8). The paint children move between the content item and the scroll item with it.
+    /// Give a node its scroll and overlay items, or take them away, to match its `overflow`. The paint children move between the content item and the scroll item with it.
     pub(crate) fn sync_scroll_container(&mut self, tag: u32) {
         let Some(node) = self.mounted.nodes.get_mut(&tag) else {
             return;
@@ -385,7 +384,7 @@ impl ReactUiRoot {
         if self.stop_all_momentum() {
             self.scrolling.stopped_flings.insert(id);
         }
-        // Only an un-prevented, un-captured primary pointerdown starts gestures (plan 3.12).
+        // Only an un-prevented, un-captured primary pointerdown starts gestures.
         if may_pan {
             self.scrolling.pans.insert(
                 id,
@@ -469,7 +468,7 @@ impl ReactUiRoot {
         let mut owner_tag = None;
         let step = pan.gesture.moved(to_scroll(position), |displacement| {
             // A pointer JS captured since the press (a long press that began a selection of its own) is its element's, as one captured in
-            // `pointerdown` is (plan 3.12 rule 1).
+            // `pointerdown` is.
             if self.pointers.captured_by_js(id) {
                 return None;
             }
@@ -495,7 +494,7 @@ impl ReactUiRoot {
     }
 
     /// Scroll the owner of a pan by `pixels`. A pan latches to its owner: what the owner cannot take is
-    /// dropped (plan 3.12 / `pan.rs`).
+    /// dropped (see `pan.rs`).
     fn scroll_owner_by(&mut self, owner: u32, pixels: Vec2) {
         let Some(link) = self.scroll_link(owner) else {
             return;
@@ -595,8 +594,8 @@ impl ReactUiRoot {
             .map(|bar| (bar, local))
     }
 
-    /// The primary button went down on `hit`: if that is a scrollbar thumb, dragging it scrolls (plan
-    /// 3.12 rule 2). Returns whether a drag began.
+    /// The primary button went down on `hit`: if that is a scrollbar thumb, dragging it scrolls.
+    /// Returns whether a drag began.
     pub(crate) fn begin_thumb_drag(&mut self, hit: Option<u32>, point: Vector2) -> bool {
         let Some(tag) = hit else {
             return false;

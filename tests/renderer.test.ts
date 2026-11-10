@@ -193,7 +193,7 @@ test('profiling observes real commits, drains samples, and is inert when disable
   root.unmount();
 });
 
-// ---- Phase F3: the persistent renderer ----
+// ---- The persistent renderer ----
 
 test('render makes no native call: an abandoned render costs nothing across the boundary', () => {
   const host = new RecordingHost();

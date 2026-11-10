@@ -17,8 +17,8 @@ use crate::filter_faults::{self as faults, Fault};
 use crate::render_tree::Oversampling;
 use crate::transform::{Linear2, NodeTransform, evaluate};
 
-/// Text is rasterised at a size, so a transform that scales it needs the glyphs drawn at the scale to stay sharp
-/// (`docs/tracks/transforms.md`, "Sharpness"). The scale is rounded up to a multiple of this so that a hover at
+/// Text is rasterised at a size, so a transform that scales it needs the glyphs drawn at the scale to stay sharp.
+/// The scale is rounded up to a multiple of this so that a hover at
 /// `scale-105` and one at `scale-110` share a glyph cache (one per size and level is kept, 256 KiB to 4 MiB each).
 const RASTER_SCALE_STEP: f32 = 0.125;
 /// The smallest raster scale: text shrunk below a quarter is not sharper for being drawn smaller.
@@ -48,8 +48,7 @@ pub(crate) struct Raster {
     pub mesh_boxes: bool,
     /// How long, across an edge along the element's own x and y, that box's feather is for it to be one device pixel across its edges
     /// there, in units of one viewport device pixel ([`Linear2::edge_axes`]). A feather of one length, sized for the stretched
-    /// axis ([`Self::scale`]) as `StyleBoxFlat`'s is, is exact there and too narrow on the squeezed one (see "Against Chrome" in
-    /// `docs/tracks/transforms.md` and `docs/tracks/box-mesh.md`).
+    /// axis ([`Self::scale`]) as `StyleBoxFlat`'s is, is exact there and too narrow on the squeezed one.
     pub edge_feather: Feather,
 }
 

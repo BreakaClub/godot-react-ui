@@ -1,4 +1,4 @@
-//! Pasting on the Web (plan 3.18, Phase I7C).
+//! Pasting on the Web.
 //!
 //! `DisplayServer::clipboard_get` cannot be asked for the browser's clipboard on the Web: the
 //! engine starts `navigator.clipboard.readText()` and returns the text its *previous* call read
@@ -6,7 +6,7 @@
 //! event would refresh that text, but the engine's key listeners `preventDefault()` every
 //! `keydown`, so the shortcut never makes the browser paste and the event never comes. A paste
 //! therefore inserted the clipboard as of one paste earlier, however long ago the clipboard had
-//! changed (docs/tracks/text-input.md records the measurement).
+//! changed.
 //!
 //! The answer to `readText()` is a promise, so the paste is finished when the browser answers: the
 //! root asks through the engine's `JavaScriptBridge` and gives the promise two callbacks, which

@@ -9,7 +9,7 @@ import {
   assertReleasePack, autoloadScripts, planReleaseStage, planReleaseStageOf, releasePackViolations, scriptName, scriptsOfScene, stageReleaseProject,
 } from '../scripts/release-stage.mjs';
 
-// The release Web export holds what the deployed playground runs and no more (scripts/release-stage.mjs, docs/tracks/web-load.md).
+// The release Web export holds what the deployed playground runs and no more (scripts/release-stage.mjs).
 
 const root = resolve(__dirname, '..');
 const demo = resolve(root, 'demo');

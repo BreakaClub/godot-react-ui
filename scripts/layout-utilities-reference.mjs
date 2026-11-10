@@ -1,5 +1,5 @@
 // The layout utilities lab (demo/src/layout-utilities-lab.tsx) as HTML under Tailwind's own CSS, rendered by headless Chrome through
-// Puppeteer: the reference the `layout-utilities` verifier section compares the library with (docs/tracks/utilities-layout-motion.md).
+// Puppeteer: the reference the `layout-utilities` verifier section compares the library with.
 //
 //   node --import tsx scripts/layout-utilities-reference.mjs --tailwind=<dir> [--out=<dir>]
 //       Compiles the CSS of every class the lab uses with tailwindcss 3.4.17 (<dir> holds node_modules/tailwindcss, as for

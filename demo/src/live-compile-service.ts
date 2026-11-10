@@ -51,7 +51,7 @@ class Deadline {
 /**
  * How long a request may wait for its answer before the host calls the service dead. A thread that trapped (in a browser, a panic ends it) answers
  * nothing, and an editor that says "Compiling" for ever is no better than one that hangs. It is a timer: nothing waits for it, and the
- * longest request of a lab (a first check) is a fraction of a second (docs/tracks/live-compile-async.md).
+ * longest request of a lab (a first check) is a fraction of a second.
  */
 export const REQUEST_DEADLINE_MS = 30_000;
 

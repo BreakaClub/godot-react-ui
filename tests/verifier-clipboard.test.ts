@@ -3,7 +3,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-// The machine's clipboard is the person's (docs/tracks/verifier-integrity.md): a verifier run keeps its own in memory
+// The machine's clipboard is the person's: a verifier run keeps its own in memory
 // (native/clipboard.rs, `VerifierInputIsolation`), and nothing a verifier does may reach `DisplayServer`'s. This reads the
 // demo's sources so a new section that calls it directly fails here, not on a person's pasteboard.
 

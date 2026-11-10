@@ -4,7 +4,7 @@ import { DEMO_ENTRY_POINTS, DEMO_RELEASE_ENTRY_POINTS } from './demo-entry-point
 import { readPackEntries } from './pack-contents.mjs';
 
 /**
- * The release Web export (docs/tracks/web-load.md): the pack that `pnpm build:web --release` makes holds what the deployed playground runs and nothing
+ * The release Web export: the pack that `pnpm build:web --release` makes holds what the deployed playground runs and nothing
  * else, and no source maps. The debug export, which the Web verifiers use, is unchanged.
  *
  * Why the export is staged instead of configured. GodotJS's export plugin turns every `.ts` Godot resource into a remap and a compiled module and

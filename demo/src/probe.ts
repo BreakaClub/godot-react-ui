@@ -1,4 +1,4 @@
-// Phase F0 evidence probe, run with `--probe` (native) or `godotReactDemo.runProbe()` (Web). It needs a
+// The evidence probe, run with `--probe` (native) or `godotReactDemo.runProbe()` (Web). It needs a
 // build with the `probe` cargo feature; a default build has no `ReactUiProbe` class and the probe says so.
 import { Engine, OS, Performance, RefCounted, Time } from 'godot';
 import { ReactUiProbe } from 'godot';
@@ -20,12 +20,11 @@ declare module 'godot' {
 
 type ProbeHandle = ReturnType<ReactUiProbe['makeHandle']>;
 
-/** Plan Appendix A. */
 const PROBE_HANDLE_COUNT = 100_000;
 const PROBE_RECLAIM_TIMEOUT_S = 30;
 /** Mirrors `PROBE_PAYLOAD_BYTES` in native/probe.rs: the heap data each handle owns. */
 const PROBE_PAYLOAD_BYTES = 64;
-/** F0 decision gate: a 2,000-node full clone must fit one 60 Hz frame on Web. */
+/** Decision gate: a 2,000-node full clone must fit one 60 Hz frame on Web. */
 const MAX_HANDLE_CALL_US_NATIVE = 10;
 const MAX_HANDLE_CALL_US_WEB = 30;
 
@@ -37,7 +36,7 @@ const ARRAY_SIZES = [1, 50, 500] as const;
 const ARRAY_CALLS = 2_000;
 const CHURN_PEAK_SAMPLE_EVERY = 1_000;
 const PRESSURE_ROUNDS = 40;
-/** Supplementary steady-state pass: commits of a 2,000-node tree (the F4 scenario), one frame apart. */
+/** Supplementary steady-state pass: commits of a 2,000-node tree (the benchmark scenario), one frame apart. */
 const STEADY_COMMITS = 300;
 const STEADY_NODES = 2_000;
 const STEADY_FRAME_MS = 16;
@@ -46,8 +45,8 @@ const NANOSECONDS_PER_MICROSECOND = 1000;
 const MICROSECONDS_PER_MILLISECOND = 1000;
 
 /**
- * A compiled style that sets every property of the longhand `StyleSpec` (38 since Phase F3 removed the
- * shorthands, `disabled` and `overflow`; it was 40 properties of the v1 spec) and a 3-key diff.
+ * A compiled style that sets every property of the longhand `StyleSpec` (38 since the
+ * shorthands, `disabled` and `overflow` were removed; it was 40 properties of the v1 spec) and a 3-key diff.
  */
 const THREE_KEY_DIFF = JSON.stringify({ backgroundColor: '#d1fae5', opacity: 0.5, width: 120 });
 const FORTY_PROPERTY_STYLE = JSON.stringify({
@@ -237,7 +236,7 @@ interface SteadyInstance {
 }
 
 /**
- * Supplementary evidence, outside the F0 gate: does JS garbage collection give handles back while a
+ * Supplementary evidence, outside the gate: does JS garbage collection give handles back while a
  * renderer is committing? Each commit allocates a handle plus the JS objects React would allocate for
  * every node of a 2,000-node tree, and the previous commit's tree stays reachable for one more commit,
  * as React's current and work-in-progress trees do.

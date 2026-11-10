@@ -1,5 +1,5 @@
 //! UTF-16 code unit offsets (what JS sees) against code point indices (what Godot `String`,
-//! `TextServer` and the edit buffer use), plan section 3.17. This is the only module that converts
+//! `TextServer` and the edit buffer use). This is the only module that converts
 //! between the two: every offset that crosses to or from JS goes through it.
 //!
 //! A JS string is a sequence of UTF-16 code units, so a character above U+FFFF (an emoji, say) is two

@@ -1,7 +1,7 @@
 import type { Keymap } from './keymap';
 
 /**
- * The chords the editor handles, as `keyClaims` spells them (docs/tracks/key-passthrough.md). On the Web a chord nothing claims goes to the
+ * The chords the editor handles, as `keyClaims` spells them. On the Web a chord nothing claims goes to the
  * browser, and the editor's `onKeyDown` never sees it: Cmd+L would focus the address bar instead of selecting a line, and Cmd+D would bookmark
  * the page instead of selecting the next occurrence. So every row of the key table the controller looks keys up in is claimed, and nothing else:
  * the table is the editor's one list of what it does with a key, and the claims are made from it, not written beside it.

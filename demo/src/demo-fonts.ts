@@ -42,8 +42,8 @@ export function fontsOfText(family: string, text: string): (string | undefined)[
 }
 
 /**
- * The names of the fonts behind the first face registered for `family`, in order: what the face had of its own and what the library added since
- * (docs/tracks/font-slices.md). A system font is named by the family it was asked for, so that naming it does not read its file.
+ * The names of the fonts behind the first face registered for `family`, in order: what the face had of its own and what the library added since.
+ * A system font is named by the family it was asked for, so that naming it does not read its file.
  */
 export function fallbackNamesOf(family: string): string[] {
   const font = registeredFonts.get(family);
@@ -71,7 +71,7 @@ function loadFace(file: string, cache = ResourceLoader.CacheMode.CacheModeReuse)
  * `serif`, JetBrains Mono (variable) as `mono`. The library needs none of them; the text styles lab and its Chrome reference use
  * these files, so a browser and the library draw the same fonts. Each of them falls back to the engine's system fonts; for the
  * characters those do not have, the library adds a font when the text that has them first appears (a system font FreeType can read,
- * or on the Web a downloaded slice: docs/tracks/font-slices.md), and nothing is read until then. `bare` has no fallback at all.
+ * or on the Web a downloaded slice), and nothing is read until then. `bare` has no fallback at all.
  */
 export function registerDemoFonts(root: ReactUiRoot): void {
   for (const face of DEMO_FACES) {

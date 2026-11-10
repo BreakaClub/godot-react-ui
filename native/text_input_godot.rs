@@ -1,4 +1,4 @@
-//! `<TextInput>` on the mounted tree (plan section 3.18): the glue between the Godot-free edit
+//! `<TextInput>` on the mounted tree: the glue between the Godot-free edit
 //! buffer (`text_input.rs`), the text layout (`text_layout.rs`) and the root's input, events and
 //! painting. A text input is one mounted node with no children; its text, selection, undo history
 //! and composition live in a [`TextInputState`] per tag, which survives the clones React makes.
@@ -6,7 +6,7 @@
 //! Where things are:
 //! - `shaping.rs`: font metrics, the size a text input measures at (never a function of its value),
 //!   the display and placeholder paragraphs, and the layouts built from them.
-//! - `keys.rs`: the `InputMap` actions a key press can be (Appendix C) and what each asks of the
+//! - `keys.rs`: the `InputMap` actions a key press can be and what each asks of the
 //!   buffer; the part that needs no engine is unit tested.
 //! - `pipeline.rs`: running one command (`beforeinput`, apply, `input`, `selectionchange`) and the
 //!   commands JS gives (`set_text_and_selection`, `set_text_selection`, `get_text_input_state`).
@@ -77,7 +77,7 @@ pub(crate) const TEXT_INPUT_DEFAULT_COLUMNS: f32 = 20.0;
 pub(crate) const TEXT_AREA_DEFAULT_ROWS: u32 = 2;
 /// What a secure input draws for each code point of its text.
 pub(crate) const SECURE_TEXT_BULLET: char = '\u{2022}';
-/// Blue-500 at 35 %: the selection when nothing styles it (plan Appendix A).
+/// Blue-500 at 35 %: the selection when nothing styles it.
 pub(crate) const DEFAULT_SELECTION_COLOR: &str = "#3b82f659";
 /// A placeholder is the text colour at this alpha when `placeholderColor` is not set.
 pub(crate) const DEFAULT_PLACEHOLDER_ALPHA: f32 = 0.5;

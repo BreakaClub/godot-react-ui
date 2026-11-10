@@ -64,7 +64,7 @@ function Case({ title, caption, expected, limit, stageClassName, children }: Cas
   );
 }
 
-/** Phase I4: `position`, insets and `zIndex`, what clips an out-of-flow box, and a popover in the overlay layer. */
+/** `position`, insets and `zIndex`, what clips an out-of-flow box, and a popover in the overlay layer. */
 export function PositioningLab() {
   const [raised, setRaised] = useState(false);
   const [anchor, setAnchor] = useState<Anchor | null>(null);

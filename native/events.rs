@@ -2,8 +2,8 @@
 //!
 //! JS drains the queue through `drain_events`. An event that native is waiting on (`awaited`) is
 //! marked `cancelable`: JS reports `preventDefault()` back through `resolve_event` before the
-//! `events_ready` signal returns (`docs/INTERACTION_PLAN.md` section 3.3). Every event carries the
-//! propagation `path` native computed when it queued the event (plan 3.10 rule 8). No Godot types
+//! `events_ready` signal returns. Every event carries the
+//! propagation `path` native computed when it queued the event. No Godot types
 //! appear here so the whole protocol can be unit tested.
 use serde::Serialize;
 
@@ -58,7 +58,7 @@ pub struct PointerData {
 /// A wheel tick or trackpad pan: the pointer's state plus how far it scrolled. Deltas are in wheel
 /// ticks, one per notch of a discrete wheel and scaled by Godot's `factor` or pan `delta` for smooth
 /// devices; positive is down and right, as in the DOM. Scroll containers turn ticks into pixels
-/// the way Godot's `ScrollContainer` does (plan 3.16).
+/// the way Godot's `ScrollContainer` does.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WheelData {
@@ -69,7 +69,7 @@ pub struct WheelData {
 }
 
 /// A scroll container's position and size: DOM `scrollLeft`, `scrollTop`, `scrollWidth`,
-/// `scrollHeight`, `clientWidth` and `clientHeight` (plan 4.3). The client size is the padding box,
+/// `scrollHeight`, `clientWidth` and `clientHeight`. The client size is the padding box,
 /// the scroll size the client size plus the range the content can move; the offsets of a reversed
 /// axis are zero or negative, as in the DOM.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
@@ -83,7 +83,7 @@ pub struct ScrollData {
     pub client_height: f32,
 }
 
-/// A key press or release (plan 3.14): `key` and `code` follow the DOM (`keymap.rs`), `repeat` is
+/// A key press or release: `key` and `code` follow the DOM (`keymap.rs`), `repeat` is
 /// true for the echoes Godot sends while a key is held.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -91,7 +91,7 @@ pub struct KeyData {
     pub key: String,
     pub code: &'static str,
     pub repeat: bool,
-    /// True while an IME composition is in progress (text input arrives with Phase I7).
+    /// True while an IME composition is in progress.
     pub is_composing: bool,
     #[serde(flatten)]
     pub modifiers: Modifiers,
@@ -106,7 +106,7 @@ pub struct FocusData {
     pub focus_visible: bool,
 }
 
-/// A drag-and-drop event (plan 3.19, 4.3): the pointer's state with `button` -1 and `buttons` 1 while it
+/// A drag-and-drop event: the pointer's state with `button` -1 and `buttons` 1 while it
 /// is held, and the drag it belongs to. `related_target` (in `pointer`) is the other side of a
 /// `dragenter` or `dragleave`.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
@@ -120,7 +120,7 @@ pub struct DragData {
 }
 
 /// `dragend`: how the drag ended. A drag that ended without a drop, or was cancelled, has the effect
-/// `none`; `ended_outside_root` is true only for a release beyond the root (plan 3.19).
+/// `none`; `ended_outside_root` is true only for a release beyond the root.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DragEndData {
@@ -130,7 +130,7 @@ pub struct DragEndData {
     pub ended_outside_root: bool,
 }
 
-/// What an assistive technology can ask of a slider that has no pointer or key gesture (plan 3.21).
+/// What an assistive technology can ask of a slider that has no pointer or key gesture.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum AccessibilityActionKind {
@@ -148,7 +148,7 @@ pub struct AccessibilityActionData {
     pub value: Option<f64>,
 }
 
-/// `beforeinput` (plan 4.3): the edit a text input is about to make, cancelable. `input_type` is the
+/// `beforeinput`: the edit a text input is about to make, cancelable. `input_type` is the
 /// DOM string (`insertText`, `deleteContentBackward`, ...) and `data` the text an insertion carries.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -159,7 +159,7 @@ pub struct BeforeInputData {
 
 /// `input`: a text input's text changed because of an edit. `value` is all of its text, the selection
 /// is in UTF-16 units, and `event_count` is the number a `setTextAndSelection` answering this event
-/// must carry for native to apply it (plan 3.18).
+/// must carry for native to apply it.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InputData {
@@ -215,10 +215,10 @@ pub enum EventPayload {
     Focus(FocusData),
     Blur(FocusData),
     AccessibilityAction(AccessibilityActionData),
-    /// The text selection of the document changed (plan 3.17). Addressed to the root listeners
+    /// The text selection of the document changed. Addressed to the root listeners
     /// (target 0, empty path), not cancelable, no payload: JS asks the root for `getSelection()`.
     /// Coalesced while waiting (`EventQueue::push_selection_change`). `TextInput` selection changes
-    /// (Phase I7) go to their input and carry the input's offsets.
+    /// go to their input and carry the input's offsets.
     #[serde(rename = "selectionchange")]
     DocumentSelectionChange,
     /// Cancelable: a text input is about to make an edit.
@@ -330,7 +330,7 @@ impl DropEffect {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct EventOutcome {
     pub default_prevented: bool,
-    /// What `DataTransfer` settled on for a `dragover` or `drop` (plan 3.19): the effect an accepted
+    /// What `DataTransfer` settled on for a `dragover` or `drop`: the effect an accepted
     /// drop would have, or `none`.
     pub drop_effect: Option<DropEffect>,
 }
@@ -369,7 +369,7 @@ impl EventQueue {
 
     /// Queue a `scroll` event for container `target`. A `scroll` still waiting for JS is updated in
     /// place instead (it keeps its place and sequence number): JS sees where the container is when it
-    /// looks, once, not every step on the way (plan 3.16, "coalesced per container per frame").
+    /// looks, once, not every step on the way ("coalesced per container per frame").
     pub fn push_scroll(
         &mut self,
         target: u32,

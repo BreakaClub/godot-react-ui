@@ -14,7 +14,7 @@ import { fontsOfText } from './demo-fonts';
 import { click, drag, move, typeText } from './verify-text-input';
 
 /**
- * The `code-editor` section of the interaction verifier (docs/tracks/code-editor.md): the lab navigator's code panel in a real window,
+ * The `code-editor` section of the interaction verifier: the lab navigator's code panel in a real window,
  * driven by injected pointer and key events, reading the page back from the snapshot and the pixels.
  *
  * - The grid is measured, not assumed: every run of a line stands at its column times the advance the probe measured.
@@ -122,7 +122,7 @@ const LETTER_Z = 0x5a;
 /** A line shorter than this is a short line, and a press this many columns in is far past its end and still inside the panel. */
 const SHORT_LINE_COLUMNS = 30;
 const PAST_THE_END_COLUMN = 60;
-/** Pointer and scroll (docs/tracks/editor-pointer.md): the characters a drag covers, and the line a press or a drag is made on has at least this many. */
+/** Pointer and scroll: the characters a drag covers, and the line a press or a drag is made on has at least this many. */
 const POINTER_DRAG_COLUMNS = 6;
 const POINTER_LINE_MIN_CHARACTERS = 30;
 /** The keyboard checks start on the first line from this one that begins with a word (past the imports). */
@@ -173,7 +173,7 @@ const UPDATE_DEADLINE_MS = 4_000;
 const WHEEL_TICKS = 6;
 const IDLE_SAMPLES = 8;
 const IDLE_SAMPLE_MS = 250;
-/** Budgets. They are generous for a starved machine; `docs/tracks/code-editor.md` has what was measured. */
+/** Budgets. They are generous for a starved machine has what was measured. */
 const MOUNT_BUDGET_MS = 1_500;
 const COMMIT_CHARS_PER_KEYSTROKE_BUDGET = 3_000;
 const WINDOW_NODE_BUDGET = 900;
@@ -649,7 +649,7 @@ async function verifyTouchSelection(api: CodeEditorInspection, source: string, c
   await toTop(api);
 }
 
-// ---- Pointer and scroll: the sequences of docs/tracks/editor-pointer.md --------------------------------------------------------------------------------
+// ---- Pointer and scroll: the reported sequences --------------------------------------------------------------------------------
 
 interface SelectionOnScreen {
   readonly characters: number;
@@ -674,7 +674,7 @@ function selectionOnScreen(api: CodeEditorInspection): SelectionOnScreen {
 }
 
 /**
- * What Ben saw in the browser: a click mid-file highlighted a slab of text, the next click scrolled, a drag selected a slab and scrolled, and the
+ * What was reported in the browser: a click mid-file highlighted a slab of text, the next click scrolled, a drag selected a slab and scrolled, and the
  * first click after a scroll scrolled again. They have one cause: the editor took the keyboard for its input *before* the input stood at the new
  * caret, and focusing an input brings it into view (as `focus()` does in a browser), so a caret scrolled out of view by the wheel pulled the
  * editor back to it from under the press, and the pointer's next move was then over other text. Each sequence is made with the pointer and the
@@ -861,7 +861,7 @@ export async function verifyCodeEditor(owner: Node, api: CodeEditorInspection, c
   }
   await waitUntil('the caret', () => hasNode(api, 'code-caret'));
   const mountMs = nowMs() - openedAt;
-  // The panel is there, editable, while the lab is compiled; the page is the bundled lab until the compiled one is ready (docs/tracks/live-compile-async.md).
+  // The panel is there, editable, while the lab is compiled; the page is the bundled lab until the compiled one is ready.
   assert(textOf(api, 'code-status-run').startsWith('Compiling') || textOf(api, 'code-status-run').startsWith('Live.'), `The status bar says the lab is compiling, or already live: ${textOf(api, 'code-status-run')}`);
   await waitUntil('the lab to be compiled and live', () => textOf(api, 'code-status-run').startsWith('Live.'), UPDATE_DEADLINE_MS, () => `The status bar says: ${textOf(api, 'code-status-run')}`);
   facts.mountMs = round(mountMs, TENTH);

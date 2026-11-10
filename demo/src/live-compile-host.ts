@@ -34,8 +34,7 @@ export const PROJECT_RESOURCE = 'res://live-compile/project.json';
  * The compiler and the checker of one project, behind the same typed calls wherever they run. **No call waits for the service
  * thread.** Calls that change the project (`setFile`, `setFiles`) return at once; `compile`, `requestCheck`, `hover` and `inlayHints`
  * return a promise that is settled on a frame after the service thread has answered, and the frame goes on meanwhile. A browser
- * starts the service thread only when the page's own thread returns to its event loop, so a call that waited for it could stall the page
- * (docs/tracks/live-compile-async.md).
+ * starts the service thread only when the page's own thread returns to its event loop, so a call that waited for it could stall the page.
  */
 export interface LiveCompileHost {
   /**
@@ -118,7 +117,7 @@ class GodotLink implements ServiceLink {
 /** The extension's host, or an error that says how to get the extension. */
 export function openExtensionHost(): ExtensionHost {
   // Ask the engine before naming the class. A build without the extension has no such class, and on the Web naming a class the engine lacks makes the engine log
-  // `godot class not found` as an error, caught or not: a Web export with no live-compile module for its profile (docs/tracks/stock-web.md) would then fail a verifier
+  // `godot class not found` as an error, caught or not: a Web export with no live-compile module for its profile would then fail a verifier
   // for a read-only panel that works. The class is also a property of the engine's module only when the extension loaded.
   if (!ClassDB.classExists('LiveCompile') || typeof LiveCompile !== 'function') {
     throw new Error('The live-compile extension is not loaded: natively, run "node scripts/build-live-compile.mjs" and import the project once (pnpm demo does); on the Web, run "node scripts/build-live-compile-web.mjs" for the profile (--engine=stock for stock) and "pnpm build:web --export-only"');

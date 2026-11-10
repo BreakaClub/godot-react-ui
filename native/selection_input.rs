@@ -1,4 +1,4 @@
-//! Text selection in the mounted tree (plan section 3.17): the glue between the Godot-free selection
+//! Text selection in the mounted tree: the glue between the Godot-free selection
 //! model (`selection.rs`, `text_offsets.rs`), the text geometry over Godot's paragraphs
 //! (`text_layout.rs`), the pointer and key handlers, the content items that paint the highlight and the
 //! event queue.
@@ -6,14 +6,14 @@
 //! The document selection is one `TextSelection` per root. A [`Document`] (the `Text` nodes in document
 //! order, with their length and whether `userSelect` lets them be selected) and a [`GodotTextLayout`] are
 //! built when a gesture, a key or a query needs them and dropped when it is answered; neither is kept, and
-//! neither is built on a commit path (plan 3.2 invariant 6). A commit calls [`ReactUiRoot::selection_node_changed`]
+//! neither is built on a commit path. A commit calls [`ReactUiRoot::selection_node_changed`]
 //! for each `Text` whose text changed or which was removed, which is proportional to the change.
 //!
 //! What each node paints is the code point range it has selected (`SelectionState::ranges`); the content
 //! item records it under the paragraph, so the highlight scrolls with its content and is clipped by the
 //! containers around it for free. A change of the selection marks the nodes whose range changed dirty.
 //!
-//! Gestures (mouse only; plan 3.12 rule 5, after capture, scrollbar thumbs and drag): a primary press on
+//! Gestures (mouse only; after capture, scrollbar thumbs and drag): a primary press on
 //! selectable text collapses the selection at the pointer, a double click selects the word, a triple
 //! click the node's text and Shift extends the current selection; moving the mouse with the button down
 //! extends it. A pointer that is not over selectable text extends to the start of the first selectable
@@ -316,9 +316,9 @@ impl ReactUiRoot {
     }
 
     /// The cursor over element `tag` when nothing set one: `text` over selectable text and text inputs,
-    /// else `default` (plan 3.20).
+    /// else `default`.
     pub(crate) fn unset_cursor_of(&self, tag: u32) -> CursorSpec {
-        // A text input shows the text cursor too (plan 3.20).
+        // A text input shows the text cursor too.
         let is_text_input = self
             .mounted
             .nodes
@@ -600,7 +600,7 @@ impl ReactUiRoot {
     // ---- Pointer ---------------------------------------------------------------------------------
 
     /// Whether the mouse's pointer is captured by an element (`setPointerCapture`): the press belongs to
-    /// that element, not to a text selection (plan 3.12 rule 1).
+    /// that element, not to a text selection.
     pub(crate) fn mouse_is_captured(&self) -> bool {
         self.pointers.captured_by_js(MOUSE_POINTER_ID)
     }
@@ -669,7 +669,7 @@ impl ReactUiRoot {
         }
         self.selecting.dragging = true;
         // Starting a selection takes Godot key focus for the root without focusing an element, so
-        // `ui_copy` reaches it (plan 3.11).
+        // `ui_copy` reaches it.
         if self.base().is_inside_tree() && !self.base().has_focus() {
             self.base_mut().grab_focus();
         }
@@ -761,8 +761,8 @@ impl ReactUiRoot {
     /// The default action of a key press for the document selection: `ui_copy` copies it and
     /// `ui_text_select_all` selects all selectable text. Also accepts both `Ctrl` and `Meta` (`Cmd`)
     /// with `Key::C` and `Key::A` so `Ctrl+C` and `Cmd+C` work on every platform and in every browser.
-    /// Returns whether it acted, which decides if the key is consumed (plan 3.11). A focused
-    /// `TextInput` (Phase I7) owns these keys for its own text and must be excluded here.
+    /// Returns whether it acted, which decides if the key is consumed. A focused
+    /// `TextInput` owns these keys for its own text and must be excluded here.
     pub(crate) fn run_selection_key(&mut self, key: &Gd<InputEventKey>, echo: bool) -> bool {
         if echo {
             return false;
@@ -869,7 +869,7 @@ impl ReactUiRoot {
     }
 
     /// Whether a primary press must not release Godot key focus: a selection holds it for the keys
-    /// that copy and select (plan 3.11).
+    /// that copy and select.
     pub(crate) fn selection_holds_key_focus(&self) -> bool {
         self.selecting.is_active()
     }

@@ -42,7 +42,7 @@ export interface InteractionInspection extends DemoInspection {
   surfaceAttached(attached: boolean): void;
   profile(enabled: boolean): void;
   takeProfile(): { js: RendererProfile; native: NativeProfile };
-  /** Render the F4 benchmark fixture in place of the app. */
+  /** Render the benchmark fixture in place of the app. */
   benchmark(props: BenchmarkProps): void;
   /** Render a page in place of the app: the pass-through HUD, the pointer lab. */
   showLab(name: LabName): void;
@@ -50,7 +50,7 @@ export interface InteractionInspection extends DemoInspection {
   showLayoutUtilities(page: LayoutUtilitiesPage): void;
   /** A lab compiled from its source, mounted and kept up to date as the source changes (the `live-compile` section). */
   openLiveSession(labId: string, exportName: string): LiveSession;
-  /** The page's live-compile service and the hooks that try it (`verify-live-compile.ts`, docs/tracks/live-compile-async.md). */
+  /** The page's live-compile service and the hooks that try it (`verify-live-compile.ts`). */
   liveCompile(): ExtensionHost;
   restartLiveCompile(): void;
   holdLiveCompileThreads(count: number): number;
@@ -58,7 +58,7 @@ export interface InteractionInspection extends DemoInspection {
   /** The labs in the navigator's order. */
   labs(): readonly { readonly id: string; readonly title: string; readonly kind: string }[];
   showPaintPage(page: string): void;
-  /** The filters lab, rendered again with new props (plan Phase V1). */
+  /** The filters lab, rendered again with new props. */
   showFilters(props: FiltersLabProps): void;
   /** One page of the text styles lab, and the lines of a text as the native layout has them (`ReactUiRoot.getTextLines`). */
   showTextStyles(page: string): void;
@@ -163,7 +163,7 @@ const CARD_REST_COLOR = '#ffffff';
 const MAX_TAB_STEPS = 40;
 /** The pad's paint at rest: indigo-50 (`hover:` is indigo-100). */
 const PAD_REST_COLOR = '#eef2ff';
-/** The touch indices of the multi-touch test and the pointer ids they get (plan: base 2). */
+/** The touch indices of the multi-touch test and the pointer ids they get. */
 const FIRST_TOUCH = 0;
 const SECOND_TOUCH = 1;
 const FIRST_TOUCH_ID = 2;
@@ -537,7 +537,7 @@ function counts(api: InteractionInspection): PassthroughCounts {
 }
 
 /**
- * Plan I1: the root cooperates with Godot. Empty space and `pointer-events: none` regions belong to
+ * The root cooperates with Godot. Empty space and `pointer-events: none` regions belong to
  * the Controls underneath; keys, Tab and wheel ticks belong to the game unless React used them.
  */
 async function verifyGodotCooperation(owner: Node, api: InteractionInspection, capture: (name: string) => Promise<void>): Promise<void> {
@@ -731,7 +731,7 @@ async function verifyGodotCooperation(owner: Node, api: InteractionInspection, c
 }
 
 /**
- * Plan I2: the pointer model. Every mouse button, click counting, touch pointers with the engine's
+ * The pointer model. Every mouse button, click counting, touch pointers with the engine's
  * emulation left on, multi-touch, cancel, capture, and the root leaving the tree mid-press.
  */
 async function verifyPointers(owner: Node, api: InteractionInspection, capture: (name: string) => Promise<void>): Promise<void> {
@@ -942,7 +942,7 @@ async function verifyPointers(owner: Node, api: InteractionInspection, capture: 
   assert(!api.snapshot().pointers.some(entry => entry.down), 'No pointer is left down');
   assert(padTally(api).cancels >= 1, 'The pad saw the cancel too');
 
-  // Plan D6: the window losing OS focus cancels a press in flight. A verifier window is isolated from the
+  // The window losing OS focus cancels a press in flight. A verifier window is isolated from the
   // window system (it cannot lose focus it never had), so the notification the engine would send is delivered
   // directly: the press ends with a pointercancel, and the release that follows clicks nothing.
   await reset();
@@ -971,7 +971,7 @@ async function verifyPointers(owner: Node, api: InteractionInspection, capture: 
 }
 
 /**
- * Plan I3: focus and keyboard. Tab follows document order, the ring and `:focus-visible` mark keyboard
+ * Focus and keyboard. Tab follows document order, the ring and `:focus-visible` mark keyboard
  * focus only, key events carry DOM `key`/`code`/`repeat`, Enter and Space activate a button without
  * pointer events, a JS focus trap holds, and `focus()` follows (or forces) the input modality.
  */
@@ -1160,7 +1160,7 @@ async function verifyKeyboard(owner: Node, api: InteractionInspection, capture: 
 }
 
 /**
- * Phase 1 to F4: capture and bubble, preventDefault, synchronous dispatch, enter and leave chains, and the
+ * Capture and bubble, preventDefault, synchronous dispatch, enter and leave chains, and the
  * re-entrancy rules (a handler removes its own target, detaches the root, unmounts it), then what dispatch costs.
  */
 async function verifyEvents(
@@ -1248,7 +1248,7 @@ async function verifyEvents(
   assert(api.find('self-remove'), 'The removed button can be restored');
 
   // A commit that removes the element focus is on, from inside its own click, leaves nothing focused and the root
-  // gives Godot key focus back (plan 3.11, D11): the dialog that closes from its button is the usual case.
+  // gives Godot key focus back: the dialog that closes from its button is the usual case.
   await click(api, 'click-remove');
   assert(!api.find('click-remove'), 'The click handler removed the button it had focused');
   assert(focused() === null, `Nothing is focused: ${focused()}`);
@@ -1363,7 +1363,7 @@ function tabStops(api: DemoInspection, prefix: string): string[] {
 }
 
 /**
- * Plan I4: `position`, insets and `zIndex`, and the overlay layer. Paint order follows document order and then
+ * `position`, insets and `zIndex`, and the overlay layer. Paint order follows document order and then
  * `zIndex` among what one parent paints; an absolute box is painted and clipped by its containing block, not its
  * parent; a fixed one by nothing but the window; a popover in a `Portal` covers and takes clicks from the content
  * below it and is not clipped by the card it was opened from.
@@ -1554,7 +1554,7 @@ async function verifyPositioning(owner: Node, api: InteractionInspection, captur
   await settle();
 }
 
-// ---- Phase I8: the input kit, rendered by Godot (the Inputs lab) ---------------------------------------------------
+// ---- The input kit, rendered by Godot (the Inputs lab) ---------------------------------------------------
 
 /** What the Inputs lab prints: the one state object all its controls edit. */
 interface InputsReadout {
@@ -1651,7 +1651,7 @@ function paintNear(image: Image, at: Vector2, expected: Color, tolerance: number
 }
 
 /**
- * Plan I8: the kit's inputs in a window. Checkbox, Switch, RadioGroup, Slider and Select edit one state object by
+ * The kit's inputs in a window. Checkbox, Switch, RadioGroup, Slider and Select edit one state object by
  * mouse and keyboard; what the kit notes could only reason about is checked here: the slider thumb sticking out of its
  * track (centred, and hit where it sticks out), the switch's `0 <-> 20` px spacer transition being accepted, the
  * `disabled` opacity reaching the subtree, a radio group that mounts over two commits and follows a reordered list,
@@ -1689,7 +1689,7 @@ async function verifyInputs(owner: Node, api: InteractionInspection, capture: (n
   };
   const overflowing = ['inputs-slider-thumb'];
 
-  // A fact the kit's choice of dependencies rested on (docs/tracks/select-anchor.md): react-stately's slider and select
+  // A fact the kit's choice of dependencies rested on: react-stately's slider and select
   // state use Intl.NumberFormat and Intl.ListFormat. Recorded, not asserted: the kit does not use them.
   const intl: unknown = Reflect.get(globalThis, 'Intl');
   const intlMember = (name: string): string => (isRecord(intl) ? typeof intl[name] : 'no Intl');
@@ -2103,7 +2103,7 @@ async function verifyInputs(owner: Node, api: InteractionInspection, capture: (n
 
 /** A wheel tick scrolls a container's client size divided by this (`SCROLL_PAGE_DIVISOR` in native/scroll.rs). */
 const SCROLL_PAGE_DIVISOR = 8;
-/** The overlay scrollbar's geometry (native/scroll.rs `SCROLLBAR_*`, plan Appendix A). */
+/** The overlay scrollbar's geometry (native/scroll.rs `SCROLLBAR_*`). */
 const SCROLLBAR_THICKNESS = 6;
 const SCROLLBAR_MARGIN = 2;
 const SCROLLBAR_MIN_THUMB = 24;
@@ -2150,7 +2150,7 @@ function ticksRemainder(max: number, tick: number): number {
 }
 
 /**
- * Plan I5: scroll containers. Wheel, trackpad pan, keys, scrollbar thumbs, touch pans with momentum, chaining and
+ * Scroll containers. Wheel, trackpad pan, keys, scrollbar thumbs, touch pans with momentum, chaining and
  * `overscroll-behavior`, clipping, hit testing in scrolled content, re-clamping after layout, the handle's commands,
  * and the counters that say scrolling touches nothing but the scrolled container.
  */
@@ -2567,7 +2567,7 @@ async function verifyScrolling(owner: Node, api: InteractionInspection, capture:
   assert(top('touch-list') === scrolledBefore && api.pointerCancels() === 0, 'touch-action: none keeps a touch from panning');
   assert(/moves [1-9]\d*, cancels 0/.test(touchStatus()) && /down 1/.test(touchStatus()), `The pad gets pointermove instead: ${touchStatus()}`);
 
-  // A pointer JS captured is its element's: no pan for a finger, no thumb drag for the mouse (plan 3.12 rule 1, D33).
+  // A pointer JS captured is its element's: no pan for a finger, no thumb drag for the mouse.
   const captureStatus = () => text(api, 'capture-status');
   const captureMoves = () => Number(/moves (\d+)/.exec(captureStatus())?.[1]);
   assert(scrollOf('capture-list').maxScrollTop > 0 && top('capture-list') === 0, 'The captured list has something to scroll');
@@ -2742,14 +2742,14 @@ function glyphArea(rect: LayoutRect): LayoutRect {
 }
 
 /**
- * Plan I6: text selection. `select-text` opts text in and `select-none` opts a part of it out; a click collapses,
+ * Text selection. `select-text` opts text in and `select-none` opts a part of it out; a click collapses,
  * a double click selects a word, a triple click the node's text, a drag extends (across paragraphs, skipping
  * `select-none` text, and past the ends), Shift+click extends; a Button, an element that captured the pointer or
  * prevented `pointerdown`, and text with no `select-text` start nothing and clear what was selected. The root
  * takes key focus with a selection and gives it back when the selection goes; Cmd/Ctrl+C copies and Cmd/Ctrl+A
  * selects all; a change of the text, or removal, of what is selected clears it; the highlight is drawn under the
  * text and scrolls and clips with its list. The keys are injected from the verifier's own device and still copy and select all:
- * the root matches those `InputMap` actions as the keyboard's, whatever device a key came from (D44 T3).
+ * the root matches those `InputMap` actions as the keyboard's, whatever device a key came from.
  */
 async function verifySelection(owner: Node, api: InteractionInspection, capture: (name: string) => Promise<void>): Promise<void> {
   const left = MouseButton.MouseButtonLeft;
@@ -3118,7 +3118,7 @@ function barePage(owner: Node, size: Vector2, snapshot: NativeSnapshot): Vector2
 }
 
 /**
- * Plan I9: drag and drop. Arbitration (a press that moves on, a touch that is held, a prevented or captured
+ * Drag and drop. Arbitration (a press that moves on, a touch that is held, a prevented or captured
  * `pointerdown`, a prevented `dragstart`), the event sequence and its outcomes, reordering and moving cards between
  * columns, a target that takes only `move`, effect negotiation and the cursor, Escape, a release beyond the root,
  * the ghost in the raster, edge auto-scroll and the target following a scroll under a stationary pointer, the
@@ -3458,7 +3458,7 @@ async function verifyDragging(owner: Node, api: InteractionInspection, capture: 
   await release(point(api, 'card-e'));
   assert(api.snapshot().hovered === idOf('card-e'), `The hover catches up when the drag is over: ${api.snapshot().hovered}`);
 
-  // ---- Text inside a draggable element starts no selection (plan 3.12: a draggable comes before selection) ---------------
+  // ---- Text inside a draggable element starts no selection (a draggable comes before selection) ---------------
   await click(api, 'selectable-plain');
   assert(api.selection() !== undefined, 'A click on select-text that is not in a draggable element selects (the control)');
   const selectableText = point(api, 'selectable-text');
@@ -3618,7 +3618,7 @@ async function verifyDragging(owner: Node, api: InteractionInspection, capture: 
   await settle();
 }
 
-/** The sections of this verifier, in the order they run (plan 0.4.1: `--only=<name>[,<name>]` runs just those; `scripts/verifier-sections.mjs`). */
+/** The sections of this verifier, in the order they run (`--only=<name>[,<name>]` runs just those; `scripts/verifier-sections.mjs`). */
 type Section = (typeof NATIVE_INTERACTION_SECTIONS)[number];
 
 /** What the run's arguments ask for: the sections to run and the ones a partial run leaves out. An unknown name is an error: a typo must not skip a section. */

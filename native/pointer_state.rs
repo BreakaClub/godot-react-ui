@@ -1,21 +1,21 @@
-//! Per-pointer state: one record per active pointer id, pointer capture and click counting (plan
-//! section 3.12). Nothing here touches the engine's scene or input singletons, so every rule is unit
+//! Per-pointer state: one record per active pointer id, pointer capture and click counting.
+//! Nothing here touches the engine's scene or input singletons, so every rule is unit
 //! tested; `pointer_input.rs` feeds it from Godot's events.
 
 use std::collections::BTreeMap;
 
 use godot::prelude::Vector2;
 
-/// Browsers report the mouse as pointer 1; touches follow, one id per Godot touch index (plan 3.12).
+/// Browsers report the mouse as pointer 1; touches follow, one id per Godot touch index.
 /// Pointer 0 is reserved for synthetic keyboard activation (`pointer::KEYBOARD_POINTER_ID`).
 pub(crate) const TOUCH_POINTER_ID_BASE: u32 = 2;
 /// A press continues a click sequence if it follows the previous one within this long. The common OS
-/// double-click default; Godot exposes no interval API (plan Appendix A).
+/// double-click default; Godot exposes no interval API.
 pub(crate) const CLICK_COUNT_INTERVAL_MS: f64 = 500.0;
-/// ... and lands within this many logical pixels of the sequence's first press (plan Appendix A).
+/// ... and lands within this many logical pixels of the sequence's first press.
 pub(crate) const CLICK_COUNT_SLOP_PX: f32 = 4.0;
 
-/// The kind of device a pointer is. Pen input is reported as a mouse (plan 2.3).
+/// The kind of device a pointer is. Pen input is reported as a mouse.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PointerKind {
     Mouse,
@@ -146,7 +146,7 @@ impl PointerTable {
     }
 
     /// Record the press of `button` on `press.target`. A touch contact is captured to its target
-    /// from the start (plan 3.12). `buttons` is the DOM mask after the press.
+    /// from the start. `buttons` is the DOM mask after the press.
     pub(crate) fn press(
         &mut self,
         id: u32,
@@ -257,7 +257,7 @@ impl PointerTable {
 
     /// Whether an element asked for pointer `id` (`setPointerCapture`), as opposed to a touch's own
     /// implicit capture to its `pointerdown` target. A pointer JS took starts no gesture of native's
-    /// (plan 3.12 rule 1: no pan, no scrollbar thumb drag, no drag and drop, no selection).
+    /// (no pan, no scrollbar thumb drag, no drag and drop, no selection).
     pub(crate) fn captured_by_js(&self, id: u32) -> bool {
         self.get(id)
             .and_then(|record| record.capture)

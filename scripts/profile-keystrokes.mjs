@@ -1,5 +1,5 @@
 // Types into the code panel of the demo, in a real (quiet) window, with a client of GodotJS's V8 inspector attached, and keeps a V8 CPU profile of
-// the keystrokes (docs/tracks/keystroke-profile.md). Only the Profiler domain is used: the Debugger domain deoptimises.
+// the keystrokes. Only the Profiler domain is used: the Debugger domain deoptimises.
 //
 //   node scripts/profile-keystrokes.mjs [--site=attribute|function] [--warmup=200] [--bursts=25] [--inserts=8]
 //                                       [--cpu=25|off|enabled] [--coverage] [--standalone] [--no-inspector] [--bench] [--move] [--out=<directory>] [--demo=<directory>] [--engine=stock]

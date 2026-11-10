@@ -1,4 +1,4 @@
-// Key chords that nothing in the UI claims go to the browser (docs/tracks/key-passthrough.md).
+// Key chords that nothing in the UI claims go to the browser.
 //
 // Godot's Web input listens for `keydown` and `keyup` on the canvas and calls `preventDefault()` on every one (`GodotInput.onKeyEvent`,
 // `platform/web/js/libs/library_godot_input.js`; the input method's element does the same), so a page built on it can use no browser

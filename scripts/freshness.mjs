@@ -3,7 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameS
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 
 /**
- * The freshness guard (docs/tracks/freshness.md): a build records what it was made from, and a run compares that with
+ * The freshness guard: a build records what it was made from, and a run compares that with
  * the working tree before it uses the build.
  *
  * What a build is made from is the *content* of its inputs, never their modification times. Cargo decides what to
@@ -16,7 +16,7 @@ import { basename, dirname, join, relative, resolve, sep } from 'node:path';
  * `digest` and `inputs`. It also says what the build is bound to, in one of two forms. A Web side module records `engine`, the profile
  * whose Emscripten and templates it was linked for. A native build records `binding`, the Godot API (`api`, a version) and the hash
  * of the dump pair (`dump`) it was compiled against, never a profile: one native build serves every engine at least as new as its API
- * (scripts/native-binding.mjs, docs/tracks/single-build.md). The same stamp is written beside cargo's own output, which is how a build
+ * (scripts/native-binding.mjs). The same stamp is written beside cargo's own output, which is how a build
  * knows whether cargo's cache can be trusted (`prepareTarget`), and inside a Web export's receipt.
  */
 

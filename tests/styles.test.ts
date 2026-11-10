@@ -4,7 +4,7 @@ import { compileStyle, sameStyleProp, StyleSheet, styleKey } from '../src/styles
 import type { Style, StyleProp } from '../src/types';
 import { checkFixture } from './fixtures';
 
-// ---- compileStyle (Phase F2): ordered layers for native resolution ----
+// ---- compileStyle: ordered layers for native resolution ----
 
 function layersOf(className: string, style?: StyleProp) {
   return compileStyle(className, style).layers;

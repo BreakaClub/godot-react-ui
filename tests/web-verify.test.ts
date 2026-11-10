@@ -13,7 +13,7 @@ import { presetTemplate, webContentInputs, webSourcePaths } from '../scripts/web
 import { startExportServer } from '../scripts/web-server.mjs';
 import { passedLine, servedAssetProblems, startVerificationServer, writeEvidence } from '../scripts/web-verify.mjs';
 
-// Which server a Web verifier talks to and what it is shown (docs/tracks/verifier-integrity.md, findings 2, 3 and 7).
+// Which server a Web verifier talks to and what it is shown.
 
 const sha = (text: string): string => createHash('sha256').update(text).digest('hex');
 

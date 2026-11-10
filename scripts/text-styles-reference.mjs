@@ -1,6 +1,5 @@
 // The text styles lab (demo/src/text-styles-data.ts) as plain HTML with the CSS Tailwind 3.4.17 makes of its classes
-// (scripts/text-styles-reference.css), rendered by headless Chrome through Puppeteer, to compare with what the library draws
-// (docs/tracks/utilities-text.md).
+// (scripts/text-styles-reference.css), rendered by headless Chrome through Puppeteer, to compare with what the library draws.
 //
 //   node --import tsx scripts/text-styles-reference.mjs [--out=<dir>] [--page=<id>[,<id>]] [--smoothing=antialiased]
 //       Renders each page to <dir>/chrome-<page>-dpr<N>.png and writes <dir>/chrome-<page>-dpr<N>.json with, for each text, its
@@ -238,7 +237,7 @@ function oneLineArrays(json) {
 
 async function golden(outDirectory) {
   await render(outDirectory, undefined);
-  // The ink is Chrome's with `-webkit-font-smoothing: antialiased`, which is the look the library has (docs/tracks/utilities-text.md).
+  // The ink is Chrome's with `-webkit-font-smoothing: antialiased`, which is the look the library has.
   await render(outDirectory, undefined, 'antialiased');
   await render(outDirectory, FRACTIONAL_PAGES, 'default', [FRACTIONAL_VIEWPORT]);
   await render(outDirectory, FRACTIONAL_PAGES, 'antialiased', [FRACTIONAL_VIEWPORT]);
@@ -309,7 +308,7 @@ const INK_FLOOR = 8;
 const CELL_MARGIN = 2;
 /**
  * How far the ink of all the texts of a window may be from Chrome's with `-webkit-font-smoothing: antialiased`, as a share of it. Ours is
- * 0.2 to 0.5 % from it at both ratios (docs/tracks/utilities-text.md); Chrome's default smoothing is 12 to 15 % above it, so this band tells the two
+ * 0.2 to 0.5 % from it at both ratios; Chrome's default smoothing is 12 to 15 % above it, so this band tells the two
  * looks apart, and a glyph drawn at the wrong scale (a quarter of the ink or more, either way) fails it.
  */
 const INK_BAND = 0.03;

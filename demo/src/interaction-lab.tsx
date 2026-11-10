@@ -306,7 +306,7 @@ function ExplainedLab() {
   );
 }
 
-/** The interaction lab: the playground's tab when `embedded`, else a page of the navigator that explains each case (Phase I5). */
+/** The interaction lab: the playground's tab when `embedded`, else a page of the navigator that explains each case. */
 export function InteractionLab({ embedded = false }: InteractionLabProps) {
   return embedded ? <EmbeddedLab /> : <ExplainedLab />;
 }

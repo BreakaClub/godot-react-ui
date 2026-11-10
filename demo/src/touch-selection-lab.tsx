@@ -38,7 +38,7 @@ interface Range {
 }
 
 /**
- * Touch text selection (docs/tracks/touch-selection.md): press and hold a word of the card, the field, the text area or the list to
+ * Touch text selection: press and hold a word of the card, the field, the text area or the list to
  * select it, drag the handles, tap Copy or Select All in the menu, tap elsewhere to clear. The readout is the document's selection and
  * each field's, as JSON, which the verifiers parse. A draggable card holds selectable text and drags when held: the hold is the drag's. The two toggles change what the menu may offer: a read-only field has no Cut or
  * Paste, and a card that is not selectable has nothing to hold.

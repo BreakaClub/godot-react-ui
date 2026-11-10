@@ -783,7 +783,7 @@ pub(crate) struct Placement {
 pub(crate) struct NodeTransform {
     /// The 4 x 4 matrix about the origin, as CSS defines it, in f64 and in euclid's row-vector layout (`m41` is the
     /// x translation). The canvas uses [`Self::placement`]; a perspective pass reads this (see the accessors below,
-    /// which are what `docs/tracks/transforms-3d-feasibility.md` asks the matrix path to expose).
+    /// which are what the matrix path needs to expose).
     #[allow(dead_code)]
     pub matrix: Transform3D<f64>,
     pub placement: Placement,
@@ -1412,7 +1412,7 @@ mod tests {
         evaluate(list.computed(), None, Vector2::new(width, height)).expect(css)
     }
 
-    /// What `docs/tracks/transforms-3d-feasibility.md` asks the matrix path to expose, for the matrices it can hold today.
+    /// What the matrix path needs to expose, for the matrices it can hold today.
     #[test]
     fn the_matrix_path_exposes_the_class_the_homography_the_magnification_and_the_orientation() {
         assert_eq!(

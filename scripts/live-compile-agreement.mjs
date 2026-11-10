@@ -1,5 +1,5 @@
 // Does Bun's checker report what `tsc` reports? Checks every lab of the live project (demo/live-compile/project.json) and a
-// set of edits that break one, with both, and compares the diagnostics (docs/tracks/live-compile.md).
+// set of edits that break one, with both, and compares the diagnostics.
 //
 //   node scripts/live-compile-agreement.mjs [--cli=<path>]
 //

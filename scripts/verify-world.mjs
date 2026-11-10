@@ -5,7 +5,7 @@ import { importDemo } from './import-demo.mjs';
 import { selectEngine } from './engine.mjs';
 import { runNativeVerifiers, summarizeRuns } from './native-run.mjs';
 
-// Phase I11: the world-space panel (docs/WORLD_SPACE.md). Godot runs a scene other than the project's main
+// The world-space panel (docs/WORLD_SPACE.md). Godot runs a scene other than the project's main
 // scene when its path follows the project options; arguments for the scripts follow `--`.
 rejectUnknownArguments(process.argv.slice(2), { flags: ['--no-retry', '--serial'] });
 const root = resolve(import.meta.dirname, '..');

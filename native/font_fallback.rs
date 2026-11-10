@@ -1,4 +1,4 @@
-//! Fonts for the characters no font has, found when the text that has them first appears (docs/tracks/font-slices.md).
+//! Fonts for the characters no font has, found when the text that has them first appears.
 //!
 //! The root notices the characters of a paragraph that none of its fonts has (`missing_glyphs.rs`) as it builds the paragraph. What happens next depends on
 //! where the root is:

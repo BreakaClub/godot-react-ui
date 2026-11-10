@@ -6,7 +6,7 @@ import { rejectUnknownArguments } from './arguments.mjs';
 import { selectEngine } from './engine.mjs';
 import { startVerificationServer } from './web-verify.mjs';
 
-// Captures every lab of the navigator, whole, as a person sees it on a phone and on a desktop (docs/tracks/lab-clarity.md), in headless
+// Captures every lab of the navigator, whole, as a person sees it on a phone and on a desktop, in headless
 // Chrome through puppeteer-core (the DevTools protocol: no OS input, no focus). Each lab is scrolled through its content area one screen at a
 // time and the screens are laid together, so a lab longer than the window is one image. Window labs are shown in their window, and the scene
 // lab by its launch card and then the scene.
@@ -27,7 +27,7 @@ if (command === undefined) throw new Error(`The first argument is one of ${COMMA
 const argumentValue = (name) => process.argv.find((argument) => argument.startsWith(`--${name}=`))?.slice(name.length + 3);
 const list = (name) => argumentValue(name)?.split(',').filter((entry) => entry !== '');
 
-/** Chrome's mobile emulation of Ben's phone (412 x 915 CSS pixels at a pixel ratio of 2.625), and a laptop browser window. */
+/** Chrome's mobile emulation of an Android phone (412 x 915 CSS pixels at a pixel ratio of 2.625), and a laptop browser window. */
 const FACTORS = {
   phone: { width: 412, height: 915, deviceScaleFactor: 2.625, mobile: true },
   desktop: { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false },

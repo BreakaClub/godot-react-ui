@@ -4,7 +4,7 @@ index 0000000..f420063
 --- /dev/null
 +++ b/native/detail.rs
 @@ -0,0 +1,62 @@
-+//! Diagnostic phase timers (docs/tracks/keystroke-profile.md). Not part of the library: a build with this file is a measuring build.
++//! Diagnostic phase timers. Not part of the library: a build with this file is a measuring build.
 +use std::cell::{Cell, RefCell};
 +use std::collections::BTreeMap;
 +use std::time::Instant;
@@ -258,7 +258,7 @@ index b32d3c1..ee505ba 100644
          self.settle_key_focus();
 +        drop(timer);
          // What is exposed may have changed in any way a commit can change the tree; pruning is a
-         // no-op until an assistive technology has asked for the tree (plan 3.21).
+         // no-op until an assistive technology has asked for the tree.
 +        let timer = crate::detail::timer("mount.accessibility");
          self.accessibility.mark_structure_dirty();
          self.prune_accessibility();

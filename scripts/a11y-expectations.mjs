@@ -9,16 +9,16 @@ const FRAME_TOLERANCE = 2;
 const SCALE_RANGE = [0.4, 2.6];
 const CONTAINMENT_SLACK = 2;
 /**
- * What the engine cannot convey, found by reading the real macOS tree (stock Godot 4.7.2 with AccessKit, docs/tracks/stock-engine.md).
+ * What the engine cannot convey, found by reading the real macOS tree (stock Godot 4.7.2 with AccessKit).
  * An element with an `engineGap` may be absent; when it is, the check says so as a note, never silently.
  * - A group: the engine's `AccessibilityRole` has no group or radio group, only a generic container, and AccessKit leaves
  *   a generic container out of the platform tree (its children move up to the nearest element that is in it). The role
  *   the engine does have, `PANEL`, appears as `AXUnknown` with its title, not as `AXGroup`.
  * - The mixed state: `update_set_checked` takes a bool, so the platform reads a mixed checkbox as unchecked, and the
  *   state description native sets with it ("mixed") reaches no attribute the Accessibility API exposes.
- * - A scroll view (plan D38): AccessKit's macOS adapter has no scroll area role, so a SCROLL_VIEW is `AXUnknown` (a stock
+ * - A scroll view: AccessKit's macOS adapter has no scroll area role, so a SCROLL_VIEW is `AXUnknown` (a stock
  *   Godot `ScrollContainer` is too), it ignores the scroll position and range set on the node (the element has no AXValue,
- *   AXMinValue, AXMaxValue or scroll bar attribute; the position is conveyed by the SCROLL_BAR child elements of plan D42,
+ *   AXMinValue, AXMaxValue or scroll bar attribute; the position is conveyed by the SCROLL_BAR child elements,
  *   which are checked), and macOS has no scroll up, down or set-offset action to advertise (only `AXScrollToVisible`,
  *   which the scroll view's contents do advertise). The adapter also leaves out children that lie a little beyond the
  *   viewport's edge. What it does convey is checked: the children in view, their frames, which follow the scroll, the
@@ -30,7 +30,7 @@ const SCROLL_ROLE_GAP = 'the scroll view reaches the platform as AXUnknown, not 
 const SCROLL_VALUES_GAP = 'the platform exposes no scroll position or range on the scroll view itself (no AXValue, AXMinValue, AXMaxValue or AXVerticalScrollBar): the macOS adapter ignores the scroll properties set on a node, so the position is conveyed by its AXScrollBar children';
 const SCROLL_ACTIONS_GAP = 'the platform advertises no scroll up, down, left, right or set-offset action on the scroll view: macOS has AXScrollToVisible only, which its contents do advertise';
 const SCROLL_CULL_GAP = 'the platform tree leaves out scroll view children that lie beyond a margin outside the viewport, so a child scrolled far out of view is not in it until it comes near';
-/** The one action macOS has for scrolling something into view; D38's `scroll_into_view` is advertised as this. */
+/** The one action macOS has for scrolling something into view; `scroll_into_view` is advertised as this. */
 const SCROLL_TO_VISIBLE = 'AXScrollToVisible';
 /**
  * The actions the macOS adapter advertises, as the recorded tree of the lab shows them (tests/fixtures/ax-lab): a button, a
@@ -51,8 +51,8 @@ export const SCROLL_ITEMS = [
 /** How far (snapshot pixels) a child may poke outside the scroll view and still count as in view. */
 const VIEW_SLACK = 0.5;
 /**
- * A scroll bar (plan D42) is an `AXScrollBar` child of the scroll container's element, after the container's other children,
- * the horizontal bar before the vertical one (the stock `ScrollContainer` and `TextEdit` list theirs so, docs/tracks/scroll-bars.md).
+ * A scroll bar is an `AXScrollBar` child of the scroll container's element, after the container's other children,
+ * the horizontal bar before the vertical one (the stock `ScrollContainer` and `TextEdit` list theirs so).
  * Its value, minimum and maximum are the container's scroll offset and its reachable offsets in Godot pixels (not points), its
  * orientation says which axis it is, and its frame is the track the native snapshot reports. The stock bars have no name and
  * no orientation; this library's has the orientation and no name.
@@ -279,7 +279,7 @@ function checkScrollView(id, node, notes) {
 }
 
 /**
- * The scroll bars of a scroll container (plan D42): `expected.bars` lists the axes that can move, and the container must
+ * The scroll bars of a scroll container: `expected.bars` lists the axes that can move, and the container must
  * have exactly those `AXScrollBar` children, after its other children and in axis order (horizontal first). Each says the
  * container's offset (AXValue) and reachable offsets (AXMinValue, AXMaxValue) as native has them now (`snapshot.scroll`, the
  * native scroll state), has the orientation of its axis and the increment and decrement actions, and has no name. Its frame
@@ -358,8 +358,8 @@ function checkScrollItems(nodes, snapshots, pairs, notes) {
 
 /**
  * The expectation that reads the tree after the change: the Volume slider has platform focus. The platform
- * reports focus only while the application's window is the key window. An unfocusable window (plan D21) never is,
- * and the accessibility lab's is not unfocusable because that empties the platform tree (docs/tracks/stock-engine.md),
+ * reports focus only while the application's window is the key window. An unfocusable window never is,
+ * and the accessibility lab's is not unfocusable because that empties the platform tree,
  * but a window started from a script usually is not key either (it was not in the recorded runs). When it is not,
  * there is nothing to read: the check is skipped, with a note saying why, instead of passing or failing on no
  * evidence.

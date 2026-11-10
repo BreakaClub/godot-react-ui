@@ -11,7 +11,7 @@ export interface CommitNode<Self extends CommitNode<Self>> {
   readonly children: readonly Self[];
 }
 
-/** The `commit(layer, payload_json)` payload: only what changed (plan 3.4, `native/commit.rs`). */
+/** The `commit(layer, payload_json)` payload: only what changed (`native/commit.rs`). */
 export interface CommitPayload {
   /** Nodes new to this root, with their full native props. */
   created: { tag: number; kind: NativeKind; props: NativeProps }[];
@@ -52,7 +52,7 @@ function sameTags(previous: readonly { readonly tag: number }[], next: readonly 
 }
 
 /**
- * Diff a layer's new tree against what native has committed (plan 3.9). Pure, and independent of
+ * Diff a layer's new tree against what native has committed. Pure, and independent of
  * React: persistent mode clones every ancestor of a changed node, so an instance that is identical
  * (`===`) to its committed one has an unchanged subtree and is skipped whole. The walk therefore
  * visits only the changed paths.

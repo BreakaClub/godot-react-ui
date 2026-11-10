@@ -1,8 +1,8 @@
 // What the live-compile extension is made from and where it is installed, shared by the build (`scripts/build-live-compile.mjs`) and every run
 // that loads it (`engine.prepareNative` for all of them, `scripts/verify.mjs` for the `live-compile` section, which needs it). Its freshness is the
-// one the UI library has (scripts/freshness.mjs, docs/tracks/freshness.md): a stamp of the Godot API it is bound to and of the content of its
+// one the UI library has (scripts/freshness.mjs): a stamp of the Godot API it is bound to and of the content of its
 // inputs, compared before a run. Like the UI library it is one native build per platform, bound to `NATIVE_BINDING_API` (scripts/native-binding.mjs)
-// and loaded by both engine profiles (docs/tracks/single-build.md).
+// and loaded by both engine profiles.
 import { existsSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -104,7 +104,7 @@ export const WEB_LIBRARY_NAME = 'live_compile.web.wasm';
 // it (6.0.12 and Breaka's lazy function-table ABI for `breaka`, 4.0.11 for `stock`), and the two cannot load each other's: the stock page cannot read a
 // Breaka module's `dylink.0` section ("unknown dylink.0 subsection: 6", then `__breaka_lazy_register` of undefined). So each profile has its own file, stamp and
 // cargo target directory, the stamp records the profile (like the UI library's Web stamp), and an export contains exactly the module stamped for its own
-// profile, or none (docs/tracks/stock-web.md).
+// profile, or none.
 
 /** The file name of a profile's Web side module. Breaka's keeps the name it always had. */
 export const webLibraryNameOf = engine => engine.name === 'breaka' ? WEB_LIBRARY_NAME : `live_compile.web.${engine.name}.wasm`;

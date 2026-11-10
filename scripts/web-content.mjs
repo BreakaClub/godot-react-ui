@@ -5,8 +5,8 @@ import { resolve } from 'node:path';
 import { collectContentInputs } from './freshness.mjs';
 
 /**
- * What a Web export's pack, HTML shell and engine template are made from, as the freshness guard sees it
- * (docs/tracks/verifier-integrity.md, finding 3). `freshness.mjs` covers the Rust side module; the rest of an export is
+ * What a Web export's pack, HTML shell and engine template are made from, as the freshness guard sees it.
+ * `freshness.mjs` covers the Rust side module; the rest of an export is
  * the demo's resources and compiled scripts (the pack), `web-shell.html`, and the engine template zip the preset names. A
  * Web verifier that ran an export older than any of them judged old JavaScript.
  *

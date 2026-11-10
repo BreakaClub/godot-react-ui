@@ -1,5 +1,5 @@
 // The whole transforms lab page (demo/src/transform-lab.tsx: the stage, the results under it, the case list and the caption) as plain HTML with the CSS a browser developer
-// would write, rendered by headless Chrome through Puppeteer at a phone's size and at a desktop's, to compare with what the library draws (docs/tracks/transforms-lab.md).
+// would write, rendered by headless Chrome through Puppeteer at a phone's size and at a desktop's, to compare with what the library draws.
 // Every case of the lab is here, not only the shapes `scripts/transform-reference.mjs` compares pixel by pixel.
 //
 //   node --import tsx scripts/transform-lab-reference.mjs --render [--out=<dir>] [--offsets=<file>]
@@ -33,7 +33,7 @@ const TAPPED = { id: 'hit-tapped' };
 /** Every case in the order the lab lists them, and the tapped hit page. */
 const allOptions = () => [...caseOptions(), { ...caseOptions().find(option => option.id === 'hit'), id: TAPPED.id }];
 
-/** Ben's Android phone as Chrome emulates it (scripts/verify-rotation-web.mjs), and the desktop window the Web verifier has. */
+/** An Android phone as Chrome emulates it (scripts/verify-rotation-web.mjs), and the desktop window the Web verifier has. */
 export const DEVICES = {
   phone: { width: 412, height: 915, deviceScaleFactor: 2.625, isMobile: true, hasTouch: true },
   // The same phone at a ratio of two: the lab sits at 276 CSS pixels in the navigator, a whole number of device pixels only at a whole ratio, and a lab placed on a half pixel

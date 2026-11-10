@@ -8,7 +8,7 @@ import {
   TAIL_SLICE_CODEPOINTS, codepointsOf, formatRanges, parseUnicodeRange, planSlices, rangesOf, type GoogleFace,
 } from '../scripts/font-slices/partition.mjs';
 
-// The build side of the font slices (scripts/font-slices/partition.mjs and manifest.mjs, docs/tracks/font-slices.md): the partition of a font's
+// The build side of the font slices (scripts/font-slices/partition.mjs and manifest.mjs): the partition of a font's
 // characters into slices, and the manifest that names them, which the page (src/font-slices) must be able to read.
 
 test('a unicode-range is parsed as CSS writes it, merged and sorted, and printed back the same', () => {

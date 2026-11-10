@@ -1,5 +1,5 @@
 # The GDExtension that loads live-compile's library (`../core`) into Godot: one `LiveCompile` class whose `#[func]`s GodotJS
-# exposes (docs/tracks/live-compile.md). It is a separate extension from `godot_react_ui`, for the demo only, and has its own
+# exposes. It is a separate extension from `godot_react_ui`, for the demo only, and has its own
 # toolchain (`../rust-toolchain.toml`: Bun's crates need a newer nightly than the UI extension's).
 [package]
 name = "live_compile_ext"
