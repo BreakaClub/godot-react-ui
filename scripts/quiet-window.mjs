@@ -5,7 +5,7 @@
 //   node scripts/quiet-window.mjs --print-library         build it and print the library's path
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { directLaunchOf } from './engine.mjs';
@@ -58,7 +58,8 @@ export function quietWindowProblem(log, platform = process.platform) {
   return undefined;
 }
 
-if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+// Real paths on both sides: run through a symlinked checkout, the script's own URL is its real path.
+if (process.argv[1] !== undefined && realpathSync(resolve(process.argv[1])) === fileURLToPath(import.meta.url)) {
   const [first, ...rest] = process.argv.slice(2);
   if (first === undefined) throw new Error('Usage: node scripts/quiet-window.mjs <godot> [arguments], or --print-library');
   if (first === '--print-library') {
