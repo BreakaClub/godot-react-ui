@@ -20,9 +20,13 @@ import { ExpectedVisibleProvider } from './lab-parts';
 import { CodeEditor } from './code-editor';
 import { labCodeKey, openLabCode, releaseLabCode, type CodeSupport, type LabCode } from './editor/lab-code';
 import { PageSearch } from './page-search';
+import {
+  HOME_PAGE, PROJECT_PAGES, PROJECT_REPOSITORY_URL, PageActionsProvider, findProjectPage, isProjectPageId,
+  type PageActions, type ProjectPage, type ProjectPageId,
+} from './project-pages';
 
 /**
- * The navigator's routes (`/` and `/labs/$labId`) take no search, so its router reads none. The router's own parser builds a
+ * The navigator's routes (`/`, `/$pageId` and `/labs/$labId`) take no search, so its router reads none. The router's own parser builds a
  * URLSearchParams, which native GodotJS does not have (native-web-globals.ts). A search reaching it would be a bug, and says so.
  */
 const NO_SEARCH = {
@@ -57,15 +61,21 @@ export interface NavigatorProps {
   labs?: readonly Lab[];
   /** The id the run asked to open (`--lab=`). One that names no lab is shown as an error, not replaced by another lab. */
   initialLab?: string;
+  /** The project page to open (`--page=`) when no lab is asked for; the home page when neither is. */
+  initialPage?: ProjectPageId;
   /** The user opened the lab with this id. */
   onLabChange?: (id: string) => void;
+  /** The user opened the project page with this id. */
+  onPageChange?: (id: ProjectPageId) => void;
+  /** Open an address outside the site. Without it the pages' links are disabled. */
+  onOpenLink?: (url: string) => void;
   /** Open a lab that is its own Godot scene. Without it the button says the host cannot. */
   onOpenScene?: (lab: SceneLab) => void;
   /** What the code panel needs to edit a lab live. Without it there is no Code button. */
   code?: CodeSupport;
   /** An optional router history (e.g. MemoryHistory in tests, HashHistory on web). */
   history?: RouterHistory;
-  /** Callback to receive a navigator controller function for external programmatic navigation. */
+  /** Callback to receive a navigator controller function for external programmatic navigation: to a lab's id or a project page's. */
   onNavigate?: (navigate: (id: string) => void) => void;
 }
 
@@ -100,6 +110,37 @@ function BrandMark() {
     <View className="h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-indigo-600">
       <View className="h-3 w-3 rounded-sm bg-white" />
     </View>
+  );
+}
+
+/** A top-level heading of the sidebar: the project's pages, then the labs. */
+function SectionHeading({ children }: { children: string }) {
+  return <Text className="px-3 pb-1 text-xs font-semibold text-slate-900">{children}</Text>;
+}
+
+interface NavItemProps {
+  testID: string;
+  label: string;
+  selected?: boolean;
+  /** A short note at the right, such as where an external link goes. */
+  caption?: string;
+  role?: 'link';
+  onClick: () => void;
+}
+
+/** One entry of the sidebar outside the lab list: a project page, or a link. Styled as the list's options are. */
+function NavItem({ testID, label, selected = false, caption, role, onClick }: NavItemProps) {
+  return (
+    <Button
+      testID={testID}
+      role={role}
+      aria-selected={role === undefined ? selected : undefined}
+      className={`flex-row items-center justify-between gap-2 text-left rounded-lg px-3 py-2 ${selected ? 'bg-indigo-50' : 'hover:bg-slate-100 active:bg-slate-200'}`}
+      onClick={onClick}
+    >
+      <Text className={`min-w-0 shrink text-sm ${selected ? 'text-indigo-700' : 'text-slate-700'}`}>{label}</Text>
+      {caption === undefined ? null : <Text className="shrink-0 text-xs text-slate-400">{caption}</Text>}
+    </Button>
   );
 }
 
@@ -444,6 +485,14 @@ function LabHeader({ lab, missing, position, onStep, canEdit, codeOpen, onToggle
 interface NavigatorContextValue {
   labs: readonly Lab[];
   ordered: readonly Lab[];
+  /** The project page on the stage; `undefined` while a lab (or a missing lab) is. */
+  page: ProjectPage | undefined;
+  choosePage: (id: ProjectPageId) => void;
+  /** Open a project page or a lab by its id. */
+  chooseEntry: (id: string) => void;
+  pageActions: PageActions;
+  /** Open an address outside the site, when the host can. */
+  openLink: ((url: string) => void) | undefined;
   selectedId: string | undefined;
   selected: Lab | undefined;
   missing: string | undefined;
@@ -481,6 +530,16 @@ function useNavigatorContext(): NavigatorContextValue {
 function StageOutlet() {
   const ctx = useNavigatorContext();
   const params = useParams({ strict: false });
+  if (ctx.page !== undefined) {
+    const Page = ctx.page.component;
+    return (
+      <ScrollView key={ctx.page.id} testID="page-scroll" className="absolute inset-0">
+        <PageActionsProvider value={ctx.pageActions}>
+          <Page />
+        </PageActionsProvider>
+      </ScrollView>
+    );
+  }
   const labId = ctx.selectedId ?? params.labId;
   const lab = labId !== undefined ? ctx.ordered.find(l => l.id === labId) : undefined;
 
@@ -577,16 +636,23 @@ function NavigatorShell() {
 
   return (
     <View testID="navigator" tabIndex={-1} className={`w-full h-full lg:flex-row ${game ? 'pointer-events-none' : ''}`} onKeyDown={onKeyDown}>
-      {/* Narrow: a top bar with the lab menu and the filter. */}
+      {/* Narrow: a top bar with the menu of pages and labs, the filter and the link to the source. */}
       <View testID="navigator-bar" className="lg:hidden bg-white pointer-events-auto">
         <View className="flex-row flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
           <BrandMark />
-          <Select.Root value={ctx.selectedId ?? null} onValueChange={ctx.choose}>
-            <Select.Trigger testID="lab-menu" aria-label="Lab" className="min-w-[180px] flex-1">
-              <Select.Value testID="lab-menu-value" placeholder="Choose a lab" />
+          <Select.Root value={ctx.page?.id ?? ctx.selectedId ?? null} onValueChange={ctx.chooseEntry}>
+            <Select.Trigger testID="lab-menu" aria-label="Page or lab" className="min-w-[180px] flex-1">
+              <Select.Value testID="lab-menu-value" placeholder="Choose a page or a lab" />
               <Select.Icon />
             </Select.Trigger>
             <Select.Content testID="lab-menu-list">
+              {PROJECT_PAGES.map(page => (
+                <Select.Item key={page.id} value={page.id} textValue={page.title} testID={`page-menu-item-${page.id}`}>
+                  <Select.ItemText>{page.title}</Select.ItemText>
+                  <Text className="text-xs text-slate-400">{page.section}</Text>
+                  <Select.ItemIndicator />
+                </Select.Item>
+              ))}
               {menuLabs.map(lab => (
                 <Select.Item key={lab.id} value={lab.id} textValue={lab.title} testID={`lab-menu-item-${lab.id}`}>
                   <Select.ItemText>{lab.title}</Select.ItemText>
@@ -597,21 +663,46 @@ function NavigatorShell() {
             </Select.Content>
           </Select.Root>
           <FilterField testID="lab-menu-filter" className="min-w-[160px] flex-1" query={ctx.query} onQuery={ctx.setQuery} onSubmit={submitFilter} />
+          <Button
+            testID="navigator-bar-github"
+            role="link"
+            aria-label={`Source on GitHub (${PROJECT_REPOSITORY_URL})`}
+            disabled={ctx.openLink === undefined}
+            className={`${HEADER_BUTTON} disabled:opacity-50`}
+            onClick={() => ctx.openLink?.(PROJECT_REPOSITORY_URL)}
+          >
+            GitHub
+          </Button>
         </View>
         <Rule />
       </View>
 
-      {/* Wide: the sidebar and its edge. */}
+      {/* Wide: the sidebar and its edge. The project's pages, then the labs: their introduction, the filter and the list. */}
       <View testID="navigator-sidebar" className="hidden lg:flex flex-row shrink-0 bg-white pointer-events-auto">
         <View className="w-64">
-          <View className="gap-4 p-4">
-            <View className="flex-row items-center gap-3">
-              <BrandMark />
-              <View className="min-w-0 flex-1">
-                <Text className="text-sm text-slate-900">Godot React UI</Text>
-                <Text className="text-xs text-slate-500">Labs</Text>
-              </View>
+          <View className="flex-row items-center gap-3 p-4">
+            <BrandMark />
+            <View className="min-w-0 flex-1">
+              <Text className="text-sm text-slate-900">Godot React UI</Text>
+              <Text className="text-xs text-slate-500">React for Godot</Text>
             </View>
+          </View>
+          <View testID="project-nav" role="group" aria-label="Project" className="gap-0.5 px-2">
+            <SectionHeading>PROJECT</SectionHeading>
+            {PROJECT_PAGES.filter(page => page.section === 'Project').map(page => (
+              <NavItem key={page.id} testID={`page-item-${page.id}`} label={page.title} selected={ctx.page?.id === page.id} onClick={() => ctx.choosePage(page.id)} />
+            ))}
+            {ctx.openLink === undefined ? null : (
+              <NavItem testID="page-item-github" role="link" label="GitHub" caption="github.com" onClick={() => ctx.openLink?.(PROJECT_REPOSITORY_URL)} />
+            )}
+          </View>
+          <View className="gap-0.5 px-2 pt-5">
+            <SectionHeading>LABS</SectionHeading>
+            {PROJECT_PAGES.filter(page => page.section === 'Labs').map(page => (
+              <NavItem key={page.id} testID={`page-item-${page.id}`} label={page.title} selected={ctx.page?.id === page.id} onClick={() => ctx.choosePage(page.id)} />
+            ))}
+          </View>
+          <View className="px-4 pb-3 pt-2">
             <FilterField testID="lab-filter" query={ctx.query} onQuery={ctx.setQuery} onSubmit={submitFilter} onEnterList={focusFirst} />
           </View>
           <ScrollView testID="lab-sidebar-scroll" focusable={false} className="min-h-0 flex-1" contentClassName="px-2 pb-4">
@@ -626,7 +717,7 @@ function NavigatorShell() {
       </View>
 
       <View className="min-h-0 min-w-0 flex-1">
-        <LabHeader
+        {ctx.page !== undefined ? null : <LabHeader
           lab={selected}
           missing={ctx.missing}
           position={position}
@@ -640,13 +731,13 @@ function NavigatorShell() {
           })}
           showExpected={ctx.showExpected}
           onToggleExpected={() => ctx.setShowExpected(open => !open)}
-        />
+        />}
         {/* The stage keeps its place in the tree whether or not the code is beside it, so the lab on it keeps its state when the panel is shown or hidden. */}
         <View className={`relative min-h-0 flex-1 overflow-hidden ${codePanel ? 'flex-col xl:flex-row' : ''} ${game ? 'pointer-events-none' : ''}`}>
           <View
             testID="lab-stage"
             role="region"
-            aria-label="Lab"
+            aria-label={ctx.page === undefined ? 'Lab' : ctx.page.title}
             className={`relative min-h-0 min-w-0 flex-1 overflow-hidden ${game ? 'pointer-events-none' : 'bg-slate-50'}`}
           >
             <ExpectedVisibleProvider value={ctx.showExpected}>
@@ -679,12 +770,38 @@ function NavigatorShell() {
   );
 }
 
-export function Navigator({ labs = LABS, initialLab, onLabChange, onOpenScene, code: codeSupport, history: historyProp, onNavigate }: NavigatorProps) {
+/** The router path of a project page: the home page is the root. */
+function pagePath(id: ProjectPageId): string {
+  return id === HOME_PAGE ? '/' : `/${id}`;
+}
+
+/** What a router path shows: a project page, a lab, or a lab id that names none (an error on the stage). Other paths show nothing new. */
+type PathEntry = { readonly page: ProjectPageId } | { readonly lab: string } | { readonly missing: string } | undefined;
+
+function entryOfPath(pathname: string, ordered: readonly Lab[]): PathEntry {
+  const match = /^\/labs\/(.+)$/u.exec(pathname);
+  if (match?.[1] !== undefined) {
+    const id = match[1];
+    return ordered.some(lab => lab.id === id) ? { lab: id } : { missing: id };
+  }
+  const page = pathname === '/' ? HOME_PAGE : pathname.slice(1);
+  return isProjectPageId(page) ? { page } : undefined;
+}
+
+export function Navigator({
+  labs = LABS, initialLab, initialPage, onLabChange, onPageChange, onOpenLink, onOpenScene, code: codeSupport, history: historyProp, onNavigate,
+}: NavigatorProps) {
   useKeyClaims(['Mod+F', 'Ctrl+F']);
   const ordered = useMemo(() => labsInOrder(labs), [labs]);
-  const requested = initialLab === undefined ? undefined : ordered.find(lab => lab.id === initialLab);
-  const [selectedId, setSelectedId] = useState<string | undefined>(initialLab === undefined ? ordered[FIRST_LAB]?.id : requested?.id);
-  const [missing, setMissing] = useState<string | undefined>(initialLab !== undefined && requested === undefined ? initialLab : undefined);
+  // A history given to the navigator says where it starts; otherwise a lab asked for wins, then the page asked for, then the home page.
+  const [start] = useState<PathEntry>(() => {
+    if (historyProp !== undefined) return entryOfPath(historyProp.location.pathname, ordered);
+    if (initialLab === undefined) return { page: initialPage ?? HOME_PAGE };
+    return ordered.some(lab => lab.id === initialLab) ? { lab: initialLab } : { missing: initialLab };
+  });
+  const [pageId, setPageId] = useState<ProjectPageId | undefined>(start !== undefined && 'page' in start ? start.page : undefined);
+  const [selectedId, setSelectedId] = useState<string | undefined>(start !== undefined && 'lab' in start ? start.lab : undefined);
+  const [missing, setMissing] = useState<string | undefined>(start !== undefined && 'missing' in start ? start.missing : undefined);
   const [query, setQuery] = useState('');
   const [windowOpen, setWindowOpen] = useState(false);
   const [codeOpen, setCodeOpen] = useState(false);
@@ -737,12 +854,15 @@ export function Navigator({ labs = LABS, initialLab, onLabChange, onOpenScene, c
       path: '/',
       component: StageOutlet,
     });
-    const routeTree = rootRoute.addChildren([indexRoute, labRoute]);
+    const pageRoute = createRoute({
+      getParentRoute: () => rootRoute,
+      path: '/$pageId',
+      component: StageOutlet,
+    });
+    const routeTree = rootRoute.addChildren([indexRoute, pageRoute, labRoute]);
 
     // Encoded as the router encodes the ids it builds: a path outside ASCII would send it to the URL parser native GodotJS does not have.
-    const initialEntry = initialLab !== undefined
-      ? `/labs/${encodeURIComponent(initialLab)}`
-      : (ordered[FIRST_LAB] !== undefined ? `/labs/${ordered[FIRST_LAB].id}` : '/');
+    const initialEntry = initialLab !== undefined ? `/labs/${encodeURIComponent(initialLab)}` : pagePath(initialPage ?? HOME_PAGE);
 
     const history = historyProp ?? createMemoryHistory({ initialEntries: [initialEntry] });
 
@@ -757,29 +877,22 @@ export function Navigator({ labs = LABS, initialLab, onLabChange, onOpenScene, c
     const matches = r.matchRoutes(r.latestLocation);
     r.stores.setMatches(matches);
     return r;
-  }, [ordered, initialLab, historyProp]);
+  }, [ordered, initialLab, initialPage, historyProp]);
 
   // Synchronize history navigation (back/forward or external) with local state
   useEffect(() => {
     return router.history.subscribe(() => {
-      const loc = router.latestLocation;
-      const match = loc.pathname.match(/^\/labs\/(.+)$/);
-      if (match) {
-        const id = match[1];
-        const lab = ordered.find(l => l.id === id);
-        if (lab) {
-          setSelectedId(lab.id);
-          setMissing(undefined);
-        } else {
-          setSelectedId(undefined);
-          setMissing(id);
-        }
-        setWindowOpen(false);
-      }
+      const entry = entryOfPath(router.latestLocation.pathname, ordered);
+      if (entry === undefined) return;
+      setPageId('page' in entry ? entry.page : undefined);
+      setSelectedId('lab' in entry ? entry.lab : undefined);
+      setMissing('missing' in entry ? entry.missing : undefined);
+      setWindowOpen(false);
     });
   }, [router, ordered]);
 
   const choose = (id: string) => {
+    setPageId(undefined);
     setSelectedId(id);
     setMissing(undefined);
     setWindowOpen(false);
@@ -789,8 +902,25 @@ export function Navigator({ labs = LABS, initialLab, onLabChange, onOpenScene, c
     onLabChange?.(id);
   };
 
-  const chooseRef = useRef(choose);
-  chooseRef.current = choose;
+  const choosePage = (id: ProjectPageId) => {
+    setPageId(id);
+    setSelectedId(undefined);
+    setMissing(undefined);
+    setWindowOpen(false);
+    const next = id === HOME_PAGE ? router.buildLocation({ to: '/' }) : router.buildLocation({ to: '/$pageId', params: { pageId: id } });
+    router.stores.setMatches(router.matchRoutes(next));
+    router.commitLocation(next);
+    onPageChange?.(id);
+  };
+
+  /** A project page's id or a lab's: the ids are disjoint (the labs' unit tests check it), so one name opens either. */
+  const chooseEntry = (id: string) => {
+    if (isProjectPageId(id)) choosePage(id);
+    else choose(id);
+  };
+
+  const chooseRef = useRef(chooseEntry);
+  chooseRef.current = chooseEntry;
   useEffect(() => {
     onNavigate?.((id: string) => chooseRef.current(id));
   }, [onNavigate]);
@@ -804,9 +934,24 @@ export function Navigator({ labs = LABS, initialLab, onLabChange, onOpenScene, c
     if (target !== undefined) choose(target.id);
   };
 
+  const page = pageId === undefined ? undefined : findProjectPage(pageId);
+  const pageActions: PageActions = {
+    openPage: choosePage,
+    openFirstLab: () => {
+      const first = ordered[FIRST_LAB];
+      if (first !== undefined) choose(first.id);
+    },
+    openLink: onOpenLink,
+  };
+
   const contextValue: NavigatorContextValue = {
     labs,
     ordered,
+    page,
+    choosePage,
+    chooseEntry,
+    pageActions,
+    openLink: onOpenLink,
     selectedId,
     selected,
     missing,

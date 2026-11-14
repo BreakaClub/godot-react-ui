@@ -93,11 +93,40 @@ export async function runNavigatorScenario(context) {
     check(`${lab.id} needs no sideways scrolling`, scroller.scroll.scrollWidth <= scroller.scroll.clientWidth + GEOMETRY_TOLERANCE_PX, { scrollWidth: scroller.scroll.scrollWidth, clientWidth: scroller.scroll.clientWidth });
   };
 
+  // The project's pages first: the navigator opens on the home page. Their links leave the site (a new tab), so they are not clicked
+  // here; the native verifier gives the navigator an owner that records them.
+  const choosePage = async (id) => {
+    if (await shown('navigator-sidebar')) {
+      await click(`page-item-${id}`);
+    } else {
+      await click('lab-menu');
+      await waitUntil('the menu to open', () => maybe('lab-menu-list'));
+      await frames();
+      await bringIntoView('lab-menu-list', `page-menu-item-${id}`);
+      await click(`page-menu-item-${id}`);
+      await waitUntil('the menu to close', async () => !(await maybe('lab-menu-list')));
+    }
+    await park();
+  };
+  const assertPageOpen = async (id) => {
+    check(`The ${id} page is on the stage, with no lab header`, (await maybe(`page-${id}`)) && !(await maybe('lab-header')));
+    const [stage, scroller] = await Promise.all([find('lab-stage'), find('page-scroll')]);
+    check(`${id}: the scroll area is the content area`, near(scroller.rect.x, stage.rect.x) && near(scroller.rect.y, stage.rect.y) && near(scroller.rect.width, stage.rect.width) && near(scroller.rect.height, stage.rect.height));
+    check(`${id} needs no sideways scrolling`, scroller.scroll.scrollWidth <= scroller.scroll.clientWidth + GEOMETRY_TOLERANCE_PX, { scrollWidth: scroller.scroll.scrollWidth, clientWidth: scroller.scroll.clientWidth });
+  };
+
   await demo('showNavigator');
   await waitUntil('the navigator to mount', () => maybe('navigator'));
   await frames();
-  const wide = await shellGeometry();
+  await assertPageOpen('home');
+  for (const id of ['home', 'install', 'labs']) {
+    await choosePage(id);
+    await assertPageOpen(id);
+    await capture(`navigator-page-${id}`);
+  }
   const baseline = labs.find((lab) => lab.id === BASELINE_LAB);
+  await choose(baseline);
+  const wide = await shellGeometry();
   await assertOpen(baseline);
   await idle('mounting the navigator');
   const baselineNodes = await nodeCount();
@@ -258,7 +287,24 @@ export async function runNavigatorStartScenario({ browser, base, check, viewport
 
   page = await open('/?demo=navigator');
   await frames(page);
-  check('?demo=navigator opens the navigator on its first lab', await exists(page, 'navigator') && (await text(page, 'lab-title')) === 'Counter');
+  check('?demo=navigator opens the navigator on its home page', await exists(page, 'navigator') && await exists(page, 'page-home') && !(await exists(page, 'lab-header')));
+  // A page opened from the home page is an entry in the browser's history, and Back returns to the home page.
+  const installButton = await page.evaluate(() => {
+    const button = globalThis.godotReactDemo.find('page-home-install');
+    return { x: button.rect.x + button.rect.width / 2, y: button.rect.y + button.rect.height / 2 };
+  });
+  await page.mouse.click(installButton.x, installButton.y);
+  await frames(page);
+  check('The Install button opens the install page and names it in the address',
+    await exists(page, 'page-install') && new URL(page.url()).searchParams.get('page') === 'install', { url: page.url() });
+  await page.goBack();
+  await frames(page);
+  check('Back returns to the home page', await exists(page, 'page-home') && new URL(page.url()).searchParams.get('page') === null, { url: page.url() });
+  await page.close();
+
+  page = await open('/?page=install');
+  await frames(page);
+  check('?page=install opens the navigator on the install page', await exists(page, 'page-install'));
   await page.close();
 
   page = await open('/?lab=glass');

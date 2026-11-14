@@ -13,6 +13,7 @@ import { demoStart, type DemoStart } from './launch';
 import { LABS, findLab, labElement, labsInOrder, type Lab, type LabName, type SceneLab } from './labs';
 import { PaintLab } from './paint-lab';
 import { Navigator, type NavigatorProps } from './navigator';
+import { HOME_PAGE, isProjectPageId, type ProjectPageId } from './project-pages';
 import { openSceneWithBack } from './scene-return';
 import { registerDemoFonts } from './demo-fonts';
 import { registerDemoImages, registerLateImage, unregisterLateImage } from './demo-images';
@@ -129,6 +130,8 @@ export default class Main extends Node {
   private start: DemoStart = { kind: 'app' };
   /** The lab the user last chose in the navigator, so a navigator mounted again opens on it. */
   private currentLab: string | undefined;
+  /** The project page the user last chose, when the navigator is on one rather than on a lab. */
+  private currentPage: ProjectPageId | undefined;
   /** Programmatic navigation callback for the active Navigator instance. */
   private navigatorNavigate: ((id: string) => void) | undefined;
   /** True when navigating in response to a popstate event, to avoid pushing a duplicate history entry. */
@@ -157,9 +160,10 @@ export default class Main extends Node {
     }
     this.start = demoStart(userArgs, injects);
     if (this.start.kind === 'navigator') {
-      this.start = { kind: 'navigator', lab: resumeLab ?? this.start.lab };
+      if (resumeLab !== undefined) this.start = { kind: 'navigator', lab: resumeLab };
       resumeLab = undefined;
       this.currentLab = this.start.lab;
+      this.currentPage = this.start.page;
       if (this.start.lab !== undefined && findLab(this.start.lab) === undefined) {
         console.error(`There is no lab called "${this.start.lab}" (--lab=); the navigator lists the ids that work.`);
       }
@@ -178,6 +182,7 @@ export default class Main extends Node {
         const url = new URL(window.location.href);
         if (!url.searchParams.has('lab') && !window.location.hash) {
           url.searchParams.set('demo', 'navigator');
+          url.searchParams.delete('page');
           url.searchParams.set('lab', ${JSON.stringify(initialLabId)});
           window.history.replaceState({ lab: ${JSON.stringify(initialLabId)} }, '', url.pathname + url.search + url.hash);
         }
@@ -211,6 +216,22 @@ export default class Main extends Node {
         // A navigator takes its `initialLab` only when it mounts, so each call mounts a new one.
         this.navigatorShown += 1;
         this.requireRenderer().render(this.navigatorElement(options));
+      },
+      /** Open a project page (`project-pages.tsx`) without remounting the shell, or mount the navigator on it if it is not open. */
+      navigatePage: (id: string) => {
+        if (!isProjectPageId(id)) throw new Error(`There is no project page called "${id}"`);
+        try {
+          this.handlingPopState = true;
+          if (this.navigatorNavigate) {
+            this.navigatorNavigate(id);
+          } else {
+            this.currentLab = undefined;
+            this.currentPage = id;
+            this.requireRenderer().render(this.navigatorElement({ initialPage: id }));
+          }
+        } finally {
+          this.handlingPopState = false;
+        }
       },
       /** Navigate the active lab without remounting the shell, or mount the navigator if not open. */
       navigateLab: (id: string) => {
@@ -714,7 +735,7 @@ export default class Main extends Node {
       processFrame: () => Engine.getProcessFrames(),
       focusedNodeId: () => this.requireRenderer().getSnapshot().focused,
     });
-    renderer.render(this.start.kind === 'app' ? createElement(App) : this.navigatorElement({ initialLab: this.currentLab }));
+    renderer.render(this.start.kind === 'app' ? createElement(App) : this.navigatorElement({ initialLab: this.currentLab, initialPage: this.currentPage }));
   }
 
   /** The navigator with the owner's callbacks: it remembers the lab, and can leave for a scene of its own. */
@@ -731,17 +752,40 @@ export default class Main extends Node {
       onLabChange: (id: string) => {
         props.onLabChange?.(id);
         this.currentLab = id;
+        this.currentPage = undefined;
         if (!this.handlingPopState && Engine.hasSingleton('JavaScriptBridge')) {
           JavaScriptBridge.eval(`
             const url = new URL(window.location.href);
             if (url.searchParams.get('lab') !== ${JSON.stringify(id)}) {
               url.searchParams.set('demo', 'navigator');
+              url.searchParams.delete('page');
               url.searchParams.set('lab', ${JSON.stringify(id)});
               window.history.pushState({ lab: ${JSON.stringify(id)} }, '', url.pathname + url.search + url.hash);
             }
           `, true);
         }
       },
+      onPageChange: (id: ProjectPageId) => {
+        props.onPageChange?.(id);
+        this.currentLab = undefined;
+        this.currentPage = id;
+        if (!this.handlingPopState && Engine.hasSingleton('JavaScriptBridge')) {
+          // The home page is the bare navigator address; another page is named by `page`. The state says which page, for Back.
+          const page = id === HOME_PAGE ? null : id;
+          JavaScriptBridge.eval(`
+            const url = new URL(window.location.href);
+            const page = ${JSON.stringify(page)};
+            if (url.searchParams.has('lab') || url.searchParams.get('page') !== page) {
+              url.searchParams.set('demo', 'navigator');
+              url.searchParams.delete('lab');
+              if (page === null) url.searchParams.delete('page'); else url.searchParams.set('page', page);
+              window.history.pushState({ page: ${JSON.stringify(id)} }, '', url.pathname + url.search + url.hash);
+            }
+          `, true);
+        }
+      },
+      // OS.shell_open opens the address in a new tab on the Web and in the system's browser natively.
+      onOpenLink: props.onOpenLink ?? ((url: string) => { OS.shellOpen(url); }),
       onOpenScene: props.onOpenScene ?? ((lab: SceneLab) => this.openScene(lab)),
     });
   }

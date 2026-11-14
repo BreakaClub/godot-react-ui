@@ -4,6 +4,7 @@ import {
 import type { LayoutRect, NativeSnapshot, NativeSnapshotNode } from '../../src/native';
 import { GLASS_BLOB_IDS } from './glass-lab';
 import { LABS, labsInOrder, type InlineLab, type Lab } from './labs';
+import { PROJECT_PAGES, PROJECT_REPOSITORY_URL, type ProjectPage } from './project-pages';
 import type { NavigatorOptions } from './main';
 import { setTransformCase } from './transform-lab';
 import { assertionTally, parseVerifierEvent } from './verifier-input';
@@ -226,11 +227,15 @@ async function choose(api: NavigatorInspection, lab: Lab): Promise<void> {
 
 // ---- What the shell looks like ----------------------------------------------------------------------------------------------
 
+/**
+ * The shell's frame round the stage: the sidebar or the top bar, and a lab's header on the stage. A project page has no header, so its stage
+ * starts where the header would.
+ */
 function checkShellGeometry(api: NavigatorInspection): boolean {
   const { width, height } = api.snapshot();
   const wide = width >= SIDEBAR_BREAKPOINT_PX;
-  const header = node(api, 'lab-header').rect;
   const stage = node(api, 'lab-stage').rect;
+  const header = api.find('lab-header')?.rect ?? { x: stage.x, y: stage.y, width: stage.width, height: 0 };
   assert(near(stage.y + stage.height, height) && near(stage.x + stage.width, width), `The content area ends at the window's corner: ${rectText(stage)} in ${width}x${height}`);
   assert(near(header.y + header.height, stage.y) && near(header.x, stage.x) && near(header.width, stage.width), `The header sits on the content area: ${rectText(header)}, ${rectText(stage)}`);
   if (wide) {
@@ -480,7 +485,7 @@ async function checkStart(api: NavigatorInspection, capture: NavigatorCapture): 
 }
 
 async function checkBoundary(api: NavigatorInspection, capture: NavigatorCapture, opened: string[]): Promise<void> {
-  api.showNavigator({ extraLabs: [THROWING_LAB], onOpenScene: lab => opened.push(lab.scene) });
+  api.showNavigator({ extraLabs: [THROWING_LAB], initialLab: BASELINE_LAB, onOpenScene: lab => opened.push(lab.scene) });
   await frames(SETTLE_FRAMES);
   // This navigator lists one more lab than the others, so it has a baseline of its own.
   await waitFor('the process to go idle', () => !api.surfaceProcessing(), IDLE_DEADLINE_MS);
@@ -506,16 +511,72 @@ async function checkBoundary(api: NavigatorInspection, capture: NavigatorCapture
   assertOpen(api, next);
 }
 
+// ---- The project's pages ----------------------------------------------------------------------------------------------------
+
+/** Open a project page: from the sidebar when the window is wide, from the top bar's menu when it is not. */
+async function choosePage(api: NavigatorInspection, page: ProjectPage): Promise<void> {
+  if (isShown(api, 'navigator-sidebar')) {
+    await click(api, `page-item-${page.id}`);
+  } else {
+    await click(api, 'lab-menu');
+    await waitFor('the menu to open', () => api.find('lab-menu-list') !== undefined, APPEARS_DEADLINE_MS);
+    await frames(SETTLE_FRAMES);
+    await bringIntoView(api, 'lab-menu-list', `page-menu-item-${page.id}`);
+    await click(api, `page-menu-item-${page.id}`);
+    await waitFor('the menu to close', () => api.find('lab-menu-list') === undefined, APPEARS_DEADLINE_MS);
+  }
+  pointerMove(PARKED);
+  await frames(SETTLE_FRAMES);
+}
+
+/** A project page on the stage: no lab header, its scroll area is the stage, and nothing on it needs sideways scrolling. */
+function assertPageOpen(api: NavigatorInspection, page: ProjectPage): void {
+  assert(api.find(`page-${page.id}`) !== undefined, `The ${page.id} page is on the stage`);
+  assert(api.find('lab-header') === undefined, `The ${page.id} page has no lab header`);
+  const stage = node(api, 'lab-stage').rect;
+  const scroller = node(api, 'page-scroll');
+  assert(near(scroller.rect.x, stage.x) && near(scroller.rect.y, stage.y) && near(scroller.rect.width, stage.width) && near(scroller.rect.height, stage.height),
+    `${page.id}: the scroll area is the content area: ${rectText(scroller.rect)} against ${rectText(stage)}`);
+  const state = scroller.scroll;
+  assert(state, `${page.id}: the page scrolls`);
+  assert(state.scrollWidth <= state.clientWidth + GEOMETRY_TOLERANCE_PX, `${page.id} is ${state.scrollWidth} wide in a content area ${state.clientWidth} wide`);
+  if (isShown(api, 'navigator-sidebar')) {
+    assert(node(api, `page-item-${page.id}`).props.ariaSelected === true, `${page.id} is marked as the current entry`);
+  } else {
+    assert(textOf(api, 'lab-menu-value') === page.title, `The menu shows ${page.id}: "${textOf(api, 'lab-menu-value')}"`);
+  }
+}
+
+/** Every project page, opened as a person would, then the link to the source, which goes to the owner and opens nothing here. */
+async function checkPages(api: NavigatorInspection, capture: NavigatorCapture, prefix: string, links: readonly string[]): Promise<void> {
+  const home = PROJECT_PAGES[0];
+  assert(home && home.id === 'home', 'The home page is listed first');
+  assertPageOpen(api, home);
+  checkShellGeometry(api);
+  for (const page of PROJECT_PAGES) {
+    await choosePage(api, page);
+    assertPageOpen(api, page);
+    checkShellGeometry(api);
+    await capture(`${prefix}page-${page.id}`);
+  }
+  const before = links.length;
+  await click(api, isShown(api, 'navigator-sidebar') ? 'page-item-github' : 'navigator-bar-github');
+  assert(links.length === before + 1 && links[links.length - 1] === PROJECT_REPOSITORY_URL, `The GitHub link asks the owner to open the repository: ${JSON.stringify(links)}`);
+}
+
 // ---- The section -----------------------------------------------------------------------------------------------------------
 
 async function verifyAtScale(api: NavigatorInspection, capture: NavigatorCapture, prefix: string): Promise<void> {
   const opened: string[] = [];
-  api.showNavigator({ onOpenScene: lab => opened.push(lab.scene) });
+  const links: string[] = [];
+  api.showNavigator({ onOpenScene: lab => opened.push(lab.scene), onOpenLink: url => links.push(url) });
   await frames(SETTLE_FRAMES);
   api.grabSurfaceFocus();
-  const wide = checkShellGeometry(api);
+  await checkPages(api, capture, prefix, links);
   const first = labsToWalk()[0];
-  assert(first && first.id === BASELINE_LAB, 'The navigator opens on the first lab');
+  assert(first && first.id === BASELINE_LAB, 'The first lab in the sidebar\'s order is the baseline');
+  await choose(api, first);
+  const wide = checkShellGeometry(api);
   assertOpen(api, first);
   await waitFor('the process to go idle', () => !api.surfaceProcessing(), IDLE_DEADLINE_MS);
   const baselineNodes = nodeCount(api);
@@ -539,12 +600,14 @@ async function verifyScaled(owner: Node, api: NavigatorInspection, capture: Navi
   scale = 2;
   await frames(SETTLE_FRAMES);
   try {
-    api.showNavigator();
+    const links: string[] = [];
+    api.showNavigator({ onOpenLink: url => links.push(url) });
     await frames(SETTLE_FRAMES);
     api.grabSurfaceFocus();
     assert(!checkShellGeometry(api), 'A window at a content scale of two is narrow: its logical size is half');
     assert(api.snapshot().oversampling === 2, 'The root draws at a device pixel ratio of two');
     await capture('navigator-dpr2-shell');
+    await checkPages(api, capture, 'navigator-dpr2-', links);
     for (const id of SCALED_LABS) {
       const lab = labsToWalk().find(candidate => candidate.id === id);
       assert(lab, `The registry has ${id}`);

@@ -1,8 +1,12 @@
+import { PROJECT_PAGES, isProjectPageId, type ProjectPageId } from './project-pages';
+
 /**
  * What a run of the demo opens with, decided from the arguments after `--` (natively `godot --path demo -- --lab=glass`; on the
  * Web `index.html?lab=glass`, which `web-shell.html` turns into the same argument). Pure, so the unit tests cover it without Godot.
  *
  * - `--lab=<id>` opens the navigator on that lab. An unknown id is shown as an error by the navigator, never replaced by a default.
+ * - `--page=<id>` opens the navigator on one of the project's pages (`project-pages.tsx`); the navigator opens on the home page when
+ *   neither this nor `--lab=` is given. An unknown page is an error here, since the pages are fixed.
  * - `--demo=navigator` and `--demo=app` choose outright: the navigator, or the single-page playground (`App`) the demo had before it.
  * - Without either, a run that injects its own input (a verifier or the probe) opens the playground, because that is the page the
  *   verifiers were written against; every other run opens the navigator. This is the one place a run's purpose changes what the demo
@@ -12,9 +16,10 @@
  */
 export type DemoStart =
   | { readonly kind: 'app' }
-  | { readonly kind: 'navigator'; readonly lab: string | undefined };
+  | { readonly kind: 'navigator'; readonly lab: string | undefined; readonly page?: ProjectPageId };
 
 const LAB_ARGUMENT = '--lab=';
+const PAGE_ARGUMENT = '--page=';
 const DEMO_ARGUMENT = '--demo=';
 const DEMO_APP = 'app';
 const DEMO_NAVIGATOR = 'navigator';
@@ -28,14 +33,22 @@ function valueOf(userArgs: readonly string[], prefix: string): string | undefine
 export function demoStart(userArgs: readonly string[], injectsOwnInput: boolean): DemoStart {
   const demo = valueOf(userArgs, DEMO_ARGUMENT);
   const lab = valueOf(userArgs, LAB_ARGUMENT);
+  const pageName = valueOf(userArgs, PAGE_ARGUMENT);
+  if (pageName !== undefined && !isProjectPageId(pageName)) {
+    throw new Error(`${PAGE_ARGUMENT}${pageName}: the pages are ${PROJECT_PAGES.map(page => page.id).join(', ')}`);
+  }
+  if (pageName !== undefined && lab !== undefined) throw new Error(`${PAGE_ARGUMENT}${pageName} and ${LAB_ARGUMENT}${lab} each choose what opens; give one`);
+  const page = pageName !== undefined && isProjectPageId(pageName) ? pageName : undefined;
   if (demo !== undefined && demo !== DEMO_APP && demo !== DEMO_NAVIGATOR) {
     throw new Error(`${DEMO_ARGUMENT}${demo}: the demo is ${DEMO_APP} or ${DEMO_NAVIGATOR}`);
   }
   if (lab === '') throw new Error(`${LAB_ARGUMENT} needs the id of a lab`);
   if (demo === DEMO_APP) {
     if (lab !== undefined) throw new Error(`${LAB_ARGUMENT}${lab} opens the navigator, not ${DEMO_ARGUMENT}${DEMO_APP}`);
+    if (page !== undefined) throw new Error(`${PAGE_ARGUMENT}${page} opens the navigator, not ${DEMO_ARGUMENT}${DEMO_APP}`);
     return { kind: 'app' };
   }
+  if (page !== undefined) return { kind: 'navigator', lab: undefined, page };
   if (lab !== undefined || demo === DEMO_NAVIGATOR) return { kind: 'navigator', lab };
   return injectsOwnInput ? { kind: 'app' } : { kind: 'navigator', lab: undefined };
 }

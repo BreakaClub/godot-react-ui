@@ -3,9 +3,7 @@
 React for Godot. Write your UI in React and TSX on [GodotJS](https://github.com/godotjs/GodotJS). A Rust GDExtension lays it out with
 [Taffy](https://github.com/DioxusLabs/taffy) (Flexbox and Grid) and draws it with Godot's own text shaping and `RenderingServer`, natively and on the Web.
 
-**Status: prototype.** The API can change between releases.
-
-**Live demo:** [react.breaka.club](https://react.breaka.club/?demo=navigator), the demo's labs in the browser (Chrome is the qualified browser).
+**Live demo:** [react.breaka.club](https://react.breaka.club/), the project's home page and the demo's labs in the browser (Chrome is the qualified browser).
 
 ## What it does
 
@@ -25,8 +23,9 @@ React for Godot. Write your UI in React and TSX on [GodotJS](https://github.com/
 
 ## Requirements
 
-- **Godot with GodotJS on V8**, version 4.7.2 or newer: the native library is bound to the Godot 4.7.2 API. The library works in a project with
-  GodotJS's camel-case bindings on or off.
+- **Godot with GodotJS**, version 4.7.2 or newer: the native library is bound to the Godot 4.7.2 API. It does not depend on which JavaScript
+  runtime GodotJS uses: it runs on V8 natively and on the browser's own engine in Web exports. We suggest GodotJS's V8 editor build for
+  development. The library works in a project with GodotJS's camel-case bindings on or off.
 - **Platforms.** The release addon carries a universal macOS library, Linux and Windows libraries for x86_64 and arm64, Android libraries for
   arm64 and x86_64, an iOS arm64 library, and Web side modules for stock Godot 4.7.2 exports with and without threads. Apple Silicon macOS and
   the Web with threads (stock Godot 4.7.2 templates, in Chrome) are the platforms that have been verified. CI loads each desktop library in the

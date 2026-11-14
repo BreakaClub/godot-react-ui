@@ -144,7 +144,8 @@ function mountNavigator() {
     origin: tag => (host.nodes.get(tag)?.props.testID === 'editor-grid-probe' ? { x: 0, y: 0 } : undefined),
   });
   const { root } = createTestRoot(host);
-  root.render(h(Navigator, { code: fakeCodeSupport }));
+  // The searches are of a lab's page and its code, so the navigator starts on a lab (with nothing asked it starts on the home page).
+  root.render(h(Navigator, { code: fakeCodeSupport, initialLab: 'counter' }));
 
   const tag = (testID: string): number => {
     const found = root.findByTestID(testID);

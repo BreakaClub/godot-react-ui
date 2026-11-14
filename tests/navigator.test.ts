@@ -21,14 +21,19 @@ import { TextInputHost } from './text-input-host';
 const CODE_ADVANCE = 7.2;
 const CODE_LINE_HEIGHT = 16;
 
-function mount(props: NavigatorProps = {}) {
+/**
+ * The navigator on the fake host. Most tests are about the labs, so unless they say where it starts (a lab, a page or a history), it
+ * starts on the first lab; `opening: 'as-given'` mounts it exactly as `props` say, which with no props is the home page.
+ */
+function mount(props: NavigatorProps = {}, opening: 'first-lab' | 'as-given' = 'first-lab') {
   const host = new TextInputHost();
   installMonospaceGeometry(host, {
     advance: CODE_ADVANCE, lineHeight: CODE_LINE_HEIGHT,
     origin: tag => (host.nodes.get(tag)?.props.testID === 'editor-grid-probe' ? { x: 0, y: 0 } : undefined),
   });
   const { root } = createTestRoot(host);
-  root.render(h(Navigator, props));
+  const startsSomewhere = props.initialLab !== undefined || props.initialPage !== undefined || props.history !== undefined;
+  root.render(h(Navigator, opening === 'first-lab' && !startsSomewhere ? { initialLab: labsInOrder(props.labs ?? LABS)[0]?.id, ...props } : props));
   const tag = (testID: string): number => {
     const found = root.findByTestID(testID);
     assert.ok(found, `no element with testID "${testID}"`);
@@ -74,7 +79,96 @@ function labItemIds(m: ReturnType<typeof mount>): string[] {
   return ORDERED.filter((lab) => m.has(`lab-item-${lab.id}`)).map((lab) => lab.id);
 }
 
-test('it opens the first lab, lists every lab in the sidebar and names the current one in the header', () => {
+test('with nothing asked it opens the home page: the project\'s pages are listed before the labs, and there is no lab header', () => {
+  const m = mount({}, 'as-given');
+  assert.ok(m.has('page-home'));
+  assert.ok(!m.has('lab-header'), 'a project page has no lab header');
+  assert.equal(m.props('page-item-home').ariaSelected, true);
+  assert.equal(m.props('page-item-install').ariaSelected, false);
+  assert.equal(m.props('page-item-labs').ariaSelected, false);
+  assert.ok(ORDERED.every(lab => m.props(`lab-item-${lab.id}`).ariaSelected === false), 'no lab is selected');
+  assert.match(m.textOf('page-home-summary'), /^React for Godot\./u);
+});
+
+test('the project pages open from the sidebar, report the change, and give way to a lab and back', () => {
+  const pages: string[] = [];
+  const labs: string[] = [];
+  const m = mount({ onPageChange: id => pages.push(id), onLabChange: id => labs.push(id) }, 'as-given');
+  m.click('page-item-install');
+  assert.ok(m.has('page-install') && !m.has('page-home'));
+  assert.match(m.textOf('page-install-commands'), /^pnpm add react@19\.2\.0 godot-react-ui\npnpm exec godot-react-ui setup/u);
+  m.click('page-item-labs');
+  assert.ok(m.has('page-labs'));
+  m.click('page-labs-first');
+  assert.equal(m.title(), FIRST.title, 'the labs page opens the first lab');
+  assert.ok(!m.has('page-labs'));
+  m.click('page-item-home');
+  assert.ok(m.has('page-home') && !m.has('lab-header'));
+  assert.deepEqual(pages, ['install', 'labs', 'home']);
+  assert.deepEqual(labs, [FIRST.id]);
+});
+
+test('links leave the site through the host; without a host that can open them they are disabled or absent', () => {
+  const opened: string[] = [];
+  const m = mount({ onOpenLink: url => opened.push(url) }, 'as-given');
+  m.click('page-item-github');
+  m.click('page-home-github');
+  m.click('navigator-bar-github');
+  m.click('page-item-labs');
+  m.click('page-labs-godot-tsc');
+  assert.deepEqual(opened, [
+    'https://github.com/BreakaClub/godot-react-ui', 'https://github.com/BreakaClub/godot-react-ui', 'https://github.com/BreakaClub/godot-react-ui',
+    'https://github.com/BreakaClub/godot-tsc',
+  ]);
+  assert.equal(m.props('page-labs-godot-tsc').role, 'link');
+  const bare = mount({}, 'as-given');
+  assert.ok(!bare.has('page-item-github'), 'the sidebar lists no link it cannot open');
+  assert.equal(bare.props('page-home-github').disabled, true);
+  assert.equal(bare.props('navigator-bar-github').disabled, true);
+});
+
+test('Alt+Down from a project page opens the first lab, and Alt+Up the last', () => {
+  const m = mount({}, 'as-given');
+  m.focus('page-item-home');
+  assert.equal(m.host.keyDown(m.root, 'ArrowDown', { altKey: true }).prevented, true);
+  assert.equal(m.title(), FIRST.title);
+  m.click('page-item-install');
+  m.focus('page-item-install');
+  assert.equal(m.host.keyDown(m.root, 'ArrowUp', { altKey: true }).prevented, true);
+  assert.equal(m.title(), LAST.title);
+});
+
+test('a page asked for opens first, and the router\'s paths open pages and labs alike', async () => {
+  assert.ok(mount({ initialPage: 'install' }).has('page-install'));
+  const history = createMemoryHistory({ initialEntries: ['/labs'] });
+  const m = mount({ history });
+  assert.ok(m.has('page-labs'), 'a history starting on a page opens that page');
+  history.push('/labs/keyboard');
+  await settleReact();
+  assert.equal(m.title(), 'Keyboard');
+  history.push('/');
+  await settleReact();
+  assert.ok(m.has('page-home'));
+  history.push('/install');
+  await settleReact();
+  assert.ok(m.has('page-install'));
+  let nav: ((id: string) => void) | undefined;
+  const n = mount({ onNavigate: navigate => { nav = navigate; } });
+  assert.ok(nav !== undefined);
+  nav('labs');
+  await settleReact();
+  assert.ok(n.has('page-labs'), 'onNavigate opens a page by its id');
+});
+
+test('every project page renders without an error', () => {
+  const m = mount({}, 'as-given');
+  for (const page of ['home', 'install', 'labs'] as const) {
+    m.click(`page-item-${page}`);
+    assert.ok(m.has(`page-${page}`), `${page} renders`);
+  }
+});
+
+test('a lab lists every lab in the sidebar and names the current one in the header', () => {
   const m = mount();
   assert.equal(m.title(), FIRST.title);
   assert.equal(m.textOf('lab-description'), FIRST.description);

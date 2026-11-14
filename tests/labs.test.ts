@@ -5,6 +5,7 @@ import test from 'node:test';
 import { demoArguments } from '../scripts/demo-arguments.mjs';
 import { demoStart } from '../demo/src/launch';
 import { LAB_GROUPS, LABS, filterLabs, findLab, labElement, labsInOrder, type LabName } from '../demo/src/labs';
+import { PROJECT_PAGES } from '../demo/src/project-pages';
 
 // The lab registry (demo/src/labs.tsx) and the decision of what a run opens with (demo/src/launch.ts).
 
@@ -94,6 +95,18 @@ test('--lab= opens the navigator on that lab, even for a run that injects input;
   assert.deepEqual(demoStart(['--verify-interaction', '--lab=glass'], true), { kind: 'navigator', lab: 'glass' });
   assert.deepEqual(demoStart(['--demo=navigator'], true), { kind: 'navigator', lab: undefined });
   assert.deepEqual(demoStart(['--demo=app'], false), { kind: 'app' });
+});
+
+test('--page= opens the navigator on a project page; an unknown page, or a page with a lab or the playground, is an error', () => {
+  assert.deepEqual(demoStart(['--page=install'], false), { kind: 'navigator', lab: undefined, page: 'install' });
+  assert.deepEqual(demoStart(['--demo=navigator', '--page=labs'], true), { kind: 'navigator', lab: undefined, page: 'labs' });
+  assert.throws(() => demoStart(['--page=blog'], false), /--page=blog: the pages are home, install, labs/);
+  assert.throws(() => demoStart(['--page=install', '--lab=glass'], false), /each choose what opens/);
+  assert.throws(() => demoStart(['--demo=app', '--page=install'], false), /opens the navigator, not --demo=app/);
+});
+
+test('no lab has the id of a project page, so one id opens either', () => {
+  for (const page of PROJECT_PAGES) assert.equal(findLab(page.id), undefined, `${page.id} is a page and must not be a lab`);
 });
 
 test('an unknown id is not this function\'s to judge (the navigator shows it), but malformed arguments are errors', () => {

@@ -1,9 +1,14 @@
 # Web build
 
-The browser is a required prototype target. React and its reconciler execute in
+Godot Web exports are a supported target. React and its reconciler execute in
 the browser JavaScript engine through GodotJS; Taffy, text shaping and drawing
 remain in the native extension compiled to a WebAssembly side module. There is no
 DOM renderer and no embedded V8 in the Web export.
+
+There are two engine profiles. `stock` is Godot 4.7.2 with upstream GodotJS: the
+package's Web side modules are built for it, and the public demo (react.breaka.club)
+runs on it ("The `stock` engine profile" below). `breaka`, the scripts' default, is
+Breaka's own Godot 4.8 build, which is not public.
 
 ```sh
 pnpm install
@@ -25,8 +30,8 @@ counts added over the jobs, and `report.json` holds every job's assertions and c
 `--serial` runs the jobs one after another, `--jobs=<n>` at most n at a time, and `--job=<name>` is one job on its own (what the run starts each job with).
 A failed job does not stop the others, and the run's failure line names it.
 
-The build runs the TypeScript check and bundle before exporting with the V8 Godot
-4.8 editor. `serve-web` listens on `http://127.0.0.1:8096` (or `PORT`). `--release` selects the
+The build runs the TypeScript check and bundle before exporting with the profile's
+editor (Breaka's Godot 4.8 for `breaka`, Godot 4.7.2 for `stock`). `serve-web` listens on `http://127.0.0.1:8096` (or `PORT`). `--release` selects the
 release engine template and exports the stripped release pack ("The release export and hosting"); the Rust extension is optimized in both modes.
 `--wasm-only` builds just the side module, and `--export-only` rechecks and rebundles
 TypeScript before exporting an existing side module. `--probe` (on `build-web.mjs` and `serve-web.mjs`)
@@ -76,8 +81,8 @@ godot-rust's separate `experimental-threads` feature is not enabled. This Rust
 binding cache is distinct from Breaka's Wasm function-table optimization below. (It is also why a library bound to 4.7.2 runs in Breaka's 4.8: only the methods it calls have to
 exist there, with the hash it was bound with.)
 
-This prototype uses Breaka's existing threaded GodotJS 4.8 templates, Emscripten
-6.0.12 and Binaryen 133. Those templates use Breaka's lazy function-table ABI v2;
+The `breaka` profile uses Breaka's own threaded GodotJS 4.8 templates, Emscripten
+6.0.12 and Binaryen 133 (the `stock` profile's toolchain is in its own section below). Those templates use Breaka's lazy function-table ABI v2;
 ordinary eager Wasm extensions are incompatible. The registered compiler pass runs
 as part of Emscripten's final linking phase via `-sLAZY_FUNCTION_TABLE=side`. The
 build invokes the engine's source-hash and capability validator, verifies the
@@ -228,7 +233,7 @@ window, and cached under `artifacts/web-deploy-cache/` by content hash; the Work
 otherwise. The page is served with `no-cache` and an ETag, and its `<base href="/r/<release>/">` sends every relative load of the engine to that release; `.wasm` and `.pck` answer
 there with a cacheable redirect to `/o/<hash>/<name>`, so a binary that did not change between two deploys is already in the visitor's cache; scripts do not redirect, because a worker
 started from a redirected script takes the final URL as its base. Everything under `/r/` and `/o/` is `public, max-age=31536000, immutable`. Godot builds its URLs itself, so versioning is
-by path, not by query. The bare address redirects to `/?demo=navigator`, and `?lab=<id>`, `?demo=navigator` and `?demo=app` pass through to the page. The isolation headers
+by path, not by query. The bare address redirects to `/?demo=navigator` (the home page), and `?lab=<id>`, `?page=<id>`, `?demo=navigator` and `?demo=app` pass through to the page. The isolation headers
 (`Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Embedder-Policy: require-corp`, `Cross-Origin-Resource-Policy: cross-origin`) are on every response, redirects, 304s and
 errors included. The Worker is deployed only when its source (`cloudflare-worker.ts`, `release-layout.mjs`, `wrangler.react-demo.jsonc`) differs from the hash the pointer records
 (`--deploy-worker` forces it), and after the pointer is written. `--local --persist-to=<directory>` runs a deploy against wrangler's local R2 state for `wrangler dev -c
