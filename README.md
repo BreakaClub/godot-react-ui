@@ -1,36 +1,38 @@
 # godot-react-ui
 
-React for Godot. Write your UI in React and TSX on [GodotJS](https://github.com/godotjs/GodotJS). A Rust GDExtension lays it out with
-[Taffy](https://github.com/DioxusLabs/taffy) (Flexbox and Grid) and draws it with Godot's own text shaping and `RenderingServer`, natively and on the Web.
+React for Godot. You write your UI as React components in TypeScript and run them on [GodotJS](https://github.com/godotjs/GodotJS). A Rust
+GDExtension lays the UI out with [Taffy](https://github.com/DioxusLabs/taffy) (Flexbox and Grid) and draws it through Godot's `RenderingServer` with
+Godot's own text shaping, in native builds and in Web exports.
 
-**Live demo:** [react.breaka.club](https://react.breaka.club/), the project's home page and the demo's labs in the browser (Chrome is the qualified browser).
+**Live demo:** [react.breaka.club](https://react.breaka.club/) runs the project's home page and the demo's labs in the browser. It has been
+verified in Chrome.
 
 ## What it does
 
-- **React 19 with hooks.** The renderer is `react-reconciler` in persistent mode, the architecture of React Native's Fabric. A commit sends one native call
-  with only what changed. Hover, press, focus and breakpoint changes restyle natively, with no React render.
-- **Primitives and a kit.** `View`, `Text`, `Button`, `Image`, `Portal` and `TextInput`, plus `Checkbox`, `Switch`, `RadioGroup`, `Slider`, `Select`, `Combobox`,
-  `TextField` and `ScrollView` built from them.
-- **A typed, Tailwind-like class subset** and inline styles: layout, spacing, colours with opacity, typography, shadows, rings, outlines, gradients, 2D
-  transforms, filters and frosted glass (`backdrop-blur`), CSS transitions (Stylo's timing), and `sm:`/`md:`/`hover:`/`focus-visible:`… variants. An
-  unknown class is an error, not a silent no-op.
-- **DOM-style input.** Capture and bubble, `preventDefault`, focus and Tab order, keyboard events, mouse and multi-touch pointer events with capture,
-  wheel and touch scrolling with momentum, text selection and copy, drag and drop, and a native-backed `TextInput` with IME support.
-- **A good Godot citizen.** Input the UI does not use (empty space, `pointer-events: none`, unclaimed keys and wheel ticks) reaches the `Control`s
-  underneath and `_unhandled_input`, so a HUD can sit over a game.
-- **Rich text** (nested `Text` spans), **accessibility** through Godot's `AccessibilityServer`, high-DPI rendering, and React roots on quads in 3D
-  scenes ([world-space UI](docs/WORLD_SPACE.md)).
+- **React 19 with hooks.** The renderer is built on `react-reconciler` in persistent mode, the same model as React Native's Fabric. Each commit is a
+  single native call that carries only what changed, and hover, press, focus and breakpoint changes are restyled natively, without a React render.
+- **Primitives and a component kit.** `View`, `Text`, `Button`, `Image`, `Portal` and `TextInput`, plus `Checkbox`, `Switch`, `RadioGroup`, `Slider`,
+  `Select`, `Combobox`, `TextField` and `ScrollView`, which are built from them.
+- **A typed subset of Tailwind v3 classes**, plus inline styles. They cover layout, spacing, colours with opacity, typography, shadows, rings, outlines,
+  gradients, 2D transforms, filters, frosted glass (`backdrop-blur`) and CSS transitions (timed by Stylo), with variants such as `sm:`, `md:`, `hover:`
+  and `focus-visible:`. An unknown class is an error, not a silent no-op.
+- **DOM-style input.** Capture and bubbling, `preventDefault`, focus and Tab order, keyboard events, mouse and multi-touch pointer events with pointer
+  capture, wheel and touch scrolling with momentum, text selection and copying, drag and drop, and a native-backed `TextInput` with IME support.
+- **Works inside a Godot game.** Input the UI does not handle (clicks on empty space or on `pointer-events: none` regions, and keys and wheel ticks it
+  has no use for) passes through to the `Control`s beneath it and then to the game's `_unhandled_input`, so a React HUD can sit over a running game.
+- **Rich text** (nested `Text` spans), **accessibility** through Godot's `AccessibilityServer`, sharp rendering on high-DPI displays, and
+  [world-space UI](docs/WORLD_SPACE.md): a React root drawn on a mesh in a 3D scene that still takes input.
 
 ## Requirements
 
-- **Godot with GodotJS**, version 4.7.2 or newer: the native library is bound to the Godot 4.7.2 API. It does not depend on which JavaScript
-  runtime GodotJS uses: it runs on V8 natively and on the browser's own engine in Web exports. We suggest GodotJS's V8 editor build for
-  development. The library works in a project with GodotJS's camel-case bindings on or off.
-- **Platforms.** The release addon carries a universal macOS library, Linux and Windows libraries for x86_64 and arm64, Android libraries for
+- **Godot 4.7.2 or newer, with GodotJS.** The native library is built against the Godot 4.7.2 API. It does not depend on which JavaScript runtime
+  GodotJS uses: it has run on V8 natively and on the browser's own engine in Web exports. We suggest GodotJS's V8 editor build for development.
+  GodotJS's camel-case bindings can be on or off.
+- **Platforms.** The release addon includes a universal macOS library, Linux and Windows libraries for x86_64 and arm64, Android libraries for
   arm64 and x86_64, an iOS arm64 library, and Web side modules for stock Godot 4.7.2 exports with and without threads. Apple Silicon macOS and
-  the Web with threads (stock Godot 4.7.2 templates, in Chrome) are the platforms that have been verified. CI loads each desktop library in the
-  official Godot editor; the rest are built and not yet qualified ([docs/LIMITS.md](docs/LIMITS.md)).
-- **React 19.2.0** as a peer dependency.
+  the Web with threads (stock Godot 4.7.2 templates, in Chrome) have been verified. CI loads each desktop library in the official Godot editor;
+  the other platforms are built but not yet fully verified ([docs/LIMITS.md](docs/LIMITS.md)).
+- **React 19.2.0**, required as a peer dependency.
 
 ## Install
 
@@ -39,14 +41,14 @@ pnpm add react@19.2.0 godot-react-ui
 pnpm exec godot-react-ui setup --project-dir path/to/your/godot/project
 ```
 
-Each [GitHub release](https://github.com/BreakaClub/godot-react-ui/releases) also has the npm tarball and the addon as a zip.
+Each [GitHub release](https://github.com/BreakaClub/godot-react-ui/releases) also includes the npm tarball and a zip of the addon.
 
-`setup` copies the GDExtension to `res://addons/godot-react-ui/` and writes `node_modules/.gdignore`, so Godot does not import npm's tree. The
-package's `postinstall` does the same when it finds a `project.godot` above where you installed (pnpm 10 runs it only if `onlyBuiltDependencies`
-lists `godot-react-ui`). Open the project in the editor once afterwards, so Godot imports the extension.
+`setup` copies the GDExtension to `res://addons/godot-react-ui/` and writes `node_modules/.gdignore` so that Godot does not import the contents of
+`node_modules`. The package's `postinstall` script does the same when it finds a `project.godot` in a directory above the install (pnpm 10 runs it
+only if `onlyBuiltDependencies` lists `godot-react-ui`). Afterwards, open the project in the Godot editor once so that it imports the extension.
 
-The installed addon stays out of your project's git, as `node_modules` does: `setup` writes `addons/godot-react-ui/.gitignore` (`*`), and an
-install on a fresh clone puts the addon back. If your project must commit the addon, delete that `.gitignore` after each install.
+Like `node_modules`, the installed addon is kept out of your project's git: `setup` writes `addons/godot-react-ui/.gitignore` containing `*`, and
+installing on a fresh clone puts the addon back. If your project needs to commit the addon, delete that `.gitignore` after each install.
 
 ## Use
 
@@ -70,7 +72,7 @@ export function Counter() {
 }
 ```
 
-Mount it on a `ReactUiRoot`, the extension's `Control`, from the GodotJS script that owns it:
+Mount it on a `ReactUiRoot`, the `Control` the extension provides, from the GodotJS script that owns it:
 
 ```tsx
 import { Callable, Control, ReactUiRoot } from 'godot';
@@ -105,12 +107,12 @@ export default class Hud extends Control {
 }
 ```
 
-The owner also keeps the surface's size up to date (native restyles the breakpoints a new width crosses, with no React render) and calls
-`grabFocus()` on it when the UI should take the keyboard first. [The demo's owner](demo/src/main.ts) is a complete example, and
-[docs/AUTHORING.md](docs/AUTHORING.md#mounting) has the details.
+The owner also keeps the `ReactUiRoot`'s size up to date (when a new width crosses a breakpoint, the native side restyles without a React render),
+and calls `grabFocus()` on it when the UI should receive keyboard input first. [The demo's owner script](demo/src/main.ts) is a complete example,
+and [docs/AUTHORING.md](docs/AUTHORING.md#mounting) has the details.
 
-The owner above is a project with GodotJS's camel-case bindings. The library takes a `ReactUiRoot` under either naming, so only the owner's own
-calls differ in a project without them: `add_child`, `events_ready`, `grab_focus`.
+The owner above is written for a project with GodotJS's camel-case bindings. The library accepts a `ReactUiRoot` under either naming convention,
+so in a project without them only the owner's own calls change: `add_child`, `events_ready`, `grab_focus`.
 
 ## Documentation
 

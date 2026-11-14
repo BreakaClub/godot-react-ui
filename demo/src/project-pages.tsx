@@ -183,28 +183,32 @@ function Actions({ children }: { children: ReactNode }) {
 
 const FEATURES: readonly (readonly [string, string])[] = [
   ['A React 19 renderer',
-    'react-reconciler in persistent mode, the architecture of React Native\'s Fabric. A commit is one native call carrying only what changed, and '
-    + 'hover, press, focus and breakpoint changes restyle natively, without a React render.'],
+    'Built on react-reconciler in persistent mode, the same model as React Native\'s Fabric. Each commit is a single native call that carries only '
+    + 'what changed, and hover, press, focus and breakpoint changes are restyled natively, without a React render.'],
   ['Primitives and a component kit',
-    'View, Text, Button, Image, Portal and TextInput, and Checkbox, Switch, RadioGroup, Slider, Select, Combobox, TextField and ScrollView built from them.'],
+    'View, Text, Button, Image, Portal and TextInput, plus Checkbox, Switch, RadioGroup, Slider, Select, Combobox, TextField and ScrollView, which are '
+    + 'built from them.'],
   ['Styles',
-    'A typed subset of Tailwind v3 classes and inline styles: layout, spacing, colour, typography, borders, shadows, gradients, 2D transforms, filters, '
-    + 'backdrop blur and transitions, with variants such as sm:, hover: and focus-visible:. An unknown class is an error, not a silent no-op.'],
+    'A typed subset of Tailwind v3 classes, plus inline styles. They cover layout, spacing, colour, typography, borders, shadows, gradients, 2D '
+    + 'transforms, filters, backdrop blur and transitions, with variants such as sm:, hover: and focus-visible:. An unknown class is an error, not a '
+    + 'silent no-op.'],
   ['Input',
-    'DOM-style events with capture and bubbling, focus and Tab order, keyboard, mouse and multi-touch pointer events, scrolling with momentum, text '
-    + 'selection and copy, drag and drop, and a TextInput with IME support.'],
+    'DOM-style events with capture and bubbling; focus and Tab order; keyboard, mouse and multi-touch pointer events; scrolling with momentum; text '
+    + 'selection and copying; drag and drop; and a TextInput with IME support.'],
   ['Inside a Godot game',
-    'Input the UI does not use reaches the Controls underneath and _unhandled_input, so a HUD can sit over a game. A root can also be drawn on a quad in a 3D scene.'],
-  ['Text and platform',
-    'Rich text from nested Text, accessibility through Godot\'s AccessibilityServer, and high-DPI rendering.'],
+    'Input the UI does not handle, such as a click on empty space or a key it has no use for, passes through to the Controls beneath it and then to '
+    + 'the game\'s _unhandled_input, so a React HUD can sit over a running game. A React UI can also be drawn on a mesh in a 3D scene and still '
+    + 'take input.'],
+  ['Text, accessibility and high DPI',
+    'Rich text from nested Text elements, accessibility through Godot\'s AccessibilityServer, and sharp rendering on high-DPI displays.'],
 ];
 
 const LAYERS: readonly (readonly [string, string])[] = [
   ['In JavaScript',
-    'React, the reconciler and a style compiler, which turns class strings and inline styles into style layers once and reuses them.'],
+    'React, the reconciler, and a style compiler that compiles each class string and inline style once and reuses the result.'],
   ['In the GDExtension (Rust)',
-    'Taffy lays out Flexbox and Grid, Godot\'s TextParagraph shapes and measures text, Stylo times transitions, and one Control draws the whole tree as '
-    + 'RenderingServer canvas items: there is no Godot Control per React element.'],
+    'Taffy computes Flexbox and Grid layout, Godot\'s TextParagraph shapes and measures text, and Stylo times transitions. A single Control draws '
+    + 'the whole tree as RenderingServer canvas items, so there is no Godot Control for each React element.'],
 ];
 
 export function HomePage() {
@@ -212,8 +216,8 @@ export function HomePage() {
     <PageColumn testID="page-home">
       <PageTitle eyebrow="OPEN SOURCE, MIT LICENCE" title="godot-react-ui">
         <Paragraph testID="page-home-summary">
-          {'React for Godot. You write the UI as React components in TypeScript and run them on GodotJS; a Rust GDExtension lays them out and '
-            + 'draws them with Godot\'s own text shaping and RenderingServer, natively and in Web exports.'}
+          {'React for Godot. You write your UI as React components in TypeScript and run them on GodotJS. A Rust GDExtension lays the UI out and '
+            + 'draws it through Godot\'s RenderingServer with Godot\'s own text shaping, in native builds and in Web exports.'}
         </Paragraph>
         <Actions>
           <ExternalLink testID="page-home-github" url={PROJECT_REPOSITORY_URL} label="Source on GitHub" primary />
@@ -229,8 +233,8 @@ export function HomePage() {
       </Section>
       <Section title="This site">
         <Paragraph>
-          {'This site is the project\'s demo exported for the Web with stock Godot 4.7.2 and GodotJS, so everything on it, this page included, is '
-            + 'drawn by godot-react-ui. It is verified in Chrome.'}
+          {'This site is the project\'s demo, exported for the Web with stock Godot 4.7.2 and GodotJS, so everything on it, including this page, is '
+            + 'drawn by godot-react-ui. It has been verified in Chrome.'}
         </Paragraph>
       </Section>
     </PageColumn>
@@ -241,14 +245,14 @@ export function HomePage() {
 
 const REQUIREMENTS: readonly (readonly [string, string])[] = [
   ['Godot 4.7.2 or newer, with GodotJS',
-    'The native library is bound to the Godot 4.7.2 API. It does not depend on which JavaScript runtime GodotJS uses: it runs on V8 '
-    + 'natively and on the browser\'s own engine in Web exports. We suggest GodotJS\'s V8 editor build for development. It works with '
-    + 'GodotJS\'s camel-case bindings on or off.'],
-  ['React 19.2.0', 'A peer dependency.'],
+    'The native library is built against the Godot 4.7.2 API. It does not depend on which JavaScript runtime GodotJS uses: it has run on V8 '
+    + 'natively and on the browser\'s own engine in Web exports. We suggest GodotJS\'s V8 editor build for development. GodotJS\'s camel-case '
+    + 'bindings can be on or off.'],
+  ['React 19.2.0', 'Required as a peer dependency.'],
   ['Platforms',
-    'The addon carries libraries for macOS (universal), Linux and Windows (x86_64 and arm64), Android (arm64 and x86_64) and iOS (arm64), and Web side '
-    + 'modules for stock Godot 4.7.2 exports with and without threads. Apple Silicon macOS and the Web with threads in Chrome have been verified; the '
-    + 'others are built and not yet qualified.'],
+    'The addon includes libraries for macOS (universal), Linux and Windows (x86_64 and arm64), Android (arm64 and x86_64) and iOS (arm64), plus Web '
+    + 'side modules for stock Godot 4.7.2 exports with and without threads. Apple Silicon macOS and the Web with threads in Chrome have been '
+    + 'verified; the other platforms are built but not yet fully verified.'],
 ];
 
 const INSTALL_COMMANDS = `pnpm add react@19.2.0 godot-react-ui
@@ -312,12 +316,12 @@ export function InstallPage() {
       <Section title="1. Add the package">
         <CodeBlock testID="page-install-commands" language="shell" code={INSTALL_COMMANDS} />
         <Paragraph>
-          {'setup copies the GDExtension to res://addons/godot-react-ui/ and writes node_modules/.gdignore, so Godot does not import npm\'s tree. '
-            + 'Open the project in the editor once afterwards, so Godot imports the extension. The installed addon stays out of git, as node_modules '
-            + 'does, and an install on a fresh clone puts it back.'}
+          {'setup copies the GDExtension to res://addons/godot-react-ui/ and writes node_modules/.gdignore so that Godot does not import the '
+            + 'contents of node_modules. Afterwards, open the project in the Godot editor once so that it imports the extension. Like node_modules, '
+            + 'the installed addon is kept out of git, and installing on a fresh clone puts it back.'}
         </Paragraph>
         <Actions>
-          <ExternalLink testID="page-install-releases" url={RELEASES_URL} label="Releases (tarball and addon zip)" />
+          <ExternalLink testID="page-install-releases" url={RELEASES_URL} label="Releases (npm tarball and addon zip)" />
         </Actions>
       </Section>
       <Section title="2. Write a component">
@@ -325,20 +329,20 @@ export function InstallPage() {
       </Section>
       <Section title="3. Mount it on a ReactUiRoot">
         <Paragraph>
-          {'ReactUiRoot is the extension\'s Control. The GodotJS script that owns it creates the root, delivers its events each frame and unmounts '
-            + 'it when it leaves the tree. The owner also keeps the surface\'s size up to date and calls grabFocus() on it when the UI should take '
-            + 'the keyboard first.'}
+          {'ReactUiRoot is the Control the extension provides. The GodotJS script that owns it creates the React root, delivers its events each '
+            + 'frame, and unmounts it when the node leaves the scene tree. The owner also keeps the ReactUiRoot\'s size up to date, and calls '
+            + 'grabFocus() on it when the UI should receive keyboard input first.'}
         </Paragraph>
         <CodeBlock testID="page-install-mount" language="tsx" code={MOUNT_EXAMPLE} />
       </Section>
       <Section title="More">
         <Paragraph>
           {'The authoring guide covers the primitives, images, focus, events, scrolling, selection, drag and drop, text input, rich text, '
-            + 'accessibility and mounting. The demo\'s own owner is a complete example, and the limits page lists what is not built.'}
+            + 'accessibility and mounting. The demo\'s owner script is a complete example, and the limits page lists what has not been built.'}
         </Paragraph>
         <Actions>
           <ExternalLink testID="page-install-authoring" url={AUTHORING_URL} label="Authoring guide" />
-          <ExternalLink testID="page-install-owner" url={OWNER_EXAMPLE_URL} label="The demo's owner" />
+          <ExternalLink testID="page-install-owner" url={OWNER_EXAMPLE_URL} label="The demo's owner script" />
           <ExternalLink testID="page-install-limits" url={LIMITS_URL} label="Limits" />
         </Actions>
       </Section>
@@ -354,8 +358,8 @@ export function LabsIntroPage() {
     <PageColumn testID="page-labs">
       <PageTitle eyebrow="LABS" title="About the labs">
         <Paragraph testID="page-labs-summary">
-          {'The labs are technical examples. Most are demonstrations of one capability, and many are also the fixtures the project\'s automated '
-            + 'verifiers drive. They are not a guide to structuring an app, and their code does not recommend any particular practice.'}
+          {'The labs are technical examples. Most demonstrate a single capability, and many double as fixtures for the project\'s automated '
+            + 'verifiers. They are not a guide to structuring an app, and their code is not a recommendation of any particular practice.'}
         </Paragraph>
         <Actions>
           <Button testID="page-labs-first" className={PRIMARY_ACTION} onClick={actions.openFirstLab}>Open the first lab</Button>
@@ -363,13 +367,13 @@ export function LabsIntroPage() {
       </PageTitle>
       <Section title="Live code">
         <Paragraph>
-          {'In a window at least 768 pixels wide, the Code button above a lab opens its TSX source in an editor beside it. Edits are compiled as '
-            + 'you type and the lab\'s components are hot swapped in, keeping their state where their hooks have not changed. A syntax or type error '
-            + 'leaves the last good version on screen. Labs that need the whole window or a scene of their own have no Code button.'}
+          {'In a window at least 768 pixels wide, the Code button above a lab opens its TSX source in an editor beside it. Your edits are compiled '
+            + 'as you type and the lab\'s components are hot-swapped in place, keeping their state wherever their hooks are unchanged. A syntax or type '
+            + 'error leaves the last working version on screen. Labs that need the whole window or a scene of their own have no Code button.'}
         </Paragraph>
         <Paragraph>
-          {'Type checking, hover types and compilation run in your browser, in godot-tsc: a GDExtension that runs Bun\'s TypeScript checker (a port '
-            + 'of typescript-go) and transpiler on a thread of its own inside Godot. The editor itself is built with godot-react-ui.'}
+          {'Type checking, hover types and compilation run in your browser through godot-tsc, a GDExtension that runs Bun\'s TypeScript checker (a '
+            + 'port of typescript-go) and transpiler on its own thread inside Godot. The editor itself is built with godot-react-ui.'}
         </Paragraph>
         <Actions>
           <ExternalLink testID="page-labs-godot-tsc" url={GODOT_TSC_REPOSITORY_URL} label="godot-tsc on GitHub" />
@@ -377,8 +381,8 @@ export function LabsIntroPage() {
       </Section>
       <Section title="Moving around">
         <Paragraph>
-          {'Previous and Next, or Alt+Up and Alt+Down, step through the labs in the sidebar\'s order, and the filter narrows the list. Show '
-            + 'Expected adds what each case should do under it.'}
+          {'Previous and Next, or Alt+Up and Alt+Down, step through the labs in sidebar order, and the filter narrows the list. Show Expected adds '
+            + 'a note under each case saying what it should do.'}
         </Paragraph>
       </Section>
     </PageColumn>
