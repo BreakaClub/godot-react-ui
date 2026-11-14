@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { Button, Image, Text, View, type ImageFit } from 'godot-react-ui';
 import {
-  BLANK, FITS, FIT_BOX, LARGE, LATE, PANEL, PANEL_MARGIN, PROPORTIONAL_WIDTH, QUADRANTS, SCROLLER_HEIGHT, SHOWN, SLICE_BOX, SMALL_BOX,
+  BLANK, BORDER_IMAGE_WIDTH, FITS, FIT_BOX, LARGE, LATE, PANEL, PANEL_MARGIN, PROPORTIONAL_WIDTH, QUADRANTS, SCROLLER_HEIGHT, SHOWN, SLICE_BOX, SMALL_BOX,
   VIOLET_500_HEX, WIDE,
 } from './image-data';
 import { LAB_CARD_CLASS, LabCase, LabGrid, LabIntro } from './lab-parts';
@@ -59,7 +59,7 @@ export function ImageLab() {
             ))}
           </View>
         </LabCase>
-        <LabCase testID="image-regions" className={LAB_CARD_CLASS} title="Atlas, flip, tint, nine-slice" caption="A quadrant of a picture, mirror images, a tint and a stretched frame.">
+        <LabCase testID="image-regions" className={LAB_CARD_CLASS} title="Atlas, flip, tint, nine-slice" caption="A quadrant of a picture, mirror images, a tint, a stretched frame and the same picture as a border image.">
           <View className="flex-row flex-wrap items-start gap-2">
             <Example label="region">
               <Image testID="image-region" source={QUADRANTS.id} sourceRect={{ x: 32, y: 0, width: 32, height: 32 }} style={{ width: SMALL_BOX, height: SMALL_BOX }} />
@@ -78,6 +78,15 @@ export function ImageLab() {
                 testID="image-slice" source={PANEL.id}
                 slice={{ top: PANEL_MARGIN, right: PANEL_MARGIN, bottom: PANEL_MARGIN, left: PANEL_MARGIN }}
                 style={{ width: SLICE_BOX.width, height: SLICE_BOX.height }}
+              />
+            </Example>
+            <Example label="border-image">
+              <View
+                testID="image-border" className="border-red-500"
+                style={{
+                  width: SLICE_BOX.width, height: SLICE_BOX.height, borderWidth: BORDER_IMAGE_WIDTH,
+                  borderImageSource: `url(${PANEL.id})`, borderImageSlice: `${PANEL_MARGIN} fill`,
+                }}
               />
             </Example>
           </View>

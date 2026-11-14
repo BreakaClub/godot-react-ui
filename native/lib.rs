@@ -1,6 +1,7 @@
 mod accessibility;
 mod accessibility_model;
 mod blur;
+mod border_image;
 mod box_draw;
 mod box_mesh;
 mod box_paint;
@@ -686,6 +687,7 @@ impl ReactUiRoot {
             return GString::from(&error);
         }
         self.refresh_image_users(|props| props.source.as_deref() == Some(id.as_str()));
+        self.refresh_border_image_users(&id);
         GString::new()
     }
 
@@ -697,6 +699,7 @@ impl ReactUiRoot {
         let known = self.images.unregister_texture(&id);
         if known {
             self.refresh_image_users(|props| props.source.as_deref() == Some(id.as_str()));
+            self.refresh_border_image_users(&id);
         }
         known
     }

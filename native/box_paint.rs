@@ -10,9 +10,10 @@
 use std::rc::Rc;
 
 use godot::builtin::Side;
-use godot::classes::StyleBoxFlat;
+use godot::classes::{RenderingServer, StyleBoxFlat};
 use godot::prelude::*;
 
+use crate::border_image::BorderImage;
 use crate::box_draw::{self, BoxShape, Lease};
 use crate::box_mesh::Feather;
 use crate::box_shadow::{ShadowLayer, ShadowList};
@@ -178,6 +179,45 @@ pub(crate) fn decoration_of(
     Some(Rc::new(Decoration { shadows, gradient }))
 }
 
+/// A box's border image: the registered texture it is cut from and how (`border_image.rs`). Present only while the style names a
+/// texture the root has registered; without one the border is drawn as its own style says.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct BorderImageKey {
+    pub texture: Rid,
+    /// The picture's size in its own pixels.
+    pub picture: Vector2,
+    pub image: BorderImage,
+}
+
+impl BorderImageKey {
+    /// How far the image reaches past the border box (top, right, bottom, left), given the border widths it is laid out by.
+    fn reach(&self, borders: [i32; 4]) -> [f32; 4] {
+        self.image.outsets(borders.map(|width| width as f32))
+    }
+
+    /// Record the image's pieces, over what the box drew.
+    fn draw(&self, item: Rid, size: Vector2, borders: [i32; 4]) {
+        let mut rs = RenderingServer::singleton();
+        let pieces = self.image.pieces(
+            (self.picture.x, self.picture.y),
+            (size.x, size.y),
+            borders.map(|width| width as f32),
+        );
+        for piece in pieces {
+            let dest = Rect2::new(
+                Vector2::new(piece.dest.x, piece.dest.y),
+                Vector2::new(piece.dest.width, piece.dest.height),
+            );
+            let source = Rect2::new(
+                Vector2::new(piece.source.x, piece.source.y),
+                Vector2::new(piece.source.width, piece.source.height),
+            );
+            rs.canvas_item_add_texture_rect_region_ex(item, dest, self.texture, source)
+                .done();
+        }
+    }
+}
+
 /// What a box item last drew; equal keys mean the recorded commands are still right.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct BoxKey {
@@ -186,6 +226,8 @@ pub(crate) struct BoxKey {
     pub border: BorderKey,
     /// `None` for a box with no shadow, ring or gradient: the common case holds nothing.
     pub decoration: Option<Rc<Decoration>>,
+    /// `None` for a box with no border image, or whose texture is not registered.
+    pub border_image: Option<Rc<BorderImageKey>>,
     /// Only rounded corners are antialiased (`StyleBoxFlat`), and a shadow or gradient is baked for a scale; a plain
     /// square box keeps `Oversampling::NONE` and is not re-recorded when the scale changes.
     pub oversampling: Oversampling,
@@ -198,7 +240,10 @@ pub(crate) struct BoxKey {
 impl BoxKey {
     /// Whether the box has any visible pixels (background, border, shadow, or gradient).
     pub fn is_visible(&self) -> bool {
-        self.background.a > 0.0 || self.border.has_visible_border() || self.decoration.is_some()
+        self.background.a > 0.0
+            || self.border.has_visible_border()
+            || self.decoration.is_some()
+            || self.border_image.is_some()
     }
 
     /// Whether the key's drawing depends on the scale it is drawn at.
@@ -206,12 +251,18 @@ impl BoxKey {
         border.is_rounded() || border.needs_mesh() || decoration.is_some()
     }
 
-    /// The rectangle the box item covers, which the engine culls against: the border box and, past it, the outer shadows.
+    /// The rectangle the box item covers, which the engine culls against: the border box and, past it, the outer shadows and the
+    /// border image's outset.
     pub fn paint_rect(&self) -> Rect2 {
-        let [top, right, bottom, left] = self
+        let shadows = self
             .decoration
             .as_ref()
             .map_or([0.0; 4], |decoration| decoration.reach());
+        let outset = self
+            .border_image
+            .as_ref()
+            .map_or([0.0; 4], |image| image.reach(self.border.widths));
+        let [top, right, bottom, left] = std::array::from_fn(|side| shadows[side].max(outset[side]));
         // A vertex of the feather's band is half the feather away from the true edge, along its normal, and the feather across any
         // normal is at most the two axes' together.
         let reach = self.feather.map_or(Vector2::ZERO, |feather| {
@@ -259,9 +310,24 @@ fn is_layered(
         || border.has_border() && (translucent && !single_border_draw || border.needs_mesh())
 }
 
-/// Record a box into its item, which is empty. `faults` is whether the single-draw fault of the verifier is on (a
-/// translucent border drawn in one `StyleBoxFlat` call).
+/// Record a box into its item, which is empty: its layers, then its border image over them (CSS paints it where the border
+/// would be, and the border's own paint is not drawn: the key's border colours are transparent). `single_border_draw` is
+/// whether the single-draw fault of the verifier is on (a translucent border drawn in one `StyleBoxFlat` call).
 pub(crate) fn draw_box(
+    item: Rid,
+    key: &BoxKey,
+    style: &mut Gd<StyleBoxFlat>,
+    single_border_draw: bool,
+    leases: &mut Vec<Lease>,
+) {
+    draw_layers(item, key, style, single_border_draw, leases);
+    if let Some(image) = &key.border_image {
+        image.draw(item, key.size, key.border.widths);
+    }
+}
+
+/// The fill, shadows, gradient and border of a box.
+fn draw_layers(
     item: Rid,
     key: &BoxKey,
     style: &mut Gd<StyleBoxFlat>,
@@ -537,6 +603,7 @@ mod tests {
             background: Color::WHITE,
             border: BorderKey::new([0.0; 4], [Color::WHITE; 4], [0.0; 4]),
             decoration: decoration_of(&style, None),
+            border_image: None,
             oversampling: Oversampling::NONE,
             feather: None,
         };
@@ -553,6 +620,7 @@ mod tests {
             background: Color::WHITE,
             border: BorderKey::new([0.0; 4], [Color::WHITE; 4], [4.0; 4]),
             decoration: None,
+            border_image: None,
             oversampling: Oversampling::NONE,
             feather: Some(Feather::from_axes([1.0, 0.0], [0.0, 2.5])),
         };

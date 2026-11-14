@@ -99,6 +99,9 @@ export const SMALL_BOX = 48;
 /** The nine-slice example's box. */
 export const SLICE_BOX = { width: 160, height: 64 } as const;
 
+/** The border width of the border image example: the frame on screen is this wide, where the picture's slice (`PANEL_MARGIN`) is wider. */
+export const BORDER_IMAGE_WIDTH = 8;
+
 /** The scroll example: `LARGE` shown at `SHOWN` in a scroll container `SCROLLER_HEIGHT` tall, whose content fits in it. */
 export const SHOWN = 96;
 export const SCROLLER_HEIGHT = 128;

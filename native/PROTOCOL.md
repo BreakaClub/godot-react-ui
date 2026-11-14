@@ -290,6 +290,10 @@ asks, `box_paint.rs` what a box item records and its key; a plain box with a uni
 baked coverage masks (`shadow_mask.rs`, shared between boxes with the same layer and leased from a cache) and exact meshes (`box_mesh.rs`, `gradient.rs`). A box item's custom rect is its
 border box plus the reach of its outer shadows, so the engine culls it correctly; `get_activity().paintTextures` counts the baked textures held.
 
+`borderImageSource` (`none` or `url(<registered texture id>)`), `borderImageRepeat` (`stretch|round`) and `borderImageSlice`, `borderImageWidth`, `borderImageOutset` (objects of `top|right|bottom|left`, each a number or text: slice
+`12` or `"25%"`, plus `fill`; width and outset `2` (a multiple of the border width), `"12px"` or, for a width, `"auto"`) draw a border image (`border_image.rs` cuts the regions, `box_paint.rs` records the pieces over the box's
+layers, with the border's own colours dropped from the key); the three objects merge side by side across layers. Registering or forgetting a texture repaints the boxes whose source names it.
+
 ## Transforms
 
 `transform` (CSS text, or `none`), `transformOrigin` (CSS text) and `transformParts` (`translateX|Y`, `rotate`, `skewX|Y`, `scaleX|Y`, `gpu`: what Tailwind's separate utilities set, merged per

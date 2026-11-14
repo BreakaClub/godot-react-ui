@@ -22,6 +22,7 @@
 //! Compatibility the probe that makes the group's mipmaps readable. Each exists only while the filter does
 //! (`filter_render.rs` decides).
 
+use std::rc::Rc;
 use std::time::Instant;
 
 use godot::builtin::Corner;
@@ -32,7 +33,7 @@ use godot::prelude::*;
 use crate::ReactUiRoot;
 use crate::box_draw::{self, BoxShape, Lease};
 pub(crate) use crate::box_paint::{BorderKey, BoxKey};
-use crate::box_paint::{decoration_of, draw_box};
+use crate::box_paint::{BorderImageKey, decoration_of, draw_box};
 use crate::commit::LAYER_COUNT;
 use crate::filter_faults::{self as faults, Fault};
 use crate::geometry::BoxRect;
@@ -1392,6 +1393,18 @@ impl ReactUiRoot {
                 }
             }
         }
+        // A border image replaces the border's own paint: its sides are not drawn, though they keep their width.
+        let border_image = style.border_image().and_then(|image| {
+            let texture = self.images.texture(&image.texture)?;
+            Some(Rc::new(BorderImageKey {
+                texture: texture.get_rid(),
+                picture: texture.get_size(),
+                image,
+            }))
+        });
+        if border_image.is_some() {
+            border_colors = [Color::TRANSPARENT_BLACK; 4];
+        }
         let border = BorderKey::new(style.border_widths(), border_colors, style.border_radii());
         let decoration = decoration_of(style, motion.as_ref().map(|(_, _, _, shadows)| shadows));
         let box_key = BoxKey {
@@ -1404,6 +1417,7 @@ impl ReactUiRoot {
             },
             border,
             decoration,
+            border_image,
             feather,
         };
         let reach_before = node.render.paint_reach();

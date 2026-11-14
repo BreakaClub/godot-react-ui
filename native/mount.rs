@@ -1061,6 +1061,28 @@ impl ReactUiRoot {
         self.flush_layout();
     }
 
+    /// Paint again the boxes whose `border-image-source` names texture `id`, which was registered or forgotten, and lay out.
+    pub(crate) fn refresh_border_image_users(&mut self, id: &str) {
+        let users: Vec<u32> = self
+            .mounted
+            .nodes
+            .iter()
+            .filter(|(_, node)| {
+                node.computed
+                    .border_image_source
+                    .as_ref()
+                    .and_then(|source| source.texture_id())
+                    == Some(id)
+            })
+            .map(|(tag, _)| *tag)
+            .collect();
+        if users.is_empty() {
+            return;
+        }
+        self.paint_dirty.extend(users);
+        self.flush_layout();
+    }
+
     fn delete_node(&mut self, tag: u32) {
         let node = self
             .mounted

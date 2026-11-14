@@ -1,6 +1,7 @@
 //! What a computed style says about the paint of a box beyond its fill: border sides, corners, outline, shadows and
 //! gradient. Nothing here touches Godot; `box_paint.rs` turns it into canvas items.
 
+use crate::border_image::BorderImage;
 use crate::box_shadow::ShadowList;
 use crate::filter::Rgba;
 use crate::gradient::{BackgroundImage, LinearGradient};
@@ -120,6 +121,20 @@ impl StyleSpec {
         }
     }
 
+    /// The border image this style asks for: `border-image-source` names a texture, and the slice, width, outset and repeat
+    /// say how it is cut and laid out (CSS's initial values for what is not set). Whether the texture is registered is for
+    /// the root to say.
+    pub fn border_image(&self) -> Option<BorderImage> {
+        let texture = self.border_image_source.as_ref()?.texture_id()?;
+        Some(BorderImage {
+            texture: texture.to_owned(),
+            slice: self.border_image_slice.unwrap_or_default(),
+            width: self.border_image_width.unwrap_or_default(),
+            outset: self.border_image_outset.unwrap_or_default(),
+            repeat: self.border_image_repeat.unwrap_or_default(),
+        })
+    }
+
     /// Whether the style sets a shadow, a ring or a gradient at all: the check that lets a plain element skip the work.
     pub fn has_box_decoration(&self) -> bool {
         self.box_shadow.is_some()
@@ -132,6 +147,7 @@ impl StyleSpec {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::border_image::{BorderImageRepeat, EdgeValue, SliceValue};
 
     fn style(json: &str) -> StyleSpec {
         serde_json::from_str(json).expect("fixture style")
@@ -311,6 +327,30 @@ mod tests {
         assert_eq!(at_rest.stops.len(), 3);
         assert_ne!(at_rest.stops[0].color, hovered.stops[0].color);
         assert_eq!(at_rest.stops[1], hovered.stops[1]);
+        // `border-slice-12 border-slice-fill ... hover:border-slice-t-[25%] border-repeat-round`: the slice merges side by side.
+        let framed = &cases[12];
+        let at_rest = resolve(framed, false, false)
+            .border_image()
+            .expect("a border image");
+        assert_eq!(at_rest.texture, "frame");
+        assert_eq!(at_rest.slice.top, Some(SliceValue::Pixels(12.0)));
+        assert_eq!(at_rest.slice.fill, Some(true));
+        assert_eq!(at_rest.width.left, Some(EdgeValue::Pixels(10.0)));
+        assert_eq!(at_rest.repeat, BorderImageRepeat::Round);
+        let hovered = resolve(framed, true, false)
+            .border_image()
+            .expect("a border image");
+        assert_eq!(hovered.slice.top, Some(SliceValue::Percent(25.0)));
+        assert_eq!(hovered.slice.left, Some(SliceValue::Pixels(12.0)));
+        // The inline text sets all four sides of each value.
+        let inline = resolve(&cases[13], false, false)
+            .border_image()
+            .expect("a border image");
+        assert_eq!(inline.slice.right, Some(SliceValue::Pixels(16.0)));
+        assert_eq!(inline.slice.fill, Some(true));
+        assert_eq!(inline.width.right, Some(EdgeValue::Auto));
+        assert_eq!(inline.outset.top, Some(EdgeValue::Pixels(2.0)));
+        assert_eq!(inline.outset.left, Some(EdgeValue::Multiple(0.0)));
         // `outline-none focus-visible:outline-2 focus-visible:outline-indigo-500`: authored, drawn only when focused.
         let outline = &cases[6];
         assert!(resolve(outline, false, false).has_authored_outline());

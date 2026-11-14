@@ -1,3 +1,4 @@
+import { borderImageUtility, mergeBorderImage, type BorderImageKeys, type BorderImageUtilityStyle } from './border-image';
 import type {
   BoxShadowParts, GradientDirection, HexColor, LonghandStyle, ShadowPartLayer, Style,
 } from '../types';
@@ -19,7 +20,7 @@ export interface PaintHelpers {
 }
 
 /** What a paint utility sets: styles, and the two composed families. */
-export type PaintStyle = Style & Pick<LonghandStyle, 'boxShadowParts' | 'gradientParts'>;
+export type PaintStyle = Omit<Style, keyof BorderImageUtilityStyle> & Pick<LonghandStyle, 'boxShadowParts' | 'gradientParts'> & BorderImageUtilityStyle;
 
 const PERCENT = 100;
 /** The steps of Tailwind's `ringWidth`, `ringOffsetWidth`, `outlineWidth` and `outlineOffset` scales, and `borderWidth`. */
@@ -280,6 +281,7 @@ export function paintUtility(utility: string, helpers: PaintHelpers): PaintStyle
     ?? outlineUtility(utility, helpers)
     ?? borderUtility(utility, helpers)
     ?? roundedUtility(utility, helpers)
+    ?? borderImageUtility(utility)
     ?? gradientUtility(utility, helpers);
 }
 
@@ -295,8 +297,14 @@ const CORNER_RADII = [
  * back, and a shorthand (`borderWidth`, `borderColor`, `borderRadius`) set after sides or corners resets them. Returns the
  * rest of the style, for the caller to copy over.
  */
-export function mergePaint<T extends Readonly<PaintStyle>>(target: LonghandStyle, source: T): Omit<T, 'boxShadow' | 'boxShadowParts' | 'backgroundImage' | 'gradientParts'> {
-  const { boxShadow, boxShadowParts, backgroundImage, gradientParts, ...rest } = source;
+export function mergePaint<T extends Readonly<PaintStyle>>(target: LonghandStyle, source: T): Omit<T, 'boxShadow' | 'boxShadowParts' | 'backgroundImage' | 'gradientParts' | BorderImageKeys> {
+  const {
+    boxShadow, boxShadowParts, backgroundImage, gradientParts, borderImageSlice, borderImageWidth, borderImageOutset,
+    borderImageSliceParts, borderImageWidthParts, borderImageOutsetParts, ...rest
+  } = source;
+  mergeBorderImage(target, {
+    borderImageSlice, borderImageWidth, borderImageOutset, borderImageSliceParts, borderImageWidthParts, borderImageOutsetParts,
+  });
   if (boxShadow !== undefined) {
     target.boxShadow = boxShadow;
     delete target.boxShadowParts;

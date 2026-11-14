@@ -244,6 +244,8 @@ test('compiled paint styles match the native contract fixture, which the Rust te
     { className: 'rounded-lg', style: { backgroundImage: 'linear-gradient(45deg, #ff0000 0%, rgba(0, 0, 255, 0.5) 60%, transparent)', boxShadow: '0 0 0 3px #3b82f680, inset 0 2px 4px #00000040' } },
     { className: 'border-none bg-none', style: { borderTopLeftRadius: 4, borderBottomWidth: 2, borderTopColor: '#ff0000', outlineStyle: 'solid', outlineWidth: 2, outlineOffset: 1, outlineColor: '#00ff00' } },
     { className: 'rounded-md shadow-sm', style: { transition: { properties: ['boxShadow', 'backgroundColor'], durationMs: 200, easing: 'ease-out' } } },
+    { className: 'border-8 border-image-[url(frame)] border-slice-12 border-slice-fill border-image-width-x-[10px] hover:border-slice-t-[25%] border-repeat-round' },
+    { className: 'border-4', style: { borderImageSource: 'url(frame)', borderImageSlice: '8 16 fill', borderImageWidth: '1 auto', borderImageOutset: '2px 0' } },
   ];
   const fixture = inputs.map((input) => ({ ...input, compiled: compileStyle(input.className, input.style) }));
   checkFixture('paint-styles.json', fixture);

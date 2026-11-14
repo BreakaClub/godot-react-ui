@@ -88,6 +88,7 @@ export async function verifyImages(owner: Node, api: ImagesInspection, capture: 
   for (const fit of FITS) sized(`image-fit-${fit}`, FIT_BOX, FIT_BOX, 'its authored size, whatever the fit');
   for (const testID of ['image-region', 'image-flip-x', 'image-flip-y', 'image-tint']) sized(testID, SMALL_BOX, SMALL_BOX, 'its authored size');
   sized('image-slice', SLICE_BOX.width, SLICE_BOX.height, 'its authored size');
+  sized('image-border', SLICE_BOX.width, SLICE_BOX.height, 'its authored size, border included');
   sized('image-natural', QUADRANTS.width, QUADRANTS.height, "with no size of its own, the picture's");
   sized('image-proportional', PROPORTIONAL_WIDTH, PROPORTIONAL_WIDTH * WIDE.height / WIDE.width, "with a width alone, the picture's proportions");
   sized('image-late', 0, 0, 'with its picture not registered, no size, as an <img> that has not loaded');
@@ -150,6 +151,14 @@ export async function verifyImages(owner: Node, api: ImagesInspection, capture: 
   probe('image-slice', 80, 20, INDIGO_100, 'the middle, just below the top frame');
   probe('image-slice', 80, 8, INDIGO_700, 'the top frame');
   probe('image-slice', 152, 56, INDIGO_700, 'the bottom right corner');
+
+  // The same `PANEL` as a border image over a box with an 8 px border: the slice is 16 px of the picture, drawn 8 px wide (one border width),
+  // and the red border itself is not drawn. Read as the nine-slice above (16 px of frame) the points at 12 would be frame.
+  probe('image-border', 4, 32, INDIGO_700, 'the left frame, 8 px wide, not the red border');
+  probe('image-border', 12, 32, INDIGO_100, 'the middle (`fill`), just inside the 8 px frame');
+  probe('image-border', 80, 12, INDIGO_100, 'the middle, just below the 8 px top frame');
+  probe('image-border', 80, 4, INDIGO_700, 'the top frame');
+  probe('image-border', 156, 60, INDIGO_700, 'the bottom right corner');
   probe('image-large', SHOWN / 2, SHOWN / 2, EMERALD_500, `the ${LARGE.width} px picture, shown at ${SHOWN} px`);
   await capture('images-01-lab');
 

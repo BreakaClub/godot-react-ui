@@ -16,6 +16,7 @@ use taffy::style::{
 };
 use taffy::style_helpers::auto;
 
+use crate::border_image::{BorderImageRepeat, BorderImageSource, EdgeParts, SliceParts};
 use crate::box_shadow::{ShadowList, ShadowParts};
 use crate::filter::{FilterKind, FilterList, FilterParts};
 use crate::gradient::{BackgroundImage, GradientParts};
@@ -790,6 +791,14 @@ pub struct StyleSpec {
     pub background_image: Option<BackgroundImage>,
     /// The variables of Tailwind's `bg-gradient-to-*`, `from-*`, `via-*` and `to-*`.
     pub gradient_parts: Option<GradientParts>,
+    /// `border-image-source`: `none`, or `url(<id>)` of a texture the root registered. A border image replaces the border's
+    /// own paint (the border still takes its width in layout); an id nothing registered leaves the border drawn.
+    pub border_image_source: Option<BorderImageSource>,
+    /// `border-image-slice`, `-width` and `-outset` side by side; each side merges on its own across layers.
+    pub border_image_slice: Option<SliceParts>,
+    pub border_image_width: Option<EdgeParts>,
+    pub border_image_outset: Option<EdgeParts>,
+    pub border_image_repeat: Option<BorderImageRepeat>,
 }
 
 /// Merge a layer's explicit value and its utilities' parts the way `merge_filter` does: the explicit value replaces
@@ -1095,6 +1104,11 @@ impl StyleSpec {
                     box_shadow_parts,
                     background_image,
                     gradient_parts,
+                    border_image_source,
+                    border_image_slice,
+                    border_image_width,
+                    border_image_outset,
+                    border_image_repeat,
                 } = other;
                 // A shorthand set by a later layer sets every side, corner or colour again; the longhands the same layer
                 // sets are applied after it, so they win (Tailwind's `border border-t-4` is a 4 px top whatever the order).
@@ -1154,6 +1168,27 @@ impl StyleSpec {
                     gradient_parts,
                     GradientParts::merge,
                 );
+                if border_image_source.is_some() {
+                    self.border_image_source = border_image_source.clone();
+                }
+                if border_image_repeat.is_some() {
+                    self.border_image_repeat = *border_image_repeat;
+                }
+                if let Some(other) = border_image_slice {
+                    self.border_image_slice
+                        .get_or_insert_with(SliceParts::default)
+                        .merge(other);
+                }
+                if let Some(other) = border_image_width {
+                    self.border_image_width
+                        .get_or_insert_with(EdgeParts::default)
+                        .merge(other);
+                }
+                if let Some(other) = border_image_outset {
+                    self.border_image_outset
+                        .get_or_insert_with(EdgeParts::default)
+                        .merge(other);
+                }
             }};
         }
         overwrite!(
@@ -1474,6 +1509,15 @@ impl StyleSpec {
         }
         if self.outline_offset.is_some_and(|value| !value.is_finite()) {
             return Err("outlineOffset must be finite".into());
+        }
+        if let Some(slice) = &self.border_image_slice {
+            slice.validate()?;
+        }
+        if let Some(width) = &self.border_image_width {
+            width.validate("borderImageWidth", true)?;
+        }
+        if let Some(outset) = &self.border_image_outset {
+            outset.validate("borderImageOutset", false)?;
         }
         if let Some(list) = &self.box_shadow {
             list.validate()

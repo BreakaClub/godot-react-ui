@@ -300,6 +300,31 @@ export interface Style {
   boxShadow?: string;
   /** `none`, or `linear-gradient(<angle> | to <side or corner>, <colour> [<position>], ...)`, drawn over `backgroundColor`. */
   backgroundImage?: string;
+  /**
+   * CSS `border-image-source`: `none`, or `url(<id>)` of a texture the root registered (`registerTexture`; there is no loading from
+   * a path or a URL, and no gradient). The border image is drawn where the border is, instead of the border's own paint, which
+   * still takes its width in layout; an id nothing registered leaves the border drawn.
+   */
+  borderImageSource?: BorderImageSource;
+  /**
+   * CSS `border-image-slice`: one to four values (top, right, bottom, left, as `margin`) of a number, the picture's own pixels, or
+   * a percentage of its size, then `fill` to draw the middle too (`'12'`, `'30 40% fill'`). With no source slice the whole picture
+   * is the slice, which leaves only the corners. The Tailwind form is `border-slice-12`, `border-slice-x-8`, `border-slice-[25%]`,
+   * `border-slice-fill`.
+   */
+  borderImageSlice?: string | number;
+  /**
+   * CSS `border-image-width`: one to four values (as `margin`) of a number, a multiple of the border width (1 by default), a length
+   * in `px`, or `auto`, the slice's own size. The Tailwind form is `border-image-width-2`, `border-image-width-x-[12px]`.
+   */
+  borderImageWidth?: string | number;
+  /**
+   * CSS `border-image-outset`: how far the image reaches past the border box; one to four values (as `margin`) of a number, a
+   * multiple of the border width, or a length in `px` (0 by default). The Tailwind form is `border-outset-1`, `border-outset-t-[4px]`.
+   */
+  borderImageOutset?: string | number;
+  /** `stretch` (the default) draws each edge and the middle as one piece; `round` tiles whole copies. CSS's `repeat` and `space` are not drawn. */
+  borderImageRepeat?: BorderImageRepeat;
   opacity?: number;
   textAlign?: 'left' | 'center' | 'right' | 'justify' | 'start' | 'end';
   transition?: Transition;
@@ -418,6 +443,32 @@ export interface BoxShadowParts {
   ringOffsetColor?: HexColor;
 }
 
+/** `none`, or the id of a registered texture. */
+export type BorderImageSource = 'none' | `url(${string})`;
+export type BorderImageRepeat = 'stretch' | 'round';
+/** A slice: the picture's own pixels, or a percentage of its size along the side's axis. */
+export type BorderImageSliceValue = number | `${number}%`;
+/** A width or an outset: a multiple of the border width, a length in px, or (a width only) the slice's own size. */
+export type BorderImageEdgeValue = number | `${number}px` | 'auto';
+
+/** The four sides of `borderImageSlice` as native has them; a side that is not set is the whole picture's size. */
+export interface BorderImageSliceParts {
+  top?: BorderImageSliceValue;
+  right?: BorderImageSliceValue;
+  bottom?: BorderImageSliceValue;
+  left?: BorderImageSliceValue;
+  /** Draw the middle region. */
+  fill?: boolean;
+}
+
+/** The four sides of `borderImageWidth` and `borderImageOutset` as native has them. */
+export interface BorderImageEdgeParts {
+  top?: BorderImageEdgeValue;
+  right?: BorderImageEdgeValue;
+  bottom?: BorderImageEdgeValue;
+  left?: BorderImageEdgeValue;
+}
+
 /** The direction utilities: `to-tr` is `bg-gradient-to-tr`. */
 export type GradientDirection = 'to-t' | 'to-tr' | 'to-r' | 'to-br' | 'to-b' | 'to-bl' | 'to-l' | 'to-tl';
 
@@ -457,7 +508,11 @@ export interface FilterParts {
  * What native receives: every shorthand (`padding`, `margin`, `gap`, `overflow`) is expanded to its
  * longhands by the style compiler, so merging layers is a plain ordered overwrite.
  */
-export type LonghandStyle = Omit<Style, 'padding' | 'margin' | 'gap' | 'overflow' | 'inset' | 'fontWeight'> & {
+export type LonghandStyle = Omit<Style, 'padding' | 'margin' | 'gap' | 'overflow' | 'inset' | 'fontWeight' | 'borderImageSlice' | 'borderImageWidth' | 'borderImageOutset'> & {
+  /** The compiler reads the shorthand text of these three into their four sides (`parseSliceText`, `parseEdgeText`). */
+  borderImageSlice?: BorderImageSliceParts;
+  borderImageWidth?: BorderImageEdgeParts;
+  borderImageOutset?: BorderImageEdgeParts;
   /** The weight as a number: `normal` and `bold` are resolved by the compiler. */
   fontWeight?: number;
   /** What filter utilities (`blur-sm`, `hover:brightness-110`) set, per function (see `FilterParts`). */
