@@ -1,5 +1,7 @@
-import { createContext, useContext, type ComponentType, type ReactNode } from 'react';
+import { createContext, useContext, useMemo, type ComponentType, type ReactNode } from 'react';
+import { tsxLanguage } from '@codemirror/lang-javascript';
 import { Button, Text, View } from 'godot-react-ui';
+import { PLAIN_TEXT_COLOR, SYNTAX_COLORS, colorSpans, type HexColor } from './editor/highlight';
 
 /**
  * The project's own pages in the navigator, ahead of the labs: what the project is (`home`), how to install it (`install`), and what the
@@ -84,11 +86,61 @@ function Definitions({ items }: { items: readonly (readonly [string, string])[] 
   );
 }
 
-/** Code to read or copy: monospaced, selectable, on a dark panel. Lines wrap at the panel's width. */
-function CodeBlock({ code, testID }: { code: string; testID?: string }) {
+/** A stretch of a code block in one colour. */
+interface CodeSegment {
+  readonly text: string;
+  readonly color: HexColor;
+}
+
+/**
+ * `code` cut into coloured stretches as the code editor colours it: the same Lezer TSX parser and the same palette
+ * (`editor/highlight.ts`). Text no token colours is the editor's plain colour.
+ */
+export function highlightTsx(code: string): readonly CodeSegment[] {
+  const segments: CodeSegment[] = [];
+  let at = 0;
+  const plainUntil = (end: number) => {
+    if (end > at) segments.push({ text: code.slice(at, end), color: PLAIN_TEXT_COLOR });
+  };
+  for (const span of colorSpans(tsxLanguage.parser.parse(code), 0, code.length)) {
+    plainUntil(span.from);
+    segments.push({ text: code.slice(span.from, span.to), color: span.color });
+    at = span.to;
+  }
+  plainUntil(code.length);
+  return segments;
+}
+
+/**
+ * Shell commands, one a line, coloured with the editor's palette: the program as a function, an option (`--project-dir`) as an
+ * attribute, and the rest plain. There is no shell parser here; the pages' commands are simple words.
+ */
+export function highlightShell(code: string): readonly CodeSegment[] {
+  const segments: CodeSegment[] = [];
+  for (const [lineIndex, line] of code.split('\n').entries()) {
+    if (lineIndex > 0) segments.push({ text: '\n', color: PLAIN_TEXT_COLOR });
+    for (const [wordIndex, part] of line.split(/(\s+)/u).entries()) {
+      if (part === '') continue;
+      const color = /^\s+$/u.test(part) ? PLAIN_TEXT_COLOR
+        : wordIndex === 0 ? SYNTAX_COLORS.function
+          : part.startsWith('-') ? SYNTAX_COLORS.attribute
+            : PLAIN_TEXT_COLOR;
+      segments.push({ text: part, color });
+    }
+  }
+  return segments;
+}
+
+/** Code to read or copy: monospaced, selectable, on a dark panel, coloured as the code editor colours it. Lines wrap at the panel's width. */
+function CodeBlock({ code, language, testID }: { code: string; language: 'tsx' | 'shell'; testID?: string }) {
+  const segments = useMemo(() => (language === 'tsx' ? highlightTsx(code) : highlightShell(code)), [code, language]);
   return (
     <View className="rounded-lg bg-slate-900 px-4 py-3">
-      <Text testID={testID} className="select-text font-mono text-xs leading-5 text-slate-100">{code}</Text>
+      <Text testID={testID} className="select-text font-mono text-xs leading-5" style={{ color: PLAIN_TEXT_COLOR }}>
+        {segments.map((segment, index) => (
+          segment.color === PLAIN_TEXT_COLOR ? segment.text : <Text key={index} style={{ color: segment.color }}>{segment.text}</Text>
+        ))}
+      </Text>
     </View>
   );
 }
@@ -258,7 +310,7 @@ export function InstallPage() {
         <Definitions items={REQUIREMENTS} />
       </Section>
       <Section title="1. Add the package">
-        <CodeBlock testID="page-install-commands" code={INSTALL_COMMANDS} />
+        <CodeBlock testID="page-install-commands" language="shell" code={INSTALL_COMMANDS} />
         <Paragraph>
           {'setup copies the GDExtension to res://addons/godot-react-ui/ and writes node_modules/.gdignore, so Godot does not import npm\'s tree. '
             + 'Open the project in the editor once afterwards, so Godot imports the extension. The installed addon stays out of git, as node_modules '
@@ -269,7 +321,7 @@ export function InstallPage() {
         </Actions>
       </Section>
       <Section title="2. Write a component">
-        <CodeBlock code={COUNTER_EXAMPLE} />
+        <CodeBlock testID="page-install-component" language="tsx" code={COUNTER_EXAMPLE} />
       </Section>
       <Section title="3. Mount it on a ReactUiRoot">
         <Paragraph>
@@ -277,7 +329,7 @@ export function InstallPage() {
             + 'it when it leaves the tree. The owner also keeps the surface\'s size up to date and calls grabFocus() on it when the UI should take '
             + 'the keyboard first.'}
         </Paragraph>
-        <CodeBlock code={MOUNT_EXAMPLE} />
+        <CodeBlock testID="page-install-mount" language="tsx" code={MOUNT_EXAMPLE} />
       </Section>
       <Section title="More">
         <Paragraph>
