@@ -8,6 +8,8 @@ import type {
 import { unsupportedHint } from './utilities/hints';
 import { layoutUtility } from './utilities/layout';
 import { transitionUtility } from './utilities/transition';
+import { animationUtility } from './utilities/animation';
+import { compileAnimations } from './animation';
 import { mergePaint, paintUtility, type PaintStyle } from './utilities/paint';
 
 const SPACING_UNIT = 4;
@@ -465,6 +467,8 @@ function utilityStyle(utility: string): UtilityStyle | undefined {
   if (layout !== undefined) return layout;
   const transition = transitionUtility(utility);
   if (transition !== undefined) return transition;
+  const animation = animationUtility(utility);
+  if (animation !== undefined) return animation;
   const painted = paintUtility(utility, { parseColor, parsePixels, radii: RADII });
   if (painted !== undefined) return painted;
 
@@ -585,8 +589,9 @@ function transitionLonghands(transition: Transition): TransitionParts {
 function mergeLonghands(target: LonghandStyle, source: Readonly<UtilityStyle>): void {
   const {
     padding, margin, gap, overflow, inset, transition, transitionParts, filter, filterParts, backdropFilter, backdropFilterParts,
-    transform, transformParts, fontWeight, ...paint
+    transform, transformParts, fontWeight, animation, ...paint
   } = source;
+  if (animation !== undefined) target.animation = compileAnimations(animation);
   const properties = mergePaint(target, paint);
   if (fontWeight !== undefined) target.fontWeight = fontWeightNumber(fontWeight);
   if (padding !== undefined) {

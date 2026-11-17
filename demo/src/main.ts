@@ -17,6 +17,8 @@ import { HOME_PAGE, isProjectPageId, type ProjectPageId } from './project-pages'
 import { openSceneWithBack } from './scene-return';
 import { registerDemoFonts } from './demo-fonts';
 import { registerDemoImages, registerLateImage, unregisterLateImage } from './demo-images';
+import { AnimationCostScene, type AnimationCostProps } from './animation-lab';
+import { measureAnimationCost, verifyAnimations } from './verify-animations';
 import { verifyImages } from './verify-images';
 import { FiltersLab, type FiltersLabProps } from './filters-lab';
 import { selectionLabControls } from './selection-lab';
@@ -103,6 +105,20 @@ function richTextHandle(testID: string): UIHandle {
   const handle = richTextHandles.get(testID);
   if (handle === undefined) throw new Error(`The rich text lab has no text ${testID}`);
   return handle;
+}
+
+/**
+ * The text of a lab's source file (`res://src/<file>.tsx`, as `Lab.sources` names it), from the live-compile project, which a Web export packs.
+ * The export leaves the `.tsx` files out of the pack, so reading them from `res://` gave an empty file there, and the read-only editor (a Web export
+ * with no godot-tsc side module: the `breaka` profile's) showed no code, so nothing a press or a key did in it moved its caret. The project lists
+ * each lab's sources in the order `Lab.sources` has them (`scripts/live-compile-project.mjs`). Empty when no lab names the file.
+ */
+function labSourceText(path: string): string {
+  const lab = LABS.find(candidate => candidate.sources.some(source => source === path));
+  if (lab === undefined) return '';
+  const project = readProject();
+  const projectPath = project.labs[lab.id]?.sources[lab.sources.findIndex(source => source === path)];
+  return project.files.find(file => file.path === projectPath)?.text ?? '';
 }
 
 /** One Godot node owns the renderer and its lifetime on native and Web. */
@@ -281,6 +297,8 @@ export default class Main extends Node {
       releaseLiveCompileThreads: () => {
         for (const held of this.heldServices.splice(0)) held.close();
       },
+      /** The `animations-cost` section's scene (`animation-lab.tsx`): cards that clip, rounded or square, with spinning squares or not. */
+      showAnimationCost: (props: AnimationCostProps) => this.requireRenderer().render(createElement(AnimationCostScene, props)),
       /** One page of the paint lab on its own, at the stage's size, from the window's corner. */
       showPaintPage: (page: string) => this.requireRenderer().render(createElement(PaintLab, { page })),
       /** The filters lab: rendered again with new props, so a change is an ordinary commit. */
@@ -488,6 +506,8 @@ export default class Main extends Node {
       godotReactLiveCompile: () => verifyLiveCompile(this, api, async () => {}),
       // The `images` section in this page, with no captures: how the Web interaction verifier runs it (`verify-images.ts`).
       godotReactVerifyImages: () => verifyImages(this, api, async () => {}),
+      // The `animations` section in this page, with no captures (`verify-animations.ts`).
+      godotReactVerifyAnimations: () => verifyAnimations(this, api, async () => {}),
     });
     console.log('GODOT_REACT_DEMO_READY');
     // The keystroke cost diagnostic: it only drives the editor, and only when asked.
@@ -800,7 +820,7 @@ export default class Main extends Node {
       openSession: lab => openLiveSession({
         host: this.requireLiveCompile(), root: this.requireRenderer(), labId: lab.id, exportName: lab.component.name, embedded: true, placeholder: lab.component,
       }),
-      readSource: path => FileAccess.getFileAsString(path),
+      readSource: path => labSourceText(path),
       platform: onMac ? 'mac' : 'other',
       // The browser's clipboard is read asynchronously and the engine's own read answers one call late: on the Web the
       // editor's menu offers no Paste, and the keyboard's own paste is the way.

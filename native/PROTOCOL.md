@@ -132,7 +132,7 @@ positive integer (equal fractional columns or rows) or a list of tracks (sizes, 
 pixels; opacity 0..1; textAlign `left|center|right|justify|start|end`; overscrollBehavior `auto|contain`, scrollbarWidth `auto|none`,
 scrollbarColor (a hex colour, inherited) and touchAction `auto|none|pan-x|pan-y` (see "Scrolling" below); pointerEvents `auto|none` and cursor
 `default|pointer|text|move|grab|grabbing|not-allowed|crosshair|wait|progress|help|ew-resize|ns-resize|nesw-resize|nwse-resize`
-(both inherited; see "Godot co-operation" below); userSelect `none|text` and selectionColor (a hex colour), both inherited (see "Text selection" below); transition and interpolateSize as described below; overflowX/overflowY
+(both inherited; see "Godot co-operation" below); userSelect `none|text` and selectionColor (a hex colour), both inherited (see "Text selection" below); transition, animation and interpolateSize as described below ("Native CSS motion and clipping"); overflowX/overflowY
 `visible|hidden|scroll|auto` ("Scrolling" below); `filter` and `backdropFilter` ("Filters and frosted glass" below). `position` is `static|relative|absolute|fixed` (not inherited; `sticky` is
 rejected), `top`/`right`/`bottom`/`left` are finite numbers (negative allowed), percentage strings (negative
 allowed) or `"auto"`, and `zIndex` is a 32-bit integer; see "Positioning and stacking" below. The longhands the utility tracks added are listed
@@ -281,8 +281,11 @@ when it is tracked, decorated, fractionally spaced or centred, or when the displ
 
 `boxShadow` is CSS text (a list of `[inset] x y [blur [spread]] colour`, or `none`) with `boxShadowParts`, the variables Tailwind composes (`--tw-ring-offset-shadow`, `--tw-ring-shadow`,
 `--tw-shadow`), merged per variable across layers as `filterParts` is, so `shadow-sm ring-1 focus:ring-2` keeps the shadow; an explicit `boxShadow` replaces the parts, and a utility set after
-it takes the composed value back. `backgroundImage` is `none` or `linear-gradient(...)` over `backgroundColor`, with `gradientParts` (`--tw-gradient-from|via|to` and their positions), merged the
-same way. `borderStyle` and `outlineStyle` are `none|solid` (dashed, dotted and double are rejected), the border has sides and corners (`border{Top,Right,Bottom,Left}{Width,Color}`,
+it takes the composed value back. `backgroundImage` is `none`, `linear-gradient(...)` or `conic-gradient([from <angle>] [at <position>] [in srgb|oklab], <stops>)` over `backgroundColor`
+(a linear one takes `in srgb|oklab` too; stops of a conic one are angles or percentages), with `gradientParts` (`direction`, Tailwind v3's `bg-gradient-to-*`, or
+`conic: {fromDegrees, space}`, v4's `bg-conic*`, which replace each other; `--tw-gradient-from|via|to` and their positions), merged the same way. A conic
+gradient is drawn from the fill's mesh cut into sectors round its centre, each vertex carrying its turn along a ramp of one turn (`box_mesh::sectors`,
+`gradient.rs`); `in oklab` bakes the ramp in Oklab, premultiplied. `borderStyle` and `outlineStyle` are `none|solid` (dashed, dotted and double are rejected), the border has sides and corners (`border{Top,Right,Bottom,Left}{Width,Color}`,
 `border{TopLeft,TopRight,BottomRight,BottomLeft}Radius`; a side beats the shorthand in the same layer and a shorthand in a later layer resets the sides, following the class order), and
 `outline{Style,Width,Color,Offset}` draws outside the border box (setting any of them takes the native focus ring from the element). Widths, radii and outline widths are whole logical pixels in paint;
 layout takes the float. `boxShadow` is a transition property, interpolated by Stylo (a shorter list is padded with transparent shadows). Native paint: `paint_style.rs` says what a computed style
@@ -502,7 +505,7 @@ The three bound a transformed rectangle by its box, as `get_node_rect` does.
 
 - `get_snapshot() -> String`: `{nodes, stats, width, height, hovered, focused, pressed, focusVisible, modality,
   pointers, drag, clockMs, oversampling, transitions}`. Each node is `{id, kind, layer, text, parent, children, paintParent,
-  paintIndex, documentIndex, rect, clipRect, style, props, presentation, scroll, textInput, effects, transform, rasterScale}`: `id` is the tag, `parent` and `children` are the React
+  paintIndex, documentIndex, rect, clipRect, style, props, presentation, scroll, textInput, effects, transform, rasterScale, roundedClip, roundedClipReason}`: `id` is the tag, `parent` and `children` are the React
   tree's, `paintParent` is who paints the node (`parent`'s rule, `0` for the main layer's root, `null` in the overlay)
   and `paintIndex` its place, back to front, among what that paint parent paints, `documentIndex` its pre-order place
   (node 0 reports `-1`), `rect` is root-local logical pixels, `clipRect` the clip its paint ancestors impose (or `null`), `style` the node's **computed** style (unset properties omitted) and `props`
@@ -510,11 +513,13 @@ The three bound a transformed rectangle by its box, as `get_node_rect` does.
   top-level nodes report `parent: 0`, layer 1's report `null` and `layer: 1`. `stats` is
   `{layoutPasses, batches (= commits), commits, nodeCount, paintPasses, layoutMicros, nodesCreated,
   nodesUpdated, nodesRestyled, nodesDeleted, mutations, boxRecords, contentRecords, animationFrames, scrollUpdates,
-  overlayRecords}`: `mutations` counts
+  overlayRecords, maskRecords}`: `mutations` counts
   the removes, deletes, creates, updates and inserts applied, `boxRecords` and `contentRecords` the canvas
   command lists re-recorded, `scrollUpdates` and `overlayRecords` what scrolling changed. `nodeCount` excludes node 0.
   `oversampling` is the font oversampling the root last drew at ("Mounted tree, geometry, paint"); `scroll`, `textInput` and
-  `effects` are `null` unless the node is a scroll container, a text input or has a filter, and `transform` and `rasterScale` unless the node (or an ancestor, for the scale) has a transform ("Transforms"). Whole-tree by design:
+  `effects` are `null` unless the node is a scroll container, a text input or has a filter, and `transform` and `rasterScale` unless the node (or an ancestor, for the scale) has a transform ("Transforms").
+  `roundedClip` is `mask` for a node that clips with rounded corners and draws the clip rounded, `rect` when that clip gives way and is drawn
+  as its rectangle (`roundedClipReason` says why), `null` for any other node ("Native CSS motion and clipping"). Whole-tree by design:
   diagnostics only.
 - `get_node_rect(tag: int) -> String`: the root-local rectangle as JSON, or `null` when the node is not mounted. Node 0 is
   the root, which has the rectangle the snapshot gives it (the viewport), so a root handle's `getRect()` answers.
@@ -749,9 +754,8 @@ with the same deltas, exactly as it reaches Godot's own `ScrollContainer`. Nativ
 
 Limits: no touch text selection, drag and drop with Godot `Control`s
 (`_can_drop_data` is synchronous on `&self`, where a JS answer cannot be had; `endedOutsideRoot` plus the release
-point is what a game uses) or with files or `setDragImage`, images, rich inline text, rounded clip
-masks, `position: sticky`, CSS stacking contexts (`zIndex` orders siblings of one paint parent), a public CSS stylesheet/selector API, arbitrary keyframe animations, or custom native
-materials. Both overflow axes clip together (`hidden`, `scroll` or `auto` on either clips the padding box). Not scrolling: scrollbar
+point is what a game uses) or with files or `setDragImage`, `position: sticky`, CSS stacking contexts (`zIndex` orders siblings of one paint
+parent), a public CSS stylesheet/selector API, animation events, or custom native materials. Both overflow axes clip together (`hidden`, `scroll` or `auto` on either clips the padding box). Not scrolling: scrollbar
 track clicks (paging), animated programmatic scrolling, overscroll bounce, `position: sticky`. Native drawing uses owned
 CanvasItem RIDs with cached resources and one Control for the whole React tree. The README's "Current limits" is the full list.
 
@@ -813,7 +817,7 @@ JS half). `draggable` and `dragPreview` are props (above).
 
 A node whose computed style has `transition: {properties: ('width'|'height'|'opacity'|'backgroundColor'|'color'|'borderColor'|'filter'|'backdropFilter'|'transform'|'boxShadow')[] | 'all',
 durationMs: number, delayMs?: number, easing?: 'linear'|'ease'|'ease-in'|'ease-out'|'ease-in-out'|{cubicBezier: [x1, y1, x2, y2]}}` is a
-*motion node*. `properties` is non-empty and has no duplicates. `'all'` is every property of `TransitionProperty::ANIMATABLE` (`native/props.rs`, twinned by `TRANSITION_PROPERTIES` in `src/types.ts`): a change
+*motion node*, and so is a node whose computed style has a non-empty `animation` (below). `properties` is non-empty and has no duplicates. `'all'` is every property of `TransitionProperty::ANIMATABLE` (`native/props.rs`, twinned by `TRANSITION_PROPERTIES` in `src/types.ts`): a change
 that cannot animate under `'all'` (a width from pixels to a percentage, an intrinsic size on a flex main axis that can grow) is a quiet `MotionViolation`, applied at once with no report and no rejected
 commit, where naming the property in a list keeps the rejection. `transitionParts` (`properties`, `durationMs`, `delayMs`, `easing`, each optional; `properties` may be `'all'` or `'none'`) is what the
 `transition-*` utility classes set: native merges it per field across layers (`transition::merge_transition`; an inline `transition` replaces it and a longhand after the inline one edits it) and
@@ -843,10 +847,36 @@ either is rejected before it is mounted (the dry-run restyle resolves the comput
 produce). A change native itself causes (a hover, focus or breakpoint style) cannot be rejected: it is applied
 without animation and an `ERROR` line names the node.
 
+**Keyframe animations.** `animation` is a list (empty is `none`; a later layer replaces the whole list) of `{keyframes: {name, frames:
+[{offset, style, easing?}]}, durationMs, delayMs?, easing?, iterations?: number | 'infinite', direction?:
+'normal'|'reverse'|'alternate'|'alternate-reverse', fillMode?: 'none'|'forwards'|'backwards'|'both', playState?: 'running'|'paused'}`
+(`native/animation.rs`). A frame's `style` sets only the properties of `TransitionProperty::ANIMATABLE`, in their style forms (`deny_unknown_fields`);
+offsets are 0 to 1 and increase; an animated `width` or `height` is pixels or a percentage, in one unit, set at 0 and 1; a shadow or `drop-shadow()`
+in a keyframe names its colour; `delayMs` is any finite number (negative starts part way), `durationMs` and a count of `iterations` are finite and
+not negative. Every `easing` (here and in `transition`) is also `{steps: n, position?: 'jump-start'|'jump-end'|'jump-none'|'jump-both'|'start'|'end'}`,
+`'step-start'` or `'step-end'`. A commit with anything else is rejected with the reason. Each animation's keyframes are written as an `@keyframes`
+rule into the retained Blitz document's one author stylesheet (`StyleEngine::register_keyframes`, `BaseDocument::stylesheet_insert_rule`), named
+`grui-<name>-<hash>` after its CSS, once per distinct rule; a property the keyframes leave out at 0 or 1 is filled with the element's own value
+when the list is written (Stylo would take it from a style that already holds the animated value when it updates a running animation, so a pause
+would jump). The node's `animation-*` longhands are written beside its transition, and Stylo starts, iterates, reverses, pauses and fills the
+animation on the native clock, as it runs a transition; the sampled values reach layout and paint by the same path, so an animation of
+`transform` or `opacity` moves one canvas item and re-records nothing. A node whose list was written is styled once more in the same pass, so
+a cancelled or paused animation shows its state at once (Blitz styles an element with no running animation only when it changes). A paused or
+finished animation asks for no frames; leaving the tree stops the clock and removing the node cancels its animations. The rules stay
+registered for the root's life (`get_activity().keyframes` counts them).
+
 `overflow: 'hidden'` clips descendants and text to the sampled padding box, with ancestor intersections; the
-border is still painted. Hit testing and focus eligibility use the same clip geometry. This is rectangular
-scissor clipping: border radius affects paint, not the clip shape. Nested rounded masks are not claimed, and under a rotation or skew the clip is the bounding box of the rotated rectangle
-("Transforms").
+border is still painted. Hit testing and focus eligibility use the same clip geometry. A square clip is the content item's rectangular clip.
+When the padding box has rounded corners (`border-radius` less the border widths, as CSS's inner radii; widths and radii in whole pixels, as paint has
+them) the clip is rounded (`native/rounded_clip.rs`): hit testing hands a point to the children only inside the rounded padding box, and paint
+puts a **mask** item between the box item and the content item that draws the rounded padding box and is a `CLIP_ONLY` canvas group (Godot's
+`CanvasItem.clip_children`): the renderer copies what is under the group into the back buffer, draws the content over it there, and shows the
+result through the mask's antialiased shape. The rectangular clip stays, and the box's own fill and border are drawn from exact meshes so its inner
+edge meets the clip. Godot's canvas groups do not nest and a backdrop inside one reads the group's buffer, so a rounded clip inside a filter group
+or another rounded clip, or one that holds an element with a `filter` or `backdropFilter`, is drawn as its rectangle (hit testing stays rounded); the snapshot says so (`roundedClip: "rect"`) and why (`roundedClipReason`),
+and nothing is logged, because everything is still drawn and nested rounded lists and cards are ordinary layouts; this is not a commit rejection. A `TextInput`'s own clip of
+its text stays rectangular unless the author sets `overflow` on it. Under a rotation or skew a square clip is the bounding box of the rotated rectangle
+("Transforms"); a rounded clip's mask is drawn in the element's own frame.
 
 Per-node `presentation: {width,height,widthIsAuto,heightIsAuto,opacity,backgroundColor,color,borderColor}` and the snapshot's
 `transitions: [{id,property,current,target,startedAtMs,durationMs}]` report what is being presented; dimension and
@@ -859,9 +889,12 @@ read the actual Taffy presentation style. Transition records are native tracking
 private per-property animation table.
 
 `get_activity() -> String` provides compact JSON `{batches,layoutPasses,paintPasses,animationFrames,animating,
-trackedTransitions,clockMs,drawSerial,nodeCount,mutations,nodesUpdated,nodesRestyled,boxRecords,contentRecords,paragraphBuilds,paragraphRepaints,effects,paintTextures}`
+trackedTransitions,clockMs,drawSerial,nodeCount,mutations,nodesUpdated,nodesRestyled,boxRecords,contentRecords,paragraphBuilds,paragraphRepaints,effects,paintTextures,
+keyframes,maskRecords,roundedClips}`
 (`batches` counts commits; `drawSerial` is the paint pass count, which advances only when native changed something visible; `paragraphBuilds` counts the paragraphs shaped and
-`paragraphRepaints` the changes to a text's spans, colours or decorations that were painted again without shaping; `paintTextures` is the number of baked textures, shadow masks and decoration pictures, held).
+`paragraphRepaints` the changes to a text's spans, colours or decorations that were painted again without shaping; `paintTextures` is the number of baked textures, shadow masks and decoration pictures, held;
+`keyframes` the `@keyframes` rules registered, `maskRecords` the rounded clips drawn again (a mask made, freed or recorded anew) and `roundedClips` the rounded clips
+drawn as masks now).
 `effects` is `{backdrops, groups, blocked, copiesEnabled, itemsCreated, materialsCreated, materialsFreed, shadersCreated,
 materialUpdates, copyRectUpdates, subtreeWalks, probes, refreshes, refreshMicros}`: how many backdrop and filter effects
 exist, how many are held back by an enclosing group, and what has been made, freed and updated since the root began, so a

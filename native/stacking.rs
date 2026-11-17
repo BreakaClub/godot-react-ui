@@ -43,6 +43,7 @@ use crate::diff::Parent;
 use crate::filter_faults::{self as faults, Fault};
 use crate::geometry::{BoxRect, intersect_clip, intersects};
 use crate::props::PositionSpec;
+use crate::rrect::RRect;
 use crate::transform::{Affine2, Placement};
 
 /// What the stacking rules read from one element's computed style.
@@ -186,6 +187,8 @@ pub(crate) struct Frame {
     pub(crate) size: Vector2,
     /// Where the element clips its paint children, in its own coordinates, if it clips.
     pub(crate) clip: Option<BoxRect>,
+    /// The rounded padding box inside `clip` when the clip has rounded corners: a paint child is hit only inside it.
+    pub(crate) rounded_clip: Option<RRect>,
     /// Whether the element itself can be the target of a pointer.
     pub(crate) pointer_target: bool,
     /// Set for a scroll container.
@@ -239,7 +242,11 @@ fn hit_node<T: PaintTree>(tree: &T, tag: u32, point_in_parent: Vector2) -> Optio
     {
         return Some(tag);
     }
-    if frame.clip.is_none_or(|clip| clip.contains(local)) {
+    if frame.clip.is_none_or(|clip| clip.contains(local))
+        && frame
+            .rounded_clip
+            .is_none_or(|rounded| rounded.signed_distance(local.x, local.y) <= 0.0)
+    {
         for child in tree.paint_children(tag).iter().rev() {
             if let Some(hit) = hit_node(tree, *child, local + scrolled) {
                 return Some(hit);
@@ -468,6 +475,8 @@ mod tests {
     struct TestNode {
         stacking: Stacking,
         clips: bool,
+        /// A rounded clip's corner radius, when it has one.
+        rounded: Option<f32>,
         pointer_target: bool,
         location: Vector2,
         size: Vector2,
@@ -514,6 +523,7 @@ mod tests {
                         inside_transform: false,
                     },
                     clips: false,
+                    rounded: None,
                     pointer_target: true,
                     location: Vector2::new(at.0, at.1),
                     size: Vector2::new(size.0, size.1),
@@ -533,6 +543,12 @@ mod tests {
 
         fn clip(&mut self, tag: u32) {
             self.nodes.get_mut(&tag).unwrap().clips = true;
+        }
+
+        fn round_clip(&mut self, tag: u32, radius: f32) {
+            let node = self.nodes.get_mut(&tag).unwrap();
+            node.clips = true;
+            node.rounded = Some(radius);
         }
 
         /// Make `tag` a scroll container (it clips) scrolled by `offset`, with the given thumbs.
@@ -639,6 +655,9 @@ mod tests {
                     width: node.size.x,
                     height: node.size.y,
                 }),
+                rounded_clip: node
+                    .rounded
+                    .map(|radius| RRect::from_box(node.size.x, node.size.y, [radius; 4])),
                 pointer_target: node.pointer_target,
                 scroll: node.scroll,
                 placement: node.placement,
@@ -691,6 +710,22 @@ mod tests {
         assert_eq!(tree.nodes[&2].paint_children, vec![4]);
         assert_eq!(tree.nodes[&1].paint_children, vec![2, 3]);
         assert_eq!(tree.paint_roots[MAIN], vec![1, 6, 7, 8]);
+    }
+
+    #[test]
+    fn a_rounded_clip_hands_a_point_to_its_children_only_inside_its_corners() {
+        let mut tree = TestTree::new();
+        tree.add(TOP, 1, Relative, (0.0, 0.0), (100.0, 100.0));
+        tree.round_clip(1, 40.0);
+        tree.add(Parent::Node(1), 2, Static, (0.0, 0.0), (100.0, 100.0));
+        tree.settle();
+        assert_eq!(tree.hit(50.0, 50.0), Some(2), "inside the rounded box");
+        assert_eq!(tree.hit(50.0, 1.0), Some(2), "along a straight edge");
+        // The corner: inside the square, outside the arc of radius 40 about (40, 40).
+        assert_eq!(tree.hit(5.0, 5.0), Some(1), "the clipping element itself, not its child");
+        assert_eq!(tree.hit(95.0, 95.0), Some(1));
+        // Just inside the arc.
+        assert_eq!(tree.hit(13.0, 13.0), Some(2));
     }
 
     #[test]

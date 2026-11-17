@@ -961,6 +961,21 @@ impl ReactUiRoot {
         }
     }
 
+    /// Every element with a filter or backdrop effect, drawn or held back by a group above it.
+    pub(crate) fn effect_elements(&self) -> impl Iterator<Item = u32> + '_ {
+        self.effects
+            .backdrops
+            .iter()
+            .chain(self.effects.groups.iter())
+            .chain(self.effects.blocked.iter())
+            .copied()
+    }
+
+    /// Whether `tag` has a live filter group round its box item.
+    pub(crate) fn has_filter_group(&self, tag: u32) -> bool {
+        self.effects.groups.contains(&tag)
+    }
+
     /// The nearest paint ancestor with a live filter group. Canvas groups do not nest and screen reads
     /// inside one are ignored, so an effect below one cannot be drawn.
     fn group_ancestor(&self, tag: u32) -> Option<u32> {

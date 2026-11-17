@@ -48,7 +48,7 @@ const DETACHED_OBSERVATION_MS = 200;
 const MOTION_BASE_FONT_SIZE = 14;
 const MOTION_LARGE_FONT_SIZE = 18;
 const PAINT_START_HEIGHT_FRACTION = 0.7;
-// The engine's clock rate (`Engine.timeScale`, demo `setTimeScale`) while the independent-owners scenario sets itself up: transitions run at a
+// The engine's clock rate (`Engine.timeScale`, demo `setTimeScale`) while the motion scenario runs (`runMotion`): transitions run at a
 // quarter of their speed, so each step of the browser (a click is a dozen round trips and six painted frames) is a small part of one, and the
 // clock is held (0) while a step must not move them. Real time is 1. Every frame, held or not, adds samples to the native profile, which keeps
 // 512 (`PROFILE_CAPACITY`, native/profile.rs) and which the trace around the scenario must not overflow: slower than this and it does.
@@ -415,7 +415,27 @@ async function inFlightHeight(panelID, contentID, direction = 'opening') {
   });
 }
 
+/** The engine's clock rate (`Engine.timeScale`), through the demo. */
+const setEngineTimeScale = (scale) => page.evaluate((value) => globalThis.godotReactDemo.setTimeScale(value), scale);
+
+/**
+ * The motion scenario. Its steps act on a transition that is still in flight: a click and a `transition` read after `active()`, a click that
+ * retargets, the panel read between half and most of its height. A transition lasts MOTION_DURATION_MS (600) of the engine's clock, and a click is
+ * a dozen round trips and six painted frames (300 ms on a busy machine), so at real time the transition could end before the step that needed it in
+ * flight (the font retarget's `active()`, or the mid-flight window of 50 to 85 % of the height, which lasts about 150 ms and which snapshots 50 to
+ * 70 ms apart could step over). The whole scenario runs on the slowed clock, as the independent-owners stage already did, so each step is a small
+ * part of a transition; what it checks is the engine's clock (samples, endpoints, retargets), which does not depend on its rate.
+ */
 async function runMotion(dpr) {
+  await setEngineTimeScale(SLOWED_TIME_SCALE);
+  try {
+    await runMotionScenario(dpr);
+  } finally {
+    await setEngineTimeScale(REAL_TIME_SCALE);
+  }
+}
+
+async function runMotionScenario(dpr) {
   scope = `motion-dpr${dpr}`;
   await size(VIEWPORT, dpr);
   await page.evaluate(() => globalThis.godotReactDemo.restoreDemo());
@@ -645,7 +665,8 @@ async function runMotion(dpr) {
   await capture('07a-independent-height-completion');
   await throttle?.send('Emulation.setCPUThrottlingRate', { rate: 1 });
   await throttle?.detach();
-  await setTimeScale(REAL_TIME_SCALE);
+  // Back to the rate the rest of the scenario runs at (`runMotion`).
+  await setTimeScale(SLOWED_TIME_SCALE);
   await settled();
   assertAnimatedFlow(await endTrace('independent-intrinsic-completion'), panelID, siblingID, { flatBatches: false });
   // Restore all affected controls through their real React handlers before the

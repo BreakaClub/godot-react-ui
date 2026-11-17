@@ -29,7 +29,7 @@ impl ReactUiRoot {
         let mut nodes = vec![json!({
             "id": 0, "kind": "view", "text": "", "parent": null, "layer": 0,
             "children": self.mounted.roots[0], "style": {}, "props": {}, "scroll": null,
-            "textInput": null, "effects": null, "transform": null, "rasterScale": null,
+            "textInput": null, "effects": null, "transform": null, "rasterScale": null, "roundedClip": null, "roundedClipReason": null,
             "paintParent": null, "paintIndex": 0, "documentIndex": -1,
             "rect": viewport, "clipRect": viewport,
             "presentation": {
@@ -89,6 +89,8 @@ impl ReactUiRoot {
                     "scroll": self.scroll_state_json(tag),
                     "textInput": self.text_input_snapshot_json(tag),
                     "effects": self.effects_json(tag),
+                    "roundedClip": self.rounded_clip_drawn(tag).map(|masked| if masked { "mask" } else { "rect" }),
+                    "roundedClipReason": self.rounded_clip_reason(tag),
                 }));
                 let content_clip = if node.clips_content() {
                     intersect_clip(

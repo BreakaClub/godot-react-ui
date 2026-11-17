@@ -15,6 +15,8 @@ export const DEMO_ENTRY_POINTS = [
   'demo/src/paint-data.ts', 'demo/src/verify-paint.ts',
   // The image lab's pictures, the owner's textures made from them and its verifier.
   'demo/src/image-data.ts', 'demo/src/demo-images.ts', 'demo/src/verify-images.ts',
+  // The keyframe animations lab's verifier, which also runs in the Web page.
+  'demo/src/verify-animations.ts',
   // The world-space scene (docs/WORLD_SPACE.md) has its own owner, and the scene launcher starts it on the Web.
   'demo/src/world-main.ts', 'demo/src/world-geometry.ts', 'demo/src/verify-world.ts', 'demo/src/scene-launcher.ts',
   'demo/src/verifier-input.ts', 'demo/src/verify-text-input.ts', 'demo/src/verify-combobox.ts',

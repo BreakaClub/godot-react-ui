@@ -19,7 +19,7 @@ use godot::prelude::*;
 use crate::box_mesh::{self, Feather, Mesh};
 use crate::box_shadow::{SHADOW_SIGMAS, SIGMA_PER_BLUR, ShadowLayer};
 use crate::filter::Rgba;
-use crate::gradient::{LinearGradient, ramp, ramp_texels};
+use crate::gradient::{ColorSpace, ConicGradient, Gradient, LinearGradient, ResolvedStop, ramp, ramp_texels};
 use crate::rrect::{BOTTOM, LEFT, RIGHT, RRect, TOP};
 use crate::shadow_mask::{self, MaskSpec, Shape};
 
@@ -58,6 +58,7 @@ struct RampKey {
     /// Each stop's position and colour, as bits.
     stops: Vec<[u32; 5]>,
     texels: usize,
+    space: ColorSpace,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -220,7 +221,7 @@ impl BoxShape {
 
     /// The feather of a shape: under a transform, the box's own (one length on each axis); on the pixel grid, one device pixel where
     /// it has curves and none where its edges are on pixels.
-    fn feather_of(&self, rect: &RRect) -> Feather {
+    pub(crate) fn feather_of(&self, rect: &RRect) -> Feather {
         match self.feather {
             Some(feather) => feather,
             None if rect.is_rounded() => Feather::isotropic(FEATHER_PX),
@@ -444,8 +445,15 @@ pub(crate) fn shadow(
     mask(item, shape, Cut::Shadow(*layer, opaque_fill), color, leases);
 }
 
-/// A texture a mesh samples, and where along it a vertex is (the horizontal coordinate; a ramp is one pixel high).
-type Sampled<'a> = (Rid, &'a dyn Fn(f32, f32) -> f32);
+/// Where along a texture one pixel high (a ramp) each vertex of a mesh is: a function of the position (a linear gradient's line),
+/// or one value per vertex (a conic gradient's turn, which a vertex at the centre of two sectors has twice).
+enum Along<'a> {
+    Position(&'a dyn Fn(f32, f32) -> f32),
+    PerVertex(&'a [f32]),
+}
+
+/// A texture a mesh samples, and where along it each vertex is.
+type Sampled<'a> = (Rid, Along<'a>);
 
 fn add_mesh(item: Rid, mesh: &Mesh, color: Color, texture: Option<Sampled>) {
     if mesh.is_empty() || color.a <= 0.0 {
@@ -471,13 +479,19 @@ fn add_mesh(item: Rid, mesh: &Mesh, color: Color, texture: Option<Sampled>) {
     );
     let mut rs = server();
     match texture {
-        Some((texture, position)) => {
-            let uvs = PackedVector2Array::from(
-                mesh.points
+        Some((texture, along)) => {
+            let coordinates: Vec<Vector2> = match along {
+                Along::Position(position) => mesh
+                    .points
                     .iter()
-                    .map(|point| Vector2::new(position(point.x, point.y), 0.5))
-                    .collect::<Vec<Vector2>>(),
-            );
+                    .map(|point| Vector2::new(position(point.x, point.y), RAMP_ROW))
+                    .collect(),
+                Along::PerVertex(values) => {
+                    assert_eq!(values.len(), mesh.points.len(), "a coordinate per vertex");
+                    values.iter().map(|value| Vector2::new(*value, RAMP_ROW)).collect()
+                }
+            };
+            let uvs = PackedVector2Array::from(coordinates);
             rs.canvas_item_add_triangle_array_ex(item, &indices, &points, &colors)
                 .uvs(&uvs)
                 .texture(texture)
@@ -487,10 +501,49 @@ fn add_mesh(item: Rid, mesh: &Mesh, color: Color, texture: Option<Sampled>) {
     }
 }
 
-/// Fill the border box with the gradient. It is laid out over the padding box (CSS `background-origin`) and drawn
-/// under the border (`background-clip: border-box`); beyond the padding box it holds its end colours where CSS would tile
-/// the image.
+/// The middle of a ramp's one row of texels, where a mesh samples it.
+const RAMP_ROW: f32 = 0.5;
+
+/// A ramp texture for `stops` with `texels` texels, interpolated in `space`, from the cache.
+fn ramp_texture(stops: &[ResolvedStop], texels: usize, space: ColorSpace, leases: &mut Vec<Lease>) -> Rid {
+    let key = CacheKey::Ramp(RampKey {
+        stops: stops
+            .iter()
+            .map(|stop| {
+                [
+                    stop.t.to_bits(),
+                    stop.color[0].to_bits(),
+                    stop.color[1].to_bits(),
+                    stop.color[2].to_bits(),
+                    stop.color[3].to_bits(),
+                ]
+            })
+            .collect(),
+        texels,
+        space,
+    });
+    let (lease, texture, _, _) = acquire(key, || (ramp(stops, texels, space), texels, 1));
+    leases.push(lease);
+    texture
+}
+
+/// Fill the border box with the gradient. It is laid out over the padding box (CSS `background-origin`) and drawn under the border
+/// (`background-clip: border-box`); beyond the padding box a linear one holds its end colours where CSS would tile the image (a
+/// conic one has a colour for every angle, so it reaches the border box as it is).
 pub(crate) fn gradient(
+    item: Rid,
+    shape: &BoxShape,
+    gradient: &Gradient,
+    covered: [bool; 4],
+    leases: &mut Vec<Lease>,
+) {
+    match gradient {
+        Gradient::Linear(linear) => linear_gradient(item, shape, linear, covered, leases),
+        Gradient::Conic(conic) => conic_gradient(item, shape, conic, covered, leases),
+    }
+}
+
+fn linear_gradient(
     item: Rid,
     shape: &BoxShape,
     gradient: &LinearGradient,
@@ -507,24 +560,7 @@ pub(crate) fn gradient(
     }
     // A stop in pixels is in logical pixels.
     let stops = gradient.resolve(line.length / shape.scale);
-    let texels = ramp_texels(line.length);
-    let key = CacheKey::Ramp(RampKey {
-        stops: stops
-            .iter()
-            .map(|stop| {
-                [
-                    stop.t.to_bits(),
-                    stop.color[0].to_bits(),
-                    stop.color[1].to_bits(),
-                    stop.color[2].to_bits(),
-                    stop.color[3].to_bits(),
-                ]
-            })
-            .collect(),
-        texels,
-    });
-    let (lease, texture, _, _) = acquire(key, || (ramp(&stops, texels), texels, 1));
-    leases.push(lease);
+    let texture = ramp_texture(&stops, ramp_texels(line.length), gradient.space, leases);
     let fill_box = shape.fill_box(covered);
     let mesh = box_mesh::fill(&fill_box, shape.feather_of(&fill_box));
     begin(item, shape.scale);
@@ -532,8 +568,72 @@ pub(crate) fn gradient(
         item,
         &mesh,
         Color::WHITE,
-        Some((texture, &|x, y| line.t(x, y))),
+        Some((texture, Along::Position(&|x, y| line.t(x, y)))),
     );
+    end(item);
+}
+
+/// A conic gradient: the fill's mesh cut into sectors round the centre (`box_mesh::sectors`), each vertex at its turn along a ramp
+/// of one turn, as long as the circle through the farthest corner is round, in device pixels.
+fn conic_gradient(
+    item: Rid,
+    shape: &BoxShape,
+    gradient: &ConicGradient,
+    covered: [bool; 4],
+    leases: &mut Vec<Lease>,
+) {
+    let padding = shape.padding_box();
+    if padding.width() <= 0.0 || padding.height() <= 0.0 {
+        return;
+    }
+    let centre = gradient.centre(
+        padding.x0,
+        padding.y0,
+        padding.width(),
+        padding.height(),
+        shape.scale,
+    );
+    let fill_box = shape.fill_box(covered);
+    let radius = [
+        (fill_box.x0, fill_box.y0),
+        (fill_box.x1, fill_box.y0),
+        (fill_box.x1, fill_box.y1),
+        (fill_box.x0, fill_box.y1),
+    ]
+    .into_iter()
+    .map(|(x, y)| (x - centre.0).hypot(y - centre.1))
+    .fold(0.0, f32::max);
+    let stops = gradient.resolve();
+    let texture = ramp_texture(
+        &stops,
+        ramp_texels(std::f32::consts::TAU * radius),
+        gradient.space,
+        leases,
+    );
+    let mesh = box_mesh::fill(&fill_box, shape.feather_of(&fill_box));
+    let cut = box_mesh::sectors(
+        &mesh,
+        centre,
+        gradient.start_radians(),
+        box_mesh::sector_count(radius),
+    );
+    begin(item, shape.scale);
+    add_mesh(
+        item,
+        &cut.mesh,
+        Color::WHITE,
+        Some((texture, Along::PerVertex(&cut.t))),
+    );
+    end(item);
+}
+
+/// The shape of a rounded clip: the padding box, opaque white with the box's own feather. A `CLIP_ONLY` canvas group shows what is
+/// below it where this is drawn, in proportion to its alpha, so the clip's edge is antialiased as the box's inner edge is.
+pub(crate) fn clip_mask(item: Rid, shape: &BoxShape) {
+    let padding = shape.padding_box();
+    let mesh = box_mesh::fill(&padding, shape.feather_of(&padding));
+    begin(item, shape.scale);
+    add_mesh(item, &mesh, Color::WHITE, None);
     end(item);
 }
 

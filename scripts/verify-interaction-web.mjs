@@ -222,6 +222,16 @@ async function runImagesScenario() {
   check(`and at this job's device pixel ratio (${facts.ratio})`, facts.ratio === await page.evaluate(() => globalThis.devicePixelRatio), facts);
 }
 
+/** How long the animations section may take in the page: two renders read back, three clicks and a root out of the tree for 0.4 s. */
+const ANIMATIONS_TIMEOUT_MS = 60_000;
+
+/** The `animations` section runs in the page (`demo/src/verify-animations.ts`, through `godotReactVerifyAnimations`), as `images` does. */
+async function runAnimationsScenario() {
+  const facts = await withDeadline(page.evaluate(() => globalThis.godotReactVerifyAnimations()), ANIMATIONS_TIMEOUT_MS, 'the animations section');
+  check('The animations lab runs, costs and clips as the probes expect, in the page', typeof facts?.probes === 'number' && facts.probes > 0, facts);
+  check(`and at this job's device pixel ratio (${facts.ratio})`, facts.ratio === await page.evaluate(() => globalThis.devicePixelRatio), facts);
+}
+
 function checkBrowserErrors() {
   assert.equal(fatalErrors.length, 0, `Browser/runtime errors:\n${fatalErrors.join('\n')}`);
 }
@@ -3031,6 +3041,9 @@ async function runWorkflow(viewport) {
 
   if (wanted('images')) {
     await section('images', () => runImagesScenario());
+  }
+  if (wanted('animations')) {
+    await section('animations', () => runAnimationsScenario());
   }
 
   if (wanted('rich-text')) {

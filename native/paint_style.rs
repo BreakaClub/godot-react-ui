@@ -4,7 +4,7 @@
 use crate::border_image::BorderImage;
 use crate::box_shadow::ShadowList;
 use crate::filter::Rgba;
-use crate::gradient::{BackgroundImage, LinearGradient};
+use crate::gradient::{BackgroundImage, Gradient};
 use crate::props::{LineStyleSpec, StyleSpec};
 
 /// `outline-width: medium`: the width of an outline whose style is set and whose width is not (CSS Backgrounds and
@@ -112,7 +112,7 @@ impl StyleSpec {
     }
 
     /// The gradient this style paints over its background colour, if any.
-    pub fn background_gradient(&self) -> Option<LinearGradient> {
+    pub fn background_gradient(&self) -> Option<Gradient> {
         match (&self.background_image, &self.gradient_parts) {
             (Some(BackgroundImage::Gradient(gradient)), _) => Some(gradient.clone()),
             (Some(BackgroundImage::None), _) => None,
@@ -318,12 +318,12 @@ mod tests {
         assert_eq!(accent.border_colors()[2], Some("#e2e8f0"));
         // The gradient composes across hover and keeps its other stops.
         let gradient = &cases[7];
-        let at_rest = resolve(gradient, false, false)
-            .background_gradient()
-            .expect("a gradient");
-        let hovered = resolve(gradient, true, false)
-            .background_gradient()
-            .expect("a gradient");
+        let linear = |gradient| match gradient {
+            Some(Gradient::Linear(linear)) => linear,
+            other => panic!("a linear gradient, not {other:?}"),
+        };
+        let at_rest = linear(resolve(gradient, false, false).background_gradient());
+        let hovered = linear(resolve(gradient, true, false).background_gradient());
         assert_eq!(at_rest.stops.len(), 3);
         assert_ne!(at_rest.stops[0].color, hovered.stops[0].color);
         assert_eq!(at_rest.stops[1], hovered.stops[1]);

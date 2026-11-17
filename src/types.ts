@@ -106,10 +106,16 @@ export type PaintOrder = 'normal' | 'stroke';
 export type Cursor =
   | 'default' | 'pointer' | 'text' | 'move' | 'grab' | 'grabbing' | 'not-allowed' | 'crosshair'
   | 'wait' | 'progress' | 'help' | 'ew-resize' | 'ns-resize' | 'nesw-resize' | 'nwse-resize';
-/** A timing function: a CSS keyword, or the four numbers of `cubic-bezier(x1, y1, x2, y2)` (x1 and x2 between 0 and 1). */
+/** Where the jumps of `steps()` are (CSS `<step-position>`); `start` and `end` are the older names of `jump-start` and `jump-end`. */
+export type StepPosition = 'jump-start' | 'jump-end' | 'jump-none' | 'jump-both' | 'start' | 'end';
+/**
+ * A timing function: a CSS keyword, the four numbers of `cubic-bezier(x1, y1, x2, y2)` (x1 and x2 between 0 and 1), or
+ * `steps(n, position)` (`jump-end` by default; `jump-none` needs two steps or more). `step-start` and `step-end` are one step.
+ */
 export type Easing =
-  | 'linear' | 'ease' | 'ease-in' | 'ease-out' | 'ease-in-out'
-  | { readonly cubicBezier: readonly [number, number, number, number] };
+  | 'linear' | 'ease' | 'ease-in' | 'ease-out' | 'ease-in-out' | 'step-start' | 'step-end'
+  | { readonly cubicBezier: readonly [number, number, number, number] }
+  | { readonly steps: number; readonly position?: StepPosition };
 export interface Transition {
   /**
    * What to animate; `'all'` is every property in `TRANSITION_PROPERTIES`, and one of them that cannot animate in a given
@@ -131,6 +137,86 @@ export interface TransitionParts {
   durationMs?: number;
   delayMs?: number;
   easing?: Easing;
+}
+
+/** A size in a keyframe: pixels or a percentage (the keywords and viewport units do not interpolate). */
+export type KeyframeSize = number | `${number}%`;
+
+/**
+ * What one keyframe sets: the properties native animates (`TRANSITION_PROPERTIES`), in the forms `Style` takes them. A shadow in
+ * `boxShadow` or a `drop-shadow()` names its colour (there is no `currentcolor` in keyframes).
+ */
+export interface KeyframeStyle {
+  width?: KeyframeSize;
+  height?: KeyframeSize;
+  opacity?: number;
+  backgroundColor?: HexColor;
+  color?: HexColor;
+  borderColor?: HexColor;
+  filter?: string;
+  backdropFilter?: string;
+  transform?: string;
+  boxShadow?: string;
+}
+
+/** A keyframe as written, with the timing function from it to the next keyframe (CSS's `animation-timing-function` in a keyframe). */
+export interface KeyframeBlock extends KeyframeStyle {
+  easing?: Easing;
+}
+
+/** Where a keyframe is in an iteration: `from` (0 %), `to` (100 %) or a percentage. */
+export type KeyframeSelector = 'from' | 'to' | `${number}%`;
+
+/**
+ * Keyframes as CSS's `@keyframes` block writes them: `{ from: {...}, '50%': {...}, to: {...} }`. A property a block leaves out at 0 %
+ * or 100 % takes the element's own value there, as in CSS (a size is the exception: an animated `width` or `height` is set at both
+ * ends, in one unit).
+ */
+export type KeyframeRules = { readonly [selector in KeyframeSelector]?: Readonly<KeyframeBlock> };
+
+/** One compiled keyframe: its offset from 0 to 1, what it sets, and its timing function. */
+export interface Keyframe {
+  readonly offset: number;
+  readonly style: Readonly<KeyframeStyle>;
+  readonly easing?: Easing;
+}
+
+/** A named `@keyframes` rule, made by `defineKeyframes` (the name is for reading and diagnostics; equal rules are one rule natively). */
+export interface Keyframes {
+  readonly kind: 'keyframes';
+  readonly name: string;
+  readonly frames: readonly Keyframe[];
+}
+
+export type AnimationDirection = 'normal' | 'reverse' | 'alternate' | 'alternate-reverse';
+export type AnimationFillMode = 'none' | 'forwards' | 'backwards' | 'both';
+export type AnimationPlayState = 'running' | 'paused';
+
+/**
+ * One CSS animation. `keyframes` is a rule `defineKeyframes` made, or keyframes written inline. What is left out is CSS's initial
+ * value: no delay, `ease`, one iteration, `normal`, fill `none`, `running`. A negative `delayMs` starts that far into the run.
+ */
+export interface Animation {
+  keyframes: Keyframes | KeyframeRules;
+  durationMs: number;
+  delayMs?: number;
+  easing?: Easing;
+  iterations?: number | 'infinite';
+  direction?: AnimationDirection;
+  fillMode?: AnimationFillMode;
+  playState?: AnimationPlayState;
+}
+
+/** An animation as native receives it: the keyframes compiled, everything frozen. */
+export interface CompiledAnimation {
+  readonly keyframes: { readonly name: string; readonly frames: readonly Keyframe[] };
+  readonly durationMs: number;
+  readonly delayMs?: number;
+  readonly easing?: Easing;
+  readonly iterations?: number | 'infinite';
+  readonly direction?: AnimationDirection;
+  readonly fillMode?: AnimationFillMode;
+  readonly playState?: AnimationPlayState;
 }
 
 /** Layout and paint properties understood by the native Taffy renderer. */
@@ -298,7 +384,11 @@ export interface Style {
    * utility classes set, where `shadow-sm ring-1 focus:ring-2` composes.
    */
   boxShadow?: string;
-  /** `none`, or `linear-gradient(<angle> | to <side or corner>, <colour> [<position>], ...)`, drawn over `backgroundColor`. */
+  /**
+   * `none`, `linear-gradient([<angle> | to <side or corner>] [in srgb | oklab], <colour> [<position>], ...)` or
+   * `conic-gradient([from <angle>] [at <position>] [in srgb | oklab], <colour> [<angle or percentage>], ...)`, drawn over
+   * `backgroundColor`.
+   */
   backgroundImage?: string;
   /**
    * CSS `border-image-source`: `none`, or `url(<id>)` of a texture the root registered (`registerTexture`; there is no loading from
@@ -328,6 +418,12 @@ export interface Style {
   opacity?: number;
   textAlign?: 'left' | 'center' | 'right' | 'justify' | 'start' | 'end';
   transition?: Transition;
+  /**
+   * CSS `animation`: one animation, a list of them, or `none`. Native runs them on its own clock (no JS timers, no React
+   * renders), paused while the root is outside the scene tree and cancelled when the element unmounts. A later layer
+   * replaces the whole list (`animate-spin hover:animate-none`).
+   */
+  animation?: Animation | readonly Animation[] | 'none';
   interpolateSize?: 'numeric-only' | 'allow-keywords';
   /** Shorthand for `overflowX` and `overflowY`. `scroll` and `auto` make a scroll container. */
   overflow?: Overflow;
@@ -469,6 +565,9 @@ export interface BorderImageEdgeParts {
   left?: BorderImageEdgeValue;
 }
 
+/** The colour space a gradient interpolates in. */
+export type GradientColorSpace = 'srgb' | 'oklab';
+
 /** The direction utilities: `to-tr` is `bg-gradient-to-tr`. */
 export type GradientDirection = 'to-t' | 'to-tr' | 'to-r' | 'to-br' | 'to-b' | 'to-bl' | 'to-l' | 'to-tl';
 
@@ -478,6 +577,12 @@ export type GradientDirection = 'to-t' | 'to-tr' | 'to-r' | 'to-br' | 'to-b' | '
  */
 export interface GradientParts {
   direction?: GradientDirection;
+  /**
+   * Tailwind v4's `bg-conic` (from 0deg), `bg-conic-<angle>` and `-bg-conic-<angle>`, with the colour space of its modifier
+   * (`oklab`, v4's default, or `/srgb`). The stops then follow v4: an unset colour is `#0000` and the positions are 0 %, 50 %
+   * (`via`) and 100 % unless set. `direction` and `conic` replace each other.
+   */
+  conic?: { fromDegrees: number; space: GradientColorSpace };
   from?: HexColor;
   fromPosition?: number;
   via?: HexColor;
@@ -508,7 +613,9 @@ export interface FilterParts {
  * What native receives: every shorthand (`padding`, `margin`, `gap`, `overflow`) is expanded to its
  * longhands by the style compiler, so merging layers is a plain ordered overwrite.
  */
-export type LonghandStyle = Omit<Style, 'padding' | 'margin' | 'gap' | 'overflow' | 'inset' | 'fontWeight' | 'borderImageSlice' | 'borderImageWidth' | 'borderImageOutset'> & {
+export type LonghandStyle = Omit<Style, 'padding' | 'margin' | 'gap' | 'overflow' | 'inset' | 'fontWeight' | 'borderImageSlice' | 'borderImageWidth' | 'borderImageOutset' | 'animation'> & {
+  /** The animations, compiled; an empty list is `none`. */
+  animation?: readonly CompiledAnimation[];
   /** The compiler reads the shorthand text of these three into their four sides (`parseSliceText`, `parseEdgeText`). */
   borderImageSlice?: BorderImageSliceParts;
   borderImageWidth?: BorderImageEdgeParts;

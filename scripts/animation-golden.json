@@ -1,0 +1,1244 @@
+{
+  "chrome": "Chrome/157.0.8103.79",
+  "box": {
+    "width": 200,
+    "height": 100
+  },
+  "cases": [
+    {
+      "name": "spin",
+      "css": {
+        "keyframes": "@keyframes k { to { transform: rotate(360deg); } }",
+        "animation": "k 1s linear infinite"
+      },
+      "native": {
+        "keyframes": {
+          "name": "spin",
+          "frames": [
+            {
+              "offset": 1,
+              "style": {
+                "transform": "rotate(360deg)"
+              }
+            }
+          ]
+        },
+        "durationMs": 1000,
+        "easing": "linear",
+        "iterations": "infinite"
+      },
+      "samples": [
+        {
+          "timeMs": 0,
+          "transform": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          "opacity": 1,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 125,
+          "transform": [
+            0.707107,
+            0.707107,
+            -0.707107,
+            0.707107,
+            0,
+            0
+          ],
+          "opacity": 1,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 250,
+          "transform": [
+            0,
+            1,
+            -1,
+            0,
+            0,
+            0
+          ],
+          "opacity": 1,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 600,
+          "transform": [
+            -0.809017,
+            -0.587785,
+            0.587785,
+            -0.809017,
+            0,
+            0
+          ],
+          "opacity": 1,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 999,
+          "transform": [
+            0.99998,
+            -0.00628314,
+            0.00628314,
+            0.99998,
+            0,
+            0
+          ],
+          "opacity": 1,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 1250,
+          "transform": [
+            0,
+            1,
+            -1,
+            0,
+            0,
+            0
+          ],
+          "opacity": 1,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 2730,
+          "transform": [
+            -0.125333,
+            -0.992115,
+            0.992115,
+            -0.125333,
+            0,
+            0
+          ],
+          "opacity": 1,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ping",
+      "css": {
+        "keyframes": "@keyframes k { 75%, 100% { transform: scale(2); opacity: 0; } }",
+        "animation": "k 1s cubic-bezier(0, 0, 0.2, 1) infinite"
+      },
+      "native": {
+        "keyframes": {
+          "name": "ping",
+          "frames": [
+            {
+              "offset": 0.75,
+              "style": {
+                "transform": "scale(2)",
+                "opacity": 0
+              }
+            },
+            {
+              "offset": 1,
+              "style": {
+                "transform": "scale(2)",
+                "opacity": 0
+              }
+            }
+          ]
+        },
+        "durationMs": 1000,
+        "easing": {
+          "cubicBezier": [
+            0,
+            0,
+            0.2,
+            1
+          ]
+        },
+        "iterations": "infinite"
+      },
+      "samples": [
+        {
+          "timeMs": 100,
+          "transform": [
+            1.37663,
+            0,
+            0,
+            1.37663,
+            0,
+            0
+          ],
+          "opacity": 0.623366,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 375,
+          "transform": [
+            1.83925,
+            0,
+            0,
+            1.83925,
+            0,
+            0
+          ],
+          "opacity": 0.160755,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 600,
+          "transform": [
+            1.97756,
+            0,
+            0,
+            1.97756,
+            0,
+            0
+          ],
+          "opacity": 0.0224407,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 749,
+          "transform": [
+            2,
+            0,
+            0,
+            2,
+            0,
+            0
+          ],
+          "opacity": 9.2635e-7,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 800,
+          "transform": [
+            2,
+            0,
+            0,
+            2,
+            0,
+            0
+          ],
+          "opacity": 0,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 1300,
+          "transform": [
+            1.75526,
+            0,
+            0,
+            1.75526,
+            0,
+            0
+          ],
+          "opacity": 0.244737,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "name": "pulse",
+      "css": {
+        "keyframes": "@keyframes k { 50% { opacity: 0.5; } }",
+        "animation": "k 2s cubic-bezier(0.4, 0, 0.6, 1) infinite"
+      },
+      "native": {
+        "keyframes": {
+          "name": "pulse",
+          "frames": [
+            {
+              "offset": 0.5,
+              "style": {
+                "opacity": 0.5
+              }
+            }
+          ]
+        },
+        "durationMs": 2000,
+        "easing": {
+          "cubicBezier": [
+            0.4,
+            0,
+            0.6,
+            1
+          ]
+        },
+        "iterations": "infinite"
+      },
+      "samples": [
+        {
+          "timeMs": 200,
+          "transform": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          "opacity": 0.956751,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 500,
+          "transform": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          "opacity": 0.75,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 1000,
+          "transform": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          "opacity": 0.5,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 1500,
+          "transform": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          "opacity": 0.75,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 1900,
+          "transform": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          "opacity": 0.989331,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 2600,
+          "transform": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          "opacity": 0.668466,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "name": "bounce",
+      "css": {
+        "keyframes": "@keyframes k { 0%, 100% { transform: translateY(-25%); animation-timing-function: cubic-bezier(0.8, 0, 1, 1); } 50% { transform: none; animation-timing-function: cubic-bezier(0, 0, 0.2, 1); } }",
+        "animation": "k 1s infinite"
+      },
+      "native": {
+        "keyframes": {
+          "name": "bounce",
+          "frames": [
+            {
+              "offset": 0,
+              "style": {
+                "transform": "translateY(-25%)"
+              },
+              "easing": {
+                "cubicBezier": [
+                  0.8,
+                  0,
+                  1,
+                  1
+                ]
+              }
+            },
+            {
+              "offset": 0.5,
+              "style": {
+                "transform": "none"
+              },
+              "easing": {
+                "cubicBezier": [
+                  0,
+                  0,
+                  0.2,
+                  1
+                ]
+              }
+            },
+            {
+              "offset": 1,
+              "style": {
+                "transform": "translateY(-25%)"
+              },
+              "easing": {
+                "cubicBezier": [
+                  0.8,
+                  0,
+                  1,
+                  1
+                ]
+              }
+            }
+          ]
+        },
+        "durationMs": 1000,
+        "iterations": "infinite"
+      },
+      "samples": [
+        {
+          "timeMs": 0,
+          "transform": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            -25
+          ],
+          "opacity": 1,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 100,
+          "transform": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            -24.439
+          ],
+          "opacity": 1,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 250,
+          "transform": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            -20.9811
+          ],
+          "opacity": 1,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 450,
+          "transform": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            -7.59619
+          ],
+          "opacity": 1,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 500,
+          "transform": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          "opacity": 1,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 600,
+          "transform": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            -12.5
+          ],
+          "opacity": 1,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 750,
+          "transform": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            -20.9811
+          ],
+          "opacity": 1,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 900,
+          "transform": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            -24.439
+          ],
+          "opacity": 1,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 1100,
+          "transform": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            -24.439
+          ],
+          "opacity": 1,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "name": "colour-alternate-delay-fill",
+      "css": {
+        "keyframes": "@keyframes k { from { background-color: #ff0000; } to { background-color: #0000ff; } }",
+        "animation": "k 1s ease-in-out 200ms 3 alternate both"
+      },
+      "native": {
+        "keyframes": {
+          "name": "colour",
+          "frames": [
+            {
+              "offset": 0,
+              "style": {
+                "backgroundColor": "#ff0000"
+              }
+            },
+            {
+              "offset": 1,
+              "style": {
+                "backgroundColor": "#0000ff"
+              }
+            }
+          ]
+        },
+        "durationMs": 1000,
+        "delayMs": 200,
+        "easing": "ease-in-out",
+        "iterations": 3,
+        "direction": "alternate",
+        "fillMode": "both"
+      },
+      "samples": [
+        {
+          "timeMs": 0,
+          "transform": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          "opacity": 1,
+          "backgroundColor": [
+            1,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 100,
+          "transform": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          "opacity": 1,
+          "backgroundColor": [
+            1,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 200,
+          "transform": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          "opacity": 1,
+          "backgroundColor": [
+            1,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 450,
+          "transform": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          "opacity": 1,
+          "backgroundColor": [
+            0.8705882352941177,
+            0,
+            0.12941176470588237,
+            1
+          ]
+        },
+        {
+          "timeMs": 700,
+          "transform": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          "opacity": 1,
+          "backgroundColor": [
+            0.5019607843137255,
+            0,
+            0.5019607843137255,
+            1
+          ]
+        },
+        {
+          "timeMs": 1300,
+          "transform": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          "opacity": 1,
+          "backgroundColor": [
+            0.0196078431372549,
+            0,
+            0.9803921568627451,
+            1
+          ]
+        },
+        {
+          "timeMs": 2000,
+          "transform": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          "opacity": 1,
+          "backgroundColor": [
+            0.9176470588235294,
+            0,
+            0.08235294117647059,
+            1
+          ]
+        },
+        {
+          "timeMs": 2900,
+          "transform": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          "opacity": 1,
+          "backgroundColor": [
+            0.18823529411764706,
+            0,
+            0.8117647058823529,
+            1
+          ]
+        },
+        {
+          "timeMs": 3500,
+          "transform": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          "opacity": 1,
+          "backgroundColor": [
+            0,
+            0,
+            1,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "name": "steps-end",
+      "css": {
+        "keyframes": "@keyframes k { to { transform: rotate(360deg); } }",
+        "animation": "k 1s steps(4, jump-end) infinite"
+      },
+      "native": {
+        "keyframes": {
+          "name": "turn",
+          "frames": [
+            {
+              "offset": 1,
+              "style": {
+                "transform": "rotate(360deg)"
+              }
+            }
+          ]
+        },
+        "durationMs": 1000,
+        "easing": {
+          "steps": 4,
+          "position": "jump-end"
+        },
+        "iterations": "infinite"
+      },
+      "samples": [
+        {
+          "timeMs": 100,
+          "transform": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          "opacity": 1,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 260,
+          "transform": [
+            0,
+            1,
+            -1,
+            0,
+            0,
+            0
+          ],
+          "opacity": 1,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 510,
+          "transform": [
+            -1,
+            0,
+            0,
+            -1,
+            0,
+            0
+          ],
+          "opacity": 1,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 760,
+          "transform": [
+            0,
+            -1,
+            1,
+            0,
+            0,
+            0
+          ],
+          "opacity": 1,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 990,
+          "transform": [
+            0,
+            -1,
+            1,
+            0,
+            0,
+            0
+          ],
+          "opacity": 1,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "name": "steps-none",
+      "css": {
+        "keyframes": "@keyframes k { to { opacity: 0; } }",
+        "animation": "k 1s steps(5, jump-none) infinite"
+      },
+      "native": {
+        "keyframes": {
+          "name": "fade",
+          "frames": [
+            {
+              "offset": 1,
+              "style": {
+                "opacity": 0
+              }
+            }
+          ]
+        },
+        "durationMs": 1000,
+        "easing": {
+          "steps": 5,
+          "position": "jump-none"
+        },
+        "iterations": "infinite"
+      },
+      "samples": [
+        {
+          "timeMs": 100,
+          "transform": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          "opacity": 1,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 300,
+          "transform": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          "opacity": 0.75,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 500,
+          "transform": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          "opacity": 0.5,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 700,
+          "transform": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          "opacity": 0.25,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 950,
+          "transform": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          "opacity": 0,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "name": "reverse-negative-delay",
+      "css": {
+        "keyframes": "@keyframes k { from { transform: translateX(0px) scale(1); } to { transform: translateX(80px) scale(0.5); } }",
+        "animation": "k 1s linear -250ms 2 reverse forwards"
+      },
+      "native": {
+        "keyframes": {
+          "name": "slide",
+          "frames": [
+            {
+              "offset": 0,
+              "style": {
+                "transform": "translateX(0px) scale(1)"
+              }
+            },
+            {
+              "offset": 1,
+              "style": {
+                "transform": "translateX(80px) scale(0.5)"
+              }
+            }
+          ]
+        },
+        "durationMs": 1000,
+        "delayMs": -250,
+        "easing": "linear",
+        "iterations": 2,
+        "direction": "reverse",
+        "fillMode": "forwards"
+      },
+      "samples": [
+        {
+          "timeMs": 0,
+          "transform": [
+            0.625,
+            0,
+            0,
+            0.625,
+            60,
+            0
+          ],
+          "opacity": 1,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 250,
+          "transform": [
+            0.75,
+            0,
+            0,
+            0.75,
+            40,
+            0
+          ],
+          "opacity": 1,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 500,
+          "transform": [
+            0.875,
+            0,
+            0,
+            0.875,
+            20,
+            0
+          ],
+          "opacity": 1,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 1000,
+          "transform": [
+            0.625,
+            0,
+            0,
+            0.625,
+            60,
+            0
+          ],
+          "opacity": 1,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 1700,
+          "transform": [
+            0.975,
+            0,
+            0,
+            0.975,
+            4,
+            0
+          ],
+          "opacity": 1,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "timeMs": 2500,
+          "transform": [
+            1,
+            0,
+            0,
+            1,
+            0,
+            0
+          ],
+          "opacity": 1,
+          "backgroundColor": [
+            0,
+            0,
+            0,
+            1
+          ]
+        }
+      ]
+    }
+  ]
+}

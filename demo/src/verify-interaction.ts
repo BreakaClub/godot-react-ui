@@ -30,6 +30,8 @@ import type { LayoutUtilitiesPage } from './layout-utilities-lab';
 import type { RichTextLabProps } from './rich-text-lab';
 import { verifyLayoutUtilities } from './verify-layout-utilities';
 import { verifyPaint } from './verify-paint';
+import { measureAnimationCost, verifyAnimations } from './verify-animations';
+import type { AnimationCostProps } from './animation-lab';
 import { verifyImages } from './verify-images';
 import { verifyTextInput } from './verify-text-input';
 import type { DemoInspection } from './verify';
@@ -40,6 +42,8 @@ import {
 } from '../../scripts/verifier-sections.mjs';
 
 export interface InteractionInspection extends DemoInspection {
+  /** The `animations-cost` scene (`animation-lab.tsx`). */
+  showAnimationCost(props: AnimationCostProps): void;
   /** Detach/reattach the same native Control, preserving the React root and state. */
   surfaceAttached(attached: boolean): void;
   profile(enabled: boolean): void;
@@ -3708,6 +3712,8 @@ export async function runInteractionVerification(owner: Node, api: InteractionIn
   if (sections.has('glass')) await timed('glass', () => verifyGlass(owner, api, capture));
   if (sections.has('navigator')) await timed('navigator', () => verifyNavigator(owner, api, capture));
   if (sections.has('transforms')) await timed('transforms', () => verifyTransforms(owner, api, capture));
+  if (sections.has('animations')) await timed('animations', () => verifyAnimations(owner, api, capture));
+  if (sections.has('animations-cost')) await timed('animations-cost', () => measureAnimationCost(owner, api));
   if (sections.has('paint')) await timed('paint', () => verifyPaint(owner, api, capture));
   if (sections.has('images')) await timed('images', () => verifyImages(owner, api, capture));
   if (sections.has('layout-utilities')) await timed('layout-utilities', () => verifyLayoutUtilities(owner, api));

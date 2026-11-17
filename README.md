@@ -14,7 +14,7 @@ verified in Chrome.
 - **Primitives and a component kit.** `View`, `Text`, `Button`, `Image`, `Portal` and `TextInput`, plus `Checkbox`, `Switch`, `RadioGroup`, `Slider`,
   `Select`, `Combobox`, `TextField` and `ScrollView`, which are built from them.
 - **A typed subset of Tailwind v3 classes**, plus inline styles. They cover layout, spacing, colours with opacity, typography, shadows, rings, outlines,
-  gradients, 2D transforms, filters, frosted glass (`backdrop-blur`) and CSS transitions (timed by Stylo), with variants such as `sm:`, `md:`, `hover:`
+  linear and conic gradients, 2D transforms, rounded clipping, filters, frosted glass (`backdrop-blur`), CSS transitions and keyframe animations (timed by Stylo), with variants such as `sm:`, `md:`, `hover:`
   and `focus-visible:`. An unknown class is an error, not a silent no-op.
 - **DOM-style input.** Capture and bubbling, `preventDefault`, focus and Tab order, keyboard events, mouse and multi-touch pointer events with pointer
   capture, wheel and touch scrolling with momentum, text selection and copying, drag and drop, and a native-backed `TextInput` with IME support.

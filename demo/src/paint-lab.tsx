@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Button, Text, View, useRootSize, type Style, type UIHandle } from 'godot-react-ui';
 import { LabCase, LabIntro, LabLimit } from './lab-parts';
-import { PAINT_PAGES, PAINT_STAGE, type PaintCell, type PaintPage } from './paint-data';
+import { PAINT_PAGES, PAINT_STAGE, type PaintCell, type PaintChild, type PaintPage } from './paint-data';
 
 /**
  * The paint lab: one page of boxes at a time, each with the Tailwind classes under test
@@ -41,8 +41,21 @@ function Page({ page }: { page: PaintPage }) {
           testID={cell.id}
           className={`absolute ${cell.className}`}
           style={{ left: cell.left, top: cell.top, width: cell.width, height: cell.height, ...cell.inline }}
-        />
+        >
+          {(cell.children ?? []).map((child, index) => <Child key={index} child={child} />)}
+        </View>
       ))}
+    </View>
+  );
+}
+
+function Child({ child }: { child: PaintChild }) {
+  return (
+    <View
+      className={`absolute ${child.className}`}
+      style={{ left: child.left, top: child.top, width: child.width, height: child.height, ...child.inline }}
+    >
+      {(child.children ?? []).map((grandchild, index) => <Child key={index} child={grandchild} />)}
     </View>
   );
 }
@@ -176,6 +189,17 @@ const PAGE_NOTES: Readonly<Record<string, PageNote>> = {
     label: 'Glass',
     caption: 'Frosted glass over four coloured circles: translucent fills, borders, backdrop blur of different strengths, a shadow, a ring and an outline on the same panels.',
     expected: "The circle behind a panel is blurred inside the panel only, and the panel's shadow is not drawn inside the glass.",
+  },
+  conic: {
+    label: 'Conic gradients',
+    caption: 'Conic gradients: a colour wheel, a start angle, hard stops in quadrants, Oklab and sRGB, under rounded corners and a border, a centre off the middle, red to blue in both colour spaces, a glimmer wedge and a centre at the edge.',
+    expected: 'Colours run clockwise from the start angle round the centre, as a browser draws them; Oklab\'s half way between red and blue is a lighter purple than sRGB\'s.',
+  },
+  'rounded-clip': {
+    label: 'Rounded clips',
+    caption: 'overflow-hidden on rounded boxes with stripes inside that overfill them: corners by size and by corner, a border of one width and of four, the glimmer (a turned conic square under a panel inset by the ring), a square clip, and a turned child.',
+    expected: 'The stripes stop at the inner edge of the rounded border, as a browser clips them, and only the ring shows the glimmer\'s light.',
+    limit: 'A rounded clip inside another rounded clip or a filter, or holding a filter, is drawn as its rectangle (the pointer is still clipped round).',
   },
   [PAINT_STATES_PAGE]: {
     label: 'States',

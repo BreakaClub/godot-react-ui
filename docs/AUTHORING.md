@@ -76,6 +76,49 @@ Drag and drop follows HTML inside one root: `draggable` (and `dragPreview`: `nat
 
 Hover, press and focus are native state: they restyle `hover:`, `active:`, `focus:`, `focus-visible:`, `focus-within:` and `disabled:` variants without any React render or JS call. Refs expose a typed handle with its native tag and `getRect()` (a native query); `testID` supports inspection and `findByTestID` (a native query) without becoming native identity.
 
+## Animations
+
+Keyframe animations run natively, on the root's own clock, with no JavaScript timer and no React render. Declare keyframes once with
+`defineKeyframes` (or write the block inline in the style) and name them in a style's `animation`; Tailwind's `animate-spin`,
+`animate-ping`, `animate-pulse` and `animate-bounce` are the same thing with Tailwind's keyframes:
+
+```tsx
+import { View, defineKeyframes } from 'godot-react-ui';
+
+const glow = defineKeyframes('glow', {
+  from: { backgroundColor: '#6366f1' },
+  to: { backgroundColor: '#ec4899', easing: 'ease-out' },
+});
+
+<View className="size-8 rounded-full border-4 border-slate-200 border-t-indigo-500 animate-spin" />
+<View style={{ animation: { keyframes: glow, durationMs: 1600, iterations: 'infinite', direction: 'alternate', playState: paused ? 'paused' : 'running' } }} />
+```
+
+A keyframe sets the properties a transition animates (sizes, opacity, colours, filters, `transform`, `boxShadow`), and what it leaves out at
+`from` or `to` is the element's own value. `iterations`, `direction`, `fillMode`, `delayMs` (negative starts part way in) and `playState` are
+CSS's; changing `playState` pauses and resumes where the animation was, and an element with only paused animations costs nothing a frame. The
+clock stops while the root is out of the scene tree, and unmounting an element cancels its animations. There are no animation events.
+
+A light that runs round a rounded button's border needs no more than this: a rounded `overflow-hidden` box, a conic gradient square larger than
+the box spinning inside it, and a panel inset by the border's width on top, so only the ring shows the light (the demo's `animations` lab):
+
+```tsx
+const turn = defineKeyframes('turn', { to: { transform: 'rotate(360deg)' } });
+
+<View className="relative overflow-hidden rounded-2xl bg-slate-700" style={{ width: 240, height: 56 }}>
+  <View
+    className="absolute bg-conic from-transparent from-70% via-sky-300 via-90% to-transparent"
+    style={{ left: -10, top: -102, width: 260, height: 260, animation: { keyframes: turn, durationMs: 3000, easing: 'linear', iterations: 'infinite' } }}
+  />
+  <View className="absolute inset-[3px] items-center justify-center rounded-[13px] bg-slate-900">
+    <Text className="text-white">Play</Text>
+  </View>
+</View>
+```
+
+Place the spinning square with insets, not with `translate-*`: an animation of `transform` replaces the element's own `transform` while it runs,
+as in CSS. The rounded clip clips the square for the pointer too, so a press in a corner outside the curve reaches what is behind the button.
+
 ## Images
 
 `Image` draws a texture the root has registered. Register one with `registerTexture(root, id, texture)`, where `root` is the

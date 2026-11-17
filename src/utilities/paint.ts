@@ -1,6 +1,6 @@
 import { borderImageUtility, mergeBorderImage, type BorderImageKeys, type BorderImageUtilityStyle } from './border-image';
 import type {
-  BoxShadowParts, GradientDirection, HexColor, LonghandStyle, ShadowPartLayer, Style,
+  BoxShadowParts, GradientColorSpace, GradientDirection, HexColor, LonghandStyle, ShadowPartLayer, Style,
 } from '../types';
 
 /**
@@ -250,14 +250,30 @@ function stopPosition(value: string): number | undefined {
   return arbitrary?.[1] === undefined ? undefined : Number(arbitrary[1]);
 }
 
+/** The interpolation of a `bg-conic` modifier: v4's `in oklab` by default, `/srgb` or `/oklab` as named. */
+const CONIC_SPACES: Readonly<Record<string, GradientColorSpace>> = { '': 'oklab', '/oklab': 'oklab', '/srgb': 'srgb' };
+
+/** Tailwind v4's `bg-conic`, `bg-conic-<angle>` and `-bg-conic-<angle>` (whole degrees), with an optional colour space modifier. */
+function conicUtility(utility: string): PaintStyle | undefined {
+  const match = /^(-?)bg-conic(?:-(\d+))?(\/[a-z]+)?$/.exec(utility);
+  if (match === null) return undefined;
+  const space = lookup(CONIC_SPACES, match[3] ?? '');
+  if (space === undefined) return undefined;
+  if (match[1] === '-' && match[2] === undefined) return undefined;
+  const degrees = match[2] === undefined ? 0 : Number(match[2]);
+  return { gradientParts: { conic: { fromDegrees: match[1] === '-' ? -degrees : degrees, space } } };
+}
+
 function gradientUtility(utility: string, helpers: PaintHelpers): PaintStyle | undefined {
   const direction = /^bg-gradient-(to-(?:t|tr|r|br|b|bl|l|tl))$/.exec(utility)?.[1];
   const named = GRADIENT_DIRECTIONS.find(candidate => candidate === direction);
   if (named !== undefined) return { gradientParts: { direction: named } };
+  const conic = conicUtility(utility);
+  if (conic !== undefined) return conic;
   if (utility === 'bg-none') return { backgroundImage: 'none' };
   if (utility.startsWith('bg-[')) {
     const image = arbitraryText(utility.slice('bg-'.length));
-    return image?.startsWith('linear-gradient(') ? { backgroundImage: image } : undefined;
+    return image?.startsWith('linear-gradient(') || image?.startsWith('conic-gradient(') ? { backgroundImage: image } : undefined;
   }
   const stop = /^(from|via|to)-(.+)$/.exec(utility);
   const which = stop?.[1];
@@ -319,7 +335,11 @@ export function mergePaint<T extends Readonly<PaintStyle>>(target: LonghandStyle
   }
   if (gradientParts !== undefined) {
     delete target.backgroundImage;
-    target.gradientParts = { ...target.gradientParts, ...gradientParts };
+    const merged = { ...target.gradientParts, ...gradientParts };
+    // The kind of image is the one set last: `bg-gradient-to-r` and `bg-conic` each set `background-image` in Tailwind.
+    if (gradientParts.direction !== undefined) delete merged.conic;
+    if (gradientParts.conic !== undefined) delete merged.direction;
+    target.gradientParts = merged;
   }
   const shorthands: readonly [string, readonly (keyof LonghandStyle)[]][] = [
     ['borderWidth', SIDE_WIDTHS], ['borderColor', SIDE_COLORS], ['borderRadius', CORNER_RADII],

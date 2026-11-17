@@ -50,10 +50,19 @@ async function tailwindCompiler() {
 
 const css = style => Object.entries(style).map(([name, value]) => `${name.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)}:${value}`).join(';');
 
+/** Inline CSS from a style object: a number is px. */
+const inlineCss = (inline = {}) => Object.fromEntries(Object.entries(inline).map(([name, value]) => [name, typeof value === 'number' ? `${value}px` : value]));
+
+/** A box inside a cell, placed from its padding box (the cell is its containing block: `position: absolute`). */
+function childHtml(child) {
+  const place = { position: 'absolute', left: `${child.left}px`, top: `${child.top}px`, width: `${child.width}px`, height: `${child.height}px`, ...inlineCss(child.inline) };
+  return `<div class="${child.className}" style="${css(place)}">${(child.children ?? []).map(childHtml).join('')}</div>`;
+}
+
 /** A box of the page as HTML: the classes as written, placed in pixels. */
 function cellHtml(cell) {
   const place = { position: 'absolute', left: `${cell.left}px`, top: `${cell.top}px`, width: `${cell.width}px`, height: `${cell.height}px`, ...(cell.inline ?? {}) };
-  return `<div data-cell="${cell.id}" class="${cell.className}" style="${css(place)}"></div>`;
+  return `<div data-cell="${cell.id}" class="${cell.className}" style="${css(place)}">${(cell.children ?? []).map(childHtml).join('')}</div>`;
 }
 
 function pageHtml(entry) {

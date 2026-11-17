@@ -4,7 +4,10 @@
 //! ```text
 //! box      transform = location in the parent; modulate alpha = opacity (inherited by everything
 //!          below); draws the background and border
+//! ├─ mask      rounded clips only: draws the rounded padding box, and as a `CLIP_ONLY` canvas group shows
+//! │            what is below it only where that shape is drawn
 //! ├─ content   clips to the padding box when the element clips; draws text; child boxes attach here
+//! │            (under the mask, when there is one)
 //! │  └─ scroll    scroll containers only: transform = minus the scroll offset; child boxes attach here
 //! │     ├─ text   text inputs only: the selection, the text and the preedit's underline
 //! │     └─ caret  text inputs only: the caret, drawn over the text so that blinking redraws nothing else
@@ -282,6 +285,23 @@ pub(crate) struct RenderNode {
     /// Draws the outline over the element's content; exists while the element has one.
     outline_item: Option<Rid>,
     outline_key: Option<OutlineKey>,
+    /// A rounded clip: the content item's parent, which draws the rounded padding box as a `CLIP_ONLY` canvas group (Godot's
+    /// `CanvasItem.clip_children`), so the content and the child boxes show only inside that shape. Exists while the clip is drawn
+    /// rounded (`rounded_clip.rs`); a square clip is the content item's clip rectangle alone.
+    mask_item: Option<Rid>,
+    mask_key: Option<MaskKey>,
+}
+
+/// What a mask item last drew: the rounded padding box, as the box's own paint has it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct MaskKey {
+    pub size: Vector2,
+    /// Whole logical pixels, as the border is drawn.
+    pub borders: [i32; 4],
+    pub radii: [i32; 4],
+    pub oversampling: Oversampling,
+    /// The feather of a box a transform has put off the pixel grid (`node_box_feather`).
+    pub feather: Option<crate::box_mesh::Feather>,
 }
 
 /// The two items a text input draws in: the text under the caret, so a blink never redraws the text.
@@ -328,6 +348,8 @@ impl RenderNode {
             content_leases: Vec::new(),
             outline_item: None,
             outline_key: None,
+            mask_item: None,
+            mask_key: None,
         }
     }
 
@@ -382,10 +404,52 @@ impl RenderNode {
             self.content_leases.clear();
         }
         let item = rs.canvas_item_create();
-        rs.canvas_item_set_parent(item, self.box_item);
+        rs.canvas_item_set_parent(item, self.mask_item.unwrap_or(self.box_item));
         self.content_item = Some(item);
         item
     }
+
+    /// Draw the rounded clip `key` describes, or stop drawing one (`None`: the clip is the content item's rectangle alone). The mask
+    /// item is made and put between the box item and the content item the first time, and taken away again. Returns whether the
+    /// mask was drawn again or its item made or freed.
+    pub(crate) fn set_mask(&mut self, key: Option<MaskKey>) -> bool {
+        if self.mask_key == key {
+            return false;
+        }
+        match key {
+            Some(key) => {
+                let mask = match self.mask_item {
+                    Some(mask) => mask,
+                    None => {
+                        let mask = server().canvas_item_create();
+                        let mut rs = server();
+                        rs.canvas_item_set_parent(mask, self.box_item);
+                        rs.canvas_item_set_canvas_group_mode(mask, CanvasGroupMode::CLIP_ONLY);
+                        self.mask_item = Some(mask);
+                        let content = self.ensure_content_item();
+                        server().canvas_item_set_parent(content, mask);
+                        mask
+                    }
+                };
+                server().canvas_item_clear(mask);
+                let shape = BoxShape::new(key.size, key.borders, key.radii, key.oversampling.factor())
+                    .with_feather(key.feather);
+                box_draw::clip_mask(mask, &shape);
+            }
+            None => {
+                if let Some(mask) = self.mask_item.take() {
+                    let mut rs = server();
+                    if let Some(content) = self.content_item {
+                        rs.canvas_item_set_parent(content, self.box_item);
+                    }
+                    rs.free_rid(mask);
+                }
+            }
+        }
+        self.mask_key = key;
+        true
+    }
+
 
     /// The canvas item text content draws into: `content_item` if present, else creates `content_item`
     /// if the box has visible painting or clipping, otherwise `box_item`.
@@ -1140,6 +1204,7 @@ impl Drop for RenderNode {
             self.overlay_item,
             self.outline_item,
             self.content_item,
+            self.mask_item,
             self.image_item,
         ]
         .into_iter()
@@ -1304,6 +1369,8 @@ impl ReactUiRoot {
         }
         // An effect appearing or going makes the others check whether they sit inside a filter group.
         self.settle_effect_resyncs();
+        // And a rounded clip whether it can be a canvas group: after the effects, which it gives way to.
+        changed |= self.settle_rounded_clips();
         self.refresh_effect_rects();
         changed |= self.update_focus_ring();
         if changed {
@@ -1345,6 +1412,10 @@ impl ReactUiRoot {
             .clips_content()
             .then(|| node.geometry.padding_box().godot_rect());
         let child_item_before = node.render.child_item();
+        let rounded = node.rounded_clip().is_some();
+        if !rounded && node.render.set_mask(None) {
+            self.stats.mask_records += 1;
+        }
         let clip_changed = node.render.set_clip(clip);
         let child_item_after = node.render.child_item();
         let reparent_children = if child_item_before != child_item_after {
@@ -1355,6 +1426,7 @@ impl ReactUiRoot {
         if clip_changed && clip.is_some() {
             self.note_clip_in_turned_frame(tag);
         }
+        self.note_rounded_clip(tag, rounded);
         if let Some((children, target_item)) = reparent_children {
             for child_tag in children {
                 if let Some(child) = self.mounted.nodes.get_mut(&child_tag) {
@@ -1419,6 +1491,7 @@ impl ReactUiRoot {
             decoration,
             border_image,
             feather,
+            clips_round: rounded,
         };
         let reach_before = node.render.paint_reach();
         let boxed = node.render.record_box(box_key, &mut node.visual.background);

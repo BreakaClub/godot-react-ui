@@ -307,6 +307,7 @@ impl PaintTree for Mounted {
             location: node.geometry.location,
             size: node.geometry.size,
             clip: node.clips_content().then(|| node.geometry.padding_box()),
+            rounded_clip: node.rounded_clip(),
             pointer_target: node.computed.is_pointer_target(),
             scroll: node.scroll_frame(),
             placement: node.transform.map(|transform| transform.placement),
@@ -1105,6 +1106,7 @@ impl ReactUiRoot {
         self.mounted.out_of_flow.remove(&tag);
         self.forget_scroll(tag);
         self.forget_effects(tag);
+        self.forget_rounded_clip(tag);
         self.selection_node_changed(tag);
         self.paint_dirty_parents.remove(&Parent::Node(tag));
         if let Some(painter) = node.paint_parent {

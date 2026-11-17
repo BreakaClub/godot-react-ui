@@ -37,7 +37,7 @@ export const PLUGIN_NOTES = {
   touchAction: ['absent', 'native has `auto`, `none`, `pan-x` and `pan-y`; pinch-zoom and manipulation are not modelled'],
   userSelect: ['absent', 'native selects text with `select-text` and `select-none`; `select-all` and `select-auto` are not modelled'],
   transitionProperty: ['paint', '`transition-shadow` compiles once `box-shadow` is a native transition property (the paint track adds `boxShadow` to `TRANSITION_PROPERTIES`)'],
-  animation: ['absent', 'keyframe animations are not part of the motion engine (transitions only)'],
+  animation: ['layout-motion', 'animate-spin, -ping, -pulse, -bounce and -none with Tailwind\'s keyframes are built; animate-[...] (an arbitrary animation) is not'],
   // Paint
   borderRadius: ['paint', 'per-corner and per-side radii'],
   borderWidth: ['paint', 'per-side border widths'],

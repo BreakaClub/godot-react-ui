@@ -1,7 +1,7 @@
 //! Native transition bookkeeping: Stylo sampling, intrinsic `0 <-> auto` tracks and
 //! presentation overrides for `ReactUiRoot`, keyed by tag.
 //!
-//! Only nodes whose computed style has a `transition` (the "motion nodes") are mirrored into Stylo
+//! Only nodes whose computed style has a `transition` or an `animation` (the "motion nodes") are mirrored into Stylo
 //! and sampled; every other node's presentation is its computed style. A style change reaches this
 //! module as a [`StyleChange`]: from a commit, from a hover/focus/active state change, or from a
 //! viewport resize across a breakpoint.
@@ -94,7 +94,9 @@ impl ReactUiRoot {
             "nodesRestyled":self.stats.nodes_restyled,"boxRecords":self.stats.box_records,
             "contentRecords":self.stats.content_records,"paragraphBuilds":self.stats.paragraph_builds,
             "paragraphRepaints":self.stats.paragraph_repaints,"effects":self.effects_activity(),
-            "paintTextures":crate::box_draw::cached_textures()})
+            "paintTextures":crate::box_draw::cached_textures(),
+            "keyframes":self.style_engine.keyframes_registered(),
+            "maskRecords":self.stats.mask_records,"roundedClips":self.masked_clip_count()})
     }
 
     /// The opacity, colours and size a node is presenting right now (the text colour is the one its text paints
@@ -418,7 +420,7 @@ impl ReactUiRoot {
         let has_text = node.props.text.is_some()
             || node.props.spans.is_some()
             || node.visual.paragraph.is_some();
-        if node.computed.transition.is_some() {
+        if node.computed.is_motion_node() {
             self.motion_nodes.insert(tag);
         } else {
             self.motion_nodes.remove(&tag);
@@ -456,7 +458,7 @@ impl ReactUiRoot {
     }
 
     /// The changed nodes Stylo must hear about. Stylo only animates a node whose style has a
-    /// `transition`, so it is told about a node only while the node has one or has just lost one
+    /// `transition` or an `animation`, so it is told about a node only while the node has one or has just lost one
     /// (which cancels what was running). Every other restyle (a colour change on a thousand plain
     /// cells) would cost Stylo a write per node and a traversal of every sibling of each, for
     /// nothing.
@@ -465,11 +467,11 @@ impl ReactUiRoot {
             .iter()
             .filter(|change| {
                 self.mounted.nodes.get(&change.tag).is_some_and(|node| {
-                    node.computed.transition.is_some()
+                    node.computed.is_motion_node()
                         || change
                             .previous
                             .as_ref()
-                            .is_some_and(|previous| previous.transition.is_some())
+                            .is_some_and(|previous| previous.is_motion_node())
                 })
             })
             .map(|change| change.tag)
@@ -617,7 +619,7 @@ impl ReactUiRoot {
         loop {
             let node = self.mounted.nodes.get(&current)?;
             if let Some(sample) = self.sampled.get(&current)
-                && transitions_color(&node.computed)
+                && moves_color(&node.computed)
             {
                 let [r, g, b, a] = sample.color;
                 return Some(Color::from_rgba(r, g, b, a));
@@ -640,7 +642,7 @@ impl ReactUiRoot {
             .iter()
             .filter(|(tag, sample)| {
                 self.mounted.nodes.get(*tag).is_some_and(|node| {
-                    transitions_color(&node.computed)
+                    moves_color(&node.computed)
                         && color_distance(
                             sample.color,
                             color_components(parse_color(
@@ -1001,14 +1003,18 @@ fn color_distance(left: [f32; 4], right: [f32; 4]) -> f32 {
         .fold(0.0, f32::max)
 }
 
-/// Whether a node's transition animates its text colour.
-fn transitions_color(style: &StyleSpec) -> bool {
+/// Whether a node's transition or one of its animations moves its text colour.
+fn moves_color(style: &StyleSpec) -> bool {
     style.transition.as_ref().is_some_and(|transition| {
         transition
             .properties
             .animated()
             .contains(&TransitionProperty::Color)
-    })
+    }) || style
+        .animation
+        .iter()
+        .flatten()
+        .any(|animation| animation.keyframes.animates(TransitionProperty::Color))
 }
 
 pub(crate) fn color_hex(color: [f32; 4]) -> String {

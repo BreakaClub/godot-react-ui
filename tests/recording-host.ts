@@ -55,7 +55,7 @@ function parsePayload(value: unknown): CommitPayload {
 export function node(id: number, kind: NativeSnapshotNode['kind']): NativeSnapshotNode {
   return {
     id, kind, layer: 0, text: '', parent: null, children: [], paintParent: null, paintIndex: 0, documentIndex: 0, style: {}, props: {},
-    scroll: null, textInput: null, effects: null, transform: null, rasterScale: null,
+    scroll: null, textInput: null, effects: null, transform: null, rasterScale: null, roundedClip: null, roundedClipReason: null,
     rect: { x: 0, y: 0, width: 100, height: 40 },
     clipRect: null,
     presentation: {width: 100, height: 40, widthIsAuto: false, heightIsAuto: false, opacity: 1, backgroundColor: '#00000000', color: '#ffffffff', borderColor: '#00000000'},

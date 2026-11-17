@@ -31,6 +31,19 @@ export interface PaintCell {
   className: string;
   /** Inline styles that Tailwind has no class for (the same CSS text goes to Chrome). */
   inline?: { boxShadow?: string; backgroundImage?: string };
+  /** Boxes inside the cell, placed in its padding box: what a clip (`overflow-hidden`) has to clip. */
+  children?: readonly PaintChild[];
+}
+
+/** A box inside a cell, absolutely placed from the cell's padding box. */
+export interface PaintChild {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  className: string;
+  inline?: { backgroundImage?: string; transform?: string; borderRadius?: number };
+  children?: readonly PaintChild[];
 }
 
 export interface PaintPage {
@@ -66,6 +79,15 @@ function page(name: string, base: Hex, classes: readonly string[], options: { sh
 const STRIPES: readonly Shape[] = ['#f97316', '#10b981', '#3b82f6', '#a855f7', '#f43f5e', '#eab308', '#06b6d4', '#84cc16'].map((colour, index) => ({
   left: 0, top: index * 49, width: PAINT_STAGE.width, height: 49, colour: colour as Hex,
 }));
+
+/** Stripes that overfill a cell, so every corner of a clip has something to clip. */
+const STRIPES_CHILD: PaintChild = {
+  left: -4, top: -4, width: 72, height: 64, className: '',
+  inline: { backgroundImage: 'linear-gradient(90deg, #f97316 0%, #f97316 25%, #10b981 25%, #10b981 50%, #3b82f6 50%, #3b82f6 75%, #a855f7 75%, #a855f7 100%)' },
+};
+
+/** The glimmer's light: bright in one narrow wedge, transparent elsewhere (what `bg-conic from-transparent from-70% via-sky-300 via-90% to-transparent` draws). */
+const GLIMMER_LIGHT = 'conic-gradient(from 0deg in oklab, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0) 70%, #7dd3fc 90%, rgba(0, 0, 0, 0) 100%)';
 
 const BLOBS: readonly Shape[] = [
   { left: -20, top: -10, width: 160, height: 160, colour: '#db2777', radius: 80 },
@@ -252,6 +274,51 @@ export const PAINT_PAGES: readonly PaintPage[] = [
     'bg-gradient-to-br from-slate-100 to-slate-300 rounded-lg ring-1 ring-black/10 shadow-md',
     'bg-white bg-gradient-to-r from-red-500 to-transparent rounded-lg',
   ], { extra: [{}, {}, {}, {}, {}, {}, { inline: { backgroundImage: 'linear-gradient(45deg, #ef4444 0%, #f59e0b 40%, #10b981 100%)' } }, {}, { inline: { backgroundImage: 'linear-gradient(90deg, #4f46e5 0%, rgba(79, 70, 229, 0.2) 50%, #db2777 100%)' } }, { inline: { backgroundImage: 'linear-gradient(200deg, #0ea5e9, #22c55e 30%, #eab308 60%, #ef4444)' } }, {}, {}, { height: 40 }] }),
+  // Conic gradients: angles, a centre off the middle, hard stops, Oklab against sRGB, under rounded corners and a border. Inline CSS, which
+  // Chrome draws as it is (the reference compiles Tailwind v3, which has no bg-conic; `bg-conic` compiles to these gradients, `tests/gradients.test.ts`).
+  page('conic', '#0f172a', [
+    'rounded-none', 'rounded-none', 'rounded-none',
+    'rounded-xl', 'rounded-full', 'rounded-lg border-4 border-white',
+    'rounded-none', 'rounded-none', 'rounded-none',
+    'rounded-2xl', 'rounded-none', 'rounded-none',
+  ], { extra: [
+    { inline: { backgroundImage: 'conic-gradient(#ef4444, #eab308, #22c55e, #3b82f6, #a855f7, #ef4444)' } },
+    { inline: { backgroundImage: 'conic-gradient(from 90deg, #0ea5e9, #6366f1)' } },
+    { inline: { backgroundImage: 'conic-gradient(#ef4444 0deg 90deg, #22c55e 90deg 180deg, #3b82f6 180deg 270deg, #eab308 270deg)' } },
+    { inline: { backgroundImage: 'conic-gradient(in oklab, #0ea5e9, #ec4899, #0ea5e9)' } },
+    { inline: { backgroundImage: 'conic-gradient(from 45deg, #f97316, #06b6d4, #f97316)' } },
+    { inline: { backgroundImage: 'conic-gradient(from 180deg at 25% 25%, #ffffff, #000000)' } },
+    { inline: { backgroundImage: 'conic-gradient(at 75% 100%, #ef4444, #3b82f6 50%, #ef4444)' } },
+    { inline: { backgroundImage: 'conic-gradient(in oklab, #ff0000, #0000ff)' } },
+    { inline: { backgroundImage: 'conic-gradient(#ff0000, #0000ff)' } },
+    { inline: { backgroundImage: 'conic-gradient(from 0deg in oklab, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0) 70%, #7dd3fc 90%, rgba(0, 0, 0, 0) 100%)' } },
+    { inline: { backgroundImage: 'conic-gradient(rgba(255, 255, 255, 0) 0%, #ffffff 25%, rgba(255, 255, 255, 0) 50%)' } },
+    { inline: { backgroundImage: 'conic-gradient(from -30deg at 10px 50%, #22c55e, #a855f7 0.3turn, #22c55e)' } },
+  ] }),
+  // Rounded clips: overflow-hidden on rounded boxes clips the children to the rounded padding box (the inner edge of the border), and the glimmer
+  // composition (a turned conic square inside a rounded clip, a panel inset over all but the ring). The glimmers are in the middle column, where the
+// turned squares stay inside the narrowest window (300 logical pixels).
+  page('rounded-clip', '#e2e8f0', [
+    'overflow-hidden rounded-2xl bg-white',
+    'overflow-hidden rounded-full bg-white',
+    'overflow-hidden rounded-xl border-4 border-slate-800 bg-white',
+    'overflow-hidden rounded-tl-3xl rounded-br-3xl bg-white',
+    'overflow-hidden rounded-2xl bg-slate-700',
+    'overflow-hidden rounded-xl border-t-8 border-l-2 border-slate-800 bg-white',
+    'overflow-hidden rounded-none bg-white',
+    'overflow-hidden rounded-3xl bg-slate-700',
+    'overflow-hidden rounded-xl bg-white',
+  ], { extra: [
+    { children: [STRIPES_CHILD] },
+    { children: [STRIPES_CHILD] },
+    { children: [STRIPES_CHILD] },
+    { children: [STRIPES_CHILD] },
+    { children: [{ left: -26, top: -30, width: 116, height: 116, className: '', inline: { backgroundImage: GLIMMER_LIGHT, transform: 'rotate(40deg)' } }, { left: 3, top: 3, width: 58, height: 50, className: 'bg-slate-900', inline: { borderRadius: 13 } }] },
+    { children: [STRIPES_CHILD] },
+    { children: [STRIPES_CHILD] },
+    { children: [{ left: -40, top: -44, width: 144, height: 144, className: '', inline: { backgroundImage: GLIMMER_LIGHT, transform: 'rotate(200deg)' } }, { left: 4, top: 4, width: 56, height: 48, className: 'bg-slate-900', inline: { borderRadius: 20 } }] },
+    { children: [{ left: -8, top: -8, width: 80, height: 72, className: 'bg-emerald-500', inline: { transform: 'rotate(20deg)' } }] },
+  ] }),
   // Frosted glass with a shadow and a ring: the key use.
   page('glass', '#1e1b4b', [
     'bg-white/20 rounded-2xl border border-white/30 backdrop-blur-xl shadow-lg',

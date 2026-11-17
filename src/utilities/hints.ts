@@ -38,6 +38,12 @@ export function unsupportedHint(utility: string): string | undefined {
   if (/subgrid$/.test(utility)) return 'Taffy has no subgrid; write the tracks again on the nested grid';
   if (/^(place-)?content-baseline$/.test(utility)) return 'Taffy has no baseline content alignment; use content-start or content-center';
   if (utility.includes('calc(')) return 'calc() is not supported in a size; use px, rem, a percentage, or a flex or grid layout that does the sum';
+  if (/^-?bg-conic/.test(utility)) {
+    return 'bg-conic takes whole degrees (bg-conic-90, -bg-conic-45) and the /oklab (default) or /srgb modifier; for a centre or another colour space write backgroundImage: \'conic-gradient(from 45deg at 25% 25% in oklab, ...)\'';
+  }
+  if (/^bg-radial/.test(utility) || utility.startsWith('bg-[radial-gradient')) {
+    return 'radial gradients are not drawn; a conic-gradient or a linear-gradient over the background colour is';
+  }
   const transition = /^transition-(.+)$/.exec(utility)?.[1];
   if (transition !== undefined && isTransitionGroup(transition) && animatedProperties(transition).length === 0) {
     return `${transition} is not a property this build animates; transition-colors, transition-opacity and transition-all are`;

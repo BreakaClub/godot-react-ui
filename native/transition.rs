@@ -10,9 +10,10 @@ use crate::props::{TransitionProperty, TransitionSpec};
 /// How many control values a CSS `cubic-bezier()` has: x1, y1, x2, y2.
 const BEZIER_VALUES: usize = 4;
 
-/// A timing function: one of CSS's keywords, or a `cubic-bezier(x1, y1, x2, y2)` (what Tailwind's `ease-in`,
+/// A timing function: one of CSS's keywords, a `cubic-bezier(x1, y1, x2, y2)` (what Tailwind's `ease-in`,
 /// `ease-out` and `ease-in-out` are: `cubic-bezier(0.4, 0, 1, 1)` and the like, not CSS's keywords of the same
-/// names).
+/// names), or `steps(n, <position>)` (CSS Easing 1 section 4; `step-start` and `step-end` are `steps(1, start)` and
+/// `steps(1, end)`).
 #[derive(Clone, Copy, Debug, PartialEq, DeriveDeserialize, Serialize)]
 #[serde(from = "EasingWire", into = "EasingWire")]
 pub enum Easing {
@@ -22,6 +23,39 @@ pub enum Easing {
     EaseOut,
     EaseInOut,
     CubicBezier([f32; BEZIER_VALUES]),
+    Steps(u32, StepPosition),
+}
+
+/// Where the jumps of `steps()` are: CSS's `<step-position>`. `start` and `end` are the older names of `jump-start`
+/// and `jump-end`, and are read as them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, DeriveDeserialize, Serialize)]
+pub enum StepPosition {
+    /// `jump-start`: the first jump is at the start.
+    #[serde(rename = "jump-start", alias = "start")]
+    Start,
+    /// `jump-end`: the last jump is at the end.
+    #[serde(rename = "jump-end", alias = "end")]
+    End,
+    /// `jump-none`: no jump at either end.
+    #[serde(rename = "jump-none")]
+    Neither,
+    /// `jump-both`: a jump at both ends.
+    #[serde(rename = "jump-both")]
+    Both,
+}
+
+impl StepPosition {
+    /// CSS's default `<step-position>`.
+    const INITIAL: StepPosition = StepPosition::End;
+
+    fn css(self) -> &'static str {
+        match self {
+            StepPosition::Start => "jump-start",
+            StepPosition::End => "jump-end",
+            StepPosition::Neither => "jump-none",
+            StepPosition::Both => "jump-both",
+        }
+    }
 }
 
 #[derive(Clone, Copy, DeriveDeserialize, Serialize)]
@@ -32,6 +66,8 @@ enum EasingKeyword {
     EaseIn,
     EaseOut,
     EaseInOut,
+    StepStart,
+    StepEnd,
 }
 
 #[derive(Clone, Copy, DeriveDeserialize, Serialize)]
@@ -40,12 +76,21 @@ struct CubicBezierWire {
     cubic_bezier: [f32; BEZIER_VALUES],
 }
 
-/// The wire shape of [`Easing`]: a keyword string, or `{"cubicBezier":[x1,y1,x2,y2]}`.
+#[derive(Clone, Copy, DeriveDeserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StepsWire {
+    steps: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    position: Option<StepPosition>,
+}
+
+/// The wire shape of [`Easing`]: a keyword string, `{"cubicBezier":[x1,y1,x2,y2]}` or `{"steps":n,"position"?:...}`.
 #[derive(Clone, Copy, DeriveDeserialize, Serialize)]
 #[serde(untagged)]
 enum EasingWire {
     Keyword(EasingKeyword),
     Curve(CubicBezierWire),
+    Steps(StepsWire),
 }
 
 impl From<EasingWire> for Easing {
@@ -56,7 +101,15 @@ impl From<EasingWire> for Easing {
             EasingWire::Keyword(EasingKeyword::EaseIn) => Easing::EaseIn,
             EasingWire::Keyword(EasingKeyword::EaseOut) => Easing::EaseOut,
             EasingWire::Keyword(EasingKeyword::EaseInOut) => Easing::EaseInOut,
+            EasingWire::Keyword(EasingKeyword::StepStart) => {
+                Easing::Steps(1, StepPosition::Start)
+            }
+            EasingWire::Keyword(EasingKeyword::StepEnd) => Easing::Steps(1, StepPosition::End),
             EasingWire::Curve(curve) => Easing::CubicBezier(curve.cubic_bezier),
+            EasingWire::Steps(steps) => Easing::Steps(
+                steps.steps,
+                steps.position.unwrap_or(StepPosition::INITIAL),
+            ),
         }
     }
 }
@@ -71,6 +124,10 @@ impl From<Easing> for EasingWire {
             Easing::EaseInOut => EasingWire::Keyword(EasingKeyword::EaseInOut),
             Easing::CubicBezier(values) => EasingWire::Curve(CubicBezierWire {
                 cubic_bezier: values,
+            }),
+            Easing::Steps(steps, position) => EasingWire::Steps(StepsWire {
+                steps,
+                position: Some(position),
             }),
         }
     }
@@ -91,11 +148,23 @@ impl Easing {
             Easing::CubicBezier([x1, y1, x2, y2]) => {
                 format!("cubic-bezier({x1}, {y1}, {x2}, {y2})")
             }
+            Easing::Steps(steps, position) => format!("steps({steps}, {})", position.css()),
         }
     }
 
-    /// CSS requires a curve's x values in `0..=1` (time must not run backwards); y may overshoot.
+    /// CSS requires a curve's x values in `0..=1` (time must not run backwards); y may overshoot. `steps()` needs at
+    /// least one step, and two for `jump-none` (which has one fewer interval than steps).
     pub fn validate(self) -> Result<(), String> {
+        if let Easing::Steps(steps, position) = self {
+            let least = if position == StepPosition::Neither { 2 } else { 1 };
+            if steps < least {
+                return Err(format!(
+                    "easing.steps must be at least {least} with position {}",
+                    position.css()
+                ));
+            }
+            return Ok(());
+        }
         let Easing::CubicBezier([x1, y1, x2, y2]) = self else {
             return Ok(());
         };
@@ -289,6 +358,39 @@ mod tests {
         ] {
             assert!(serde_json::from_str::<Easing>(bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn steps_read_with_a_position_or_as_keywords_and_are_validated() {
+        for (json, easing) in [
+            (r#""step-start""#, Easing::Steps(1, StepPosition::Start)),
+            (r#""step-end""#, Easing::Steps(1, StepPosition::End)),
+            (r#"{"steps":4}"#, Easing::Steps(4, StepPosition::End)),
+            (
+                r#"{"steps":3,"position":"jump-none"}"#,
+                Easing::Steps(3, StepPosition::Neither),
+            ),
+            (
+                r#"{"steps":2,"position":"start"}"#,
+                Easing::Steps(2, StepPosition::Start),
+            ),
+        ] {
+            let parsed: Easing = serde_json::from_str(json).unwrap();
+            assert_eq!(parsed, easing, "{json}");
+            assert_eq!(
+                serde_json::from_str::<Easing>(&serde_json::to_string(&parsed).unwrap()).unwrap(),
+                easing
+            );
+        }
+        assert_eq!(
+            Easing::Steps(4, StepPosition::Both).css(),
+            "steps(4, jump-both)"
+        );
+        assert!(Easing::Steps(0, StepPosition::End).validate().is_err());
+        assert!(Easing::Steps(1, StepPosition::Neither).validate().is_err());
+        assert!(Easing::Steps(2, StepPosition::Neither).validate().is_ok());
+        assert!(serde_json::from_str::<Easing>(r#"{"steps":-1}"#).is_err());
+        assert!(serde_json::from_str::<Easing>(r#"{"steps":2,"position":"middle"}"#).is_err());
     }
 
     #[test]

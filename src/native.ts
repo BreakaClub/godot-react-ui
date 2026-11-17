@@ -142,6 +142,11 @@ export interface NativeActivity {
   effects: NativeEffectsActivity;
   /** The textures (shadow and outline masks, gradient ramps) the boxes hold: none while no box has a shadow, ring, outline or gradient. */
   paintTextures: number;
+  /** The `@keyframes` rules native has registered (one per distinct rule and element values; they stay for the root's life). */
+  keyframes: number;
+  /** Rounded clips drawn again (a mask made, freed or re-recorded), cumulatively, and how many are drawn as masks now. */
+  maskRecords: number;
+  roundedClips: number;
 }
 
 export interface NativeEffectsActivity {
@@ -537,6 +542,13 @@ export interface NativeSnapshotNode {
    * and above it, as of the last time they settled; `null` until the element has been placed or while no transform exists.
    */
   rasterScale: number | null;
+  /**
+   * For an element that clips with rounded corners: `mask` while the clip is drawn rounded, `rect` while it gives way to a filter
+   * or another rounded clip and is drawn as its rectangle (hit testing is rounded in both). `null` for any other element.
+   */
+  roundedClip: 'mask' | 'rect' | null;
+  /** For a `rect` rounded clip, why it gave way (an ancestor that clips round or has a filter, a filter inside it). */
+  roundedClipReason: string | null;
 }
 
 /** A text input's state as JS reads it (`getTextInputState`). Offsets are UTF-16 units. */
@@ -1017,6 +1029,11 @@ export function readActivity(host: GodotHost<NativeDiagnosticsHost>): NativeActi
   return parseActivity(value);
 }
 
+function roundedClip(value: unknown): 'mask' | 'rect' | null {
+  if (value === null || value === 'mask' || value === 'rect') return value;
+  throw new Error(`Native node.roundedClip must be 'mask', 'rect' or null, not ${JSON.stringify(value)}`);
+}
+
 function parseActivity(value: unknown): NativeActivity {
   const activity = record(value, 'activity');
   if (typeof activity.animating !== 'boolean') throw new Error('Native activity.animating must be boolean');
@@ -1039,6 +1056,9 @@ function parseActivity(value: unknown): NativeActivity {
     paragraphRepaints: number(activity.paragraphRepaints, 'paragraphRepaints'),
     effects: effectsActivity(activity.effects),
     paintTextures: number(activity.paintTextures, 'paintTextures'),
+    keyframes: number(activity.keyframes, 'keyframes'),
+    maskRecords: number(activity.maskRecords, 'maskRecords'),
+    roundedClips: number(activity.roundedClips, 'roundedClips'),
   };
 }
 
@@ -1184,6 +1204,8 @@ export function readSnapshot(host: NativeHost): NativeSnapshot {
         effects: nodeEffects(node.effects),
         transform: node.transform === null ? null : matrix(node.transform, 'node.transform'),
         rasterScale: node.rasterScale === null ? null : number(node.rasterScale, 'node.rasterScale'),
+        roundedClip: roundedClip(node.roundedClip),
+        roundedClipReason: node.roundedClipReason === null ? null : string(node.roundedClipReason, 'node.roundedClipReason'),
       };
     }),
     stats: {

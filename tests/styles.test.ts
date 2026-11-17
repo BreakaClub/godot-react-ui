@@ -202,6 +202,21 @@ test('compiled styles match the native contract fixture, which the Rust tests pa
       className: 'uppercase',
       style: { WebkitTextStrokeWidth: 3, WebkitTextStrokeColor: '#ffffff', paintOrder: 'stroke' },
     },
+    { className: 'animate-spin hover:animate-none animate-ping animate-pulse animate-bounce' },
+    {
+      className: '',
+      style: {
+        animation: [
+          {
+            keyframes: { from: { opacity: 0.2, width: 10, backgroundColor: '#ff000080' }, '40%': { width: 20, easing: { steps: 3, position: 'jump-none' } }, to: { width: 40, boxShadow: '0 0 8px #ffffff' } },
+            durationMs: 900, delayMs: -100, easing: 'step-end', iterations: 2.5, direction: 'alternate-reverse', fillMode: 'both', playState: 'paused',
+          },
+          { keyframes: { to: { filter: 'blur(2px) drop-shadow(0 1px 2px #000000)', transform: 'rotate(10deg)' } }, durationMs: 300 },
+        ],
+      },
+    },
+    { className: 'bg-conic from-sky-500 via-indigo-500 to-sky-500 hover:bg-conic-90/srgb -bg-conic-45 hover:bg-gradient-to-r' },
+    { className: '', style: { backgroundImage: 'conic-gradient(from 45deg at 25% 10px in oklab, #ff0000 0deg, #00ff00 50%, #0000ff 1turn)' } },
     {
       className: 'overflow-hidden shrink-0',
       style: [{ height: 'auto', padding: 4, interpolateSize: 'allow-keywords', transition: {

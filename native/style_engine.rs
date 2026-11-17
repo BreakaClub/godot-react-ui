@@ -7,9 +7,12 @@
 use std::collections::{BTreeSet, HashMap};
 
 use blitz_dom::{BaseDocument, DocumentConfig, NodeId, StyleThreading, qual_name};
+use style::invalidation::element::restyle_hints::RestyleHint;
+use style::stylesheets::Origin;
 use style::values::computed::length::CSSPixelLength;
 use style::values::computed::{LengthPercentage, Size};
 
+use crate::animation::{AnimationLonghands, AnimationSpec, ResolvedKeyframes, dimension_css};
 use crate::box_shadow::{ShadowLayer, ShadowList};
 use crate::commit::LAYER_COUNT;
 use crate::diff::Parent;
@@ -154,6 +157,8 @@ struct AppliedStyle {
     box_shadow: String,
     hidden: bool,
     transition: Option<TransitionSpec>,
+    /// The `animation` list (empty for `none`), whose keyframes are registered in the document's stylesheet.
+    animation: Vec<AnimationSpec>,
 }
 
 /// The text colour nothing set: white, this library's default (`paint::parse_color` callers pass white too).
@@ -212,6 +217,23 @@ impl AppliedStyle {
                 .to_css(),
             hidden: style.display == Some(DisplaySpec::None),
             transition: style.transition.clone(),
+            animation: style.animation.clone().unwrap_or_default(),
+        }
+    }
+
+    /// The element's own value of `property` as CSS text: what an animation's keyframes take where they leave an end out.
+    fn css_value(&self, property: TransitionProperty) -> String {
+        match property {
+            TransitionProperty::Width => dimension_css(&self.width),
+            TransitionProperty::Height => dimension_css(&self.height),
+            TransitionProperty::Opacity => self.opacity.to_string(),
+            TransitionProperty::BackgroundColor => self.background_color.clone(),
+            TransitionProperty::Color => self.color.clone(),
+            TransitionProperty::BorderColor => self.border_color.clone(),
+            TransitionProperty::Filter => self.filter.clone(),
+            TransitionProperty::BackdropFilter => self.backdrop_filter.clone(),
+            TransitionProperty::Transform => self.transform.clone(),
+            TransitionProperty::BoxShadow => self.box_shadow.clone(),
         }
     }
 
@@ -223,15 +245,26 @@ impl AppliedStyle {
     }
 }
 
-/// The retained Stylo document, keyed by mounted tag. Only the properties that can animate (size,
-/// opacity, background colour) and `display` are mirrored into it; layout, text and the tree of
-/// element boxes stay with Taffy and Godot.
+/// The retained Stylo document, keyed by mounted tag. Only the properties that can animate (sizes,
+/// opacity, colours, filters, transform, box shadow), `display`, `transition` and `animation` are mirrored
+/// into it; layout, text and the tree of element boxes stay with Taffy and Godot.
 pub struct StyleEngine {
     document: BaseDocument,
     nodes: HashMap<u32, NodeId>,
     layer_roots: [NodeId; LAYER_COUNT],
     applied: HashMap<u32, AppliedStyle>,
     last_time: f64,
+    /// The element that owns the document's one author stylesheet, which holds the `@keyframes` rules (it is never in the
+    /// document tree: a stylesheet is the stylist's whatever its owner).
+    keyframes_owner: NodeId,
+    /// The identifiers of the `@keyframes` rules registered so far, in rule order. A rule stays registered for the root's
+    /// life (one per distinct keyframes, a few hundred bytes each), so a node that comes back finds it.
+    keyframes: BTreeSet<String>,
+    /// Nodes whose `animation` list was written since the last style pass. Stylo starts, updates and cancels a node's
+    /// animations while it styles the node, from a style already cascaded with the animations as they were, and nothing
+    /// styles the node again after a cancellation (its animation set is gone) or a start in the paused state (it needs no
+    /// ticks): so these are styled once more in the same pass, with the animations as they now are.
+    animations_rewritten: BTreeSet<u32>,
 }
 
 impl Default for StyleEngine {
@@ -255,6 +288,7 @@ impl StyleEngine {
         let document_root = document.root_node().id;
         let html;
         let layer_roots;
+        let keyframes_owner;
         {
             let mut mutator = document.mutate();
             html = mutator.create_element(qual_name!("html", html), Vec::new());
@@ -264,13 +298,19 @@ impl StyleEngine {
                 mutator.append_children(html, &[layer]);
                 layer
             });
+            keyframes_owner = mutator.create_element(qual_name!("div", html), Vec::new());
         }
+        let sheet = document.make_stylesheet("", Origin::Author);
+        document.add_stylesheet_for_node(sheet, keyframes_owner);
         Self {
             document,
             nodes: HashMap::new(),
             layer_roots,
             applied: HashMap::new(),
             last_time: 0.0,
+            keyframes_owner,
+            keyframes: BTreeSet::new(),
+            animations_rewritten: BTreeSet::new(),
         }
     }
 
@@ -321,6 +361,7 @@ impl StyleEngine {
             self.document.mutate().remove_node(native);
         }
         self.applied.remove(&tag);
+        self.animations_rewritten.remove(&tag);
     }
 
     /// Publish a node's authored style (and any native intrinsic pixel target). `blocked` suppresses
@@ -351,9 +392,56 @@ impl StyleEngine {
             return Err(format!("style update refers to missing node {tag}"));
         }
         let next = AppliedStyle::from_authored(style, overrides);
-        self.write_style(tag, &next, blocked);
+        let changed_animation = self
+            .applied
+            .get(&tag)
+            .is_none_or(|previous| previous.animation != next.animation);
+        let idents = if changed_animation {
+            let mut idents = Vec::with_capacity(next.animation.len());
+            for animation in &next.animation {
+                idents.push(self.register_keyframes(animation, &next)?);
+            }
+            Some(idents)
+        } else {
+            None
+        };
+        if idents.is_some() {
+            self.animations_rewritten.insert(tag);
+        }
+        self.write_style(tag, &next, blocked, idents.as_deref());
         self.applied.insert(tag, next);
         Ok(())
+    }
+
+    /// Add the `@keyframes` rule of `animation` for an element whose own values are `own` to the document's stylesheet,
+    /// once per distinct rule, and return its identifier.
+    fn register_keyframes(
+        &mut self,
+        animation: &AnimationSpec,
+        own: &AppliedStyle,
+    ) -> Result<String, String> {
+        let ResolvedKeyframes { ident, rule_css } =
+            animation.keyframes.resolve(&|property| own.css_value(property));
+        if self.keyframes.contains(&ident) {
+            return Ok(ident);
+        }
+        let index = self.keyframes.len();
+        self.document
+            .stylesheet_insert_rule(self.keyframes_owner, &[], &rule_css, index)
+            .map_err(|error| {
+                format!(
+                    "keyframes {:?} were refused by the style engine: {}",
+                    animation.keyframes.name,
+                    error.dom_exception_name()
+                )
+            })?;
+        self.keyframes.insert(ident.clone());
+        Ok(ident)
+    }
+
+    /// How many `@keyframes` rules are registered.
+    pub fn keyframes_registered(&self) -> usize {
+        self.keyframes.len()
     }
 
     /// Re-enable the configured transitions of `tags` once an immediate update has become their
@@ -413,6 +501,18 @@ impl StyleEngine {
     pub fn resolve(&mut self, now: f64) -> Result<(), String> {
         self.validate_time(now)?;
         self.document.resolve_stylist(now);
+        if !self.animations_rewritten.is_empty() {
+            for tag in std::mem::take(&mut self.animations_rewritten) {
+                if let Some(node) = self
+                    .nodes
+                    .get(&tag)
+                    .and_then(|native| self.document.get_node_mut(*native))
+                {
+                    node.set_restyle_hint(RestyleHint::RESTYLE_SELF);
+                }
+            }
+            self.document.resolve_stylist(now);
+        }
         Ok(())
     }
 
@@ -432,11 +532,13 @@ impl StyleEngine {
         Ok(())
     }
 
+    /// `animation_idents` is the identifiers of the rules of `next`'s animations when the list changed, `None` when it did not.
     fn write_style(
         &mut self,
         id: u32,
         next: &AppliedStyle,
         blocked: &BTreeSet<TransitionProperty>,
+        animation_idents: Option<&[String]>,
     ) {
         let previous = self.applied.get(&id);
         let native_id = self.nodes[&id];
@@ -503,6 +605,27 @@ impl StyleEngine {
             mutator.set_style_property(native_id, "transition-duration", &format!("{duration}ms"));
             mutator.set_style_property(native_id, "transition-delay", &format!("{delay}ms"));
             mutator.set_style_property(native_id, "transition-timing-function", &easing.css());
+        }
+        if let Some(idents) = animation_idents {
+            let AnimationLonghands {
+                name,
+                duration,
+                delay,
+                timing_function,
+                iteration_count,
+                direction,
+                fill_mode,
+                play_state,
+            } = AnimationLonghands::of(&next.animation, idents);
+            // The name last: Stylo starts an animation when it sees a name with its other longhands, all from one style.
+            mutator.set_style_property(native_id, "animation-duration", &duration);
+            mutator.set_style_property(native_id, "animation-delay", &delay);
+            mutator.set_style_property(native_id, "animation-timing-function", &timing_function);
+            mutator.set_style_property(native_id, "animation-iteration-count", &iteration_count);
+            mutator.set_style_property(native_id, "animation-direction", &direction);
+            mutator.set_style_property(native_id, "animation-fill-mode", &fill_mode);
+            mutator.set_style_property(native_id, "animation-play-state", &play_state);
+            mutator.set_style_property(native_id, "animation-name", &name);
         }
     }
 
@@ -625,13 +748,6 @@ fn sampled_dimension(value: &Size) -> Result<SampledDimension, String> {
         Size::LengthPercentage(value) => Ok(SampledDimension::LengthPercentage(value.0.clone())),
         Size::MinContent | Size::MaxContent | Size::FitContent => Ok(SampledDimension::Intrinsic),
         other => Err(format!("unsupported sampled dimension {other:?}")),
-    }
-}
-
-fn dimension_css(value: &Dimension) -> String {
-    match value {
-        Dimension::Num(value) => format!("{value}px"),
-        Dimension::Text(value) => value.clone(),
     }
 }
 
@@ -1289,5 +1405,211 @@ mod tests {
             "the end state is exact"
         );
         assert!(!settled.active, "and nothing is left animating");
+    }
+
+    fn with_animation(animation: &str) -> StyleSpec {
+        style(&format!(r#"{{"animation":[{animation}]}}"#))
+    }
+
+    const SPIN: &str = r#"{"keyframes":{"name":"spin","frames":[{"offset":1,"style":{"transform":"rotate(360deg)"}}]},
+        "durationMs":1000,"easing":"linear","iterations":"infinite"}"#;
+
+    /// The rotation of a sampled transform, in degrees, against a 200 x 100 box.
+    fn rotation_at(frame: &Frame, tag: u32) -> f32 {
+        let [a, b, ..] = matrix_at(frame, tag);
+        b.atan2(a).to_degrees().rem_euclid(360.0)
+    }
+
+    /// A keyframe animation is registered in the document's stylesheet and Stylo runs it on the native clock, as it runs
+    /// a transition: `animate-spin` is a quarter turn after a quarter of its second, and it never stops.
+    #[test]
+    fn a_registered_keyframes_animation_runs_on_the_clock_and_repeats() {
+        let mut scene = Scene::new("10");
+        *scene.node(1) = with_animation(SPIN);
+        let started = scene.sync(0.0);
+        assert!(started.active, "a running animation needs frames");
+        assert_eq!(scene.engine.keyframes_registered(), 1);
+        near(rotation_at(&scene.sample(0.25), 1), 90.0);
+        near(rotation_at(&scene.sample(0.5), 1), 180.0);
+        // The second iteration starts again from the first keyframe.
+        let second = scene.sample(1.25);
+        near(rotation_at(&second, 1), 90.0);
+        assert!(second.active);
+    }
+
+    #[test]
+    fn a_finite_animation_ends_and_fill_mode_decides_what_stays() {
+        for (fill, settled_opacity) in [("none", 1.0), ("forwards", 0.0)] {
+            let mut scene = Scene::new("10");
+            *scene.node(1) = with_animation(&format!(
+                r#"{{"keyframes":{{"name":"fade","frames":[{{"offset":0,"style":{{"opacity":1}}}},{{"offset":1,"style":{{"opacity":0}}}}]}},
+                    "durationMs":1000,"easing":"linear","fillMode":"{fill}"}}"#
+            ));
+            scene.sync(0.0);
+            near(scene.sample(0.5).values[&1].opacity, 0.5);
+            let after = scene.sample(1.5);
+            assert!(!after.active, "{fill}: a finished animation needs no frames");
+            near(after.values[&1].opacity, settled_opacity);
+        }
+    }
+
+    /// `animation-play-state: paused` freezes the animation where it is and asks for no frames; running it again goes on
+    /// from there.
+    #[test]
+    fn pausing_freezes_and_costs_no_frames() {
+        let mut scene = Scene::new("10");
+        *scene.node(1) = with_animation(SPIN);
+        scene.sync(0.0);
+        scene.sample(0.25);
+        let paused = SPIN.replace(r#""iterations":"infinite""#, r#""iterations":"infinite","playState":"paused""#);
+        *scene.node(1) = with_animation(&paused);
+        let frozen = scene.sync(0.25);
+        assert!(!frozen.active, "a paused animation needs no frames");
+        near(rotation_at(&scene.sample(0.75), 1), 90.0);
+        *scene.node(1) = with_animation(SPIN);
+        scene.sync(0.75);
+        near(rotation_at(&scene.sample(1.0), 1), 180.0);
+    }
+
+    #[test]
+    fn removing_an_animated_node_cancels_it_and_removing_the_animation_too() {
+        let mut scene = Scene::new("10");
+        *scene.node(1) = with_animation(SPIN);
+        scene.sync(0.0);
+        scene.styles.remove(&1);
+        assert!(!scene.sync(0.1).active, "an unmounted node's infinite animation stops");
+
+        let mut scene = Scene::new("10");
+        *scene.node(1) = with_animation(SPIN);
+        scene.sync(0.0);
+        *scene.node(1) = style("{}");
+        let cleared = scene.sync(0.1);
+        assert!(!cleared.active, "animation: none cancels it");
+        assert!(cleared.values[&1].transform.0.is_empty());
+    }
+
+    #[test]
+    fn keyframe_easing_steps_direction_and_delay_are_stylo_s() {
+        // steps(4, jump-end) over a turn: a quarter turn per step, held.
+        let mut scene = Scene::new("10");
+        *scene.node(1) = with_animation(&SPIN.replace(r#""easing":"linear""#, r#""easing":{"steps":4}"#));
+        scene.sync(0.0);
+        near(rotation_at(&scene.sample(0.3), 1), 90.0);
+        near(rotation_at(&scene.sample(0.45), 1), 90.0);
+        // Alternate: the second iteration runs backwards.
+        let mut scene = Scene::new("10");
+        *scene.node(1) = with_animation(&SPIN.replace(r#""iterations":"infinite""#, r#""iterations":"infinite","direction":"alternate""#));
+        scene.sync(0.0);
+        near(rotation_at(&scene.sample(1.25), 1), 270.0);
+        // A delay holds the animation back (no fill: the element's own value shows).
+        let mut scene = Scene::new("10");
+        *scene.node(1) = with_animation(&SPIN.replace(r#""durationMs":1000"#, r#""durationMs":1000,"delayMs":500"#));
+        scene.sync(0.0);
+        let waiting = scene.sample(0.25);
+        assert!(waiting.active, "a pending animation keeps the clock running");
+        assert!(waiting.values[&1].transform.0.is_empty());
+        near(rotation_at(&scene.sample(0.75), 1), 90.0);
+        // A keyframe's own timing function: pulse holds full opacity at both ends and half in the middle.
+        let mut scene = Scene::new("10");
+        *scene.node(1) = with_animation(
+            r#"{"keyframes":{"name":"pulse","frames":[{"offset":0.5,"style":{"opacity":0.5}}]},
+                "durationMs":2000,"easing":"linear","iterations":"infinite"}"#,
+        );
+        scene.sync(0.0);
+        near(scene.sample(0.5).values[&1].opacity, 0.75);
+        near(scene.sample(1.0).values[&1].opacity, 0.5);
+    }
+
+    #[test]
+    fn one_keyframes_rule_serves_every_node_that_uses_it() {
+        let mut scene = Scene::new("10");
+        *scene.node(1) = with_animation(SPIN);
+        scene.styles.insert(2, with_animation(SPIN));
+        scene.sync(0.0);
+        assert_eq!(scene.engine.keyframes_registered(), 1);
+        let frame = scene.sample(0.5);
+        near(rotation_at(&frame, 1), 180.0);
+        near(rotation_at(&frame, 2), 180.0);
+    }
+
+    /// Chrome's own values for the same animations at the same times (`scripts/animation-reference.mjs`, which pauses each animation
+    /// in headless Chrome and sets its `currentTime`): Tailwind's spin, ping, pulse and bounce, and cases for each longhand.
+    #[test]
+    fn animations_match_chromes_values() {
+        /// A matrix's linear part, its translation in px, an opacity and a colour channel may be this far from Chrome's. Stylo solves a
+        /// curved timing function's time axis only to `1 / (200 * seconds)` of a keyframe segment (`servo/animation.rs`,
+        /// `PropertyAnimation::timing_function_output`), so on a curve a value can be off by the curve's slope times that, about one per
+        /// cent of the segment's change (`bounce` at 600 ms: 12.74 px against Chrome's 12.5 of a 25 px fall); linear and stepped
+        /// segments agree to the f32 of the samples.
+        const LINEAR_TOLERANCE: f32 = 0.012;
+        const TRANSLATION_TOLERANCE_PX: f32 = 0.3;
+        const OPACITY_TOLERANCE: f32 = 0.012;
+        const COLOUR_TOLERANCE: f32 = 0.012 + 1.5 / 255.0;
+        let golden: serde_json::Value =
+            serde_json::from_str(include_str!("../scripts/animation-golden.json")).expect("the golden parses");
+        let box_size = &golden["box"];
+        let size = godot::prelude::Vector2::new(
+            box_size["width"].as_f64().expect("a width") as f32,
+            box_size["height"].as_f64().expect("a height") as f32,
+        );
+        let top_left = crate::transform::TransformOriginSpec::parse("0 0").expect("an origin");
+        let cases = golden["cases"].as_array().expect("cases");
+        assert!(cases.len() >= 8);
+        for case in cases {
+            let name = case["name"].as_str().expect("a name");
+            let animation: AnimationSpec =
+                serde_json::from_value(case["native"].clone()).expect("the native form parses");
+            animation.validate().expect("and is valid");
+            let mut scene = Scene::new("10");
+            *scene.node(1) = StyleSpec {
+                animation: Some(vec![animation]),
+                background_color: Some("#000000".into()),
+                opacity: Some(1.0),
+                ..StyleSpec::default()
+            };
+            scene.sync(0.0);
+            for sample in case["samples"].as_array().expect("samples") {
+                let time_ms = sample["timeMs"].as_f64().expect("a time");
+                let frame = scene.sample(time_ms / crate::MILLISECONDS_PER_SECOND);
+                let sampled = &frame.values[&1];
+                let matrix = crate::transform::evaluate(&sampled.transform, Some(&top_left), size)
+                    .expect("the transform evaluates")
+                    .placement
+                    .affine
+                    .to_array();
+                let chrome: Vec<f32> = sample["transform"]
+                    .as_array()
+                    .expect("a matrix")
+                    .iter()
+                    .map(|value| value.as_f64().expect("a number") as f32)
+                    .collect();
+                for (index, (ours, theirs)) in matrix.iter().zip(&chrome).enumerate() {
+                    let tolerance = if index < 4 { LINEAR_TOLERANCE } else { TRANSLATION_TOLERANCE_PX };
+                    assert!(
+                        (ours - theirs).abs() <= tolerance,
+                        "{name} at {time_ms} ms: matrix {matrix:?}, Chrome's {chrome:?}"
+                    );
+                }
+                let opacity = sample["opacity"].as_f64().expect("an opacity") as f32;
+                assert!(
+                    (sampled.opacity - opacity).abs() <= OPACITY_TOLERANCE,
+                    "{name} at {time_ms} ms: opacity {}, Chrome's {opacity}",
+                    sampled.opacity
+                );
+                let colour: Vec<f32> = sample["backgroundColor"]
+                    .as_array()
+                    .expect("a colour")
+                    .iter()
+                    .map(|value| value.as_f64().expect("a number") as f32)
+                    .collect();
+                for (ours, theirs) in sampled.background_color.iter().zip(&colour) {
+                    assert!(
+                        (ours - theirs).abs() <= COLOUR_TOLERANCE,
+                        "{name} at {time_ms} ms: background {:?}, Chrome's {colour:?}",
+                        sampled.background_color
+                    );
+                }
+            }
+        }
     }
 }

@@ -1,4 +1,5 @@
 mod accessibility;
+mod animation;
 mod accessibility_model;
 mod blur;
 mod border_image;
@@ -43,6 +44,7 @@ mod probe;
 mod profile;
 mod props;
 mod render_tree;
+mod rounded_clip;
 mod rrect;
 mod scroll;
 mod scroll_input;
@@ -183,6 +185,8 @@ struct Stats {
     /// scrollbar overlays re-recorded. Scrolling changes these and nothing above.
     scroll_updates: u64,
     overlay_records: u64,
+    /// Rounded clips drawn again: a mask made, freed or recorded anew (`rounded_clip.rs`).
+    mask_records: u64,
 }
 
 /// A single Godot Control owns the mounted tree, the native layout tree and all drawing resources.
@@ -283,6 +287,8 @@ pub struct ReactUiRoot {
     clock_ms: f64,
     profiler: Profiler,
     style_engine: StyleEngine,
+    /// Rounded clips: the elements whose clip has rounded corners, and those of them drawn as a mask (`rounded_clip.rs`).
+    rounded_clips: crate::rounded_clip::RoundedClips,
     /// Nodes whose computed style has a `transition`, and their latest Stylo samples.
     motion_nodes: BTreeSet<u32>,
     sampled: BTreeMap<u32, SampledStyle>,
@@ -371,6 +377,7 @@ impl IControl for ReactUiRoot {
             clock_ms: 0.0,
             profiler: Profiler::default(),
             style_engine: StyleEngine::new(),
+            rounded_clips: crate::rounded_clip::RoundedClips::default(),
             motion_nodes: BTreeSet::new(),
             sampled: BTreeMap::new(),
             moving_text_colors: BTreeSet::new(),

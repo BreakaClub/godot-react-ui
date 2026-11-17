@@ -57,8 +57,30 @@ interface ScrollPosition {
 
 const NOT_SCROLLED: ScrollPosition = { top: 0, left: 0, width: 0, height: 0 };
 
-/** The clock a long press is timed on. */
-const BROWSER_TIMERS: Timers<ReturnType<typeof setTimeout>> = { set: (callback, ms) => setTimeout(callback, ms), clear: handle => { clearTimeout(handle); } };
+/** A pending long-press timer: the platform timer it is waiting on now, which `REAL_TIME_TIMERS` replaces when it fires early. */
+interface RealTimeTimer {
+  pending: ReturnType<typeof setTimeout>;
+}
+
+/**
+ * The clock a long press is timed on: real time. A timer waits until `ms` of real time have passed, however early the platform timer fires, by
+ * arming it again for what is left. GodotJS's `setTimeout` can fire early on native: one set for 500 ms has run after 252 ms (the code editor
+ * section of the native interaction verifier, landscape), which made a short touch a long press. A browser's timer never fires early, and there
+ * this waits once.
+ */
+const REAL_TIME_TIMERS: Timers<RealTimeTimer> = {
+  set: (callback, ms) => {
+    const due = Date.now() + ms;
+    const timer: RealTimeTimer = { pending: setTimeout(() => wait(), ms) };
+    function wait(): void {
+      const left = due - Date.now();
+      if (left <= 0) callback();
+      else timer.pending = setTimeout(() => wait(), left);
+    }
+    return timer;
+  },
+  clear: timer => { clearTimeout(timer.pending); },
+};
 /** About how wide a character of the menu's labels is (14 px text), to place the menu before it is laid out. */
 const MENU_LABEL_ADVANCE_PX = 7.4;
 
@@ -140,7 +162,7 @@ export function EditorView({ workspace, file }: EditorViewProps) {
   // Touch selection: a long press selects the word under the finger, handles move its ends and a menu acts on it. The selection is
   // the controller's, so the root cannot draw them.
   const heldRef = useRef<(pointerId: number, origin: Point) => void>(() => undefined);
-  const longPress = useMemo(() => new LongPress<ReturnType<typeof setTimeout>>(BROWSER_TIMERS, (pointerId, origin) => { heldRef.current(pointerId, origin); }), []);
+  const longPress = useMemo(() => new LongPress<RealTimeTimer>(REAL_TIME_TIMERS, (pointerId, origin) => { heldRef.current(pointerId, origin); }), []);
   /** The element a touch went down on, which takes the finger when a long press selects. */
   const touchHolder = useRef<UIHandle | undefined>(undefined);
   /** The finger that selected a word by a long press and is still down: it extends the selection. */

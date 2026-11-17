@@ -475,6 +475,126 @@ pub fn fill_under_ring(outer: &RRect, inner: &RRect, feather: Feather) -> Mesh {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// Conic gradients: a mesh cut into sectors round a centre
+// ---------------------------------------------------------------------------------------------
+
+/// A conic gradient's colour depends on the angle round its centre, which is not linear over a triangle, so the shape's mesh is cut
+/// into thin sectors from the centre and each vertex carries its own turn. In a sector `d` radians wide whose far edge is `R` from
+/// the centre, an interpolated turn is off by at most `d / 4` half way out (where the centre vertex, which carries the sector's
+/// middle turn, weighs a half), which puts a colour at most `R d / 8` pixels from where it belongs along its arc. [`sector_count`]
+/// keeps that under this many pixels.
+const SECTOR_ERROR_PX: f32 = 0.25;
+/// At least this many sectors (so each is under 180 degrees and a half-plane pair cuts it), and at most this many (a 2,000 px
+/// radius at a quarter pixel).
+const MIN_SECTORS: usize = 64;
+const MAX_SECTORS: usize = 4096;
+/// A vertex nearer the centre than this has no angle of its own; it takes the middle of its sector.
+const CENTRE_EPSILON: f32 = 1e-4;
+
+/// How many sectors a conic gradient whose farthest point is `radius` from its centre needs (in the mesh's unit, device pixels).
+pub fn sector_count(radius: f32) -> usize {
+    let wanted = (std::f32::consts::TAU * radius / (8.0 * SECTOR_ERROR_PX)).ceil();
+    if !wanted.is_finite() {
+        return MAX_SECTORS;
+    }
+    (wanted.max(0.0) as usize).clamp(MIN_SECTORS, MAX_SECTORS)
+}
+
+/// A mesh with a coordinate per vertex along a gradient (the turn of a conic one), for a texture one pixel high.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SampledMesh {
+    pub mesh: Mesh,
+    /// One per point of `mesh`.
+    pub t: Vec<f32>,
+}
+
+/// The unit direction of the ray at `turn` turns clockwise from `from` radians (CSS angles: 0 is up, clockwise, and the y
+/// axis points down).
+fn ray(from: f32, turn: f32) -> (f32, f32) {
+    let angle = from + std::f32::consts::TAU * turn;
+    (angle.sin(), -angle.cos())
+}
+
+fn cross(a: (f32, f32), b: (f32, f32)) -> f32 {
+    a.0 * b.1 - a.1 * b.0
+}
+
+/// The part of a convex polygon on the side of the line through `centre` along `direction` where `sign * cross(direction, p -
+/// centre) >= 0` (Sutherland-Hodgman, interpolating the alpha).
+fn clip_half_plane(polygon: &[Point], centre: (f32, f32), direction: (f32, f32), sign: f32) -> Vec<Point> {
+    let side = |point: &Point| sign * cross(direction, (point.x - centre.0, point.y - centre.1));
+    let mut out = Vec::with_capacity(polygon.len() + 1);
+    for index in 0..polygon.len() {
+        let current = polygon[index];
+        let next = polygon[(index + 1) % polygon.len()];
+        let (a, b) = (side(&current), side(&next));
+        if a >= 0.0 {
+            out.push(current);
+        }
+        if (a >= 0.0) != (b >= 0.0) {
+            let amount = a / (a - b);
+            out.push(Point {
+                x: current.x + (next.x - current.x) * amount,
+                y: current.y + (next.y - current.y) * amount,
+                alpha: current.alpha + (next.alpha - current.alpha) * amount,
+            });
+        }
+    }
+    out
+}
+
+/// `mesh` cut into `sectors` sectors round `centre`, starting at the ray `from` radians clockwise from up, each vertex with its
+/// turn from that ray (0 to 1). The sectors meet on the rays, so a seam between them (and the one at the start, where the
+/// turn goes from 1 back to 0) is a shared edge, not a filtered blend.
+pub fn sectors(mesh: &Mesh, centre: (f32, f32), from: f32, sectors: usize) -> SampledMesh {
+    let mut out = SampledMesh::default();
+    let count = sectors.max(MIN_SECTORS);
+    let span = 1.0 / count as f32;
+    let rays: Vec<(f32, f32)> = (0..=count).map(|index| ray(from, index as f32 * span)).collect();
+    for triangle in mesh.indices.as_chunks::<3>().0 {
+        let corners = triangle.map(|index| mesh.points[index as usize]);
+        for sector in 0..count {
+            let (start, end) = (rays[sector], rays[sector + 1]);
+            // Quick rejection: every corner on the wrong side of either ray.
+            let before = |direction: (f32, f32), sign: f32| {
+                corners
+                    .iter()
+                    .all(|point| sign * cross(direction, (point.x - centre.0, point.y - centre.1)) < 0.0)
+            };
+            if before(start, 1.0) || before(end, -1.0) {
+                continue;
+            }
+            let clipped = clip_half_plane(&corners, centre, start, 1.0);
+            let clipped = clip_half_plane(&clipped, centre, end, -1.0);
+            if clipped.len() < 3 {
+                continue;
+            }
+            let base = sector as f32 * span;
+            let turn = |point: &Point| {
+                let offset = (point.x - centre.0, point.y - centre.1);
+                if offset.0.hypot(offset.1) < CENTRE_EPSILON {
+                    return base + span * 0.5;
+                }
+                // The angle past the sector's first ray, which is within the sector.
+                let past = cross(start, offset).atan2(start.0 * offset.0 + start.1 * offset.1);
+                base + (past / std::f32::consts::TAU).clamp(0.0, span)
+            };
+            let first = out.mesh.push(clipped[0]);
+            out.t.push(turn(&clipped[0]));
+            let mut previous = out.mesh.push(clipped[1]);
+            out.t.push(turn(&clipped[1]));
+            for point in &clipped[2..] {
+                let next = out.mesh.push(*point);
+                out.t.push(turn(point));
+                out.mesh.triangle(first, previous, next);
+                previous = next;
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -1156,5 +1276,64 @@ pub(crate) mod tests {
             mean < axes_mean && worst < 0.8 * axes_worst,
             "mean {mean} against {axes_mean}, worst {worst} against {axes_worst}"
         );
+    }
+
+    #[test]
+    fn conic_sectors_carry_the_turn_round_the_centre_and_keep_the_coverage() {
+        let rect = RRect::from_box(100.0, 60.0, [12.0; 4]);
+        let fill = fill(&rect, Feather::isotropic(1.0));
+        let centre = (50.0, 30.0);
+        let cut = sectors(&fill, centre, 0.0, sector_count(60.0));
+        assert_eq!(cut.t.len(), cut.mesh.points.len());
+        // The coverage is the fill's, wherever the cut falls.
+        for (x, y) in [(50.0, 30.0), (3.0, 3.0), (99.5, 30.0), (20.0, 59.6), (75.0, 10.0)] {
+            assert!((sample(&cut.mesh, x, y) - sample(&fill, x, y)).abs() < 1e-3, "{x} {y}");
+        }
+        // The turn is clockwise from up: right of the centre is a quarter, below a half, left three quarters.
+        let turn_at = |x: f32, y: f32| -> f32 {
+            let mesh = &cut.mesh;
+            for triangle in mesh.indices.as_chunks::<3>().0 {
+                let [a, b, c] = triangle.map(|index| mesh.points[index as usize]);
+                let det = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
+                if det.abs() < 1e-9 {
+                    continue;
+                }
+                let wa = ((b.y - c.y) * (x - c.x) + (c.x - b.x) * (y - c.y)) / det;
+                let wb = ((c.y - a.y) * (x - c.x) + (a.x - c.x) * (y - c.y)) / det;
+                let wc = 1.0 - wa - wb;
+                if wa >= -1e-5 && wb >= -1e-5 && wc >= -1e-5 {
+                    let [ta, tb, tc] = triangle.map(|index| cut.t[index as usize]);
+                    return wa * ta + wb * tb + wc * tc;
+                }
+            }
+            f32::NAN
+        };
+        for (x, y, expected) in [(90.0, 30.0, 0.25), (50.0, 55.0, 0.5), (10.0, 30.0, 0.75), (80.0, 0.5, 0.125 + 0.0)] {
+            let true_turn = {
+                let (dx, dy) = (x - centre.0, y - centre.1);
+                dx.atan2(-dy).rem_euclid(std::f32::consts::TAU) / std::f32::consts::TAU
+            };
+            let got = turn_at(x, y);
+            assert!((got - true_turn).abs() < 2e-3, "({x}, {y}): {got} against {true_turn} ({expected})");
+        }
+        // Up from the centre the turn is 0 on one side of the seam and 1 on the other, never a blend.
+        assert!(turn_at(50.5, 5.0) < 0.01);
+        assert!(turn_at(49.5, 5.0) > 0.99);
+    }
+
+    #[test]
+    fn a_rotated_start_turns_the_sectors() {
+        let fill = fill(&RRect::from_box(40.0, 40.0, [0.0; 4]), Feather::NONE);
+        let cut = sectors(&fill, (20.0, 20.0), std::f32::consts::FRAC_PI_2, 64);
+        // From 90deg, the ray to the right is turn 0, so a point just below it is a little past 0.
+        let below_right = cut
+            .mesh
+            .points
+            .iter()
+            .zip(&cut.t)
+            .filter(|(point, _)| point.x > 39.0 && point.y > 20.0 && point.y < 22.0)
+            .map(|(_, t)| *t)
+            .fold(f32::NAN, f32::min);
+        assert!(below_right < 0.02, "{below_right}");
     }
 }

@@ -351,6 +351,40 @@ function checkGlass(shot: Shot): void {
   assert(apart(centre, nearEdge) < 60, `The glass is smooth across its box, with no shadow edge in it: ${describe(centre)} and ${describe(nearEdge)}`);
 }
 
+/** A point of a cell at `fraction` of its width and height, in device pixels. */
+function at(box: Box, fx: number, fy: number): [number, number] {
+  return [box.x0 + (box.x1 - box.x0) * fx, box.y0 + (box.y1 - box.y0) * fy];
+}
+
+/** Conic gradients: the quadrants of hard stops sit where CSS's angles put them, and Oklab interpolation is not sRGB's. */
+function checkConic(shot: Shot): void {
+  const { ratio } = shot;
+  const quadrants = boxOf(cellOf('conic', 2), ratio);
+  // Clockwise from up: 0 to 90 degrees is the top right quadrant.
+  expectColour(shot, ...at(quadrants, 0.75, 0.25), RED_500, SAME_LEVELS, 'conic-gradient: 0 to 90 degrees is the top right quadrant');
+  expectColour(shot, ...at(quadrants, 0.75, 0.75), GREEN_500, SAME_LEVELS, 'and 90 to 180 the bottom right');
+  expectColour(shot, ...at(quadrants, 0.25, 0.75), BLUE_500, SAME_LEVELS, 'and 180 to 270 the bottom left');
+  expectColour(shot, ...at(quadrants, 0.25, 0.25), YELLOW_500, SAME_LEVELS, 'and 270 to 360 the top left');
+  // Red to blue, half way round (straight down from the centre): sRGB's purple, and Oklab's lighter one (CSS Color 4; Chrome draws 140, 83, 163).
+  const srgb = boxOf(cellOf('conic', 8), ratio);
+  expectColour(shot, ...at(srgb, 0.5, 0.9), [128, 0, 128], NEAR_LEVELS, 'conic-gradient(#f00, #00f) is sRGB purple half way round');
+  const oklab = boxOf(cellOf('conic', 7), ratio);
+  expectColour(shot, ...at(oklab, 0.5, 0.9), [140, 83, 163], NEAR_LEVELS, 'and in oklab, Oklab\'s');
+}
+
+/** Rounded clips: a child is clipped to the rounded padding box. */
+function checkRoundedClip(shot: Shot): void {
+  const { ratio } = shot;
+  for (const index of [0, 1, 3]) {
+    const box = boxOf(cellOf('rounded-clip', index), ratio);
+    expectColour(shot, box.x0 + ratio, box.y0 + ratio, SLATE_200, SAME_LEVELS, `rounded-clip ${index}: the stripes are not drawn past the rounded corner`);
+    expectDifferent(shot, ...at(box, 0.5, 0.5), SLATE_200, 40, `rounded-clip ${index}: and are drawn inside it`);
+  }
+  // A square clip clips at its corner too, at the rectangle.
+  const square = boxOf(cellOf('rounded-clip', 6), ratio);
+  expectColour(shot, square.x0 + ratio, square.y0 + ratio, [249, 115, 22], SAME_LEVELS, 'rounded-none: the stripes reach the corner');
+}
+
 const PAGE_CHECKS: Readonly<Record<string, (shot: Shot) => void>> = {
   shadows: checkShadows,
   'shadows-translucent': checkTranslucent,
@@ -363,6 +397,8 @@ const PAGE_CHECKS: Readonly<Record<string, (shot: Shot) => void>> = {
   gradients: checkGradients,
   'gradients-rounded': checkGradientsRounded,
   glass: checkGlass,
+  conic: checkConic,
+  'rounded-clip': checkRoundedClip,
 };
 
 /** A box far off the stage's left edge whose shadow alone reaches into the window: the engine culls an item by its rectangle. */

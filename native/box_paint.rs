@@ -17,7 +17,7 @@ use crate::border_image::BorderImage;
 use crate::box_draw::{self, BoxShape, Lease};
 use crate::box_mesh::Feather;
 use crate::box_shadow::{ShadowLayer, ShadowList};
-use crate::gradient::LinearGradient;
+use crate::gradient::Gradient;
 use crate::props::StyleSpec;
 use crate::render_tree::Oversampling;
 use crate::style_engine::current_color;
@@ -142,7 +142,7 @@ pub(crate) fn fill_from_mesh(
 pub(crate) struct Decoration {
     /// The visible layers in CSS order (the first is on top), their colours concrete.
     pub shadows: Vec<ShadowLayer>,
-    pub gradient: Option<LinearGradient>,
+    pub gradient: Option<Gradient>,
 }
 
 impl Decoration {
@@ -235,6 +235,9 @@ pub(crate) struct BoxKey {
     /// or skewed box, and has one feather length): this is the feather in logical pixels, one device pixel across an edge whichever
     /// way it faces (`Linear2::edge_axes`). `None` for a box on the grid.
     pub feather: Option<Feather>,
+    /// The box clips its content with rounded corners (`rounded_clip.rs`): the clip's edge is exact, so the box's own fill and border are
+    /// drawn from exact meshes too, and the border's inner edge meets the clipped content where CSS puts both.
+    pub clips_round: bool,
 }
 
 impl BoxKey {
@@ -370,7 +373,7 @@ fn draw_layers(
     }
 
     // One call draws the fill and the border when nothing has to come between them.
-    let mesh_fill = meshed || fill_from_mesh(key.size, border, decoration);
+    let mesh_fill = meshed || key.clips_round && border.is_rounded() || fill_from_mesh(key.size, border, decoration);
     let mesh_border = if meshed {
         mixed_border
     } else {
@@ -606,6 +609,7 @@ mod tests {
             border_image: None,
             oversampling: Oversampling::NONE,
             feather: None,
+            clips_round: false,
         };
         let rect = key.paint_rect();
         // sigma 10, three sigmas 30, spread -4: 26 around, moved down 10.
@@ -623,6 +627,7 @@ mod tests {
             border_image: None,
             oversampling: Oversampling::NONE,
             feather: Some(Feather::from_axes([1.0, 0.0], [0.0, 2.5])),
+            clips_round: false,
         };
         let rect = key.paint_rect();
         // A vertex of the band is half the feather from the edge: 1.25 along y here, 0.5 along x, and no more than 1.75 any way.

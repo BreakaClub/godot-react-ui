@@ -269,6 +269,275 @@
     }
   },
   {
+    "className": "animate-spin hover:animate-none animate-ping animate-pulse animate-bounce",
+    "compiled": {
+      "layers": [
+        {
+          "style": {
+            "animation": [
+              {
+                "keyframes": {
+                  "name": "spin",
+                  "frames": [
+                    {
+                      "offset": 1,
+                      "style": {
+                        "transform": "rotate(360deg)"
+                      }
+                    }
+                  ]
+                },
+                "durationMs": 1000,
+                "easing": "linear",
+                "iterations": "infinite"
+              }
+            ]
+          }
+        },
+        {
+          "states": [
+            "hover"
+          ],
+          "style": {
+            "animation": []
+          }
+        },
+        {
+          "style": {
+            "animation": [
+              {
+                "keyframes": {
+                  "name": "bounce",
+                  "frames": [
+                    {
+                      "offset": 0,
+                      "style": {
+                        "transform": "translateY(-25%)"
+                      },
+                      "easing": {
+                        "cubicBezier": [
+                          0.8,
+                          0,
+                          1,
+                          1
+                        ]
+                      }
+                    },
+                    {
+                      "offset": 0.5,
+                      "style": {
+                        "transform": "none"
+                      },
+                      "easing": {
+                        "cubicBezier": [
+                          0,
+                          0,
+                          0.2,
+                          1
+                        ]
+                      }
+                    },
+                    {
+                      "offset": 1,
+                      "style": {
+                        "transform": "translateY(-25%)"
+                      },
+                      "easing": {
+                        "cubicBezier": [
+                          0.8,
+                          0,
+                          1,
+                          1
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "durationMs": 1000,
+                "iterations": "infinite"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "className": "",
+    "style": {
+      "animation": [
+        {
+          "keyframes": {
+            "from": {
+              "opacity": 0.2,
+              "width": 10,
+              "backgroundColor": "#ff000080"
+            },
+            "40%": {
+              "width": 20,
+              "easing": {
+                "steps": 3,
+                "position": "jump-none"
+              }
+            },
+            "to": {
+              "width": 40,
+              "boxShadow": "0 0 8px #ffffff"
+            }
+          },
+          "durationMs": 900,
+          "delayMs": -100,
+          "easing": "step-end",
+          "iterations": 2.5,
+          "direction": "alternate-reverse",
+          "fillMode": "both",
+          "playState": "paused"
+        },
+        {
+          "keyframes": {
+            "to": {
+              "filter": "blur(2px) drop-shadow(0 1px 2px #000000)",
+              "transform": "rotate(10deg)"
+            }
+          },
+          "durationMs": 300
+        }
+      ]
+    },
+    "compiled": {
+      "layers": [
+        {
+          "style": {
+            "animation": [
+              {
+                "keyframes": {
+                  "name": "inline",
+                  "frames": [
+                    {
+                      "offset": 0,
+                      "style": {
+                        "opacity": 0.2,
+                        "width": 10,
+                        "backgroundColor": "#ff000080"
+                      }
+                    },
+                    {
+                      "offset": 0.4,
+                      "style": {
+                        "width": 20
+                      },
+                      "easing": {
+                        "steps": 3,
+                        "position": "jump-none"
+                      }
+                    },
+                    {
+                      "offset": 1,
+                      "style": {
+                        "width": 40,
+                        "boxShadow": "0 0 8px #ffffff"
+                      }
+                    }
+                  ]
+                },
+                "durationMs": 900,
+                "delayMs": -100,
+                "easing": "step-end",
+                "iterations": 2.5,
+                "direction": "alternate-reverse",
+                "fillMode": "both",
+                "playState": "paused"
+              },
+              {
+                "keyframes": {
+                  "name": "inline",
+                  "frames": [
+                    {
+                      "offset": 1,
+                      "style": {
+                        "filter": "blur(2px) drop-shadow(0 1px 2px #000000)",
+                        "transform": "rotate(10deg)"
+                      }
+                    }
+                  ]
+                },
+                "durationMs": 300
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "className": "bg-conic from-sky-500 via-indigo-500 to-sky-500 hover:bg-conic-90/srgb -bg-conic-45 hover:bg-gradient-to-r",
+    "compiled": {
+      "layers": [
+        {
+          "style": {
+            "gradientParts": {
+              "conic": {
+                "fromDegrees": 0,
+                "space": "oklab"
+              },
+              "from": "#0ea5e9",
+              "via": "#6366f1",
+              "to": "#0ea5e9"
+            }
+          }
+        },
+        {
+          "states": [
+            "hover"
+          ],
+          "style": {
+            "gradientParts": {
+              "conic": {
+                "fromDegrees": 90,
+                "space": "srgb"
+              }
+            }
+          }
+        },
+        {
+          "style": {
+            "gradientParts": {
+              "conic": {
+                "fromDegrees": -45,
+                "space": "oklab"
+              }
+            }
+          }
+        },
+        {
+          "states": [
+            "hover"
+          ],
+          "style": {
+            "gradientParts": {
+              "direction": "to-r"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "className": "",
+    "style": {
+      "backgroundImage": "conic-gradient(from 45deg at 25% 10px in oklab, #ff0000 0deg, #00ff00 50%, #0000ff 1turn)"
+    },
+    "compiled": {
+      "layers": [
+        {
+          "style": {
+            "backgroundImage": "conic-gradient(from 45deg at 25% 10px in oklab, #ff0000 0deg, #00ff00 50%, #0000ff 1turn)"
+          }
+        }
+      ]
+    }
+  },
+  {
     "className": "overflow-hidden shrink-0",
     "style": [
       {

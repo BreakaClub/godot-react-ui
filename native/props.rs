@@ -33,6 +33,7 @@ use crate::text_style::{
     TextTransformSpec, UnderlineOffsetSpec, WhiteSpaceSpec, WordBreakSpec,
 };
 use crate::transform::{TransformList, TransformOriginSpec, TransformParts};
+pub use crate::animation::AnimationSpec;
 pub use crate::transition::Easing;
 use crate::transition::{
     PropertiesKeyword, TransitionParts, TransitionProperties, merge_transition,
@@ -729,6 +730,9 @@ pub struct StyleSpec {
     /// The `transition-*` longhands the utility classes set (`transition-colors`, `duration-200`, `ease-in-out`);
     /// each merges on its own across layers, and the computed style resolves them into `transition`.
     pub transition_parts: Option<TransitionParts>,
+    /// CSS `animation`: the element's animations, each with its keyframes; an empty list is `none`. A later layer replaces
+    /// the whole list, as a later `animation` declaration does in CSS.
+    pub animation: Option<Vec<AnimationSpec>>,
     pub interpolate_size: Option<InterpolateSize>,
     pub overflow_x: Option<OverflowSpec>,
     pub overflow_y: Option<OverflowSpec>,
@@ -1284,6 +1288,7 @@ impl StyleSpec {
             outline_offset,
             opacity,
             text_align,
+            animation,
             interpolate_size,
             overflow_x,
             overflow_y,
@@ -1344,12 +1349,21 @@ impl StyleSpec {
         }
     }
 
+    /// Whether the style animates: it has a `transition` or an `animation`, so the style engine mirrors it and its
+    /// presentation is sampled (a "motion node", `motion.rs`).
+    pub fn is_motion_node(&self) -> bool {
+        self.transition.is_some() || self.animation.as_ref().is_some_and(|list| !list.is_empty())
+    }
+
     pub fn validate(&self) -> Result<(), String> {
         if let Some(transition) = &self.transition {
             transition.validate()?;
         }
         if let Some(parts) = &self.transition_parts {
             parts.validate()?;
+        }
+        for animation in self.animation.iter().flatten() {
+            animation.validate()?;
         }
         for (name, value) in [
             ("width", &self.width),
@@ -1569,14 +1583,7 @@ impl StyleSpec {
             ("WebkitTextStrokeColor", &self.text_stroke_color),
         ] {
             if let Some(value) = value {
-                let Some(hex) = value.strip_prefix('#') else {
-                    return Err(format!("{name} must be a hex color"));
-                };
-                if !matches!(hex.len(), 3 | 4 | 6 | 8)
-                    || !hex.bytes().all(|byte| byte.is_ascii_hexdigit())
-                {
-                    return Err(format!("{name} must be #RGB, #RGBA, #RRGGBB, or #RRGGBBAA"));
-                }
+                crate::paint::validate_hex(value).map_err(|error| format!("{name} {error}"))?;
             }
         }
         Ok(())

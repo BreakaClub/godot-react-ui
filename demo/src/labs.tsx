@@ -1,6 +1,7 @@
 import { createElement, type ComponentType, type ReactElement } from 'react';
 import { CounterLab, InventoryLab } from './app';
 import { A11yPanel } from './a11y-panel';
+import { AnimationLab } from './animation-lab';
 import { BenchmarkExplorer } from './benchmark-explorer';
 import { ComboboxLab } from './combobox-lab';
 import { DragLab } from './drag-lab';
@@ -202,6 +203,11 @@ export const LABS = defineLabs([
     id: 'motion', kind: 'inline', padded: true, group: 'Motion', title: 'Transitions',
     description: 'Height, colour and opacity transitions that run natively, including intrinsic sizes and retargeting.',
     component: MotionLab, sources: ['res://src/motion-lab.tsx'],
+  },
+  {
+    id: 'animations', kind: 'inline', group: 'Motion', title: 'Keyframe animations',
+    description: 'Keyframe animations on the native clock, a conic gradient and a rounded clip: a light that runs round a rounded button with no JavaScript timer.',
+    component: AnimationLab, sources: ['res://src/animation-lab.tsx'],
   },
   {
     id: 'transforms', kind: 'inline', group: 'Motion', title: 'Transforms',
