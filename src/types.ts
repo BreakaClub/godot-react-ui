@@ -340,6 +340,12 @@ export interface Style {
    * outline, whose size is a whole number of quarter px, so the width is kept to the nearest half px (and a positive width
    * to at least that). It needs `paintOrder: 'stroke'` in the same style. It is painted only: it does not change the text's
    * size or its layout, and the ink may extend past the element's box. A nested `<Text>` takes its parent's.
+   *
+   * With a font imported as a multichannel signed distance field (MSDF), Godot's canvas shader stops the outline at
+   * `(msdf_pixel_range / 2 - 1) * fontSize / msdf_size` px outside the glyph (`canvas.glsl`), and draws it about half a px
+   * inside where it should end. The default import (`msdf_pixel_range` 8, `msdf_size` 48) therefore cuts any stroke wider
+   * than `fontSize / 8`, silently. Import a stroked MSDF font with a range at least `2 * (width / 2 * msdf_size / fontSize + 1)`.
+   * Raising it also enlarges each cached glyph by the range on every side.
    */
   WebkitTextStrokeWidth?: number;
   /** Inherited. The stroke's colour; the text colour (`currentcolor`) when not set, which for a nested `<Text>` is its own. */
