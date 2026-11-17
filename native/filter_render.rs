@@ -29,7 +29,7 @@ use crate::filter_faults::{self as faults, Fault};
 use crate::geometry::BoxRect;
 use crate::motion::{resolved_backdrop_filter, resolved_filter};
 use crate::profile::micros;
-use crate::render_tree::Oversampling;
+use crate::render_tree::{EffectMaterialItems, Oversampling};
 use crate::style_engine::current_color;
 use crate::transform::Affine2;
 
@@ -569,8 +569,27 @@ impl Effects {
         self.shader_sources[kind.index()] = Some(source);
     }
 
-    /// The slot's material for `kind`: the one it has, or a new one (the old one is freed) put on `item`. A slot is only
-    /// kept while the item it was put on is (`drop_backdrop_state`, `drop_group_state`).
+    /// Free an effect's material. `holder` is the canvas item it is set on, if that item is still alive: the material is
+    /// taken off it first. `None` is for an item that is gone (the engine took the material off as it freed the item) or
+    /// that has another material by now.
+    ///
+    /// An item that keeps a freed material asks the renderer about it at its next update (`RendererCanvasCull::
+    /// _update_dirty_item`), which logs `ERROR: Parameter "material" is null.` A renderer takes a freed material off the
+    /// items it has updated since the material was set (`_dependency_deleted`), and updates them when it draws a frame.
+    /// The headless renderer keeps no dependencies (`dummy/storage/material_storage.h`: `material_update_dependency` is
+    /// empty) and draws no frame, so there the item was still waiting for its update, with the freed material, when the
+    /// next canvas item anywhere was freed, which updates every waiting item.
+    fn free_material(&mut self, material: Rid, holder: Option<Rid>) {
+        let mut rs = server();
+        if let Some(item) = holder {
+            rs.canvas_item_set_material(item, Rid::Invalid);
+        }
+        rs.free_rid(material);
+        self.stats.materials_freed += 1;
+    }
+
+    /// The slot's material for `kind`: the one it has, or a new one put on `item` (the old one is freed once the item
+    /// has the new one). A slot is only kept while the item it was put on is (`drop_backdrop_state`, `drop_group_state`).
     fn ensure_material(
         &mut self,
         slot: Option<MaterialSlot>,
@@ -582,14 +601,14 @@ impl Effects {
         }
         let shader = self.shader(kind);
         let mut rs = server();
-        if let Some(old) = slot {
-            rs.free_rid(old.material);
-            self.stats.materials_freed += 1;
-        }
         let material = rs.material_create();
         rs.material_set_shader(material, shader);
         rs.canvas_item_set_material(item, material);
         self.stats.materials_created += 1;
+        if let Some(old) = slot {
+            // The item has the new material already, so there is nothing to take the old one off.
+            self.free_material(old.material, None);
+        }
         MaterialSlot {
             material,
             kind,
@@ -665,45 +684,46 @@ impl Effects {
         }
     }
 
-    /// Free the backdrop's material and forget everything that was written to it. Its items are gone (or were never
-    /// made), and the next ones start without a material, a shape or a copy rectangle.
-    fn drop_backdrop_state(&mut self, tag: u32) {
+    /// Free the backdrop's material and forget everything that was written to it. `holder` is the backdrop's draw item
+    /// if it is still alive (a deleted element's is: `forget_effects`), and `None` if the items are gone or were never
+    /// made. The next items start without a material, a shape or a copy rectangle.
+    fn drop_backdrop_state(&mut self, tag: u32, holder: Option<Rid>) {
         self.backdrops.remove(&tag);
         if let Some(state) = self.nodes.get_mut(&tag) {
             if faults::active(Fault::KeepEffectState) {
                 return;
             }
-            if let Some(slot) = state.backdrop_material.take() {
-                server().free_rid(slot.material);
-                self.stats.materials_freed += 1;
-            }
+            let slot = state.backdrop_material.take();
             state.fill_key = None;
             state.region = None;
             state.backdrop_plan = None;
             state.backdrop_chain = None;
+            if let Some(slot) = slot {
+                self.free_material(slot.material, holder);
+            }
         }
     }
 
-    /// As [`Self::drop_backdrop_state`], for the group.
-    fn drop_group_state(&mut self, tag: u32) {
+    /// As [`Self::drop_backdrop_state`], for the group, whose material is on its wrapper.
+    fn drop_group_state(&mut self, tag: u32, holder: Option<Rid>) {
         self.groups.remove(&tag);
         if let Some(state) = self.nodes.get_mut(&tag) {
             if faults::active(Fault::KeepEffectState) {
                 return;
             }
-            if let Some(slot) = state.group_material.take() {
-                server().free_rid(slot.material);
-                self.stats.materials_freed += 1;
-            }
+            let slot = state.group_material.take();
             state.group_plan = None;
             state.group_chain = None;
             state.group_shadow = None;
             state.bounds = None;
             state.extent = None;
+            if let Some(slot) = slot {
+                self.free_material(slot.material, holder);
+            }
         }
     }
 
-    /// Free every material and shader (the root is going away).
+    /// Free every material and shader (the root is going away, and its elements' canvas items have gone before this).
     pub(crate) fn release(&mut self) {
         #[cfg(feature = "filter-faults")]
         self.drop_primer();
@@ -712,12 +732,12 @@ impl Effects {
             rs.free_rid(probe.material);
             rs.free_rid(probe.shader);
         }
-        for (_, effect) in self.nodes.drain() {
+        for (_, effect) in std::mem::take(&mut self.nodes) {
             for slot in [effect.backdrop_material, effect.group_material]
                 .into_iter()
                 .flatten()
             {
-                rs.free_rid(slot.material);
+                self.free_material(slot.material, None);
             }
         }
         for shader in self.shaders.iter_mut().filter_map(Option::take) {
@@ -1037,7 +1057,7 @@ impl ReactUiRoot {
                     self.effects.stats.items_created += 2;
                 }
             } else if node.render.remove_backdrop() {
-                self.effects.drop_backdrop_state(tag);
+                self.effects.drop_backdrop_state(tag, None);
             }
             if let Some(blur_kind) = blur_kind {
                 if node.render.group.is_none() {
@@ -1049,11 +1069,12 @@ impl ReactUiRoot {
                     self.effects.stats.items_created += 2;
                 }
             } else if node.render.remove_group() {
-                self.effects.drop_group_state(tag);
+                self.effects.drop_group_state(tag, None);
             }
         }
         if wanted.backdrop.is_none() && wanted.group.is_none() {
-            self.forget_effect_state(tag);
+            // Both effects' items were removed above, if there were any.
+            self.forget_effect_state(tag, EffectMaterialItems::default());
             return;
         }
         if wanted.backdrop.is_some() {
@@ -1071,17 +1092,19 @@ impl ReactUiRoot {
         self.update_effect_params(tag, &wanted);
     }
 
-    fn forget_effect_state(&mut self, tag: u32) {
-        self.effects.drop_backdrop_state(tag);
-        self.effects.drop_group_state(tag);
+    /// Forget everything kept for the element's effects. `live` names the items its materials are still set on.
+    fn forget_effect_state(&mut self, tag: u32, live: EffectMaterialItems) {
+        self.effects.drop_backdrop_state(tag, live.backdrop);
+        self.effects.drop_group_state(tag, live.group);
         if let Some(effect) = self.effects.nodes.remove(&tag) {
-            let mut rs = server();
-            for slot in [effect.backdrop_material, effect.group_material]
-                .into_iter()
-                .flatten()
-            {
-                rs.free_rid(slot.material);
-                self.effects.stats.materials_freed += 1;
+            // Only a fault leaves a material here (`Fault::KeepEffectState`).
+            for (slot, holder) in [
+                (effect.backdrop_material, live.backdrop),
+                (effect.group_material, live.group),
+            ] {
+                if let Some(slot) = slot {
+                    self.effects.free_material(slot.material, holder);
+                }
             }
         }
         #[cfg(feature = "filter-faults")]
@@ -1722,11 +1745,12 @@ impl ReactUiRoot {
         Some(bounds)
     }
 
-    /// Drop everything the effects keep for a deleted element.
-    pub(crate) fn forget_effects(&mut self, tag: u32) {
+    /// Drop everything the effects keep for a deleted element. Its canvas items are freed after this, when its render
+    /// node is dropped, so `live` names the ones that still hold a material.
+    pub(crate) fn forget_effects(&mut self, tag: u32, live: EffectMaterialItems) {
         let was_group = self.effects.groups.contains(&tag);
         let was_empty = self.effects.is_empty();
-        self.forget_effect_state(tag);
+        self.forget_effect_state(tag, live);
         self.effects.blocked.remove(&tag);
         self.effects.touched.remove(&tag);
         self.effects

@@ -33,6 +33,9 @@ const PICTURE_SIDE = 32;
 const SETTLE_FRAMES = 2;
 /** What an unmounted root's snapshot has left: its layer roots. */
 const UNMOUNTED_NODES = 2;
+const EFFECT_PANEL_WIDTH = 200;
+const EFFECT_PANEL_HEIGHT = 100;
+const EFFECT_BLUR = 'blur(8px)';
 
 interface Check { name: string; ok: boolean; detail?: unknown }
 
@@ -45,6 +48,15 @@ function Panel() {
     h(Button, { testID: 'counter', style: { width: 200, height: 48 }, onClick: () => setCount(value => value + 1) }, `Count: ${count}`),
     h(Image, { testID: 'picture', source: 'probe-texture', material: 'probe-material', style: { width: PICTURE_SIDE, height: PICTURE_SIDE } }),
     h(Text, { testID: 'label', style: { fontFamily: 'probe' } }, 'A label in the registered face'),
+  );
+}
+
+/** A frosted panel (`backdropFilter`) and a filtered one (`filter`), each there or not. */
+function Effects({ frosted, filtered }: { frosted: boolean; filtered: boolean }) {
+  const size = { width: EFFECT_PANEL_WIDTH, height: EFFECT_PANEL_HEIGHT };
+  return h(View, { testID: 'effects', style: { padding: 16, gap: 8 } },
+    frosted ? h(View, { key: 'frosted', style: { ...size, backdropFilter: EFFECT_BLUR } }) : null,
+    filtered ? h(View, { key: 'filtered', style: { ...size, filter: EFFECT_BLUR, backgroundColor: '#336699' } }) : null,
   );
 }
 
@@ -203,7 +215,48 @@ export default class CasingProbe extends Node {
 
     await this.exercise('itself');
     await this.exercise('proxied');
+    await this.removeEffects();
     return { rootHasCamelCasedNames: camel, ...await this.time() };
+  }
+
+  /**
+   * An element with a `backdropFilter`, then one with a `filter`, is mounted and removed as the first deletion of its commit. This run is
+   * headless: the renderer draws no frame and tracks no dependencies, so the canvas item an effect's material was set on waits for its
+   * update until some canvas item is freed. The library has to take the material off that item before it frees the material; otherwise the
+   * item's update, when the element's first canvas item is freed, asks about a freed material and the engine logs
+   * `ERROR: Parameter "material" is null.`, which fails this run (`errorPattern` in scripts/verify-casing.mjs).
+   */
+  private async removeEffects(): Promise<void> {
+    // The roots before this one were queued to be freed, and a freed canvas item is what updates the waiting ones.
+    await this.frames(SETTLE_FRAMES);
+    const surface = this.makeSurface();
+    const handed = proxy.proxy_unwrap_value(surface);
+    const root = this.mount(surface, handed);
+    const effects = () => {
+      const { backdrops, groups, materialsCreated, materialsFreed } = readActivity(handed).effects;
+      return { backdrops, groups, materialsHeld: materialsCreated - materialsFreed };
+    };
+    const nothingHeld = (held: ReturnType<typeof effects>) => held.backdrops === 0 && held.groups === 0 && held.materialsHeld === 0;
+
+    root.render(h(Effects, { frosted: true, filtered: false }));
+    await this.frames(SETTLE_FRAMES);
+    const frosted = effects();
+    this.check('effects: a frosted panel holds a material', frosted.backdrops === 1 && frosted.groups === 0 && frosted.materialsHeld === 1, frosted);
+    root.render(h(Effects, { frosted: false, filtered: false }));
+    await this.frames(SETTLE_FRAMES);
+    this.check('effects: the removed frosted panel gave its material back', nothingHeld(effects()), effects());
+
+    root.render(h(Effects, { frosted: false, filtered: true }));
+    await this.frames(SETTLE_FRAMES);
+    const filtered = effects();
+    this.check('effects: a filtered panel holds a material', filtered.backdrops === 0 && filtered.groups === 1 && filtered.materialsHeld === 1, filtered);
+    root.render(h(Effects, { frosted: false, filtered: false }));
+    await this.frames(SETTLE_FRAMES);
+    this.check('effects: the removed filtered panel gave its material back', nothingHeld(effects()), effects());
+
+    root.unmount();
+    this.roots.delete(root);
+    surface.queue_free();
   }
 
   /** What a call costs on the root itself, through the object the renderer calls, and through `godot.lib.api`'s proxy. */

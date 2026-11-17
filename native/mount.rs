@@ -1105,7 +1105,7 @@ impl ReactUiRoot {
         self.paint_reeval.remove(&tag);
         self.mounted.out_of_flow.remove(&tag);
         self.forget_scroll(tag);
-        self.forget_effects(tag);
+        self.forget_effects(tag, node.render.effect_material_items());
         self.forget_rounded_clip(tag);
         self.selection_node_changed(tag);
         self.paint_dirty_parents.remove(&Parent::Node(tag));

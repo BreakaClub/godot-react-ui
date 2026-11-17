@@ -211,6 +211,14 @@ pub(crate) struct BackdropItems {
     pub(crate) draw: Rid,
 }
 
+/// The canvas items an element's effect materials are set on, where they are still alive: the backdrop's draw item
+/// and the group's wrapper. An item that is gone is `None`, and so is one that never was.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct EffectMaterialItems {
+    pub(crate) backdrop: Option<Rid>,
+    pub(crate) group: Option<Rid>,
+}
+
 /// The canvas group of a `filter`, between the paint parent and the box item.
 pub(crate) struct GroupItems {
     /// The bare item that takes the box item's place in the paint parent: its `behind` children (the element's backdrop,
@@ -828,6 +836,14 @@ impl RenderNode {
             .blur_mipmaps(blur_mipmaps)
             .done();
         self.group.as_ref().expect("the group was just made")
+    }
+
+    /// The items the element's effect materials are set on, for the effects it has items for now.
+    pub(crate) fn effect_material_items(&self) -> EffectMaterialItems {
+        EffectMaterialItems {
+            backdrop: self.backdrop.as_ref().map(|items| items.draw),
+            group: self.group.as_ref().map(|group| group.wrapper),
+        }
     }
 
     /// Whether the group has a Compatibility probe.
