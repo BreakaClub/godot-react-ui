@@ -23,7 +23,7 @@ node scripts/verify-live-compile-web.mjs --engine=stock    # the code editor's c
 ```
 
 `verify:interaction:web` is six jobs, each a Node process with its own Chrome, export server and counters: one for each viewport (`landscape`, `portrait`,
-`retina-landscape`, `retina-portrait`), `pages` (the navigator's starts, the font slices, the rotations) and `touch`. The viewports and `pages` run at the same time;
+`retina-landscape`, `retina-portrait`), `pages` (the navigator's starts, the font slices, the rotations, the `?hz=120` mode, every lab on a phone) and `touch`. The viewports and `pages` run at the same time;
 `touch` runs by itself once they have ended, because a finger's fling needs the lift within a tenth of a second of the engine's time after its last move, which
 Chrome's round trips only allow when the other browsers are not using the host. The run prints the same pass line one run made, with the sections' assertion
 counts added over the jobs, and `report.json` holds every job's assertions and captures (`report-<job>.json` and `browser-<job>.log` are each job's own).
@@ -251,6 +251,38 @@ GodotJS with the patches in `engine/stock/patches/godotjs` (`scripts/build-stock
 script and the patches, imports the demo, runs `build-web.mjs --engine=stock --release` and `deploy-web.mjs --engine=stock --execute`. It needs `CLOUDFLARE_API_TOKEN` and
 `CLOUDFLARE_ACCOUNT_ID` in the `react-demo` environment, and it never publishes to npm. A build or test command never deploys anything; a deploy by hand needs the wrangler login of
 the breaka account.
+
+## High refresh rate (`?hz=120`)
+
+iOS Safari holds a page's rendering updates, and with them `requestAnimationFrame`, near 60 Hz even on a 120 Hz ProMotion panel (unless the
+user turns off the "Prefer Page Rendering Updates near 60fps" feature flag). The Web engine's main loop runs on `requestAnimationFrame`, so
+the demo draws at most 60 frames a second there. WebKit shows an `OffscreenCanvas`'s frame when the frame is committed, not at the page's
+next rendering update, so a canvas drawn as an OffscreenCanvas is not held to that rate (the technique is from
+[rida.dev](https://rida.dev/blog/bypassing-ios-safari-60-fps-limit)). The demo shell offers it as an opt-in:
+
+- `?hz=120` moves `#canvas` to an OffscreenCanvas the first time the engine asks it for a WebGL context, on the main thread (the engine
+  does not move to a worker). The element stays as its placeholder: it keeps the input events, focus and CSS size, its `width` and
+  `height` are forwarded to the OffscreenCanvas, and context-loss events are forwarded back to it. It also replaces
+  `requestAnimationFrame` with a clock at that rate, in phase with the display: frames fall on slots `1000 / hz` ms apart, and a frame
+  that takes longer than a slot leaves the next one empty, so frames stay evenly spaced. A hidden page gets no frames until it is shown.
+  A value not above 60, or a browser that cannot draw WebGL 2 on an OffscreenCanvas, leaves the page as it is and says so in the console.
+- `&boost=1` keeps an invisible 4 px scroller smooth-scrolling, because ProMotion lowers the panel's rate when nothing on the page
+  animates.
+- `&fps=1` shows the engine's frames and the page's rendering updates each second; `window.godotReactHighRefresh` holds the counters.
+
+What was measured, in the iOS 18.5 simulator (iPhone 16 Pro) on 2026-11-25: the simulator's display refreshes at 60 Hz even for Safari's
+own scrolling, so a rate above 60 cannot be seen there. With the page's rendering updates throttled to about 27 a second (a cross-origin
+iframe nobody has touched), a main-thread OffscreenCanvas drawn 60 times a second still put 59.9 distinct frames a second on screen, where
+`requestAnimationFrame` drawing put 29.3: the commit does not wait for the page. The demo renders and takes touch input in this mode.
+Not measured: the rate on a real ProMotion iPhone.
+
+What it needs: a frame must be ready in 8.3 ms. In the same simulator a frame of the Scrolling lab costs 9.5 ms idle and 11 to 17 ms
+while it scrolls, so the clock gives 60. Almost all of that time is WebKit's GPU process replaying the frame's 2,900 to 5,300 WebGL calls,
+which the page waits for at the first of four calls a frame that need an answer from it: the canvas renderer's buffer fence
+(`fenceSync`, `getSyncParameter`) and the `getParameter` queries of Emscripten's copy of its back buffer to the canvas (Godot's Web
+display server asks for explicit swap control). Touch events still arrive at 60 Hz, so a dragged list moves on 60 Hz input; a fling or an
+animation moves on every frame. Low Power Mode and Accessibility › Motion › Limit Frame Rate hold the panel to 60 Hz whatever the page
+does. The clock keeps the engine drawing at that rate while the page is shown, which costs battery.
 
 ## Web-specific limits
 

@@ -124,9 +124,155 @@
       }
       window.addEventListener('popstate', syncFromBrowserUrl);
       window.addEventListener('hashchange', syncFromBrowserUrl);
+
+      // `?hz=120` (opt-in) draws the engine on an OffscreenCanvas at that rate. iOS Safari holds the page's rendering updates, and so
+      // requestAnimationFrame, near 60 Hz even on a 120 Hz panel, but it shows an OffscreenCanvas's frame when the frame is committed, not
+      // at the page's next rendering update. `&boost=1` also keeps the panel at its full rate, and `&fps=1` shows the rates. docs/WEB.md,
+      // "High refresh rate", says what this needs and costs.
+      const PAGE_UPDATE_HZ = 60;
+      // How often the `fps` readout is refreshed, and how often the boost scroller is sent the other way.
+      const READOUT_INTERVAL_MS = 1000;
+      const BOOST_KICK_INTERVAL_MS = 400;
+
+      function offscreenWebGl2Available() {
+        if (typeof HTMLCanvasElement.prototype.transferControlToOffscreen !== 'function' || typeof OffscreenCanvas !== 'function') return false;
+        const probe = new OffscreenCanvas(1, 1).getContext('webgl2');
+        if (probe === null) return false;
+        probe.getExtension('WEBGL_lose_context')?.loseContext();
+        return true;
+      }
+
+      // Moves `canvas` to an OffscreenCanvas the first time the engine asks it for a WebGL context, and replaces requestAnimationFrame
+      // with a clock at `hz` locked to the display. Must run before the engine starts: callbacks asked for before it are not this clock's.
+      function startHighRefresh(canvas, hz) {
+        const state = { hz, offscreen: null, frames: 0, pageUpdates: 0 };
+
+        // The element stays in the page as the OffscreenCanvas's placeholder: it keeps the events, focus and CSS size, and its `width` and
+        // `height`, which the engine sets from the window, are forwarded to the OffscreenCanvas, which sizes the drawing buffer.
+        const elementPrototype = HTMLCanvasElement.prototype;
+        const nativeGetContext = elementPrototype.getContext;
+        const forwardContextEvent = (event) => {
+          // The engine and Emscripten listen for context loss on the element; the OffscreenCanvas is what loses the context.
+          const copy = new WebGLContextEvent(event.type, { cancelable: event.cancelable, statusMessage: event.statusMessage });
+          if (!canvas.dispatchEvent(copy)) event.preventDefault();
+        };
+        canvas.getContext = function (type, attributes) {
+          if (type !== 'webgl2' && type !== 'webgl') return nativeGetContext.call(this, type, attributes);
+          if (state.offscreen === null) {
+            state.offscreen = canvas.transferControlToOffscreen();
+            state.offscreen.addEventListener('webglcontextlost', forwardContextEvent);
+            state.offscreen.addEventListener('webglcontextrestored', forwardContextEvent);
+          }
+          return state.offscreen.getContext(type, attributes);
+        };
+        for (const name of ['width', 'height']) {
+          const native = Object.getOwnPropertyDescriptor(elementPrototype, name);
+          Object.defineProperty(canvas, name, {
+            configurable: true,
+            get() { return state.offscreen === null ? native.get.call(canvas) : state.offscreen[name]; },
+            set(value) { if (state.offscreen === null) native.set.call(canvas, value); else state.offscreen[name] = value; },
+          });
+        }
+
+        // The clock: frames fall on slots `1000 / hz` ms apart, in phase with the latest real animation frame (a display refresh). A frame
+        // asked for runs at the first slot after the one before it, so a frame that takes longer than a slot leaves the next slot empty
+        // and frames stay evenly spaced. A hidden page gets no frames until it is shown, as with requestAnimationFrame.
+        const nativeRequest = window.requestAnimationFrame.bind(window);
+        const interval = 1000 / hz;
+        let vsync = performance.now();
+        let lastSlot = -Infinity;
+        let pending = new Map();
+        let nextId = 1;
+        let armed = false;
+        const onPageUpdate = (stamp) => {
+          vsync = stamp;
+          state.pageUpdates += 1;
+          nativeRequest(onPageUpdate);
+        };
+        nativeRequest(onPageUpdate);
+        const runFrame = (slot) => {
+          armed = false;
+          lastSlot = slot;
+          state.frames += 1;
+          const callbacks = pending;
+          pending = new Map();
+          for (const callback of callbacks.values()) {
+            try {
+              callback(slot);
+            } catch (error) {
+              reportError(error);
+            }
+          }
+        };
+        // Timers set from inside timers are clamped to at least 4 ms once nested five deep, which would push frames off their slots;
+        // a timer set from a message event starts a new chain.
+        const hop = new MessageChannel();
+        hop.port1.onmessage = () => {
+          const now = performance.now();
+          let slot = vsync + Math.ceil((now - vsync) / interval) * interval;
+          if (slot - lastSlot < interval / 2) slot += interval;
+          setTimeout(() => runFrame(slot), Math.max(0, slot - now));
+        };
+        window.requestAnimationFrame = (callback) => {
+          const id = nextId++;
+          pending.set(id, callback);
+          if (!armed) {
+            armed = true;
+            if (document.visibilityState === 'hidden') nativeRequest(runFrame);
+            else hop.port2.postMessage(null);
+          }
+          return id;
+        };
+        window.cancelAnimationFrame = (id) => { pending.delete(id); };
+        return state;
+      }
+
+      // ProMotion lowers the panel's rate when nothing on the page animates; a scroll animation in flight keeps it at full rate. A tiny
+      // invisible scroller is sent smoothly from end to end, back and forth, while the page is shown.
+      function keepPanelAtFullRate() {
+        const scroller = document.createElement('div');
+        scroller.setAttribute('aria-hidden', 'true');
+        scroller.style.cssText = 'position: fixed; left: 0; top: 0; width: 4px; height: 4px; overflow: scroll; opacity: 0.01; pointer-events: none;';
+        const track = document.createElement('div');
+        track.style.cssText = 'width: 1px; height: 100000px;';
+        scroller.appendChild(track);
+        document.body.appendChild(scroller);
+        let toEnd = true;
+        setInterval(() => {
+          if (document.visibilityState === 'hidden') return;
+          scroller.scrollTo({ top: toEnd ? track.offsetHeight : 0, behavior: 'smooth' });
+          toEnd = !toEnd;
+        }, BOOST_KICK_INTERVAL_MS);
+      }
+
+      function showRates(state) {
+        const readout = document.createElement('div');
+        readout.style.cssText = 'position: fixed; left: 4px; bottom: 4px; padding: 2px 6px; border-radius: 4px; background: #000a; color: #4ade80; font: 11px ui-monospace, monospace; pointer-events: none;';
+        document.body.appendChild(readout);
+        let frames = 0;
+        let pageUpdates = 0;
+        setInterval(() => {
+          readout.textContent = `engine ${state.frames - frames}/s · page ${state.pageUpdates - pageUpdates}/s · ${state.offscreen === null ? 'canvas' : 'offscreen'}`;
+          frames = state.frames;
+          pageUpdates = state.pageUpdates;
+        }, READOUT_INTERVAL_MS);
+      }
+
       if (missing.length) {
         status.textContent = `This browser is missing required features:\n${missing.join('\n')}`;
       } else {
+        if (params.has('hz')) {
+          const hz = Number(params.get('hz'));
+          if (!(hz > PAGE_UPDATE_HZ)) {
+            console.warn(`GODOT_REACT_HIGH_REFRESH_IGNORED: hz=${params.get('hz')} is not above the page rate (${PAGE_UPDATE_HZ})`);
+          } else if (!offscreenWebGl2Available()) {
+            console.warn('GODOT_REACT_HIGH_REFRESH_UNAVAILABLE: this browser cannot draw WebGL 2 on an OffscreenCanvas; running at the page rate');
+          } else {
+            window.godotReactHighRefresh = startHighRefresh(canvas, hz);
+            if (params.get('boost') === '1') keepPanelAtFullRate();
+            if (params.get('fps') === '1') showRates(window.godotReactHighRefresh);
+          }
+        }
         engine.startGame({
           args,
           // The loader counts the bytes it receives after the browser has decoded them (a compressed transfer arrives as the file's own

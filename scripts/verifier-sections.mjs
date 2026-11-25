@@ -16,9 +16,9 @@ export const NATIVE_INTERACTION_SECTIONS = [
  * addon: `pnpm exec godot-tsc setup --project-dir demo --force`): they run only when `--only=` names them, and a run without them is not partial. */
 export const NATIVE_OPT_IN_SECTIONS = ['filters-sizes', 'filters-cost', 'filters-faults', 'transforms-faults', 'animations-cost', 'live-compile'];
 
-/** The Web verifier's sections, in the order they run: the native names it covers, `rotation`, which turns an emulated phone, `labs-fit`, which shows every lab on one (both exist only on the Web), and `touch`, its touch page. */
+/** The Web verifier's sections, in the order they run: the native names it covers, `rotation`, which turns an emulated phone, `high-refresh`, the demo shell's `?hz=120` mode, `labs-fit`, which shows every lab on one (the three exist only on the Web), and `touch`, its touch page. */
 export const WEB_INTERACTION_SECTIONS = [
-  'events', 'cooperation', 'pointers', 'keyboard', 'scroll', 'selection', 'touch-selection', 'drag', 'forms', 'combobox', 'dropdown-touch', 'hidpi', 'filters', 'glass', 'paint', 'images', 'navigator', 'transforms', 'animations', 'text-styles', 'rich-text', 'font-slices', 'rotation', 'labs-fit', 'code-editor', 'key-passthrough', 'touch',
+  'events', 'cooperation', 'pointers', 'keyboard', 'scroll', 'selection', 'touch-selection', 'drag', 'forms', 'combobox', 'dropdown-touch', 'hidpi', 'filters', 'glass', 'paint', 'images', 'navigator', 'transforms', 'animations', 'text-styles', 'rich-text', 'font-slices', 'rotation', 'high-refresh', 'labs-fit', 'code-editor', 'key-passthrough', 'touch',
 ];
 
 /**
@@ -34,7 +34,7 @@ export const WEB_INTERACTION_JOBS = [
   { name: 'portrait', sections: WEB_VIEWPORT_SECTIONS },
   { name: 'retina-landscape', sections: WEB_VIEWPORT_SECTIONS },
   { name: 'retina-portrait', sections: WEB_VIEWPORT_SECTIONS },
-  { name: 'pages', sections: ['navigator', 'font-slices', 'rotation', 'labs-fit'] },
+  { name: 'pages', sections: ['navigator', 'font-slices', 'rotation', 'high-refresh', 'labs-fit'] },
   // The touch pages run by themselves, after the others (`exclusive`): a finger's fling needs the lift within a tenth of a second of the engine's time after the last
   // move, and the verifier's steps between them (Chrome's round trips) take as long as the other browsers let them.
   { name: 'touch', sections: ['touch', 'drag', 'combobox', 'dropdown-touch', 'touch-selection', 'code-editor'], exclusive: true },

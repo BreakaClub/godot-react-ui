@@ -34,6 +34,7 @@ import { runKeyPassthroughEditorScenario, runKeyPassthroughScenario } from './ve
 import { runNavigatorScenario, runNavigatorStartScenario } from './verify-navigator-web.mjs';
 import { runFontSlicesScenario } from './verify-font-slices-web.mjs';
 import { runRotationScenario } from './verify-rotation-web.mjs';
+import { runHighRefreshScenario } from './verify-high-refresh-web.mjs';
 import { runLabsFitScenario } from './verify-labs-fit-web.mjs';
 import { runRichTextScenario } from './verify-rich-text-web.mjs';
 import { runTextStylesScenario } from './verify-text-styles-web.mjs';
@@ -3170,6 +3171,11 @@ async function runPagesWorkflow() {
     // A device turned from portrait to landscape and back: each case is a page of its own, in Chrome's mobile emulation.
     activeViewport = 'rotation';
     await section('rotation', () => runRotationScenario({ browser, base: url, check, output: resolve(output, activeViewport) }));
+  }
+  if (wanted('high-refresh')) {
+    // The demo shell's `?hz=120` mode (docs/WEB.md, "High refresh rate"): the engine on an OffscreenCanvas with its own clock, a page of its own.
+    activeViewport = 'high-refresh';
+    await section('high-refresh', () => runHighRefreshScenario({ browser, base: url, check, output: resolve(output, activeViewport) }));
   }
   if (wanted('labs-fit')) {
     // Every lab on an Android phone (412 x 915 at 2.625, Chrome's mobile emulation), a page of its own.

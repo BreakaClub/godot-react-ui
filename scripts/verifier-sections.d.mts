@@ -6,7 +6,7 @@ export const NATIVE_INTERACTION_SECTIONS: readonly [
 ];
 export const NATIVE_OPT_IN_SECTIONS: readonly ['filters-sizes', 'filters-cost', 'filters-faults', 'transforms-faults', 'animations-cost', 'live-compile'];
 export const WEB_INTERACTION_SECTIONS: readonly [
-  'events', 'cooperation', 'pointers', 'keyboard', 'scroll', 'selection', 'touch-selection', 'drag', 'forms', 'combobox', 'dropdown-touch', 'hidpi', 'filters', 'glass', 'paint', 'images', 'navigator', 'transforms', 'animations', 'text-styles', 'rich-text', 'font-slices', 'rotation', 'labs-fit', 'code-editor', 'key-passthrough', 'touch',
+  'events', 'cooperation', 'pointers', 'keyboard', 'scroll', 'selection', 'touch-selection', 'drag', 'forms', 'combobox', 'dropdown-touch', 'hidpi', 'filters', 'glass', 'paint', 'images', 'navigator', 'transforms', 'animations', 'text-styles', 'rich-text', 'font-slices', 'rotation', 'high-refresh', 'labs-fit', 'code-editor', 'key-passthrough', 'touch',
 ];
 
 /** Every section name the arguments ask for, across all `--only=` arguments. */
