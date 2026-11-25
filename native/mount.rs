@@ -482,6 +482,16 @@ impl Mounted {
 }
 
 impl MountedNode {
+    /// The rectangle the element's text draws in, in its frame: its paragraph at the content box's corner, as wide as the content box
+    /// or the widest line (a selection's highlight spans the content box's width), grown by the reach of a stroke. `None` without a
+    /// paragraph.
+    pub(crate) fn text_rect(&self) -> Option<Rect2> {
+        let paragraph = self.visual.paragraph.as_ref()?;
+        let drawn = paragraph.drawn_size();
+        let size = Vector2::new(drawn.x.max(self.geometry.content_width()), drawn.y);
+        Some(Rect2::new(self.geometry.content_origin(), size).grow(paragraph.ink_reach()))
+    }
+
     /// What the element draws of its own, in its frame: its items' rectangle (`RenderNode::own_paint_rect`) and its text,
     /// the drawn size of its paragraph at the content box's corner, grown by the reach of a stroke (what a filter group round it
     /// covers too, `filter_render.rs`). Unbounded while a filter or a backdrop draws it.
@@ -490,9 +500,8 @@ impl MountedNode {
             return Extent::Unbounded;
         }
         let mut rect = self.render.own_paint_rect(self.geometry.size);
-        if let Some(paragraph) = self.visual.paragraph.as_ref() {
-            let text = Rect2::new(self.geometry.content_origin(), paragraph.drawn_size());
-            rect = rect.merge(text.grow(paragraph.ink_reach()));
+        if let Some(text) = self.text_rect() {
+            rect = rect.merge(text);
         }
         Extent::Within(BoxRect {
             x: rect.position.x,

@@ -1,5 +1,6 @@
 mod accessibility;
 mod animation;
+mod atlas;
 mod accessibility_model;
 mod blur;
 mod border_image;
@@ -58,6 +59,7 @@ mod style_engine;
 mod system_fonts;
 // The text longhands, their inheritance and the arithmetic of line boxes and font matching (Godot-free).
 mod text_input;
+mod text_layers;
 mod text_style;
 // `<TextInput>` on the mounted tree: key, pointer, IME and virtual keyboard input, painting.
 mod text_input_godot;
@@ -192,6 +194,8 @@ struct Stats {
     /// pass, and the passes run (`clip_cull.rs`).
     clip_culled: usize,
     cull_passes: u64,
+    /// Texts drawn after the boxes of their sequence, as of the last pass (`text_layers.rs`).
+    texts_moved: usize,
 }
 
 /// A single Godot Control owns the mounted tree, the native layout tree and all drawing resources.
@@ -243,6 +247,8 @@ pub struct ReactUiRoot {
     cull_stale: bool,
     /// The connection that runs the clip culling before each frame, while the root is in the tree.
     pre_draw: Option<Callable>,
+    /// The text layers of the layers' roots (`text_layers.rs`).
+    root_text_layers: text_layers::RootTextLayers,
     /// Nodes whose text paragraph must be rebuilt.
     pending_text: BTreeSet<u32>,
     /// Images whose props changed: their size, proportions and picture are refreshed when the commit is published
@@ -351,6 +357,7 @@ impl IControl for ReactUiRoot {
             hit_stale: false,
             cull_stale: false,
             pre_draw: None,
+            root_text_layers: text_layers::RootTextLayers::default(),
             pending_text: BTreeSet::new(),
             pending_images: BTreeSet::new(),
             pending_style_removals: Vec::new(),
@@ -479,6 +486,7 @@ impl IControl for ReactUiRoot {
                 self.release_accessibility_elements();
                 self.mounted.nodes.clear();
                 self.effects.release();
+                self.root_text_layers.release();
                 self.layer_items.clear();
                 self.ring_item = None;
                 self.touch_selection.release();

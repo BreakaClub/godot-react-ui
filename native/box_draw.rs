@@ -7,6 +7,12 @@
 //! per-element material: a shadow is a nine-patch of a baked mask tinted by the shadow's colour, a gradient a mesh
 //! sampling a one-pixel-high ramp. Masks and ramps are cached by what they depend on, shared by every box that uses them and
 //! freed when the last one stops (`Lease`).
+//!
+//! Masks are packed into shared atlas pages (`atlas.rs`), so that every box drawn from masks reads one texture: the engine draws
+//! consecutive nine-patches of one texture in one draw call, where a texture of its own for each mask (or a `StyleBoxFlat`, whose
+//! polygons are never batched) cost a call per box. A page is a picture in memory and a texture of the same size; a mask is written
+//! into the picture when it is baked and the textures of the pages that changed are uploaded once a frame, before the engine draws
+//! (`flush_pages`, from the root's `frame_pre_draw`). A mask too large for a page has a texture of its own, as a ramp does.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -20,6 +26,7 @@ use crate::box_mesh::{self, Feather, Mesh};
 use crate::box_shadow::{SHADOW_SIGMAS, SIGMA_PER_BLUR, ShadowLayer};
 use crate::filter::Rgba;
 use crate::gradient::{ColorSpace, ConicGradient, Gradient, LinearGradient, ResolvedStop, ramp, ramp_texels};
+use crate::atlas::{Region, ShelfPacker};
 use crate::rrect::{BOTTOM, LEFT, RIGHT, RRect, TOP};
 use crate::shadow_mask::{self, MaskSpec, Shape};
 
@@ -29,6 +36,15 @@ const KEY_UNITS_PER_PIXEL: f32 = 64.0;
 /// reach of the shadow's shape.
 const MASK_SLACK_PX: f32 = 2.0;
 const FEATHER_PX: f32 = 1.0;
+/// An atlas page is this many texels square: 4 MiB as RGBA8, in memory and again as a texture.
+const PAGE_TEXELS: u32 = 1024;
+/// A mask this large or larger on either axis, gutter included, has a texture of its own: half a page, so a page holds at least
+/// four of the largest.
+const LARGEST_PACKED_TEXELS: u32 = PAGE_TEXELS / 2;
+/// The mask's edge texels are repeated this far round it in its page, so linear filtering at the edge of its region reads the
+/// mask and not its neighbour.
+const GUTTER_TEXELS: u32 = 1;
+const RGBA: usize = 4;
 
 fn server() -> Gd<RenderingServer> {
     RenderingServer::singleton()
@@ -67,6 +83,8 @@ enum CacheKey {
     Ramp(RampKey),
     /// A picture the text decorations bake (`text_decoration/raster.rs`): what it depends on, as numbers.
     Baked(Vec<u32>),
+    /// Opaque white texels in the atlas, which a square fill or a square border's bars are stretched from.
+    White,
 }
 
 struct Entry {
@@ -74,11 +92,125 @@ struct Entry {
     refs: u32,
     width: usize,
     height: usize,
+    /// Where a packed mask is: its page and its region there, gutter included. `None` for a texture of its own.
+    packed: Option<(usize, Region)>,
+}
+
+impl Entry {
+    /// The texels of the texture the picture is, in it: its region less the gutter, or the whole texture.
+    fn source(&self) -> Rect2 {
+        let size = Vector2::new(self.width as f32, self.height as f32);
+        match self.packed {
+            Some((_, region)) => Rect2::new(
+                Vector2::new(
+                    (region.x + GUTTER_TEXELS) as f32,
+                    (region.y + GUTTER_TEXELS) as f32,
+                ),
+                size,
+            ),
+            None => Rect2::new(Vector2::ZERO, size),
+        }
+    }
+}
+
+/// An atlas page: its picture in memory, the texture it is uploaded to, and where its masks are.
+struct Page {
+    texture: Rid,
+    pixels: Vec<u8>,
+    packer: ShelfPacker,
+    /// The picture changed since it was last uploaded.
+    dirty: bool,
 }
 
 #[derive(Default)]
 struct Cache {
     entries: HashMap<CacheKey, Entry>,
+    /// A page that has emptied is `None` until one is needed again (an entry names its page by index).
+    pages: Vec<Option<Page>>,
+}
+
+impl Cache {
+    /// Put an RGBA picture in a page, opening one if none has room, and return the page's index, its texture and the region.
+    fn pack(&mut self, bytes: &[u8], width: usize, height: usize) -> (usize, Rid, Region) {
+        let gutter = GUTTER_TEXELS as usize;
+        let (outer_width, outer_height) = (width + 2 * gutter, height + 2 * gutter);
+        let size = (
+            u32::try_from(outer_width).expect("a packed mask is narrower than a page"),
+            u32::try_from(outer_height).expect("a packed mask is shorter than a page"),
+        );
+        let placed = self.pages.iter_mut().enumerate().find_map(|(index, page)| {
+            let page = page.as_mut()?;
+            page.packer.allocate(size.0, size.1).map(|region| (index, region))
+        });
+        let (index, region) = match placed {
+            Some(placed) => placed,
+            None => {
+                let index = self.pages.iter().position(Option::is_none).unwrap_or_else(|| {
+                    self.pages.push(None);
+                    self.pages.len() - 1
+                });
+                let side = PAGE_TEXELS as usize;
+                let pixels = vec![0; side * side * RGBA];
+                let texture = server().texture_2d_create(&page_image(&pixels));
+                let mut packer = ShelfPacker::new(PAGE_TEXELS, PAGE_TEXELS);
+                let region = packer
+                    .allocate(size.0, size.1)
+                    .expect("a mask under half a page fits an empty page");
+                self.pages[index] = Some(Page {
+                    texture,
+                    pixels,
+                    packer,
+                    dirty: false,
+                });
+                (index, region)
+            }
+        };
+        let page = self.pages[index].as_mut().expect("the page was just found or made");
+        // The picture, with its edge texels repeated across the gutter round it.
+        let stride = PAGE_TEXELS as usize * RGBA;
+        for row in 0..outer_height {
+            let source_row = row.saturating_sub(gutter).min(height - 1);
+            for column in 0..outer_width {
+                let source_column = column.saturating_sub(gutter).min(width - 1);
+                let from = (source_row * width + source_column) * RGBA;
+                let to = (region.y as usize + row) * stride + (region.x as usize + column) * RGBA;
+                page.pixels[to..to + RGBA].copy_from_slice(&bytes[from..from + RGBA]);
+            }
+        }
+        page.dirty = true;
+        (index, page.texture, region)
+    }
+
+    /// Give a packed mask's region back, and the page if that emptied it.
+    fn unpack(&mut self, index: usize, region: Region) {
+        let Some(page) = self.pages[index].as_mut() else {
+            panic!("a packed mask's page {index} is gone");
+        };
+        page.packer.free(region);
+        if page.packer.is_empty()
+            && let Some(page) = self.pages[index].take()
+        {
+            server().free_rid(page.texture);
+        }
+    }
+}
+
+/// The picture of an atlas page, as an image the rendering server takes.
+fn page_image(pixels: &[u8]) -> Gd<Image> {
+    let side = i32::try_from(PAGE_TEXELS).expect("a page's side fits an i32");
+    Image::create_from_data(side, side, false, Format::RGBA8, &PackedByteArray::from(pixels))
+        .expect("an atlas page is a valid image")
+}
+
+/// Upload the atlas pages whose pictures changed since the last time. The root calls this before every frame the engine draws.
+pub(crate) fn flush_pages() {
+    CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        for page in cache.pages.iter_mut().flatten().filter(|page| page.dirty) {
+            server().texture_2d_update(page.texture, &page_image(&page.pixels), 0);
+            page.dirty = false;
+        }
+    });
 }
 
 thread_local! {
@@ -99,7 +231,10 @@ impl Drop for Lease {
             if entry.refs == 0
                 && let Some(entry) = cache.entries.remove(&self.0)
             {
-                server().free_rid(entry.texture);
+                match entry.packed {
+                    Some((page, region)) => cache.unpack(page, region),
+                    None => server().free_rid(entry.texture),
+                }
             }
         });
     }
@@ -133,9 +268,51 @@ fn acquire(
                 refs: 1,
                 width,
                 height,
+                packed: None,
             },
         );
         (Lease(key), texture, width, height)
+    })
+}
+
+/// A mask's texture for `key`, made by `make` (RGBA8 bytes and their size) if no box holds one, packed into an atlas page when it is
+/// small enough, with the texels of that texture it is and a lease on it.
+fn acquire_packed(
+    key: CacheKey,
+    make: impl FnOnce() -> (Vec<u8>, usize, usize),
+) -> (Lease, Rid, Rect2) {
+    let cached = CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        let entry = cache.entries.get_mut(&key)?;
+        entry.refs += 1;
+        Some((entry.texture, entry.source()))
+    });
+    if let Some((texture, source)) = cached {
+        return (Lease(key), texture, source);
+    }
+    let (bytes, width, height) = make();
+    let largest = (LARGEST_PACKED_TEXELS - 2 * GUTTER_TEXELS) as usize;
+    if width > largest || height > largest {
+        let (lease, texture, width, height) = acquire(key, || (bytes, width, height));
+        return (
+            lease,
+            texture,
+            Rect2::new(Vector2::ZERO, Vector2::new(width as f32, height as f32)),
+        );
+    }
+    CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        let (page, texture, region) = cache.pack(&bytes, width, height);
+        let entry = Entry {
+            texture,
+            refs: 1,
+            width,
+            height,
+            packed: Some((page, region)),
+        };
+        let source = entry.source();
+        cache.entries.insert(key.clone(), entry);
+        (Lease(key), texture, source)
     })
 }
 
@@ -155,9 +332,18 @@ pub(crate) fn acquire_baked(
     })
 }
 
-/// How many textures the cache holds (a measure for the verifier: a tree with nothing to draw holds none).
+/// How many pictures the cache holds, masks and ramps (a measure for the verifier: boxes of one shape share one).
 pub(crate) fn cached_textures() -> usize {
     CACHE.with(|cache| cache.borrow().entries.len())
+}
+
+/// How many textures those pictures are in: the atlas pages, and the pictures with a texture of their own.
+pub(crate) fn texture_count() -> usize {
+    CACHE.with(|cache| {
+        let cache = cache.borrow();
+        cache.pages.iter().flatten().count()
+            + cache.entries.values().filter(|entry| entry.packed.is_none()).count()
+    })
 }
 
 /// A box in device pixels.
@@ -266,6 +452,12 @@ enum Cut {
         side: usize,
         extend: bool,
     },
+    /// The fill, moved in by these widths (top, right, bottom, left, device pixels) under an opaque border.
+    Fill {
+        inset: [f32; 4],
+    },
+    /// The whole border, in one colour.
+    Border,
 }
 
 /// Draw the mask of a shape, tinted by `color`. A mask is baked once for what it depends on and drawn as a nine-patch
@@ -273,7 +465,13 @@ enum Cut {
 /// a corner's reach are the same along an edge, and the middle of the mask is empty (the hole).
 fn mask(item: Rid, shape: &BoxShape, cut: Cut, color: Rgba, leases: &mut Vec<Lease>) {
     let scale = shape.scale;
-    let radius = shape.radii.iter().copied().fold(0.0, f32::max);
+    // The radii as CSS fits them to the box: `rounded-full` on a pill reaches half its height, not 9999 pixels.
+    let radius = shape
+        .border_box()
+        .corners
+        .iter()
+        .map(|corner| corner.x.max(corner.y))
+        .fold(0.0, f32::max);
     let border = shape.borders.iter().copied().fold(0.0, f32::max);
     // The mask's shape in device pixels, how far outside the border box it reaches, and how deep inside the box it still
     // depends on the corners.
@@ -317,6 +515,11 @@ fn mask(item: Rid, shape: &BoxShape, cut: Cut, color: Rgba, leases: &mut Vec<Lea
             )
         }
         Cut::Side { side, extend } => (Shape::Side { side, extend }, 0.0, radius + border),
+        Cut::Fill { inset } => {
+            let deepest = inset.iter().copied().fold(0.0, f32::max);
+            (Shape::Fill { inset }, 0.0, radius + deepest)
+        }
+        Cut::Border => (Shape::Border, 0.0, radius + border),
     };
     let margin = if reach > 0.0 {
         reach.ceil() as usize + 1
@@ -373,6 +576,11 @@ fn mask(item: Rid, shape: &BoxShape, cut: Cut, color: Rgba, leases: &mut Vec<Lea
             ],
             Shape::Ring { inner, outer } => [2, quantized(inner), quantized(outer), 0, 0, 0],
             Shape::Side { side, extend } => [3, side as i32, i32::from(extend), 0, 0, 0],
+            Shape::Fill { inset } => {
+                let [top, right, bottom, left] = quantized_all(inset);
+                [4, top, right, bottom, left, 0]
+            }
+            Shape::Border => [5, 0, 0, 0, 0, 0],
         },
         width: quantized(baked_width),
         height: quantized(baked_height),
@@ -380,7 +588,7 @@ fn mask(item: Rid, shape: &BoxShape, cut: Cut, color: Rgba, leases: &mut Vec<Lea
         borders: quantized_all(shape.borders),
         margin,
     });
-    let (lease, texture, texture_width, texture_height) = acquire(key, || {
+    let (lease, texture, source) = acquire_packed(key, || {
         let baked = shadow_mask::bake(&spec);
         let bytes = baked
             .alpha
@@ -390,6 +598,7 @@ fn mask(item: Rid, shape: &BoxShape, cut: Cut, color: Rgba, leases: &mut Vec<Lea
         (bytes, baked.width, baked.height)
     });
     leases.push(lease);
+    let (texture_width, texture_height) = (source.size.x, source.size.y);
     begin(item, scale);
     let margin = margin as f32;
     // Where the mask goes and how its margins map: a stretched axis keeps `depth + margin` pixels at each end and
@@ -400,12 +609,12 @@ fn mask(item: Rid, shape: &BoxShape, cut: Cut, color: Rgba, leases: &mut Vec<Lea
             if stretch_x {
                 shape.width + 2.0 * margin
             } else {
-                texture_width as f32
+                texture_width
             },
             if stretch_y {
                 shape.height + 2.0 * margin
             } else {
-                texture_height as f32
+                texture_height
             },
         ),
     );
@@ -414,19 +623,9 @@ fn mask(item: Rid, shape: &BoxShape, cut: Cut, color: Rgba, leases: &mut Vec<Lea
         if stretch_y { depth + margin } else { 0.0 },
     );
     server()
-        .canvas_item_add_nine_patch_ex(
-            item,
-            dest,
-            Rect2::new(
-                Vector2::ZERO,
-                Vector2::new(texture_width as f32, texture_height as f32),
-            ),
-            texture,
-            patch,
-            patch,
-        )
-        // The middle of a box that is stretched both ways is inside the hole.
-        .draw_center(!(stretch_x && stretch_y))
+        .canvas_item_add_nine_patch_ex(item, dest, source, texture, patch, patch)
+        // The middle of a box that is stretched both ways is inside the hole of every mask but a fill's, which it is the inside of.
+        .draw_center(matches!(cut, Cut::Fill { .. }) || !(stretch_x && stretch_y))
         .modulate(Color::from_rgba(color[0], color[1], color[2], color[3]))
         .done();
     end(item);
@@ -708,6 +907,111 @@ pub(crate) fn border(item: Rid, shape: &BoxShape, colors: [Color; 4], leases: &m
             );
         }
     }
+}
+
+/// The side of the atlas's block of white texels. Every texel of it, its gutter too, is white, so it reads white wherever it is
+/// sampled and a rectangle stretched from it has the hard edges of the rectangle itself.
+const WHITE_TEXELS: usize = 4;
+
+/// The atlas's white texels and a lease on them.
+fn white(leases: &mut Vec<Lease>) -> (Rid, Rect2) {
+    let (lease, texture, source) = acquire_packed(CacheKey::White, || {
+        (vec![u8::MAX; WHITE_TEXELS * WHITE_TEXELS * RGBA], WHITE_TEXELS, WHITE_TEXELS)
+    });
+    leases.push(lease);
+    (texture, source)
+}
+
+/// A rectangle of one colour, stretched from the atlas's white texels: a nine-patch with no margins, so it batches with the masks.
+fn white_rect(item: Rid, (texture, source): (Rid, Rect2), rect: Rect2, color: Color) {
+    if rect.size.x <= 0.0 || rect.size.y <= 0.0 {
+        return;
+    }
+    server()
+        .canvas_item_add_nine_patch_ex(item, rect, source, texture, Vector2::ZERO, Vector2::ZERO)
+        .modulate(color)
+        .done();
+}
+
+/// Fill the box with one colour: a mask of its fill box (the border box, moved half way under an opaque border on the `covered`
+/// sides, `BoxShape::fill_box`), or for square corners the atlas's white texels stretched over the fill box.
+pub(crate) fn fill(
+    item: Rid,
+    shape: &BoxShape,
+    color: Color,
+    covered: [bool; 4],
+    leases: &mut Vec<Lease>,
+) {
+    if color.a <= 0.0 {
+        return;
+    }
+    let fill_box = shape.fill_box(covered);
+    if fill_box.is_rounded() {
+        let inset = std::array::from_fn(|side| {
+            if covered[side] {
+                shape.borders[side] * 0.5
+            } else {
+                0.0
+            }
+        });
+        mask(
+            item,
+            shape,
+            Cut::Fill { inset },
+            [color.r, color.g, color.b, color.a],
+            leases,
+        );
+        return;
+    }
+    let white = white(leases);
+    begin(item, shape.scale);
+    white_rect(
+        item,
+        white,
+        Rect2::new(
+            Vector2::new(fill_box.x0, fill_box.y0),
+            Vector2::new(fill_box.width(), fill_box.height()),
+        ),
+        color,
+    );
+    end(item);
+}
+
+/// The whole border in one colour: a mask of the ring between the border box and the padding box, or for square corners four bars of
+/// the atlas's white texels, the top and bottom across the box and the sides between them, so no pixel is covered twice.
+pub(crate) fn one_colour_border(item: Rid, shape: &BoxShape, color: Color, leases: &mut Vec<Lease>) {
+    if color.a <= 0.0 {
+        return;
+    }
+    if shape.border_box().is_rounded() {
+        mask(
+            item,
+            shape,
+            Cut::Border,
+            [color.r, color.g, color.b, color.a],
+            leases,
+        );
+        return;
+    }
+    let white = white(leases);
+    let [top, right, bottom, left] = shape.borders;
+    let (width, height) = (shape.width, shape.height);
+    // Borders wider than the box together are cut where they meet, as the padding box is then empty.
+    let top = top.min(height);
+    let bottom = bottom.min(height - top);
+    let between = height - top - bottom;
+    let left = left.min(width);
+    let right = right.min(width - left);
+    begin(item, shape.scale);
+    for rect in [
+        Rect2::new(Vector2::ZERO, Vector2::new(width, top)),
+        Rect2::new(Vector2::new(0.0, height - bottom), Vector2::new(width, bottom)),
+        Rect2::new(Vector2::new(0.0, top), Vector2::new(left, between)),
+        Rect2::new(Vector2::new(width - right, top), Vector2::new(right, between)),
+    ] {
+        white_rect(item, white, rect, color);
+    }
+    end(item);
 }
 
 /// An outline: the ring `offset` outside the border box (inside when negative), `width` wide, following its corners.

@@ -1,3 +1,6 @@
+//! Before each frame (the root's `frame_pre_draw`): the masks' atlas pages are uploaded (`box_draw::flush_pages`), then the clip
+//! culling runs, and after it the texts are placed after the boxes where that draws the same (`text_layers.rs`).
+//!
 //! Clip culling: the items of an element whose painting, its own and everything painted under it, lies wholly outside the clips of
 //! its paint ancestors are hidden (`stacking::clip_culled`), so the engine does not draw them. The engine culls each canvas item
 //! against the viewport only: the rows of a list scrolled out of view, still on screen but outside the list's clip, were each
@@ -32,6 +35,8 @@ impl ReactUiRoot {
         }
         self.stats.clip_culled = culled.len();
         self.stats.cull_passes += 1;
+        // What is culled is not drawn, so it is in no sequence: the texts are placed after the culling.
+        self.settle_text_layers();
     }
 
     /// Run the culling before every frame the rendering server draws while the root is in the tree.
@@ -44,6 +49,8 @@ impl ReactUiRoot {
         let callable = self
             .to_gd()
             .linked_callable("settle_clip_culling", move |_| {
+                // The masks baked this frame reach their atlas pages' textures before anything is drawn from them.
+                crate::box_draw::flush_pages();
                 root.bind_mut().settle_clip_culling();
             });
         RenderingServer::singleton().connect(FRAME_PRE_DRAW, &callable);

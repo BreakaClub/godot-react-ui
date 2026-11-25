@@ -63,6 +63,11 @@ const OUTLINE_DRAW_INDEX: i32 = 2;
 /// An image's picture draws over its box, under its outline. It shares the content item's index: an image has no text and no
 /// children, so its content item never draws anything.
 const IMAGE_DRAW_INDEX: i32 = 0;
+/// An element's text item draws first among the children of the item it is under: after the box, before the child boxes, where
+/// the text was drawn when it was that item's own commands.
+const TEXT_DRAW_INDEX: i32 = i32::MIN;
+/// A text layer draws last among the children of the item it is under: after every child box (`text_layers.rs`).
+pub(crate) const TEXT_LAYER_DRAW_INDEX: i32 = i32::MAX;
 
 /// Layer items and the top-most item are siblings under the Control's canvas item and sort by this
 /// index. The overlay layer draws after the main layer; the focus ring above both.
@@ -296,11 +301,27 @@ pub(crate) struct RenderNode {
     /// Draws the outline over the element's content; exists while the element has one.
     outline_item: Option<Rid>,
     outline_key: Option<OutlineKey>,
+    /// The element's text (span backgrounds, the selection highlight, the glyphs) in an item of its own, made when it first has
+    /// text: under the item the text belongs to (`content_draw_item`), or moved to the text layer of an ancestor (`text_hoist`).
+    text_item: Option<Rid>,
+    /// Where the text item is drawn when it is moved out of its element: the layer, its place and its order there (`text_layers.rs`).
+    text_hoist: Option<TextHoist>,
+    /// The item the texts of the elements below this one are moved to (`text_layers.rs`), and the item it is under.
+    text_layer: Option<(Rid, Rid)>,
     /// A rounded clip: the content item's parent, which draws the rounded padding box as a `CLIP_ONLY` canvas group (Godot's
     /// `CanvasItem.clip_children`), so the content and the child boxes show only inside that shape. Exists while the clip is drawn
     /// rounded (`rounded_clip.rs`); a square clip is the content item's clip rectangle alone.
     mask_item: Option<Rid>,
     mask_key: Option<MaskKey>,
+}
+
+/// Where an element's text is drawn when it is moved to the text layer of an ancestor: under `layer`, at `offset` (the element's corner
+/// in the layer's frame), in `order` among the other texts there.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct TextHoist {
+    pub(crate) layer: Rid,
+    pub(crate) offset: Vector2,
+    pub(crate) order: i32,
 }
 
 /// What a mask item last drew: the rounded padding box, as the box's own paint has it.
@@ -362,6 +383,9 @@ impl RenderNode {
             outline_key: None,
             mask_item: None,
             mask_key: None,
+            text_item: None,
+            text_hoist: None,
+            text_layer: None,
         }
     }
 
@@ -440,23 +464,106 @@ impl RenderNode {
 
     /// Return the content item, creating it under `box_item` if it does not exist yet.
     ///
-    /// Text recorded while there was no content item is in the box item, which then draws nothing else (`content_draw_item`). The
-    /// content item is made for a clip, a scroller or a visible box, and the text must be in it to be clipped and scrolled with the
-    /// children: so the text is cleared from the box item and `content_key` forgotten, and `paint_node`'s `record_content`, which
-    /// follows the clip and the box in the same pass, records it again into the new item.
+    /// The content item is made for a clip, a scroller or a visible box, and the text belongs in it to be clipped with the children:
+    /// a text item under the box item (and not moved to a text layer) moves under the new item.
     pub(crate) fn ensure_content_item(&mut self) -> Rid {
         if let Some(item) = self.content_item {
             return item;
         }
         let mut rs = server();
-        if self.content_key.take().is_some() {
-            rs.canvas_item_clear(self.box_item);
-            self.content_leases.clear();
-        }
         let item = rs.canvas_item_create();
         rs.canvas_item_set_parent(item, self.mask_item.unwrap_or(self.box_item));
         self.content_item = Some(item);
+        drop(rs);
+        if self.text_hoist.is_none() {
+            self.place_text_at_home();
+        }
         item
+    }
+
+    /// The item the element's text is under when it is not moved: the content item if there is one, else the box item.
+    fn text_home(&self) -> Rid {
+        self.content_item.unwrap_or(self.box_item)
+    }
+
+    /// Put the text item under its home, first among its children, where the element is.
+    fn place_text_at_home(&self) {
+        let Some(text) = self.text_item else {
+            return;
+        };
+        let mut rs = server();
+        rs.canvas_item_set_parent(text, self.text_home());
+        rs.canvas_item_set_draw_index(text, TEXT_DRAW_INDEX);
+        rs.canvas_item_set_transform(text, Transform2D::IDENTITY);
+    }
+
+    /// Whether the element draws text now.
+    pub(crate) fn has_text(&self) -> bool {
+        self.text_item.is_some() && self.content_key.is_some()
+    }
+
+    /// Move the element's text to `hoist`'s layer, or back under its home (`None`). Returns whether it moved.
+    pub(crate) fn hoist_text(&mut self, hoist: Option<TextHoist>) -> bool {
+        if self.text_hoist == hoist {
+            return false;
+        }
+        self.text_hoist = hoist;
+        match (hoist, self.text_item) {
+            (Some(hoist), Some(text)) => {
+                let mut rs = server();
+                rs.canvas_item_set_parent(text, hoist.layer);
+                rs.canvas_item_set_draw_index(text, hoist.order);
+                rs.canvas_item_set_transform(text, Transform2D::from_angle_origin(0.0, hoist.offset));
+            }
+            _ => self.place_text_at_home(),
+        }
+        true
+    }
+
+    /// The text layer under this element's child item, made on first use, where the texts of the elements below it are moved.
+    pub(crate) fn ensure_text_layer(&mut self) -> Rid {
+        let parent = self.child_item();
+        match self.text_layer {
+            Some((layer, under)) if under == parent => layer,
+            Some((layer, _)) => {
+                server().canvas_item_set_parent(layer, parent);
+                self.text_layer = Some((layer, parent));
+                layer
+            }
+            None => {
+                let mut rs = server();
+                let layer = rs.canvas_item_create();
+                rs.canvas_item_set_parent(layer, parent);
+                rs.canvas_item_set_draw_index(layer, TEXT_LAYER_DRAW_INDEX);
+                self.text_layer = Some((layer, parent));
+                layer
+            }
+        }
+    }
+
+    /// Free the text layer, which holds no text any more.
+    pub(crate) fn drop_text_layer(&mut self) {
+        if let Some((layer, _)) = self.text_layer.take() {
+            server().free_rid(layer);
+        }
+    }
+
+    pub(crate) fn has_text_layer(&self) -> bool {
+        self.text_layer.is_some()
+    }
+
+    /// The element's opacity as its item multiplies it into everything below.
+    pub(crate) fn opacity(&self) -> f32 {
+        self.opacity
+    }
+
+    pub(crate) fn is_clip_culled(&self) -> bool {
+        self.clip_culled
+    }
+
+    /// Whether the element draws an outline, which is drawn after its children.
+    pub(crate) fn has_outline(&self) -> bool {
+        self.outline_key.is_some()
     }
 
     /// Draw the rounded clip `key` describes, or stop drawing one (`None`: the clip is the content item's rectangle alone). The mask
@@ -1036,7 +1143,7 @@ impl RenderNode {
         let was_visible = self.box_key.as_ref().is_some_and(BoxKey::is_visible);
         let mut rs = server();
         if is_visible {
-            // Text drawn into the box item moves to a content item of its own, under the box (`ensure_content_item`).
+            // An element with a visible box has a content item, which its text item moves under (`ensure_content_item`).
             if self.content_item.is_none() && self.content_key.is_some() {
                 drop(rs);
                 self.ensure_content_item();
@@ -1198,7 +1305,21 @@ impl RenderNode {
         if self.content_key == Some(key) {
             return false;
         }
-        let target_item = self.content_draw_item();
+        self.content_draw_item();
+        let target_item = match self.text_item {
+            Some(item) => item,
+            None => {
+                // Only an element that draws text is moved (`text_layers.rs`), so a new text item starts at home.
+                let item = server().canvas_item_create();
+                self.text_item = Some(item);
+                self.place_text_at_home();
+                item
+            }
+        };
+        if self.text_hoist.is_none() {
+            // The home may have changed since the text was last drawn (a content item made or freed).
+            self.place_text_at_home();
+        }
         server().canvas_item_clear(target_item);
         let mut leases = Vec::new();
         if let Some(paragraph) = paragraph {
@@ -1237,10 +1358,10 @@ impl RenderNode {
         if self.content_key.is_none() {
             return false;
         }
-        let item = self.content_item.unwrap_or(self.box_item);
-        server().canvas_item_clear(item);
+        if let Some(item) = self.text_item {
+            server().canvas_item_clear(item);
+        }
         self.content_leases.clear();
-        self.assert_clip();
         self.content_key = None;
         true
     }
@@ -1258,6 +1379,8 @@ impl Drop for RenderNode {
             rs.free_rid(items.caret);
         }
         for item in [
+            self.text_item,
+            self.text_layer.map(|(layer, _)| layer),
             self.scroll_item,
             self.overlay_item,
             self.outline_item,

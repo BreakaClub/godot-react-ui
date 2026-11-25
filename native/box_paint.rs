@@ -1,11 +1,12 @@
 //! What a box item draws and how: the key that says whether what it recorded still holds, and the recording itself.
 //!
-//! A box with a uniform border and a plain fill is drawn by one `StyleBoxFlat`, as it always was. Anything else is drawn in
-//! layers, bottom to top, as CSS paints a box: the outer shadows (the last listed first), the background colour, the
-//! gradient, the inset shadows, the border. A border whose sides differ in colour, and one whose widths differ round a
-//! rounded corner, is drawn from meshes (`box_mesh.rs`); a `StyleBoxFlat` cannot join them as CSS does. So is every box that a
-//! transform has put off the pixel grid: `StyleBoxFlat` antialiases only a rounded or skewed box, and with one feather length, which
-//! is a pixel wide across an edge only on the axis a transform stretches most.
+//! A box is drawn in layers, bottom to top, as CSS paints one: the outer shadows (the last listed first), the background colour,
+//! the gradient, the inset shadows, the border. On the pixel grid every layer but a gradient is a nine-patch from the masks' atlas
+//! (`box_draw.rs`): a fill, a one-colour border, each side of a border whose sides differ in colour, a shadow. A square fill or
+//! border is stretched from the atlas's white texels, so it keeps the hard edges it had. A box drawn by `StyleBoxFlat` was a polygon,
+//! and the engine never batches polygons: every box cost a draw call of its own, where boxes of masks drawn one after another are
+//! one. A box that a transform has put off the pixel grid is drawn from feathered meshes (`box_mesh.rs`) instead, as the masks are
+//! baked on the grid.
 
 use std::rc::Rc;
 
@@ -92,13 +93,6 @@ impl BorderKey {
         drawn.all(|color| color == first).then_some(first)
     }
 
-    fn any_translucent(&self) -> bool {
-        self.widths
-            .iter()
-            .zip(&self.colors)
-            .any(|(width, color)| *width > 0 && color.a < 1.0)
-    }
-
     /// Whether `StyleBoxFlat` cannot draw this border as CSS does: its sides differ in colour (it has one), or they differ in
     /// width round a rounded corner (it reduces a corner's radius by the narrower side, where CSS makes the inner curve an
     /// ellipse).
@@ -106,34 +100,6 @@ impl BorderKey {
         self.has_border()
             && (self.shared_color().is_none() || (!self.uniform_width() && self.is_rounded()))
     }
-}
-
-/// Whether the corner radii of a box of `size` fill one of its sides, or more (CSS then scales them to fit: `rounded-full` on a
-/// pill or a circle, `rounded-t-full`). `StyleBoxFlat` draws such a corner up to a pixel larger than CSS does, because it fits the
-/// radii to the rectangle it antialiases (one feather wider), so a box like that is filled from an exact mesh instead.
-pub(crate) fn radii_fill_a_side(size: Vector2, radii: [i32; 4]) -> bool {
-    let [top_left, top_right, bottom_right, bottom_left] = radii.map(|radius| radius as f32);
-    let fits = |sum: f32, side: f32| sum >= side - FEATHER_SLACK_PX;
-    fits(top_left + top_right, size.x)
-        || fits(bottom_left + bottom_right, size.x)
-        || fits(top_left + bottom_left, size.y)
-        || fits(top_right + bottom_right, size.y)
-}
-
-/// A side may be this much shorter than the radii on it before they count as filling it: the width of `StyleBoxFlat`'s feather.
-const FEATHER_SLACK_PX: f32 = 1.0;
-
-/// Whether a box's fill is drawn from an exact mesh instead of by `StyleBoxFlat`: when its radii fill a side, and when other
-/// layers lie against its rounded edge. Shadows, rings, gradients and mitred borders are exact coverage masks and meshes, and
-/// `StyleBoxFlat`'s corner arcs sit up to half a pixel from them, which would leave a seam of whatever is behind the box between
-/// its fill and a ring, or a fringe of the fill outside a mitred border. A box with square corners is exact either way.
-pub(crate) fn fill_from_mesh(
-    size: Vector2,
-    border: &BorderKey,
-    decoration: Option<&Decoration>,
-) -> bool {
-    radii_fill_a_side(size, border.radii)
-        || border.is_rounded() && (decoration.is_some() || border.needs_mesh())
 }
 
 /// The shadows and the gradient of a box: what a plain box does not have. Built only for a box that has some, so a plain
@@ -281,36 +247,11 @@ impl BoxKey {
     }
 }
 
-/// Set the `StyleBoxFlat`'s corners and antialiasing.
-fn shape_style(style: &mut Gd<StyleBoxFlat>, key: &BoxKey) {
-    crate::render_tree::set_corner_radii(style, key.border.radii);
-    style.set_aa_size(key.oversampling.feather());
-}
-
 fn set_widths(style: &mut Gd<StyleBoxFlat>, widths: [i32; 4]) {
     style.set_border_width(Side::TOP, widths[TOP]);
     style.set_border_width(Side::RIGHT, widths[RIGHT]);
     style.set_border_width(Side::BOTTOM, widths[BOTTOM]);
     style.set_border_width(Side::LEFT, widths[LEFT]);
-}
-
-/// Whether a box is drawn in layers (the fill, the gradient, the inset shadows, the border, each in its own call) rather than by
-/// one `StyleBoxFlat` call. A gradient and an inset shadow lie between the fill and the border; a border over a translucent
-/// fill is drawn after it (`StyleBoxFlat` with a centre fades the ring's inner edge from the fill and would add a translucent
-/// fill a second time along the ring: the fault `single_border_draw` puts that back); a mitred border is made of meshes.
-fn is_layered(
-    border: &BorderKey,
-    translucent_fill: bool,
-    has_inset: bool,
-    has_gradient: bool,
-    mesh_fill: bool,
-    single_border_draw: bool,
-) -> bool {
-    let translucent = translucent_fill || border.any_translucent();
-    has_inset
-        || has_gradient
-        || mesh_fill
-        || border.has_border() && (translucent && !single_border_draw || border.needs_mesh())
 }
 
 /// Record a box into its item, which is empty: its layers, then its border image over them (CSS paints it where the border
@@ -329,7 +270,9 @@ pub(crate) fn draw_box(
     }
 }
 
-/// The fill, shadows, gradient and border of a box.
+/// The fill, shadows, gradient and border of a box, bottom to top as CSS paints them: the outer shadows, the fill, the gradient, the inset
+/// shadows, the border. On the pixel grid every layer is a nine-patch from the masks' atlas (`box_draw.rs`), so the boxes drawn one after
+/// another are one draw call; under a transform the fill, the gradient and a one-colour border are feathered meshes.
 fn draw_layers(
     item: Rid,
     key: &BoxKey,
@@ -337,7 +280,6 @@ fn draw_layers(
     single_border_draw: bool,
     leases: &mut Vec<Lease>,
 ) {
-    let bounds = Rect2::new(Vector2::ZERO, key.size);
     let border = &key.border;
     let decoration = key.decoration.as_deref();
     let gradient = decoration.and_then(|decoration| decoration.gradient.as_ref());
@@ -349,7 +291,6 @@ fn draw_layers(
         key.oversampling.factor(),
     )
     .with_feather(key.feather);
-    shape_style(style, key);
 
     // The outer shadows, the last listed first: the first listed is on top. Chrome cuts the box out of them only when its
     // background colour lets something through (an opaque one is painted over the shadow, and a cut would leave a gap along
@@ -361,8 +302,8 @@ fn draw_layers(
         }
     }
 
-    // A box under a transform is made of meshes whole: the fill, the gradient and the border (`StyleBoxFlat` has one feather length and
-    // no antialiasing on a square corner). Only a border of sides of different colours is still cut from masks.
+    // A box under a transform is made of meshes whole: the fill, the gradient and the border (the masks are baked on the pixel grid).
+    // Only a border of sides of different colours is still cut from masks.
     let meshed = key.feather.is_some();
     let mixed_border = border.has_border() && border.shared_color().is_none();
     if meshed && !has_inset && gradient.is_none() && !mixed_border {
@@ -372,62 +313,47 @@ fn draw_layers(
         return;
     }
 
-    // One call draws the fill and the border when nothing has to come between them.
-    let mesh_fill = meshed || key.clips_round && border.is_rounded() || fill_from_mesh(key.size, border, decoration);
-    let mesh_border = if meshed {
-        mixed_border
-    } else {
-        border.needs_mesh() || mesh_fill && border.has_border()
-    };
-    let split = is_layered(
-        border,
-        key.background.a < 1.0,
-        has_inset,
-        gradient.is_some(),
-        mesh_fill,
-        single_border_draw,
-    );
-    if !split {
+    // The verifier's fault (`Fault::SingleBorderDraw`): a translucent box and its border in one `StyleBoxFlat` call, whose ring fades its
+    // inner edge from the fill and so adds a translucent fill a second time along the border.
+    if single_border_draw
+        && !meshed
+        && key.background.a < 1.0
+        && gradient.is_none()
+        && !has_inset
+        && let Some(color) = border.shared_color()
+    {
+        crate::render_tree::set_corner_radii(style, border.radii);
+        style.set_aa_size(key.oversampling.feather());
         style.set_bg_color(key.background);
-        style.set_border_color(border.shared_color().unwrap_or(Color::TRANSPARENT_BLACK));
+        style.set_border_color(color);
         set_widths(style, border.widths);
         style.set_draw_center(true);
-        style.draw(item, bounds);
+        style.draw(item, Rect2::new(Vector2::ZERO, key.size));
         return;
     }
 
-    // The fill over the whole border box, the gradient over it, the inset shadows over that, then the border: CSS paints a
-    // translucent border over the fill (and `StyleBoxFlat` with a centre would add the fill a second time along the ring).
-    if mesh_fill {
+    // An opaque border is painted over the fill's edge, which stops half way under it (`BoxShape::fill_box`).
+    let covered = border.opaque_sides();
+    if meshed {
         if key.background.a > 0.0 {
-            box_draw::solid(item, &shape, key.background, border.opaque_sides());
+            box_draw::solid(item, &shape, key.background, covered);
         }
-    } else if key.background.a > 0.0 || gradient.is_none() {
-        style.set_bg_color(key.background);
-        set_widths(style, [0; 4]);
-        style.set_draw_center(true);
-        style.draw(item, bounds);
+    } else {
+        box_draw::fill(item, &shape, key.background, covered, leases);
     }
     if let Some(gradient) = gradient {
-        box_draw::gradient(item, &shape, gradient, border.opaque_sides(), leases);
+        box_draw::gradient(item, &shape, gradient, covered, leases);
     }
     if let Some(decoration) = decoration {
         for layer in decoration.shadows.iter().rev().filter(|layer| layer.inset) {
             box_draw::shadow(item, &shape, layer, false, leases);
         }
     }
-    if mesh_border {
-        box_draw::border(item, &shape, border.colors, leases);
-    } else if let Some(color) = border.shared_color() {
-        if meshed {
-            box_draw::ring(item, &shape, color);
-        } else {
-            style.set_border_color(color);
-            set_widths(style, border.widths);
-            style.set_draw_center(false);
-            style.draw(item, bounds);
-            style.set_draw_center(true);
-        }
+    match border.shared_color() {
+        Some(color) if meshed => box_draw::ring(item, &shape, color),
+        Some(color) => box_draw::one_colour_border(item, &shape, color, leases),
+        None if border.has_border() => box_draw::border(item, &shape, border.colors, leases),
+        None => {}
     }
 }
 
@@ -466,85 +392,6 @@ mod tests {
     }
 
     #[test]
-    fn a_box_is_drawn_in_layers_when_something_lies_between_its_fill_and_its_border() {
-        let border = BorderKey::new([1.0; 4], [RED; 4], [8.0; 4]);
-        let none = BorderKey::new([0.0; 4], [RED; 4], [8.0; 4]);
-        // The arguments: the border, a translucent fill, an inset shadow, a gradient, a pill's corners, the single-draw fault.
-        let layered = |border: &BorderKey, flags: [bool; 5]| {
-            is_layered(border, flags[0], flags[1], flags[2], flags[3], flags[4])
-        };
-        // A plain box is one call, with or without a border.
-        assert!(!layered(&border, [false; 5]));
-        assert!(
-            !layered(&none, [true, false, false, false, false]),
-            "a translucent fill with no border is one call"
-        );
-        // A gradient and an inset shadow need layers with no border at all.
-        assert!(layered(&none, [false, false, true, false, false]));
-        assert!(layered(&none, [false, true, false, false, false]));
-        assert!(layered(&border, [false, true, false, false, false]));
-        // A pill's corners are filled from a mesh.
-        assert!(layered(&none, [false, false, false, true, false]));
-        // A border over a translucent fill is a ring over the fill, unless the fault puts the single call back.
-        assert!(layered(&border, [true, false, false, false, false]));
-        assert!(!layered(&border, [true, false, false, false, true]));
-        let mixed = BorderKey::new([2.0; 4], [RED, BLUE, RED, RED], [0.0; 4]);
-        assert!(layered(&mixed, [false; 5]));
-    }
-
-    #[test]
-    fn radii_that_fill_a_side_are_known() {
-        let size = Vector2::new(64.0, 56.0);
-        assert!(radii_fill_a_side(size, [9999; 4]), "rounded-full");
-        assert!(
-            radii_fill_a_side(size, [9999, 9999, 0, 0]),
-            "rounded-t-full"
-        );
-        assert!(
-            radii_fill_a_side(Vector2::new(64.0, 64.0), [32; 4]),
-            "a circle that fits exactly"
-        );
-        assert!(!radii_fill_a_side(size, [8; 4]), "rounded-lg");
-        assert!(
-            !radii_fill_a_side(size, [24, 24, 0, 0]),
-            "rounded-t-3xl on 64 wide leaves 16 straight"
-        );
-        assert!(!radii_fill_a_side(Vector2::new(1000.0, 500.0), [16; 4]));
-    }
-
-    #[test]
-    fn a_fill_is_exact_where_other_exact_layers_lie_against_its_rounded_edge() {
-        let size = Vector2::new(64.0, 56.0);
-        let ring: StyleSpec =
-            serde_json::from_str(r#"{"boxShadowParts":{"ringWidth":2}}"#).expect("style");
-        let ring = decoration_of(&ring, None);
-        let rounded = BorderKey::new([0.0; 4], [RED; 4], [8.0; 4]);
-        let square = BorderKey::new([0.0; 4], [RED; 4], [0.0; 4]);
-        assert!(
-            !fill_from_mesh(size, &rounded, None),
-            "a plain rounded box is StyleBoxFlat's"
-        );
-        assert!(
-            fill_from_mesh(size, &rounded, ring.as_deref()),
-            "a ring lies against the rounded edge"
-        );
-        assert!(
-            !fill_from_mesh(size, &square, ring.as_deref()),
-            "square corners are exact either way"
-        );
-        let mixed = BorderKey::new([2.0; 4], [RED, BLUE, RED, RED], [8.0; 4]);
-        assert!(
-            fill_from_mesh(size, &mixed, None),
-            "a mitred border is a mesh"
-        );
-        let uniform = BorderKey::new([2.0; 4], [RED; 4], [8.0; 4]);
-        assert!(
-            !fill_from_mesh(size, &uniform, None),
-            "a uniform border is StyleBoxFlat's, fill and border alike"
-        );
-    }
-
-    #[test]
     fn an_opaque_border_covers_the_fills_edge_by_half_its_width() {
         let translucent = Color::from_rgba(1.0, 1.0, 1.0, 0.5);
         let border = BorderKey::new([4.0, 4.0, 0.0, 2.0], [RED, translucent, RED, RED], [8.0; 4]);
@@ -556,20 +403,6 @@ mod tests {
         assert_eq!(
             (fill.x0, fill.y0, fill.x1, fill.y1),
             (2.0, 4.0, 200.0, 120.0)
-        );
-    }
-
-    #[test]
-    fn a_translucent_side_is_known() {
-        let translucent = Color::from_rgba(1.0, 1.0, 1.0, 0.3);
-        assert!(BorderKey::new([1.0; 4], [translucent; 4], [0.0; 4]).any_translucent());
-        assert!(
-            !BorderKey::new(
-                [0.0, 1.0, 0.0, 0.0],
-                [translucent, RED, translucent, translucent],
-                [0.0; 4]
-            )
-            .any_translucent()
         );
     }
 

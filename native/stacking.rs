@@ -530,6 +530,12 @@ pub(crate) fn clip_culled<T: PaintExtents>(tree: &T) -> BTreeSet<u32> {
     culled
 }
 
+/// What `tag` and everything painted under it draw, in the frame `tag` is located in (its paint parent's, scrolled), clipped by its
+/// own clip and its descendants' as they are drawn.
+pub(crate) fn subtree_extent<T: PaintExtents>(tree: &T, tag: u32) -> Extent {
+    cull_subtree(tree, tag, None, &mut BTreeSet::new())
+}
+
 /// Walk `tag`'s paint subtree. `clip` is what its paint ancestors' clips leave of the frame `tag` is located in (`None`:
 /// nothing clips it). Returns what the subtree paints, in that frame, and adds every element of it that paints nothing
 /// inside its clip to `culled`.

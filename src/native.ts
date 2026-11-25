@@ -140,8 +140,10 @@ export interface NativeActivity {
   paragraphRepaints: number;
   /** What the filter and backdrop-filter effects hold and have done, cumulatively. */
   effects: NativeEffectsActivity;
-  /** The textures (shadow and outline masks, gradient ramps) the boxes hold: none while no box has a shadow, ring, outline or gradient. */
+  /** The pictures the boxes hold (masks of their shapes, gradient ramps): one for each shape, shared by every box of it. */
   paintTextures: number;
+  /** The textures those pictures are in: the masks' atlas pages, and the pictures too large for a page. */
+  paintPages: number;
   /** The `@keyframes` rules native has registered (one per distinct rule and element values; they stay for the root's life). */
   keyframes: number;
   /** Rounded clips drawn again (a mask made, freed or re-recorded), cumulatively, and how many are drawn as masks now. */
@@ -1056,6 +1058,7 @@ function parseActivity(value: unknown): NativeActivity {
     paragraphRepaints: number(activity.paragraphRepaints, 'paragraphRepaints'),
     effects: effectsActivity(activity.effects),
     paintTextures: number(activity.paintTextures, 'paintTextures'),
+    paintPages: number(activity.paintPages, 'paintPages'),
     keyframes: number(activity.keyframes, 'keyframes'),
     maskRecords: number(activity.maskRecords, 'maskRecords'),
     roundedClips: number(activity.roundedClips, 'roundedClips'),

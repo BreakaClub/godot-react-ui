@@ -601,17 +601,23 @@ async function checkStates(owner: Node, api: PaintInspection, ratio: number): Pr
   await checkFocus(owner, api, ratio);
 }
 
-/** A tree that has no shadow, ring, outline or gradient holds none of what they need. */
+/**
+ * Boxes share the pictures of their shapes: a tree of plain boxes holds a few masks, fewer than it has elements, all in one atlas page; a
+ * page of twelve shadows holds a few, not one a box; and the shadows' are given back when it goes.
+ */
 async function checkCost(api: PaintInspection): Promise<void> {
   api.showLab('hud');
   await settleFrames();
-  assert(api.activity().paintTextures === 0, `A page with nothing to paint holds no texture: ${api.activity().paintTextures}`);
+  const plain = api.activity();
+  const elements = api.snapshot().nodes.length;
+  assert(plain.paintPages === 1 && plain.paintTextures < elements,
+    `A page of plain boxes holds a few masks in one atlas page, not one a box: ${plain.paintTextures} masks for ${elements} elements in ${plain.paintPages} textures`);
   await showPage(api, 'shadows');
   const held = api.activity().paintTextures;
   assert(held > 0 && held < 24, `A page of twelve shadows holds a few shared textures, not one a box: ${held}`);
   api.showLab('hud');
   await settleFrames();
-  assert(api.activity().paintTextures === 0, `and gives them back when it goes: ${api.activity().paintTextures}`);
+  assert(api.activity().paintTextures === plain.paintTextures, `and gives them back when it goes: ${api.activity().paintTextures}`);
 }
 
 async function runAt(owner: Node, api: PaintInspection, capture: PaintCapture, prefix: string, ratio: number): Promise<void> {

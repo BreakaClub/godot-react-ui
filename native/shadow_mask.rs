@@ -47,6 +47,12 @@ pub enum Shape {
     },
     /// An outline: the ring between the border box grown by `inner` and by `outer` (either may be negative).
     Ring { inner: f32, outer: f32 },
+    /// The box's fill: the border box moved in by `inset` on each side (top, right, bottom, left), as `RRect::padding_box` moves
+    /// it. An opaque border is painted over the fill's edge, which then stops half way under it (`BoxShape::fill_box`).
+    Fill { inset: [f32; 4] },
+    /// The whole border in one colour: the ring between the border box and the padding box (whose inner corners are elliptical
+    /// where the sides differ in width). It is what the four sides together cover, without their mitres.
+    Border,
     /// One side of the border (top, right, bottom, left, as `rrect` numbers them), cut to its wedge. A side that `extend`s runs half a
     /// pixel under its neighbours (which are drawn after it, over it): the mitre is antialiased by the neighbour alone, so no
     /// sliver of the page shows between two sides of different colours.
@@ -337,6 +343,24 @@ pub fn bake(spec: &MaskSpec) -> Mask {
                 })
                 .collect()
         }
+        Shape::Fill { inset } => {
+            let fill = border_box.padding_box(inset);
+            (0..width * height)
+                .map(|index| {
+                    let (x, y) = centre(index);
+                    fill.coverage(x, y)
+                })
+                .collect()
+        }
+        Shape::Border => {
+            let padding = border_box.padding_box(spec.borders);
+            (0..width * height)
+                .map(|index| {
+                    let (x, y) = centre(index);
+                    (border_box.coverage(x, y) - padding.coverage(x, y)).max(0.0)
+                })
+                .collect()
+        }
         Shape::Side { side, extend } => {
             let padding = border_box.padding_box(spec.borders);
             let planes = wedges(&border_box, &padding, side);
@@ -366,6 +390,7 @@ pub fn bake(spec: &MaskSpec) -> Mask {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rrect::LEFT;
 
     fn outer(
         width: f32,
@@ -696,5 +721,51 @@ mod tests {
             strongest, 0,
             "nothing of the bottom border above its own rows"
         );
+    }
+
+    /// A border of one colour covers what its four sides together cover, without the sides' mitres: every pixel within a level of
+    /// rounding of the sides' sum, here with unequal widths round rounded corners (elliptical inner curves).
+    #[test]
+    fn a_one_colour_border_covers_what_its_four_sides_cover() {
+        let spec = |shape| MaskSpec {
+            shape,
+            width: 60.0,
+            height: 40.0,
+            radii: [12.0, 6.0, 0.0, 9.0],
+            borders: [3.0, 5.0, 2.0, 4.0],
+            margin: 0,
+        };
+        let whole = bake(&spec(Shape::Border));
+        let sides: Vec<Mask> = [TOP, RIGHT, BOTTOM, LEFT]
+            .into_iter()
+            .map(|side| bake(&spec(Shape::Side { side, extend: false })))
+            .collect();
+        for index in 0..whole.alpha.len() {
+            let sum: u32 = sides.iter().map(|side| u32::from(side.alpha[index])).sum();
+            let difference = (i64::from(whole.alpha[index]) - i64::from(sum.min(255))).abs();
+            // Each side rounds on its own, and a pixel on a mitre is the sum of two.
+            assert!(difference <= 2, "pixel {index}: {} against {sum}", whole.alpha[index]);
+        }
+        assert_eq!(at(&whole, 0, 30, 20), 0, "the padding box is empty");
+        assert_eq!(at(&whole, 0, 30, 1), 255, "the top border is solid");
+    }
+
+    #[test]
+    fn a_fill_is_its_rounded_box_moved_in_by_the_inset() {
+        let fill = bake(&MaskSpec {
+            shape: Shape::Fill {
+                inset: [1.0, 0.0, 0.0, 2.0],
+            },
+            width: 40.0,
+            height: 30.0,
+            radii: [10.0, 0.0, 0.0, 0.0],
+            borders: [0.0; 4],
+            margin: 0,
+        });
+        assert_eq!(at(&fill, 0, 20, 15), 255, "inside");
+        assert_eq!(at(&fill, 0, 20, 0), 0, "the row above the inset");
+        assert_eq!(at(&fill, 0, 1, 15), 0, "the columns left of the inset");
+        assert_eq!(at(&fill, 0, 39, 29), 255, "the square corner, not moved");
+        assert_eq!(at(&fill, 0, 3, 2), 0, "the rounded corner is cut");
     }
 }

@@ -94,7 +94,7 @@ impl ReactUiRoot {
             "nodesRestyled":self.stats.nodes_restyled,"boxRecords":self.stats.box_records,
             "contentRecords":self.stats.content_records,"paragraphBuilds":self.stats.paragraph_builds,
             "paragraphRepaints":self.stats.paragraph_repaints,"effects":self.effects_activity(),
-            "paintTextures":crate::box_draw::cached_textures(),
+            "paintTextures":crate::box_draw::cached_textures(),"paintPages":crate::box_draw::texture_count(),
             "keyframes":self.style_engine.keyframes_registered(),
             "maskRecords":self.stats.mask_records,"roundedClips":self.masked_clip_count()})
     }
