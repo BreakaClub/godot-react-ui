@@ -276,11 +276,15 @@ iframe nobody has touched), a main-thread OffscreenCanvas drawn 60 times a secon
 `requestAnimationFrame` drawing put 29.3: the commit does not wait for the page. The demo renders and takes touch input in this mode.
 Not measured: the rate on a real ProMotion iPhone.
 
-What it needs: a frame must be ready in 8.3 ms. In the same simulator a frame of the Scrolling lab costs 9.5 ms idle and 11 to 17 ms
-while it scrolls, so the clock gives 60. Almost all of that time is WebKit's GPU process replaying the frame's 2,900 to 5,300 WebGL calls,
-which the page waits for at the first of four calls a frame that need an answer from it: the canvas renderer's buffer fence
-(`fenceSync`, `getSyncParameter`) and the `getParameter` queries of Emscripten's copy of its back buffer to the canvas (Godot's Web
-display server asks for explicit swap control). Touch events still arrive at 60 Hz, so a dragged list moves on 60 Hz input; a fling or an
+What it needs: a frame must be ready in 8.3 ms. Most of a frame's time is WebKit's GPU process replaying the frame's WebGL calls, which
+the page waits for at the first of four calls a frame that need an answer from it: the canvas renderer's buffer fence (`fenceSync`,
+`getSyncParameter`) and the `getParameter` queries of Emscripten's copy of its back buffer to the canvas (Godot's Web display server asks
+for explicit swap control). So the calls a frame makes are what the library keeps down: the clip culling, the masks' atlas and the texts
+after the boxes (ARCHITECTURE.md). In the same simulator the Scrolling lab went from 76 draw calls and 2,923 WebGL calls a frame idle, 9.5 ms
+of work (the release build on react.breaka.club), to 27 and 1,184, 5.8 ms (a debug export with these changes); while it scrolls, from 87 to
+139 draws, 3,350 to 5,300 calls and 44 to 60 frames a second, to 32 to 39 draws, 1,400 to 1,640 calls and a steady 60. With `?hz=120` the simulator's engine gives 42 to 68 frames a second: a
+frame there, with Safari's own work and the OffscreenCanvas's commit, often misses its 8.3 ms slot and waits for the next, so on a 60 Hz
+display the mode draws fewer frames than without it. What a real ProMotion iPhone gives is not measured. Touch events still arrive at 60 Hz, so a dragged list moves on 60 Hz input; a fling or an
 animation moves on every frame. Low Power Mode and Accessibility › Motion › Limit Frame Rate hold the panel to 60 Hz whatever the page
 does. The clock keeps the engine drawing at that rate while the page is shown, which costs battery.
 
