@@ -373,6 +373,7 @@ impl ReactUiRoot {
                 || previous.pointer_events != node.computed.pointer_events
         }) {
             self.hit_stale = true;
+            self.cull_stale = true;
         }
         if change.previous.as_ref().is_none_or(|previous| {
             previous.position != node.computed.position

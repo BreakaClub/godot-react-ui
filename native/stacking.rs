@@ -448,6 +448,139 @@ pub(crate) fn absolute_affine<T: PaintTree>(
     Some((found.chain.affine(), found.size))
 }
 
+/// Where an element paints, in some frame: the rectangle nothing it draws leaves.
+#[derive(Clone, Copy)]
+pub(crate) enum Extent {
+    /// It draws nothing.
+    Empty,
+    /// Nothing it draws is outside this rectangle.
+    Within(BoxRect),
+    /// No bound is known (a filter or a backdrop can draw past the box by an amount the culling does not follow): the
+    /// element is never culled, and neither is any element it is painted under.
+    Unbounded,
+}
+
+impl Extent {
+    fn union(self, other: Extent) -> Extent {
+        match (self, other) {
+            (Extent::Unbounded, _) | (_, Extent::Unbounded) => Extent::Unbounded,
+            (Extent::Empty, extent) | (extent, Extent::Empty) => extent,
+            (Extent::Within(a), Extent::Within(b)) => {
+                let x = a.x.min(b.x);
+                let y = a.y.min(b.y);
+                Extent::Within(BoxRect {
+                    x,
+                    y,
+                    width: (a.x + a.width).max(b.x + b.width) - x,
+                    height: (a.y + a.height).max(b.y + b.height) - y,
+                })
+            }
+        }
+    }
+
+    /// The extent, given in a frame inside `chain`, in the frame `chain` is located in.
+    fn mapped(self, chain: Chain) -> Extent {
+        match self {
+            Extent::Within(rect) => Extent::Within(chain.bounds_of(rect)),
+            other => other,
+        }
+    }
+
+    /// What of the extent shows through `clip` (`None`: no clip).
+    fn clipped(self, clip: Option<BoxRect>) -> Extent {
+        match (self, clip) {
+            (extent, None) | (extent @ Extent::Empty, _) => extent,
+            (Extent::Within(rect), Some(clip)) if !intersects(rect, clip) => Extent::Empty,
+            (Extent::Within(rect), Some(clip)) => {
+                intersect_clip(Some(rect), Some(clip)).map_or(Extent::Empty, Extent::Within)
+            }
+            (Extent::Unbounded, Some(clip)) => Extent::Within(clip),
+        }
+    }
+
+    /// Whether nothing of the extent shows inside `clip`.
+    fn misses(self, clip: BoxRect) -> bool {
+        match self {
+            Extent::Empty => true,
+            Extent::Within(rect) => !intersects(rect, clip),
+            Extent::Unbounded => false,
+        }
+    }
+}
+
+/// The paint tree with what each element draws of its own.
+pub(crate) trait PaintExtents: PaintTree {
+    /// What the element draws itself (its box with its shadows and outline, its text, its picture), not counting its paint
+    /// children, in its own frame. A superset is always right; it only culls less.
+    fn own_extent(&self, tag: u32) -> Extent;
+}
+
+/// The elements whose whole painting, theirs and everything painted under them, lies outside the clips of their paint
+/// ancestors: an element scrolled out of its list, or a row of a list inside one that is scrolled out of the other. Their
+/// items need not be drawn, and an item hidden takes everything painted under it out of the engine's frame (the engine
+/// culls each item against the viewport, not against the clip of the item that clips it). The viewport is not a clip here.
+/// Cost proportional to the number of elements.
+pub(crate) fn clip_culled<T: PaintExtents>(tree: &T) -> BTreeSet<u32> {
+    let mut culled = BTreeSet::new();
+    for layer in 0..tree.layer_count() {
+        for tag in tree.paint_roots(layer) {
+            cull_subtree(tree, *tag, None, &mut culled);
+        }
+    }
+    culled
+}
+
+/// Walk `tag`'s paint subtree. `clip` is what its paint ancestors' clips leave of the frame `tag` is located in (`None`:
+/// nothing clips it). Returns what the subtree paints, in that frame, and adds every element of it that paints nothing
+/// inside its clip to `culled`.
+fn cull_subtree<T: PaintExtents>(
+    tree: &T,
+    tag: u32,
+    clip: Option<BoxRect>,
+    culled: &mut BTreeSet<u32>,
+) -> Extent {
+    let Some(frame) = tree.frame(tag) else {
+        return Extent::Empty;
+    };
+    // The clip in the element's own frame. A matrix with no inverse draws nothing (the element's item is hidden for it), so
+    // nothing below needs deciding until it has one again.
+    let own_clip = match clip {
+        None => None,
+        Some(clip) => {
+            let unlocated = BoxRect {
+                x: clip.x - frame.location.x,
+                y: clip.y - frame.location.y,
+                ..clip
+            };
+            match frame.placement {
+                None => Some(unlocated),
+                Some(placement) => match placement.inverse {
+                    Some(inverse) => Some(inverse.bounds_of(unlocated)),
+                    None => return Extent::Empty,
+                },
+            }
+        }
+    };
+    // What the paint children show through, in the frame they are located in: the element's frame less its scroll offset.
+    let offset = frame.scroll.map_or(Vector2::ZERO, |scroll| scroll.offset);
+    let children_clip = intersect_clip(own_clip, frame.clip).map(|clip| BoxRect {
+        x: clip.x + offset.x,
+        y: clip.y + offset.y,
+        ..clip
+    });
+    let scrolled = Chain::Translated(-offset);
+    let mut extent = tree.own_extent(tag);
+    for child in tree.paint_children(tag) {
+        let painted = cull_subtree(tree, *child, children_clip, culled);
+        extent = extent.union(painted.mapped(scrolled).clipped(frame.clip));
+    }
+    let extent = extent.mapped(Chain::Translated(Vector2::ZERO).enter(frame.location, frame.placement));
+    if clip.is_some_and(|clip| extent.misses(clip)) {
+        culled.insert(tag);
+    }
+    extent
+}
+
 /// A clip nothing intersects.
 const NOWHERE: BoxRect = BoxRect {
     x: 0.0,
@@ -486,6 +619,8 @@ mod tests {
         paint_children: Vec<u32>,
         scroll: Option<ScrollFrame>,
         placement: Option<Placement>,
+        /// What the element draws of its own; its border box unless a test says otherwise.
+        own: Option<Extent>,
     }
 
     /// A tree built the way React would, then settled the way the mounting layer settles it.
@@ -533,6 +668,7 @@ mod tests {
                     paint_children: Vec::new(),
                     scroll: None,
                     placement: None,
+                    own: None,
                 },
             );
             match parent {
@@ -662,6 +798,18 @@ mod tests {
                 scroll: node.scroll,
                 placement: node.placement,
             })
+        }
+    }
+
+    impl PaintExtents for TestTree {
+        fn own_extent(&self, tag: u32) -> Extent {
+            let node = &self.nodes[&tag];
+            node.own.unwrap_or(Extent::Within(BoxRect {
+                x: 0.0,
+                y: 0.0,
+                width: node.size.x,
+                height: node.size.y,
+            }))
         }
     }
 
@@ -1292,5 +1440,113 @@ mod tests {
         away.settle();
         let (rect, clip) = reachable(&away, 2);
         assert!(!intersects(rect, clip.unwrap()));
+    }
+
+    /// A list of `rows` rows, each 30 high, in a 100 x 100 scroll container (tag 1) scrolled down by `offset`, inside a
+    /// content element (tag 2) as tall as the rows: the way a `ScrollView` lays its rows out. Rows are tags 10, 11, ...
+    fn scrolled_list(rows: u32, offset: f32) -> TestTree {
+        let mut tree = TestTree::new();
+        tree.add(TOP, 1, Static, (0.0, 0.0), (100.0, 100.0));
+        tree.scrolls(1, (0.0, offset), [None, None]);
+        tree.add(Parent::Node(1), 2, Static, (0.0, 0.0), (100.0, 30.0 * rows as f32));
+        for row in 0..rows {
+            tree.add(Parent::Node(2), 10 + row, Static, (0.0, 30.0 * row as f32), (100.0, 30.0));
+        }
+        tree.settle();
+        tree
+    }
+
+    #[test]
+    fn rows_scrolled_out_of_their_list_are_culled_and_the_rows_in_view_are_not() {
+        // Scrolled down 95: rows 3 (90..120) to 6 (180..210) show in 95..195.
+        let tree = scrolled_list(10, 95.0);
+        assert_eq!(
+            clip_culled(&tree),
+            BTreeSet::from([10, 11, 12, 17, 18, 19]),
+            "the rows above and below, not the content element that holds them all, nor the list"
+        );
+        // A row that only touches the clip's edge shows nothing of itself.
+        let tree = scrolled_list(10, 90.0);
+        assert!(clip_culled(&tree).contains(&12), "row 2 ends where the view starts");
+        assert!(!clip_culled(&tree).contains(&13));
+    }
+
+    #[test]
+    fn a_row_that_paints_past_its_box_into_view_is_not_culled() {
+        let mut tree = scrolled_list(10, 95.0);
+        // Row 2 (60..90) has a shadow reaching 10 past its box, to 100: past 95, where the view starts.
+        tree.nodes.get_mut(&12).unwrap().own = Some(Extent::Within(BoxRect {
+            x: -10.0,
+            y: -10.0,
+            width: 120.0,
+            height: 50.0,
+        }));
+        assert!(!clip_culled(&tree).contains(&12));
+        // A filtered row may draw anywhere.
+        tree.nodes.get_mut(&11).unwrap().own = Some(Extent::Unbounded);
+        assert!(!clip_culled(&tree).contains(&11));
+    }
+
+    #[test]
+    fn a_child_that_overflows_its_parent_keeps_the_parent_drawn() {
+        let mut tree = scrolled_list(10, 0.0);
+        // Row 5 (150..180, out of view) holds an element drawn 140 above it, back in view at 10..40.
+        tree.add(Parent::Node(15), 30, Static, (0.0, -140.0), (100.0, 30.0));
+        tree.settle();
+        let culled = clip_culled(&tree);
+        assert!(!culled.contains(&15) && !culled.contains(&30));
+        assert!(culled.contains(&16));
+    }
+
+    #[test]
+    fn a_row_of_a_list_scrolled_out_of_an_outer_list_is_culled() {
+        let mut tree = TestTree::new();
+        // An outer 100 x 100 list scrolled down 200 holds an inner 100 x 150 list at 0..150, out of view, and a block at
+        // 150..350, in view; the inner list's rows are not scrolled at all and would show in it.
+        tree.add(TOP, 1, Static, (0.0, 0.0), (100.0, 100.0));
+        tree.scrolls(1, (0.0, 200.0), [None, None]);
+        tree.add(Parent::Node(1), 2, Static, (0.0, 0.0), (100.0, 150.0));
+        tree.scrolls(2, (0.0, 0.0), [None, None]);
+        tree.add(Parent::Node(2), 3, Static, (0.0, 0.0), (100.0, 30.0));
+        tree.add(Parent::Node(1), 4, Static, (0.0, 150.0), (100.0, 200.0));
+        tree.settle();
+        assert_eq!(clip_culled(&tree), BTreeSet::from([2, 3]));
+    }
+
+    #[test]
+    fn nothing_is_culled_without_a_clip_and_an_absolute_element_follows_its_paint_parent() {
+        let mut tree = TestTree::new();
+        // The viewport is not a clip: an element off screen is the engine's to cull.
+        tree.add(TOP, 1, Static, (900.0, 900.0), (10.0, 10.0));
+        // An absolute element painted by the layer escapes the clip of the static parent it sits in.
+        tree.add(TOP, 2, Static, (0.0, 0.0), (50.0, 50.0));
+        tree.clip(2);
+        tree.add(Parent::Node(2), 3, Absolute, (200.0, 200.0), (10.0, 10.0));
+        tree.add(Parent::Node(2), 4, Static, (200.0, 200.0), (10.0, 10.0));
+        tree.settle();
+        assert_eq!(clip_culled(&tree), BTreeSet::from([4]));
+    }
+
+    #[test]
+    fn a_turned_element_is_culled_by_where_it_is_drawn() {
+        let mut tree = TestTree::new();
+        tree.add(TOP, 1, Static, (0.0, 0.0), (100.0, 100.0));
+        tree.clip(1);
+        // A 20 x 200 bar centred at (150, 50), outside; turned a quarter it lies across 50..250 by 40..60, inside.
+        tree.add(Parent::Node(1), 2, Static, (140.0, -50.0), (20.0, 200.0));
+        tree.add(Parent::Node(1), 3, Static, (140.0, -50.0), (20.0, 200.0));
+        tree.transform(3, "rotate(90deg)");
+        tree.settle();
+        assert_eq!(clip_culled(&tree), BTreeSet::from([2]));
+        // A clip that a transformed parent carries down still culls its children, where the parent draws them.
+        let mut tree = TestTree::new();
+        tree.add(TOP, 1, Static, (0.0, 0.0), (100.0, 100.0));
+        tree.clip(1);
+        tree.add(Parent::Node(1), 2, Static, (0.0, 0.0), (100.0, 100.0));
+        tree.transform(2, "translateX(200px)");
+        tree.add(Parent::Node(2), 3, Static, (0.0, 0.0), (10.0, 10.0));
+        tree.add(Parent::Node(2), 4, Static, (-195.0, 0.0), (10.0, 10.0));
+        tree.settle();
+        assert_eq!(clip_culled(&tree), BTreeSet::from([3]));
     }
 }

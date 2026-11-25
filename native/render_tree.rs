@@ -277,6 +277,9 @@ pub(crate) struct RenderNode {
     placement: Option<Placement>,
     /// Whether the box item (or the shell of its group) is hidden because the matrix has no inverse.
     transform_hidden: bool,
+    /// Whether the box item (or the shell of its group) is hidden because nothing the element and its paint children draw
+    /// shows inside the clips of its paint ancestors (`stacking::clip_culled`).
+    clip_culled: bool,
     scroll_offset: Vector2,
     opacity: f32,
     clip: Option<Rect2>,
@@ -343,6 +346,7 @@ impl RenderNode {
             location: Vector2::ZERO,
             placement: None,
             transform_hidden: false,
+            clip_culled: false,
             scroll_offset: Vector2::ZERO,
             opacity: 1.0,
             clip: None,
@@ -383,17 +387,55 @@ impl RenderNode {
             .to_godot()
     }
 
-    /// Draw or hide the outermost item: hidden by an opacity the engine draws nothing at (a group only), or
-    /// by a matrix with no inverse (an element edge on or scaled to nothing), which the engine would invert.
+    /// Whether the outermost item is drawn as far as the element's own state goes: not when the matrix has no inverse, nor when
+    /// the element is culled by the clips above it.
+    fn shown(&self) -> bool {
+        !self.transform_hidden && !self.clip_culled
+    }
+
+    /// Draw or hide the outermost item: hidden by an opacity the engine draws nothing at (a group only), by a matrix with no
+    /// inverse (an element edge on or scaled to nothing), which the engine would invert, or by the clips above it. Under a
+    /// group the shell carries all of it and the box item in the group is always drawn.
     fn refresh_visibility(&self) {
         let mut rs = server();
         match &self.group {
-            Some(group) => rs.canvas_item_set_visible(
-                group.shell,
-                self.group_visible() && !self.transform_hidden,
-            ),
-            None => rs.canvas_item_set_visible(self.box_item, !self.transform_hidden),
+            Some(group) => {
+                rs.canvas_item_set_visible(group.shell, self.group_visible() && self.shown());
+                rs.canvas_item_set_visible(self.box_item, true);
+            }
+            None => rs.canvas_item_set_visible(self.box_item, self.shown()),
         }
+    }
+
+    /// Hide the element's items because nothing it and its paint children draw shows inside the clips of its paint ancestors,
+    /// or draw them again. Returns whether that changed.
+    pub(crate) fn set_clip_culled(&mut self, culled: bool) -> bool {
+        if self.clip_culled == culled {
+            return false;
+        }
+        self.clip_culled = culled;
+        self.refresh_visibility();
+        true
+    }
+
+    /// Whether a filter's group or a backdrop draws the element: what it draws can then reach past its box by an amount the
+    /// culling does not follow.
+    pub(crate) fn has_effect_items(&self) -> bool {
+        self.group.is_some() || self.backdrop.is_some()
+    }
+
+    /// The rectangle the element's own items draw in, in its frame (the border box's corner at the origin), but for its text: the
+    /// border box, the box's outer shadows, border image and feather, and the outline.
+    pub(crate) fn own_paint_rect(&self, size: Vector2) -> Rect2 {
+        let border_box = Rect2::new(Vector2::ZERO, size);
+        let painted = self
+            .box_key
+            .as_ref()
+            .map_or(border_box, |key| border_box.merge(key.paint_rect()));
+        let outline = self
+            .outline_key
+            .map_or(0.0, |key| (key.offset + key.width).max(0.0));
+        painted.merge(border_box.grow(outline))
     }
 
     /// Return the content item, creating it under `box_item` if it does not exist yet.
@@ -912,7 +954,7 @@ impl RenderNode {
         let mut rs = server();
         rs.canvas_item_set_parent(self.box_item, self.parent);
         rs.canvas_item_set_draw_index(self.box_item, self.draw_index);
-        rs.canvas_item_set_visible(self.box_item, !self.transform_hidden);
+        rs.canvas_item_set_visible(self.box_item, self.shown());
         if let Some(probe) = group.probe {
             rs.free_rid(probe.copy);
             rs.free_rid(probe.draw);
@@ -1390,6 +1432,8 @@ impl ReactUiRoot {
         self.refresh_effect_rects();
         changed |= self.update_focus_ring();
         if changed {
+            // What an element draws decides how far it reaches past its box, which the clip culling reads.
+            self.cull_stale = true;
             self.stats.paint_passes += 1;
             self.profiler.record(Sample::Draw {
                 cpu_micros: micros(started),

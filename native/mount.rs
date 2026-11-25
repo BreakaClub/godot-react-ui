@@ -30,7 +30,9 @@ use crate::props::{
 use crate::render_tree::RenderNode;
 use crate::scroll::{self, ScrollRange, ScrollRanges, ScrollState, Scrollbars};
 use crate::scroll_input::to_vector;
-use crate::stacking::{self, Frame, PaintTree, ScrollFrame, ScrollMode, Stacking, StackingTree};
+use crate::stacking::{
+    self, Extent, Frame, PaintExtents, PaintTree, ScrollFrame, ScrollMode, Stacking, StackingTree,
+};
 use crate::text_input::EditConfig;
 use crate::text_input_godot::TextInputState;
 use crate::text_measure::MeasuredText;
@@ -315,6 +317,14 @@ impl PaintTree for Mounted {
     }
 }
 
+impl PaintExtents for Mounted {
+    fn own_extent(&self, tag: u32) -> Extent {
+        self.nodes
+            .get(&tag)
+            .map_or(Extent::Empty, MountedNode::own_extent)
+    }
+}
+
 impl ButtonTree for Mounted {
     fn kind_of(&self, tag: u32) -> Option<Kind> {
         self.nodes.get(&tag).map(|node| node.kind)
@@ -472,6 +482,26 @@ impl Mounted {
 }
 
 impl MountedNode {
+    /// What the element draws of its own, in its frame: its items' rectangle (`RenderNode::own_paint_rect`) and its text,
+    /// the drawn size of its paragraph at the content box's corner, grown by the reach of a stroke (what a filter group round it
+    /// covers too, `filter_render.rs`). Unbounded while a filter or a backdrop draws it.
+    pub(crate) fn own_extent(&self) -> Extent {
+        if self.render.has_effect_items() {
+            return Extent::Unbounded;
+        }
+        let mut rect = self.render.own_paint_rect(self.geometry.size);
+        if let Some(paragraph) = self.visual.paragraph.as_ref() {
+            let text = Rect2::new(self.geometry.content_origin(), paragraph.drawn_size());
+            rect = rect.merge(text.grow(paragraph.ink_reach()));
+        }
+        Extent::Within(BoxRect {
+            x: rect.position.x,
+            y: rect.position.y,
+            width: rect.size.x,
+            height: rect.size.y,
+        })
+    }
+
     /// Whether this element clips its children to its padding box: one clip rectangle, so an element
     /// that clips on one axis clips on both.
     pub(crate) fn clips_content(&self) -> bool {
@@ -878,6 +908,7 @@ impl ReactUiRoot {
             }
         }
         self.hit_stale = true;
+        self.cull_stale = true;
         if let Parent::Node(parent) = removal.parent {
             self.layout_dirty.insert(parent);
         }
@@ -909,6 +940,7 @@ impl ReactUiRoot {
         self.paint_reeval.insert(insertion.tag);
         self.paint_dirty_parents.insert(insertion.parent);
         self.hit_stale = true;
+        self.cull_stale = true;
         match insertion.parent {
             Parent::Layer(layer) => {
                 self.mounted.roots[layer].insert(insertion.index, insertion.tag)
@@ -1113,6 +1145,7 @@ impl ReactUiRoot {
             self.paint_dirty_parents.insert(painter);
         }
         self.hit_stale = true;
+        self.cull_stale = true;
         // Nothing may keep pointing at a deleted element; JS drops events for tags it no longer has.
         if self.focused == Some(tag) && node.text_input.is_some() {
             // Its IME window and on-screen keyboard close with it; the node is gone, so nothing is
@@ -1228,6 +1261,7 @@ impl ReactUiRoot {
                 }
             }
             self.hit_stale = true;
+            self.cull_stale = true;
         }
     }
 
@@ -1248,6 +1282,7 @@ impl ReactUiRoot {
         }
         node.paint_parent = painter;
         self.hit_stale = true;
+        self.cull_stale = true;
         self.effects.note_changed(tag);
     }
 
@@ -1521,6 +1556,7 @@ impl ReactUiRoot {
         }
         node.geometry = geometry;
         self.hit_stale = true;
+        self.cull_stale = true;
         self.effects.note_changed(tag);
         node.render.set_location(geometry.location);
         let shape_changed = !previous.laid_out

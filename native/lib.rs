@@ -7,6 +7,7 @@ mod box_draw;
 mod box_mesh;
 mod box_paint;
 mod box_shadow;
+mod clip_cull;
 mod clipboard;
 mod commit;
 mod computed_style;
@@ -187,6 +188,10 @@ struct Stats {
     overlay_records: u64,
     /// Rounded clips drawn again: a mask made, freed or recorded anew (`rounded_clip.rs`).
     mask_records: u64,
+    /// Elements whose items are hidden because nothing of them shows inside their ancestors' clips, as of the last culling
+    /// pass, and the passes run (`clip_cull.rs`).
+    clip_culled: usize,
+    cull_passes: u64,
 }
 
 /// A single Godot Control owns the mounted tree, the native layout tree and all drawing resources.
@@ -234,6 +239,10 @@ pub struct ReactUiRoot {
     /// a node moved or resized, the tree's structure changed, or an element started or stopped
     /// clipping its children or being a pointer target (`pointer-events`).
     hit_stale: bool,
+    /// Something the clip culling reads changed since its last pass (`clip_cull.rs`).
+    cull_stale: bool,
+    /// The connection that runs the clip culling before each frame, while the root is in the tree.
+    pre_draw: Option<Callable>,
     /// Nodes whose text paragraph must be rebuilt.
     pending_text: BTreeSet<u32>,
     /// Images whose props changed: their size, proportions and picture are refreshed when the commit is published
@@ -340,6 +349,8 @@ impl IControl for ReactUiRoot {
             paint_reeval: BTreeSet::new(),
             paint_dirty_parents: BTreeSet::new(),
             hit_stale: false,
+            cull_stale: false,
+            pre_draw: None,
             pending_text: BTreeSet::new(),
             pending_images: BTreeSet::new(),
             pending_style_removals: Vec::new(),
@@ -419,6 +430,7 @@ impl IControl for ReactUiRoot {
         ring.set_border_color(FOCUS_RING_COLOR);
         self.ring = Some(ring);
         self.ensure_render_roots();
+        self.connect_pre_draw();
         // A React tree may be committed before this Control enters the scene tree. Build its text
         // paragraphs now that a theme font is available.
         let with_text: Vec<u32> = self
@@ -505,6 +517,7 @@ impl IControl for ReactUiRoot {
                 self.refresh_interaction();
             }
             ControlNotification::ENTER_TREE if self.font.is_some() => {
+                self.connect_pre_draw();
                 self.apply_presentation();
                 self.flush_layout();
                 self.refresh_intrinsic_targets();
@@ -513,6 +526,7 @@ impl IControl for ReactUiRoot {
                 self.update_process();
             }
             ControlNotification::EXIT_TREE => {
+                self.disconnect_pre_draw();
                 // The engine frees the root's element, and ours with it, when the root leaves.
                 self.forget_accessibility_elements();
                 // Leaving the tree is a pause, not destruction. Keep the native

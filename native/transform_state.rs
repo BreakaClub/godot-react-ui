@@ -135,6 +135,7 @@ impl ReactUiRoot {
                 self.transform_root.transformed.remove(&tag);
             }
             self.hit_stale = true;
+            self.cull_stale = true;
             self.effects.note_changed(tag);
             let turned_now =
                 next.is_some_and(|transform| !transform.placement.affine.linear.keeps_axes());

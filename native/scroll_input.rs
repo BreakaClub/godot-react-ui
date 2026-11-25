@@ -231,6 +231,7 @@ impl ReactUiRoot {
         node.render.set_scroll_offset(offset);
         self.stats.scroll_updates += 1;
         self.hit_stale = true;
+        self.cull_stale = true;
         self.paint_scroll_overlay(tag);
         self.queue_scroll_event(tag);
         // The position is part of a scroll view's accessibility element, and its contents' bounds move.
@@ -289,6 +290,7 @@ impl ReactUiRoot {
             }
         }
         self.hit_stale = true;
+        self.cull_stale = true;
     }
 
     /// Re-clamp a scroll container's offset after layout changed its ranges or its size, and redraw
