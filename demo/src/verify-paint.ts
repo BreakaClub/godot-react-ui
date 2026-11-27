@@ -620,6 +620,66 @@ async function checkCost(api: PaintInspection): Promise<void> {
   assert(api.activity().paintTextures === plain.paintTextures, `and gives them back when it goes: ${api.activity().paintTextures}`);
 }
 
+/** Physics ticks a second while the interpolation check runs: slow, so a lab can mount and be drawn between two of them. */
+const SLOW_PHYSICS_TICKS = 2;
+/** Frames the lab is given to mount and lay out after it is asked for: a fraction of the half second between ticks. */
+const MOUNT_FRAMES = 4;
+/** Tries at drawing the lab between two ticks: a frame slow enough to let a tick through is tried again. */
+const INTERPOLATION_ATTEMPTS = 4;
+/** A static lab of texts in rows, clips and a scroller: boxes and texts that move between the library's items as they mount. */
+const INTERPOLATION_LAB = 'text-styles';
+const INTERPOLATION_LAB_ROOT = 'text-styles-lab';
+
+async function nextPhysicsTick(): Promise<number> {
+  const start = Engine.getPhysicsFrames();
+  while (Engine.getPhysicsFrames() === start) await new Promise(resolve => setTimeout(resolve, FRAME_POLL_MS));
+  return Engine.getPhysicsFrames();
+}
+
+/**
+ * A game may have physics interpolation on (`physics/common/physics_interpolation`), and the engine then draws an interpolated canvas
+ * item that moved since the last physics tick between that tick's transform and its new one. The library's items are never
+ * interpolated (`new_canvas_item`, native/render_tree.rs), as Godot's own controls are not: a lab mounted just after a tick and drawn
+ * before the next is drawn where it settles, its boxes in place and its texts in their rows. With the items left interpolated (the
+ * engine's default), the first frame drew boxes on their way from their parents' corners and the texts moved to a text layer at their
+ * old place in the layer's frame.
+ */
+async function checkInterpolation(owner: Node, api: PaintInspection): Promise<void> {
+  const tree = owner.getTree();
+  assert(tree, 'The demo is in a tree');
+  const interpolating = tree.physicsInterpolation;
+  const ticks = Engine.physicsTicksPerSecond;
+  tree.physicsInterpolation = true;
+  Engine.physicsTicksPerSecond = SLOW_PHYSICS_TICKS;
+  try {
+    for (let attempt = 1; ; attempt += 1) {
+      await showPage(api, 'shadows');
+      const tick = await nextPhysicsTick();
+      api.showLab(INTERPOLATION_LAB);
+      await frames(MOUNT_FRAMES);
+      assert(api.find(INTERPOLATION_LAB_ROOT) !== undefined, `The ${INTERPOLATION_LAB} lab mounted within ${MOUNT_FRAMES} frames`);
+      const first = grab(owner);
+      const betweenTicks = Engine.getPhysicsFrames() === tick;
+      await nextPhysicsTick();
+      await nextPhysicsTick();
+      await settleFrames();
+      const settled = grab(owner);
+      if (!betweenTicks) {
+        assert(attempt < INTERPOLATION_ATTEMPTS, `The ${INTERPOLATION_LAB} lab was not drawn between two physics ticks in ${attempt} tries`);
+        continue;
+      }
+      const largest = Number(first.computeImageMetrics(settled, false).get('max'));
+      assert(largest === 0,
+        `With physics interpolation on, a lab drawn between two ticks is drawn where it settles: its first frame differs from the settled one by up to ${largest} levels`);
+      return;
+    }
+  } finally {
+    tree.physicsInterpolation = interpolating;
+    Engine.physicsTicksPerSecond = ticks;
+    await settleFrames();
+  }
+}
+
 async function runAt(owner: Node, api: PaintInspection, capture: PaintCapture, prefix: string, ratio: number): Promise<void> {
   contentScale = ratio;
   await capturePages(owner, api, capture, prefix, ratio);
@@ -628,6 +688,7 @@ async function runAt(owner: Node, api: PaintInspection, capture: PaintCapture, p
 
 export async function verifyPaint(owner: Node, api: PaintInspection, capture: PaintCapture): Promise<void> {
   await checkCost(api);
+  await checkInterpolation(owner, api);
   await runAt(owner, api, capture, 'paint', 1);
   // Device pixel ratio two: the window's content scale, as a retina display has it (the logical window is half as wide).
   const win = window(owner);

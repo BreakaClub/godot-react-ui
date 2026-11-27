@@ -30,6 +30,8 @@ use crate::geometry::BoxRect;
 use crate::motion::{resolved_backdrop_filter, resolved_filter};
 use crate::profile::micros;
 use crate::render_tree::{EffectMaterialItems, Oversampling};
+#[cfg(feature = "filter-faults")]
+use crate::render_tree::new_canvas_item;
 use crate::style_engine::current_color;
 use crate::transform::Affine2;
 
@@ -652,8 +654,8 @@ impl Effects {
             return;
         }
         let mut rs = server();
-        let copy = rs.canvas_item_create();
-        let draw = rs.canvas_item_create();
+        let copy = new_canvas_item(&mut rs);
+        let draw = new_canvas_item(&mut rs);
         for (item, index) in [(copy, PRIMER_COPY_INDEX), (draw, PRIMER_DRAW_INDEX)] {
             rs.canvas_item_set_parent(item, layer_item);
             rs.canvas_item_set_draw_index(item, index);

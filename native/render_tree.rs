@@ -192,6 +192,19 @@ fn server() -> Gd<RenderingServer> {
     RenderingServer::singleton()
 }
 
+/// A new canvas item that is never physics-interpolated. Every item the library draws with is made here.
+///
+/// The engine makes a canvas item interpolated (`RendererCanvasRender::Item`), and in a project with
+/// `physics/common/physics_interpolation` on it draws an item whose transform was set since the last physics tick between
+/// that tick's transform and the new one (`RendererCanvasCull::_cull_canvas_item`). An element that moves would be drawn for a
+/// frame where it was, and a text moved to another item (`text_layers.rs`) at its old place in its new parent's frame. UI is
+/// placed, not simulated: Godot's own `Control` turns interpolation off for the same reason (`scene/gui/control.cpp`).
+pub(crate) fn new_canvas_item(rs: &mut Gd<RenderingServer>) -> Rid {
+    let item = rs.canvas_item_create();
+    rs.canvas_item_set_interpolated(item, false);
+    item
+}
+
 /// What an element's items currently show: enough for the drag ghost to draw a copy.
 #[derive(Clone, Debug)]
 pub(crate) struct Recorded {
@@ -351,7 +364,7 @@ impl RenderNode {
     /// scrolling, or simultaneous box and text content requires one.
     pub(crate) fn new() -> Self {
         let mut rs = server();
-        let box_item = rs.canvas_item_create();
+        let box_item = new_canvas_item(&mut rs);
         Self {
             box_item,
             content_item: None,
@@ -471,7 +484,7 @@ impl RenderNode {
             return item;
         }
         let mut rs = server();
-        let item = rs.canvas_item_create();
+        let item = new_canvas_item(&mut rs);
         rs.canvas_item_set_parent(item, self.mask_item.unwrap_or(self.box_item));
         self.content_item = Some(item);
         drop(rs);
@@ -532,7 +545,7 @@ impl RenderNode {
             }
             None => {
                 let mut rs = server();
-                let layer = rs.canvas_item_create();
+                let layer = new_canvas_item(&mut rs);
                 rs.canvas_item_set_parent(layer, parent);
                 rs.canvas_item_set_draw_index(layer, TEXT_LAYER_DRAW_INDEX);
                 self.text_layer = Some((layer, parent));
@@ -578,7 +591,7 @@ impl RenderNode {
                 let mask = match self.mask_item {
                     Some(mask) => mask,
                     None => {
-                        let mask = server().canvas_item_create();
+                        let mask = new_canvas_item(&mut server());
                         let mut rs = server();
                         rs.canvas_item_set_parent(mask, self.box_item);
                         rs.canvas_item_set_canvas_group_mode(mask, CanvasGroupMode::CLIP_ONLY);
@@ -642,9 +655,9 @@ impl RenderNode {
         }
         let content_item = self.ensure_content_item();
         let mut rs = server();
-        let scroll_item = rs.canvas_item_create();
+        let scroll_item = new_canvas_item(&mut rs);
         rs.canvas_item_set_parent(scroll_item, content_item);
-        let overlay_item = rs.canvas_item_create();
+        let overlay_item = new_canvas_item(&mut rs);
         rs.canvas_item_set_parent(overlay_item, self.box_item);
         rs.canvas_item_set_draw_index(overlay_item, OVERLAY_DRAW_INDEX);
         self.scroll_item = Some(scroll_item);
@@ -662,10 +675,10 @@ impl RenderNode {
             return;
         };
         let mut rs = server();
-        let text = rs.canvas_item_create();
+        let text = new_canvas_item(&mut rs);
         rs.canvas_item_set_parent(text, scroll_item);
         rs.canvas_item_set_draw_index(text, EDIT_TEXT_DRAW_INDEX);
-        let caret = rs.canvas_item_create();
+        let caret = new_canvas_item(&mut rs);
         rs.canvas_item_set_parent(caret, scroll_item);
         rs.canvas_item_set_draw_index(caret, EDIT_CARET_DRAW_INDEX);
         self.edit_items = Some(EditItems { text, caret });
@@ -684,7 +697,7 @@ impl RenderNode {
                 let item = match self.image_item {
                     Some(item) => item,
                     None => {
-                        let item = rs.canvas_item_create();
+                        let item = new_canvas_item(&mut rs);
                         rs.canvas_item_set_parent(item, self.box_item);
                         rs.canvas_item_set_draw_index(item, IMAGE_DRAW_INDEX);
                         self.image_item = Some(item);
@@ -889,8 +902,8 @@ impl RenderNode {
     pub(crate) fn ensure_backdrop(&mut self) -> &BackdropItems {
         if self.backdrop.is_none() {
             let mut rs = server();
-            let copy = rs.canvas_item_create();
-            let draw = rs.canvas_item_create();
+            let copy = new_canvas_item(&mut rs);
+            let draw = new_canvas_item(&mut rs);
             self.backdrop = Some(BackdropItems { copy, draw });
             drop(rs);
             self.arrange_backdrop();
@@ -918,9 +931,9 @@ impl RenderNode {
     pub(crate) fn ensure_group(&mut self, blur_mipmaps: bool, probe: Option<Rid>) -> &GroupItems {
         if self.group.is_none() {
             let mut rs = server();
-            let shell = rs.canvas_item_create();
-            let wrapper = rs.canvas_item_create();
-            let bounds = rs.canvas_item_create();
+            let shell = new_canvas_item(&mut rs);
+            let wrapper = new_canvas_item(&mut rs);
+            let bounds = new_canvas_item(&mut rs);
             rs.canvas_item_set_parent(bounds, wrapper);
             rs.canvas_item_add_rect(
                 bounds,
@@ -947,8 +960,8 @@ impl RenderNode {
         match (probe, group.probe.is_some()) {
             (Some(material), false) => {
                 let mut rs = server();
-                let copy = rs.canvas_item_create();
-                let draw = rs.canvas_item_create();
+                let copy = new_canvas_item(&mut rs);
+                let draw = new_canvas_item(&mut rs);
                 for (item, index) in [(copy, PROBE_COPY_DRAW_INDEX), (draw, PROBE_DRAW_INDEX)] {
                     rs.canvas_item_set_parent(item, group.shell);
                     rs.canvas_item_set_draw_behind_parent(item, true);
@@ -1185,7 +1198,7 @@ impl RenderNode {
         match key {
             Some(key) => {
                 let item = *self.outline_item.get_or_insert_with(|| {
-                    let item = rs.canvas_item_create();
+                    let item = new_canvas_item(&mut rs);
                     rs.canvas_item_set_parent(item, self.box_item);
                     rs.canvas_item_set_draw_index(item, OUTLINE_DRAW_INDEX);
                     item
@@ -1310,7 +1323,7 @@ impl RenderNode {
             Some(item) => item,
             None => {
                 // Only an element that draws text is moved (`text_layers.rs`), so a new text item starts at home.
-                let item = server().canvas_item_create();
+                let item = new_canvas_item(&mut server());
                 self.text_item = Some(item);
                 self.place_text_at_home();
                 item
@@ -1406,7 +1419,7 @@ pub(crate) struct RootItem {
 impl RootItem {
     pub(crate) fn new(parent: Rid, draw_index: i32) -> Self {
         let mut rs = server();
-        let item = rs.canvas_item_create();
+        let item = new_canvas_item(&mut rs);
         rs.canvas_item_set_parent(item, parent);
         rs.canvas_item_set_draw_index(item, draw_index);
         Self { item }
